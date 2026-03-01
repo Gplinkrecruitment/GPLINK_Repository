@@ -1202,6 +1202,12 @@ async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
 
+  if (pathname === '/') {
+    res.writeHead(302, { Location: '/pages/index.html' });
+    res.end();
+    return;
+  }
+
   if (pathname === '/pages/admin.html') {
     res.writeHead(404);
     res.end('Not found');
