@@ -1137,7 +1137,7 @@ async function handleApi(req, res, pathname) {
   sendJson(res, 404, { ok: false, message: 'Not found' });
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   cleanup();
 
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -1203,12 +1203,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   serveStatic(req, res, pathname);
-});
+}
 
-server.listen(PORT, HOST, () => {
-  console.log(`GP Link server running on http://${HOST}:${PORT}`);
-  console.log(`[ENV] NODE_ENV=${NODE_ENV} AUTH_DISABLED=${AUTH_DISABLED} DB_FILE_PATH=${DB_FILE_PATH}`);
-  if (SECRET === 'replace-me-in-production') {
-    console.warn('[WARN] AUTH_SECRET is using the default placeholder. Set AUTH_SECRET before going live.');
-  }
-});
+if (process.env.VERCEL) {
+  module.exports = async (req, res) => {
+    await handleRequest(req, res);
+  };
+} else {
+  const server = http.createServer(async (req, res) => {
+    await handleRequest(req, res);
+  });
+
+  server.listen(PORT, HOST, () => {
+    console.log(`GP Link server running on http://${HOST}:${PORT}`);
+    console.log(`[ENV] NODE_ENV=${NODE_ENV} AUTH_DISABLED=${AUTH_DISABLED} DB_FILE_PATH=${DB_FILE_PATH}`);
+    if (SECRET === 'replace-me-in-production') {
+      console.warn('[WARN] AUTH_SECRET is using the default placeholder. Set AUTH_SECRET before going live.');
+    }
+  });
+}
