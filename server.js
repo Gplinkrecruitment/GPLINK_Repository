@@ -142,6 +142,48 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
 }
 
+function base64UrlEncode(input) {
+  return Buffer.from(String(input), 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function base64UrlDecode(input) {
+  const normalized = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '==='.slice((normalized.length + 3) % 4);
+  return Buffer.from(padded, 'base64').toString('utf8');
+}
+
+function createSignedSessionToken(userProfile, expiresAt) {
+  const payload = base64UrlEncode(JSON.stringify({ userProfile, expiresAt }));
+  const signature = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+  return `${payload}.${signature}`;
+}
+
+function parseSignedSessionToken(token) {
+  const raw = String(token || '');
+  const dotIdx = raw.lastIndexOf('.');
+  if (dotIdx <= 0) return null;
+  const payload = raw.slice(0, dotIdx);
+  const signature = raw.slice(dotIdx + 1);
+  const expected = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+  if (signature.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'))) return null;
+
+  try {
+    const parsed = JSON.parse(base64UrlDecode(payload));
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!parsed.userProfile || typeof parsed.userProfile !== 'object') return null;
+    if (typeof parsed.expiresAt !== 'number') return null;
+    if (parsed.expiresAt <= now()) return null;
+    return { userProfile: parsed.userProfile, expiresAt: parsed.expiresAt };
+  } catch (err) {
+    return null;
+  }
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const derived = crypto.scryptSync(String(password || ''), salt, 64).toString('hex');
@@ -256,11 +298,8 @@ function checkRateLimit(rateKey) {
 }
 
 function setSession(res, userProfile) {
-  const token = randomToken(24);
-  const tokenHash = hashToken(token);
   const expiresAt = now() + SESSION_TTL_MS;
-  dbState.sessions[tokenHash] = { userProfile, expiresAt };
-  saveDbState();
+  const token = createSignedSessionToken(userProfile, expiresAt);
 
   const secureCookie = process.env.COOKIE_SECURE
     ? process.env.COOKIE_SECURE === 'true'
@@ -282,17 +321,30 @@ function clearSession(res, req) {
   const cookies = getCookies(req);
   const token = cookies[COOKIE_NAME];
   if (token) {
+    // Legacy local-session cleanup for pre-stateless cookie tokens.
     const tokenHash = hashToken(token);
-    delete dbState.sessions[tokenHash];
-    saveDbState();
+    if (dbState.sessions[tokenHash]) {
+      delete dbState.sessions[tokenHash];
+      saveDbState();
+    }
   }
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+  const secureCookie = process.env.COOKIE_SECURE
+    ? process.env.COOKIE_SECURE === 'true'
+    : NODE_ENV === 'production';
+  const cookie = [`${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`];
+  if (secureCookie) cookie.push('Secure');
+  res.setHeader('Set-Cookie', cookie.join('; '));
 }
 
 function getSession(req) {
   const cookies = getCookies(req);
   const token = cookies[COOKIE_NAME];
   if (!token) return null;
+
+  const signedSession = parseSignedSessionToken(token);
+  if (signedSession) return signedSession;
+
+  // Backward compatibility: previously-issued server-side session tokens.
   const tokenHash = hashToken(token);
   const session = dbState.sessions[tokenHash];
   if (!session) return null;
