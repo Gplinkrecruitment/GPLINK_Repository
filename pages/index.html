@@ -1,0 +1,2516 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GP Registration Portal Dashboard</title>
+  <script src="../js/auth-guard.js" defer></script>
+  <script src="../js/state-sync.js" defer></script>
+  <script src="../js/updates-sync.js" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <style>
+    :root {
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --green2: #16a34a;
+      --orange: #f59e0b;
+      --orange2: #f97316;
+      --red: #dc2626;
+      --card: rgba(255, 255, 255, 0.6);
+      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --shadow2: 0 12px 25px -22px rgba(2, 6, 23, 0.25);
+      --glass-bg: rgba(255, 255, 255, 0.58);
+      --glass-border: rgba(191, 220, 255, 0.95);
+      --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+    }
+
+    * { box-sizing: border-box; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #eef3fb;
+      padding: 18px 12px;
+    }
+
+    .dash-wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .desktop-topbar {
+      padding: 14px 16px;
+      border: 1px solid rgba(226, 232, 240, 0.82);
+      border-radius: 16px;
+      margin-bottom: 12px;
+      background: #ffffff;
+      box-shadow: var(--shadow2);
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      min-height: 56px;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+
+    .brand-logo img {
+      display: block;
+      width: 178px;
+      height: auto;
+    }
+
+    .nav-menu {
+      display: flex;
+      gap: 22px;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+      padding: 6px;
+      border-radius: 14px;
+    }
+
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
+
+    .nav-link {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #111827;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+    }
+
+    .nav-link.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-action {
+      border: 0;
+      background: transparent;
+      color: #111827;
+      border-radius: 0;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      cursor: pointer;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+
+    .nav-icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #334155;
+    }
+
+    .nav-text { line-height: 1; }
+
+    .nav-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+
+    .nav-alert {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .account-pill {
+      border: 0;
+      background: transparent;
+      color: #111827;
+      border-radius: 0;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      text-decoration: none;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+    }
+
+    .nav-link.active,
+    .nav-action.active,
+    .account-pill.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 104px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05), transform .2s ease, box-shadow .2s ease;
+    }
+
+    .nav-glass.morph {
+      animation: glassMorph .34s ease;
+    }
+
+    .nav-glass.engulf {
+      transform: scale(1.06);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 14px 24px -18px rgba(37, 99, 235, 0.62);
+    }
+
+    @keyframes glassMorph {
+      0% { transform: scaleX(.92) scaleY(1.02); border-radius: 16px; }
+      50% { transform: scaleX(1.08) scaleY(.92); border-radius: 20px; }
+      100% { transform: scaleX(1) scaleY(1); border-radius: 12px; }
+    }
+
+    .reg-dropdown {
+      position: absolute;
+      top: calc(100% + 2px);
+      right: 0;
+      width: min(760px, 92vw);
+      border-radius: 16px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      box-shadow: var(--glass-shadow), 0 14px 26px -18px rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      padding: 10px;
+      z-index: 70;
+      opacity: 0;
+      transform: translateY(4px);
+      pointer-events: none;
+      visibility: hidden;
+      transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
+    }
+
+    .reg-dropdown.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+      visibility: visible;
+    }
+
+    .reg-head {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+
+    .reg-table {
+      display: grid;
+      gap: 8px;
+    }
+
+    .reg-row {
+      display: grid;
+      grid-template-columns: 1.2fr auto auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      background: #fbfdff;
+      border-radius: 12px;
+      padding: 8px 10px;
+    }
+
+    .reg-name {
+      font-size: 12px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .reg-sub {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .reg-pill {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 900;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #eaf3ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdcff;
+    }
+
+    .reg-pill.locked {
+      background: #f1f5f9;
+      color: #64748b;
+      border-color: #dbe4ef;
+    }
+
+    .reg-btn {
+      text-decoration: none;
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+      color: #1e3a8a;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .reg-btn.locked {
+      background: rgba(241, 245, 249, 0.82);
+      border-color: #dbe4ef;
+      color: #64748b;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+
+    .bg {
+      background:
+        radial-gradient(1200px 600px at 15% 5%, rgba(37, 99, 235, 0.26), transparent 55%),
+        radial-gradient(900px 500px at 85% 15%, rgba(16, 185, 129, 0.2), transparent 55%),
+        radial-gradient(900px 650px at 40% 90%, rgba(59, 130, 246, 0.18), transparent 60%),
+        linear-gradient(180deg, rgba(241, 245, 249, 0.7), rgba(255, 255, 255, 0.88));
+      border: 1px solid rgba(226, 232, 240, 0.75);
+      border-radius: 18px;
+      padding: 14px;
+      box-shadow: var(--shadow2);
+    }
+
+    .hero {
+      border-radius: 18px;
+      padding: 20px;
+      color: #fff;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      background: linear-gradient(135deg, var(--blue) 0%, #3b82f6 45%, var(--blue2) 100%);
+    }
+
+    .hero-video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .hero-video-desktop { display: none; }
+    .hero-video-mobile { display: none; }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      background: linear-gradient(135deg, rgba(2, 6, 23, 0.42), rgba(2, 6, 23, 0.3));
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 20px;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .hero-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      position: relative;
+      z-index: 2;
+      flex-wrap: wrap;
+    }
+
+    @media (min-width: 768px) {
+      .hero {
+        background: #0f172a;
+      }
+
+      .hero-video-desktop { display: block; }
+    }
+
+    @media (max-width: 767px) {
+      .hero {
+        background: #0f172a;
+      }
+
+      .hero-video-mobile { display: block; }
+
+      .hero::before {
+        background: linear-gradient(135deg, rgba(2, 6, 23, 0.52), rgba(2, 6, 23, 0.38));
+      }
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      font-weight: 740;
+      text-shadow: 0 2px 10px rgba(2, 6, 23, 0.45);
+    }
+
+    .hero p {
+      margin: 0;
+      font-size: 13px;
+      opacity: 0.96;
+      line-height: 1.5;
+      max-width: 760px;
+      font-weight: 560;
+      text-shadow: 0 1px 8px rgba(2, 6, 23, 0.4);
+    }
+
+    .hero p + p { margin-top: 8px; }
+
+    .hero-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .a-btn,
+    .btn,
+    .btn2,
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      font-weight: 950;
+      transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .a-btn:hover,
+    .btn:hover,
+    .btn2:hover,
+    .cta:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.03);
+    }
+
+    .arr { transition: transform 0.16s ease; }
+    .a-btn:hover .arr,
+    .btn:hover .arr,
+    .btn2:hover .arr,
+    .cta:hover .arr { transform: translateX(2px); }
+
+    .a-btn {
+      padding: 10px 12px;
+      border-radius: 12px;
+      white-space: nowrap;
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .a-primary {
+      background: rgba(255, 255, 255, 0.62);
+      border-color: rgba(191, 220, 255, 0.95);
+      color: #1e3a8a;
+    }
+
+    .a-outline {
+      background: rgba(255, 255, 255, 0.24);
+      border-color: rgba(191, 220, 255, 0.65);
+      color: #ffffff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, var(--card), rgba(255, 255, 255, 0.4));
+      border: 1px solid rgba(226, 232, 240, 0.65);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: var(--shadow2);
+    }
+
+    .card-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-icon {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #2563eb;
+      flex: 0 0 auto;
+    }
+
+    .sub {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 560;
+      color: var(--muted);
+    }
+
+    .metrics-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+
+    .progress-mini {
+      margin-top: 10px;
+      height: 10px;
+      background: rgba(148, 163, 184, 0.18);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .progress-mini > div {
+      height: 100%;
+      width: 3%;
+      background: linear-gradient(90deg, var(--blue), var(--green), var(--orange));
+      border-radius: 999px;
+      transition: width 0.35s ease;
+    }
+
+    .next {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(248, 250, 252, 0.75);
+      border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+
+    .next ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .next li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; font-weight: 560; color: #334155; }
+    .next .k { color: #0f172a; font-weight: 700; }
+    .bullet { margin-top: 1px; font-weight: 950; color: var(--blue); }
+
+    .cta {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      color: #1e3a8a;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .tl {
+      margin-top: 14px;
+      border: 1px solid rgba(226, 232, 240, 0.75);
+      background: rgba(255, 255, 255, 0.68);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .tl-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 14px;
+      border-bottom: 1px solid rgba(226, 232, 240, 0.7);
+    }
+
+    .tl-row:last-child { border-bottom: none; }
+
+    .badge {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 950;
+      flex: 0 0 auto;
+      margin-top: 2px;
+      border: 2px solid rgba(226, 232, 240, 0.85);
+      background: rgba(241, 245, 249, 0.7);
+      color: #64748b;
+    }
+
+    .badge-active { background: rgba(239, 246, 255, 0.85); color: var(--blue); border-color: rgba(147, 197, 253, 0.65); }
+    .badge-completed { background: rgba(236, 253, 245, 0.85); color: var(--green2); border-color: rgba(187, 247, 208, 0.85); }
+    .badge-inactive { background: rgba(241, 245, 249, 0.75); color: #94a3b8; border-color: rgba(226, 232, 240, 0.9); }
+    .badge-locked { background: rgba(254, 242, 242, 0.85); color: var(--red); border-color: rgba(254, 202, 202, 0.9); }
+
+    .tl-main { flex: 1; min-width: 240px; }
+    .tl-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 700; color: #0f172a; }
+
+    .tl-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(248, 250, 252, 0.9);
+      border: 1px solid rgba(226, 232, 240, 0.75);
+      color: #dc2626;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .tl-icon svg { display: none; }
+
+    @media (min-width: 768px) {
+      .tl-icon { display: none; }
+    }
+
+    .pill {
+      font-size: 10px;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-weight: 950;
+    }
+
+    .pill-current { background: var(--blue); color: #fff; }
+    .pill-done { background: var(--green2); color: #fff; }
+    .pill-locked { background: #e2e8f0; color: #475569; }
+
+    .tl-desc {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12.5px;
+      font-weight: 560;
+      line-height: 1.35;
+    }
+
+    .btn {
+      padding: 10px 12px;
+      border-radius: 14px;
+      white-space: nowrap;
+      margin-top: 2px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      color: #1e3a8a;
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .btn-unlocked {
+      border-color: rgba(147, 197, 253, 0.95);
+      color: #1e3a8a;
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .btn-locked {
+      background: rgba(241, 245, 249, 0.82);
+      border-color: #dbe4ef;
+      color: #64748b;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .btn-success {
+      border-color: rgba(187, 247, 208, 0.95);
+      color: #166534;
+      background: rgba(255, 255, 255, 0.68);
+    }
+
+    .support {
+      margin-top: 14px;
+      border-radius: 16px;
+      padding: 14px;
+      border: 1px solid rgba(147, 197, 253, 0.55);
+      background: rgba(239, 246, 255, 0.75);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .support .txt { font-size: 13px; font-weight: 560; color: #334155; line-height: 1.45; max-width: 760px; }
+
+    .help-footer {
+      margin-top: 14px;
+      border-radius: 16px;
+      padding: 14px;
+      border: 1px solid rgba(226, 232, 240, 0.85);
+      background: #fff;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .help-footer .txt { font-size: 12.5px; font-weight: 560; color: #334155; line-height: 1.5; max-width: 780px; }
+    .help-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    .need-line {
+      margin-top: 8px;
+      font-size: 11.5px;
+      color: #64748b;
+      font-weight: 560;
+      line-height: 1.4;
+    }
+
+    .updates-feed {
+      display: grid;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .updates-list {
+      display: grid;
+      gap: 8px;
+      max-height: clamp(220px, 35vh, 320px);
+      overflow: hidden;
+      align-content: start;
+    }
+
+    .update-item {
+      border: 1px solid rgba(226, 232, 240, 0.85);
+      border-radius: 12px;
+      background: rgba(248, 250, 252, 0.72);
+      padding: 10px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .update-item-link {
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+
+    .update-item.action {
+      border-left: 4px solid #f59e0b;
+      padding-left: 8px;
+      background: rgba(255, 251, 235, 0.9);
+    }
+
+    .update-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .update-badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      border: 1px solid #dbe4ef;
+      background: #f8fafc;
+      color: #334155;
+    }
+
+    .update-badge.success {
+      background: #ecfdf3;
+      border-color: #bbf7d0;
+      color: #166534;
+    }
+
+    .update-badge.info {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+
+    .update-badge.action {
+      background: #fffbeb;
+      border-color: #fde68a;
+      color: #92400e;
+    }
+
+    .update-badge.case {
+      background: #f0f9ff;
+      border-color: #bae6fd;
+      color: #075985;
+    }
+
+    .update-ts {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 560;
+    }
+
+    .update-title {
+      margin: 0;
+      font-size: 13px;
+      color: #0f172a;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+
+    .update-detail {
+      margin: 0;
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 560;
+      line-height: 1.4;
+    }
+
+    .updates-empty {
+      border: 1px dashed #d7e3f6;
+      border-radius: 12px;
+      background: #f8fbff;
+      padding: 12px;
+      font-size: 12.5px;
+      color: #64748b;
+      font-weight: 560;
+      line-height: 1.45;
+    }
+
+    .updates-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #1d4ed8;
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .updates-card.is-action {
+      border-color: rgba(245, 158, 11, 0.55);
+      background: linear-gradient(180deg, rgba(255, 251, 235, 0.82), rgba(255, 255, 255, 0.96));
+      box-shadow: 0 16px 28px -24px rgba(146, 64, 14, 0.35);
+    }
+
+    .updates-alert {
+      margin: 6px 0 0;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #92400e;
+      line-height: 1.35;
+    }
+
+    .trust-block {
+      margin-top: 14px;
+      border-radius: 16px;
+      padding: 14px;
+      border: 1px solid rgba(226, 232, 240, 0.85);
+      background: #ffffff;
+      display: grid;
+      gap: 10px;
+    }
+
+    .trust-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .trust-col {
+      border: 1px solid rgba(226, 232, 240, 0.82);
+      border-radius: 12px;
+      background: rgba(248, 250, 252, 0.7);
+      padding: 10px;
+    }
+
+    .trust-col h4 {
+      margin: 0 0 6px;
+      font-size: 13px;
+      font-weight: 760;
+      color: #0f172a;
+    }
+
+    .trust-col ul {
+      margin: 0;
+      padding-left: 16px;
+      display: grid;
+      gap: 5px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 560;
+    }
+
+    .btn2 { padding: 10px 12px; border-radius: 12px; }
+    .btn2 {
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      color: #1e3a8a;
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .btn2-primary {
+      border-color: rgba(147, 197, 253, 0.95);
+      color: #1e3a8a;
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .btn2-outline {
+      border-color: rgba(191, 220, 255, 0.95);
+      color: #334155;
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .small { font-size: 12px; color: #94a3b8; font-weight: 800; text-align: center; margin-top: 12px; }
+
+    .mobile-nav {
+      position: fixed;
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      width: min(560px, calc(100vw - 18px));
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 18px;
+      padding: 8px 6px;
+      display: none;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      z-index: 50;
+      box-shadow: 0 18px 30px -24px rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .mobile-tab {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #dbe4f1;
+      border-radius: 14px;
+      min-height: 58px;
+      padding: 6px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .mobile-tab-icon {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      color: #dbe4f1;
+    }
+
+    .mobile-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .mobile-tab-alert {
+      top: -6px;
+      right: -8px;
+      transform: none;
+    }
+
+    .mobile-tab-label {
+      font-size: 10px;
+      font-weight: 620;
+      line-height: 1.15;
+      text-align: center;
+      letter-spacing: 0.01em;
+    }
+
+    .mobile-tab-active {
+      background: rgba(59, 130, 246, 0.2);
+      color: #ffffff;
+    }
+
+    .mobile-tab-active .mobile-tab-icon {
+      color: #7dd3fc;
+    }
+
+    .mobile-tab-icon svg {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mobile-reg-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.42);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+      z-index: 54;
+    }
+
+    .mobile-reg-backdrop.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .mobile-reg-sheet {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #ffffff;
+      border-radius: 18px 18px 0 0;
+      border-top: 1px solid #dbe4ef;
+      box-shadow: 0 -20px 40px -28px rgba(15, 23, 42, 0.5);
+      padding: 10px 12px 14px;
+      transform: translateY(100%);
+      transition: transform .24s ease;
+      z-index: 55;
+      max-height: 74vh;
+      overflow: auto;
+      touch-action: pan-y;
+    }
+
+    .mobile-reg-sheet.show {
+      transform: translateY(0);
+    }
+
+    .mobile-reg-grab {
+      width: 44px;
+      height: 5px;
+      border-radius: 999px;
+      background: #cbd5e1;
+      margin: 2px auto 10px;
+    }
+
+    .mobile-reg-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .mobile-reg-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+
+    .mobile-reg-close {
+      border: 0;
+      background: #f1f5f9;
+      color: #334155;
+      border-radius: 999px;
+      width: 30px;
+      height: 30px;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .mobile-reg-table {
+      display: grid;
+      gap: 8px;
+    }
+
+    .mobile-reg-table .reg-row {
+      grid-template-columns: 1fr auto;
+    }
+
+    .mobile-reg-table .reg-btn {
+      grid-column: 1 / -1;
+      width: 100%;
+      text-align: center;
+      margin-top: 2px;
+    }
+
+    .mobile-step-card {
+      border: 1px solid #dbe4ef;
+      border-radius: 12px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .mobile-step-head {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      text-align: left;
+      font: inherit;
+      color: #0f172a;
+      cursor: pointer;
+    }
+
+    .mobile-step-title {
+      font-size: 13px;
+      font-weight: 850;
+      line-height: 1.25;
+    }
+
+    .mobile-step-caret {
+      font-size: 14px;
+      color: #475569;
+      font-weight: 900;
+      transition: transform .16s ease;
+    }
+
+    .mobile-step-card.open .mobile-step-caret {
+      transform: rotate(180deg);
+    }
+
+    .mobile-step-card.locked .mobile-step-head {
+      color: #0f172a;
+    }
+
+    .mobile-step-card.current .mobile-step-head {
+      cursor: default;
+    }
+
+    .mobile-step-pill {
+      border-radius: 999px;
+      border: 1px solid #c7d2fe;
+      background: #e0e7ff;
+      color: #1d4ed8;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .02em;
+      padding: 2px 7px;
+      text-transform: uppercase;
+      line-height: 1.2;
+    }
+
+    .mobile-step-pill.done {
+      border-color: #86efac;
+      background: #ecfdf5;
+      color: #166534;
+    }
+
+    .mobile-step-pill.current {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .mobile-step-card.open .mobile-step-pill.locked {
+      display: none;
+    }
+
+    .mobile-step-body {
+      border-top: 1px solid #e2e8f0;
+      padding: 10px 12px 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .mobile-step-copy {
+      margin: 0;
+      font-size: 12px;
+      color: #334155;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .mobile-step-status {
+      margin: 0;
+      font-size: 12px;
+      color: #334155;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 60;
+    }
+
+    .modal.show { display: flex; }
+
+    .modal-card {
+      width: min(520px, 100%);
+      background: #fff;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 28px 42px -28px rgba(15, 23, 42, 0.65);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .modal-card h4 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: -0.01em;
+    }
+
+    .modal-card p {
+      margin: 0;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.45;
+      font-weight: 700;
+    }
+
+    .modal-card textarea {
+      width: 100%;
+      min-height: 90px;
+      border-radius: 10px;
+      border: 1px solid #d7e3f6;
+      padding: 10px;
+      resize: vertical;
+      font: inherit;
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      .hero { padding: 16px; }
+      .hero h1 { font-size: 20px; }
+      .hero p { font-size: 13px; }
+      .tl-row { padding: 12px; }
+    }
+
+    @media (max-width: 767px) {
+      body { padding-bottom: 96px; }
+      .mobile-nav { display: grid; }
+      .desktop-topbar { display: none; }
+
+      .tl-row .badge {
+        display: none;
+      }
+
+      .tl-row .tl-desc,
+      .tl-row .btn {
+        overflow: hidden;
+        transition: max-height .26s ease, opacity .22s ease, transform .26s ease;
+      }
+
+      .tl-row .tl-desc {
+        max-height: 180px;
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .tl-row .btn {
+        max-height: 56px;
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .tl-row.mobile-collapsed .tl-desc,
+      .tl-row.mobile-collapsed .btn {
+        max-height: 0;
+        opacity: 0;
+        transform: translateY(-8px);
+        pointer-events: none;
+        margin-top: 0;
+      }
+
+      .tl-row.mobile-collapsed .tl-top {
+        width: 100%;
+        justify-content: space-between;
+        cursor: pointer;
+      }
+
+      .tl-row.mobile-open .pill,
+      .tl-row.mobile-current .pill {
+        display: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .tl-row { flex-direction: column; }
+      .tl-main { min-width: 0; width: 100%; }
+      .btn { width: 100%; justify-content: center; }
+    }
+
+    @media (max-width: 560px) {
+      .hero,
+      .card,
+      .cta,
+      .next,
+      .tl-row,
+      .trust-block {
+        padding: 12px;
+      }
+
+      .hero-actions,
+      .help-actions {
+        width: 100%;
+      }
+
+      .hero-actions .btn,
+      .hero-actions .btn2,
+      .help-actions .btn2 {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .trust-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="dash-wrap">
+    <header class="desktop-topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item active" href="index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+            <span class="nav-text">Home</span>
+          </a>
+          <button class="nav-action nav-item" id="registrationMenuBtn" type="button" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+            <span class="nav-text">Registration</span>
+          </button>
+          <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span class="nav-text">My Documents</span>
+          </a>
+          <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span class="nav-text">Messages</span>
+          </button>
+          <a class="account-pill nav-item" href="account.html" data-nav="account">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            <span class="nav-text">Account</span>
+          </a>
+
+          <div class="reg-dropdown" id="registrationDropdown">
+            <p class="reg-head">Registration Process</p>
+            <div class="reg-table" id="regTable"></div>
+          </div>
+        </nav>
+      </div>
+    </header>
+    <div class="bg">
+      <div class="hero">
+        <video
+          class="hero-video hero-video-desktop"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          aria-hidden="true"
+        >
+          <source src="../media/videos/gp-link-hero-desktop.mp4" type="video/mp4" />
+        </video>
+        <video
+          class="hero-video hero-video-mobile"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          aria-hidden="true"
+        >
+          <source src="../media/videos/gp-link-hero-mobile.mp4" type="video/mp4" />
+        </video>
+        <div class="hero-top">
+          <div>
+            <h1 id="intro-title">Welcome back</h1>
+            <p>This dashboard shows exactly what to do next - and what we're handling for you.</p>
+            <p>Complete each step in order. We'll unlock the next step as soon as you're ready.</p>
+
+            <div class="hero-actions">
+              <a class="a-btn a-primary" id="startStepBtn" href="myinthealth.html">Continue: MyIntealth / EPIC verification <span class="arr">→</span></a>
+            </div>
+          </div>
+
+          <div class="metrics-hidden" aria-hidden="true">
+            <svg width="112" height="112" viewBox="0 0 112 112">
+              <circle id="progress-ring" cx="56" cy="56" r="46" fill="none" stroke="#2563eb" stroke-width="10" stroke-linecap="round" stroke-dasharray="289.026524" stroke-dashoffset="280" transform="rotate(-90 56 56)"></circle>
+            </svg>
+            <span id="ring-num">3%</span>
+            <span id="next-milestone">Next milestone: Step 1 complete</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="card-title">
+            <div>
+              <p class="h2"><svg class="section-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M16.5 7.5l-4 8-4-4 8-4z"></path></svg>What to do next</p>
+              <p class="sub">Your next actions, in the right order.</p>
+            </div>
+            <div style="text-align:right">
+              <p class="sub" style="margin:0">Steps Complete</p>
+              <p class="h2" id="steps-complete" style="margin:0">0/6</p>
+            </div>
+          </div>
+
+          <div class="progress-mini"><div id="progress-bar"></div></div>
+
+          <div class="next">
+            <ul>
+              <li><span class="bullet">→</span> <span><span class="k">Immediate:</span> <span id="immediate"></span></span></li>
+              <li><span class="bullet">→</span> <span><span class="k">This week:</span> <span id="this-week"></span></span></li>
+              <li><span class="bullet">→</span> <span><span class="k">Coming up:</span> <span id="coming-up"></span></span></li>
+            </ul>
+            <p class="need-line">What you'll need: Passport, MRCGP/CCT PDFs, and any name-change documents.</p>
+          </div>
+        </div>
+
+        <div class="card updates-card" id="gp-updates-card">
+          <div class="card-title">
+            <div>
+              <p class="h2"><svg class="section-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg>GP Link Updates</p>
+              <p class="sub" id="updates-subtitle">Messages from the GP Link team about what changed and what to do next.</p>
+              <p class="updates-alert" id="updates-alert" hidden>Action required - please review below.</p>
+            </div>
+          </div>
+
+          <div class="updates-feed">
+            <div class="updates-list" id="gp-updates-list"></div>
+            <a class="updates-link" id="gp-updates-link" href="messages.html">View all updates <span class="arr">→</span></a>
+            <span id="epic-status" style="display:none">Not started yet</span>
+            <span id="amc-status" style="display:none">Not started yet</span>
+            <span id="docs-status" style="display:none">Not started yet</span>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="card" id="registration-timeline" style="margin-top:14px">
+        <div class="card-title">
+          <div>
+            <p class="h2"><svg class="section-icon" viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6z"></path><path d="M9 4v14"></path><path d="M15 6v14"></path></svg>Registration timeline</p>
+              <p class="sub">Provider Number to Commencement is the final stretch</p>
+          </div>
+        </div>
+
+        <div class="tl">
+          <div class="tl-row">
+            <div class="badge badge-active" id="step1-badge"><span>1</span></div>
+            <div class="tl-main">
+              <div class="tl-top"><span class="tl-icon">1</span> MyIntealth Account <span class="pill pill-current" id="step1-pill">Current</span></div>
+              <div class="tl-desc">EPIC verification is set up and moving forward.<br><b>Status:</b> <span id="step1-status">Not started yet</span></div>
+            </div>
+            <a class="btn btn-unlocked" id="step1-btn" href="myinthealth.html">Continue <span class="arr">→</span></a>
+          </div>
+
+          <div class="tl-row">
+            <div class="badge badge-inactive" id="step2-badge"><span>2</span></div>
+            <div class="tl-main">
+              <div class="tl-top"><span class="tl-icon">2</span> AMC Portfolio <span class="pill pill-current" id="step2-pill">Locked</span></div>
+              <div class="tl-desc">AMC portfolio is created and connected to your verification.<br><b>Status:</b> <span id="step2-status">Unlocked after Step 1 is complete</span></div>
+            </div>
+            <a class="btn btn-locked" id="step2-btn" href="#">Locked</a>
+          </div>
+
+          <div class="tl-row">
+            <div class="badge badge-locked" id="step3-badge"><span>3</span></div>
+            <div class="tl-main">
+              <div class="tl-top"><span class="tl-icon">3</span> AHPRA Registration <span class="pill pill-current" id="step3-pill">Locked</span></div>
+              <div class="tl-desc">Specialist registration application is prepared and submitted correctly.<br><b>Status:</b> <span id="step3-status">Unlocked after Step 2 is complete</span></div>
+            </div>
+            <a class="btn btn-locked" id="step3-btn" href="#">Locked</a>
+          </div>
+
+          <div class="tl-row">
+            <div class="badge badge-locked" id="step4-badge"><span>4</span></div>
+            <div class="tl-main">
+              <div class="tl-top"><span class="tl-icon">4</span> Visa and Relocation <span class="pill pill-current" id="step4-pill">Locked</span></div>
+              <div class="tl-desc">Visa pathway and relocation planning are coordinated in sequence.<br><b>Status:</b> <span id="step4-status">No action needed yet</span></div>
+            </div>
+            <a class="btn btn-locked" id="step4-btn" href="#">Locked</a>
+          </div>
+
+          <div class="tl-row">
+            <div class="badge badge-locked" id="step5-badge"><span>5</span></div>
+            <div class="tl-main">
+              <div class="tl-top"><span class="tl-icon">5</span> Provider Number <span class="pill pill-current" id="step5-pill">Locked</span></div>
+              <div class="tl-desc">Provider and prescriber numbers are secured before commencement.<br><b>Status:</b> <span id="step5-status">No action needed yet</span></div>
+            </div>
+            <a class="btn btn-locked" id="step5-btn" href="#">Locked</a>
+          </div>
+
+          <div class="tl-row">
+            <div class="badge badge-locked" id="step6-badge"><span>6</span></div>
+            <div class="tl-main">
+              <div class="tl-top"><span class="tl-icon">6</span> Commencement <span class="pill pill-current" id="step6-pill">Locked</span></div>
+              <div class="tl-desc">Final onboarding is complete and you start at practice with confidence.<br><b>Status:</b> <span id="step6-status">No action needed yet</span></div>
+            </div>
+            <a class="btn btn-locked" id="step6-btn" href="#">Locked</a>
+          </div>
+        </div>
+
+        <div class="help-footer">
+          <div class="txt">
+            <div style="font-weight:950; margin-bottom:6px;">Need Help Along the Way?</div>
+            Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
+          </div>
+          <div class="help-actions">
+            <a class="btn2 btn2-primary" href="messages.html">Contact Support <span class="arr">→</span></a>
+            <a class="btn2 btn2-outline" href="#">View FAQs <span class="arr">→</span></a>
+          </div>
+        </div>
+
+        <div class="trust-block">
+          <div style="font-weight:900; color:#0f172a; font-size:15px;">You're not doing this alone.</div>
+          <div class="trust-grid">
+            <div class="trust-col">
+              <h4>You do:</h4>
+              <ul>
+                <li>Upload required documents</li>
+                <li>Complete key forms</li>
+                <li>Confirm details when requested</li>
+              </ul>
+            </div>
+            <div class="trust-col">
+              <h4>We do:</h4>
+              <ul>
+                <li>Guide each step in order</li>
+                <li>Check progress and timelines</li>
+                <li>Flag issues and coordinate support</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="small" style="line-height:1.45; margin: 10px 0 12px;">
+    <div><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
+    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab mobile-tab-active" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+      </span>
+      <span class="mobile-tab-label">Home Dashboard</span>
+    </a>
+    <button class="mobile-tab" id="mobileRegistrationBtn" type="button">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+      </span>
+      <span class="mobile-tab-label">Registration Process</span>
+    </button>
+    <button class="mobile-tab" id="mobileSupportBtn" type="button">
+      <span class="mobile-icon-wrap">
+        <span class="mobile-tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        </span>
+        <span class="mobile-tab-alert nav-alert" data-inbox-alert hidden aria-hidden="true">!</span>
+      </span>
+      <span class="mobile-tab-label">Messages</span>
+    </button>
+    <a class="mobile-tab" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+      </span>
+      <span class="mobile-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
+  <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
+    <div class="mobile-reg-grab" aria-hidden="true"></div>
+    <div class="mobile-reg-head">
+      <p class="mobile-reg-title">Registration Process</p>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">×</button>
+    </div>
+    <div class="mobile-reg-table" id="mobileRegTable"></div>
+  </aside>
+
+  <div class="modal" id="supportModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+      <h4 id="supportTitle">Contact support</h4>
+      <p>Share your issue and our team will follow up during business hours.</p>
+      <textarea placeholder="Describe your issue..."></textarea>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn2 btn2-primary" type="button">Submit request</button>
+        <button class="btn2 btn2-outline" data-close="supportModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TOTAL_STEPS = 6;
+    const EPIC_KEY = "gp_epic_progress";
+    const AMC_KEY = "gp_amc_progress";
+    const DOC_KEY = "gp_documents_prep";
+    const PREPARED_DOCS_KEY = "gp_prepared_docs";
+    const ringCirc = 289.026524;
+
+    const epicStageLabels = {
+      create_account: "Create your MyIntealth account",
+      upload_qualifications: "Upload your specialist qualifications",
+      waiting_verification: "EPIC is verifying your documents",
+      account_establishment: "Account Establishment",
+      verification_issued: "Verification issued"
+    };
+
+    const amcStageLabels = {
+      create_portfolio: "Create an AMC account",
+      upload_credentials: "Upload credentials",
+      qualifications_pending: "Qualifications pending ECFMG verification",
+      qualifications_verified: "Qualifications verified"
+    };
+
+    const UK_DOC_KEYS = [
+      "primary_medical_degree",
+      "mrcgp_certified",
+      "cct_certified",
+      "cv_signed_dated"
+    ];
+    const UK_INST_KEYS = [
+      "certificate_good_standing",
+      "confirmation_training",
+      "criminal_history"
+    ];
+    const UK_SUPERVISED_KEYS = [
+      "sppa_00",
+      "section_g",
+      "position_description",
+      "offer_contract",
+      "supervisor_cv"
+    ];
+    const PREPARED_BY_YOU_DOCS = [
+      { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree (MBBS/MBChB)" },
+      { key: "mrcgp_certified", title: "Certified copy of MRCGP (issued from August 2007 onward)" },
+      { key: "cct_certified", title: "Certified copy of CCT (General Practice) issued by GMC or PMETB" },
+      { key: "cv_signed_dated", title: "CV (Signed and dated)" }
+    ];
+    const BATCH_META_SUFFIX = "__save_batch_meta";
+    if (!Array.isArray(window.gpLinkUpdates)) window.gpLinkUpdates = [];
+
+    const supportModalEl = document.getElementById("supportModal");
+    const mobileRegistrationBtn = document.getElementById("mobileRegistrationBtn");
+    const mobileRegBackdrop = document.getElementById("mobileRegBackdrop");
+    const mobileRegSheet = document.getElementById("mobileRegSheet");
+    const mobileRegTable = document.getElementById("mobileRegTable");
+    const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
+    const openSupportModal = () => {
+      supportModalEl.classList.add("show");
+      supportModalEl.setAttribute("aria-hidden", "false");
+    };
+    const closeSupportModal = () => {
+      supportModalEl.classList.remove("show");
+      supportModalEl.setAttribute("aria-hidden", "true");
+    };
+
+    document.getElementById("mobileSupportBtn").addEventListener("click", () => {
+      window.location.href = "messages.html";
+    });
+    document.querySelectorAll("[data-close]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-close");
+        if (id === "supportModal") closeSupportModal();
+      });
+    });
+
+    supportModalEl.addEventListener("click", (e) => {
+      if (e.target === supportModalEl) closeSupportModal();
+    });
+
+    document.getElementById("topSupportBtn").addEventListener("click", () => {
+      window.location.href = "messages.html";
+    });
+
+    const registrationMenuBtn = document.getElementById("registrationMenuBtn");
+    const registrationDropdown = document.getElementById("registrationDropdown");
+    const regTableEl = document.getElementById("regTable");
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    const mobileTimelineRows = [...document.querySelectorAll(".tl .tl-row")];
+    const mobileTimelineTimers = new WeakMap();
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+    let navGlassInitialized = false;
+    let sessionLastName = "";
+
+    async function loadSessionLastName() {
+      try {
+        const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+        if (!response.ok) return "";
+        const data = await response.json();
+        if (!data || !data.profile || typeof data.profile.lastName !== "string") return "";
+        return data.profile.lastName.trim();
+      } catch (err) {
+        return "";
+      }
+    }
+
+    function applyIntroTitle() {
+      const introTitle = document.getElementById("intro-title");
+      if (!introTitle) return;
+      introTitle.textContent = sessionLastName ? `Welcome Back Dr ${sessionLastName}` : "Welcome back";
+    }
+
+    function parseStorage(key) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (err) { return null; }
+    }
+
+    function formatUpdateTimestamp(tsValue) {
+      if (!tsValue) return "";
+      const d = new Date(tsValue);
+      if (Number.isNaN(d.getTime())) return String(tsValue);
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const dayMs = 24 * 60 * 60 * 1000;
+      if (diffMs < dayMs) {
+        return `Today \u2022 ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase()}`;
+      }
+      const days = Math.round(diffMs / dayMs);
+      if (days <= 1) return "1 day ago";
+      if (days < 7) return `${days} days ago`;
+      return d.toLocaleDateString();
+    }
+
+    function getPreparedDocReviewUpdates() {
+      const docsState = loadLatestDocsStateForDashboard();
+      if (!docsState || typeof docsState !== "object" || docsState.country !== "uk" || !docsState.docs) return [];
+      const updatedAt = typeof docsState.updatedAt === "string" ? docsState.updatedAt : new Date().toISOString();
+
+      return PREPARED_BY_YOU_DOCS.map((doc) => {
+        const entry = docsState.docs[doc.key];
+        const status = entry && typeof entry.status === "string" ? entry.status.toLowerCase() : "";
+        if (!entry || (status !== "accepted" && status !== "approved" && status !== "rejected")) return null;
+
+        const reviewReason = typeof entry.rejectionReason === "string" && entry.rejectionReason.trim()
+          ? entry.rejectionReason.trim()
+          : (typeof entry.reviewNote === "string" && entry.reviewNote.trim() ? entry.reviewNote.trim() : "");
+
+        if (status === "accepted" || status === "approved") {
+          return {
+            type: "info",
+            title: `${doc.title} was accepted by GP Link review.`,
+            detail: "No further action needed for this document.",
+            ts: updatedAt,
+            source: "prepared-doc-review",
+            sourceKey: doc.key
+          };
+        }
+
+        const reasonText = reviewReason || "The uploaded copy did not meet AHPRA certification or clarity requirements.";
+        return {
+          type: "action",
+          title: `${doc.title} needs re-upload after review.`,
+          detail: `Reason: ${reasonText} Action required: Upload a corrected certified copy in My Documents.`,
+          ts: updatedAt,
+          source: "prepared-doc-review",
+          sourceKey: doc.key
+        };
+      }).filter(Boolean);
+    }
+
+    function loadLatestDocsStateForDashboard() {
+      const persisted = parseStorage(DOC_KEY);
+      const batchMeta = parseStorage(`${DOC_KEY}${BATCH_META_SUFFIX}`);
+      if (!batchMeta || typeof batchMeta !== "object" || !batchMeta.lastValue) return persisted;
+
+      let pendingParsed = null;
+      try {
+        pendingParsed = JSON.parse(batchMeta.lastValue);
+      } catch (err) {
+        pendingParsed = null;
+      }
+      if (!pendingParsed || typeof pendingParsed !== "object") return persisted;
+
+      const pendingTs = Date.parse(pendingParsed.updatedAt || "") || 0;
+      const persistedTs = Date.parse((persisted && persisted.updatedAt) || "") || 0;
+      return pendingTs >= persistedTs ? pendingParsed : persisted;
+    }
+
+    function renderUpdatesFeed() {
+      const listEl = document.getElementById("gp-updates-list");
+      const cardEl = document.getElementById("gp-updates-card");
+      const subtitleEl = document.getElementById("updates-subtitle");
+      const alertEl = document.getElementById("updates-alert");
+      const MAX_ITEMS = 8;
+      const isMobileUpdates = window.matchMedia("(max-width: 767px)").matches;
+      if (!listEl) return;
+      const messageDb = parseStorage("gpLinkMessageDB");
+      const dbUpdates = messageDb && Array.isArray(messageDb.updates) ? messageDb.updates.slice() : [];
+      const dbCases = messageDb && Array.isArray(messageDb.supportCases) ? messageDb.supportCases.slice() : [];
+      const baseUpdates = dbUpdates.length
+        ? dbUpdates
+        : (typeof window.getGpLinkUpdates === "function"
+            ? window.getGpLinkUpdates().slice()
+            : (Array.isArray(window.gpLinkUpdates) ? window.gpLinkUpdates.slice() : []));
+      const updates = [...baseUpdates, ...getPreparedDocReviewUpdates()].sort((a, b) => {
+        const aTime = Date.parse(a.ts || "") || 0;
+        const bTime = Date.parse(b.ts || "") || 0;
+        return bTime - aTime;
+      });
+
+      const actionUpdates = updates.filter((item) => {
+        const t = item && typeof item.type === "string" ? item.type.toLowerCase() : "";
+        return t.includes("action");
+      });
+      const regularUpdates = updates.filter((item) => {
+        const t = item && typeof item.type === "string" ? item.type.toLowerCase() : "";
+        return !t.includes("action");
+      });
+      const supportCases = dbCases.length ? dbCases : (parseStorage("gpLinkSupportCases") || parseStorage("gp_support_cases"));
+      const openCases = Array.isArray(supportCases)
+        ? supportCases
+            .filter((c) => {
+              const status = c && typeof c.status === "string" ? c.status.toLowerCase() : "";
+              return status === "open";
+            })
+            .sort((a, b) => (Date.parse(b.updatedAt || "") || 0) - (Date.parse(a.updatedAt || "") || 0))
+        : [];
+
+      const priorityItems = [
+        ...actionUpdates.map((item) => ({ kind: "update", item })),
+        ...openCases.map((item) => ({ kind: "case", item }))
+      ];
+      let displayItems = [];
+      if (isMobileUpdates) {
+        if (actionUpdates.length) {
+          // Action-required always overrides support cases and regular updates on mobile.
+          displayItems = [{ kind: "update", item: actionUpdates[0] }];
+        } else if (openCases.length) {
+          displayItems = [{ kind: "case", item: openCases[0] }];
+        } else if (regularUpdates.length) {
+          displayItems = [{ kind: "update", item: regularUpdates[0] }];
+        }
+      } else {
+        displayItems = (priorityItems.length ? priorityItems : regularUpdates.map((item) => ({ kind: "update", item }))).slice(0, MAX_ITEMS);
+      }
+
+      const hasAction = actionUpdates.length > 0;
+
+      listEl.innerHTML = "";
+      if (cardEl) cardEl.classList.toggle("is-action", hasAction);
+      if (alertEl) alertEl.hidden = !hasAction;
+      if (subtitleEl) {
+        subtitleEl.textContent = priorityItems.length
+          ? "Priority items from your workflow and support conversations."
+          : "Messages from the GP Link team about what changed and what to do next.";
+      }
+      if (!displayItems.length) {
+        const empty = document.createElement("div");
+        empty.className = "updates-empty";
+        empty.textContent = "No updates yet. We'll post here when something changes or if we need anything from you.";
+        listEl.appendChild(empty);
+        return;
+      }
+
+      const typeLabel = { success: "SUCCESS", info: "INFO", action: "ACTION REQUIRED", case: "OPEN CASE" };
+      const rows = [];
+      displayItems.forEach((entry) => {
+        if (entry.kind === "case") {
+          const c = entry.item || {};
+          const title = typeof c.title === "string" ? c.title : "Open support case";
+          const last = Array.isArray(c.thread) && c.thread.length ? c.thread[c.thread.length - 1] : null;
+          const detail = last && typeof last.text === "string" ? last.text : "Support conversation is active.";
+          const tsText = formatUpdateTimestamp(c.updatedAt || c.createdAt || "");
+          const href = `messages.html#case-${encodeURIComponent(c.id || "")}`;
+
+          const row = document.createElement("a");
+          row.href = href;
+          row.className = "update-item update-item-link info";
+          row.innerHTML = `
+            <div class="update-top">
+              <span class="update-badge case">${typeLabel.case}</span>
+              <span class="update-ts">${tsText}</span>
+            </div>
+            <p class="update-title">${title}</p>
+            <p class="update-detail">${detail}</p>
+          `;
+          rows.push(row);
+          return;
+        }
+
+        const item = entry.item || {};
+        const type = item && typeof item.type === "string" ? item.type : "info";
+        const title = item && typeof item.title === "string" ? item.title : "Update available.";
+        const detail = item && typeof item.detail === "string" ? item.detail : "";
+        const tsText = formatUpdateTimestamp(item && item.ts ? item.ts : "");
+        const href = type === "action" ? "messages.html#tab-action" : "messages.html#tab-updates";
+
+        const row = document.createElement("a");
+        row.href = href;
+        row.className = `update-item update-item-link ${type}`;
+        row.innerHTML = `
+          <div class="update-top">
+            <span class="update-badge ${type}">${typeLabel[type] || "INFO"}</span>
+            <span class="update-ts">${tsText}</span>
+          </div>
+          <p class="update-title">${title}</p>
+          ${detail ? `<p class="update-detail">${detail}</p>` : ""}
+        `;
+        rows.push(row);
+      });
+
+      // Add rows until the section can no longer fit additional cards.
+      for (const row of rows) {
+        listEl.appendChild(row);
+        if (listEl.scrollHeight > listEl.clientHeight + 1) {
+          row.remove();
+          break;
+        }
+      }
+
+      if (typeof window.refreshInboxBadges === "function") {
+        window.refreshInboxBadges();
+      }
+    }
+
+    function getProgressSnapshot() {
+      const epic = parseStorage(EPIC_KEY);
+      const amc = parseStorage(AMC_KEY);
+      const docs = parseStorage(DOC_KEY);
+      const prepared = parseStorage(PREPARED_DOCS_KEY);
+
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      const epicStage = epic && typeof epic.stage === "string" ? epic.stage : "create_account";
+      const epicCurrentLabel = epicStageLabels[epicStage] || epicStageLabels.create_account;
+
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      const amcStage = amc && typeof amc.stage === "string" ? amc.stage : "create_portfolio";
+      const amcCurrentLabel = amcStageLabels[amcStage] || amcStageLabels.create_portfolio;
+
+      const isUkDocs = !!(docs && docs.country === "uk" && docs.docs && prepared && prepared.docs);
+      const preparedUploaded = isUkDocs
+        ? UK_DOC_KEYS.filter((key) => docs.docs[key] && docs.docs[key].uploaded === true).length
+        : 0;
+      const institutionRequested = isUkDocs
+        ? UK_INST_KEYS.filter((key) => docs.docs[key] && docs.docs[key].uploaded === true).length
+        : 0;
+      const supervisedReady = isUkDocs
+        ? UK_SUPERVISED_KEYS.filter((key) => prepared.docs[key] && (prepared.docs[key].ready || !!prepared.docs[key].url)).length
+        : 0;
+      const docsDone = isUkDocs
+        ? preparedUploaded === UK_DOC_KEYS.length &&
+          institutionRequested === UK_INST_KEYS.length &&
+          supervisedReady === UK_SUPERVISED_KEYS.length
+        : false;
+
+      const completedSteps = [epicDone, amcDone].filter(Boolean).length;
+      const progressPercent = Math.max(3, (completedSteps * 100) / TOTAL_STEPS);
+
+      let currentRoute = "myinthealth.html";
+      let currentTitle = "MyIntealth Account";
+      if (epicDone && !amcDone) {
+        currentRoute = "amc.html";
+        currentTitle = "AMC Portfolio";
+      } else if (epicDone && amcDone) {
+        currentRoute = "ahpra.html";
+        currentTitle = "AHPRA Registration";
+      }
+
+      return {
+        epicDone,
+        epicCurrentLabel,
+        amcDone,
+        amcCurrentLabel,
+        docsDone,
+        preparedUploaded,
+        institutionRequested,
+        supervisedReady,
+        completedSteps,
+        progressPercent,
+        currentRoute,
+        currentTitle
+      };
+    }
+
+    function setStepVisual(stepNum, state, statusText, href) {
+      const badge = document.getElementById(`step${stepNum}-badge`);
+      const status = document.getElementById(`step${stepNum}-status`);
+      const btn = document.getElementById(`step${stepNum}-btn`);
+      const pill = document.getElementById(`step${stepNum}-pill`);
+      const row = btn && typeof btn.closest === "function" ? btn.closest(".tl-row") : null;
+      if (badge) badge.className = `badge ${state === "done" ? "badge-completed" : state === "current" ? "badge-active" : "badge-locked"}`;
+      if (status) status.textContent = statusText;
+      if (btn) {
+        btn.href = href || "#";
+        btn.textContent = state === "done" ? "Done" : state === "current" ? "Continue →" : "Locked";
+        btn.className = `btn ${state === "done" ? "btn-success" : state === "current" ? "btn-unlocked" : "btn-locked"}`;
+      }
+      if (pill) {
+        pill.textContent = state === "done" ? "Done" : state === "current" ? "Current" : "Locked";
+        pill.className = `pill ${state === "done" ? "pill-done" : state === "current" ? "pill-current" : "pill-locked"}`;
+      }
+      if (row) row.dataset.stepState = state;
+    }
+
+    function applyMobileTimelineBehavior() {
+      const isMobile = window.matchMedia("(max-width: 767px)").matches;
+      mobileTimelineRows.forEach((row) => {
+        const pill = row.querySelector(".pill");
+        const top = row.querySelector(".tl-top");
+        const state = row.dataset.stepState || "locked";
+
+        if (!row.dataset.mobileBound && top) {
+          top.addEventListener("click", () => {
+            const nowMobile = window.matchMedia("(max-width: 767px)").matches;
+            if (!nowMobile) return;
+            const currentState = row.dataset.stepState || "locked";
+            if (currentState === "current") return;
+
+            if (mobileTimelineTimers.has(row)) {
+              clearTimeout(mobileTimelineTimers.get(row));
+              mobileTimelineTimers.delete(row);
+            }
+
+            row.classList.remove("mobile-collapsed");
+            row.classList.add("mobile-open");
+            if (pill) pill.style.display = "none";
+
+            const timer = window.setTimeout(() => {
+              const latestState = row.dataset.stepState || "locked";
+              if (!window.matchMedia("(max-width: 767px)").matches || latestState === "current") return;
+              row.classList.remove("mobile-open");
+              row.classList.add("mobile-collapsed");
+              if (pill) pill.style.display = "";
+              mobileTimelineTimers.delete(row);
+            }, 5000);
+            mobileTimelineTimers.set(row, timer);
+          });
+          row.dataset.mobileBound = "1";
+        }
+
+        if (!isMobile) {
+          row.classList.remove("mobile-collapsed", "mobile-open", "mobile-current");
+          if (pill) pill.style.display = "";
+          if (mobileTimelineTimers.has(row)) {
+            clearTimeout(mobileTimelineTimers.get(row));
+            mobileTimelineTimers.delete(row);
+          }
+          return;
+        }
+
+        if (state === "current") {
+          row.classList.remove("mobile-collapsed", "mobile-open");
+          row.classList.add("mobile-current");
+          if (pill) pill.style.display = "none";
+          if (mobileTimelineTimers.has(row)) {
+            clearTimeout(mobileTimelineTimers.get(row));
+            mobileTimelineTimers.delete(row);
+          }
+        } else {
+          row.classList.remove("mobile-open", "mobile-current");
+          row.classList.add("mobile-collapsed");
+          if (pill) pill.style.display = "";
+        }
+      });
+    }
+
+    function renderDashboard() {
+      const snap = getProgressSnapshot();
+      const ringOffset = Math.max(0, ringCirc - (snap.progressPercent * ringCirc) / 100);
+
+      document.getElementById("steps-complete").textContent = `${snap.completedSteps}/${TOTAL_STEPS}`;
+      document.getElementById("ring-num").textContent = `${Math.round(snap.progressPercent)}%`;
+      document.getElementById("progress-ring").setAttribute("stroke-dashoffset", ringOffset.toFixed(4));
+      document.getElementById("progress-bar").style.width = `${snap.progressPercent}%`;
+
+      const startBtn = document.getElementById("startStepBtn");
+      const nextMilestoneEl = document.getElementById("next-milestone");
+      if (startBtn) {
+        startBtn.href = snap.currentRoute;
+        const currentStepName = snap.currentTitle || "Your next step";
+        startBtn.innerHTML = `Continue: ${currentStepName} <span class="arr">→</span>`;
+      }
+      if (nextMilestoneEl) {
+        const nextStep = Math.min(TOTAL_STEPS, snap.completedSteps + 1);
+        nextMilestoneEl.textContent = `Next milestone: Step ${nextStep} complete`;
+      }
+
+      const immediate = !snap.epicDone
+        ? "Upload identity and specialist files in MyIntealth, then confirm your verification request is submitted."
+        : !snap.amcDone
+          ? "Upload remaining credentials in AMC and confirm ECFMG verification has started."
+          : "Prepare the final AHPRA submission forms and supporting evidence for review.";
+      const thisWeek = !snap.epicDone
+        ? "Check for any MyIntealth feedback and re-upload only if EPIC requests updates."
+        : !snap.amcDone
+          ? "Review AMC profile details for exact name match and document clarity."
+          : "Coordinate institution-sent evidence and keep copies in My Documents.";
+      const comingUp = !snap.epicDone
+        ? "AMC portfolio actions unlock once EPIC verification is issued."
+        : !snap.amcDone
+          ? "AHPRA registration actions unlock after AMC verification progresses."
+          : "Visa, provider number, and commencement steps unlock in sequence.";
+
+      document.getElementById("immediate").textContent = immediate;
+      document.getElementById("this-week").textContent = thisWeek;
+      document.getElementById("coming-up").textContent = comingUp;
+
+      document.getElementById("epic-status").textContent = snap.epicDone ? "Verification issued" : snap.epicCurrentLabel;
+      document.getElementById("amc-status").textContent = snap.amcDone ? "Qualifications verified" : snap.amcCurrentLabel;
+      document.getElementById("docs-status").textContent = snap.docsDone
+        ? "All required documents ready"
+        : `Prepared ${snap.preparedUploaded}/4 • Requested ${snap.institutionRequested}/3 • Ready ${snap.supervisedReady}/5`;
+
+      setStepVisual(1, snap.epicDone ? "done" : "current", snap.epicDone ? "Completed" : snap.epicCurrentLabel, "myinthealth.html");
+      setStepVisual(2, !snap.epicDone ? "locked" : snap.amcDone ? "done" : "current", !snap.epicDone ? "Unlocked after Step 1 is complete" : snap.amcDone ? "Completed" : snap.amcCurrentLabel, snap.epicDone ? "amc.html" : "#");
+      setStepVisual(3, !snap.amcDone ? "locked" : "current", !snap.amcDone ? "Unlocked after Step 2 is complete" : "In progress", snap.amcDone ? "ahpra.html" : "#");
+      setStepVisual(4, "locked", "No action needed yet", "#");
+      setStepVisual(5, "locked", "No action needed yet", "#");
+      setStepVisual(6, "locked", "No action needed yet", "#");
+      applyMobileTimelineBehavior();
+
+      renderUpdatesFeed();
+    }
+
+    function getRegistrationRows() {
+      const snap = getProgressSnapshot();
+
+      return [
+        {
+          title: "1. MyIntealth Account",
+          sub: "Create account and complete EPIC verification.",
+          mobileDetail: "EPIC verification is set up and moving forward.",
+          mobileStatus: snap.epicCurrentLabel,
+          status: snap.epicDone ? "Done" : "Current",
+          locked: false,
+          href: "myinthealth.html",
+          cta: "Continue"
+        },
+        {
+          title: "2. AMC Portfolio",
+          sub: "Create AMC candidate portfolio and upload credentials.",
+          mobileDetail: "AMC portfolio is created and connected to your verification.",
+          mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
+          status: snap.epicDone ? (snap.amcDone ? "Done" : "Current") : "Locked",
+          locked: !snap.epicDone,
+          href: snap.epicDone ? "amc.html" : "#",
+          cta: snap.epicDone ? "Continue" : "Locked"
+        },
+        {
+          title: "3. AHPRA Registration",
+          sub: "Prepare and submit your specialist registration application.",
+          mobileDetail: "Specialist registration application is prepared and submitted correctly.",
+          mobileStatus: snap.amcDone ? "In progress" : "Unlocked after Step 2 is complete",
+          status: snap.amcDone ? "Current" : "Locked",
+          locked: !snap.amcDone,
+          href: snap.amcDone ? "ahpra.html" : "#",
+          cta: snap.amcDone ? "Continue" : "Locked"
+        },
+        {
+          title: "4. Visa and Relocation",
+          sub: "Sponsorship, visa processing and relocation.",
+          mobileDetail: "Visa pathway and relocation planning are coordinated in sequence.",
+          mobileStatus: "No action needed yet",
+          status: "Locked",
+          locked: true,
+          href: "#",
+          cta: "Locked"
+        }
+      ];
+    }
+
+    function renderRegistrationRows() {
+      const rows = getRegistrationRows();
+      regTableEl.innerHTML = "";
+      mobileRegTable.innerHTML = "";
+      rows.forEach((row) => {
+        const statusClass = row.locked ? "locked" : "";
+        const btnClass = row.locked ? "locked" : "";
+        const rowEl = document.createElement("div");
+        rowEl.className = "reg-row";
+        rowEl.innerHTML = `
+          <div>
+            <div class="reg-name">${row.title}</div>
+            <div class="reg-sub">${row.sub}</div>
+          </div>
+          <span class="reg-pill ${statusClass}">${row.status}</span>
+          <a class="reg-btn ${btnClass}" href="${row.href}">${row.cta}</a>
+        `;
+        regTableEl.appendChild(rowEl);
+      });
+
+      // Mobile view: show all steps. Current stays expanded; others expand on tap for 5s.
+      if (!rows.length) {
+        const doneEl = document.createElement("div");
+        doneEl.className = "mobile-step-card";
+        doneEl.innerHTML = `<div class="mobile-step-head"><span class="mobile-step-title">All visible steps are complete.</span></div>`;
+        mobileRegTable.appendChild(doneEl);
+        return;
+      }
+
+      rows.forEach((row, idx) => {
+        const isCurrent = row.status === "Current" && !row.locked;
+        const cardEl = document.createElement("div");
+        cardEl.className = `mobile-step-card ${row.locked ? "locked" : "unlocked"} ${isCurrent ? "current open" : ""}`;
+        const bodyId = `mobileStepBody${idx}`;
+        const pillMarkup = row.locked
+          ? `<span class="mobile-step-pill locked">Locked</span>`
+          : row.status === "Done"
+            ? `<span class="mobile-step-pill done">Done</span>`
+            : `<span class="mobile-step-pill current">Current</span>`;
+        cardEl.innerHTML = `
+          <button class="mobile-step-head" type="button" ${isCurrent ? "disabled" : ""} aria-expanded="${isCurrent ? "true" : "false"}" aria-controls="${bodyId}">
+            <span class="mobile-step-title">${row.title}</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              ${pillMarkup}
+              <span class="mobile-step-caret">${isCurrent ? "" : "⌄"}</span>
+            </span>
+          </button>
+          <div class="mobile-step-body" id="${bodyId}" ${isCurrent ? "" : "hidden"}>
+            <p class="mobile-step-copy">${row.mobileDetail || row.sub}</p>
+            <p class="mobile-step-status"><b>Status:</b> ${row.mobileStatus || row.status}</p>
+            <a class="reg-btn ${row.locked ? "locked" : ""}" href="${row.href}">${row.cta}</a>
+          </div>
+        `;
+        const headBtn = cardEl.querySelector(".mobile-step-head");
+        const bodyEl = cardEl.querySelector(".mobile-step-body");
+        let autoCloseTimer = null;
+        if (headBtn && bodyEl && !isCurrent) {
+          headBtn.addEventListener("click", () => {
+            const isOpen = !bodyEl.hidden;
+            if (autoCloseTimer) {
+              clearTimeout(autoCloseTimer);
+              autoCloseTimer = null;
+            }
+
+            bodyEl.hidden = isOpen ? true : false;
+            headBtn.setAttribute("aria-expanded", isOpen ? "false" : "true");
+            cardEl.classList.toggle("open", !isOpen);
+
+            if (!isOpen) {
+              autoCloseTimer = window.setTimeout(() => {
+                bodyEl.hidden = true;
+                headBtn.setAttribute("aria-expanded", "false");
+                cardEl.classList.remove("open");
+                autoCloseTimer = null;
+              }, 5000);
+            }
+          });
+        }
+        mobileRegTable.appendChild(cardEl);
+      });
+    }
+
+    let registrationHoverCloseTimer = null;
+
+    function openRegistrationDropdown() {
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      renderRegistrationRows();
+      registrationDropdown.classList.add("show");
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    }
+
+    function closeRegistrationDropdown(immediate = false) {
+      const doClose = () => {
+        registrationDropdown.classList.remove("show");
+        navGlassEl.classList.remove("engulf");
+      };
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      if (immediate) {
+        doClose();
+        return;
+      }
+      registrationHoverCloseTimer = setTimeout(doClose, 140);
+    }
+
+    function moveNavGlass(target, animate = true) {
+      if (!target || !navGlassEl) return;
+      const parentRect = target.parentElement.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      if (!animate || !navGlassInitialized) {
+        const prevTransition = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        navGlassEl.style.width = `${rect.width}px`;
+        navGlassEl.style.height = `${rect.height}px`;
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prevTransition;
+        navGlassInitialized = true;
+        return;
+      }
+      navGlassEl.classList.remove("morph");
+      void navGlassEl.offsetWidth;
+      navGlassEl.classList.add("morph");
+      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+      navGlassEl.style.width = `${rect.width}px`;
+      navGlassEl.style.height = `${rect.height}px`;
+    }
+
+    function setActiveNav(target, animate = true) {
+      navItems.forEach((item) => item.classList.remove("active"));
+      if (target) {
+        target.classList.add("active");
+        activeNavItem = target;
+      }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    registrationMenuBtn.addEventListener("click", () => {
+      setActiveNav(registrationMenuBtn);
+      if (registrationDropdown.classList.contains("show")) {
+        closeRegistrationDropdown(true);
+      } else {
+        openRegistrationDropdown();
+      }
+    });
+
+    registrationMenuBtn.addEventListener("mouseenter", () => {
+      openRegistrationDropdown();
+    });
+    registrationDropdown.addEventListener("mouseenter", () => {
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    });
+    registrationMenuBtn.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    registrationDropdown.addEventListener("mouseleave", () => closeRegistrationDropdown());
+
+    document.addEventListener("click", (e) => {
+      if (!registrationDropdown.contains(e.target) && !registrationMenuBtn.contains(e.target)) {
+        closeRegistrationDropdown(true);
+      }
+    });
+
+    function openMobileRegistration() {
+      renderRegistrationRows();
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.add("show");
+      mobileRegSheet.classList.add("show");
+    }
+
+    function closeMobileRegistration() {
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.remove("show");
+      mobileRegSheet.classList.remove("show");
+    }
+
+    mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
+    mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
+    mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
+
+    navItems.forEach((item) => {
+      item.addEventListener("mouseenter", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      item.addEventListener("focus", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      if (item !== registrationMenuBtn && item.id !== "topSupportBtn") {
+        item.addEventListener("click", () => setActiveNav(item));
+      }
+    });
+
+    loadSessionLastName().then((lastName) => {
+      sessionLastName = lastName;
+      applyIntroTitle();
+    });
+    renderDashboard();
+    if (typeof window.saveGpLinkUpdates === "function") {
+      window.saveGpLinkUpdates(window.gpLinkUpdates);
+    }
+    renderRegistrationRows();
+    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+    setActiveNav(activeNavItem, false);
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", (event) => {
+        const hit = event.target instanceof Element ? event.target.closest(".nav-item") : null;
+        if (hit && hit !== hoveredNavItem) {
+          hoveredNavItem = hit;
+          moveNavGlass(hit, true);
+        }
+      });
+      navMenuEl.addEventListener("mouseleave", () => {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
+    window.addEventListener("resize", () => {
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+      renderUpdatesFeed();
+      applyMobileTimelineBehavior();
+    });
+    window.addEventListener("storage", (event) => {
+      if (!event || typeof event.key !== "string") return;
+      if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases" || event.key === "gp_support_cases" || event.key === "gp_link_updates" || event.key === DOC_KEY || event.key === `${DOC_KEY}${BATCH_META_SUFFIX}`) {
+        renderUpdatesFeed();
+      }
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") renderUpdatesFeed();
+    });
+
+    let startY = 0;
+    let deltaY = 0;
+    let dragging = false;
+
+    mobileRegSheet.addEventListener("touchstart", (e) => {
+      if (!mobileRegSheet.classList.contains("show")) return;
+      startY = e.touches[0].clientY;
+      deltaY = 0;
+      dragging = true;
+    }, { passive: true });
+
+    mobileRegSheet.addEventListener("touchmove", (e) => {
+      if (!dragging) return;
+      const currentY = e.touches[0].clientY;
+      deltaY = Math.max(0, currentY - startY);
+      if (deltaY > 0) {
+        mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+      }
+    }, { passive: true });
+
+    mobileRegSheet.addEventListener("touchend", () => {
+      if (!dragging) return;
+      dragging = false;
+      if (deltaY > 90) {
+        closeMobileRegistration();
+      } else {
+        mobileRegSheet.style.transform = "";
+      }
+    });
+  </script>
+</body>
+</html>

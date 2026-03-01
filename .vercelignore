@@ -1,0 +1,9 @@
+.git/
+.gitignore
+.DS_Store
+.env
+.env.*
+node_modules/
+backups/
+*.zip
+pages/admin.html

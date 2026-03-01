@@ -1,0 +1,23 @@
+.DS_Store
+.env
+.env.local
+.env.*.local
+.vercel
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local app state and backups
+data/app-db.json
+backups/
+
+# Generated archives
+*.zip
+
+# Video assets hosted externally for now
+media/videos/*.mp4
+
+# Admin panel excluded from this release
+pages/admin.html

@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GP Link - Sign In</title>
+  <style>
+    :root {
+      --bg: #eef3fb;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #d8e1ef;
+      --white: #ffffff;
+      --blue-1: #1f56d8;
+      --blue-2: #1d4ed8;
+      --blue-3: #1e3a8a;
+      --error: #b45309;
+      --ok: #0f766e;
+      --shadow: 0 30px 70px -40px rgba(15, 23, 42, 0.45);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(920px 520px at 12% -12%, rgba(29, 78, 216, 0.18), transparent 58%),
+        radial-gradient(780px 500px at 100% 100%, rgba(59, 130, 246, 0.15), transparent 60%),
+        var(--bg);
+      padding: 20px;
+    }
+
+    .auth-shell {
+      position: relative;
+      width: min(980px, 100%);
+      height: min(720px, calc(100vh - 36px));
+      min-height: 640px;
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .form-container {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      width: 50%;
+      transition: transform 0.6s ease-in-out, opacity 0.6s ease-in-out;
+      display: grid;
+      align-content: start;
+      justify-items: center;
+      padding: 20px 26px 16px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .sign-in-container {
+      left: 0;
+      z-index: 2;
+    }
+
+    .sign-up-container {
+      left: 0;
+      opacity: 0;
+      z-index: 1;
+    }
+
+    .auth-shell.right-panel-active .sign-in-container {
+      transform: translateX(100%);
+    }
+
+    .auth-shell.right-panel-active .sign-up-container {
+      transform: translateX(100%);
+      opacity: 1;
+      z-index: 5;
+    }
+
+    .auth-brand {
+      width: 138px;
+      margin-bottom: 8px;
+    }
+
+    .auth-title {
+      margin: 2px 0 6px;
+      font-size: 34px;
+      line-height: 1;
+      letter-spacing: -0.03em;
+      font-weight: 820;
+      text-align: center;
+    }
+
+    .auth-sub {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 560;
+      text-align: center;
+    }
+
+    .social-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .social-btn {
+      border: 1px solid #cdd8f3;
+      border-radius: 999px;
+      width: 44px;
+      min-height: 36px;
+      background: #f8fbff;
+      color: #1e3a8a;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 720;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .social-btn:hover {
+      border-color: #93c5fd;
+      background: #eff6ff;
+    }
+
+    .social-icon {
+      width: 17px;
+      height: 17px;
+      display: block;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .auth-form {
+      width: 100%;
+      max-width: 370px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .field {
+      display: grid;
+      gap: 4px;
+    }
+
+    .field.two-col {
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .phone-row {
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    label {
+      font-size: 12px;
+      color: #334155;
+      font-weight: 760;
+    }
+
+    input,
+    select {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: #f8fafc;
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+      padding: 0 12px;
+      outline: none;
+      transition: border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
+    }
+
+    input:focus,
+    select:focus {
+      border-color: rgba(30, 64, 175, 0.62);
+      box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.14);
+      background: #ffffff;
+    }
+
+    .field-hint {
+      margin: 0;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+
+    .field-error {
+      margin: 0;
+      min-height: 12px;
+      font-size: 10px;
+      color: var(--error);
+      font-weight: 620;
+      line-height: 1.3;
+    }
+
+    .forgot-link {
+      border: 0;
+      background: transparent;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 620;
+      cursor: pointer;
+      justify-self: center;
+      padding: 2px;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .submit-btn {
+      border: 0;
+      border-radius: 999px;
+      min-height: 42px;
+      background: linear-gradient(145deg, var(--blue-1), var(--blue-2) 58%, var(--blue-3));
+      color: #ffffff;
+      font: inherit;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 14px 28px -18px rgba(29, 78, 216, 0.88);
+    }
+
+    .submit-btn:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    .status {
+      margin: 0;
+      min-height: 16px;
+      font-size: 11px;
+      font-weight: 650;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .status.error { color: var(--error); }
+    .status.ok { color: var(--ok); }
+
+    .overlay-container {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 50%;
+      height: 100%;
+      overflow: hidden;
+      transition: transform 0.6s ease-in-out;
+      z-index: 100;
+      border-radius: 0 var(--radius) var(--radius) 0;
+    }
+
+    .auth-shell.right-panel-active .overlay-container {
+      transform: translateX(-100%);
+      border-radius: var(--radius) 0 0 var(--radius);
+    }
+
+    .overlay {
+      position: relative;
+      left: -100%;
+      height: 100%;
+      width: 200%;
+      transform: translateX(0);
+      transition: transform 0.6s ease-in-out;
+      background: linear-gradient(160deg, #2951d5 0%, #2148ca 45%, #1f3ba6 100%);
+      color: #f8fbff;
+    }
+
+    .auth-shell.right-panel-active .overlay {
+      transform: translateX(50%);
+    }
+
+    .overlay-panel {
+      position: absolute;
+      top: 0;
+      width: 50%;
+      height: 100%;
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      text-align: center;
+      gap: 14px;
+      padding: 0 42px;
+      transition: transform 0.6s ease-in-out;
+    }
+
+    .overlay-left {
+      transform: translateX(-20%);
+      left: 0;
+    }
+
+    .auth-shell.right-panel-active .overlay-left {
+      transform: translateX(0);
+    }
+
+    .overlay-right {
+      right: 0;
+      transform: translateX(0);
+    }
+
+    .auth-shell.right-panel-active .overlay-right {
+      transform: translateX(20%);
+    }
+
+    .overlay-title {
+      margin: 0;
+      font-size: 42px;
+      line-height: 1;
+      letter-spacing: -0.03em;
+      font-weight: 820;
+      color: #ffffff;
+    }
+
+    .overlay-copy {
+      margin: 0;
+      max-width: 320px;
+      color: rgba(236, 242, 255, 0.95);
+      font-size: 17px;
+      line-height: 1.38;
+      font-weight: 540;
+    }
+
+    .overlay-btn {
+      border: 2px solid rgba(224, 233, 255, 0.9);
+      border-radius: 999px;
+      min-width: 154px;
+      min-height: 44px;
+      padding: 0 16px;
+      background: transparent;
+      color: #ffffff;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 780;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+    }
+
+    .overlay-btn:focus-visible,
+    .submit-btn:focus-visible,
+    .social-btn:focus-visible,
+    .forgot-link:focus-visible {
+      outline: 3px solid rgba(255, 255, 255, 0.65);
+      outline-offset: 2px;
+    }
+
+    .legal {
+      margin-top: 12px;
+      text-align: center;
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .legal a {
+      color: #334155;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    @media (max-width: 980px) {
+      .auth-shell {
+        height: auto;
+        min-height: 0;
+        display: grid;
+        gap: 0;
+      }
+
+      .form-container,
+      .sign-in-container,
+      .sign-up-container {
+        position: relative;
+        width: 100%;
+        left: 0;
+        transform: none !important;
+      }
+
+      .sign-up-container { display: none; opacity: 1; }
+      .auth-shell.right-panel-active .sign-in-container { display: none; }
+      .auth-shell.right-panel-active .sign-up-container { display: grid; }
+
+      .overlay-container {
+        position: relative;
+        left: 0;
+        width: 100%;
+        height: auto;
+        transform: none !important;
+        border-radius: 0 0 var(--radius) var(--radius);
+      }
+
+      .overlay,
+      .auth-shell.right-panel-active .overlay {
+        left: 0;
+        width: 100%;
+        transform: none;
+      }
+
+      .overlay-panel {
+        position: relative;
+        width: 100%;
+        left: 0;
+        right: 0;
+        height: auto;
+        transform: none !important;
+        padding: 26px 18px;
+      }
+
+      .overlay-left { display: none; }
+      .auth-shell.right-panel-active .overlay-left { display: grid; }
+      .overlay-right { display: grid; }
+      .auth-shell.right-panel-active .overlay-right { display: none; }
+
+      .auth-title { font-size: 34px; }
+      .overlay-title { font-size: 32px; }
+      .overlay-copy { font-size: 15px; }
+      .phone-row { grid-template-columns: 120px minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <section class="auth-shell" id="authShell" aria-label="Authentication">
+    <div class="form-container sign-up-container" aria-hidden="true">
+      <img class="auth-brand" src="../media/images/gp-link-logo.png" alt="GP Link" />
+      <h1 class="auth-title">Create Account</h1>
+      <p class="auth-sub">Use Apple, Google, or email to create your account.</p>
+
+      <div class="social-row" role="group" aria-label="Social sign up">
+        <button class="social-btn" id="appleSignupBtn" type="button" aria-label="Continue with Apple">
+          <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d="M16.84 12.32c.02 2.29 2.02 3.05 2.04 3.06-.02.05-.32 1.1-1.06 2.19-.64.94-1.3 1.88-2.35 1.9-1.03.02-1.36-.61-2.54-.61-1.18 0-1.55.59-2.52.63-1.01.04-1.78-1.01-2.42-1.95-1.31-1.9-2.3-5.36-.96-7.69.67-1.15 1.87-1.88 3.18-1.9 1-.02 1.95.67 2.54.67.59 0 1.69-.83 2.85-.71.49.02 1.86.2 2.74 1.5-.07.04-1.64.96-1.63 2.91zM15.2 5.06c.54-.65.91-1.56.81-2.46-.78.03-1.72.52-2.28 1.17-.5.58-.94 1.5-.82 2.38.87.07 1.75-.44 2.29-1.09z"/>
+          </svg>
+          <span class="sr-only">Apple</span>
+        </button>
+        <button class="social-btn" id="googleSignupBtn" type="button" aria-label="Continue with Google">
+          <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.26-.96 2.32-2.04 3.03l3.29 2.55c1.92-1.77 3.03-4.38 3.03-7.47 0-.71-.06-1.39-.18-2.05H12z"/>
+            <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.61-2.43l-3.29-2.55c-.91.61-2.08.97-3.32.97-2.55 0-4.7-1.72-5.47-4.03H3.13v2.63A9.98 9.98 0 0 0 12 22z"/>
+            <path fill="#4285F4" d="M6.53 13.96A5.99 5.99 0 0 1 6.22 12c0-.68.12-1.34.31-1.96V7.41H3.13A9.98 9.98 0 0 0 2 12c0 1.61.39 3.13 1.13 4.59l3.4-2.63z"/>
+            <path fill="#FBBC05" d="M12 5.99c1.47 0 2.78.51 3.82 1.52l2.86-2.86C16.96 3.05 14.7 2 12 2A9.98 9.98 0 0 0 3.13 7.41l3.4 2.63C7.3 7.71 9.45 5.99 12 5.99z"/>
+          </svg>
+          <span class="sr-only">Google</span>
+        </button>
+      </div>
+
+      <form class="auth-form" id="signUpForm" novalidate>
+        <div class="field two-col">
+          <div>
+            <label for="signupFirstName">First name</label>
+            <input id="signupFirstName" name="firstName" type="text" autocomplete="given-name" maxlength="80" required />
+            <p class="field-error" id="signupFirstNameError"></p>
+          </div>
+          <div>
+            <label for="signupLastName">Last name</label>
+            <input id="signupLastName" name="lastName" type="text" autocomplete="family-name" maxlength="80" required />
+            <p class="field-error" id="signupLastNameError"></p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="signupEmail">Email</label>
+          <input id="signupEmail" name="email" type="email" autocomplete="email" maxlength="120" required />
+          <p class="field-error" id="signupEmailError"></p>
+        </div>
+
+        <div class="field">
+          <label for="signupPhone">Phone number</label>
+          <div class="phone-row">
+            <select id="signupCountryDial" name="countryDial" aria-label="Country code">
+              <option value="+61">+61 (AU)</option>
+              <option value="+64">+64 (NZ)</option>
+              <option value="+44">+44 (UK)</option>
+              <option value="+353">+353 (IE)</option>
+              <option value="+1">+1 (US/CA)</option>
+              <option value="+91">+91 (IN)</option>
+            </select>
+            <input id="signupPhone" name="phoneNumber" type="tel" autocomplete="tel" inputmode="tel" maxlength="24" required />
+          </div>
+          <p class="field-error" id="signupPhoneError"></p>
+        </div>
+
+        <div class="field">
+          <label for="signupPassword">Password</label>
+          <input id="signupPassword" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required />
+          <p class="field-error" id="signupPasswordError"></p>
+        </div>
+
+        <div class="field">
+          <label for="signupConfirmPassword">Confirm password</label>
+          <input id="signupConfirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required />
+          <p class="field-error" id="signupConfirmPasswordError"></p>
+        </div>
+
+        <button class="submit-btn" id="signupSubmitBtn" type="submit">CREATE ACCOUNT</button>
+        <p class="status" id="signUpStatus" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+
+    <div class="form-container sign-in-container">
+      <img class="auth-brand" src="../media/images/gp-link-logo.png" alt="GP Link" />
+      <h1 class="auth-title">Sign In</h1>
+      <p class="auth-sub">Use Apple, Google, or your email account.</p>
+
+      <div class="social-row" role="group" aria-label="Social sign in">
+        <button class="social-btn" id="appleSigninBtn" type="button" aria-label="Continue with Apple">
+          <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d="M16.84 12.32c.02 2.29 2.02 3.05 2.04 3.06-.02.05-.32 1.1-1.06 2.19-.64.94-1.3 1.88-2.35 1.9-1.03.02-1.36-.61-2.54-.61-1.18 0-1.55.59-2.52.63-1.01.04-1.78-1.01-2.42-1.95-1.31-1.9-2.3-5.36-.96-7.69.67-1.15 1.87-1.88 3.18-1.9 1-.02 1.95.67 2.54.67.59 0 1.69-.83 2.85-.71.49.02 1.86.2 2.74 1.5-.07.04-1.64.96-1.63 2.91zM15.2 5.06c.54-.65.91-1.56.81-2.46-.78.03-1.72.52-2.28 1.17-.5.58-.94 1.5-.82 2.38.87.07 1.75-.44 2.29-1.09z"/>
+          </svg>
+          <span class="sr-only">Apple</span>
+        </button>
+        <button class="social-btn" id="googleSigninBtn" type="button" aria-label="Continue with Google">
+          <svg class="social-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.24 1.26-.96 2.32-2.04 3.03l3.29 2.55c1.92-1.77 3.03-4.38 3.03-7.47 0-.71-.06-1.39-.18-2.05H12z"/>
+            <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.61-2.43l-3.29-2.55c-.91.61-2.08.97-3.32.97-2.55 0-4.7-1.72-5.47-4.03H3.13v2.63A9.98 9.98 0 0 0 12 22z"/>
+            <path fill="#4285F4" d="M6.53 13.96A5.99 5.99 0 0 1 6.22 12c0-.68.12-1.34.31-1.96V7.41H3.13A9.98 9.98 0 0 0 2 12c0 1.61.39 3.13 1.13 4.59l3.4-2.63z"/>
+            <path fill="#FBBC05" d="M12 5.99c1.47 0 2.78.51 3.82 1.52l2.86-2.86C16.96 3.05 14.7 2 12 2A9.98 9.98 0 0 0 3.13 7.41l3.4 2.63C7.3 7.71 9.45 5.99 12 5.99z"/>
+          </svg>
+          <span class="sr-only">Google</span>
+        </button>
+      </div>
+
+      <form class="auth-form" id="signInForm" novalidate>
+        <div class="field">
+          <label for="signinEmail">Email</label>
+          <input id="signinEmail" name="email" type="email" autocomplete="email" maxlength="120" required />
+          <p class="field-error" id="signinEmailError"></p>
+        </div>
+
+        <div class="field">
+          <label for="signinPassword">Password</label>
+          <input id="signinPassword" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="128" required />
+          <p class="field-error" id="signinPasswordError"></p>
+        </div>
+
+        <button class="forgot-link" id="forgotPasswordBtn" type="button">Forgot password?</button>
+        <button class="submit-btn" id="signinSubmitBtn" type="submit">SIGN IN</button>
+        <p class="status" id="signInStatus" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+
+    <div class="overlay-container" aria-hidden="true">
+      <div class="overlay">
+        <div class="overlay-panel overlay-left">
+          <h2 class="overlay-title">Welcome back!</h2>
+          <p class="overlay-copy">Sign in to continue your registration.</p>
+          <button class="overlay-btn" id="signInToggleBtn" type="button">SIGN IN</button>
+        </div>
+        <div class="overlay-panel overlay-right">
+          <h2 class="overlay-title">Hello, Doctor!</h2>
+          <p class="overlay-copy">Create an account to start your Journey to the land down under</p>
+          <button class="overlay-btn" id="signUpToggleBtn" type="button">SIGN UP</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="legal">
+    <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a><br />
+    © 2026 GP Link
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = "https://rqrqcfxalkvzwbedvsjs.supabase.co";
+    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_azrMKjmESGzVhabzQjybSg_9BwLy9C0";
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+    const authShellEl = document.getElementById("authShell");
+    const signUpToggleBtnEl = document.getElementById("signUpToggleBtn");
+    const signInToggleBtnEl = document.getElementById("signInToggleBtn");
+
+    const signInFormEl = document.getElementById("signInForm");
+    const signUpFormEl = document.getElementById("signUpForm");
+
+    const signInStatusEl = document.getElementById("signInStatus");
+    const signUpStatusEl = document.getElementById("signUpStatus");
+
+    const signinSubmitBtnEl = document.getElementById("signinSubmitBtn");
+    const signupSubmitBtnEl = document.getElementById("signupSubmitBtn");
+    const forgotPasswordBtnEl = document.getElementById("forgotPasswordBtn");
+    const signupCountryDialEl = document.getElementById("signupCountryDial");
+
+    function setStatus(el, message, type = "") {
+      el.textContent = message;
+      el.className = `status${type ? ` ${type}` : ""}`;
+    }
+
+    function clearErrors(formType) {
+      const ids = formType === "signin"
+        ? ["signinEmailError", "signinPasswordError"]
+        : [
+            "signupFirstNameError",
+            "signupLastNameError",
+            "signupEmailError",
+            "signupPhoneError",
+            "signupPasswordError",
+            "signupConfirmPasswordError"
+          ];
+      ids.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = "";
+      });
+    }
+
+    function setError(id, message) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = message || "";
+    }
+
+    function validateSignIn() {
+      clearErrors("signin");
+      let ok = true;
+      const email = signInFormEl.elements.email.value.trim();
+      const password = signInFormEl.elements.password.value;
+
+      if (!email) {
+        setError("signinEmailError", "Email is required.");
+        ok = false;
+      }
+      if (!password) {
+        setError("signinPasswordError", "Password is required.");
+        ok = false;
+      }
+      return ok;
+    }
+
+    function validateSignUp() {
+      clearErrors("signup");
+      let ok = true;
+      const firstName = signUpFormEl.elements.firstName.value.trim();
+      const lastName = signUpFormEl.elements.lastName.value.trim();
+      const email = signUpFormEl.elements.email.value.trim();
+      const countryDial = signUpFormEl.elements.countryDial.value.trim();
+      const phoneNumber = signUpFormEl.elements.phoneNumber.value.trim();
+      const password = signUpFormEl.elements.password.value;
+      const confirmPassword = signUpFormEl.elements.confirmPassword.value;
+
+      if (!firstName) {
+        setError("signupFirstNameError", "First name is required.");
+        ok = false;
+      }
+      if (!lastName) {
+        setError("signupLastNameError", "Last name is required.");
+        ok = false;
+      }
+      if (!email) {
+        setError("signupEmailError", "Email is required.");
+        ok = false;
+      }
+      if (!phoneNumber) {
+        setError("signupPhoneError", "Phone number is required.");
+        ok = false;
+      } else {
+        const digits = phoneNumber.replace(/\D/g, "");
+        if (digits.length < 6 || !countryDial) {
+          setError("signupPhoneError", "Enter a valid phone number.");
+          ok = false;
+        }
+      }
+      if (!password) {
+        setError("signupPasswordError", "Password is required.");
+        ok = false;
+      }
+      if (!confirmPassword) {
+        setError("signupConfirmPasswordError", "Please confirm your password.");
+        ok = false;
+      } else if (password !== confirmPassword) {
+        setError("signupConfirmPasswordError", "Passwords do not match.");
+        ok = false;
+      }
+
+      return ok;
+    }
+
+    function setPanel(activeMode) {
+      if (activeMode === "signup") {
+        authShellEl.classList.add("right-panel-active");
+      } else {
+        authShellEl.classList.remove("right-panel-active");
+      }
+      setStatus(signInStatusEl, "");
+      setStatus(signUpStatusEl, "");
+      clearErrors("signin");
+      clearErrors("signup");
+    }
+
+    async function startOAuth(provider) {
+      try {
+        const activeStatusEl = authShellEl.classList.contains("right-panel-active") ? signUpStatusEl : signInStatusEl;
+        setStatus(activeStatusEl, `Redirecting to ${provider === "apple" ? "Apple" : "Google"}...`);
+        const redirectTo = `${window.location.origin}/pages/signin.html`;
+        const { error } = await supabaseClient.auth.signInWithOAuth({ provider, options: { redirectTo } });
+        if (error) {
+          setStatus(activeStatusEl, error.message || "Unable to start OAuth sign-in.", "error");
+        }
+      } catch (err) {
+        const activeStatusEl = authShellEl.classList.contains("right-panel-active") ? signUpStatusEl : signInStatusEl;
+        setStatus(activeStatusEl, "Unable to start OAuth sign-in.", "error");
+      }
+    }
+
+    async function finalizeSupabaseOAuthSessionIfPresent() {
+      const hash = window.location.hash || "";
+      const search = window.location.search || "";
+      const hasOAuthParams = hash.includes("access_token") || hash.includes("error_description") || search.includes("code=");
+      if (!hasOAuthParams) return;
+
+      try {
+        const { data, error } = await supabaseClient.auth.getSession();
+        if (error || !data || !data.session || !data.session.access_token) {
+          setStatus(signInStatusEl, "OAuth sign-in failed. Please try again.", "error");
+          return;
+        }
+
+        const response = await fetch("/api/auth/supabase-session-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ accessToken: data.session.access_token })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.ok) {
+          setStatus(signInStatusEl, result.message || "Unable to complete sign-in.", "error");
+          return;
+        }
+
+        const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+        window.history.replaceState({}, "", cleanUrl);
+        window.location.href = result.redirectTo || "/pages/index.html";
+      } catch (err) {
+        setStatus(signInStatusEl, "OAuth sign-in failed. Please try again.", "error");
+      }
+    }
+
+    async function requestPasswordReset() {
+      const email = signInFormEl.elements.email.value.trim();
+      if (!email) {
+        setError("signinEmailError", "Enter your email first.");
+        return;
+      }
+
+      forgotPasswordBtnEl.disabled = true;
+      try {
+        const response = await fetch("/api/auth/request-password-reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          setStatus(signInStatusEl, data.message || "Unable to request password reset.", "error");
+          return;
+        }
+        setStatus(signInStatusEl, data.message || "If an account exists, a reset link has been sent.", "ok");
+      } catch (err) {
+        setStatus(signInStatusEl, "Network error. Please try again.", "error");
+      } finally {
+        forgotPasswordBtnEl.disabled = false;
+      }
+    }
+
+    signInFormEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus(signInStatusEl, "");
+      if (!validateSignIn()) return;
+
+      signinSubmitBtnEl.disabled = true;
+      try {
+        const payload = {
+          email: signInFormEl.elements.email.value.trim(),
+          password: signInFormEl.elements.password.value
+        };
+
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          setStatus(signInStatusEl, data.message || "Sign in failed.", "error");
+          return;
+        }
+
+        setStatus(signInStatusEl, "Signed in successfully. Redirecting...", "ok");
+        window.location.href = data.redirectTo || "/pages/index.html";
+      } catch (err) {
+        setStatus(signInStatusEl, "Network error. Please try again.", "error");
+      } finally {
+        signinSubmitBtnEl.disabled = false;
+      }
+    });
+
+    signUpFormEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus(signUpStatusEl, "");
+      if (!validateSignUp()) return;
+
+      signupSubmitBtnEl.disabled = true;
+      try {
+        const payload = {
+          firstName: signUpFormEl.elements.firstName.value.trim(),
+          lastName: signUpFormEl.elements.lastName.value.trim(),
+          email: signUpFormEl.elements.email.value.trim(),
+          countryDial: signUpFormEl.elements.countryDial.value.trim(),
+          phoneNumber: signUpFormEl.elements.phoneNumber.value.trim(),
+          password: signUpFormEl.elements.password.value
+        };
+
+        const response = await fetch("/api/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.ok) {
+          setStatus(signUpStatusEl, data.message || "Sign up failed.", "error");
+          return;
+        }
+
+        if (data.requiresConfirmation) {
+          setStatus(signInStatusEl, "Account created. Please confirm your email, then sign in.", "ok");
+          setPanel("signin");
+          signUpFormEl.reset();
+          return;
+        }
+
+        if (data.redirectTo) {
+          window.location.href = data.redirectTo;
+          return;
+        }
+
+        setStatus(signInStatusEl, "Account created. Please sign in.", "ok");
+        setPanel("signin");
+        signUpFormEl.reset();
+      } catch (err) {
+        setStatus(signUpStatusEl, "Network error. Please try again.", "error");
+      } finally {
+        signupSubmitBtnEl.disabled = false;
+      }
+    });
+
+    signUpToggleBtnEl.addEventListener("click", () => setPanel("signup"));
+    signInToggleBtnEl.addEventListener("click", () => setPanel("signin"));
+
+    forgotPasswordBtnEl.addEventListener("click", requestPasswordReset);
+
+    document.getElementById("appleSigninBtn").addEventListener("click", () => startOAuth("apple"));
+    document.getElementById("googleSigninBtn").addEventListener("click", () => startOAuth("google"));
+    document.getElementById("appleSignupBtn").addEventListener("click", () => startOAuth("apple"));
+    document.getElementById("googleSignupBtn").addEventListener("click", () => startOAuth("google"));
+
+    function pickCountryDialFromLocale() {
+      const locale = (navigator.language || "en-AU").toUpperCase();
+      const region = (locale.split("-")[1] || "AU").toUpperCase();
+      const map = {
+        AU: "+61",
+        NZ: "+64",
+        GB: "+44",
+        UK: "+44",
+        IE: "+353",
+        US: "+1",
+        CA: "+1",
+        IN: "+91"
+      };
+      const dial = map[region];
+      if (dial) signupCountryDialEl.value = dial;
+    }
+
+    setPanel("signin");
+    pickCountryDialFromLocale();
+    finalizeSupabaseOAuthSessionIfPresent();
+  </script>
+</body>
+</html>

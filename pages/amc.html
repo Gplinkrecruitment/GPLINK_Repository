@@ -1,0 +1,2051 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AMC Candidate Portfolio - GP Link</title>
+  <script src="../js/auth-guard.js" defer></script>
+  <script src="../js/state-sync.js" defer></script>
+  <script src="../js/updates-sync.js" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --blue: #0a84ff;
+      --amber-bg: #fff8e8;
+      --amber-line: #f4d28d;
+      --shadow-soft: 0 18px 38px -28px rgba(15, 23, 42, 0.35);
+      --radius-lg: 18px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+    }
+
+    * { box-sizing: border-box; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
+        radial-gradient(760px 460px at 100% 0%, rgba(22, 163, 74, 0.12), transparent 58%),
+        var(--bg);
+      color: var(--text);
+      padding: 20px 12px 30px;
+    }
+
+    .shell {
+      max-width: 1150px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 22px;
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      overflow: hidden;
+    }
+
+    .topbar {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid #e6edf7;
+      background: #ffffff;
+    }
+
+    .topbar h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: -0.025em;
+      font-weight: 760;
+      color: #111827;
+    }
+
+    .topbar p {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      min-height: 56px;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+
+    .brand-logo img {
+      display: block;
+      width: 178px;
+      height: auto;
+    }
+
+    .nav-menu {
+      display: flex;
+      gap: 22px;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+      padding: 6px;
+      border-radius: 14px;
+    }
+
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
+
+    .nav-link {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #111827;
+      border-radius: 0;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+    }
+
+    .nav-link.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-action {
+      border: 0;
+      background: transparent;
+      color: #111827;
+      border-radius: 0;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      cursor: pointer;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+
+    .nav-icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #334155;
+    }
+
+    .nav-text { line-height: 1; }
+
+    .nav-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+
+    .nav-alert {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .account-pill {
+      border: 0;
+      background: transparent;
+      color: #111827;
+      border-radius: 0;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      text-decoration: none;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+    }
+
+    .nav-link.active,
+    .nav-action.active,
+    .account-pill.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 104px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05), transform .2s ease, box-shadow .2s ease;
+    }
+
+    .nav-glass.morph {
+      animation: glassMorph .34s ease;
+    }
+
+    .nav-glass.engulf {
+      transform: scale(1.06);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 14px 24px -18px rgba(37, 99, 235, 0.62);
+    }
+
+    @keyframes glassMorph {
+      0% { transform: scaleX(.92) scaleY(1.02); border-radius: 16px; }
+      50% { transform: scaleX(1.08) scaleY(.92); border-radius: 20px; }
+      100% { transform: scaleX(1) scaleY(1); border-radius: 12px; }
+    }
+
+    .reg-dropdown {
+      position: absolute;
+      top: calc(100% + 2px);
+      right: 0;
+      width: min(760px, 92vw);
+      border-radius: 16px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      box-shadow: var(--glass-shadow), 0 14px 26px -18px rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      padding: 10px;
+      z-index: 70;
+      opacity: 0;
+      transform: translateY(4px);
+      pointer-events: none;
+      visibility: hidden;
+      transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
+    }
+
+    .reg-dropdown.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+      visibility: visible;
+    }
+
+    .reg-head {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+
+    .reg-table { display: grid; gap: 8px; }
+
+    .reg-row {
+      display: grid;
+      grid-template-columns: 1.2fr auto auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      background: #fbfdff;
+      border-radius: 12px;
+      padding: 8px 10px;
+    }
+
+    .reg-name {
+      font-size: 12px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .reg-sub {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .reg-pill {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 900;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #eaf3ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdcff;
+    }
+
+    .reg-pill.locked {
+      background: #f1f5f9;
+      color: #64748b;
+      border-color: #dbe4ef;
+    }
+
+    .reg-btn {
+      text-decoration: none;
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+      color: #1e3a8a;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .reg-btn.locked {
+      background: rgba(241, 245, 249, 0.82);
+      border-color: #dbe4ef;
+      color: #64748b;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .main {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 2px 4px;
+    }
+
+    .heading-main {
+      width: 100%;
+      display: grid;
+      gap: 4px;
+    }
+
+    .heading-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .heading-updated {
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 620;
+      white-space: nowrap;
+    }
+
+    .heading h2 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -0.02em;
+      font-weight: 740;
+    }
+
+    .heading p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 560;
+    }
+
+    .chips {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      border: 1px solid #d7e3f6;
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 620;
+      color: #334155;
+      white-space: nowrap;
+    }
+
+    .btn {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.58);
+      color: #1e3a8a;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px -14px rgba(15, 23, 42, 0.45);
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+      opacity: 0.65;
+    }
+
+    .btn-primary {
+      color: #1e3a8a;
+      background: rgba(255, 255, 255, 0.62);
+      border-color: rgba(147, 197, 253, 0.95);
+    }
+
+    .btn-soft {
+      color: #1e3a8a;
+      border-color: rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .btn-neutral {
+      color: #475569;
+      border-color: #dbe4ef;
+      background: rgba(241, 245, 249, 0.82);
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .btn-undo {
+      width: auto;
+      min-height: 34px;
+      padding: 6px 10px;
+      font-size: 12px;
+      justify-self: flex-start;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-soft);
+      padding: 14px;
+    }
+
+    .card h3 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .sub {
+      margin: 4px 0 10px;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+
+    .stage-list {
+      position: relative;
+      display: grid;
+      gap: 10px;
+      padding-left: 32px;
+    }
+
+    .stage-list::before {
+      content: "";
+      position: absolute;
+      left: 11px;
+      top: 14px;
+      bottom: 14px;
+      width: 2px;
+      background: #d7e3f6;
+      border-radius: 999px;
+    }
+
+    .stage-card {
+      position: relative;
+      border: 1px solid #e3eaf4;
+      border-radius: var(--radius-md);
+      background: #fbfdff;
+      padding: 11px;
+      display: grid;
+      gap: 9px;
+      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .stage-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px -16px rgba(15, 23, 42, 0.36);
+    }
+
+    .stage-card.is-selected {
+      border-color: #b8d4fb;
+      background: #f3f8ff;
+      box-shadow: 0 14px 24px -22px rgba(37, 99, 235, 0.7);
+    }
+
+    .stage-card.current {
+      border-color: #bfdcff;
+      background: linear-gradient(180deg, #f8fbff 0%, #f2f8ff 100%);
+    }
+
+    .stage-card.done {
+      border-color: #bde8cc;
+      background: #f2fcf6;
+    }
+
+    .stage-card.locked {
+      background: #f8fafc;
+      border-color: #e4e9f1;
+    }
+
+    .stage-node {
+      position: absolute;
+      left: -32px;
+      top: 14px;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      border: 1px solid #b7cae7;
+      background: #f8fbff;
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+      transition: all .18s ease;
+    }
+
+    .stage-card:hover .stage-node,
+    .stage-card:focus-within .stage-node {
+      transform: scale(1.06);
+      border-color: #60a5fa;
+      color: #1d4ed8;
+      background: #eef6ff;
+    }
+
+    .stage-card.current .stage-node,
+    .stage-card.done .stage-node {
+      border-color: #2563eb;
+      background: #2563eb;
+      color: #fff;
+      box-shadow: 0 6px 14px -10px rgba(37, 99, 235, 0.75);
+    }
+
+    .stage-card.locked .stage-node {
+      border-color: #d1d5db;
+      color: #94a3b8;
+      background: #f8fafc;
+    }
+
+    .stage-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    .stage-title-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .stage-current {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 10px;
+      line-height: 1;
+      font-weight: 800;
+      text-transform: capitalize;
+      color: #1d4ed8;
+      background: #eaf3ff;
+      border: 1px solid #bfdcff;
+      letter-spacing: .02em;
+    }
+
+    .stage-head h4 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      color: #111827;
+      letter-spacing: -0.01em;
+    }
+
+    .stage-head p {
+      margin: 3px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+
+    .pill {
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 650;
+      border: 1px solid #d9e4f6;
+      background: #f3f8ff;
+      color: #2459a6;
+      white-space: nowrap;
+      align-self: flex-start;
+    }
+
+    .pill.locked {
+      background: #f8fafc;
+      color: #64748b;
+      border-color: #e2e8f0;
+    }
+
+    .pill.done {
+      background: #ebfaef;
+      color: #15803d;
+      border-color: #bce8cc;
+    }
+
+    .guidance-top {
+      border: 1px solid #dce8f8;
+      border-radius: var(--radius-md);
+      background: linear-gradient(180deg, #f9fcff 0%, #f2f8ff 100%);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .do-block {
+      display: grid;
+      gap: 8px;
+    }
+
+    .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #0369a1;
+      font-weight: 700;
+    }
+
+    .line {
+      margin: 0;
+      font-size: 13px;
+      color: #0f172a;
+      font-weight: 620;
+    }
+
+    .line-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .glass-tick {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.58);
+      color: #1d4ed8;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      flex: 0 0 auto;
+    }
+
+    .glass-tick svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .line span {
+      color: #334155;
+      font-weight: 560;
+    }
+
+    .timeline {
+      margin-top: 2px;
+      border: 1px solid #e2e8f0;
+      border-radius: var(--radius-md);
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .timeline p {
+      margin: 0;
+      font-size: 12px;
+      color: #334155;
+      font-weight: 600;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .warning {
+      margin-top: 10px;
+      border: 1px solid var(--amber-line);
+      border-radius: var(--radius-sm);
+      background: var(--amber-bg);
+      color: #92400e;
+      padding: 10px;
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.4;
+    }
+
+    #watchTutorial {
+      margin: 2px auto 0;
+      width: auto;
+      min-width: 188px;
+      border-radius: 999px;
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.58);
+      color: #0f172a;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    #watchTutorial svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    #watchTutorial.tutorial-highlight {
+      border-color: rgba(96, 165, 250, 0.95);
+      animation: tutorialFloat 2.8s ease-in-out infinite;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 12px 20px -14px rgba(37, 99, 235, 0.7);
+    }
+
+    @keyframes tutorialFloat {
+      0% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
+      100% { transform: translateY(0); }
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 30;
+    }
+
+    .modal.show { display: flex; }
+
+    .modal-card {
+      width: min(520px, 100%);
+      background: #fff;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 28px 42px -28px rgba(15, 23, 42, 0.65);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .modal-card h4 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 740;
+      letter-spacing: -0.01em;
+    }
+
+    .modal-card p {
+      margin: 0;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.45;
+      font-weight: 560;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 90px;
+      border-radius: 10px;
+      border: 1px solid #d7e3f6;
+      padding: 10px;
+      resize: vertical;
+      font: inherit;
+      font-size: 13px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      border-radius: 999px;
+      background: #0f172a;
+      color: #fff;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 650;
+      box-shadow: 0 12px 26px -18px rgba(15, 23, 42, 0.8);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity .2s ease, transform .2s ease;
+      pointer-events: none;
+      z-index: 40;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .footer-note {
+      text-align: center;
+      margin: 2px 0 0;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 550;
+    }
+
+    .mobile-nav {
+      position: fixed;
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      width: min(560px, calc(100vw - 18px));
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 18px;
+      padding: 8px 6px;
+      display: none;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      z-index: 50;
+      box-shadow: 0 18px 30px -24px rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .mobile-tab {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #dbe4f1;
+      border-radius: 14px;
+      min-height: 58px;
+      padding: 6px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .mobile-tab-icon {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      color: #dbe4f1;
+    }
+
+    .mobile-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .mobile-tab-alert {
+      top: -6px;
+      right: -8px;
+      transform: none;
+    }
+
+    .mobile-tab-label {
+      font-size: 10px;
+      font-weight: 620;
+      line-height: 1.15;
+      text-align: center;
+      letter-spacing: 0.01em;
+    }
+
+    .mobile-tab-active {
+      background: rgba(59, 130, 246, 0.2);
+      color: #ffffff;
+    }
+
+    .mobile-tab-active .mobile-tab-icon {
+      color: #7dd3fc;
+    }
+
+    .mobile-tab-icon svg {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mobile-reg-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.42);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+      z-index: 54;
+    }
+
+    .mobile-reg-backdrop.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .mobile-reg-sheet {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #ffffff;
+      border-radius: 18px 18px 0 0;
+      border-top: 1px solid #dbe4ef;
+      box-shadow: 0 -20px 40px -28px rgba(15, 23, 42, 0.5);
+      padding: 10px 12px 14px;
+      transform: translateY(100%);
+      transition: transform .24s ease;
+      z-index: 55;
+      max-height: 74vh;
+      overflow: auto;
+      touch-action: pan-y;
+    }
+
+    .mobile-reg-sheet.show {
+      transform: translateY(0);
+    }
+
+    .mobile-reg-grab {
+      width: 44px;
+      height: 5px;
+      border-radius: 999px;
+      background: #cbd5e1;
+      margin: 2px auto 10px;
+    }
+
+    .mobile-reg-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .mobile-reg-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+
+    .mobile-reg-close {
+      border: 0;
+      background: #f1f5f9;
+      color: #334155;
+      border-radius: 999px;
+      width: 30px;
+      height: 30px;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .mobile-reg-table {
+      display: grid;
+      gap: 8px;
+    }
+
+    .mobile-reg-table .reg-row {
+      grid-template-columns: 1fr auto;
+    }
+
+    .mobile-reg-table .reg-btn {
+      grid-column: 1 / -1;
+      width: 100%;
+      text-align: center;
+      margin-top: 2px;
+    }
+
+    @media (max-width: 980px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .guidance-panel { order: 1; }
+      .progress-panel { order: 2; }
+      body { padding-bottom: 96px; }
+      .mobile-nav { display: grid; }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 12px 10px 22px; }
+      .topbar h1 { font-size: 26px; }
+      .heading h2 { font-size: 20px; }
+      .main { padding: 10px; }
+      .btn { width: 100%; min-height: 44px; }
+      .btn-undo { width: auto !important; min-height: 34px; }
+      #watchTutorial { width: auto !important; min-height: 44px; }
+      .heading-meta { align-items: flex-start; }
+    }
+
+    @media (max-width: 767px) {
+      .nav-menu { display: none; }
+      .topbar-row { grid-template-columns: auto; justify-content: flex-start; }
+      .brand-logo { position: static; transform: none; }
+    }
+
+    @media (max-width: 560px) {
+      .shell { border-radius: 16px; }
+      .topbar { padding: 12px; }
+      .card,
+      .guidance-top,
+      .timeline,
+      .stage-card { padding: 10px; }
+      .stage-list { padding-left: 28px; }
+      .stage-node { left: -28px; }
+      .stage-head { flex-direction: column; gap: 6px; }
+      .actions { gap: 6px; }
+      .actions .btn { width: 100%; justify-content: center; }
+      #watchTutorial { width: 100%; min-width: 0; }
+      .pill { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item" href="index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+            <span class="nav-text">Home</span>
+          </a>
+          <button class="nav-action nav-item active" id="registrationMenuBtn" type="button" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+            <span class="nav-text">Registration</span>
+          </button>
+          <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span class="nav-text">My Documents</span>
+          </a>
+          <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span class="nav-text">Messages</span>
+          </button>
+          <a class="account-pill nav-item" href="account.html" data-nav="account">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            <span class="nav-text">Account</span>
+          </a>
+
+          <div class="reg-dropdown" id="registrationDropdown">
+            <p class="reg-head">Registration Process</p>
+            <div class="reg-table" id="regTable"></div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="heading">
+        <div class="heading-main">
+          <h2>AMC Candidate Portfolio</h2>
+          <div class="heading-meta">
+            <p>This section relates to your Australian Medical Council (AMC) requirements after EPIC verification.</p>
+            <span class="heading-updated" id="updatedChip">Updated now</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="layout">
+        <article class="card progress-panel">
+          <h3>Your Progress in This Step</h3>
+          <p class="sub">Complete each stage in order. Locked stages unlock automatically.</p>
+          <div class="stage-list" id="stageList"></div>
+        </article>
+
+        <article class="card guidance-panel">
+          <h3>Smart Guidance Panel</h3>
+          <p class="sub">Dynamic instructions based on your current AMC stage.</p>
+
+          <div class="guidance-top">
+            <div class="do-block">
+              <div class="label">What to do now</div>
+              <p class="line line-title" id="guideTitle">-</p>
+              <p class="line"><span>Do now:</span> <span id="guideDoNow">-</span></p>
+              <p class="line" id="guideTimeRow"><span>Estimated time:</span> <span id="guideTime">-</span></p>
+              <p class="line"><span>What GP Link does:</span> <span id="guideSupport">-</span></p>
+              <button class="btn btn-primary" id="mainCta" type="button">Continue</button>
+              <button class="btn btn-soft" id="watchTutorial" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
+                <span>Watch tutorial</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="timeline" id="timelineBox">
+            <p id="timelineCurrentRow"><strong>Current:</strong> <span id="timelineCurrent">-</span></p>
+            <p id="timelineNextRow"><strong>Next:</strong> <span id="timelineNext">-</span></p>
+            <p id="timelineAfterRow"><strong>After that:</strong> <span id="timelineAfter">-</span></p>
+          </div>
+
+          <div class="actions" id="secondaryActions">
+            <a class="btn btn-soft" href="https://www.amc.org.au" target="_blank" rel="noopener noreferrer">Open AMC</a>
+            <button class="btn btn-soft" id="contactSupport" type="button">Contact support</button>
+          </div>
+
+          <div class="warning" id="countryGuidance">Country guidance will appear here.</div>
+        </article>
+      </section>
+
+      <p class="footer-note" id="footerStatus">Status synced</p>
+    </main>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+      </span>
+      <span class="mobile-tab-label">Home Dashboard</span>
+    </a>
+    <button class="mobile-tab mobile-tab-active" id="mobileRegistrationBtn" type="button">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+      </span>
+      <span class="mobile-tab-label">Registration Process</span>
+    </button>
+    <button class="mobile-tab" id="mobileSupportBtn" type="button">
+      <span class="mobile-icon-wrap">
+        <span class="mobile-tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        </span>
+        <span class="mobile-tab-alert nav-alert" data-inbox-alert hidden aria-hidden="true">!</span>
+      </span>
+      <span class="mobile-tab-label">Messages</span>
+    </button>
+    <a class="mobile-tab" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+      </span>
+      <span class="mobile-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
+  <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
+    <div class="mobile-reg-grab" aria-hidden="true"></div>
+    <div class="mobile-reg-head">
+      <p class="mobile-reg-title">Registration Process</p>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">×</button>
+    </div>
+    <div class="mobile-reg-table" id="mobileRegTable"></div>
+  </aside>
+
+  <div class="modal" id="tutorialModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle">
+      <h4 id="tutorialTitle">Tutorial</h4>
+      <p id="tutorialText">Create your AMC Candidate Portfolio account by following this walkthrough.</p>
+      <video id="tutorialVideo" controls playsinline preload="metadata" style="width:100%; border-radius:12px; border:1px solid #e2e8f0; background:#000;">
+        <source id="tutorialSource" src="../media/videos/amc-tutorial-1.mp4" type="video/mp4" />
+        Your browser does not support the video tag.
+      </video>
+      <button class="btn btn-primary" data-close="tutorialModal" type="button">Close</button>
+    </div>
+  </div>
+
+  <div class="modal" id="supportModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+      <h4 id="supportTitle">Contact support</h4>
+      <p>Share what you are seeing in AMC and we will help with the next action quickly.</p>
+      <textarea placeholder="Describe your issue..."></textarea>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-primary" type="button">Submit request</button>
+        <button class="btn btn-neutral" data-close="supportModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Saved ✓</div>
+
+  <script>
+    const AMC_STORAGE_KEY = "gp_amc_progress";
+    const COUNTRY_KEY = "gp_selected_country";
+    const TUTORIAL_SEEN_KEY = "gp_amc_tutorial_seen";
+    const EPIC_KEY = "gp_epic_progress";
+    const SAVE_BATCH_SIZE = 3;
+    const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
+
+    const STAGES = [
+      "create_portfolio",
+      "upload_credentials",
+      "qualifications_verified"
+    ];
+
+    let currentStageKey = "create_portfolio";
+    let selectedStageKey = "create_portfolio";
+
+    const stageMeta = {
+      create_portfolio: {
+        label: "Create an AMC account",
+        short: "Set up your AMC Candidate Portfolio account.",
+        doNow: "Create your AMC Candidate Portfolio and activate your account.",
+        where: "AMC website → Candidate Portfolio → Create account",
+        time: "5–10 mins",
+        support: "We confirm setup details and make sure you start correctly.",
+        cta: "Open AMC",
+        ctaType: "amc_signup"
+      },
+      upload_credentials: {
+        label: "Upload Credentials",
+        short: "Upload your qualifications as credentials in your AMC portfolio.",
+        doNow: "Upload your specialist qualifications as credentials in your AMC portfolio.",
+        where: "AMC Candidate Portfolio → Credentials → Add credential",
+        time: "10–20 mins",
+        support: "We review the uploaded credentials before submission.",
+        cta: "Open AMC",
+        ctaType: "amc"
+      },
+      qualifications_verified: {
+        label: "Qualifications verified",
+        short: "Your credentials are verified and accepted.",
+        doNow: "Your AMC Portfolio is complete. We can begin your application for Specialist Registration now!",
+        where: "AMC Candidate Portfolio",
+        time: "Complete",
+        support: "We guide you through your next AMC pathway actions.",
+        cta: "AHPRA Registration",
+        ctaType: "ahpra"
+      }
+    };
+
+    const countryMap = {
+      uk: {
+        label: "United Kingdom",
+        credentialText: "Upload your MRCGP as credentials in AMC."
+      },
+      ie: {
+        label: "Ireland",
+        credentialText: "Upload your MICGP as credentials in AMC."
+      },
+      nz: {
+        label: "New Zealand",
+        credentialText: "Upload your FRNZCGP as credentials in AMC."
+      }
+    };
+
+    const stageListEl = document.getElementById("stageList");
+    const stageChipEl = document.getElementById("stageChip");
+    const updatedChipEl = document.getElementById("updatedChip");
+    const footerStatusEl = document.getElementById("footerStatus");
+
+    const guideTitleEl = document.getElementById("guideTitle");
+    const guideDoNowEl = document.getElementById("guideDoNow");
+    const guideWhereEl = document.getElementById("guideWhere");
+    const guideTimeEl = document.getElementById("guideTime");
+    const guideSupportEl = document.getElementById("guideSupport");
+    const mainCtaEl = document.getElementById("mainCta");
+    const guideTimeRowEl = document.getElementById("guideTimeRow");
+
+    const timelineCurrentEl = document.getElementById("timelineCurrent");
+    const timelineNextEl = document.getElementById("timelineNext");
+    const timelineAfterEl = document.getElementById("timelineAfter");
+    const timelineBoxEl = document.getElementById("timelineBox");
+    const timelineCurrentRowEl = document.getElementById("timelineCurrentRow");
+    const timelineNextRowEl = document.getElementById("timelineNextRow");
+    const timelineAfterRowEl = document.getElementById("timelineAfterRow");
+    const secondaryActionsEl = document.getElementById("secondaryActions");
+
+    const countryGuidanceEl = document.getElementById("countryGuidance");
+    const watchTutorialBtnEl = document.getElementById("watchTutorial");
+
+    const tutorialModalEl = document.getElementById("tutorialModal");
+    const supportModalEl = document.getElementById("supportModal");
+    const tutorialTextEl = document.getElementById("tutorialText");
+    const tutorialSourceEl = document.getElementById("tutorialSource");
+    const tutorialVideoEl = document.getElementById("tutorialVideo");
+    const tutorialByStage = {
+      create_portfolio: {
+        text: "Create your AMC Candidate Portfolio account by following this walkthrough.",
+        src: "../media/videos/amc-tutorial-1.mp4"
+      },
+      upload_credentials: {
+        text: "Upload your specialist qualifications in your AMC portfolio by following this walkthrough.",
+        src: "../media/videos/amc-tutorial-2.mp4"
+      }
+    };
+    const mobileRegistrationBtn = document.getElementById("mobileRegistrationBtn");
+    const mobileRegBackdrop = document.getElementById("mobileRegBackdrop");
+    const mobileRegSheet = document.getElementById("mobileRegSheet");
+    const mobileRegTable = document.getElementById("mobileRegTable");
+    const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
+    const toastEl = document.getElementById("toast");
+
+    function loadBatchMeta(metaKey) {
+      const raw = localStorage.getItem(metaKey);
+      if (!raw) return { pending: 0, lastValue: "" };
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return { pending: 0, lastValue: "" };
+        return {
+          pending: Number.isInteger(parsed.pending) ? parsed.pending : 0,
+          lastValue: typeof parsed.lastValue === "string" ? parsed.lastValue : ""
+        };
+      } catch (err) {
+        return { pending: 0, lastValue: "" };
+      }
+    }
+
+    function queueBatchedSave(storageKey, value, force = false) {
+      const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+      const meta = loadBatchMeta(metaKey);
+      meta.pending += 1;
+      meta.lastValue = value;
+      if (force || meta.pending >= SAVE_BATCH_SIZE) {
+        localStorage.setItem(storageKey, value);
+        meta.pending = 0;
+      }
+      localStorage.setItem(metaKey, JSON.stringify(meta));
+    }
+
+    function flushBatchedSave(storageKey) {
+      const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+      const meta = loadBatchMeta(metaKey);
+      if (meta.pending > 0 && meta.lastValue) {
+        localStorage.setItem(storageKey, meta.lastValue);
+        meta.pending = 0;
+        localStorage.setItem(metaKey, JSON.stringify(meta));
+      }
+    }
+
+    function flushAllBatchedSaves() {
+      [AMC_STORAGE_KEY, TUTORIAL_SEEN_KEY].forEach(flushBatchedSave);
+    }
+
+    window.addEventListener("beforeunload", flushAllBatchedSaves);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushAllBatchedSaves();
+    });
+
+    function defaultProgress() {
+      return {
+        stage: "create_portfolio",
+        completed: {
+          create_portfolio: false,
+          upload_credentials: false,
+          qualifications_verified: false
+        },
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    function isValidProgress(value) {
+      if (!value || typeof value !== "object") return false;
+      if (!STAGES.includes(value.stage)) return false;
+      if (!value.completed || typeof value.completed !== "object") return false;
+      for (const key of STAGES) {
+        if (typeof value.completed[key] !== "boolean") return false;
+      }
+      if (typeof value.updatedAt !== "string") return false;
+      return true;
+    }
+
+    function saveProgress(progress, force = false) {
+      progress.updatedAt = new Date().toISOString();
+      queueBatchedSave(AMC_STORAGE_KEY, JSON.stringify(progress), force);
+    }
+
+    function expectedStageFromCompleted(completed) {
+      for (const key of STAGES) {
+        if (!completed[key]) return key;
+      }
+      return "qualifications_verified";
+    }
+
+    function normalizeProgress(progress) {
+      const expectedStage = expectedStageFromCompleted(progress.completed);
+      if (progress.stage !== expectedStage) {
+        progress.stage = expectedStage;
+        saveProgress(progress, true);
+      }
+      return progress;
+    }
+
+    function loadProgress() {
+      const raw = localStorage.getItem(AMC_STORAGE_KEY);
+      if (!raw) {
+        const fresh = defaultProgress();
+        saveProgress(fresh, true);
+        return fresh;
+      }
+
+      try {
+        const parsed = JSON.parse(raw);
+        if (!isValidProgress(parsed)) {
+          const fresh = defaultProgress();
+          saveProgress(fresh, true);
+          return fresh;
+        }
+        return normalizeProgress(parsed);
+      } catch (err) {
+        const fresh = defaultProgress();
+        saveProgress(fresh, true);
+        return fresh;
+      }
+    }
+
+    function showToast(message) {
+      toastEl.textContent = message;
+      toastEl.classList.add("show");
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => {
+        toastEl.classList.remove("show");
+      }, 1100);
+    }
+
+    function loadSelectedCountry() {
+      const raw = localStorage.getItem(COUNTRY_KEY);
+      if (raw === "uk" || raw === "ie" || raw === "nz") return raw;
+      return "uk";
+    }
+
+    function defaultTutorialSeen() {
+      return {
+        create_portfolio: false,
+        upload_credentials: false,
+        qualifications_verified: false
+      };
+    }
+
+    function loadTutorialSeen() {
+      const raw = localStorage.getItem(TUTORIAL_SEEN_KEY);
+      const base = defaultTutorialSeen();
+      if (!raw) return base;
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return base;
+
+        for (const key of STAGES) {
+          if (typeof parsed[key] === "boolean") {
+            base[key] = parsed[key];
+          }
+        }
+
+        return base;
+      } catch (err) {
+        return base;
+      }
+    }
+
+    function saveTutorialSeen(state) {
+      queueBatchedSave(TUTORIAL_SEEN_KEY, JSON.stringify(state));
+    }
+
+    function stageStatus(progress, stageKey) {
+      if (progress.completed[stageKey]) return "done";
+      if (progress.stage === stageKey) return "current";
+
+      const idx = STAGES.indexOf(stageKey);
+      if (idx === 0) return "current";
+      const prev = STAGES[idx - 1];
+      if (!progress.completed[prev]) return "locked";
+
+      return "current";
+    }
+
+    function buttonLabelFor(status) {
+      if (status === "locked") return "Locked";
+      if (status === "done") return "Undo";
+      return "Mark complete";
+    }
+
+    function getNextStage(currentKey) {
+      const idx = STAGES.indexOf(currentKey);
+      if (idx === -1 || idx === STAGES.length - 1) return null;
+      return STAGES[idx + 1];
+    }
+
+    function markStageComplete(progress, stageKey) {
+      if (progress.stage !== stageKey) return;
+
+      progress.completed[stageKey] = true;
+      const next = getNextStage(stageKey);
+      if (next) progress.stage = next;
+      if (stageKey === "qualifications_verified") {
+        saveProgress(progress, true);
+        window.location.href = "ahpra.html";
+        return;
+      }
+
+      saveProgress(progress);
+      render(progress);
+      showToast("Saved ✓");
+    }
+
+    function undoToStage(progress, stageKey) {
+      const stageIndex = STAGES.indexOf(stageKey);
+      if (stageIndex === -1) return;
+
+      for (let i = stageIndex; i < STAGES.length; i += 1) {
+        progress.completed[STAGES[i]] = false;
+      }
+      progress.stage = stageKey;
+
+      saveProgress(progress);
+      render(progress);
+      showToast("Saved ✓");
+    }
+
+    function setTimeline(stageKey) {
+      const idx = STAGES.indexOf(stageKey);
+      const current = STAGES[idx] || null;
+      const next = STAGES[idx + 1] || null;
+      const after = STAGES[idx + 2] || null;
+
+      timelineCurrentEl.textContent = current ? stageMeta[current].label : "Complete";
+      timelineNextEl.textContent = next ? stageMeta[next].label : "Complete";
+      timelineAfterEl.textContent = after ? stageMeta[after].label : "Complete";
+    }
+
+    function renderLeft(progress) {
+      stageListEl.innerHTML = "";
+      if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
+
+      for (const stageKey of STAGES) {
+        const stepNumber = STAGES.indexOf(stageKey) + 1;
+        const meta = stageMeta[stageKey];
+        const status = stageStatus(progress, stageKey);
+
+        const row = document.createElement("div");
+        row.className = `stage-card ${status}`;
+        if (selectedStageKey === stageKey) row.classList.add("is-selected");
+        row.setAttribute("tabindex", "0");
+        row.setAttribute("role", "button");
+        row.setAttribute("aria-label", `Stage ${stepNumber}: ${meta.label}`);
+
+        const head = document.createElement("div");
+        head.className = "stage-head";
+
+        const textWrap = document.createElement("div");
+        textWrap.innerHTML = `<div class="stage-title-row"><h4>${meta.label}</h4>${status === "current" ? '<span class="stage-current">Current</span>' : ""}</div><p>${meta.short}</p>`;
+
+        const pill = document.createElement("span");
+        pill.className = `pill ${status}`;
+        pill.textContent = status === "locked" ? "Locked" : status === "done" ? "Done" : "Current";
+
+        const node = document.createElement("span");
+        node.className = "stage-node";
+        node.textContent = String(stepNumber);
+
+        head.appendChild(textWrap);
+        head.appendChild(pill);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = status === "current" ? "btn btn-primary" : status === "done" ? "btn btn-soft" : "btn btn-neutral";
+        if (status === "done") btn.classList.add("btn-undo");
+        btn.textContent = buttonLabelFor(status);
+        btn.disabled = status === "locked";
+
+        if (status === "current") {
+          btn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            markStageComplete(progress, stageKey);
+          });
+        } else if (status === "done") {
+          btn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            undoToStage(progress, stageKey);
+          });
+        }
+
+        row.addEventListener("click", () => {
+          selectedStageKey = stageKey;
+          renderLeft(progress);
+        });
+        row.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          selectedStageKey = stageKey;
+          renderLeft(progress);
+        });
+
+        row.appendChild(node);
+        row.appendChild(head);
+        row.appendChild(btn);
+        stageListEl.appendChild(row);
+      }
+    }
+
+    function renderRight(progress) {
+      const stageKey = progress.stage;
+      currentStageKey = stageKey;
+      selectedStageKey = stageKey;
+      const meta = stageMeta[stageKey];
+      const selectedCountry = loadSelectedCountry();
+      const countryInfo = countryMap[selectedCountry] || countryMap.uk;
+      const tutorialEligible = stageKey === "create_portfolio" || stageKey === "upload_credentials";
+
+      if (stageChipEl) stageChipEl.textContent = `Current: ${meta.label}`;
+      if (updatedChipEl) updatedChipEl.textContent = `Updated ${new Date(progress.updatedAt).toLocaleString()}`;
+      footerStatusEl.textContent = `Current stage: ${meta.label}`;
+
+      let doNow = meta.doNow;
+      if (stageKey === "upload_credentials") {
+        doNow = countryInfo.credentialText;
+      }
+
+      if (stageKey === "qualifications_verified") {
+        guideTitleEl.innerHTML = `${meta.label}<span class="glass-tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg></span>`;
+      } else {
+        guideTitleEl.textContent = meta.label;
+      }
+      guideDoNowEl.textContent = doNow;
+      if (guideWhereEl) guideWhereEl.textContent = meta.where;
+      guideTimeEl.textContent = meta.time;
+      guideSupportEl.textContent = meta.support;
+
+      if (stageKey === "upload_credentials") {
+        countryGuidanceEl.style.display = "block";
+        countryGuidanceEl.textContent = `Selected from MyIntealth: ${countryInfo.label}. ${countryInfo.credentialText}`;
+      } else {
+        countryGuidanceEl.style.display = "none";
+      }
+
+      mainCtaEl.textContent = meta.cta;
+      mainCtaEl.onclick = () => {
+        if (meta.ctaType === "amc_signup") {
+          window.open("https://account.amc.org.au/sign_up", "_blank", "noopener,noreferrer");
+        } else if (meta.ctaType === "amc") {
+          window.open("https://www.amc.org.au", "_blank", "noopener,noreferrer");
+        } else if (meta.ctaType === "ahpra") {
+          window.location.href = "ahpra.html";
+        }
+      };
+
+      const tutorialSeen = loadTutorialSeen();
+      const shouldHighlight = tutorialEligible && !tutorialSeen[stageKey];
+      watchTutorialBtnEl.style.display = tutorialEligible ? "inline-flex" : "none";
+      watchTutorialBtnEl.classList.toggle("tutorial-highlight", shouldHighlight);
+      const isFinalStage = stageKey === "qualifications_verified";
+      if (timelineBoxEl) timelineBoxEl.style.display = isFinalStage ? "none" : "";
+      if (guideTimeRowEl) guideTimeRowEl.style.display = isFinalStage ? "none" : "";
+      if (timelineCurrentRowEl) timelineCurrentRowEl.style.display = isFinalStage ? "none" : "";
+      if (timelineNextRowEl) timelineNextRowEl.style.display = isFinalStage ? "none" : "";
+      if (timelineAfterRowEl) timelineAfterRowEl.style.display = isFinalStage ? "none" : "";
+      if (secondaryActionsEl) secondaryActionsEl.style.display = isFinalStage ? "none" : "";
+
+      setTimeline(stageKey);
+    }
+
+    function render(progress) {
+      renderLeft(progress);
+      renderRight(progress);
+    }
+
+    function openModal(modalEl) {
+      modalEl.classList.add("show");
+      modalEl.setAttribute("aria-hidden", "false");
+    }
+
+    function closeModal(modalEl) {
+      modalEl.classList.remove("show");
+      modalEl.setAttribute("aria-hidden", "true");
+    }
+
+    document.getElementById("watchTutorial").addEventListener("click", () => {
+      const tutorialSeen = loadTutorialSeen();
+      if (!tutorialSeen[currentStageKey]) {
+        tutorialSeen[currentStageKey] = true;
+        saveTutorialSeen(tutorialSeen);
+      }
+      const tutorialConfig = tutorialByStage[currentStageKey] || tutorialByStage.create_portfolio;
+      tutorialTextEl.textContent = tutorialConfig.text;
+      tutorialSourceEl.src = tutorialConfig.src;
+      tutorialVideoEl.load();
+      tutorialVideoEl.currentTime = 0;
+
+      const progress = loadProgress();
+      renderRight(progress);
+      openModal(tutorialModalEl);
+    });
+
+    document.getElementById("topSupportBtn").addEventListener("click", () => {
+      window.location.href = "messages.html";
+    });
+    document.getElementById("contactSupport").addEventListener("click", () => {
+      window.location.href = "messages.html";
+    });
+    document.getElementById("mobileSupportBtn").addEventListener("click", () => {
+      window.location.href = "messages.html";
+    });
+
+    const registrationMenuBtn = document.getElementById("registrationMenuBtn");
+    const registrationDropdown = document.getElementById("registrationDropdown");
+    const regTableEl = document.getElementById("regTable");
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+    let navGlassInitialized = false;
+
+    function parseStorage(key) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (err) { return null; }
+    }
+
+    function getRegistrationRows() {
+      const epic = parseStorage(EPIC_KEY);
+      const amc = parseStorage(AMC_STORAGE_KEY);
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+
+      return [
+        { title: "1. MyIntealth Account", sub: "Create account and complete EPIC verification.", status: epicDone ? "Done" : "Current", locked: false, href: "myinthealth.html", cta: "Continue" },
+        { title: "2. AMC Portfolio", sub: "Create AMC candidate portfolio and upload credentials.", status: epicDone ? (amcDone ? "Done" : "Current") : "Locked", locked: !epicDone, href: epicDone ? "amc.html" : "#", cta: epicDone ? "Continue" : "Locked" },
+        { title: "3. AHPRA Registration", sub: "Specialist registration submission and assessment.", status: amcDone ? "Current" : "Locked", locked: !amcDone, href: amcDone ? "ahpra.html" : "#", cta: amcDone ? "Continue" : "Locked" },
+        { title: "4. Visa and Relocation", sub: "Sponsorship, visa processing and relocation.", status: "Locked", locked: true, href: "#", cta: "Locked" }
+      ];
+    }
+
+    function renderRegistrationRows() {
+      regTableEl.innerHTML = "";
+      mobileRegTable.innerHTML = "";
+      getRegistrationRows().forEach((row) => {
+        const statusClass = row.locked ? "locked" : "";
+        const btnClass = row.locked ? "locked" : "";
+        const rowEl = document.createElement("div");
+        rowEl.className = "reg-row";
+        rowEl.innerHTML = `
+          <div>
+            <div class="reg-name">${row.title}</div>
+            <div class="reg-sub">${row.sub}</div>
+          </div>
+          <span class="reg-pill ${statusClass}">${row.status}</span>
+          <a class="reg-btn ${btnClass}" href="${row.href}">${row.cta}</a>
+        `;
+        regTableEl.appendChild(rowEl);
+        mobileRegTable.appendChild(rowEl.cloneNode(true));
+      });
+    }
+
+    function moveNavGlass(target, animate = true) {
+      if (!target || !navGlassEl) return;
+      const parentRect = target.parentElement.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      if (!animate || !navGlassInitialized) {
+        const prevTransition = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        navGlassEl.style.width = `${rect.width}px`;
+        navGlassEl.style.height = `${rect.height}px`;
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prevTransition;
+        navGlassInitialized = true;
+        return;
+      }
+      navGlassEl.classList.remove("morph");
+      void navGlassEl.offsetWidth;
+      navGlassEl.classList.add("morph");
+      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+      navGlassEl.style.width = `${rect.width}px`;
+      navGlassEl.style.height = `${rect.height}px`;
+    }
+
+    function setActiveNav(target, animate = true) {
+      navItems.forEach((item) => item.classList.remove("active"));
+      if (target) {
+        target.classList.add("active");
+        activeNavItem = target;
+      }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    let registrationHoverCloseTimer = null;
+
+    function openRegistrationDropdown() {
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      renderRegistrationRows();
+      registrationDropdown.classList.add("show");
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    }
+
+    function closeRegistrationDropdown(immediate = false) {
+      const doClose = () => {
+        registrationDropdown.classList.remove("show");
+        navGlassEl.classList.remove("engulf");
+      };
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      if (immediate) {
+        doClose();
+        return;
+      }
+      registrationHoverCloseTimer = setTimeout(doClose, 140);
+    }
+
+    registrationMenuBtn.addEventListener("click", () => {
+      setActiveNav(registrationMenuBtn);
+      if (registrationDropdown.classList.contains("show")) {
+        closeRegistrationDropdown(true);
+      } else {
+        openRegistrationDropdown();
+      }
+    });
+
+    registrationMenuBtn.addEventListener("mouseenter", () => {
+      openRegistrationDropdown();
+    });
+    registrationDropdown.addEventListener("mouseenter", () => {
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    });
+    registrationMenuBtn.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    registrationDropdown.addEventListener("mouseleave", () => closeRegistrationDropdown());
+
+    document.addEventListener("click", (e) => {
+      if (!registrationDropdown.contains(e.target) && !registrationMenuBtn.contains(e.target)) {
+        closeRegistrationDropdown(true);
+      }
+    });
+
+    function openMobileRegistration() {
+      renderRegistrationRows();
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.add("show");
+      mobileRegSheet.classList.add("show");
+    }
+
+    function closeMobileRegistration() {
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.remove("show");
+      mobileRegSheet.classList.remove("show");
+    }
+
+    mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
+    mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
+    mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
+
+    document.getElementById("topSupportBtn").addEventListener("click", () => {
+      setActiveNav(document.getElementById("topSupportBtn"));
+    });
+
+    navItems.forEach((item) => {
+      item.addEventListener("mouseenter", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      item.addEventListener("focus", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      if (item !== registrationMenuBtn && item.id !== "topSupportBtn") {
+        item.addEventListener("click", () => setActiveNav(item));
+      }
+    });
+
+    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+    setActiveNav(activeNavItem, false);
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", (event) => {
+        const hit = event.target instanceof Element ? event.target.closest(".nav-item") : null;
+        if (hit && hit !== hoveredNavItem) {
+          hoveredNavItem = hit;
+          moveNavGlass(hit, true);
+        }
+      });
+      navMenuEl.addEventListener("mouseleave", () => {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
+    window.addEventListener("resize", () => {
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+    });
+
+    let startY = 0;
+    let deltaY = 0;
+    let dragging = false;
+
+    mobileRegSheet.addEventListener("touchstart", (e) => {
+      if (!mobileRegSheet.classList.contains("show")) return;
+      startY = e.touches[0].clientY;
+      deltaY = 0;
+      dragging = true;
+    }, { passive: true });
+
+    mobileRegSheet.addEventListener("touchmove", (e) => {
+      if (!dragging) return;
+      const currentY = e.touches[0].clientY;
+      deltaY = Math.max(0, currentY - startY);
+      if (deltaY > 0) {
+        mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+      }
+    }, { passive: true });
+
+    mobileRegSheet.addEventListener("touchend", () => {
+      if (!dragging) return;
+      dragging = false;
+      if (deltaY > 90) {
+        closeMobileRegistration();
+      } else {
+        mobileRegSheet.style.transform = "";
+      }
+    });
+
+    document.querySelectorAll("[data-close]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-close");
+        const modal = document.getElementById(id);
+        if (modal) closeModal(modal);
+      });
+    });
+
+    [tutorialModalEl, supportModalEl].forEach((modalEl) => {
+      modalEl.addEventListener("click", (e) => {
+        if (e.target === modalEl) closeModal(modalEl);
+      });
+    });
+
+    const progress = loadProgress();
+    render(progress);
+  </script>
+  <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
+    <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
+    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+  </div>
+</body>
+</html>

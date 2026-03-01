@@ -1,0 +1,2333 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="../js/auth-guard.js" defer></script>
+  <script src="../js/state-sync.js" defer></script>
+  <script src="../js/updates-sync.js" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <title>GP Link - My Account</title>
+  <style>
+    :root {
+      --bg: #eef3fb;
+      --panel: #ffffff;
+      --line: #dbe5f1;
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #1d4ed8;
+      --blue-soft: #eef4ff;
+      --ok: #15803d;
+      --warn: #9a3412;
+      --warn-soft: #fff7ed;
+      --glass-bg: rgba(255, 255, 255, 0.58);
+      --glass-border: rgba(191, 220, 255, 0.95);
+      --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --shadow-soft: 0 18px 40px -28px rgba(15, 23, 42, 0.45);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
+        radial-gradient(760px 460px at 100% 0%, rgba(22, 163, 74, 0.12), transparent 58%),
+        var(--bg);
+      padding: 18px 12px 92px;
+    }
+
+    .shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: grid;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 22px;
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      padding: 12px;
+    }
+
+    .topbar {
+      border: 1px solid rgba(226, 232, 240, 0.82);
+      border-radius: 16px;
+      background: #ffffff;
+      padding: 14px 16px;
+      box-shadow: 0 12px 25px -22px rgba(2, 6, 23, 0.25);
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo img {
+      width: 176px;
+      display: block;
+    }
+
+    .nav-menu {
+      display: flex;
+      gap: 22px;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+      padding: 6px;
+      border-radius: 14px;
+    }
+
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
+
+    .nav-link,
+    .account-pill {
+      border: 0;
+      background: transparent;
+      text-decoration: none;
+      color: #111827;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+
+    .nav-text { line-height: 1; }
+
+    .nav-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-alert {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .nav-icon {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #334155;
+    }
+
+    .nav-link.active,
+    .account-pill.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 104px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      gap: 12px;
+      min-height: 78vh;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow: var(--shadow-soft);
+      padding: 14px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+
+    .profile-rail {
+      display: grid;
+      align-content: start;
+      gap: 12px;
+      min-width: 0;
+      position: sticky;
+      top: 12px;
+      border: 1px solid rgba(191, 219, 254, 0.7);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: var(--shadow-soft);
+      padding: 14px 12px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .rail-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 850;
+      color: #1e3a8a;
+      letter-spacing: .01em;
+    }
+
+    .rail-note {
+      margin: 0;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 620;
+      line-height: 1.4;
+    }
+
+    .summary-stack {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .summary-row {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 8px 9px;
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .avatar {
+      width: 140px;
+      height: 140px;
+      border-radius: 999px;
+      border: 4px solid rgba(255, 255, 255, 0.9);
+      background: #dbeafe;
+      object-fit: cover;
+      display: block;
+      box-shadow: 0 12px 26px -18px rgba(15, 23, 42, 0.75);
+    }
+
+    .avatar-stack {
+      display: grid;
+      justify-items: center;
+      gap: 6px;
+    }
+
+    .change-picture-btn {
+      border: 0;
+      background: transparent;
+      color: #1d4ed8;
+      font-size: 11px;
+      font-weight: 750;
+      text-decoration: underline;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .summary-name {
+      margin: 0;
+      font-size: 21px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .summary-meta {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+      line-height: 1.35;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .summary-country {
+      margin: 0;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 1.3;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .meta-row {
+      display: grid;
+      gap: 4px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 9px 10px;
+    }
+
+    .meta-key {
+      font-size: 10px;
+      color: #64748b;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .meta-value {
+      font-size: 12px;
+      color: #0f172a;
+      font-weight: 700;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .progress-wrap {
+      display: grid;
+      gap: 6px;
+    }
+
+    .progress-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: #334155;
+      font-weight: 750;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 9px;
+      border-radius: 999px;
+      border: 1px solid #dbeafe;
+      background: #f8fbff;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2563eb, #38bdf8);
+      transition: width .2s ease;
+    }
+
+    .progress-fill.warning {
+      background: linear-gradient(90deg, #f59e0b, #fbbf24);
+    }
+
+    .progress-fill.complete {
+      background: linear-gradient(90deg, #16a34a, #22c55e);
+    }
+
+    .progress-hint {
+      margin: 0;
+      font-size: 10.5px;
+      color: #64748b;
+      font-weight: 650;
+      line-height: 1.35;
+    }
+
+    .progress-hint.complete {
+      color: #166534;
+      font-weight: 760;
+    }
+
+    .docs-link {
+      text-decoration: none;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 9px 12px;
+    }
+
+    .account-stage {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .hero-card {
+      border: 1px solid rgba(191, 219, 254, 0.8);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.82);
+      overflow: hidden;
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .hero-cover {
+      min-height: 210px;
+      border-bottom: 1px solid rgba(219, 234, 254, 0.9);
+      background-image: url("../media/images/account-header.webp");
+      background-position: center;
+      background-size: cover;
+      background-repeat: no-repeat;
+    }
+
+    .hero-strip {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 8px 18px 16px;
+      margin-top: -72px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.96) 45%, rgba(255, 255, 255, 0.98) 100%);
+    }
+
+    .hero-left {
+      display: flex;
+      align-items: flex-end;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .hero-meta {
+      display: grid;
+      gap: 6px;
+      padding: 8px 12px 10px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(219, 234, 254, 0.9);
+      box-shadow: 0 12px 24px -22px rgba(15, 23, 42, 0.55);
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 26px;
+      letter-spacing: -0.01em;
+      font-weight: 900;
+    }
+
+    .helper-line {
+      margin: 6px 0 0;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 620;
+      line-height: 1.45;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .detail-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    @media (min-width: 1081px) {
+      #relocationDetailsCard {
+        grid-column: 2;
+      }
+    }
+
+    .mobile-edit-hub {
+      display: none;
+      gap: 10px;
+    }
+
+    .mobile-completeness-card {
+      border: 1px solid #dbeafe;
+      border-radius: 14px;
+      background: #f8fbff;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .mobile-completeness-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: #334155;
+      font-weight: 760;
+    }
+
+    .mobile-completeness-hint {
+      margin: 0;
+      font-size: 10.5px;
+      color: #64748b;
+      font-weight: 650;
+      line-height: 1.35;
+    }
+
+    .mobile-completeness-hint.complete {
+      color: #166534;
+      font-weight: 760;
+    }
+
+    .mobile-launcher {
+      border: 1px solid #dbeafe;
+      border-radius: 14px;
+      background: #f8fbff;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .mobile-launcher-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 800;
+      color: #1e3a8a;
+    }
+
+    .mobile-launcher-copy {
+      margin: 2px 0 0;
+      font-size: 11px;
+      font-weight: 620;
+      color: #475569;
+      line-height: 1.3;
+      display: none;
+    }
+
+    .mobile-launcher-action {
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #1d4ed8;
+      font-size: 11px;
+      font-weight: 780;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+
+    .section-card {
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .section-title {
+      margin: 0 0 8px;
+      font-size: 34px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .section-subtitle {
+      margin: 0 0 10px;
+      font-size: 13px;
+      font-weight: 820;
+      color: #334155;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .section-head .section-subtitle {
+      margin: 0;
+    }
+
+    .mobile-section-close {
+      display: none;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #1d4ed8;
+      font-size: 11px;
+      font-weight: 780;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+
+    .fields {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+    }
+
+    .field.full { grid-column: 1 / -1; }
+
+    label {
+      font-size: 12px;
+      color: #334155;
+      font-weight: 780;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 10px;
+      font: inherit;
+      font-size: 13px;
+      color: var(--text);
+      background: #fff;
+    }
+
+    .input-note {
+      margin: 0;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 620;
+      line-height: 1.35;
+    }
+
+    .readonly-wrap {
+      display: grid;
+      grid-template-columns: 16px 1fr;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #f1f5f9;
+      padding: 0 10px;
+    }
+
+    .readonly-wrap input {
+      border: 0;
+      background: transparent;
+      padding: 10px 0;
+    }
+
+    .lock-icon {
+      width: 16px;
+      height: 16px;
+      stroke: #64748b;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .subtle-card {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    .uploads {
+      margin-top: 2px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: stretch;
+    }
+
+    .upload-card {
+      border: 1px solid #dbeafe;
+      border-radius: 12px;
+      background: #f8fbff;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      height: 100%;
+    }
+
+    .upload-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 840;
+      color: #1e3a8a;
+    }
+
+    .upload-copy {
+      margin: 0;
+      font-size: 11px;
+      color: #475569;
+      font-weight: 620;
+      line-height: 1.35;
+    }
+
+    .upload-file {
+      margin: 0;
+      font-size: 11px;
+      color: #0f172a;
+      font-weight: 700;
+      line-height: 1.35;
+      min-height: 30px;
+      word-break: break-word;
+    }
+
+    .is-hidden {
+      display: none;
+    }
+
+    .upload-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .upload-status {
+      border-radius: 999px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+      padding: 3px 8px;
+    }
+
+    .upload-status.uploaded {
+      border-color: #86efac;
+      background: #ecfdf5;
+      color: #166534;
+    }
+
+    .upload-status.reviewed {
+      border-color: #22c55e;
+      background: #dcfce7;
+      color: #14532d;
+    }
+
+    .upload-status.action {
+      border-color: #f59e0b;
+      background: #fffbeb;
+      color: #92400e;
+    }
+
+    .upload-updated {
+      display: inline-flex;
+      align-items: center;
+      font-size: 10px;
+      color: #64748b;
+      font-weight: 700;
+    }
+
+    .upload-action {
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #1e3a8a;
+      font-size: 11px;
+      font-weight: 780;
+      padding: 7px 10px;
+      cursor: pointer;
+      width: fit-content;
+      margin-top: auto;
+    }
+
+    .upload-action:disabled {
+      opacity: .6;
+      cursor: wait;
+    }
+
+    .privacy-line {
+      margin: 14px 0 0;
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 9px 10px;
+      font-size: 11px;
+      color: #334155;
+      font-weight: 650;
+      line-height: 1.4;
+    }
+
+    .btn {
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      background: #fff;
+      color: #1e3a8a;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 9px 14px;
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #93c5fd;
+    }
+
+    .btn.ghost {
+      background: rgba(255, 255, 255, 0.8);
+      color: #0891b2;
+      border-color: #7dd3fc;
+    }
+
+    .btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    .save-state {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 780;
+      color: #475569;
+    }
+
+    .save-state.saving { color: #1d4ed8; }
+    .save-state.saved { color: var(--ok); }
+    .save-state.error {
+      color: var(--warn);
+      border: 1px solid #fed7aa;
+      background: var(--warn-soft);
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+
+    .bottom-actions {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .security-box {
+      margin-top: 12px;
+      border: 1px solid #dbeafe;
+      border-radius: 12px;
+      background: #fbfdff;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .security-toggle {
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      background: #ffffff;
+      color: #1e3a8a;
+      font-size: 12px;
+      font-weight: 820;
+      padding: 9px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+    }
+
+    .security-content {
+      display: grid;
+      gap: 8px;
+    }
+
+    .security-content.is-hidden {
+      display: none;
+    }
+
+    .security-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 850;
+      color: #1e3a8a;
+    }
+
+    .security-copy {
+      margin: 0;
+      font-size: 11px;
+      color: #475569;
+      font-weight: 620;
+      line-height: 1.35;
+    }
+
+    .security-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .security-row {
+      display: grid;
+      gap: 6px;
+      grid-template-columns: 1fr;
+    }
+
+    .security-status {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 760;
+      color: #475569;
+    }
+
+    .security-status.error {
+      color: var(--warn);
+      border: 1px solid #fed7aa;
+      background: #fff7ed;
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+
+    .mobile-nav {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 10px;
+      width: min(420px, calc(100% - 20px));
+      z-index: 50;
+      display: none;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 20px;
+      background: rgba(15, 23, 42, 0.92);
+      padding: 6px;
+      box-shadow: 0 18px 30px -24px rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .section-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.35);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      z-index: 120;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease;
+    }
+
+    .section-modal-backdrop.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .mobile-tab {
+      text-decoration: none;
+      border: 0;
+      border-radius: 14px;
+      background: transparent;
+      color: #dbe4f1;
+      min-height: 58px;
+      padding: 6px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .mobile-tab-active {
+      background: rgba(59, 130, 246, 0.2);
+      color: #ffffff;
+    }
+
+    .mobile-tab-active .mobile-tab-icon { color: #7dd3fc; }
+
+    .mobile-tab-icon {
+      position: relative;
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      color: #dbe4f1;
+    }
+    .mobile-tab-icon svg {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mobile-tab-alert {
+      top: -3px;
+      right: -6px;
+      z-index: 3;
+    }
+
+    .mobile-tab-label {
+      font-size: 10px;
+      font-weight: 620;
+      line-height: 1.15;
+      text-align: center;
+    }
+
+    @media (max-width: 1080px) {
+      .workspace { grid-template-columns: 1fr; }
+      .profile-rail { position: static; }
+      .detail-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 840px) {
+      .hero-strip {
+        margin-top: -52px;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .hero-left { align-items: flex-start; }
+      .avatar { width: 112px; height: 112px; }
+      .hero-actions { justify-content: flex-start; }
+      .uploads { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 767px) {
+      body {
+        padding: 10px 8px 116px;
+      }
+      .shell {
+        border-radius: 16px;
+        padding: 8px;
+        gap: 8px;
+      }
+      .topbar { display: none; }
+      .mobile-nav { display: grid; }
+      .workspace {
+        gap: 8px;
+      }
+      .account-stage { order: 1; }
+      .mobile-edit-hub {
+        display: grid;
+      }
+      .detail-grid {
+        display: block;
+        margin: 0;
+        padding: 0;
+        gap: 0;
+      }
+      .detail-grid > .mobile-popup-section,
+      .account-stage > .mobile-popup-section {
+        display: none;
+      }
+      .mobile-popup-section.is-open {
+        display: grid !important;
+        position: fixed;
+        left: 8px;
+        right: 8px;
+        top: 68px;
+        bottom: 86px;
+        z-index: 140;
+        overflow: auto;
+        padding: 12px;
+        border-radius: 16px;
+        background: #ffffff;
+        border: 1px solid #dbeafe;
+        box-shadow: 0 28px 40px -30px rgba(2, 6, 23, 0.5);
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        filter: none !important;
+        opacity: 1 !important;
+        transform: translateZ(0);
+        isolation: isolate;
+        will-change: auto;
+        align-content: start;
+        grid-auto-rows: max-content;
+      }
+      .mobile-popup-section.is-open .section-head {
+        margin-bottom: 14px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .mobile-popup-section.is-open * {
+        filter: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+      .mobile-popup-section.is-open .mobile-section-close {
+        display: inline-flex;
+      }
+      .mobile-popup-section.is-open .fields {
+        margin-top: 0;
+        gap: 14px;
+      }
+      .mobile-popup-section.is-open .section-head,
+      .mobile-popup-section.is-open .fields,
+      .mobile-popup-section.is-open .security-box,
+      .mobile-popup-section.is-open .uploads,
+      .mobile-popup-section.is-open .privacy-line,
+      .mobile-popup-section.is-open .bottom-actions {
+        align-self: start;
+      }
+      .mobile-popup-section.is-open .field {
+        gap: 7px;
+      }
+      .mobile-popup-section.is-open .input-note {
+        margin-top: 1px;
+      }
+      .mobile-popup-section.is-open .security-box {
+        margin-top: 14px;
+      }
+      .mobile-popup-section.is-open .privacy-line {
+        margin-top: 14px;
+      }
+      .profile-rail {
+        display: none;
+      }
+      .hero-card {
+        border-radius: 16px;
+      }
+      .hero-cover {
+        min-height: 156px;
+        background-position: center 46%;
+      }
+      .hero-strip {
+        margin-top: -36px;
+        padding: 0 12px 12px;
+        gap: 10px;
+      }
+      .hero-left {
+        width: 100%;
+        gap: 10px;
+        align-items: flex-end;
+      }
+      .avatar {
+        width: 84px;
+        height: 84px;
+        border-width: 3px;
+      }
+      .hero-meta {
+        gap: 4px;
+        padding-bottom: 0;
+      }
+      .page-title {
+        font-size: 24px;
+      }
+      .helper-line {
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .hero-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        justify-content: stretch;
+        gap: 8px;
+        padding-bottom: 2px;
+      }
+      .hero-actions .btn {
+        width: 100%;
+        text-align: center;
+      }
+      .save-state {
+        grid-column: 1 / -1;
+        font-size: 11px;
+      }
+      .card.section-card {
+        border-radius: 14px;
+        padding: 12px;
+      }
+      .security-actions .btn {
+        flex: 1 1 140px;
+      }
+      .privacy-line {
+        font-size: 10.5px;
+      }
+      .summary-name {
+        font-size: 20px;
+      }
+      .bottom-actions {
+        justify-content: stretch;
+      }
+      .bottom-actions .btn {
+        flex: 1 1 46%;
+      }
+      .bottom-actions .save-state {
+        flex: 1 1 100%;
+        text-align: left;
+      }
+      body.modal-open {
+        overflow: hidden;
+      }
+      body.modal-open .shell,
+      body.modal-open .account-stage {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        filter: none !important;
+      }
+      body.modal-open .hero-card,
+      body.modal-open .card,
+      body.modal-open .mobile-popup-section.is-open {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+    }
+
+    @media (max-width: 460px) {
+      .mobile-nav {
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(420px, calc(100% - 16px));
+        bottom: 8px;
+        padding: 6px;
+      }
+      .mobile-tab {
+        min-height: 54px;
+        padding: 6px 4px;
+      }
+      .mobile-tab-label {
+        font-size: 9px;
+      }
+      .hero-left {
+        align-items: center;
+      }
+      .hero-meta {
+        width: 100%;
+      }
+      .page-title {
+        font-size: 22px;
+      }
+      .rail-note,
+      .input-note,
+      .security-copy {
+        font-size: 10.5px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="index.html" aria-label="GP Link home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item" href="index.html"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg><span>Home</span></a>
+          <a class="nav-link nav-item" href="myinthealth.html"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg><span>Registration</span></a>
+          <a class="nav-link nav-item" href="my-documents.html"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg><span>My Documents</span></a>
+          <a class="nav-link nav-item" href="messages.html">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span class="nav-text">Messages</span>
+          </a>
+          <a class="account-pill nav-item active" href="account.html"><svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg><span class="nav-text">Account</span></a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="profile-rail" aria-label="Profile Summary">
+        <h2 class="rail-title">Profile Summary</h2>
+        <p class="rail-note">Used for GP Link contact details, identity checks, and preparing your registration workflow.</p>
+        <div class="summary-stack">
+          <div class="summary-row">
+            <span class="meta-key">Email</span>
+            <p class="summary-meta" id="summaryEmail">Not provided yet</p>
+          </div>
+          <div class="summary-row">
+            <span class="meta-key">Country</span>
+            <p class="summary-country" id="summaryCountry">Not provided yet</p>
+          </div>
+          <div class="summary-row">
+            <span class="meta-key">Registration</span>
+            <p class="summary-meta" id="summaryRegistration">Not provided yet</p>
+          </div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-top">
+            <span>Profile completeness</span>
+            <span id="completenessValue">0%</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" id="completenessBar"></div></div>
+          <p class="progress-hint" id="completenessHint">Complete your profile to speed up employer applications.</p>
+        </div>
+
+        <div class="meta-row">
+          <span class="meta-key">Last updated</span>
+          <span class="meta-value" id="lastUpdatedValue">Not saved yet</span>
+        </div>
+
+        <a class="docs-link" href="my-documents.html">View My Documents →</a>
+      </aside>
+
+      <section class="account-stage" aria-label="My Account">
+        <header class="hero-card">
+          <div class="hero-cover"></div>
+          <div class="hero-strip">
+            <div class="hero-left">
+              <div class="avatar-stack">
+                <img id="avatarImg" class="avatar" alt="Profile photo" hidden />
+                <button class="change-picture-btn" id="changePictureTrigger" type="button">Change Picture</button>
+                <input id="profilePhotoInput" type="file" accept="image/*" hidden />
+              </div>
+              <div class="hero-meta">
+                <h1 class="page-title" id="heroAccountTitle">Dr Last name</h1>
+                <p class="helper-line">Used for GP Link contact details, identity checks, and preparing your registration workflow.</p>
+              </div>
+            </div>
+            <div class="hero-actions">
+              <button class="btn ghost header-reset-btn" type="button">Cancel changes</button>
+              <button class="btn primary header-save-btn" type="button">Save details</button>
+            </div>
+          </div>
+        </header>
+
+        <section class="mobile-edit-hub" aria-label="Edit account sections">
+          <div class="mobile-completeness-card">
+            <div class="mobile-completeness-top">
+              <span>Profile completeness</span>
+              <span id="mobileCompletenessValue">0%</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill" id="mobileCompletenessBar"></div></div>
+            <p class="mobile-completeness-hint" id="mobileCompletenessHint">Complete your profile to speed up employer applications.</p>
+          </div>
+          <button class="mobile-launcher" type="button" data-open-section="personalDetailsCard">
+            <span>
+              <p class="mobile-launcher-title">Personal Details</p>
+              <p class="mobile-launcher-copy">Name, phone, country and registration number.</p>
+            </span>
+            <span class="mobile-launcher-action">Edit</span>
+          </button>
+          <button class="mobile-launcher" type="button" data-open-section="accountSecurityCard">
+            <span>
+              <p class="mobile-launcher-title">Account & Security</p>
+              <p class="mobile-launcher-copy">Email and password controls.</p>
+            </span>
+            <span class="mobile-launcher-action">Edit</span>
+          </button>
+          <button class="mobile-launcher" type="button" data-open-section="documentsCard">
+            <span>
+              <p class="mobile-launcher-title">Identity & Documents</p>
+              <p class="mobile-launcher-copy">Upload photo, ID and CV files.</p>
+            </span>
+            <span class="mobile-launcher-action">Open</span>
+          </button>
+          <button class="mobile-launcher" type="button" data-open-section="relocationDetailsCard">
+            <span>
+              <p class="mobile-launcher-title">Relocation Details</p>
+              <p class="mobile-launcher-copy">Set your preferred Australian city.</p>
+            </span>
+            <span class="mobile-launcher-action">Open</span>
+          </button>
+        </section>
+
+        <div class="detail-grid">
+          <section class="card section-card mobile-popup-section" id="personalDetailsCard">
+            <div class="section-head">
+              <p class="section-subtitle">Personal Details</p>
+              <button class="mobile-section-close" type="button" data-close-section>Close</button>
+            </div>
+            <div class="fields">
+              <div class="field">
+                <label for="firstName">First name</label>
+                <input id="firstName" type="text" maxlength="80" autocomplete="given-name" />
+              </div>
+              <div class="field">
+                <label for="lastName">Last name</label>
+                <input id="lastName" type="text" maxlength="80" autocomplete="family-name" />
+              </div>
+              <div class="field">
+                <label for="specialistCountryDisplay">Registration country</label>
+                <div class="readonly-wrap">
+                  <svg class="lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>
+                  <input id="specialistCountryDisplay" type="text" readonly />
+                </div>
+                <p class="input-note">Set during sign up. Contact support if incorrect.</p>
+              </div>
+              <div class="field">
+                <label for="phone">Phone number</label>
+                <input id="phone" type="tel" maxlength="40" autocomplete="tel" placeholder="e.g. +44 7700 900123" />
+              </div>
+              <div class="field">
+                <label for="registrationNumber" id="registrationNumberLabel">Registration number</label>
+                <input id="registrationNumber" type="text" maxlength="40" placeholder="Enter your registration number" />
+                <p class="input-note">This is used for verification with your registration authority.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="card section-card mobile-popup-section" id="accountSecurityCard">
+            <div class="section-head">
+              <p class="section-subtitle">Account & Security</p>
+              <button class="mobile-section-close" type="button" data-close-section>Close</button>
+            </div>
+            <div class="fields">
+              <div class="field">
+                <label for="email">Email</label>
+                <div class="readonly-wrap">
+                  <svg class="lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>
+                  <input id="email" type="email" maxlength="120" autocomplete="email" readonly />
+                </div>
+                <p class="input-note">Managed by your GP Link login.</p>
+              </div>
+            </div>
+
+            <div class="security-box subtle-card">
+              <button class="security-toggle" id="securityToggleBtn" type="button" aria-expanded="false">
+                <span>Password & Security</span>
+                <span id="securityToggleIcon">+</span>
+              </button>
+              <div class="security-content is-hidden" id="securityContent">
+                <p class="security-copy">Use a unique password for GP Link. We apply secure hashing and never expose your password in plain text.</p>
+                <p class="security-copy" id="passwordStateText">Password last updated: —</p>
+                <div class="security-row">
+                  <input id="currentPassword" type="password" autocomplete="current-password" placeholder="Current password (if already set)" />
+                  <input id="newPassword" type="password" autocomplete="new-password" placeholder="New password" />
+                  <input id="confirmPassword" type="password" autocomplete="new-password" placeholder="Confirm new password" />
+                </div>
+                <div class="security-actions">
+                  <button class="btn" id="setPasswordBtn" type="button">Set password</button>
+                  <button class="btn" id="forgotPasswordBtn" type="button">Forgot password</button>
+                  <p class="security-status" id="passwordActionStatus"></p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card section-card mobile-popup-section" id="documentsCard">
+            <div class="section-head">
+              <p class="section-subtitle">Identity & Supporting Documents</p>
+              <button class="mobile-section-close" type="button" data-close-section>Close</button>
+            </div>
+            <div class="uploads">
+              <article class="upload-card" data-upload-card="idCopy">
+                <h3 class="upload-title">Copy of ID</h3>
+                <p class="upload-copy">Required — Used for identity checks and registration preparation.</p>
+                <p class="upload-file is-hidden" id="idCopyFileName"></p>
+                <div class="upload-meta">
+                  <span class="upload-status is-hidden" id="idCopyStatus"></span>
+                  <span class="upload-updated" id="idCopyUpdated"></span>
+                </div>
+                <input id="idCopyInput" type="file" accept="image/*,.pdf" hidden />
+                <button class="upload-action" id="idCopyAction" type="button">Upload document</button>
+              </article>
+
+              <article class="upload-card" data-upload-card="cv">
+                <h3 class="upload-title">Up-to-date CV</h3>
+                <p class="upload-copy">Required — used for employer applications.</p>
+                <p class="upload-file is-hidden" id="cvFileName"></p>
+                <div class="upload-meta">
+                  <span class="upload-status is-hidden" id="cvStatus"></span>
+                  <span class="upload-updated" id="cvUpdated"></span>
+                </div>
+                <input id="cvInput" type="file" accept=".pdf,.doc,.docx" hidden />
+                <button class="upload-action" id="cvAction" type="button">Upload document</button>
+              </article>
+            </div>
+            <p class="privacy-line">Your documents are stored securely and only shared with your consent for registration or employer purposes.</p>
+            <div class="bottom-actions">
+              <button class="btn ghost" id="resetBtn" type="button">Cancel changes</button>
+              <button class="btn primary" id="saveBtn" type="button" disabled>Save details</button>
+              <p class="save-state" id="saveStateText">Changes not saved</p>
+            </div>
+          </section>
+
+          <section class="card section-card mobile-popup-section" id="relocationDetailsCard">
+            <div class="section-head">
+              <p class="section-subtitle">Relocation Details</p>
+              <button class="mobile-section-close" type="button" data-close-section>Close</button>
+            </div>
+            <div class="fields">
+              <div class="field">
+                <label for="cityOfChoice">City of choice</label>
+                <select id="cityOfChoice">
+                  <option value="">Select a city</option>
+                  <option value="Adelaide">Adelaide</option>
+                  <option value="Brisbane">Brisbane</option>
+                  <option value="Canberra">Canberra</option>
+                  <option value="Darwin">Darwin</option>
+                  <option value="Melbourne">Melbourne</option>
+                  <option value="Perth">Perth</option>
+                  <option value="Sydney">Sydney</option>
+                </select>
+                <p class="input-note">Choose the city where you would prefer to relocate.</p>
+              </div>
+            <div class="field">
+              <label for="preferredStartDate">Commence work by</label>
+              <input id="preferredStartDate" type="date" />
+            </div>
+              <div class="field">
+                <label for="movingParty">Who will be moving</label>
+                <select id="movingParty">
+                  <option value="">Select</option>
+                  <option value="Just me">Just me</option>
+                  <option value="Me and partner">Me and partner</option>
+                  <option value="Me and children">Me and children</option>
+                  <option value="Me, partner and children">Me, partner and children</option>
+                </select>
+              </div>
+              <div class="field is-hidden" id="childrenMovingField">
+                <label for="childrenMovingCount">Number of children moving</label>
+                <select id="childrenMovingCount">
+                  <option value="">Select</option>
+                  <option value="0">0</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5+">5+</option>
+                </select>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="section-modal-backdrop" id="sectionModalBackdrop" hidden></div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
+      <span class="mobile-tab-label">Home Dashboard</span>
+    </a>
+    <a class="mobile-tab" href="myinthealth.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
+      <span class="mobile-tab-label">Registration Process</span>
+    </a>
+    <a class="mobile-tab" href="messages.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg><span class="mobile-tab-alert nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+      <span class="mobile-tab-label">Messages</span>
+    </a>
+    <a class="mobile-tab mobile-tab-active" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
+      <span class="mobile-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <script>
+    const fieldEls = {
+      firstName: document.getElementById("firstName"),
+      lastName: document.getElementById("lastName"),
+      email: document.getElementById("email"),
+      phone: document.getElementById("phone"),
+      specialistCountryDisplay: document.getElementById("specialistCountryDisplay"),
+      registrationNumber: document.getElementById("registrationNumber"),
+      cityOfChoice: document.getElementById("cityOfChoice"),
+      preferredStartDate: document.getElementById("preferredStartDate"),
+      movingParty: document.getElementById("movingParty"),
+      childrenMovingCount: document.getElementById("childrenMovingCount")
+    };
+    const childrenMovingFieldEl = document.getElementById("childrenMovingField");
+
+    const registrationNumberLabelEl = document.getElementById("registrationNumberLabel");
+    const saveBtnEl = document.getElementById("saveBtn");
+    const resetBtnEl = document.getElementById("resetBtn");
+    const saveStateTextEl = document.getElementById("saveStateText");
+    const passwordStateTextEl = document.getElementById("passwordStateText");
+    const passwordActionStatusEl = document.getElementById("passwordActionStatus");
+    const currentPasswordEl = document.getElementById("currentPassword");
+    const newPasswordEl = document.getElementById("newPassword");
+    const confirmPasswordEl = document.getElementById("confirmPassword");
+    const setPasswordBtnEl = document.getElementById("setPasswordBtn");
+    const forgotPasswordBtnEl = document.getElementById("forgotPasswordBtn");
+    const mobileSectionOpenBtns = [...document.querySelectorAll("[data-open-section]")];
+    const mobileSectionCloseBtns = [...document.querySelectorAll("[data-close-section]")];
+    const mobilePopupSections = [...document.querySelectorAll(".mobile-popup-section")];
+    const sectionModalBackdropEl = document.getElementById("sectionModalBackdrop");
+    const securityToggleBtnEl = document.getElementById("securityToggleBtn");
+    const securityContentEl = document.getElementById("securityContent");
+    const securityToggleIconEl = document.getElementById("securityToggleIcon");
+    const headerSaveBtnEl = document.querySelector(".header-save-btn");
+    const headerResetBtnEl = document.querySelector(".header-reset-btn");
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+
+    const summaryEls = {
+      avatarImg: document.getElementById("avatarImg"),
+      email: document.getElementById("summaryEmail"),
+      country: document.getElementById("summaryCountry"),
+      registration: document.getElementById("summaryRegistration"),
+      completenessValue: document.getElementById("completenessValue"),
+      completenessBar: document.getElementById("completenessBar"),
+      completenessHint: document.getElementById("completenessHint"),
+      lastUpdated: document.getElementById("lastUpdatedValue")
+    };
+    const mobileCompletenessEls = {
+      value: document.getElementById("mobileCompletenessValue"),
+      bar: document.getElementById("mobileCompletenessBar"),
+      hint: document.getElementById("mobileCompletenessHint")
+    };
+    const heroAccountTitleEl = document.getElementById("heroAccountTitle");
+
+    const uploadUi = {
+      profilePhoto: {
+        input: document.getElementById("profilePhotoInput"),
+        action: document.getElementById("changePictureTrigger"),
+        fileName: document.getElementById("profilePhotoFileName"),
+        status: document.getElementById("profilePhotoStatus"),
+        updated: document.getElementById("profilePhotoUpdated")
+      },
+      idCopy: {
+        input: document.getElementById("idCopyInput"),
+        action: document.getElementById("idCopyAction"),
+        fileName: document.getElementById("idCopyFileName"),
+        status: document.getElementById("idCopyStatus"),
+        updated: document.getElementById("idCopyUpdated")
+      },
+      cv: {
+        input: document.getElementById("cvInput"),
+        action: document.getElementById("cvAction"),
+        fileName: document.getElementById("cvFileName"),
+        status: document.getElementById("cvStatus"),
+        updated: document.getElementById("cvUpdated")
+      }
+    };
+
+    const countryConfig = {
+      "United Kingdom": { label: "GMC number", placeholder: "e.g. 7654321" },
+      "Ireland": { label: "IMC number", placeholder: "e.g. 123456" },
+      "New Zealand": { label: "MCNZ number", placeholder: "e.g. 98765" },
+      "Australia": { label: "AHPRA number", placeholder: "e.g. MED0001234567" },
+      "Other": { label: "Registration number", placeholder: "Enter your registration number" }
+    };
+
+    const state = {
+      profile: {
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        specialistCountry: "",
+        registrationNumber: "",
+        cityOfChoice: "",
+        preferredStartDate: "",
+        movingParty: "",
+        childrenMovingCount: "",
+        hasPassword: false,
+        files: {
+          profilePhoto: null,
+          idCopy: null,
+          cv: null
+        },
+        updatedAt: null
+      },
+      lastSavedSnapshot: null,
+      isSaving: false,
+      autoSaveTimer: null,
+      pendingAutoSave: false
+    };
+
+    function formatTimestamp(ts) {
+      if (!ts) return "Not saved yet";
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return "Not saved yet";
+      return d.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    }
+
+    function buildAvatarPlaceholder(first, last) {
+      const a = String(first || "").trim().charAt(0).toUpperCase();
+      const b = String(last || "").trim().charAt(0).toUpperCase();
+      const initials = (a + b).trim() || "GP";
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="280" height="280" viewBox="0 0 280 280">
+          <defs>
+            <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0%" stop-color="#0ea5a4"/>
+              <stop offset="100%" stop-color="#2563eb"/>
+            </linearGradient>
+          </defs>
+          <rect width="280" height="280" rx="140" fill="url(#g)"/>
+          <text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle"
+                font-family="Inter, Segoe UI, sans-serif" font-size="94" font-weight="800" fill="#ffffff">${initials}</text>
+        </svg>
+      `.trim();
+      return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    }
+
+    function setSaveState(text, mode) {
+      saveStateTextEl.textContent = text;
+      saveStateTextEl.className = `save-state${mode ? ` ${mode}` : ""}`;
+    }
+
+    function setPasswordActionStatus(text, isError = false) {
+      passwordActionStatusEl.textContent = text;
+      passwordActionStatusEl.className = `security-status${isError ? " error" : ""}`;
+    }
+
+    function setHeaderActionState(disabled) {
+      if (headerSaveBtnEl) headerSaveBtnEl.disabled = !!disabled;
+      if (headerResetBtnEl) headerResetBtnEl.disabled = !!disabled;
+    }
+
+    function isMobileViewport() {
+      return window.matchMedia("(max-width: 767px)").matches;
+    }
+
+    function closeAllMobileSections() {
+      mobilePopupSections.forEach((section) => section.classList.remove("is-open"));
+      if (sectionModalBackdropEl) {
+        sectionModalBackdropEl.classList.remove("show");
+        sectionModalBackdropEl.hidden = true;
+      }
+      document.body.classList.remove("modal-open");
+    }
+
+    function openMobileSection(sectionId) {
+      const target = document.getElementById(sectionId);
+      if (!target) return;
+      closeAllMobileSections();
+      target.classList.add("is-open");
+      if (sectionModalBackdropEl) {
+        sectionModalBackdropEl.hidden = false;
+        requestAnimationFrame(() => sectionModalBackdropEl.classList.add("show"));
+      }
+      document.body.classList.add("modal-open");
+    }
+
+    function mapCountryValue(rawCountry) {
+      const country = String(rawCountry || "").trim();
+      if (country === "UK") return "United Kingdom";
+      if (country === "NZ") return "New Zealand";
+      if (country === "Ireland") return "Ireland";
+      if (country === "Australia") return "Australia";
+      if (country === "United Kingdom" || country === "New Zealand" || country === "Other") return country;
+      return country ? "Other" : "";
+    }
+
+    function isStrongPassword(password) {
+      const v = String(password || "");
+      if (v.length < 12 || v.length > 128) return false;
+      if (!/[a-z]/.test(v)) return false;
+      if (!/[A-Z]/.test(v)) return false;
+      if (!/[0-9]/.test(v)) return false;
+      if (!/[^A-Za-z0-9]/.test(v)) return false;
+      return true;
+    }
+
+    function normalizeFile(meta, fallbackName, fallbackDataUrl) {
+      if (!meta && !fallbackName && !fallbackDataUrl) return null;
+      if (meta && typeof meta === "object") {
+        return {
+          name: typeof meta.name === "string" ? meta.name : (fallbackName || ""),
+          status: typeof meta.status === "string" ? meta.status : (fallbackName || fallbackDataUrl ? "uploaded" : "not_uploaded"),
+          updatedAt: typeof meta.updatedAt === "string" ? meta.updatedAt : null,
+          url: typeof meta.url === "string" ? meta.url : (fallbackDataUrl || "")
+        };
+      }
+      return {
+        name: fallbackName || "",
+        status: fallbackName || fallbackDataUrl ? "uploaded" : "not_uploaded",
+        updatedAt: null,
+        url: fallbackDataUrl || ""
+      };
+    }
+
+    function normalizeProfile(payload) {
+      const p = payload && typeof payload === "object" ? payload : {};
+      const files = p.files && typeof p.files === "object" ? p.files : {};
+      return {
+        firstName: typeof p.firstName === "string" ? p.firstName : "",
+        lastName: typeof p.lastName === "string" ? p.lastName : "",
+        email: typeof p.email === "string" ? p.email : "",
+        phone: typeof p.phone === "string" ? p.phone : (typeof p.phoneNumber === "string" ? p.phoneNumber : ""),
+        specialistCountry: mapCountryValue(p.specialistCountry || p.registrationCountry),
+        registrationNumber: typeof p.registrationNumber === "string"
+          ? p.registrationNumber
+          : (typeof p.gmcNumber === "string" ? p.gmcNumber : ""),
+        cityOfChoice: typeof p.cityOfChoice === "string" ? p.cityOfChoice : "",
+        preferredStartDate: typeof p.preferredStartDate === "string" ? p.preferredStartDate : "",
+        movingParty: typeof p.movingParty === "string" ? p.movingParty : "",
+        childrenMovingCount: typeof p.childrenMovingCount === "string" ? p.childrenMovingCount : "",
+        hasPassword: !!p.hasPassword,
+        files: {
+          profilePhoto: normalizeFile(files.profilePhoto, p.profilePhotoName, p.profilePhotoDataUrl),
+          idCopy: normalizeFile(files.idCopy, p.idCopyName, p.idCopyDataUrl),
+          cv: normalizeFile(files.cv, p.cvFileName, "")
+        },
+        updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : (typeof p.lastUpdated === "string" ? p.lastUpdated : null)
+      };
+    }
+
+    function formSnapshot() {
+      return {
+        firstName: fieldEls.firstName.value.trim(),
+        lastName: fieldEls.lastName.value.trim(),
+        phone: fieldEls.phone.value.trim(),
+        registrationNumber: fieldEls.registrationNumber.value.trim(),
+        cityOfChoice: fieldEls.cityOfChoice.value,
+        preferredStartDate: fieldEls.preferredStartDate.value,
+        movingParty: fieldEls.movingParty.value,
+        childrenMovingCount: fieldEls.childrenMovingCount.value
+      };
+    }
+
+    function updateChildrenMovingVisibility() {
+      const movingParty = fieldEls.movingParty.value || "";
+      const includesChildren = movingParty.includes("children");
+      if (childrenMovingFieldEl) childrenMovingFieldEl.classList.toggle("is-hidden", !includesChildren);
+      if (!includesChildren) fieldEls.childrenMovingCount.value = "";
+    }
+
+    function applyRegistrationLabel(countryValue, clearField = false) {
+      const key = countryValue && countryConfig[countryValue] ? countryValue : "Other";
+      const conf = countryConfig[key];
+      registrationNumberLabelEl.textContent = conf.label;
+      fieldEls.registrationNumber.placeholder = conf.placeholder;
+      if (clearField) fieldEls.registrationNumber.value = "";
+    }
+
+    function setUploadCard(type, fileMeta) {
+      const ui = uploadUi[type];
+      if (!ui) return;
+      const exists = !!(fileMeta && fileMeta.name);
+      if (ui.fileName) {
+        ui.fileName.textContent = exists ? fileMeta.name : "";
+        ui.fileName.classList.toggle("is-hidden", !exists);
+      }
+
+      let statusText = "";
+      let statusClass = "";
+      let actionText = "Upload document";
+      if (exists) {
+        if (fileMeta.status === "reviewed") {
+          statusText = "Reviewed by GP Link ✓";
+          statusClass = "reviewed";
+          actionText = "Replace • Reviewed ✓";
+        } else if (fileMeta.status === "action_required") {
+          statusText = "Action required";
+          statusClass = "action";
+          actionText = "Replace • Action required";
+        } else {
+          statusText = "Uploaded ✓";
+          statusClass = "uploaded";
+          actionText = "Replace • Uploaded ✓";
+        }
+      }
+
+      if (ui.status) {
+        ui.status.textContent = statusText;
+        ui.status.className = `upload-status${statusClass ? ` ${statusClass}` : ""}`;
+        ui.status.classList.toggle("is-hidden", !exists);
+      }
+      if (ui.action) {
+        ui.action.textContent = type === "profilePhoto" ? "Change Picture" : actionText;
+      }
+      if (ui.updated) {
+        ui.updated.textContent = fileMeta && fileMeta.updatedAt ? `Updated ${formatTimestamp(fileMeta.updatedAt)}` : "";
+      }
+    }
+
+    function computeCompleteness() {
+      let completed = 0;
+      const requiredChecks = [
+        fieldEls.firstName.value.trim(),
+        fieldEls.lastName.value.trim(),
+        fieldEls.email.value.trim(),
+        fieldEls.phone.value.trim(),
+        state.profile.specialistCountry,
+        fieldEls.registrationNumber.value.trim(),
+        state.profile.files.idCopy && state.profile.files.idCopy.name,
+        state.profile.files.cv && state.profile.files.cv.name
+      ];
+      requiredChecks.forEach((v) => { if (v) completed += 1; });
+      return Math.round((completed / requiredChecks.length) * 100);
+    }
+
+    function renderSummary() {
+      const first = fieldEls.firstName.value.trim();
+      const last = fieldEls.lastName.value.trim();
+      const email = fieldEls.email.value.trim();
+      const registrationLabel = registrationNumberLabelEl.textContent || "Registration number";
+      const registrationValue = fieldEls.registrationNumber.value.trim();
+
+      if (heroAccountTitleEl) heroAccountTitleEl.textContent = last ? `Dr ${last}` : "Dr Last name";
+      summaryEls.email.textContent = email || "Not provided yet";
+      summaryEls.country.textContent = state.profile.specialistCountry || "Not provided yet";
+      summaryEls.registration.textContent = registrationValue ? `Registration Number: ${registrationValue}` : "Registration Number: Not provided yet";
+      summaryEls.lastUpdated.textContent = formatTimestamp(state.profile.updatedAt);
+
+      const percent = computeCompleteness();
+      summaryEls.completenessValue.textContent = `${percent}%`;
+      summaryEls.completenessBar.style.width = `${percent}%`;
+      summaryEls.completenessBar.classList.remove("warning", "complete");
+      summaryEls.completenessHint.classList.remove("complete");
+      if (mobileCompletenessEls.bar) mobileCompletenessEls.bar.classList.remove("warning", "complete");
+      if (mobileCompletenessEls.hint) mobileCompletenessEls.hint.classList.remove("complete");
+      if (mobileCompletenessEls.value) mobileCompletenessEls.value.textContent = `${percent}%`;
+      if (mobileCompletenessEls.bar) mobileCompletenessEls.bar.style.width = `${percent}%`;
+      if (percent === 100) {
+        summaryEls.completenessBar.classList.add("complete");
+        summaryEls.completenessHint.classList.add("complete");
+        summaryEls.completenessHint.textContent = "Profile complete ✓";
+        if (mobileCompletenessEls.bar) mobileCompletenessEls.bar.classList.add("complete");
+        if (mobileCompletenessEls.hint) {
+          mobileCompletenessEls.hint.classList.add("complete");
+          mobileCompletenessEls.hint.textContent = "Profile complete ✓";
+        }
+      } else if (percent < 60) {
+        summaryEls.completenessBar.classList.add("warning");
+        summaryEls.completenessHint.textContent = "Complete your profile to speed up employer applications.";
+        if (mobileCompletenessEls.bar) mobileCompletenessEls.bar.classList.add("warning");
+        if (mobileCompletenessEls.hint) mobileCompletenessEls.hint.textContent = "Complete your profile to speed up employer applications.";
+      } else {
+        summaryEls.completenessHint.textContent = "Complete your profile to speed up employer applications.";
+        if (mobileCompletenessEls.hint) mobileCompletenessEls.hint.textContent = "Complete your profile to speed up employer applications.";
+      }
+
+      const photo = state.profile.files.profilePhoto;
+      if (photo && photo.url) {
+        summaryEls.avatarImg.src = photo.url;
+      } else {
+        const placeholder = buildAvatarPlaceholder(first, last);
+        summaryEls.avatarImg.src = placeholder;
+      }
+      summaryEls.avatarImg.hidden = false;
+    }
+
+    function updateSaveButtonState() {
+      const dirty = JSON.stringify(formSnapshot()) !== JSON.stringify(state.lastSavedSnapshot || {});
+      saveBtnEl.disabled = !dirty || state.isSaving;
+      setHeaderActionState(!dirty || state.isSaving);
+      if (!state.isSaving && dirty) setSaveState("Changes not saved", "");
+    }
+
+    function applyProfileToForm(profile) {
+      const previousCountry = state.profile.specialistCountry;
+      state.profile = normalizeProfile(profile);
+      const countryChanged = !!(previousCountry && previousCountry !== state.profile.specialistCountry);
+      fieldEls.firstName.value = state.profile.firstName;
+      fieldEls.lastName.value = state.profile.lastName;
+      fieldEls.email.value = state.profile.email;
+      fieldEls.phone.value = state.profile.phone;
+      fieldEls.specialistCountryDisplay.value = state.profile.specialistCountry || "Not provided yet";
+      applyRegistrationLabel(state.profile.specialistCountry, countryChanged);
+      fieldEls.registrationNumber.value = countryChanged ? "" : state.profile.registrationNumber;
+      fieldEls.cityOfChoice.value = state.profile.cityOfChoice || "";
+      fieldEls.preferredStartDate.value = state.profile.preferredStartDate || "";
+      fieldEls.movingParty.value = state.profile.movingParty || "";
+      fieldEls.childrenMovingCount.value = state.profile.childrenMovingCount || "";
+      updateChildrenMovingVisibility();
+      passwordStateTextEl.textContent = state.profile.hasPassword ? "Secure login enabled ✓" : "Password last updated: —";
+
+      setUploadCard("profilePhoto", state.profile.files.profilePhoto);
+      setUploadCard("idCopy", state.profile.files.idCopy);
+      setUploadCard("cv", state.profile.files.cv);
+
+      state.lastSavedSnapshot = formSnapshot();
+      renderSummary();
+      updateSaveButtonState();
+      if (state.profile.updatedAt) {
+        setSaveState(`Saved ✓ • ${formatTimestamp(state.profile.updatedAt)}`, "saved");
+      } else {
+        setSaveState("Changes not saved", "");
+      }
+    }
+
+    async function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(new Error("file_read_failed"));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function loadProfileFromBackend() {
+      const response = await fetch("/api/profile", { credentials: "same-origin" });
+      if (!response.ok) throw new Error("profile_load_failed");
+      const data = await response.json();
+      return data && data.profile ? data.profile : {};
+    }
+
+    async function saveProfileToBackend(payload) {
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ profile: payload })
+      });
+      if (!response.ok) throw new Error("profile_save_failed");
+      const data = await response.json();
+      return data && data.profile ? data.profile : payload;
+    }
+
+    async function uploadFileToBackend(type, file, hadExisting) {
+      const nextMeta = {
+        name: file.name,
+        status: hadExisting ? "replaced" : "uploaded",
+        updatedAt: new Date().toISOString(),
+        url: ""
+      };
+      if ((type === "profilePhoto" || type === "idCopy") && file.type.startsWith("image/")) {
+        nextMeta.url = await readFileAsDataUrl(file);
+      }
+
+      state.profile.files[type] = nextMeta;
+      const payload = collectSavePayload();
+      payload.profilePhotoName = state.profile.files.profilePhoto && state.profile.files.profilePhoto.name ? state.profile.files.profilePhoto.name : "";
+      payload.profilePhotoDataUrl = state.profile.files.profilePhoto && state.profile.files.profilePhoto.url ? state.profile.files.profilePhoto.url : "";
+      payload.idCopyName = state.profile.files.idCopy && state.profile.files.idCopy.name ? state.profile.files.idCopy.name : "";
+      payload.idCopyDataUrl = state.profile.files.idCopy && state.profile.files.idCopy.url ? state.profile.files.idCopy.url : "";
+      payload.cvFileName = state.profile.files.cv && state.profile.files.cv.name ? state.profile.files.cv.name : "";
+
+      const saved = await saveProfileToBackend(payload);
+      state.profile.updatedAt = saved.updatedAt || nextMeta.updatedAt;
+      setUploadCard(type, nextMeta);
+      renderSummary();
+      setSaveState(`Saved ✓ • ${formatTimestamp(state.profile.updatedAt)}`, "saved");
+    }
+
+    function collectSavePayload() {
+      return {
+        firstName: fieldEls.firstName.value.trim(),
+        lastName: fieldEls.lastName.value.trim(),
+        email: fieldEls.email.value.trim(),
+        phone: fieldEls.phone.value.trim(),
+        registrationNumber: fieldEls.registrationNumber.value.trim(),
+        cityOfChoice: fieldEls.cityOfChoice.value,
+        preferredStartDate: fieldEls.preferredStartDate.value,
+        movingParty: fieldEls.movingParty.value,
+        childrenMovingCount: fieldEls.childrenMovingCount.value
+      };
+    }
+
+    async function saveProfileChanges(force = false) {
+      const dirty = JSON.stringify(formSnapshot()) !== JSON.stringify(state.lastSavedSnapshot || {});
+      if (!force && !dirty) return;
+      if (state.isSaving) {
+        if (!force) state.pendingAutoSave = true;
+        return;
+      }
+
+      state.isSaving = true;
+      updateSaveButtonState();
+      setSaveState("Saving…", "saving");
+      try {
+        const saved = await saveProfileToBackend(collectSavePayload());
+        const merged = normalizeProfile({ ...state.profile, ...saved, files: state.profile.files });
+        merged.updatedAt = saved.updatedAt || new Date().toISOString();
+        state.profile = merged;
+        state.lastSavedSnapshot = formSnapshot();
+        setSaveState(`Saved ✓ • ${formatTimestamp(state.profile.updatedAt)}`, "saved");
+      } catch (err) {
+        setSaveState("We couldn’t save your changes. Please check your connection and try again.", "error");
+      } finally {
+        state.isSaving = false;
+        renderSummary();
+        updateSaveButtonState();
+        if (state.pendingAutoSave) {
+          state.pendingAutoSave = false;
+          saveProfileChanges(false);
+        }
+      }
+    }
+
+    function queueAutoSave() {
+      window.clearTimeout(state.autoSaveTimer);
+      state.autoSaveTimer = window.setTimeout(() => {
+        saveProfileChanges(false);
+      }, 1000);
+    }
+
+    async function handleSetPassword() {
+      const currentPassword = currentPasswordEl.value;
+      const newPassword = newPasswordEl.value;
+      const confirmPassword = confirmPasswordEl.value;
+
+      if (newPassword !== confirmPassword) {
+        setPasswordActionStatus("New password and confirmation do not match.", true);
+        return;
+      }
+      if (!isStrongPassword(newPassword)) {
+        setPasswordActionStatus("Password must be 12+ chars with upper, lower, number, and symbol.", true);
+        return;
+      }
+
+      setPasswordActionStatus("Saving password…", false);
+      setPasswordBtnEl.disabled = true;
+      try {
+        const response = await fetch("/api/auth/set-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          throw new Error(data && data.message ? data.message : "Couldn’t update password.");
+        }
+        currentPasswordEl.value = "";
+        newPasswordEl.value = "";
+        confirmPasswordEl.value = "";
+        state.profile.hasPassword = true;
+        passwordStateTextEl.textContent = "Secure login enabled ✓";
+        setPasswordActionStatus("Password updated.", false);
+      } catch (err) {
+        setPasswordActionStatus(err.message || "We couldn’t save your changes. Please check your connection and try again.", true);
+      } finally {
+        setPasswordBtnEl.disabled = false;
+      }
+    }
+
+    async function handleForgotPassword() {
+      const email = fieldEls.email.value.trim();
+      if (!email) {
+        setPasswordActionStatus("Email is required to request password reset.", true);
+        return;
+      }
+      forgotPasswordBtnEl.disabled = true;
+      setPasswordActionStatus("Sending reset request…", false);
+      try {
+        const response = await fetch("/api/auth/request-password-reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error("Couldn’t submit password reset request.");
+        setPasswordActionStatus("If your account exists, a password reset link will be sent.", false);
+      } catch (err) {
+        setPasswordActionStatus("We couldn’t save your changes. Please check your connection and try again.", true);
+      } finally {
+        forgotPasswordBtnEl.disabled = false;
+      }
+    }
+
+    [fieldEls.firstName, fieldEls.lastName, fieldEls.phone, fieldEls.registrationNumber].forEach((el) => {
+      el.addEventListener("input", () => {
+        renderSummary();
+        updateSaveButtonState();
+        queueAutoSave();
+      });
+      el.addEventListener("blur", () => {
+        saveProfileChanges(false);
+      });
+    });
+    fieldEls.cityOfChoice.addEventListener("change", () => {
+      renderSummary();
+      updateSaveButtonState();
+      queueAutoSave();
+    });
+    fieldEls.cityOfChoice.addEventListener("blur", () => {
+      saveProfileChanges(false);
+    });
+    [fieldEls.preferredStartDate, fieldEls.childrenMovingCount].forEach((el) => {
+      el.addEventListener("change", () => {
+        renderSummary();
+        updateSaveButtonState();
+        queueAutoSave();
+      });
+      el.addEventListener("blur", () => {
+        saveProfileChanges(false);
+      });
+    });
+    fieldEls.movingParty.addEventListener("change", () => {
+      updateChildrenMovingVisibility();
+      renderSummary();
+      updateSaveButtonState();
+      queueAutoSave();
+    });
+    fieldEls.movingParty.addEventListener("blur", () => {
+      saveProfileChanges(false);
+    });
+
+    saveBtnEl.addEventListener("click", () => {
+      saveProfileChanges(true);
+    });
+
+    resetBtnEl.addEventListener("click", async () => {
+      window.clearTimeout(state.autoSaveTimer);
+      state.pendingAutoSave = false;
+      try {
+        const latest = await loadProfileFromBackend();
+        applyProfileToForm(latest);
+      } catch (err) {
+        setSaveState("We couldn’t save your changes. Please check your connection and try again.", "error");
+      }
+    });
+
+    setPasswordBtnEl.addEventListener("click", handleSetPassword);
+    forgotPasswordBtnEl.addEventListener("click", handleForgotPassword);
+    if (securityToggleBtnEl && securityContentEl && securityToggleIconEl) {
+      securityToggleBtnEl.addEventListener("click", () => {
+        const expanded = securityToggleBtnEl.getAttribute("aria-expanded") === "true";
+        securityToggleBtnEl.setAttribute("aria-expanded", expanded ? "false" : "true");
+        securityToggleIconEl.textContent = expanded ? "+" : "−";
+        securityContentEl.classList.toggle("is-hidden", expanded);
+      });
+    }
+
+    mobileSectionOpenBtns.forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        openMobileSection(btn.getAttribute("data-open-section"));
+      });
+    });
+    mobileSectionCloseBtns.forEach((btn) => {
+      btn.addEventListener("click", closeAllMobileSections);
+    });
+    if (sectionModalBackdropEl) {
+      sectionModalBackdropEl.addEventListener("click", closeAllMobileSections);
+    }
+    if (headerSaveBtnEl) {
+      headerSaveBtnEl.addEventListener("click", () => {
+        if (!saveBtnEl.disabled) saveBtnEl.click();
+      });
+    }
+    if (headerResetBtnEl) {
+      headerResetBtnEl.addEventListener("click", () => {
+        if (!resetBtnEl.disabled) resetBtnEl.click();
+      });
+    }
+
+    Object.entries(uploadUi).forEach(([type, ui]) => {
+      if (!ui.input || !ui.action) return;
+      ui.action.addEventListener("click", () => ui.input.click());
+      ui.input.addEventListener("change", async () => {
+        const file = ui.input.files && ui.input.files[0];
+        if (!file) return;
+
+        ui.action.disabled = true;
+        setSaveState("Saving…", "saving");
+        try {
+          const hadExisting = !!(state.profile.files[type] && state.profile.files[type].name);
+          await uploadFileToBackend(type, file, hadExisting);
+        } catch (err) {
+          setSaveState("We couldn’t save your changes. Please check your connection and try again.", "error");
+        } finally {
+          ui.action.disabled = false;
+          ui.input.value = "";
+        }
+      });
+    });
+
+    function moveNavGlass(target, animate = true) {
+      if (!target || !navGlassEl) return;
+      const parentRect = target.parentElement.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      if (!animate) {
+        const prevTransition = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        navGlassEl.style.width = `${rect.width}px`;
+        navGlassEl.style.height = `${rect.height}px`;
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prevTransition;
+        return;
+      }
+      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+      navGlassEl.style.width = `${rect.width}px`;
+      navGlassEl.style.height = `${rect.height}px`;
+    }
+
+    function setActiveNav(target, animate = true) {
+      navItems.forEach((item) => item.classList.remove("active"));
+      if (target) {
+        target.classList.add("active");
+        activeNavItem = target;
+      }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    navItems.forEach((item) => {
+      item.addEventListener("mouseenter", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      item.addEventListener("focus", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+    });
+
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", (event) => {
+        const hit = event.target instanceof Element ? event.target.closest(".nav-item") : null;
+        if (hit && hit !== hoveredNavItem) {
+          hoveredNavItem = hit;
+          moveNavGlass(hit, true);
+        }
+      });
+      navMenuEl.addEventListener("mouseleave", () => {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
+
+    window.addEventListener("resize", () => {
+      if (!isMobileViewport()) closeAllMobileSections();
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+    });
+
+    (async function init() {
+      try {
+        const profile = await loadProfileFromBackend();
+        applyProfileToForm(profile);
+      } catch (err) {
+        applyProfileToForm({});
+        setSaveState("We couldn’t save your changes. Please check your connection and try again.", "error");
+      }
+      activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+      setActiveNav(activeNavItem, false);
+    })();
+  </script>
+  <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
+    <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
+    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+  </div>
+</body>
+</html>
