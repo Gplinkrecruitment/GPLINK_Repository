@@ -9,6 +9,6 @@
     "init:db": "node scripts/init-db.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   }
 }
