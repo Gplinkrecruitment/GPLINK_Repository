@@ -336,12 +336,19 @@ function shouldProtectPath(pathname) {
 function sanitizeFilePath(pathname) {
   const decoded = decodeURIComponent(pathname.split('?')[0]);
   const target = decoded === '/' ? '/pages/index.html' : decoded;
-  const safe = path.normalize(target).replace(/^\.{2,}(?:\/|\\|$)/, '');
-  return path.join(process.cwd(), safe);
+  const normalized = path.posix.normalize(String(target).replace(/\\/g, '/'));
+  const relative = normalized.replace(/^\/+/, '');
+  if (!relative || relative.startsWith('..')) return null;
+  return path.resolve(process.cwd(), relative);
 }
 
 function serveStatic(req, res, pathname) {
   const filePath = sanitizeFilePath(pathname);
+  if (!filePath) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
   if (!filePath.startsWith(process.cwd())) {
     res.writeHead(403);
     res.end('Forbidden');
