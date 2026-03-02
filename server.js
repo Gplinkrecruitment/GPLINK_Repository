@@ -648,7 +648,155 @@ function getSupportCasesFromState(userStateObj) {
   return dbCases.map(normalizeSupportCase).filter(Boolean);
 }
 
-function collectAdminDashboardData() {
+function getParsedUserState(rawState, updatedAt = null) {
+  const source = rawState && typeof rawState === 'object' ? rawState : {};
+  const out = {};
+  for (const key of USER_STATE_KEYS) {
+    if (hasOwn(source, key)) {
+      out[key] = parseJsonLike(source[key]);
+    }
+  }
+  out.updatedAt = updatedAt || source.updatedAt || null;
+  return out;
+}
+
+async function collectAdminDashboardData() {
+  if (isSupabaseDbConfigured()) {
+    const [profilesResult, statesResult] = await Promise.all([
+      supabaseDbRequest(
+        'user_profiles',
+        'select=user_id,email,first_name,last_name,phone,registration_country,created_at,updated_at'
+      ),
+      supabaseDbRequest(
+        'user_state',
+        'select=user_id,state,updated_at'
+      )
+    ]);
+
+    if (profilesResult.ok && statesResult.ok && Array.isArray(profilesResult.data) && Array.isArray(statesResult.data)) {
+      const profileByUserId = new Map();
+      for (const row of profilesResult.data) {
+        if (row && typeof row.user_id === 'string') {
+          profileByUserId.set(row.user_id, row);
+        }
+      }
+
+      const stateByUserId = new Map();
+      for (const row of statesResult.data) {
+        if (row && typeof row.user_id === 'string') {
+          stateByUserId.set(row.user_id, row);
+        }
+      }
+
+      const userIds = new Set([
+        ...profileByUserId.keys(),
+        ...stateByUserId.keys()
+      ]);
+
+      const candidates = [];
+      const tickets = [];
+      const staleThresholdMs = 5 * 24 * 60 * 60 * 1000;
+
+      for (const userId of userIds) {
+        const profile = profileByUserId.get(userId) || {};
+        const stateRow = stateByUserId.get(userId) || {};
+        const email = typeof profile.email === 'string' ? profile.email : '';
+        const userState = getParsedUserState(stateRow.state, stateRow.updated_at || null);
+        const progress = getProgressSummary(userState);
+        const supportCases = getSupportCasesFromState(userState);
+
+        const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || email || userId;
+        const phone = profile.phone || '';
+        const country = profile.registration_country || userState.gp_selected_country || '';
+        const lastActiveAt = userState.updatedAt || profile.updated_at || null;
+        const registeredAt = profile.created_at || profile.updated_at || lastActiveAt;
+        const isStalled = lastActiveAt ? (Date.now() - new Date(lastActiveAt).getTime()) > staleThresholdMs : true;
+
+        const openCount = supportCases.filter((item) => item.status !== 'closed').length;
+        const status = progress.percent === 100
+          ? 'complete'
+          : progress.actionRequired
+            ? 'action_required'
+            : isStalled
+              ? 'stalled'
+              : 'active';
+
+        const candidate = {
+          id: email || userId,
+          userId,
+          email,
+          name: fullName,
+          phone,
+          country,
+          registeredAt,
+          lastActiveAt,
+          progressPercent: progress.percent,
+          currentStepLabel: progress.currentStepLabel,
+          currentStepIndex: progress.currentStepIndex,
+          totalSteps: progress.totalSteps,
+          pendingVerification: progress.pendingVerification,
+          actionRequired: progress.actionRequired,
+          stalled: isStalled,
+          status,
+          openTickets: openCount,
+          documentsPending: progress.documentsPending
+        };
+        candidates.push(candidate);
+
+        supportCases.forEach((item) => {
+          tickets.push({
+            ...item,
+            candidateId: email || userId,
+            candidateUserId: userId,
+            candidateName: fullName,
+            candidateEmail: email
+          });
+        });
+      }
+
+      candidates.sort((a, b) => {
+        const at = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+        const bt = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+        return bt - at;
+      });
+      tickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+      const totalGps = candidates.length;
+      const activeGps = candidates.filter((item) => item.status !== 'complete').length;
+      const pendingVerifications = candidates.filter((item) => item.pendingVerification).length;
+      const openSupportTickets = tickets.filter((item) => item.status !== 'closed').length;
+      const averageProgress = totalGps
+        ? Math.round(candidates.reduce((sum, item) => sum + item.progressPercent, 0) / totalGps)
+        : 0;
+
+      return {
+        summary: {
+          totalGps,
+          activeGps,
+          pendingVerifications,
+          openSupportTickets,
+          averageProgress
+        },
+        candidates,
+        verificationQueue: candidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
+        tickets
+      };
+    }
+
+    return {
+      summary: {
+        totalGps: 0,
+        activeGps: 0,
+        pendingVerifications: 0,
+        openSupportTickets: 0,
+        averageProgress: 0
+      },
+      candidates: [],
+      verificationQueue: [],
+      tickets: []
+    };
+  }
+
   const emails = new Set([
     ...Object.keys(dbState.users || {}),
     ...Object.keys(dbState.userProfiles || {}),
@@ -743,41 +891,104 @@ function collectAdminDashboardData() {
   };
 }
 
-function persistSupportCaseUpdate(candidateEmail, ticketId, patch) {
-  const stateRecord = dbState.userState[candidateEmail] && typeof dbState.userState[candidateEmail] === 'object'
-    ? { ...dbState.userState[candidateEmail] }
-    : {};
+async function persistSupportCaseUpdate(ticketId, patch) {
+  if (isSupabaseDbConfigured()) {
+    const [profilesResult, statesResult] = await Promise.all([
+      supabaseDbRequest('user_profiles', 'select=user_id,email'),
+      supabaseDbRequest('user_state', 'select=user_id,state,updated_at')
+    ]);
 
-  const parsedDirectCases = parseJsonLike(stateRecord.gpLinkSupportCases);
-  const directCases = Array.isArray(parsedDirectCases) ? parsedDirectCases : [];
-  const messageDb = parseJsonLike(stateRecord.gpLinkMessageDB);
-  const dbCases = messageDb && Array.isArray(messageDb.supportCases) ? messageDb.supportCases : [];
+    if (profilesResult.ok && statesResult.ok && Array.isArray(profilesResult.data) && Array.isArray(statesResult.data)) {
+      const emailByUserId = new Map();
+      for (const row of profilesResult.data) {
+        if (row && typeof row.user_id === 'string') {
+          emailByUserId.set(row.user_id, typeof row.email === 'string' ? row.email : '');
+        }
+      }
 
-  let updated = false;
-  const applyPatch = (list) => list.map((item) => {
-    if (!item || String(item.id || '') !== ticketId) return item;
-    updated = true;
-    return patch(item);
-  });
+      for (const row of statesResult.data) {
+        if (!row || typeof row.user_id !== 'string') continue;
+        const existingState = row.state && typeof row.state === 'object' ? row.state : {};
+        const parsedDirectCases = parseJsonLike(existingState.gpLinkSupportCases);
+        const directCases = Array.isArray(parsedDirectCases) ? parsedDirectCases : [];
+        const messageDb = parseJsonLike(existingState.gpLinkMessageDB);
+        const dbCases = messageDb && Array.isArray(messageDb.supportCases) ? messageDb.supportCases : [];
 
-  const nextDirectCases = applyPatch(directCases);
-  const nextDbCases = applyPatch(dbCases);
-  if (!updated) return null;
-  const syncedDirectCases = nextDirectCases.length ? nextDirectCases : nextDbCases;
+        let updated = false;
+        const applyPatch = (list) => list.map((item) => {
+          if (!item || String(item.id || '') !== ticketId) return item;
+          updated = true;
+          return patch(item);
+        });
 
-  stateRecord.gpLinkSupportCases = JSON.stringify(syncedDirectCases);
-  stateRecord.gpLinkMessageDB = JSON.stringify({
-    ...(messageDb && typeof messageDb === 'object' ? messageDb : {}),
-    supportCases: nextDbCases,
-    updatedAt: new Date().toISOString()
-  });
-  stateRecord.updatedAt = new Date().toISOString();
+        const nextDirectCases = applyPatch(directCases);
+        const nextDbCases = applyPatch(dbCases);
+        if (!updated) continue;
+        const syncedDirectCases = nextDirectCases.length ? nextDirectCases : nextDbCases;
 
-  dbState.userState[candidateEmail] = stateRecord;
-  saveDbState();
+        const nextState = {
+          ...existingState,
+          gpLinkSupportCases: JSON.stringify(syncedDirectCases),
+          gpLinkMessageDB: JSON.stringify({
+            ...(messageDb && typeof messageDb === 'object' ? messageDb : {}),
+            supportCases: nextDbCases,
+            updatedAt: new Date().toISOString()
+          }),
+          updatedAt: new Date().toISOString()
+        };
 
-  const finalCase = syncedDirectCases.find((item) => item && String(item.id || '') === ticketId) || nextDbCases.find((item) => item && String(item.id || '') === ticketId);
-  return normalizeSupportCase(finalCase);
+        const saved = await upsertSupabaseUserState(row.user_id, nextState, nextState.updatedAt);
+        if (!saved) return null;
+
+        const finalCase = syncedDirectCases.find((item) => item && String(item.id || '') === ticketId) || nextDbCases.find((item) => item && String(item.id || '') === ticketId);
+        const normalized = normalizeSupportCase(finalCase);
+        return normalized ? { ...normalized, candidateEmail: emailByUserId.get(row.user_id) || '' } : null;
+      }
+    }
+
+    return null;
+  }
+
+  const allEmails = Object.keys(dbState.userState || {});
+  for (const candidateEmail of allEmails) {
+    const stateRecord = dbState.userState[candidateEmail] && typeof dbState.userState[candidateEmail] === 'object'
+      ? { ...dbState.userState[candidateEmail] }
+      : {};
+
+    const parsedDirectCases = parseJsonLike(stateRecord.gpLinkSupportCases);
+    const directCases = Array.isArray(parsedDirectCases) ? parsedDirectCases : [];
+    const messageDb = parseJsonLike(stateRecord.gpLinkMessageDB);
+    const dbCases = messageDb && Array.isArray(messageDb.supportCases) ? messageDb.supportCases : [];
+
+    let updated = false;
+    const applyPatch = (list) => list.map((item) => {
+      if (!item || String(item.id || '') !== ticketId) return item;
+      updated = true;
+      return patch(item);
+    });
+
+    const nextDirectCases = applyPatch(directCases);
+    const nextDbCases = applyPatch(dbCases);
+    if (!updated) continue;
+    const syncedDirectCases = nextDirectCases.length ? nextDirectCases : nextDbCases;
+
+    stateRecord.gpLinkSupportCases = JSON.stringify(syncedDirectCases);
+    stateRecord.gpLinkMessageDB = JSON.stringify({
+      ...(messageDb && typeof messageDb === 'object' ? messageDb : {}),
+      supportCases: nextDbCases,
+      updatedAt: new Date().toISOString()
+    });
+    stateRecord.updatedAt = new Date().toISOString();
+
+    dbState.userState[candidateEmail] = stateRecord;
+    saveDbState();
+
+    const finalCase = syncedDirectCases.find((item) => item && String(item.id || '') === ticketId) || nextDbCases.find((item) => item && String(item.id || '') === ticketId);
+    const normalized = normalizeSupportCase(finalCase);
+    return normalized ? { ...normalized, candidateEmail } : null;
+  }
+
+  return null;
 }
 
 function isSupabaseConfigured() {
@@ -1594,6 +1805,9 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 200, { ok: true, profile: mapped });
         return;
       }
+
+      sendJson(res, 404, { ok: false, message: 'Profile not found in database for this user.' });
+      return;
     }
 
     const stored = dbState.userProfiles[email] || {};
@@ -1686,6 +1900,9 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 502, { ok: false, message: 'Failed to persist profile to database.' });
         return;
       }
+
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for profile update.' });
+      return;
     }
 
     const userRegistrationCountry = (dbState.users[email] && dbState.users[email].registrationCountry)
@@ -1737,6 +1954,9 @@ async function handleApi(req, res, pathname) {
         });
         return;
       }
+
+      sendJson(res, 404, { ok: false, message: 'State not found in database for this user.' });
+      return;
     }
 
     const state = dbState.userState[email] || {};
@@ -1780,6 +2000,10 @@ async function handleApi(req, res, pathname) {
     const currentRemote = isSupabaseDbConfigured()
       ? await getSupabaseUserStateByEmail(email)
       : null;
+    if (isSupabaseDbConfigured() && (!currentRemote || !currentRemote.userId)) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for state update.' });
+      return;
+    }
     const current = currentRemote && currentRemote.state && typeof currentRemote.state === 'object'
       ? currentRemote.state
       : currentLocal;
@@ -1815,7 +2039,7 @@ async function handleApi(req, res, pathname) {
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
 
-    const dashboard = collectAdminDashboardData();
+    const dashboard = await collectAdminDashboardData();
     sendJson(res, 200, {
       ok: true,
       refreshedAt: new Date().toISOString(),
@@ -1848,32 +2072,24 @@ async function handleApi(req, res, pathname) {
       : null;
     const adminReply = body && typeof body.adminReply === 'string' ? body.adminReply.trim().slice(0, 2000) : '';
 
-    let updatedTicket = null;
-    const allEmails = Object.keys(dbState.userState || {});
-    for (const candidateEmail of allEmails) {
-      const next = persistSupportCaseUpdate(candidateEmail, ticketId, (item) => {
-        const updated = {
-          ...item,
-          status: nextStatus || (item.status === 'closed' ? 'closed' : 'open'),
-          updatedAt: new Date().toISOString()
-        };
-        const thread = Array.isArray(item.thread) ? item.thread.slice() : [];
-        if (adminReply) {
-          thread.push({
-            from: 'gp',
-            text: adminReply,
-            ts: new Date().toISOString()
-          });
-          updated.unread = true;
-        }
-        updated.thread = thread;
-        return updated;
-      });
-      if (next) {
-        updatedTicket = { ...next, candidateEmail };
-        break;
+    const updatedTicket = await persistSupportCaseUpdate(ticketId, (item) => {
+      const updated = {
+        ...item,
+        status: nextStatus || (item.status === 'closed' ? 'closed' : 'open'),
+        updatedAt: new Date().toISOString()
+      };
+      const thread = Array.isArray(item.thread) ? item.thread.slice() : [];
+      if (adminReply) {
+        thread.push({
+          from: 'gp',
+          text: adminReply,
+          ts: new Date().toISOString()
+        });
+        updated.unread = true;
       }
-    }
+      updated.thread = thread;
+      return updated;
+    });
 
     if (!updatedTicket) {
       sendJson(res, 404, { ok: false, message: 'Ticket not found.' });
