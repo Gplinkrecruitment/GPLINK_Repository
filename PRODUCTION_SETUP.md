@@ -25,6 +25,7 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `COOKIE_SECURE=true`
 - `SUPABASE_URL=<your-supabase-url>`
 - `SUPABASE_PUBLISHABLE_KEY=<your-supabase-publishable-key>`
+- `SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>` (server-side only)
 
 Optional:
 - `DB_FILE_PATH=/tmp/app-db.json` (default on Vercel already uses `/tmp`)

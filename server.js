@@ -21,6 +21,7 @@ const DEFAULT_DB_FILE_PATH = process.env.VERCEL
 const DB_FILE_PATH = process.env.DB_FILE_PATH || DEFAULT_DB_FILE_PATH;
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rqrqcfxalkvzwbedvsjs.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || 'sb_publishable_azrMKjmESGzVhabzQjybSg_9BwLy9C0';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -783,6 +784,104 @@ function isSupabaseConfigured() {
   return !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY);
 }
 
+function isSupabaseDbConfigured() {
+  return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+async function supabaseDbRequest(pathname, query = '', options = {}) {
+  if (!isSupabaseDbConfigured()) {
+    return { ok: false, status: 503, data: { message: 'Supabase database is not configured.' } };
+  }
+
+  const queryPart = query ? `?${query}` : '';
+  const url = `${SUPABASE_URL}/rest/v1/${pathname}${queryPart}`;
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    ...((options && options.headers) || {})
+  };
+  if (options && options.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: options.method || 'GET',
+      headers,
+      body: options && options.body !== undefined ? JSON.stringify(options.body) : undefined
+    });
+    const text = await response.text();
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        data = text;
+      }
+    }
+    return { ok: response.ok, status: response.status, data };
+  } catch (err) {
+    return { ok: false, status: 502, data: { message: 'Failed to reach Supabase database service.' } };
+  }
+}
+
+async function getSupabaseUserIdByEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const result = await supabaseDbRequest(
+    'user_profiles',
+    `select=user_id&email=eq.${encodeURIComponent(normalizedEmail)}&limit=1`
+  );
+  if (!result.ok) return null;
+  if (!Array.isArray(result.data) || result.data.length === 0) return null;
+  const userId = result.data[0] && typeof result.data[0].user_id === 'string'
+    ? result.data[0].user_id
+    : null;
+  return userId;
+}
+
+async function getSupabaseUserStateByEmail(email) {
+  const userId = await getSupabaseUserIdByEmail(email);
+  if (!userId) return null;
+
+  const result = await supabaseDbRequest(
+    'user_state',
+    `select=state,updated_at&user_id=eq.${encodeURIComponent(userId)}&limit=1`
+  );
+  if (!result.ok) return null;
+
+  const row = Array.isArray(result.data) && result.data.length > 0 ? result.data[0] : null;
+  if (!row || typeof row !== 'object') {
+    return { userId, state: {}, updatedAt: null };
+  }
+
+  return {
+    userId,
+    state: row.state && typeof row.state === 'object' ? row.state : {},
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null
+  };
+}
+
+async function upsertSupabaseUserState(userId, state, updatedAt) {
+  if (!userId) return false;
+
+  const result = await supabaseDbRequest(
+    'user_state',
+    'on_conflict=user_id',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: [{
+        user_id: userId,
+        state: state && typeof state === 'object' ? state : {},
+        updated_at: updatedAt || new Date().toISOString()
+      }]
+    }
+  );
+  return result.ok;
+}
+
 async function supabaseAuthRequest(endpoint, payload) {
   if (!isSupabaseConfigured()) {
     return { ok: false, status: 503, data: { message: 'Supabase is not configured.' } };
@@ -921,7 +1020,8 @@ async function handleApi(req, res, pathname) {
       ok: true,
       supabaseUrl: configured ? SUPABASE_URL : '',
       supabasePublishableKey: configured ? SUPABASE_PUBLISHABLE_KEY : '',
-      supabaseConfigured: configured
+      supabaseConfigured: configured,
+      supabaseDbConfigured: isSupabaseDbConfigured()
     });
     return;
   }
@@ -1438,6 +1538,24 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    if (isSupabaseDbConfigured()) {
+      const remoteState = await getSupabaseUserStateByEmail(email);
+      if (remoteState) {
+        const filtered = {};
+        for (const key of USER_STATE_KEYS) {
+          if (Object.prototype.hasOwnProperty.call(remoteState.state, key)) {
+            filtered[key] = remoteState.state[key];
+          }
+        }
+        sendJson(res, 200, {
+          ok: true,
+          state: filtered,
+          updatedAt: remoteState.updatedAt
+        });
+        return;
+      }
+    }
+
     const state = dbState.userState[email] || {};
     const filtered = {};
     for (const key of USER_STATE_KEYS) {
@@ -1473,9 +1591,15 @@ async function handleApi(req, res, pathname) {
     }
 
     const incoming = sanitizeUserStateInput(body);
-    const current = dbState.userState[email] && typeof dbState.userState[email] === 'object'
+    const currentLocal = dbState.userState[email] && typeof dbState.userState[email] === 'object'
       ? dbState.userState[email]
       : {};
+    const currentRemote = isSupabaseDbConfigured()
+      ? await getSupabaseUserStateByEmail(email)
+      : null;
+    const current = currentRemote && currentRemote.state && typeof currentRemote.state === 'object'
+      ? currentRemote.state
+      : currentLocal;
 
     const next = { ...current };
     for (const [key, value] of Object.entries(incoming)) {
@@ -1487,10 +1611,20 @@ async function handleApi(req, res, pathname) {
     }
     next.updatedAt = new Date().toISOString();
 
-    dbState.userState[email] = next;
-    saveDbState();
+    const updatedAt = next.updatedAt;
 
-    sendJson(res, 200, { ok: true, updatedAt: next.updatedAt });
+    if (currentRemote && currentRemote.userId) {
+      const saved = await upsertSupabaseUserState(currentRemote.userId, next, updatedAt);
+      if (!saved) {
+        sendJson(res, 502, { ok: false, message: 'Failed to persist user state to database.' });
+        return;
+      }
+    } else {
+      dbState.userState[email] = next;
+      saveDbState();
+    }
+
+    sendJson(res, 200, { ok: true, updatedAt });
     return;
   }
 
