@@ -582,9 +582,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const SUPABASE_URL = "https://rqrqcfxalkvzwbedvsjs.supabase.co";
-    const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_azrMKjmESGzVhabzQjybSg_9BwLy9C0";
-    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    let supabaseClient = null;
+    let supabaseInitPromise = null;
 
     const authShellEl = document.getElementById("authShell");
     const signUpToggleBtnEl = document.getElementById("signUpToggleBtn");
@@ -600,6 +599,8 @@
     const signupSubmitBtnEl = document.getElementById("signupSubmitBtn");
     const forgotPasswordBtnEl = document.getElementById("forgotPasswordBtn");
     const signupCountryDialEl = document.getElementById("signupCountryDial");
+    const oauthButtonIds = ["appleSigninBtn", "googleSigninBtn", "appleSignupBtn", "googleSignupBtn"];
+    const oauthButtons = oauthButtonIds.map((id) => document.getElementById(id)).filter(Boolean);
 
     function setStatus(el, message, type = "") {
       el.textContent = message;
@@ -626,6 +627,38 @@
     function setError(id, message) {
       const el = document.getElementById(id);
       if (el) el.textContent = message || "";
+    }
+
+    function setOAuthButtonsDisabled(disabled) {
+      oauthButtons.forEach((button) => {
+        button.disabled = !!disabled;
+      });
+    }
+
+    async function initSupabaseClient() {
+      if (supabaseClient) return supabaseClient;
+
+      const response = await fetch("/api/auth/config", {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+        cache: "no-store"
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok || !data.supabaseConfigured || !data.supabaseUrl || !data.supabasePublishableKey) {
+        throw new Error(data.message || "Supabase auth is not configured.");
+      }
+
+      supabaseClient = window.supabase.createClient(data.supabaseUrl, data.supabasePublishableKey);
+      setOAuthButtonsDisabled(false);
+      return supabaseClient;
+    }
+
+    async function ensureSupabaseClient() {
+      if (supabaseClient) return supabaseClient;
+      if (!supabaseInitPromise) {
+        supabaseInitPromise = initSupabaseClient();
+      }
+      return supabaseInitPromise;
     }
 
     function validateSignIn() {
@@ -707,16 +740,17 @@
 
     async function startOAuth(provider) {
       try {
+        const client = await ensureSupabaseClient();
         const activeStatusEl = authShellEl.classList.contains("right-panel-active") ? signUpStatusEl : signInStatusEl;
         setStatus(activeStatusEl, `Redirecting to ${provider === "apple" ? "Apple" : "Google"}...`);
         const redirectTo = `${window.location.origin}/pages/signin.html`;
-        const { error } = await supabaseClient.auth.signInWithOAuth({ provider, options: { redirectTo } });
+        const { error } = await client.auth.signInWithOAuth({ provider, options: { redirectTo } });
         if (error) {
           setStatus(activeStatusEl, error.message || "Unable to start OAuth sign-in.", "error");
         }
       } catch (err) {
         const activeStatusEl = authShellEl.classList.contains("right-panel-active") ? signUpStatusEl : signInStatusEl;
-        setStatus(activeStatusEl, "Unable to start OAuth sign-in.", "error");
+        setStatus(activeStatusEl, err && err.message ? err.message : "Unable to start OAuth sign-in.", "error");
       }
     }
 
@@ -727,7 +761,8 @@
       if (!hasOAuthParams) return;
 
       try {
-        const { data, error } = await supabaseClient.auth.getSession();
+        const client = await ensureSupabaseClient();
+        const { data, error } = await client.auth.getSession();
         if (error || !data || !data.session || !data.session.access_token) {
           setStatus(signInStatusEl, "OAuth sign-in failed. Please try again.", "error");
           return;
@@ -893,6 +928,8 @@
 
     setPanel("signin");
     pickCountryDialFromLocale();
+    setOAuthButtonsDisabled(true);
+    ensureSupabaseClient().catch(() => {});
     finalizeSupabaseOAuthSessionIfPresent();
   </script>
 </body>

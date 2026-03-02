@@ -21,6 +21,12 @@ const DEFAULT_DB_FILE_PATH = process.env.VERCEL
 const DB_FILE_PATH = process.env.DB_FILE_PATH || DEFAULT_DB_FILE_PATH;
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rqrqcfxalkvzwbedvsjs.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || 'sb_publishable_azrMKjmESGzVhabzQjybSg_9BwLy9C0';
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -38,6 +44,7 @@ const MIME = {
 const USER_STATE_KEYS = [
   'gp_epic_progress',
   'gp_amc_progress',
+  'gp_ahpra_progress',
   'gp_documents_prep',
   'gp_prepared_docs',
   'gp_selected_country',
@@ -489,6 +496,289 @@ function sanitizeUserStateInput(body) {
   return out;
 }
 
+function parseJsonLike(value) {
+  if (value === null || typeof value === 'undefined') return null;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch (err) {
+    return null;
+  }
+}
+
+function isAdminEmail(email) {
+  if (!email) return false;
+  if (ADMIN_EMAILS.size === 0) return true;
+  return ADMIN_EMAILS.has(String(email).trim().toLowerCase());
+}
+
+function requireAdminSession(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return null;
+  const email = getSessionEmail(session);
+  if (!isAdminEmail(email)) {
+    sendJson(res, 403, { ok: false, message: 'Admin access required.' });
+    return null;
+  }
+  return { session, email };
+}
+
+function hasOwn(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function getUserStateObject(email) {
+  const source = dbState.userState[email];
+  if (!source || typeof source !== 'object') return {};
+  const out = {};
+  for (const key of USER_STATE_KEYS) {
+    if (hasOwn(source, key)) {
+      out[key] = parseJsonLike(source[key]);
+    }
+  }
+  out.updatedAt = source.updatedAt || null;
+  return out;
+}
+
+function getProgressSummary(userStateObj) {
+  const epic = userStateObj.gp_epic_progress && typeof userStateObj.gp_epic_progress === 'object'
+    ? userStateObj.gp_epic_progress
+    : {};
+  const amc = userStateObj.gp_amc_progress && typeof userStateObj.gp_amc_progress === 'object'
+    ? userStateObj.gp_amc_progress
+    : {};
+  const ahpra = userStateObj.gp_ahpra_progress && typeof userStateObj.gp_ahpra_progress === 'object'
+    ? userStateObj.gp_ahpra_progress
+    : {};
+  const docs = userStateObj.gp_documents_prep && typeof userStateObj.gp_documents_prep === 'object'
+    ? userStateObj.gp_documents_prep
+    : {};
+
+  const steps = [
+    { id: 'profile_setup', label: 'Profile setup', done: false },
+    { id: 'epic_verification', label: 'EPIC verification', done: false },
+    { id: 'amc_portfolio', label: 'AMC portfolio', done: false },
+    { id: 'documents', label: 'Documents prepared', done: false },
+    { id: 'ahpra_setup', label: 'AHPRA account setup', done: false },
+    { id: 'ahpra_submission', label: 'AHPRA submission', done: false },
+    { id: 'ahpra_assessment', label: 'AHPRA assessment', done: false },
+    { id: 'registration_outcome', label: 'Registration outcome', done: false }
+  ];
+
+  steps[0].done = !!(epic && epic.completed && epic.completed.create_account === true);
+  steps[1].done = !!(epic && epic.completed && epic.completed.verification_issued === true);
+  steps[2].done = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+
+  const docEntries = docs && docs.docs && typeof docs.docs === 'object' ? Object.values(docs.docs) : [];
+  const preparedByYou = docEntries.filter((item) => item && typeof item === 'object' && hasOwn(item, 'uploaded'));
+  const uploadedPrepared = preparedByYou.filter((item) => item.uploaded === true);
+  steps[3].done = preparedByYou.length > 0 && uploadedPrepared.length === preparedByYou.length;
+
+  steps[4].done = !!(ahpra && ahpra.stage_1 && ahpra.stage_1.completedAt);
+  steps[5].done = !!(ahpra && ahpra.stage_2 && ahpra.stage_2.completedAt);
+  steps[6].done = !!(ahpra && ahpra.stage_3 && (ahpra.stage_3.completedAt || ahpra.stage_3.applicationOpenedAt));
+  steps[7].done = !!(ahpra && ahpra.stage_4 && ahpra.stage_4.completedAt);
+
+  const doneCount = steps.filter((step) => step.done).length;
+  const currentIndex = steps.findIndex((step) => !step.done);
+  const currentStepIndex = currentIndex === -1 ? steps.length : currentIndex + 1;
+  const currentStepLabel = currentIndex === -1 ? 'Completed' : steps[currentIndex].label;
+  const percent = Math.round((doneCount / steps.length) * 100);
+
+  const assessmentStatus = ahpra && ahpra.stage_3 && typeof ahpra.stage_3.assessmentStatus === 'string'
+    ? ahpra.stage_3.assessmentStatus
+    : '';
+  const pendingVerification = !steps[1].done || !steps[2].done || assessmentStatus === 'under_review' || assessmentStatus === 'further_info_requested';
+
+  const actionRequired = !!(
+    (ahpra && ahpra.adminFlags && ahpra.adminFlags.actionRequired === true) ||
+    assessmentStatus === 'further_info_requested'
+  );
+
+  const documentsPending = docEntries.filter((item) => item && typeof item === 'object' && (item.status === 'under_review' || item.status === 'rejected')).length;
+
+  return {
+    steps,
+    currentStepIndex,
+    totalSteps: steps.length,
+    currentStepLabel,
+    percent,
+    pendingVerification,
+    actionRequired,
+    documentsPending
+  };
+}
+
+function normalizeSupportCase(rawCase) {
+  if (!rawCase || typeof rawCase !== 'object') return null;
+  const createdAt = typeof rawCase.createdAt === 'string' ? rawCase.createdAt : new Date().toISOString();
+  const updatedAt = typeof rawCase.updatedAt === 'string' ? rawCase.updatedAt : createdAt;
+  const thread = Array.isArray(rawCase.thread) ? rawCase.thread : [];
+  const latest = thread.length ? thread[thread.length - 1] : null;
+  const lastMessage = latest && typeof latest.text === 'string' ? latest.text : '';
+  const lastFrom = latest && (latest.from || latest.by) ? String(latest.from || latest.by) : '';
+  const rawPriority = typeof rawCase.priority === 'string' ? rawCase.priority : 'normal';
+  const priority = rawPriority === 'time_sensitive' ? 'urgent' : rawPriority === 'blocked' ? 'high' : 'normal';
+
+  return {
+    id: String(rawCase.id || `case_${Date.now()}`),
+    title: typeof rawCase.title === 'string' && rawCase.title.trim() ? rawCase.title.trim() : 'Support request',
+    category: typeof rawCase.category === 'string' ? rawCase.category : 'Other',
+    status: rawCase.status === 'closed' ? 'closed' : 'open',
+    priority,
+    unread: !!rawCase.unread,
+    createdAt,
+    updatedAt,
+    messagesCount: thread.length,
+    lastMessage,
+    lastFrom,
+    thread
+  };
+}
+
+function getSupportCasesFromState(userStateObj) {
+  const directCases = Array.isArray(userStateObj.gpLinkSupportCases) ? userStateObj.gpLinkSupportCases : null;
+  if (directCases && directCases.length) return directCases.map(normalizeSupportCase).filter(Boolean);
+
+  const messageDb = userStateObj.gpLinkMessageDB && typeof userStateObj.gpLinkMessageDB === 'object'
+    ? userStateObj.gpLinkMessageDB
+    : null;
+  const dbCases = messageDb && Array.isArray(messageDb.supportCases) ? messageDb.supportCases : [];
+  return dbCases.map(normalizeSupportCase).filter(Boolean);
+}
+
+function collectAdminDashboardData() {
+  const emails = new Set([
+    ...Object.keys(dbState.users || {}),
+    ...Object.keys(dbState.userProfiles || {}),
+    ...Object.keys(dbState.userState || {})
+  ]);
+
+  const candidates = [];
+  const tickets = [];
+  const staleThresholdMs = 5 * 24 * 60 * 60 * 1000;
+
+  for (const email of emails) {
+    const user = dbState.users[email] || {};
+    const profile = dbState.userProfiles[email] || {};
+    const userState = getUserStateObject(email);
+    const progress = getProgressSummary(userState);
+    const supportCases = getSupportCasesFromState(userState);
+
+    const fullName = `${profile.firstName || user.firstName || ''} ${profile.lastName || user.lastName || ''}`.trim() || email;
+    const phone = profile.phone || [user.countryDial || '', user.phoneNumber || ''].join(' ').trim();
+    const country = user.registrationCountry || profile.specialistCountry || userState.gp_selected_country || '';
+    const lastActiveAt = userState.updatedAt || profile.updatedAt || user.updatedAt || null;
+    const registeredAt = user.createdAt || user.updatedAt || profile.updatedAt || lastActiveAt;
+    const isStalled = lastActiveAt ? (Date.now() - new Date(lastActiveAt).getTime()) > staleThresholdMs : true;
+
+    const openCount = supportCases.filter((item) => item.status !== 'closed').length;
+    const status = progress.percent === 100
+      ? 'complete'
+      : progress.actionRequired
+        ? 'action_required'
+        : isStalled
+          ? 'stalled'
+          : 'active';
+
+    const candidateId = email;
+    const candidate = {
+      id: candidateId,
+      email,
+      name: fullName,
+      phone,
+      country,
+      registeredAt,
+      lastActiveAt,
+      progressPercent: progress.percent,
+      currentStepLabel: progress.currentStepLabel,
+      currentStepIndex: progress.currentStepIndex,
+      totalSteps: progress.totalSteps,
+      pendingVerification: progress.pendingVerification,
+      actionRequired: progress.actionRequired,
+      stalled: isStalled,
+      status,
+      openTickets: openCount,
+      documentsPending: progress.documentsPending
+    };
+    candidates.push(candidate);
+
+    supportCases.forEach((item) => {
+      tickets.push({
+        ...item,
+        candidateId,
+        candidateName: fullName,
+        candidateEmail: email
+      });
+    });
+  }
+
+  candidates.sort((a, b) => {
+    const at = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+    const bt = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+    return bt - at;
+  });
+  tickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  const totalGps = candidates.length;
+  const activeGps = candidates.filter((item) => item.status !== 'complete').length;
+  const pendingVerifications = candidates.filter((item) => item.pendingVerification).length;
+  const openSupportTickets = tickets.filter((item) => item.status !== 'closed').length;
+  const averageProgress = totalGps
+    ? Math.round(candidates.reduce((sum, item) => sum + item.progressPercent, 0) / totalGps)
+    : 0;
+
+  return {
+    summary: {
+      totalGps,
+      activeGps,
+      pendingVerifications,
+      openSupportTickets,
+      averageProgress
+    },
+    candidates,
+    verificationQueue: candidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
+    tickets
+  };
+}
+
+function persistSupportCaseUpdate(candidateEmail, ticketId, patch) {
+  const stateRecord = dbState.userState[candidateEmail] && typeof dbState.userState[candidateEmail] === 'object'
+    ? { ...dbState.userState[candidateEmail] }
+    : {};
+
+  const parsedDirectCases = parseJsonLike(stateRecord.gpLinkSupportCases);
+  const directCases = Array.isArray(parsedDirectCases) ? parsedDirectCases : [];
+  const messageDb = parseJsonLike(stateRecord.gpLinkMessageDB);
+  const dbCases = messageDb && Array.isArray(messageDb.supportCases) ? messageDb.supportCases : [];
+
+  let updated = false;
+  const applyPatch = (list) => list.map((item) => {
+    if (!item || String(item.id || '') !== ticketId) return item;
+    updated = true;
+    return patch(item);
+  });
+
+  const nextDirectCases = applyPatch(directCases);
+  const nextDbCases = applyPatch(dbCases);
+  if (!updated) return null;
+  const syncedDirectCases = nextDirectCases.length ? nextDirectCases : nextDbCases;
+
+  stateRecord.gpLinkSupportCases = JSON.stringify(syncedDirectCases);
+  stateRecord.gpLinkMessageDB = JSON.stringify({
+    ...(messageDb && typeof messageDb === 'object' ? messageDb : {}),
+    supportCases: nextDbCases,
+    updatedAt: new Date().toISOString()
+  });
+  stateRecord.updatedAt = new Date().toISOString();
+
+  dbState.userState[candidateEmail] = stateRecord;
+  saveDbState();
+
+  const finalCase = syncedDirectCases.find((item) => item && String(item.id || '') === ticketId) || nextDbCases.find((item) => item && String(item.id || '') === ticketId);
+  return normalizeSupportCase(finalCase);
+}
+
 function isSupabaseConfigured() {
   return !!(SUPABASE_URL && SUPABASE_PUBLISHABLE_KEY);
 }
@@ -621,6 +911,17 @@ async function handleApi(req, res, pathname) {
       environment: NODE_ENV,
       authDisabled: AUTH_DISABLED,
       serverTime: new Date().toISOString()
+    });
+    return;
+  }
+
+  if (pathname === '/api/auth/config' && req.method === 'GET') {
+    const configured = isSupabaseConfigured();
+    sendJson(res, 200, {
+      ok: true,
+      supabaseUrl: configured ? SUPABASE_URL : '',
+      supabasePublishableKey: configured ? SUPABASE_PUBLISHABLE_KEY : '',
+      supabaseConfigured: configured
     });
     return;
   }
@@ -1193,6 +1494,79 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === '/api/admin/dashboard' && req.method === 'GET') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const dashboard = collectAdminDashboardData();
+    sendJson(res, 200, {
+      ok: true,
+      refreshedAt: new Date().toISOString(),
+      ...dashboard
+    });
+    return;
+  }
+
+  const adminTicketMatch = pathname.match(/^\/api\/admin\/tickets\/([^/]+)$/);
+  if (adminTicketMatch && req.method === 'PUT') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const ticketId = decodeURIComponent(adminTicketMatch[1] || '').trim();
+    if (!ticketId) {
+      sendJson(res, 400, { ok: false, message: 'Invalid ticket id.' });
+      return;
+    }
+
+    const nextStatus = body && typeof body.status === 'string' && ['open', 'closed'].includes(body.status)
+      ? body.status
+      : null;
+    const adminReply = body && typeof body.adminReply === 'string' ? body.adminReply.trim().slice(0, 2000) : '';
+
+    let updatedTicket = null;
+    const allEmails = Object.keys(dbState.userState || {});
+    for (const candidateEmail of allEmails) {
+      const next = persistSupportCaseUpdate(candidateEmail, ticketId, (item) => {
+        const updated = {
+          ...item,
+          status: nextStatus || (item.status === 'closed' ? 'closed' : 'open'),
+          updatedAt: new Date().toISOString()
+        };
+        const thread = Array.isArray(item.thread) ? item.thread.slice() : [];
+        if (adminReply) {
+          thread.push({
+            from: 'gp',
+            text: adminReply,
+            ts: new Date().toISOString()
+          });
+          updated.unread = true;
+        }
+        updated.thread = thread;
+        return updated;
+      });
+      if (next) {
+        updatedTicket = { ...next, candidateEmail };
+        break;
+      }
+    }
+
+    if (!updatedTicket) {
+      sendJson(res, 404, { ok: false, message: 'Ticket not found.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, ticket: updatedTicket });
+    return;
+  }
+
   sendJson(res, 404, { ok: false, message: 'Not found' });
 }
 
@@ -1205,12 +1579,6 @@ async function handleRequest(req, res) {
   if (pathname === '/') {
     res.writeHead(302, { Location: '/pages/index.html' });
     res.end();
-    return;
-  }
-
-  if (pathname === '/pages/admin.html') {
-    res.writeHead(404);
-    res.end('Not found');
     return;
   }
 
@@ -1255,6 +1623,20 @@ async function handleRequest(req, res) {
     res.writeHead(302, { Location: '/pages/index.html' });
     res.end();
     return;
+  }
+
+  if (pathname === '/pages/admin.html') {
+    if (!session) {
+      res.writeHead(302, { Location: '/pages/signin.html' });
+      res.end();
+      return;
+    }
+    const email = getSessionEmail(session);
+    if (!isAdminEmail(email)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Admin access required');
+      return;
+    }
   }
 
   if (!isPublic && !session && (pathname.endsWith('.html') || pathname === '/')) {
