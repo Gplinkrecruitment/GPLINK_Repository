@@ -882,6 +882,99 @@ async function upsertSupabaseUserState(userId, state, updatedAt) {
   return result.ok;
 }
 
+function mapSupabaseProfileRowToApiProfile(row, email) {
+  const phone = row.phone || [row.country_dial || '', row.phone_number || ''].filter(Boolean).join(' ').trim();
+  const localUser = dbState.users[email] || {};
+  return {
+    firstName: row.first_name || '',
+    lastName: row.last_name || '',
+    email: row.email || email,
+    phone,
+    registrationNumber: row.registration_number || '',
+    gmcNumber: row.gmc_number || '',
+    specialistCountry: row.registration_country || '',
+    hasPassword: !!localUser.passwordHash,
+    profilePhotoName: row.profile_photo_name || '',
+    profilePhotoDataUrl: row.profile_photo_data_url || '',
+    idCopyName: row.id_copy_name || '',
+    idCopyDataUrl: row.id_copy_data_url || '',
+    cvFileName: row.cv_file_name || '',
+    updatedAt: row.updated_at || null
+  };
+}
+
+function splitPhoneForProfile(phoneValue) {
+  const value = String(phoneValue || '').trim();
+  if (!value) return { countryDial: '', phoneNumber: '' };
+  const match = value.match(/^(\+\d{1,4})\s*(.*)$/);
+  if (!match) return { countryDial: '', phoneNumber: value };
+  return {
+    countryDial: match[1] || '',
+    phoneNumber: String(match[2] || '').trim()
+  };
+}
+
+async function getSupabaseUserProfile(email, sessionUserId = null) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const byEmail = await supabaseDbRequest(
+    'user_profiles',
+    `select=*&email=eq.${encodeURIComponent(normalizedEmail)}&limit=1`
+  );
+  if (byEmail.ok && Array.isArray(byEmail.data) && byEmail.data.length > 0) {
+    return byEmail.data[0];
+  }
+
+  if (!sessionUserId) return null;
+  const byId = await supabaseDbRequest(
+    'user_profiles',
+    `select=*&user_id=eq.${encodeURIComponent(sessionUserId)}&limit=1`
+  );
+  if (!byId.ok || !Array.isArray(byId.data) || byId.data.length === 0) return null;
+  return byId.data[0];
+}
+
+async function upsertSupabaseUserProfile(userId, email, clean, existingRow = null) {
+  if (!userId) return null;
+  const current = existingRow && typeof existingRow === 'object' ? existingRow : {};
+  const split = splitPhoneForProfile(clean.phone);
+  const countryDial = split.countryDial || current.country_dial || '';
+  const phoneNumber = split.phoneNumber || current.phone_number || '';
+  const phone = clean.phone || [countryDial, phoneNumber].filter(Boolean).join(' ').trim();
+
+  const payload = {
+    user_id: userId,
+    email,
+    first_name: clean.firstName || current.first_name || '',
+    last_name: clean.lastName || current.last_name || '',
+    country_dial: countryDial,
+    phone_number: phoneNumber,
+    registration_country: clean.specialistCountry || current.registration_country || '',
+    phone,
+    registration_number: clean.registrationNumber || current.registration_number || '',
+    gmc_number: clean.gmcNumber || current.gmc_number || '',
+    profile_photo_name: clean.profilePhotoName || current.profile_photo_name || '',
+    profile_photo_data_url: clean.profilePhotoDataUrl || current.profile_photo_data_url || '',
+    id_copy_name: clean.idCopyName || current.id_copy_name || '',
+    id_copy_data_url: clean.idCopyDataUrl || current.id_copy_data_url || '',
+    cv_file_name: clean.cvFileName || current.cv_file_name || '',
+    updated_at: new Date().toISOString()
+  };
+
+  const write = await supabaseDbRequest(
+    'user_profiles',
+    'on_conflict=user_id',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [payload]
+    }
+  );
+  if (!write.ok || !Array.isArray(write.data) || write.data.length === 0) return null;
+  return write.data[0];
+}
+
 async function supabaseAuthRequest(endpoint, payload) {
   if (!isSupabaseConfigured()) {
     return { ok: false, status: 503, data: { message: 'Supabase is not configured.' } };
@@ -913,6 +1006,7 @@ function getSessionProfileFromUser(email) {
     firstName: user.firstName || profile.firstName || '',
     lastName: user.lastName || profile.lastName || '',
     email: key,
+    supabaseUserId: user.supabaseUserId || '',
     countryDial: user.countryDial || '',
     phoneNumber: user.phoneNumber || '',
     registrationCountry: user.registrationCountry || profile.specialistCountry || ''
@@ -922,6 +1016,7 @@ function getSessionProfileFromUser(email) {
 function upsertLocalUserFromSupabaseUser(supaUser) {
   const email = String(supaUser && supaUser.email ? supaUser.email : '').trim().toLowerCase();
   if (!email) return null;
+  const supabaseUserId = String(supaUser && supaUser.id ? supaUser.id : '').trim();
 
   const meta = supaUser && typeof supaUser.user_metadata === 'object' && supaUser.user_metadata
     ? supaUser.user_metadata
@@ -936,6 +1031,7 @@ function upsertLocalUserFromSupabaseUser(supaUser) {
   dbState.users[email] = {
     ...(dbState.users[email] || {}),
     email,
+    supabaseUserId: supabaseUserId || (dbState.users[email] && dbState.users[email].supabaseUserId) || '',
     firstName: firstName || (dbState.users[email] && dbState.users[email].firstName) || '',
     lastName: lastName || (dbState.users[email] && dbState.users[email].lastName) || '',
     countryDial: countryDial || (dbState.users[email] && dbState.users[email].countryDial) || '',
@@ -964,6 +1060,13 @@ function upsertLocalUserFromSupabaseUser(supaUser) {
 
   saveDbState();
   return email;
+}
+
+function getSessionSupabaseUserId(session) {
+  const value = session && session.userProfile && typeof session.userProfile.supabaseUserId === 'string'
+    ? session.userProfile.supabaseUserId.trim()
+    : '';
+  return value || null;
 }
 
 function cleanup() {
@@ -1457,6 +1560,42 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    if (isSupabaseDbConfigured()) {
+      const sessionUserId = getSessionSupabaseUserId(session);
+      const remoteProfile = await getSupabaseUserProfile(email, sessionUserId);
+      if (remoteProfile) {
+        const mapped = mapSupabaseProfileRowToApiProfile(remoteProfile, email);
+        dbState.userProfiles[email] = {
+          ...(dbState.userProfiles[email] || {}),
+          firstName: mapped.firstName,
+          lastName: mapped.lastName,
+          email: mapped.email,
+          phone: mapped.phone,
+          registrationNumber: mapped.registrationNumber,
+          gmcNumber: mapped.gmcNumber,
+          specialistCountry: mapped.specialistCountry,
+          profilePhotoName: mapped.profilePhotoName,
+          profilePhotoDataUrl: mapped.profilePhotoDataUrl,
+          idCopyName: mapped.idCopyName,
+          idCopyDataUrl: mapped.idCopyDataUrl,
+          cvFileName: mapped.cvFileName,
+          updatedAt: mapped.updatedAt
+        };
+        dbState.users[email] = {
+          ...(dbState.users[email] || {}),
+          email,
+          supabaseUserId: remoteProfile.user_id || sessionUserId || '',
+          firstName: mapped.firstName,
+          lastName: mapped.lastName,
+          registrationCountry: mapped.specialistCountry || '',
+          updatedAt: new Date().toISOString()
+        };
+        saveDbState();
+        sendJson(res, 200, { ok: true, profile: mapped });
+        return;
+      }
+    }
+
     const stored = dbState.userProfiles[email] || {};
     const user = dbState.users[email] || {};
     sendJson(res, 200, {
@@ -1505,6 +1644,50 @@ async function handleApi(req, res, pathname) {
       return;
     }
     clean.email = email;
+
+    if (isSupabaseDbConfigured()) {
+      const sessionUserId = getSessionSupabaseUserId(session);
+      const existing = await getSupabaseUserProfile(email, sessionUserId);
+      const userId = (existing && existing.user_id) || sessionUserId;
+
+      if (userId) {
+        const upserted = await upsertSupabaseUserProfile(userId, email, clean, existing);
+        if (upserted) {
+          const mapped = mapSupabaseProfileRowToApiProfile(upserted, email);
+          dbState.userProfiles[email] = {
+            ...(dbState.userProfiles[email] || {}),
+            firstName: mapped.firstName,
+            lastName: mapped.lastName,
+            email: mapped.email,
+            phone: mapped.phone,
+            registrationNumber: mapped.registrationNumber,
+            gmcNumber: mapped.gmcNumber,
+            specialistCountry: mapped.specialistCountry,
+            profilePhotoName: mapped.profilePhotoName,
+            profilePhotoDataUrl: mapped.profilePhotoDataUrl,
+            idCopyName: mapped.idCopyName,
+            idCopyDataUrl: mapped.idCopyDataUrl,
+            cvFileName: mapped.cvFileName,
+            updatedAt: mapped.updatedAt
+          };
+          dbState.users[email] = {
+            ...(dbState.users[email] || {}),
+            email,
+            supabaseUserId: upserted.user_id || sessionUserId || '',
+            firstName: mapped.firstName,
+            lastName: mapped.lastName,
+            registrationCountry: mapped.specialistCountry || '',
+            updatedAt: new Date().toISOString()
+          };
+          saveDbState();
+          sendJson(res, 200, { ok: true, profile: mapped });
+          return;
+        }
+        sendJson(res, 502, { ok: false, message: 'Failed to persist profile to database.' });
+        return;
+      }
+    }
+
     const userRegistrationCountry = (dbState.users[email] && dbState.users[email].registrationCountry)
       ? dbState.users[email].registrationCountry
       : clean.specialistCountry;
