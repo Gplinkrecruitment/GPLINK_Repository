@@ -43,13 +43,15 @@
       }
 
       let dataReady = false;
-      let pageReady = false;
+      let pageReady = document.readyState !== 'loading';
       function maybeDone() {
         if (dataReady && pageReady) unmountSkeleton();
       }
 
       window.addEventListener('gp-data-ready', function () { dataReady = true; maybeDone(); }, { once: true });
-      window.addEventListener('load', function () { pageReady = true; maybeDone(); }, { once: true });
+      if (!pageReady) {
+        document.addEventListener('DOMContentLoaded', function () { pageReady = true; maybeDone(); }, { once: true });
+      }
       setTimeout(function () { dataReady = true; pageReady = true; maybeDone(); }, 12000);
 
       if (document.readyState === 'loading') {

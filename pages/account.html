@@ -2333,8 +2333,8 @@
     });
 
     function moveNavGlass(target, animate = true) {
-      if (!target || !navGlassEl) return;
-      const parentRect = target.parentElement.getBoundingClientRect();
+      if (!target || !navGlassEl || !navMenuEl) return;
+      const parentRect = navMenuEl.getBoundingClientRect();
       const rect = target.getBoundingClientRect();
       if (!animate) {
         const prevTransition = navGlassEl.style.transition;
@@ -2369,6 +2369,9 @@
           moveNavGlass(item, true);
         }
       });
+      item.addEventListener("mouseleave", () => {
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
       item.addEventListener("focus", () => {
         if (hoveredNavItem !== item) {
           hoveredNavItem = item;
@@ -2391,6 +2394,17 @@
       });
     }
 
+    document.addEventListener("mousemove", (event) => {
+      if (!navMenuEl || !activeNavItem) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (target.closest(".nav-menu .nav-item")) return;
+      if (hoveredNavItem !== null) {
+        hoveredNavItem = null;
+        moveNavGlass(activeNavItem, true);
+      }
+    });
+
     window.addEventListener("resize", () => {
       if (!isMobileViewport()) closeAllMobileSections();
       if (activeNavItem) moveNavGlass(activeNavItem, false);
@@ -2408,6 +2422,9 @@
       }
       activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
       setActiveNav(activeNavItem, false);
+      window.requestAnimationFrame(() => {
+        if (activeNavItem) moveNavGlass(activeNavItem, false);
+      });
     })();
   </script>
   <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">

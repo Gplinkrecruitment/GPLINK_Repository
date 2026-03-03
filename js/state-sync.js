@@ -110,13 +110,6 @@
     return data && data.state && typeof data.state === 'object' ? data.state : {};
   }
 
-  async function fetchProfile() {
-    const response = await fetch('/api/profile', { credentials: 'same-origin' });
-    if (!response.ok) throw new Error('Profile fetch failed');
-    const data = await response.json();
-    return data && data.profile && typeof data.profile === 'object' ? data.profile : null;
-  }
-
   async function pushState() {
     const payload = { state: {} };
     STATE_KEYS.forEach((key) => {
@@ -142,36 +135,34 @@
     hydratePromise = (async () => {
       showSkeleton();
       let stateOk = false;
-      let profileOk = false;
       const timeout = setTimeout(hideSkeleton, SKELETON_TIMEOUT_MS);
 
       try {
-        const [stateResult, profileResult] = await Promise.allSettled([fetchState(), fetchProfile()]);
+        const serverState = await fetchState();
+        STATE_KEYS.forEach((key) => {
+          if (typeof serverState[key] === 'string') {
+            localStorage.setItem(key, serverState[key]);
+          }
+        });
+        stateOk = true;
 
-        if (stateResult.status === 'fulfilled') {
-          const serverState = stateResult.value || {};
-          STATE_KEYS.forEach((key) => {
-            if (typeof serverState[key] === 'string') {
-              localStorage.setItem(key, serverState[key]);
-            }
-          });
-          stateOk = true;
-        }
-
-        if (profileResult.status === 'fulfilled' && profileResult.value) {
-          try {
-            localStorage.setItem('gp_account_profile', JSON.stringify(profileResult.value));
-          } catch (err) {}
-          profileOk = true;
+        try {
+          const cachedProfile = localStorage.getItem('gp_account_profile');
+          if (cachedProfile && typeof cachedProfile === 'string') {
+            // Keep existing profile cache available to pages that read from localStorage.
+            localStorage.setItem('gp_account_profile', cachedProfile);
+          }
+        } catch (err) {
         }
 
         hydrated = stateOk;
         if (stateOk) {
           window.dispatchEvent(new Event('gp-state-hydrated'));
         }
-        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk, profileOk } }));
+        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk } }));
       } catch (err) {
         hydrated = false;
+        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk: false } }));
       } finally {
         clearTimeout(timeout);
         hideSkeleton();

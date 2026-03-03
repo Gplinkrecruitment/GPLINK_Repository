@@ -12,10 +12,10 @@
       document.head.appendChild(style);
       function mount() { if (!document.body || document.getElementById('gp-universal-skeleton')) return; const el = document.createElement('div'); el.id = 'gp-universal-skeleton'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = '<div class="shell"></div>'; document.body.appendChild(el); }
       function unmount() { root.classList.remove('gp-page-loading'); const el = document.getElementById('gp-universal-skeleton'); if (el && el.parentNode) el.parentNode.removeChild(el); }
-      let dataReady = false; let pageReady = false;
+      let dataReady = false; let pageReady = document.readyState !== 'loading';
       function done() { if (dataReady && pageReady) unmount(); }
       window.addEventListener('gp-data-ready', function () { dataReady = true; done(); }, { once: true });
-      window.addEventListener('load', function () { pageReady = true; done(); }, { once: true });
+      if (!pageReady) document.addEventListener('DOMContentLoaded', function () { pageReady = true; done(); }, { once: true });
       setTimeout(function () { dataReady = true; pageReady = true; done(); }, 12000);
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true }); else mount();
     })();
