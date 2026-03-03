@@ -15,10 +15,15 @@
   const SKELETON_TIMEOUT_MS = 12000;
   const SKELETON_STYLE_ID = 'gp-page-skeleton-style';
   const SKELETON_ROOT_ID = 'gp-page-skeleton';
+  const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
+  const AUTO_PUSH_DEBOUNCE_MS = 450;
 
   let hydrated = false;
   let hydratePromise = null;
   let skeletonShown = false;
+  let suppressLocalObserver = false;
+  let pendingTrackedChange = false;
+  let pushTimer = null;
 
   function injectSkeletonStyles() {
     if (document.getElementById(SKELETON_STYLE_ID)) return;
@@ -129,6 +134,74 @@
     }
   }
 
+  function withSuppressedObserver(fn) {
+    suppressLocalObserver = true;
+    try {
+      return fn();
+    } finally {
+      suppressLocalObserver = false;
+    }
+  }
+
+  function flushBatchedStorageKey(storageKey) {
+    const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+    const raw = localStorage.getItem(metaKey);
+    if (!raw) return;
+
+    let meta = null;
+    try { meta = JSON.parse(raw); } catch (err) { meta = null; }
+    if (!meta || typeof meta !== 'object') return;
+    const pending = Number.isInteger(meta.pending) ? meta.pending : 0;
+    const lastValue = typeof meta.lastValue === 'string' ? meta.lastValue : '';
+    if (pending > 0 && lastValue) {
+      localStorage.setItem(storageKey, lastValue);
+      meta.pending = 0;
+      localStorage.setItem(metaKey, JSON.stringify(meta));
+    }
+  }
+
+  function flushTrackedBatches() {
+    withSuppressedObserver(() => {
+      STATE_KEYS.forEach(flushBatchedStorageKey);
+    });
+  }
+
+  function scheduleAutoPush() {
+    pendingTrackedChange = true;
+    if (pushTimer) window.clearTimeout(pushTimer);
+    pushTimer = window.setTimeout(async () => {
+      pushTimer = null;
+      if (!pendingTrackedChange) return;
+      if (!hydrated) return;
+      pendingTrackedChange = false;
+      flushTrackedBatches();
+      await pushState();
+    }, AUTO_PUSH_DEBOUNCE_MS);
+  }
+
+  function isTrackedStateKey(key) {
+    return STATE_KEYS.indexOf(String(key || '')) !== -1;
+  }
+
+  function installLocalStorageObserver() {
+    const originalSetItem = localStorage.setItem.bind(localStorage);
+    const originalRemoveItem = localStorage.removeItem.bind(localStorage);
+
+    localStorage.setItem = function patchedSetItem(key, value) {
+      originalSetItem(key, value);
+      if (suppressLocalObserver) return;
+      if (isTrackedStateKey(key)) scheduleAutoPush();
+      if (typeof key === 'string' && key.endsWith(SAVE_BATCH_META_SUFFIX)) scheduleAutoPush();
+    };
+
+    localStorage.removeItem = function patchedRemoveItem(key) {
+      originalRemoveItem(key);
+      if (suppressLocalObserver) return;
+      if (isTrackedStateKey(key)) scheduleAutoPush();
+      if (typeof key === 'string' && key.endsWith(SAVE_BATCH_META_SUFFIX)) scheduleAutoPush();
+    };
+  }
+
   async function hydrateState() {
     if (hydratePromise) return hydratePromise;
 
@@ -139,10 +212,12 @@
 
       try {
         const serverState = await fetchState();
-        STATE_KEYS.forEach((key) => {
-          if (typeof serverState[key] === 'string') {
-            localStorage.setItem(key, serverState[key]);
-          }
+        withSuppressedObserver(() => {
+          STATE_KEYS.forEach((key) => {
+            if (typeof serverState[key] === 'string') {
+              localStorage.setItem(key, serverState[key]);
+            }
+          });
         });
         stateOk = true;
 
@@ -170,7 +245,13 @@
 
       try {
         if (stateOk) {
+          flushTrackedBatches();
           await pushState();
+          if (pendingTrackedChange) {
+            pendingTrackedChange = false;
+            flushTrackedBatches();
+            await pushState();
+          }
         }
       } catch (err) {
         // Non-blocking best-effort sync.
@@ -191,6 +272,8 @@
   } else {
     hydrateState();
   }
+
+  installLocalStorageObserver();
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') pushState();
