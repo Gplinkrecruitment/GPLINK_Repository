@@ -3,6 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      const root = document.documentElement;
+      root.classList.add('gp-page-loading');
+      const style = document.createElement('style');
+      style.textContent = '.gp-page-loading body > *:not(#gp-universal-skeleton){visibility:hidden!important;}#gp-universal-skeleton{position:fixed;inset:0;z-index:10000;background:#eef3fb;display:grid;place-items:center;padding:18px 12px;}#gp-universal-skeleton .shell{width:min(1100px,100%);height:min(760px,84vh);border-radius:18px;background:linear-gradient(90deg,#e4ebf6 25%,#f2f6fd 37%,#e4ebf6 63%);background-size:400% 100%;animation:gpUniversalShimmer 1.35s ease-in-out infinite;}@keyframes gpUniversalShimmer{0%{background-position:100% 50%;}100%{background-position:0 50%;}}';
+      document.head.appendChild(style);
+      function mount() { if (!document.body || document.getElementById('gp-universal-skeleton')) return; const el = document.createElement('div'); el.id = 'gp-universal-skeleton'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = '<div class="shell"></div>'; document.body.appendChild(el); }
+      function unmount() { root.classList.remove('gp-page-loading'); const el = document.getElementById('gp-universal-skeleton'); if (el && el.parentNode) el.parentNode.removeChild(el); }
+      let dataReady = false; let pageReady = false;
+      function done() { if (dataReady && pageReady) unmount(); }
+      window.addEventListener('gp-data-ready', function () { dataReady = true; done(); }, { once: true });
+      window.addEventListener('load', function () { pageReady = true; done(); }, { once: true });
+      setTimeout(function () { dataReady = true; pageReady = true; done(); }, 12000);
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true }); else mount();
+    })();
+  </script>
   <title>Messages - GP Link</title>
   <script src="../js/auth-guard.js" defer></script>
   <script src="../js/state-sync.js" defer></script>
