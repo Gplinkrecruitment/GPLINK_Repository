@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard - GP Link</title>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --panel: #ffffff;
+      --line: #dfe6f2;
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --green: #16a34a;
+      --amber: #b45309;
+      --red: #dc2626;
+      --purple-1: #7c3aed;
+      --purple-2: #6366f1;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --shadow: 0 20px 36px -28px rgba(15, 23, 42, 0.5);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(1000px 560px at 50% -12%, #fff, var(--bg));
+      padding: 16px;
+    }
+
+    .app {
+      max-width: 1240px;
+      margin: 0 auto;
+      display: grid;
+      gap: 12px;
+    }
+
+    .hero {
+      border-radius: var(--radius-lg);
+      background: linear-gradient(120deg, var(--purple-1), var(--purple-2));
+      color: #fff;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    .hero h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: -0.03em;
+      font-weight: 760;
+    }
+    .hero p {
+      margin: 6px 0 0;
+      font-size: 13px;
+      opacity: 0.92;
+      font-weight: 560;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 4px;
+    }
+    .stat .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .stat .value {
+      font-size: 26px;
+      letter-spacing: -0.02em;
+      font-weight: 760;
+      line-height: 1.1;
+    }
+    .stat .sub {
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--line);
+      background: #f8fafc;
+    }
+
+    .tab {
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      color: #1f2937;
+      font: inherit;
+      padding: 12px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      min-width: 220px;
+    }
+    .tab.active {
+      color: var(--blue);
+      background: #eff6ff;
+      box-shadow: inset 0 -2px 0 var(--blue);
+    }
+
+    .toolbar {
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .input,
+    .btn {
+      border-radius: 8px;
+      font: inherit;
+      font-size: 13px;
+    }
+    .input {
+      border: 1px solid #cdd7e6;
+      padding: 10px;
+      width: 100%;
+    }
+    .btn {
+      border: 1px solid #c7d9ff;
+      background: #f2f7ff;
+      color: #1d4ed8;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .content {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-height: 320px;
+      background: #fbfdff;
+    }
+
+    .row {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .row-top {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .name {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 760;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+      display: grid;
+      gap: 2px;
+    }
+
+    .badge {
+      border-radius: 999px;
+      border: 1px solid #dbe3ee;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      display: inline-flex;
+      width: fit-content;
+      background: #f8fafc;
+      color: #334155;
+    }
+    .badge.active { background: #ebf9f0; border-color: #b9e8c8; color: #166534; }
+    .badge.stalled { background: #fff7ed; border-color: #fdba74; color: #9a3412; }
+    .badge.action_required { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+    .badge.complete { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .badge.ticket-open { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .badge.ticket-closed { background: #f1f5f9; border-color: #dbe4ef; color: #475569; }
+
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .bar {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow: hidden;
+    }
+    .bar > span {
+      display: block;
+      height: 100%;
+      background: #2563eb;
+      border-radius: 999px;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .empty {
+      border: 1px dashed #ced9ea;
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+      background: #fff;
+    }
+
+    .inline-note {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+      margin-left: 2px;
+    }
+
+    @media (max-width: 1024px) {
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .tab { min-width: 0; flex: 1; }
+      .toolbar { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 10px; }
+      .hero h1 { font-size: 24px; }
+      .stats { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <h1>Admin Dashboard</h1>
+      <p>Manage GP registrations, verify certificates, and respond to support tickets.</p>
+      <p id="refreshText" class="inline-note">Loading...</p>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="panel">
+      <div class="tabs">
+        <button class="tab active" type="button" data-tab="registrations">GP Registrations</button>
+        <button class="tab" type="button" data-tab="verifications">Certificate Verifications</button>
+        <button class="tab" type="button" data-tab="tickets">Support Tickets</button>
+      </div>
+
+      <div class="toolbar">
+        <input class="input" id="searchInput" type="search" placeholder="Search GP by name, email, or country..." />
+        <button class="btn" id="refreshBtn" type="button">Refresh</button>
+        <button class="btn primary" id="exportBtn" type="button">Export</button>
+      </div>
+
+      <div class="content" id="content"></div>
+    </section>
+  </div>
+
+  <script>
+    const state = {
+      dashboard: null,
+      tab: "registrations",
+      query: "",
+      refreshTimer: null
+    };
+
+    const statsEl = document.getElementById("stats");
+    const contentEl = document.getElementById("content");
+    const refreshTextEl = document.getElementById("refreshText");
+    const searchInputEl = document.getElementById("searchInput");
+
+    function fmtDate(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "-";
+      return date.toLocaleDateString();
+    }
+
+    function fmtRelative(value) {
+      if (!value) return "No activity yet";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "No activity yet";
+      const diffMs = Date.now() - date.getTime();
+      const mins = Math.max(1, Math.round(diffMs / 60000));
+      if (mins < 60) return `Last active: ${mins} min ago`;
+      const hours = Math.round(mins / 60);
+      if (hours < 24) return `Last active: ${hours} hour${hours === 1 ? "" : "s"} ago`;
+      const days = Math.round(hours / 24);
+      return `Last active: ${days} day${days === 1 ? "" : "s"} ago`;
+    }
+
+    function renderStats() {
+      const summary = state.dashboard ? state.dashboard.summary : null;
+      const rows = [
+        {
+          label: "Total GPs",
+          value: summary ? summary.totalGps : 0,
+          sub: `${summary ? summary.activeGps : 0} active`
+        },
+        {
+          label: "Pending Verifications",
+          value: summary ? summary.pendingVerifications : 0,
+          sub: "Awaiting review"
+        },
+        {
+          label: "Open Support Tickets",
+          value: summary ? summary.openSupportTickets : 0,
+          sub: "Urgent work queue"
+        },
+        {
+          label: "Average Progress",
+          value: `${summary ? summary.averageProgress : 0}%`,
+          sub: "Across all GPs"
+        }
+      ];
+
+      statsEl.innerHTML = rows.map((row) => `
+        <article class="stat">
+          <div class="label">${row.label}</div>
+          <div class="value">${row.value}</div>
+          <div class="sub">${row.sub}</div>
+        </article>
+      `).join("");
+    }
+
+    function filteredCandidates() {
+      const list = state.dashboard ? state.dashboard.candidates : [];
+      const query = state.query.trim().toLowerCase();
+      if (!query) return list;
+      return list.filter((item) => {
+        const text = `${item.name} ${item.email} ${item.country || ""}`.toLowerCase();
+        return text.includes(query);
+      });
+    }
+
+    function filteredVerifications() {
+      const list = state.dashboard ? state.dashboard.verificationQueue : [];
+      const query = state.query.trim().toLowerCase();
+      if (!query) return list;
+      return list.filter((item) => {
+        const text = `${item.name} ${item.email} ${item.currentStepLabel}`.toLowerCase();
+        return text.includes(query);
+      });
+    }
+
+    function filteredTickets() {
+      const list = state.dashboard ? state.dashboard.tickets : [];
+      const query = state.query.trim().toLowerCase();
+      if (!query) return list;
+      return list.filter((item) => {
+        const text = `${item.title} ${item.candidateName} ${item.candidateEmail} ${item.category}`.toLowerCase();
+        return text.includes(query);
+      });
+    }
+
+    function renderRegistrations() {
+      const list = filteredCandidates();
+      if (!list.length) {
+        contentEl.innerHTML = `<div class="empty">No GP registrations match your search.</div>`;
+        return;
+      }
+
+      contentEl.innerHTML = list.map((candidate) => `
+        <article class="row">
+          <div class="row-top">
+            <div>
+              <h3 class="name">${candidate.name}</h3>
+              <div class="meta">
+                <span>${candidate.email}</span>
+                <span>${candidate.phone || "Phone not provided"}</span>
+                <span>Registered: ${fmtDate(candidate.registeredAt)}</span>
+                <span>${fmtRelative(candidate.lastActiveAt)}</span>
+              </div>
+            </div>
+            <span class="badge ${candidate.status}">${candidate.status.replace(/_/g, " ")}</span>
+          </div>
+          <div class="progress-meta">
+            <span>Progress: Step ${candidate.currentStepIndex}/${candidate.totalSteps} • ${candidate.currentStepLabel}</span>
+            <span>${candidate.progressPercent}%</span>
+          </div>
+          <div class="bar"><span style="width:${candidate.progressPercent}%"></span></div>
+          <div class="row-actions">
+            <button class="btn" data-view-candidate="${candidate.id}" type="button">View</button>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderVerifications() {
+      const list = filteredVerifications();
+      if (!list.length) {
+        contentEl.innerHTML = `<div class="empty">No certificate checks pending right now.</div>`;
+        return;
+      }
+
+      contentEl.innerHTML = list.map((candidate) => `
+        <article class="row">
+          <div class="row-top">
+            <div>
+              <h3 class="name">${candidate.name}</h3>
+              <div class="meta">
+                <span>${candidate.email}</span>
+                <span>Current step: ${candidate.currentStepLabel}</span>
+                <span>Documents pending: ${candidate.documentsPending}</span>
+              </div>
+            </div>
+            <span class="badge ${candidate.actionRequired ? "action_required" : "active"}">${candidate.actionRequired ? "Action required" : "Awaiting review"}</span>
+          </div>
+          <div class="progress-meta">
+            <span>Registration progress</span>
+            <span>${candidate.progressPercent}%</span>
+          </div>
+          <div class="bar"><span style="width:${candidate.progressPercent}%"></span></div>
+          <div class="row-actions">
+            <button class="btn" data-view-candidate="${candidate.id}" type="button">View</button>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderTickets() {
+      const list = filteredTickets();
+      if (!list.length) {
+        contentEl.innerHTML = `<div class="empty">No support tickets match your search.</div>`;
+        return;
+      }
+
+      contentEl.innerHTML = list.map((ticket) => `
+        <article class="row">
+          <div class="row-top">
+            <div>
+              <h3 class="name">${ticket.title}</h3>
+              <div class="meta">
+                <span>${ticket.candidateName} • ${ticket.candidateEmail}</span>
+                <span>${ticket.category} • Priority: ${ticket.priority}</span>
+                <span>Updated: ${new Date(ticket.updatedAt).toLocaleString()}</span>
+              </div>
+            </div>
+            <span class="badge ticket-${ticket.status}">${ticket.status}</span>
+          </div>
+          <div class="meta">${ticket.lastMessage || "No messages yet."}</div>
+          <div class="row-actions">
+            <button class="btn" data-reply-ticket="${ticket.id}" type="button">Reply</button>
+            <button class="btn primary" data-toggle-ticket="${ticket.id}" data-next-status="${ticket.status === "closed" ? "open" : "closed"}" type="button">${ticket.status === "closed" ? "Reopen" : "Close"}</button>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderContent() {
+      if (!state.dashboard) {
+        contentEl.innerHTML = `<div class="empty">Loading dashboard...</div>`;
+        return;
+      }
+      if (state.tab === "registrations") renderRegistrations();
+      if (state.tab === "verifications") renderVerifications();
+      if (state.tab === "tickets") renderTickets();
+    }
+
+    function renderTabLabels() {
+      const summary = state.dashboard ? state.dashboard.summary : { totalGps: 0, pendingVerifications: 0, openSupportTickets: 0 };
+      const labels = {
+        registrations: `GP Registrations (${summary.totalGps})`,
+        verifications: `Certificate Verifications (${summary.pendingVerifications})`,
+        tickets: `Support Tickets (${summary.openSupportTickets})`
+      };
+
+      document.querySelectorAll(".tab").forEach((tab) => {
+        const key = tab.getAttribute("data-tab");
+        tab.textContent = labels[key] || tab.textContent;
+        tab.classList.toggle("active", key === state.tab);
+      });
+    }
+
+    async function loadDashboard() {
+      refreshTextEl.textContent = "Loading latest data...";
+      try {
+        const response = await fetch("/api/admin/dashboard", { credentials: "same-origin" });
+        if (response.status === 401) {
+          window.location.href = "/pages/signin.html";
+          return;
+        }
+        if (response.status === 403) {
+          throw new Error("This account does not have admin access. Set ADMIN_EMAILS in your environment.");
+        }
+        if (!response.ok) {
+          throw new Error("Failed to load admin dashboard.");
+        }
+        const data = await response.json();
+        state.dashboard = data;
+        renderStats();
+        renderTabLabels();
+        renderContent();
+        refreshTextEl.textContent = `Updated ${new Date(data.refreshedAt).toLocaleString()}`;
+      } catch (err) {
+        state.dashboard = {
+          summary: {
+            totalGps: 0,
+            activeGps: 0,
+            pendingVerifications: 0,
+            openSupportTickets: 0,
+            averageProgress: 0
+          },
+          candidates: [],
+          verificationQueue: [],
+          tickets: []
+        };
+        renderStats();
+        renderTabLabels();
+        renderContent();
+        refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}).`;
+      }
+    }
+
+    async function updateTicket(ticketId, payload) {
+      const response = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload || {})
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || "Unable to update ticket.");
+      }
+    }
+
+    function exportCurrentTab() {
+      if (!state.dashboard) return;
+      const rows = state.tab === "tickets"
+        ? filteredTickets().map((item) => ({
+            title: item.title,
+            candidate: item.candidateName,
+            email: item.candidateEmail,
+            category: item.category,
+            status: item.status,
+            priority: item.priority,
+            updatedAt: item.updatedAt
+          }))
+        : (state.tab === "verifications" ? filteredVerifications() : filteredCandidates()).map((item) => ({
+            name: item.name,
+            email: item.email,
+            country: item.country,
+            currentStep: item.currentStepLabel,
+            progress: `${item.progressPercent}%`,
+            status: item.status,
+            openTickets: item.openTickets,
+            lastActiveAt: item.lastActiveAt
+          }));
+
+      if (!rows.length) return;
+      const headers = Object.keys(rows[0]);
+      const lines = [headers.join(",")];
+      rows.forEach((row) => {
+        const line = headers.map((header) => {
+          const value = String(row[header] == null ? "" : row[header]);
+          if (value.includes(",") || value.includes("\n") || value.includes('"')) return `"${value.replace(/"/g, '""')}"`;
+          return value;
+        }).join(",");
+        lines.push(line);
+      });
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `gp-link-admin-${state.tab}-${Date.now()}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    }
+
+    function openCandidateSnapshot(candidateId) {
+      const list = state.dashboard ? state.dashboard.candidates : [];
+      const candidate = list.find((item) => item.id === candidateId);
+      if (!candidate) return;
+      window.alert([
+        `${candidate.name}`,
+        `${candidate.email}`,
+        `Country: ${candidate.country || "-"}`,
+        `Progress: ${candidate.progressPercent}%`,
+        `Current step: ${candidate.currentStepLabel}`,
+        `Open tickets: ${candidate.openTickets}`,
+        `Documents pending: ${candidate.documentsPending}`,
+        `Last active: ${candidate.lastActiveAt ? new Date(candidate.lastActiveAt).toLocaleString() : "-"}`
+      ].join("\n"));
+    }
+
+    function bindEvents() {
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          state.tab = tab.getAttribute("data-tab");
+          renderTabLabels();
+          renderContent();
+        });
+      });
+
+      searchInputEl.addEventListener("input", (event) => {
+        state.query = event.target.value || "";
+        renderContent();
+      });
+
+      document.getElementById("refreshBtn").addEventListener("click", () => {
+        loadDashboard();
+      });
+
+      document.getElementById("exportBtn").addEventListener("click", () => {
+        exportCurrentTab();
+      });
+
+      contentEl.addEventListener("click", async (event) => {
+        const viewBtn = event.target.closest("[data-view-candidate]");
+        if (viewBtn) {
+          openCandidateSnapshot(viewBtn.getAttribute("data-view-candidate"));
+          return;
+        }
+
+        const replyBtn = event.target.closest("[data-reply-ticket]");
+        if (replyBtn) {
+          const ticketId = replyBtn.getAttribute("data-reply-ticket");
+          const message = window.prompt("Send reply to candidate:");
+          if (!message || !message.trim()) return;
+          replyBtn.disabled = true;
+          try {
+            await updateTicket(ticketId, { adminReply: message.trim() });
+            await loadDashboard();
+          } catch (err) {
+            window.alert(err.message);
+          } finally {
+            replyBtn.disabled = false;
+          }
+          return;
+        }
+
+        const toggleBtn = event.target.closest("[data-toggle-ticket]");
+        if (toggleBtn) {
+          const ticketId = toggleBtn.getAttribute("data-toggle-ticket");
+          const status = toggleBtn.getAttribute("data-next-status");
+          toggleBtn.disabled = true;
+          try {
+            await updateTicket(ticketId, { status });
+            await loadDashboard();
+          } catch (err) {
+            window.alert(err.message);
+          } finally {
+            toggleBtn.disabled = false;
+          }
+        }
+      });
+    }
+
+    function startAutoRefresh() {
+      if (state.refreshTimer) clearInterval(state.refreshTimer);
+      state.refreshTimer = setInterval(() => {
+        loadDashboard();
+      }, 15000);
+    }
+
+    bindEvents();
+    loadDashboard();
+    startAutoRefresh();
+  </script>
+</body>
+</html>

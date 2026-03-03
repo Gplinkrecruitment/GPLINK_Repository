@@ -9,16 +9,13 @@
           "pages/**",
           "js/**",
           "media/images/**",
+          "media/videos/**",
           "data/.gitkeep"
         ]
       }
     }
   ],
   "routes": [
-    {
-      "src": "/pages/admin\\.html",
-      "status": 404
-    },
     {
       "src": "/(.*)",
       "dest": "/server.js"

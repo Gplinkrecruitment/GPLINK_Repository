@@ -7,7 +7,7 @@
    - `backups/`
    - `*.zip`
 2. Keep only `.env.example` in GitHub.
-3. Admin panel is excluded from this release (`pages/admin.html` is blocked and ignored).
+3. Admin panel is protected by session + `ADMIN_EMAILS` allowlist.
 
 ## 2. Vercel project configuration
 1. Import this GitHub repository into Vercel.
@@ -26,6 +26,7 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `SUPABASE_URL=<your-supabase-url>`
 - `SUPABASE_PUBLISHABLE_KEY=<your-supabase-publishable-key>`
 - `SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>` (server-side only)
+- `ADMIN_EMAILS=<comma-separated-admin-emails>` (required for admin access)
 
 Optional:
 - `DB_FILE_PATH=/tmp/app-db.json` (default on Vercel already uses `/tmp`)
@@ -34,7 +35,7 @@ Optional:
 ## 4. Routing and runtime
 - `vercel.json` routes all traffic to `server.js`.
 - Runtime is `nodejs20.x`.
-- `/pages/admin.html` returns `404` in this deployment.
+- `/pages/admin.html` is protected by authentication and admin allowlist checks.
 
 ## 5. Health check
 - Endpoint: `GET /api/health`

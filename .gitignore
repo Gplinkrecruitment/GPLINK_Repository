@@ -15,9 +15,3 @@ backups/
 
 # Generated archives
 *.zip
-
-# Video assets hosted externally for now
-media/videos/*.mp4
-
-# Admin panel excluded from this release
-pages/admin.html

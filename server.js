@@ -19,8 +19,8 @@ const DEFAULT_DB_FILE_PATH = process.env.VERCEL
   ? path.join('/tmp', 'app-db.json')
   : path.join(process.cwd(), 'data', 'app-db.json');
 const DB_FILE_PATH = process.env.DB_FILE_PATH || DEFAULT_DB_FILE_PATH;
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rqrqcfxalkvzwbedvsjs.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || 'sb_publishable_azrMKjmESGzVhabzQjybSg_9BwLy9C0';
+const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim();
+const SUPABASE_PUBLISHABLE_KEY = String(process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
@@ -28,6 +28,24 @@ const ADMIN_EMAILS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
+
+function validateRuntimeConfig() {
+  if (NODE_ENV !== 'production') return;
+
+  if (!SECRET || SECRET === 'replace-me-in-production') {
+    throw new Error('AUTH_SECRET must be set to a strong value in production.');
+  }
+
+  if (!AUTH_DISABLED && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {
+    throw new Error('SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be set in production when auth is enabled.');
+  }
+
+  if (ADMIN_EMAILS.size === 0) {
+    console.warn('[WARN] ADMIN_EMAILS is empty. Admin routes will be inaccessible in production.');
+  }
+}
+
+validateRuntimeConfig();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -509,7 +527,7 @@ function parseJsonLike(value) {
 
 function isAdminEmail(email) {
   if (!email) return false;
-  if (ADMIN_EMAILS.size === 0) return true;
+  if (ADMIN_EMAILS.size === 0) return false;
   return ADMIN_EMAILS.has(String(email).trim().toLowerCase());
 }
 
@@ -693,108 +711,97 @@ async function collectAdminDashboardData() {
         ...stateByUserId.keys()
       ]);
 
-      const candidates = [];
-      const tickets = [];
-      const staleThresholdMs = 5 * 24 * 60 * 60 * 1000;
+      if (userIds.size > 0) {
+        const candidates = [];
+        const tickets = [];
+        const staleThresholdMs = 5 * 24 * 60 * 60 * 1000;
 
-      for (const userId of userIds) {
-        const profile = profileByUserId.get(userId) || {};
-        const stateRow = stateByUserId.get(userId) || {};
-        const email = typeof profile.email === 'string' ? profile.email : '';
-        const userState = getParsedUserState(stateRow.state, stateRow.updated_at || null);
-        const progress = getProgressSummary(userState);
-        const supportCases = getSupportCasesFromState(userState);
+        for (const userId of userIds) {
+          const profile = profileByUserId.get(userId) || {};
+          const stateRow = stateByUserId.get(userId) || {};
+          const email = typeof profile.email === 'string' ? profile.email : '';
+          const userState = getParsedUserState(stateRow.state, stateRow.updated_at || null);
+          const progress = getProgressSummary(userState);
+          const supportCases = getSupportCasesFromState(userState);
 
-        const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || email || userId;
-        const phone = profile.phone || '';
-        const country = profile.registration_country || userState.gp_selected_country || '';
-        const lastActiveAt = userState.updatedAt || profile.updated_at || null;
-        const registeredAt = profile.created_at || profile.updated_at || lastActiveAt;
-        const isStalled = lastActiveAt ? (Date.now() - new Date(lastActiveAt).getTime()) > staleThresholdMs : true;
+          const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || email || userId;
+          const phone = profile.phone || '';
+          const country = profile.registration_country || userState.gp_selected_country || '';
+          const lastActiveAt = userState.updatedAt || profile.updated_at || null;
+          const registeredAt = profile.created_at || profile.updated_at || lastActiveAt;
+          const isStalled = lastActiveAt ? (Date.now() - new Date(lastActiveAt).getTime()) > staleThresholdMs : true;
 
-        const openCount = supportCases.filter((item) => item.status !== 'closed').length;
-        const status = progress.percent === 100
-          ? 'complete'
-          : progress.actionRequired
-            ? 'action_required'
-            : isStalled
-              ? 'stalled'
-              : 'active';
+          const openCount = supportCases.filter((item) => item.status !== 'closed').length;
+          const status = progress.percent === 100
+            ? 'complete'
+            : progress.actionRequired
+              ? 'action_required'
+              : isStalled
+                ? 'stalled'
+                : 'active';
 
-        const candidate = {
-          id: email || userId,
-          userId,
-          email,
-          name: fullName,
-          phone,
-          country,
-          registeredAt,
-          lastActiveAt,
-          progressPercent: progress.percent,
-          currentStepLabel: progress.currentStepLabel,
-          currentStepIndex: progress.currentStepIndex,
-          totalSteps: progress.totalSteps,
-          pendingVerification: progress.pendingVerification,
-          actionRequired: progress.actionRequired,
-          stalled: isStalled,
-          status,
-          openTickets: openCount,
-          documentsPending: progress.documentsPending
-        };
-        candidates.push(candidate);
+          const candidate = {
+            id: email || userId,
+            userId,
+            email,
+            name: fullName,
+            phone,
+            country,
+            registeredAt,
+            lastActiveAt,
+            progressPercent: progress.percent,
+            currentStepLabel: progress.currentStepLabel,
+            currentStepIndex: progress.currentStepIndex,
+            totalSteps: progress.totalSteps,
+            pendingVerification: progress.pendingVerification,
+            actionRequired: progress.actionRequired,
+            stalled: isStalled,
+            status,
+            openTickets: openCount,
+            documentsPending: progress.documentsPending
+          };
+          candidates.push(candidate);
 
-        supportCases.forEach((item) => {
-          tickets.push({
-            ...item,
-            candidateId: email || userId,
-            candidateUserId: userId,
-            candidateName: fullName,
-            candidateEmail: email
+          supportCases.forEach((item) => {
+            tickets.push({
+              ...item,
+              candidateId: email || userId,
+              candidateUserId: userId,
+              candidateName: fullName,
+              candidateEmail: email
+            });
           });
+        }
+
+        candidates.sort((a, b) => {
+          const at = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+          const bt = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+          return bt - at;
         });
+        tickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+        const totalGps = candidates.length;
+        const activeGps = candidates.filter((item) => item.status !== 'complete').length;
+        const pendingVerifications = candidates.filter((item) => item.pendingVerification).length;
+        const openSupportTickets = tickets.filter((item) => item.status !== 'closed').length;
+        const averageProgress = totalGps
+          ? Math.round(candidates.reduce((sum, item) => sum + item.progressPercent, 0) / totalGps)
+          : 0;
+
+        return {
+          summary: {
+            totalGps,
+            activeGps,
+            pendingVerifications,
+            openSupportTickets,
+            averageProgress
+          },
+          candidates,
+          verificationQueue: candidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
+          tickets
+        };
       }
-
-      candidates.sort((a, b) => {
-        const at = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
-        const bt = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
-        return bt - at;
-      });
-      tickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-
-      const totalGps = candidates.length;
-      const activeGps = candidates.filter((item) => item.status !== 'complete').length;
-      const pendingVerifications = candidates.filter((item) => item.pendingVerification).length;
-      const openSupportTickets = tickets.filter((item) => item.status !== 'closed').length;
-      const averageProgress = totalGps
-        ? Math.round(candidates.reduce((sum, item) => sum + item.progressPercent, 0) / totalGps)
-        : 0;
-
-      return {
-        summary: {
-          totalGps,
-          activeGps,
-          pendingVerifications,
-          openSupportTickets,
-          averageProgress
-        },
-        candidates,
-        verificationQueue: candidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
-        tickets
-      };
     }
-
-    return {
-      summary: {
-        totalGps: 0,
-        activeGps: 0,
-        pendingVerifications: 0,
-        openSupportTickets: 0,
-        averageProgress: 0
-      },
-      candidates: [],
-      verificationQueue: [],
-      tickets: []
-    };
   }
 
   const emails = new Set([
@@ -878,6 +885,133 @@ async function collectAdminDashboardData() {
     : 0;
 
   return {
+    summary: {
+      totalGps,
+      activeGps,
+      pendingVerifications,
+      openSupportTickets,
+      averageProgress
+    },
+    candidates,
+    verificationQueue: candidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
+    tickets
+  };
+}
+
+async function ensureDashboardIncludesSessionUser(dashboard, session, email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return dashboard;
+
+  const source = dashboard && typeof dashboard === 'object' ? dashboard : {};
+  const candidates = Array.isArray(source.candidates) ? source.candidates.slice() : [];
+  const tickets = Array.isArray(source.tickets) ? source.tickets.slice() : [];
+  const sessionUserId = getSessionSupabaseUserId(session);
+
+  const alreadyPresent = candidates.some((item) => {
+    const itemEmail = item && typeof item.email === 'string' ? item.email.trim().toLowerCase() : '';
+    const itemId = item && typeof item.id === 'string' ? item.id.trim().toLowerCase() : '';
+    const itemUserId = item && typeof item.userId === 'string' ? item.userId : '';
+    return itemEmail === normalizedEmail || itemId === normalizedEmail || (sessionUserId && itemUserId === sessionUserId);
+  });
+  if (alreadyPresent) return source;
+
+  const user = dbState.users[normalizedEmail] || {};
+  const profile = dbState.userProfiles[normalizedEmail] || {};
+
+  let remoteProfile = null;
+  let remoteState = null;
+  if (isSupabaseDbConfigured()) {
+    remoteProfile = await getSupabaseUserProfile(normalizedEmail, sessionUserId);
+    remoteState = await getSupabaseUserStateByEmail(normalizedEmail);
+  }
+
+  const userState = remoteState && remoteState.state && typeof remoteState.state === 'object'
+    ? getParsedUserState(remoteState.state, remoteState.updatedAt || null)
+    : getUserStateObject(normalizedEmail);
+  const progress = getProgressSummary(userState);
+  const supportCases = getSupportCasesFromState(userState);
+
+  const fullName = `${remoteProfile && remoteProfile.first_name ? remoteProfile.first_name : (profile.firstName || user.firstName || '')} ${remoteProfile && remoteProfile.last_name ? remoteProfile.last_name : (profile.lastName || user.lastName || '')}`
+    .trim() || normalizedEmail;
+  const phone = (remoteProfile && remoteProfile.phone)
+    || profile.phone
+    || [user.countryDial || '', user.phoneNumber || ''].join(' ').trim();
+  const country = (remoteProfile && remoteProfile.registration_country)
+    || user.registrationCountry
+    || profile.specialistCountry
+    || userState.gp_selected_country
+    || '';
+  const lastActiveAt = userState.updatedAt
+    || (remoteProfile && remoteProfile.updated_at)
+    || profile.updatedAt
+    || user.updatedAt
+    || null;
+  const registeredAt = (remoteProfile && remoteProfile.created_at)
+    || user.createdAt
+    || (remoteProfile && remoteProfile.updated_at)
+    || profile.updatedAt
+    || user.updatedAt
+    || lastActiveAt;
+  const staleThresholdMs = 5 * 24 * 60 * 60 * 1000;
+  const isStalled = lastActiveAt ? (Date.now() - new Date(lastActiveAt).getTime()) > staleThresholdMs : true;
+  const openCount = supportCases.filter((item) => item.status !== 'closed').length;
+  const status = progress.percent === 100
+    ? 'complete'
+    : progress.actionRequired
+      ? 'action_required'
+      : isStalled
+        ? 'stalled'
+        : 'active';
+
+  const candidate = {
+    id: normalizedEmail,
+    userId: (remoteState && remoteState.userId) || sessionUserId || '',
+    email: normalizedEmail,
+    name: fullName,
+    phone,
+    country,
+    registeredAt,
+    lastActiveAt,
+    progressPercent: progress.percent,
+    currentStepLabel: progress.currentStepLabel,
+    currentStepIndex: progress.currentStepIndex,
+    totalSteps: progress.totalSteps,
+    pendingVerification: progress.pendingVerification,
+    actionRequired: progress.actionRequired,
+    stalled: isStalled,
+    status,
+    openTickets: openCount,
+    documentsPending: progress.documentsPending
+  };
+  candidates.push(candidate);
+
+  supportCases.forEach((item) => {
+    tickets.push({
+      ...item,
+      candidateId: normalizedEmail,
+      candidateUserId: candidate.userId || '',
+      candidateName: fullName,
+      candidateEmail: normalizedEmail
+    });
+  });
+
+  candidates.sort((a, b) => {
+    const at = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+    const bt = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+    return bt - at;
+  });
+  tickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  const totalGps = candidates.length;
+  const activeGps = candidates.filter((item) => item.status !== 'complete').length;
+  const pendingVerifications = candidates.filter((item) => item.pendingVerification).length;
+  const openSupportTickets = tickets.filter((item) => item.status !== 'closed').length;
+  const averageProgress = totalGps
+    ? Math.round(candidates.reduce((sum, item) => sum + item.progressPercent, 0) / totalGps)
+    : 0;
+
+  return {
+    ...source,
     summary: {
       totalGps,
       activeGps,
@@ -1208,6 +1342,29 @@ async function supabaseAuthRequest(endpoint, payload) {
   }
 }
 
+async function supabaseAuthAdminRequest(pathname, options = {}) {
+  if (!isSupabaseDbConfigured()) {
+    return { ok: false, status: 503, data: { message: 'Supabase admin auth is not configured.' } };
+  }
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/${pathname}`, {
+      method: options.method || 'GET',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...((options && options.headers) || {})
+      },
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+    });
+    const data = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, data };
+  } catch (err) {
+    return { ok: false, status: 502, data: { message: 'Failed to reach Supabase admin auth service.' } };
+  }
+}
+
 function getSessionProfileFromUser(email) {
   const key = String(email || '').trim().toLowerCase();
   const user = dbState.users[key] || {};
@@ -1384,7 +1541,9 @@ async function handleApi(req, res, pathname) {
     saveDbState();
 
     const destination = method === 'sms' ? `${countryDial} ${maskPhone(phoneNumber)}` : maskEmail(email);
-    console.log(`[AUTH] OTP (${method}) for ${otpKey}: ${code}`);
+    if (NODE_ENV !== 'production') {
+      console.log(`[AUTH] OTP (${method}) for ${otpKey}: ${code}`);
+    }
 
     sendJson(res, 200, {
       ok: true,
@@ -1665,6 +1824,45 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    if (isSupabaseDbConfigured()) {
+      const sessionUserId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+      if (!sessionUserId) {
+        sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for password update.' });
+        return;
+      }
+
+      if (currentPassword) {
+        const checkCurrent = await supabaseAuthRequest('token?grant_type=password', { email, password: currentPassword });
+        if (!checkCurrent.ok) {
+          sendJson(res, 401, { ok: false, message: 'Current password is incorrect.' });
+          return;
+        }
+      }
+
+      const updateResult = await supabaseAuthAdminRequest(`admin/users/${encodeURIComponent(sessionUserId)}`, {
+        method: 'PUT',
+        body: { password: newPassword }
+      });
+      if (!updateResult.ok) {
+        const msg = updateResult.data && (updateResult.data.msg || updateResult.data.message)
+          ? (updateResult.data.msg || updateResult.data.message)
+          : 'Unable to update password right now.';
+        sendJson(res, updateResult.status || 502, { ok: false, message: msg });
+        return;
+      }
+
+      const local = dbState.users[email] || {};
+      dbState.users[email] = {
+        ...local,
+        email,
+        passwordUpdatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      saveDbState();
+      sendJson(res, 200, { ok: true, message: 'Password updated.' });
+      return;
+    }
+
     const user = dbState.users[email] || {};
     if (user.passwordHash && !verifyPassword(currentPassword, user.passwordHash)) {
       sendJson(res, 401, { ok: false, message: 'Current password is incorrect.' });
@@ -1693,7 +1891,9 @@ async function handleApi(req, res, pathname) {
     }
 
     const email = String(body.email || '').trim().toLowerCase();
-    if (isValidEmail(email) && dbState.users[email]) {
+    if (isValidEmail(email) && isSupabaseConfigured()) {
+      await supabaseAuthRequest('recover', { email });
+    } else if (isValidEmail(email) && dbState.users[email]) {
       const rawToken = randomToken(32);
       const tokenHash = hashToken(rawToken);
       dbState.passwordResetTokens[tokenHash] = {
@@ -1716,6 +1916,14 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/auth/reset-password' && req.method === 'POST') {
+    if (isSupabaseConfigured()) {
+      sendJson(res, 410, {
+        ok: false,
+        message: 'Password reset is handled by Supabase email recovery links. Use the link sent to your email.'
+      });
+      return;
+    }
+
     let body;
     try {
       body = await readJsonBody(req);
@@ -2039,7 +2247,8 @@ async function handleApi(req, res, pathname) {
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
 
-    const dashboard = await collectAdminDashboardData();
+    const baseDashboard = await collectAdminDashboardData();
+    const dashboard = await ensureDashboardIncludesSessionUser(baseDashboard, adminCtx.session, adminCtx.email);
     sendJson(res, 200, {
       ok: true,
       refreshedAt: new Date().toISOString(),
