@@ -54,6 +54,7 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.mp4': 'video/mp4',
+  '.webp': 'image/webp',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -442,11 +443,51 @@ function serveStatic(req, res, pathname) {
 
     const ext = path.extname(filePath).toLowerCase();
     const mime = MIME[ext] || 'application/octet-stream';
-    res.writeHead(200, {
+    const isMedia = pathname.startsWith('/media/');
+    const isVideo = ext === '.mp4';
+    const cacheControl = ext === '.html'
+      ? 'no-cache'
+      : (isMedia ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+    const range = req.headers.range;
+
+    if (isVideo && typeof range === 'string') {
+      const match = range.match(/bytes=(\d*)-(\d*)/);
+      if (match) {
+        const start = match[1] === '' ? 0 : Number(match[1]);
+        const end = match[2] === '' ? stat.size - 1 : Number(match[2]);
+
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end >= stat.size) {
+          res.writeHead(416, {
+            'Content-Range': `bytes */${stat.size}`
+          });
+          res.end();
+          return;
+        }
+
+        res.writeHead(206, {
+          'Content-Type': mime,
+          'Content-Length': String(end - start + 1),
+          'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': cacheControl
+        });
+        const rangedStream = fs.createReadStream(filePath, { start, end });
+        rangedStream.pipe(res);
+        rangedStream.on('error', () => {
+          res.writeHead(500);
+          res.end('Server error');
+        });
+        return;
+      }
+    }
+
+    const headers = {
       'Content-Type': mime,
       'Content-Length': stat.size,
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600'
-    });
+      'Cache-Control': cacheControl
+    };
+    if (isVideo) headers['Accept-Ranges'] = 'bytes';
+    res.writeHead(200, headers);
 
     const stream = fs.createReadStream(filePath);
     stream.pipe(res);
