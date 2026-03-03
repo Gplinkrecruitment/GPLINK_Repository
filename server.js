@@ -75,6 +75,38 @@ const USER_STATE_KEYS = [
   'gp_account_profile'
 ];
 
+const EPIC_STAGE_META = [
+  { key: 'create_account', label: 'Create account' },
+  { key: 'account_establishment', label: 'Account establishment' },
+  { key: 'upload_qualifications', label: 'Upload qualifications' },
+  { key: 'waiting_verification', label: 'Waiting verification' },
+  { key: 'verification_issued', label: 'Verification issued' }
+];
+
+const AMC_STAGE_META = [
+  { key: 'create_portfolio', label: 'Create AMC account' },
+  { key: 'upload_credentials', label: 'Upload credentials' },
+  { key: 'qualifications_verified', label: 'Qualifications verified' }
+];
+
+const GP_DOCUMENT_META = [
+  { key: 'primary_medical_degree', label: 'Primary medical degree', source: 'prepared_by_you' },
+  { key: 'mrcgp_certified', label: 'MRCGP certificate', source: 'prepared_by_you' },
+  { key: 'cct_certified', label: 'CCT certificate', source: 'prepared_by_you' },
+  { key: 'cv_signed_dated', label: 'Signed CV', source: 'prepared_by_you' },
+  { key: 'certificate_good_standing', label: 'Certificate of good standing', source: 'institution_docs' },
+  { key: 'confirmation_training', label: 'Confirmation of training', source: 'institution_docs' },
+  { key: 'criminal_history', label: 'Criminal history check', source: 'institution_docs' }
+];
+
+const GP_LINK_DOCUMENT_META = [
+  { key: 'sppa_00', label: 'SPPA-00', source: 'gplink_pack' },
+  { key: 'section_g', label: 'Section G', source: 'gplink_pack' },
+  { key: 'position_description', label: 'Position description', source: 'gplink_pack' },
+  { key: 'offer_contract', label: 'Offer/contract', source: 'gplink_pack' },
+  { key: 'supervisor_cv', label: 'Supervisor CV', source: 'gplink_pack' }
+];
+
 function now() {
   return Date.now();
 }
@@ -669,6 +701,165 @@ function getProgressSummary(userStateObj) {
   };
 }
 
+function toStatusLabel(value, uploaded) {
+  const raw = typeof value === 'string' ? value : '';
+  if (raw === 'accepted' || raw === 'approved') return 'accepted';
+  if (raw === 'rejected') return 'rejected';
+  if (raw === 'under_review') return 'under_review';
+  if (raw === 'pending') return uploaded ? 'under_review' : 'pending';
+  return uploaded ? 'under_review' : 'pending';
+}
+
+function getCandidateDocuments(userStateObj) {
+  const docsState = userStateObj.gp_documents_prep && typeof userStateObj.gp_documents_prep === 'object'
+    ? userStateObj.gp_documents_prep
+    : {};
+  const preparedDocsState = userStateObj.gp_prepared_docs && typeof userStateObj.gp_prepared_docs === 'object'
+    ? userStateObj.gp_prepared_docs
+    : {};
+  const docs = docsState.docs && typeof docsState.docs === 'object' ? docsState.docs : {};
+  const preparedDocs = preparedDocsState.docs && typeof preparedDocsState.docs === 'object' ? preparedDocsState.docs : {};
+
+  const fromState = GP_DOCUMENT_META.map((meta) => {
+    const source = docs[meta.key] && typeof docs[meta.key] === 'object' ? docs[meta.key] : {};
+    const uploaded = source.uploaded === true;
+    const status = toStatusLabel(source.status, uploaded);
+    return {
+      key: meta.key,
+      label: meta.label,
+      source: meta.source,
+      uploaded,
+      status,
+      fileName: typeof source.fileName === 'string' ? source.fileName : ''
+    };
+  });
+
+  const gpLinkPrepared = GP_LINK_DOCUMENT_META.map((meta) => {
+    const source = preparedDocs[meta.key] && typeof preparedDocs[meta.key] === 'object' ? preparedDocs[meta.key] : {};
+    const uploaded = source.ready === true || (typeof source.url === 'string' && source.url.trim().length > 0);
+    const status = toStatusLabel(source.status, uploaded);
+    return {
+      key: meta.key,
+      label: meta.label,
+      source: meta.source,
+      uploaded,
+      status,
+      fileName: typeof source.fileName === 'string' ? source.fileName : ''
+    };
+  });
+
+  const items = [...fromState, ...gpLinkPrepared];
+  const uploadedCount = items.filter((item) => item.uploaded).length;
+  const pendingCount = items.filter((item) => !item.uploaded || item.status === 'under_review' || item.status === 'rejected' || item.status === 'pending').length;
+
+  return {
+    items,
+    summary: {
+      total: items.length,
+      uploaded: uploadedCount,
+      pending: pendingCount
+    }
+  };
+}
+
+function buildStepSubStatus(allKeys, completedMap, currentKey) {
+  const doneSet = new Set(
+    allKeys.filter((key) => completedMap && completedMap[key] === true)
+  );
+  return allKeys.map((key) => ({
+    key,
+    status: doneSet.has(key) ? 'done' : (key === currentKey ? 'current' : 'pending')
+  }));
+}
+
+function buildCandidatePathway(userStateObj, documents) {
+  const epic = userStateObj.gp_epic_progress && typeof userStateObj.gp_epic_progress === 'object'
+    ? userStateObj.gp_epic_progress
+    : {};
+  const amc = userStateObj.gp_amc_progress && typeof userStateObj.gp_amc_progress === 'object'
+    ? userStateObj.gp_amc_progress
+    : {};
+  const ahpra = userStateObj.gp_ahpra_progress && typeof userStateObj.gp_ahpra_progress === 'object'
+    ? userStateObj.gp_ahpra_progress
+    : {};
+
+  const epicKeys = EPIC_STAGE_META.map((item) => item.key);
+  const epicCurrent = epicKeys.includes(epic.stage)
+    ? epic.stage
+    : epicKeys.find((key) => !(epic.completed && epic.completed[key] === true)) || epicKeys[epicKeys.length - 1];
+  const epicSubRaw = buildStepSubStatus(epicKeys, epic.completed || {}, epicCurrent);
+  const epicDone = epicSubRaw.every((item) => item.status === 'done');
+
+  const amcKeys = AMC_STAGE_META.map((item) => item.key);
+  const amcCurrent = amcKeys.includes(amc.stage)
+    ? amc.stage
+    : amcKeys.find((key) => !(amc.completed && amc.completed[key] === true)) || amcKeys[amcKeys.length - 1];
+  const amcSubRaw = buildStepSubStatus(amcKeys, amc.completed || {}, amcCurrent);
+  const amcDone = amcSubRaw.every((item) => item.status === 'done');
+
+  const ahpraSubRaw = [
+    { key: 'stage_1', label: 'Stage 1: Account setup', done: !!(ahpra.stage_1 && ahpra.stage_1.completedAt) },
+    { key: 'stage_2', label: 'Stage 2: Submission', done: !!(ahpra.stage_2 && ahpra.stage_2.completedAt) },
+    { key: 'stage_3', label: 'Stage 3: Assessment', done: !!(ahpra.stage_3 && (ahpra.stage_3.completedAt || ahpra.stage_3.applicationOpenedAt)) },
+    { key: 'stage_4', label: 'Stage 4: Outcome', done: !!(ahpra.stage_4 && ahpra.stage_4.completedAt) }
+  ];
+  const ahpraCurrentIdx = ahpraSubRaw.findIndex((item) => !item.done);
+  const ahpraDone = ahpraCurrentIdx === -1;
+
+  const preparedByYou = documents.items.filter((item) => item.source === 'prepared_by_you');
+  const institutionDocs = documents.items.filter((item) => item.source === 'institution_docs');
+  const gpLinkPack = documents.items.filter((item) => item.source === 'gplink_pack');
+  const preparedDone = preparedByYou.length > 0 && preparedByYou.every((item) => item.uploaded);
+  const institutionDone = institutionDocs.length > 0 && institutionDocs.every((item) => item.uploaded);
+  const gpLinkDone = gpLinkPack.length > 0 && gpLinkPack.every((item) => item.uploaded);
+  const docsDone = preparedDone && institutionDone && gpLinkDone;
+  const docsCurrent = !preparedDone ? 'prepared_by_you' : (!institutionDone ? 'institution_docs' : (!gpLinkDone ? 'gplink_pack' : ''));
+
+  return [
+    {
+      id: 'myintealth',
+      label: 'MyIntealth Account',
+      status: epicDone ? 'done' : 'current',
+      substeps: epicSubRaw.map((item) => {
+        const meta = EPIC_STAGE_META.find((entry) => entry.key === item.key);
+        return { key: item.key, label: meta ? meta.label : item.key, status: item.status };
+      })
+    },
+    {
+      id: 'amc',
+      label: 'AMC Portfolio',
+      status: amcDone ? 'done' : (epicDone ? 'current' : 'pending'),
+      substeps: amcSubRaw.map((item) => {
+        const meta = AMC_STAGE_META.find((entry) => entry.key === item.key);
+        const status = epicDone ? item.status : 'pending';
+        return { key: item.key, label: meta ? meta.label : item.key, status };
+      })
+    },
+    {
+      id: 'documents',
+      label: 'Documents',
+      status: docsDone ? 'done' : (amcDone ? 'current' : 'pending'),
+      substeps: [
+        { key: 'prepared_by_you', label: 'Prepared by you', status: amcDone ? (preparedDone ? 'done' : (docsCurrent === 'prepared_by_you' ? 'current' : 'pending')) : 'pending' },
+        { key: 'institution_docs', label: 'Institution documents', status: amcDone ? (institutionDone ? 'done' : (docsCurrent === 'institution_docs' ? 'current' : 'pending')) : 'pending' },
+        { key: 'gplink_pack', label: 'GP Link prepared pack', status: amcDone ? (gpLinkDone ? 'done' : (docsCurrent === 'gplink_pack' ? 'current' : 'pending')) : 'pending' }
+      ]
+    },
+    {
+      id: 'ahpra',
+      label: 'AHPRA Registration',
+      status: ahpraDone ? 'done' : ((epicDone && amcDone) ? 'current' : 'pending'),
+      substeps: ahpraSubRaw.map((item, idx) => ({
+        key: item.key,
+        label: item.label,
+        status: (epicDone && amcDone)
+          ? (item.done ? 'done' : (idx === ahpraCurrentIdx ? 'current' : 'pending'))
+          : 'pending'
+      }))
+    }
+  ];
+}
+
 function normalizeSupportCase(rawCase) {
   if (!rawCase || typeof rawCase !== 'object') return null;
   const createdAt = typeof rawCase.createdAt === 'string' ? rawCase.createdAt : new Date().toISOString();
@@ -764,6 +955,8 @@ async function collectAdminDashboardData() {
           const userState = getParsedUserState(stateRow.state, stateRow.updated_at || null);
           const progress = getProgressSummary(userState);
           const supportCases = getSupportCasesFromState(userState);
+          const documents = getCandidateDocuments(userState);
+          const pathwaySteps = buildCandidatePathway(userState, documents);
 
           const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || email || userId;
           const phone = profile.phone || '';
@@ -799,7 +992,9 @@ async function collectAdminDashboardData() {
             stalled: isStalled,
             status,
             openTickets: openCount,
-            documentsPending: progress.documentsPending
+            documentsPending: progress.documentsPending,
+            documents,
+            pathwaySteps
           };
           candidates.push(candidate);
 
@@ -861,6 +1056,8 @@ async function collectAdminDashboardData() {
     const userState = getUserStateObject(email);
     const progress = getProgressSummary(userState);
     const supportCases = getSupportCasesFromState(userState);
+    const documents = getCandidateDocuments(userState);
+    const pathwaySteps = buildCandidatePathway(userState, documents);
 
     const fullName = `${profile.firstName || user.firstName || ''} ${profile.lastName || user.lastName || ''}`.trim() || email;
     const phone = profile.phone || [user.countryDial || '', user.phoneNumber || ''].join(' ').trim();
@@ -896,7 +1093,9 @@ async function collectAdminDashboardData() {
       stalled: isStalled,
       status,
       openTickets: openCount,
-      documentsPending: progress.documentsPending
+      documentsPending: progress.documentsPending,
+      documents,
+      pathwaySteps
     };
     candidates.push(candidate);
 
@@ -971,6 +1170,8 @@ async function ensureDashboardIncludesSessionUser(dashboard, session, email) {
     : getUserStateObject(normalizedEmail);
   const progress = getProgressSummary(userState);
   const supportCases = getSupportCasesFromState(userState);
+  const documents = getCandidateDocuments(userState);
+  const pathwaySteps = buildCandidatePathway(userState, documents);
 
   const fullName = `${remoteProfile && remoteProfile.first_name ? remoteProfile.first_name : (profile.firstName || user.firstName || '')} ${remoteProfile && remoteProfile.last_name ? remoteProfile.last_name : (profile.lastName || user.lastName || '')}`
     .trim() || normalizedEmail;
@@ -1022,7 +1223,9 @@ async function ensureDashboardIncludesSessionUser(dashboard, session, email) {
     stalled: isStalled,
     status,
     openTickets: openCount,
-    documentsPending: progress.documentsPending
+    documentsPending: progress.documentsPending,
+    documents,
+    pathwaySteps
   };
   candidates.push(candidate);
 

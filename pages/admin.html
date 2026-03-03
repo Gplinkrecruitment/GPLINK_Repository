@@ -258,17 +258,329 @@
       font-weight: 560;
       margin-left: 2px;
     }
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.52);
+      padding: 14px;
+    }
+    .modal.open { display: flex; }
+    .modal-card {
+      width: min(760px, 100%);
+      max-height: calc(100vh - 28px);
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #d8e2f0;
+      border-radius: 14px;
+      box-shadow: 0 32px 60px -42px rgba(15, 23, 42, 0.85);
+    }
+    .modal-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .modal-title {
+      margin: 0;
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .modal-close {
+      border: 0;
+      background: transparent;
+      color: #334155;
+      font-size: 26px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .modal-body {
+      padding: 14px 16px 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .candidate-top {
+      display: grid;
+      gap: 8px;
+    }
+    .candidate-top-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .candidate-name {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 760;
+      letter-spacing: -0.02em;
+    }
+    .candidate-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+    }
+    .field-label {
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 650;
+      margin: 0;
+    }
+    .field-value {
+      color: #0f172a;
+      font-size: 14px;
+      font-weight: 650;
+      margin: 2px 0 0;
+    }
+    .progress-panel h4 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      font-weight: 760;
+    }
+    .progress-step {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-step > summary {
+      list-style: none;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      user-select: none;
+    }
+    .progress-step > summary::-webkit-details-marker { display: none; }
+    .step-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      border: 1px solid #cbd5e1;
+      color: #475569;
+      background: #f1f5f9;
+    }
+    .step-dot.complete {
+      border-color: #a7e1ba;
+      background: #e8f9ef;
+      color: #166534;
+    }
+    .step-dot.current {
+      border-color: #7db2ff;
+      background: #eaf2ff;
+      color: #1d4ed8;
+    }
+    .step-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+    .step-state {
+      font-size: 11px;
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+    }
+    .step-chevron {
+      font-size: 16px;
+      color: #64748b;
+      transform: rotate(0deg);
+      transition: transform 120ms ease;
+    }
+    details[open] > summary .step-chevron { transform: rotate(180deg); }
+    .substeps {
+      border-top: 1px solid #e6edf7;
+      background: #fbfdff;
+      padding: 8px 12px 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .substep {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #334155;
+      padding: 4px 0;
+    }
+    .substep-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #cbd5e1;
+      flex: 0 0 auto;
+    }
+    .substep.done .substep-indicator { background: #22c55e; }
+    .substep.current .substep-indicator { background: #2563eb; }
+    .substep.pending .substep-indicator { background: #cbd5e1; }
+    .substep-label { flex: 1; }
+    .substep-tag {
+      border-radius: 999px;
+      padding: 2px 6px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border: 1px solid #dce7f5;
+      color: #475569;
+      background: #f8fafc;
+    }
+    .substep.current .substep-tag {
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+      background: #eff6ff;
+    }
+    .substep.done .substep-tag {
+      color: #166534;
+      border-color: #b9e8c8;
+      background: #ebf9f0;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .btn.ghost {
+      border: 1px solid #d4deee;
+      background: #f8fafc;
+      color: #1f2937;
+    }
+    .info-section {
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .info-section h5 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 760;
+      color: #0f172a;
+    }
+    .ticket-split {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .mini-list {
+      border: 1px solid #dbe5f2;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+      min-height: 74px;
+    }
+    .mini-list-title {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+    }
+    .mini-item {
+      border: 1px solid #e2eaf6;
+      border-radius: 8px;
+      background: #fff;
+      padding: 6px 8px;
+      display: grid;
+      gap: 2px;
+    }
+    .mini-item-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .mini-item-meta {
+      margin: 0;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 600;
+    }
+    .docs-table {
+      border: 1px solid #dbe5f2;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .docs-head,
+    .docs-row {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+    }
+    .docs-head {
+      background: #f8fbff;
+      border-bottom: 1px solid #e3ebf7;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+    }
+    .docs-row {
+      border-bottom: 1px solid #eef3fa;
+      font-size: 12px;
+      color: #1f2937;
+      font-weight: 650;
+    }
+    .docs-row:last-child { border-bottom: 0; }
+    .doc-pill {
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border: 1px solid #dce7f5;
+      background: #f8fafc;
+      color: #475569;
+      justify-self: start;
+    }
+    .doc-pill.accepted { border-color: #b9e8c8; background: #ebf9f0; color: #166534; }
+    .doc-pill.under_review { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+    .doc-pill.rejected { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+    .doc-pill.pending { border-color: #fde68a; background: #fffbeb; color: #92400e; }
 
     @media (max-width: 1024px) {
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .tab { min-width: 0; flex: 1; }
       .toolbar { grid-template-columns: 1fr; }
+      .ticket-split { grid-template-columns: 1fr; }
+      .docs-head,
+      .docs-row { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 640px) {
       body { padding: 10px; }
       .hero h1 { font-size: 24px; }
       .stats { grid-template-columns: 1fr; }
+      .modal-title { font-size: 24px; }
+      .candidate-grid { grid-template-columns: 1fr; }
+      .progress-step > summary { grid-template-columns: auto 1fr auto; }
+      .step-state { display: none; }
     }
   </style>
 </head>
@@ -298,6 +610,15 @@
       <div class="content" id="content"></div>
     </section>
   </div>
+  <div class="modal" id="candidateModal" role="dialog" aria-modal="true" aria-labelledby="candidateModalTitle">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h2 class="modal-title" id="candidateModalTitle">GP Details</h2>
+        <button class="modal-close" id="candidateModalClose" type="button" aria-label="Close">×</button>
+      </header>
+      <div class="modal-body" id="candidateModalBody"></div>
+    </div>
+  </div>
 
   <script>
     const state = {
@@ -306,11 +627,235 @@
       query: "",
       refreshTimer: null
     };
+    const LOCAL_DEMO_DASHBOARD = {
+      summary: {
+        totalGps: 5,
+        activeGps: 4,
+        pendingVerifications: 4,
+        openSupportTickets: 4,
+        averageProgress: 53
+      },
+      candidates: [
+        {
+          id: "olivia.turner.demo@gplink.test",
+          email: "olivia.turner.demo@gplink.test",
+          name: "Olivia Turner",
+          phone: "+61 410222011",
+          country: "UK",
+          registeredAt: "2026-01-20T09:10:00.000Z",
+          lastActiveAt: "2026-03-03T09:50:00.000Z",
+          progressPercent: 25,
+          currentStepLabel: "EPIC verification",
+          currentStepIndex: 2,
+          totalSteps: 8,
+          pendingVerification: true,
+          actionRequired: false,
+          stalled: false,
+          status: "active",
+          openTickets: 1,
+          documentsPending: 1
+        },
+        {
+          id: "harry.watson.demo@gplink.test",
+          email: "harry.watson.demo@gplink.test",
+          name: "Harry Watson",
+          phone: "+61 423119870",
+          country: "Ireland",
+          registeredAt: "2025-12-12T07:45:00.000Z",
+          lastActiveAt: "2026-03-03T03:35:00.000Z",
+          progressPercent: 75,
+          currentStepLabel: "AHPRA assessment",
+          currentStepIndex: 7,
+          totalSteps: 8,
+          pendingVerification: true,
+          actionRequired: true,
+          stalled: false,
+          status: "action_required",
+          openTickets: 1,
+          documentsPending: 1
+        },
+        {
+          id: "sophia.khan.demo@gplink.test",
+          email: "sophia.khan.demo@gplink.test",
+          name: "Sophia Khan",
+          phone: "+61 401998721",
+          country: "Canada",
+          registeredAt: "2026-01-28T10:00:00.000Z",
+          lastActiveAt: "2026-03-03T01:40:00.000Z",
+          progressPercent: 25,
+          currentStepLabel: "EPIC verification",
+          currentStepIndex: 2,
+          totalSteps: 8,
+          pendingVerification: true,
+          actionRequired: false,
+          stalled: false,
+          status: "active",
+          openTickets: 2,
+          documentsPending: 1
+        },
+        {
+          id: "luke.bennett.demo@gplink.test",
+          email: "luke.bennett.demo@gplink.test",
+          name: "Luke Bennett",
+          phone: "+61 447871902",
+          country: "UK",
+          registeredAt: "2025-11-15T07:20:00.000Z",
+          lastActiveAt: "2026-03-02T00:20:00.000Z",
+          progressPercent: 100,
+          currentStepLabel: "Completed",
+          currentStepIndex: 8,
+          totalSteps: 8,
+          pendingVerification: false,
+          actionRequired: false,
+          stalled: false,
+          status: "complete",
+          openTickets: 0,
+          documentsPending: 0
+        },
+        {
+          id: "mia.reynolds.demo@gplink.test",
+          email: "mia.reynolds.demo@gplink.test",
+          name: "Mia Reynolds",
+          phone: "+61 435770121",
+          country: "New Zealand",
+          registeredAt: "2026-02-01T06:20:00.000Z",
+          lastActiveAt: "2026-02-20T08:10:00.000Z",
+          progressPercent: 13,
+          currentStepLabel: "EPIC verification",
+          currentStepIndex: 2,
+          totalSteps: 8,
+          pendingVerification: true,
+          actionRequired: false,
+          stalled: true,
+          status: "stalled",
+          openTickets: 0,
+          documentsPending: 0
+        }
+      ],
+      verificationQueue: [
+        {
+          id: "olivia.turner.demo@gplink.test",
+          email: "olivia.turner.demo@gplink.test",
+          name: "Olivia Turner",
+          currentStepLabel: "EPIC verification",
+          progressPercent: 25,
+          actionRequired: false,
+          documentsPending: 1
+        },
+        {
+          id: "harry.watson.demo@gplink.test",
+          email: "harry.watson.demo@gplink.test",
+          name: "Harry Watson",
+          currentStepLabel: "AHPRA assessment",
+          progressPercent: 75,
+          actionRequired: true,
+          documentsPending: 1
+        },
+        {
+          id: "sophia.khan.demo@gplink.test",
+          email: "sophia.khan.demo@gplink.test",
+          name: "Sophia Khan",
+          currentStepLabel: "EPIC verification",
+          progressPercent: 25,
+          actionRequired: false,
+          documentsPending: 1
+        },
+        {
+          id: "mia.reynolds.demo@gplink.test",
+          email: "mia.reynolds.demo@gplink.test",
+          name: "Mia Reynolds",
+          currentStepLabel: "EPIC verification",
+          progressPercent: 13,
+          actionRequired: false,
+          documentsPending: 0
+        }
+      ],
+      tickets: [
+        {
+          id: "case_demo_ot_01",
+          title: "Need review for CCT notarisation",
+          category: "Documents",
+          priority: "high",
+          status: "open",
+          createdAt: "2026-03-01T04:00:00.000Z",
+          updatedAt: "2026-03-03T03:20:00.000Z",
+          messagesCount: 2,
+          lastMessage: "Received, we are validating the signature and seal now.",
+          candidateId: "olivia.turner.demo@gplink.test",
+          candidateName: "Olivia Turner",
+          candidateEmail: "olivia.turner.demo@gplink.test"
+        },
+        {
+          id: "case_demo_hw_02",
+          title: "AHPRA asked for additional proof of identity",
+          category: "AHPRA",
+          priority: "urgent",
+          status: "open",
+          createdAt: "2026-03-02T16:20:00.000Z",
+          updatedAt: "2026-03-03T02:55:00.000Z",
+          messagesCount: 2,
+          lastMessage: "Please upload a second photo ID and recent proof of address.",
+          candidateId: "harry.watson.demo@gplink.test",
+          candidateName: "Harry Watson",
+          candidateEmail: "harry.watson.demo@gplink.test"
+        },
+        {
+          id: "case_demo_sk_05",
+          title: "Need help with Certificate of Good Standing",
+          category: "Documents",
+          priority: "normal",
+          status: "open",
+          createdAt: "2026-03-02T14:05:00.000Z",
+          updatedAt: "2026-03-03T01:10:00.000Z",
+          messagesCount: 2,
+          lastMessage: "Submit the full verification certificate with issue date visible.",
+          candidateId: "sophia.khan.demo@gplink.test",
+          candidateName: "Sophia Khan",
+          candidateEmail: "sophia.khan.demo@gplink.test"
+        },
+        {
+          id: "case_demo_sk_06",
+          title: "Follow-up on EPIC upload timeout",
+          category: "EPIC",
+          priority: "normal",
+          status: "open",
+          createdAt: "2026-03-02T10:45:00.000Z",
+          updatedAt: "2026-03-02T22:30:00.000Z",
+          messagesCount: 2,
+          lastMessage: "Retry with a file under 10MB; we can validate once uploaded.",
+          candidateId: "sophia.khan.demo@gplink.test",
+          candidateName: "Sophia Khan",
+          candidateEmail: "sophia.khan.demo@gplink.test"
+        },
+        {
+          id: "case_demo_lb_04",
+          title: "Final registration confirmation",
+          category: "Registration",
+          priority: "normal",
+          status: "closed",
+          createdAt: "2026-02-27T08:00:00.000Z",
+          updatedAt: "2026-03-01T09:00:00.000Z",
+          messagesCount: 1,
+          lastMessage: "Your registration is complete. Congratulations.",
+          candidateId: "luke.bennett.demo@gplink.test",
+          candidateName: "Luke Bennett",
+          candidateEmail: "luke.bennett.demo@gplink.test"
+        }
+      ]
+    };
 
     const statsEl = document.getElementById("stats");
     const contentEl = document.getElementById("content");
     const refreshTextEl = document.getElementById("refreshText");
     const searchInputEl = document.getElementById("searchInput");
+    const candidateModalEl = document.getElementById("candidateModal");
+    const candidateModalBodyEl = document.getElementById("candidateModalBody");
+    const candidateModalCloseEl = document.getElementById("candidateModalClose");
+    const DOCUMENT_SOURCE_LABELS = {
+      prepared_by_you: "Prepared by you",
+      institution_docs: "Institution documents",
+      gplink_pack: "GP Link pack"
+    };
 
     function fmtDate(value) {
       if (!value) return "-";
@@ -330,6 +875,239 @@
       if (hours < 24) return `Last active: ${hours} hour${hours === 1 ? "" : "s"} ago`;
       const days = Math.round(hours / 24);
       return `Last active: ${days} day${days === 1 ? "" : "s"} ago`;
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function statusLabel(status) {
+      if (status === "action_required") return "Action Required";
+      if (status === "stalled") return "Stalled";
+      if (status === "complete") return "Complete";
+      return "Active";
+    }
+
+    function normalizePathwaySteps(candidate) {
+      if (Array.isArray(candidate.pathwaySteps) && candidate.pathwaySteps.length) {
+        return candidate.pathwaySteps.map((step, index) => ({
+          stepIndex: index + 1,
+          name: step.label || `Step ${index + 1}`,
+          state: step.status === "done" ? "complete" : (step.status === "current" ? "current" : "pending"),
+          substeps: Array.isArray(step.substeps) ? step.substeps.map((sub) => ({
+            label: sub.label || sub.key || "Sub-step",
+            state: sub.status === "done" ? "done" : (sub.status === "current" ? "current" : "pending")
+          })) : [],
+          openByDefault: step.status === "current"
+        }));
+      }
+
+      return [
+        {
+          stepIndex: 1,
+          name: "MyIntealth Account",
+          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("epic") ? "current" : ((candidate.progressPercent || 0) >= 25 ? "complete" : "current"),
+          substeps: [
+            { label: "Create account", state: (candidate.progressPercent || 0) >= 6 ? "done" : "current" },
+            { label: "Account establishment", state: (candidate.progressPercent || 0) >= 13 ? "done" : "pending" },
+            { label: "Upload qualifications", state: (candidate.progressPercent || 0) >= 19 ? "done" : "pending" },
+            { label: "Verification issued", state: (candidate.progressPercent || 0) >= 25 ? "done" : "pending" }
+          ],
+          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("epic")
+        },
+        {
+          stepIndex: 2,
+          name: "AMC Portfolio",
+          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("amc") ? "current" : ((candidate.progressPercent || 0) >= 50 ? "complete" : "pending"),
+          substeps: [
+            { label: "Create AMC account", state: (candidate.progressPercent || 0) >= 34 ? "done" : "pending" },
+            { label: "Upload credentials", state: (candidate.progressPercent || 0) >= 42 ? "done" : "pending" },
+            { label: "Qualifications verified", state: (candidate.progressPercent || 0) >= 50 ? "done" : "pending" }
+          ],
+          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("amc")
+        },
+        {
+          stepIndex: 3,
+          name: "Documents",
+          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("document") ? "current" : ((candidate.progressPercent || 0) >= 63 ? "complete" : "pending"),
+          substeps: [
+            { label: "Prepared by you", state: (candidate.progressPercent || 0) >= 55 ? "done" : "pending" },
+            { label: "Institution documents", state: (candidate.progressPercent || 0) >= 59 ? "done" : "pending" },
+            { label: "GP Link pack", state: (candidate.progressPercent || 0) >= 63 ? "done" : "pending" }
+          ],
+          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("document")
+        },
+        {
+          stepIndex: 4,
+          name: "AHPRA Registration",
+          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("ahpra") ? "current" : ((candidate.progressPercent || 0) >= 100 ? "complete" : "pending"),
+          substeps: [
+            { label: "Stage 1: Setup", state: (candidate.progressPercent || 0) >= 75 ? "done" : "pending" },
+            { label: "Stage 2: Submission", state: (candidate.progressPercent || 0) >= 88 ? "done" : "pending" },
+            { label: "Stage 3: Assessment", state: (candidate.progressPercent || 0) >= 94 ? "done" : "pending" },
+            { label: "Stage 4: Outcome", state: (candidate.progressPercent || 0) >= 100 ? "done" : "pending" }
+          ],
+          openByDefault: !candidate.currentStepLabel || candidate.currentStepLabel.toLowerCase().includes("ahpra")
+        }
+      ];
+    }
+
+    function getCandidateTickets(candidate) {
+      const all = state.dashboard && Array.isArray(state.dashboard.tickets) ? state.dashboard.tickets : [];
+      const id = String(candidate.id || "");
+      const email = String(candidate.email || "").toLowerCase();
+      const rows = all.filter((ticket) => {
+        const candidateId = String(ticket.candidateId || "");
+        const candidateEmail = String(ticket.candidateEmail || "").toLowerCase();
+        return (id && candidateId === id) || (email && candidateEmail === email);
+      });
+      return {
+        active: rows.filter((item) => item.status !== "closed"),
+        past: rows.filter((item) => item.status === "closed")
+      };
+    }
+
+    function getCandidateDocuments(candidate) {
+      if (candidate.documents && Array.isArray(candidate.documents.items)) return candidate.documents.items;
+      const pending = Math.max(0, Number(candidate.documentsPending || 0));
+      const fallbackLabels = [
+        "Primary medical degree",
+        "MRCGP certificate",
+        "CCT certificate",
+        "Signed CV",
+        "Certificate of good standing",
+        "Confirmation of training",
+        "Criminal history check",
+        "SPPA-00",
+        "Section G",
+        "Position description",
+        "Offer/contract",
+        "Supervisor CV"
+      ];
+      return fallbackLabels.map((label, index) => {
+        const isPending = index < pending;
+        return {
+          label,
+          source: index < 4 ? "prepared_by_you" : (index < 7 ? "institution_docs" : "gplink_pack"),
+          uploaded: !isPending,
+          status: isPending ? "pending" : "accepted",
+          fileName: isPending ? "" : "Uploaded"
+        };
+      });
+    }
+
+    function closeCandidateModal() {
+      candidateModalEl.classList.remove("open");
+      document.body.style.overflow = "";
+    }
+
+    function openCandidateModal(candidate) {
+      const steps = normalizePathwaySteps(candidate);
+      const tickets = getCandidateTickets(candidate);
+      const docs = getCandidateDocuments(candidate);
+      const activeTicketMarkup = tickets.active.length
+        ? tickets.active.map((item) => `
+          <article class="mini-item">
+            <p class="mini-item-title">${escapeHtml(item.title || "Support request")}</p>
+            <p class="mini-item-meta">${escapeHtml(item.category || "General")} • ${escapeHtml(item.priority || "normal")} • ${new Date(item.updatedAt).toLocaleDateString()}</p>
+          </article>
+        `).join("")
+        : `<div class="mini-item"><p class="mini-item-meta">No active tickets.</p></div>`;
+      const pastTicketMarkup = tickets.past.length
+        ? tickets.past.map((item) => `
+          <article class="mini-item">
+            <p class="mini-item-title">${escapeHtml(item.title || "Support request")}</p>
+            <p class="mini-item-meta">${escapeHtml(item.category || "General")} • closed • ${new Date(item.updatedAt).toLocaleDateString()}</p>
+          </article>
+        `).join("")
+        : `<div class="mini-item"><p class="mini-item-meta">No past tickets.</p></div>`;
+      const docsMarkup = docs.length
+        ? docs.map((doc) => `
+          <div class="docs-row">
+            <span>${escapeHtml(doc.label || doc.key || "-")}</span>
+            <span>${escapeHtml(DOCUMENT_SOURCE_LABELS[doc.source] || doc.source || "-")}</span>
+            <span class="doc-pill ${escapeHtml(doc.status || "pending")}">${escapeHtml((doc.status || "pending").replace(/_/g, " "))}</span>
+            <span>${escapeHtml(doc.fileName || (doc.uploaded ? "Uploaded" : "Not uploaded"))}</span>
+          </div>
+        `).join("")
+        : `<div class="docs-row"><span>No document data available.</span><span>-</span><span class="doc-pill pending">pending</span><span>-</span></div>`;
+      const stepMarkup = steps.map((step) => `
+        <details class="progress-step" ${step.openByDefault ? "open" : ""}>
+          <summary>
+            <span class="step-dot ${step.state}">${step.state === "complete" ? "✓" : step.stepIndex}</span>
+            <span class="step-name">${escapeHtml(step.name)}</span>
+            <span class="step-state">${step.state === "complete" ? "Complete" : (step.state === "current" ? "Current" : "Pending")}</span>
+            <span class="step-chevron">▾</span>
+          </summary>
+          <div class="substeps">
+            ${step.substeps.map((sub) => `
+              <div class="substep ${sub.state}">
+                <span class="substep-indicator"></span>
+                <span class="substep-label">${escapeHtml(sub.label)}</span>
+                <span class="substep-tag">${sub.state}</span>
+              </div>
+            `).join("")}
+          </div>
+        </details>
+      `).join("");
+
+      candidateModalBodyEl.innerHTML = `
+        <section class="candidate-top">
+          <div class="candidate-top-row">
+            <h3 class="candidate-name">${escapeHtml(candidate.name || "-")}</h3>
+            <span class="badge ${escapeHtml(candidate.status || "active")}">${escapeHtml(statusLabel(candidate.status || "active"))}</span>
+          </div>
+          <div class="candidate-grid">
+            <div><p class="field-label">Email</p><p class="field-value">${escapeHtml(candidate.email || "-")}</p></div>
+            <div><p class="field-label">Phone</p><p class="field-value">${escapeHtml(candidate.phone || "-")}</p></div>
+            <div><p class="field-label">Country</p><p class="field-value">${escapeHtml(candidate.country || "-")}</p></div>
+            <div><p class="field-label">Certificate</p><p class="field-value">${escapeHtml(candidate.currentStepLabel || "-")}</p></div>
+            <div><p class="field-label">Registration Date</p><p class="field-value">${escapeHtml(fmtDate(candidate.registeredAt))}</p></div>
+            <div><p class="field-label">Last Activity</p><p class="field-value">${escapeHtml(fmtRelative(candidate.lastActiveAt).replace(/^Last active: /, ""))}</p></div>
+          </div>
+        </section>
+        <section class="progress-panel">
+          <h4>Registration Progress</h4>
+          ${stepMarkup}
+        </section>
+        <section class="info-section">
+          <h5>Support Tickets</h5>
+          <div class="ticket-split">
+            <div class="mini-list">
+              <p class="mini-list-title">Active</p>
+              ${activeTicketMarkup}
+            </div>
+            <div class="mini-list">
+              <p class="mini-list-title">Past</p>
+              ${pastTicketMarkup}
+            </div>
+          </div>
+        </section>
+        <section class="info-section">
+          <h5>Documents (${docs.length ? docs.filter((d) => d.uploaded).length : 0}/${docs.length || 0} uploaded)</h5>
+          <div class="docs-table">
+            <div class="docs-head">
+              <span>Document</span>
+              <span>Source</span>
+              <span>Status</span>
+              <span>File</span>
+            </div>
+            ${docsMarkup}
+          </div>
+        </section>
+        <div class="modal-actions">
+          <button class="btn primary" type="button" data-email-gp="${escapeHtml(candidate.email || "")}">Email GP</button>
+          <button class="btn ghost" type="button" data-close-modal="true">Close</button>
+        </div>
+      `;
+
+      candidateModalEl.classList.add("open");
+      document.body.style.overflow = "hidden";
     }
 
     function renderStats() {
@@ -536,22 +1314,11 @@
         renderContent();
         refreshTextEl.textContent = `Updated ${new Date(data.refreshedAt).toLocaleString()}`;
       } catch (err) {
-        state.dashboard = {
-          summary: {
-            totalGps: 0,
-            activeGps: 0,
-            pendingVerifications: 0,
-            openSupportTickets: 0,
-            averageProgress: 0
-          },
-          candidates: [],
-          verificationQueue: [],
-          tickets: []
-        };
+        state.dashboard = LOCAL_DEMO_DASHBOARD;
         renderStats();
         renderTabLabels();
         renderContent();
-        refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}).`;
+        refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}). Showing local demo data.`;
       }
     }
 
@@ -618,16 +1385,7 @@
       const list = state.dashboard ? state.dashboard.candidates : [];
       const candidate = list.find((item) => item.id === candidateId);
       if (!candidate) return;
-      window.alert([
-        `${candidate.name}`,
-        `${candidate.email}`,
-        `Country: ${candidate.country || "-"}`,
-        `Progress: ${candidate.progressPercent}%`,
-        `Current step: ${candidate.currentStepLabel}`,
-        `Open tickets: ${candidate.openTickets}`,
-        `Documents pending: ${candidate.documentsPending}`,
-        `Last active: ${candidate.lastActiveAt ? new Date(candidate.lastActiveAt).toLocaleString() : "-"}`
-      ].join("\n"));
+      openCandidateModal(candidate);
     }
 
     function bindEvents() {
@@ -650,6 +1408,25 @@
 
       document.getElementById("exportBtn").addEventListener("click", () => {
         exportCurrentTab();
+      });
+      candidateModalCloseEl.addEventListener("click", () => {
+        closeCandidateModal();
+      });
+      candidateModalEl.addEventListener("click", (event) => {
+        if (event.target === candidateModalEl || event.target.closest("[data-close-modal]")) {
+          closeCandidateModal();
+          return;
+        }
+        const emailBtn = event.target.closest("[data-email-gp]");
+        if (emailBtn) {
+          const email = emailBtn.getAttribute("data-email-gp");
+          if (email) window.location.href = `mailto:${email}`;
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && candidateModalEl.classList.contains("open")) {
+          closeCandidateModal();
+        }
       });
 
       contentEl.addEventListener("click", async (event) => {

@@ -8,15 +8,14 @@
       const root = document.documentElement;
       root.classList.add('gp-page-loading');
       const style = document.createElement('style');
-      style.textContent = '.gp-page-loading body > *:not(#gp-universal-skeleton){visibility:hidden!important;}#gp-universal-skeleton{position:fixed;inset:0;z-index:10000;background:#eef3fb;display:grid;place-items:center;padding:18px 12px;}#gp-universal-skeleton .shell{width:min(1100px,100%);height:min(760px,84vh);border-radius:18px;background:linear-gradient(90deg,#e4ebf6 25%,#f2f6fd 37%,#e4ebf6 63%);background-size:400% 100%;animation:gpUniversalShimmer 1.35s ease-in-out infinite;}@keyframes gpUniversalShimmer{0%{background-position:100% 50%;}100%{background-position:0 50%;}}';
+      style.textContent = '.gp-page-loading body > *:not(#gp-universal-skeleton){visibility:hidden!important;}#gp-universal-skeleton{position:fixed;inset:0;z-index:10000;background:#eef3fb;display:grid;place-items:center;padding:18px 12px;}#gp-universal-skeleton .shell{position:relative;overflow:hidden;width:min(1100px,100%);height:min(760px,84vh);border-radius:18px;background:linear-gradient(90deg,#e4ebf6 25%,#f2f6fd 37%,#e4ebf6 63%);background-size:400% 100%;box-shadow:0 0 0 1px rgba(10,132,255,.32),0 0 14px rgba(10,132,255,.35),0 0 28px rgba(10,132,255,.2) inset;animation:gpUniversalShimmer 1.35s ease-in-out infinite;}#gp-universal-skeleton .shell::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from 0deg,#1d9bff 0deg,#9fddff 70deg,#1d9bff 140deg,transparent 220deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:gpLedTrace .95s linear infinite;}@keyframes gpUniversalShimmer{0%{background-position:100% 50%;}100%{background-position:0 50%;}}@keyframes gpLedTrace{to{transform:rotate(1turn);}}';
       document.head.appendChild(style);
       function mount() { if (!document.body || document.getElementById('gp-universal-skeleton')) return; const el = document.createElement('div'); el.id = 'gp-universal-skeleton'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = '<div class="shell"></div>'; document.body.appendChild(el); }
       function unmount() { root.classList.remove('gp-page-loading'); const el = document.getElementById('gp-universal-skeleton'); if (el && el.parentNode) el.parentNode.removeChild(el); }
-      let dataReady = false; let pageReady = document.readyState !== 'loading';
-      function done() { if (dataReady && pageReady) unmount(); }
-      window.addEventListener('gp-data-ready', function () { dataReady = true; done(); }, { once: true });
+      let pageReady = document.readyState !== 'loading';
+      function done() { if (pageReady) unmount(); }
       if (!pageReady) document.addEventListener('DOMContentLoaded', function () { pageReady = true; done(); }, { once: true });
-      setTimeout(function () { dataReady = true; pageReady = true; done(); }, 12000);
+      setTimeout(done, 12000);
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true }); else mount();
     })();
   </script>

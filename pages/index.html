@@ -16,14 +16,30 @@
           display: grid; place-items: center; padding: 18px 12px;
         }
         #gp-universal-skeleton .shell {
+          position: relative;
+          overflow: hidden;
           width: min(1100px, 100%);
           height: min(760px, 84vh);
           border-radius: 18px;
           background: linear-gradient(90deg, #e4ebf6 25%, #f2f6fd 37%, #e4ebf6 63%);
           background-size: 400% 100%;
+          box-shadow: 0 0 0 1px rgba(10, 132, 255, .32), 0 0 14px rgba(10, 132, 255, .35), 0 0 28px rgba(10, 132, 255, .2) inset;
           animation: gpUniversalShimmer 1.35s ease-in-out infinite;
         }
+        #gp-universal-skeleton .shell::before {
+          content: "";
+          position: absolute;
+          inset: -1px;
+          border-radius: inherit;
+          padding: 1px;
+          background: conic-gradient(from 0deg, #1d9bff 0deg, #9fddff 70deg, #1d9bff 140deg, transparent 220deg, transparent 360deg);
+          -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+          mask-composite: exclude;
+          animation: gpLedTrace .95s linear infinite;
+        }
         @keyframes gpUniversalShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+        @keyframes gpLedTrace { to { transform: rotate(1turn); } }
       `;
       document.head.appendChild(style);
 
@@ -42,17 +58,15 @@
         if (el && el.parentNode) el.parentNode.removeChild(el);
       }
 
-      let dataReady = false;
       let pageReady = document.readyState !== 'loading';
       function maybeDone() {
-        if (dataReady && pageReady) unmountSkeleton();
+        if (pageReady) unmountSkeleton();
       }
 
-      window.addEventListener('gp-data-ready', function () { dataReady = true; maybeDone(); }, { once: true });
       if (!pageReady) {
         document.addEventListener('DOMContentLoaded', function () { pageReady = true; maybeDone(); }, { once: true });
       }
-      setTimeout(function () { dataReady = true; pageReady = true; maybeDone(); }, 12000);
+      setTimeout(maybeDone, 12000);
 
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', mountSkeleton, { once: true });
