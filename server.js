@@ -40,6 +40,10 @@ const DB_FILE_PATH = process.env.DB_FILE_PATH || DEFAULT_DB_FILE_PATH;
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim();
 const SUPABASE_PUBLISHABLE_KEY = String(process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
+const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
+const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
+const HERO_MOBILE_WEBM_URL = String(process.env.HERO_MOBILE_WEBM_URL || '').trim();
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -2409,6 +2413,18 @@ async function handleApi(req, res, pathname) {
       authenticated: true,
       profile: session.userProfile
     });
+    return;
+  }
+
+  if (pathname === '/api/media-config' && req.method === 'GET') {
+    const media = {
+      heroDesktopMp4: HERO_DESKTOP_MP4_URL || '/media/videos/gp-link-hero-desktop.mp4',
+      heroDesktopWebm: HERO_DESKTOP_WEBM_URL || '',
+      heroMobileMp4: HERO_MOBILE_MP4_URL || '/media/videos/gp-link-hero-mobile.mp4',
+      heroMobileWebm: HERO_MOBILE_WEBM_URL || ''
+    };
+
+    sendJson(res, 200, { ok: true, media });
     return;
   }
 

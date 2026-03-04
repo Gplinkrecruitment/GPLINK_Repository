@@ -1477,26 +1477,30 @@
         <video
           id="heroVideoDesktop"
           class="hero-video hero-video-desktop"
+          autoplay
           muted
           loop
           playsinline
-          preload="none"
+          preload="metadata"
           poster="../media/images/account-header-sunset-exact.jpg"
           aria-hidden="true"
         >
-          <source id="heroSourceDesktop" data-src="../media/videos/gp-link-hero-desktop.mp4" type="video/mp4" />
+          <source id="heroSourceDesktopWebm" data-src="" type="video/webm" />
+          <source id="heroSourceDesktopMp4" data-src="../media/videos/gp-link-hero-desktop.mp4" type="video/mp4" />
         </video>
         <video
           id="heroVideoMobile"
           class="hero-video hero-video-mobile"
+          autoplay
           muted
           loop
           playsinline
-          preload="none"
+          preload="metadata"
           poster="../media/images/account-header-sunset-exact.jpg"
           aria-hidden="true"
         >
-          <source id="heroSourceMobile" data-src="../media/videos/gp-link-hero-mobile.mp4" type="video/mp4" />
+          <source id="heroSourceMobileWebm" data-src="" type="video/webm" />
+          <source id="heroSourceMobileMp4" data-src="../media/videos/gp-link-hero-mobile.mp4" type="video/mp4" />
         </video>
         <div class="hero-top">
           <div>
@@ -2557,24 +2561,49 @@
     let deltaY = 0;
     let dragging = false;
     let heroVideoMode = "";
-    let heroVideoActivated = false;
 
-    const heroSectionEl = document.querySelector(".hero");
     const heroVideoDesktopEl = document.getElementById("heroVideoDesktop");
     const heroVideoMobileEl = document.getElementById("heroVideoMobile");
-    const heroSourceDesktopEl = document.getElementById("heroSourceDesktop");
-    const heroSourceMobileEl = document.getElementById("heroSourceMobile");
-    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const constrainedNetwork = !!(connection && (connection.saveData || /(^|-)2g/.test(String(connection.effectiveType || ""))));
-    const disableHeroVideo = prefersReducedMotion || constrainedNetwork;
+    const heroSourceDesktopWebmEl = document.getElementById("heroSourceDesktopWebm");
+    const heroSourceDesktopMp4El = document.getElementById("heroSourceDesktopMp4");
+    const heroSourceMobileWebmEl = document.getElementById("heroSourceMobileWebm");
+    const heroSourceMobileMp4El = document.getElementById("heroSourceMobileMp4");
 
-    function loadHeroVideo(videoEl, sourceEl) {
-      if (!videoEl || !sourceEl) return;
-      const nextSrc = sourceEl.dataset.src || "";
-      if (!nextSrc) return;
-      if (sourceEl.getAttribute("src") !== nextSrc) {
-        sourceEl.setAttribute("src", nextSrc);
+    function setSourceData(sourceEl, value) {
+      if (!sourceEl) return;
+      const srcValue = typeof value === "string" ? value.trim() : "";
+      sourceEl.dataset.src = srcValue;
+    }
+
+    function applyHeroMediaConfig(config) {
+      if (!config || typeof config !== "object") return;
+      setSourceData(heroSourceDesktopWebmEl, config.heroDesktopWebm);
+      setSourceData(heroSourceDesktopMp4El, config.heroDesktopMp4);
+      setSourceData(heroSourceMobileWebmEl, config.heroMobileWebm);
+      setSourceData(heroSourceMobileMp4El, config.heroMobileMp4);
+      syncHeroVideoMode(true);
+    }
+
+    function loadHeroVideo(videoEl, sourceEls) {
+      if (!videoEl || !Array.isArray(sourceEls)) return;
+      let didChange = false;
+      sourceEls.forEach((sourceEl) => {
+        if (!sourceEl) return;
+        const nextSrc = sourceEl.dataset.src || "";
+        const currentSrc = sourceEl.getAttribute("src") || "";
+        if (!nextSrc) {
+          if (currentSrc) {
+            sourceEl.removeAttribute("src");
+            didChange = true;
+          }
+          return;
+        }
+        if (currentSrc !== nextSrc) {
+          sourceEl.setAttribute("src", nextSrc);
+          didChange = true;
+        }
+      });
+      if (didChange) {
         videoEl.load();
       }
     }
@@ -2585,74 +2614,45 @@
       if (playPromise && typeof playPromise.catch === "function") playPromise.catch(() => {});
     }
 
-    function unloadHeroVideo(videoEl, sourceEl) {
-      if (!videoEl || !sourceEl) return;
+    function unloadHeroVideo(videoEl, sourceEls) {
+      if (!videoEl || !Array.isArray(sourceEls)) return;
       videoEl.pause();
-      if (sourceEl.getAttribute("src")) {
-        sourceEl.removeAttribute("src");
-        videoEl.load();
-      }
+      let didChange = false;
+      sourceEls.forEach((sourceEl) => {
+        if (!sourceEl) return;
+        if (sourceEl.getAttribute("src")) {
+          sourceEl.removeAttribute("src");
+          didChange = true;
+        }
+      });
+      if (didChange) videoEl.load();
     }
 
-    function syncHeroVideoMode() {
+    function syncHeroVideoMode(forceReload = false) {
       const useDesktop = window.matchMedia("(min-width: 768px)").matches;
       const mode = useDesktop ? "desktop" : "mobile";
-      if (mode === heroVideoMode) return;
+      if (!forceReload && mode === heroVideoMode) return;
       heroVideoMode = mode;
 
-      if (!heroVideoActivated || disableHeroVideo) return;
       if (mode === "desktop") {
-        loadHeroVideo(heroVideoDesktopEl, heroSourceDesktopEl);
-        unloadHeroVideo(heroVideoMobileEl, heroSourceMobileEl);
+        loadHeroVideo(heroVideoDesktopEl, [heroSourceDesktopWebmEl, heroSourceDesktopMp4El]);
+        unloadHeroVideo(heroVideoMobileEl, [heroSourceMobileWebmEl, heroSourceMobileMp4El]);
         playHeroVideo(heroVideoDesktopEl);
       } else {
-        loadHeroVideo(heroVideoMobileEl, heroSourceMobileEl);
-        unloadHeroVideo(heroVideoDesktopEl, heroSourceDesktopEl);
+        loadHeroVideo(heroVideoMobileEl, [heroSourceMobileWebmEl, heroSourceMobileMp4El]);
+        unloadHeroVideo(heroVideoDesktopEl, [heroSourceDesktopWebmEl, heroSourceDesktopMp4El]);
         playHeroVideo(heroVideoMobileEl);
       }
     }
 
-    function removeHeroActivationListeners() {
-      window.removeEventListener("pointerdown", activateHeroVideo, { passive: true });
-      window.removeEventListener("touchstart", activateHeroVideo, { passive: true });
-      window.removeEventListener("keydown", activateHeroVideo);
-      window.removeEventListener("scroll", activateHeroVideo, { passive: true });
-    }
-
-    function activateHeroVideo() {
-      if (heroVideoActivated || disableHeroVideo) return;
-      heroVideoActivated = true;
-      removeHeroActivationListeners();
-      syncHeroVideoMode();
-    }
-
-    function setupHeroVideoLazyStart() {
-      if (disableHeroVideo) return;
-
-      if ("IntersectionObserver" in window && heroSectionEl) {
-        const observer = new IntersectionObserver((entries) => {
-          if (entries.some((entry) => entry.isIntersecting)) {
-            observer.disconnect();
-            activateHeroVideo();
-          }
-        }, { rootMargin: "220px 0px 220px 0px" });
-        observer.observe(heroSectionEl);
-      }
-
-      window.addEventListener("pointerdown", activateHeroVideo, { passive: true, once: true });
-      window.addEventListener("touchstart", activateHeroVideo, { passive: true, once: true });
-      window.addEventListener("keydown", activateHeroVideo, { once: true });
-      window.addEventListener("scroll", activateHeroVideo, { passive: true, once: true });
-
-      if ("requestIdleCallback" in window) {
-        window.requestIdleCallback(() => activateHeroVideo(), { timeout: 3500 });
-      } else {
-        window.setTimeout(() => activateHeroVideo(), 2200);
-      }
-    }
+    fetch("/api/media-config", { credentials: "same-origin" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (data && data.ok && data.media) applyHeroMediaConfig(data.media);
+      })
+      .catch(() => {});
 
     syncHeroVideoMode();
-    setupHeroVideoLazyStart();
 
     mobileRegSheet.addEventListener("touchstart", (e) => {
       if (!mobileRegSheet.classList.contains("show")) return;
