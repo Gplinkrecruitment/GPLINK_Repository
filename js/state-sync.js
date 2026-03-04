@@ -26,6 +26,7 @@
   let suppressLocalObserver = false;
   let pendingTrackedChange = false;
   let pushTimer = null;
+  let earlyReadyDispatched = false;
 
   function injectSkeletonStyles() {
     if (document.getElementById(SKELETON_STYLE_ID)) return;
@@ -217,9 +218,12 @@
     if (hydratePromise) return hydratePromise;
 
     hydratePromise = (async () => {
-      showSkeleton();
+      // Unblock page rendering immediately; hydrate state in the background.
+      if (!earlyReadyDispatched) {
+        earlyReadyDispatched = true;
+        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk: true, fastPath: true } }));
+      }
       let stateOk = false;
-      const timeout = setTimeout(hideSkeleton, SKELETON_TIMEOUT_MS);
 
       try {
         const serverState = await fetchState();
@@ -246,13 +250,11 @@
         if (stateOk) {
           window.dispatchEvent(new Event('gp-state-hydrated'));
         }
-        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk } }));
       } catch (err) {
         hydrated = false;
-        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk: false } }));
       } finally {
-        clearTimeout(timeout);
-        hideSkeleton();
+        // Keep legacy pages compatible if they wait for this event more than once.
+        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk } }));
       }
 
       try {

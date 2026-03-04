@@ -478,6 +478,7 @@
       flex-wrap: wrap;
     }
 
+
     @media (min-width: 768px) {
       .hero {
         background: #0f172a;
@@ -1487,26 +1488,28 @@
     <div class="bg">
       <div class="hero">
         <video
+          id="heroVideoDesktop"
           class="hero-video hero-video-desktop"
           autoplay
           muted
           loop
           playsinline
-          preload="metadata"
+          preload="none"
           aria-hidden="true"
         >
-          <source src="../media/videos/gp-link-hero-desktop.mp4" type="video/mp4" />
+          <source id="heroSourceDesktop" data-src="../media/videos/gp-link-hero-desktop.mp4" type="video/mp4" />
         </video>
         <video
+          id="heroVideoMobile"
           class="hero-video hero-video-mobile"
           autoplay
           muted
           loop
           playsinline
-          preload="metadata"
+          preload="none"
           aria-hidden="true"
         >
-          <source src="../media/videos/gp-link-hero-mobile.mp4" type="video/mp4" />
+          <source id="heroSourceMobile" data-src="../media/videos/gp-link-hero-mobile.mp4" type="video/mp4" />
         </video>
         <div class="hero-top">
           <div>
@@ -2557,6 +2560,53 @@
     let startY = 0;
     let deltaY = 0;
     let dragging = false;
+    let heroVideoMode = "";
+
+    const heroVideoDesktopEl = document.getElementById("heroVideoDesktop");
+    const heroVideoMobileEl = document.getElementById("heroVideoMobile");
+    const heroSourceDesktopEl = document.getElementById("heroSourceDesktop");
+    const heroSourceMobileEl = document.getElementById("heroSourceMobile");
+    function getActiveHeroVideoEl() {
+      return heroVideoMode === "desktop" ? heroVideoDesktopEl : heroVideoMobileEl;
+    }
+
+    function loadHeroVideo(videoEl, sourceEl) {
+      if (!videoEl || !sourceEl) return;
+      const nextSrc = sourceEl.dataset.src || "";
+      if (!nextSrc) return;
+      if (sourceEl.getAttribute("src") !== nextSrc) {
+        sourceEl.setAttribute("src", nextSrc);
+        videoEl.load();
+      }
+      const playPromise = videoEl.play();
+      if (playPromise && typeof playPromise.catch === "function") playPromise.catch(() => {});
+    }
+
+    function unloadHeroVideo(videoEl, sourceEl) {
+      if (!videoEl || !sourceEl) return;
+      videoEl.pause();
+      if (sourceEl.getAttribute("src")) {
+        sourceEl.removeAttribute("src");
+        videoEl.load();
+      }
+    }
+
+    function syncHeroVideoMode() {
+      const useDesktop = window.matchMedia("(min-width: 768px)").matches;
+      const mode = useDesktop ? "desktop" : "mobile";
+      if (mode === heroVideoMode) return;
+      heroVideoMode = mode;
+
+      if (mode === "desktop") {
+        loadHeroVideo(heroVideoDesktopEl, heroSourceDesktopEl);
+        unloadHeroVideo(heroVideoMobileEl, heroSourceMobileEl);
+      } else {
+        loadHeroVideo(heroVideoMobileEl, heroSourceMobileEl);
+        unloadHeroVideo(heroVideoDesktopEl, heroSourceDesktopEl);
+      }
+    }
+
+    syncHeroVideoMode();
 
     mobileRegSheet.addEventListener("touchstart", (e) => {
       if (!mobileRegSheet.classList.contains("show")) return;
@@ -2581,6 +2631,13 @@
         closeMobileRegistration();
       } else {
         mobileRegSheet.style.transform = "";
+      }
+    });
+
+    window.addEventListener("resize", syncHeroVideoMode);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        syncHeroVideoMode();
       }
     });
   </script>
