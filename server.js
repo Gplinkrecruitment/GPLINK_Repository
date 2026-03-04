@@ -13,10 +13,18 @@ const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS || 10 * 60 * 1000);
 const RATE_MAX_SEND = Number(process.env.RATE_MAX_SEND || 5);
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 12 * 60 * 60 * 1000);
 const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 8 * 1024 * 1024);
+const AUTH_RATE_WINDOW_MS = Number(process.env.AUTH_RATE_WINDOW_MS || 10 * 60 * 1000);
+const AUTH_RATE_MAX_ATTEMPTS = Number(process.env.AUTH_RATE_MAX_ATTEMPTS || 12);
 const SECRET = process.env.AUTH_SECRET || 'replace-me-in-production';
 const COOKIE_NAME = 'gp_session';
 const ADMIN_COOKIE_NAME = process.env.ADMIN_COOKIE_NAME || 'gp_admin_session';
 const ADMIN_SESSION_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 8 * 60 * 60 * 1000);
+const ENFORCE_SAME_ORIGIN = process.env.ENFORCE_SAME_ORIGIN
+  ? process.env.ENFORCE_SAME_ORIGIN === 'true'
+  : NODE_ENV === 'production';
+const REQUIRE_SUPABASE_DB = process.env.REQUIRE_SUPABASE_DB
+  ? process.env.REQUIRE_SUPABASE_DB === 'true'
+  : NODE_ENV === 'production';
 const ADMIN_ALLOWED_HOSTS = new Set(
   String(process.env.ADMIN_ALLOWED_HOSTS || '')
     .split(',')
@@ -46,6 +54,9 @@ function validateRuntimeConfig() {
 
   if (!AUTH_DISABLED && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {
     throw new Error('SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be set in production when auth is enabled.');
+  }
+  if (REQUIRE_SUPABASE_DB && !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY must be set in production (REQUIRE_SUPABASE_DB=true).');
   }
 
   if (ADMIN_EMAILS.size === 0) {
@@ -184,6 +195,10 @@ function sendJson(res, status, data, headers = {}) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    ...(NODE_ENV === 'production' ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload' } : {}),
     ...headers
   });
   res.end(body);
@@ -205,6 +220,40 @@ function getRequestHostname(req) {
   const host = String(req.headers.host || '').trim().toLowerCase();
   if (!host) return '';
   return host.split(':')[0];
+}
+
+function getHostFromHeaderValue(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname.trim().toLowerCase();
+  } catch (err) {
+    return '';
+  }
+}
+
+function isTrustedSameOriginRequest(req) {
+  const requestHost = getRequestHostname(req);
+  if (!requestHost) return false;
+
+  const originHost = getHostFromHeaderValue(req.headers.origin);
+  if (originHost) return originHost === requestHost;
+
+  const refererHost = getHostFromHeaderValue(req.headers.referer);
+  if (refererHost) return refererHost === requestHost;
+
+  return NODE_ENV !== 'production';
+}
+
+function isMutationMethod(method) {
+  return method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+}
+
+function enforceMutationOrigin(req, res) {
+  if (!ENFORCE_SAME_ORIGIN || !isMutationMethod(req.method)) return true;
+  if (isTrustedSameOriginRequest(req)) return true;
+  sendJson(res, 403, { ok: false, message: 'Blocked by same-origin policy.' });
+  return false;
 }
 
 function isLoopbackHostname(hostname) {
@@ -368,8 +417,23 @@ function getClientIp(req) {
   return req.socket.remoteAddress || 'unknown';
 }
 
-function checkRateLimit(rateKey) {
+async function checkRateLimit(rateKey) {
   const ts = now();
+  if (isSupabaseDbConfigured()) {
+    const runtimeKey = `ratelimit:${rateKey}`;
+    const existing = await getRuntimeKv(runtimeKey);
+    const current = existing && existing.value && typeof existing.value === 'object'
+      ? existing.value
+      : null;
+    if (!current || ts - Number(current.windowStart || 0) > RATE_WINDOW_MS) {
+      await setRuntimeKv(runtimeKey, { windowStart: ts, count: 1 }, ts + RATE_WINDOW_MS + 60 * 1000);
+      return true;
+    }
+    if (Number(current.count || 0) >= RATE_MAX_SEND) return false;
+    await setRuntimeKv(runtimeKey, { windowStart: Number(current.windowStart || ts), count: Number(current.count || 0) + 1 }, Number(current.windowStart || ts) + RATE_WINDOW_MS + 60 * 1000);
+    return true;
+  }
+
   const current = dbState.rateLimits[rateKey];
   if (!current || ts - current.windowStart > RATE_WINDOW_MS) {
     dbState.rateLimits[rateKey] = { windowStart: ts, count: 1 };
@@ -383,6 +447,44 @@ function checkRateLimit(rateKey) {
   dbState.rateLimits[rateKey] = current;
   saveDbState();
   return true;
+}
+
+async function checkRateLimitWindow(rateKey, maxCount, windowMs) {
+  const ts = now();
+  if (isSupabaseDbConfigured()) {
+    const runtimeKey = `authratelimit:${rateKey}`;
+    const existing = await getRuntimeKv(runtimeKey);
+    const current = existing && existing.value && typeof existing.value === 'object'
+      ? existing.value
+      : null;
+    if (!current || ts - Number(current.windowStart || 0) > windowMs) {
+      await setRuntimeKv(runtimeKey, { windowStart: ts, count: 1 }, ts + windowMs + 60 * 1000);
+      return true;
+    }
+    if (Number(current.count || 0) >= maxCount) return false;
+    await setRuntimeKv(runtimeKey, { windowStart: Number(current.windowStart || ts), count: Number(current.count || 0) + 1 }, Number(current.windowStart || ts) + windowMs + 60 * 1000);
+    return true;
+  }
+
+  const current = dbState.rateLimits[rateKey];
+  if (!current || ts - current.windowStart > windowMs) {
+    dbState.rateLimits[rateKey] = { windowStart: ts, count: 1 };
+    saveDbState();
+    return true;
+  }
+  if (current.count >= maxCount) return false;
+  current.count += 1;
+  dbState.rateLimits[rateKey] = current;
+  saveDbState();
+  return true;
+}
+
+async function enforceAuthRateLimit(req, res, scope) {
+  const key = `auth:${scope}:${getClientIp(req)}`;
+  const allowed = await checkRateLimitWindow(key, AUTH_RATE_MAX_ATTEMPTS, AUTH_RATE_WINDOW_MS);
+  if (allowed) return true;
+  sendJson(res, 429, { ok: false, message: 'Too many authentication attempts. Please try again later.' });
+  return false;
 }
 
 function setSession(res, userProfile) {
@@ -567,7 +669,11 @@ function serveStatic(req, res, pathname) {
           'Content-Length': String(end - start + 1),
           'Content-Range': `bytes ${start}-${end}/${stat.size}`,
           'Accept-Ranges': 'bytes',
-          'Cache-Control': cacheControl
+          'Cache-Control': cacheControl,
+          'X-Content-Type-Options': 'nosniff',
+          'X-Frame-Options': 'DENY',
+          'Referrer-Policy': 'strict-origin-when-cross-origin',
+          ...(NODE_ENV === 'production' ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload' } : {})
         });
         const rangedStream = fs.createReadStream(filePath, { start, end });
         rangedStream.pipe(res);
@@ -582,8 +688,12 @@ function serveStatic(req, res, pathname) {
     const headers = {
       'Content-Type': mime,
       'Content-Length': stat.size,
-      'Cache-Control': cacheControl
+      'Cache-Control': cacheControl,
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin'
     };
+    if (NODE_ENV === 'production') headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload';
     if (isVideo) headers['Accept-Ranges'] = 'bytes';
     res.writeHead(200, headers);
 
@@ -1494,6 +1604,55 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
   }
 }
 
+async function getRuntimeKv(key) {
+  if (!isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest(
+    'runtime_kv',
+    `select=key,value,expires_at&key=eq.${encodeURIComponent(String(key || ''))}&limit=1`
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  const row = result.data[0];
+  const expiresAt = row && typeof row.expires_at === 'string' ? row.expires_at : null;
+  if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+    await deleteRuntimeKv(key);
+    return null;
+  }
+  return {
+    key: row && typeof row.key === 'string' ? row.key : String(key || ''),
+    value: row && row.value && typeof row.value === 'object' ? row.value : {}
+  };
+}
+
+async function setRuntimeKv(key, value, expiresAtMs = null) {
+  if (!isSupabaseDbConfigured()) return false;
+  const payload = [{
+    key: String(key || ''),
+    value: value && typeof value === 'object' ? value : {},
+    expires_at: typeof expiresAtMs === 'number' ? new Date(expiresAtMs).toISOString() : null,
+    updated_at: new Date().toISOString()
+  }];
+  const result = await supabaseDbRequest(
+    'runtime_kv',
+    'on_conflict=key',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: payload
+    }
+  );
+  return result.ok;
+}
+
+async function deleteRuntimeKv(key) {
+  if (!isSupabaseDbConfigured()) return false;
+  const result = await supabaseDbRequest(
+    'runtime_kv',
+    `key=eq.${encodeURIComponent(String(key || ''))}`,
+    { method: 'DELETE' }
+  );
+  return result.ok;
+}
+
 async function getSupabaseUserIdByEmail(email) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!normalizedEmail) return null;
@@ -1553,7 +1712,6 @@ async function upsertSupabaseUserState(userId, state, updatedAt) {
 
 function mapSupabaseProfileRowToApiProfile(row, email) {
   const phone = row.phone || [row.country_dial || '', row.phone_number || ''].filter(Boolean).join(' ').trim();
-  const localUser = dbState.users[email] || {};
   return {
     firstName: row.first_name || '',
     lastName: row.last_name || '',
@@ -1562,7 +1720,7 @@ function mapSupabaseProfileRowToApiProfile(row, email) {
     registrationNumber: row.registration_number || '',
     gmcNumber: row.gmc_number || '',
     specialistCountry: row.registration_country || '',
-    hasPassword: !!localUser.passwordHash,
+    hasPassword: true,
     profilePhotoName: row.profile_photo_name || '',
     profilePhotoDataUrl: row.profile_photo_data_url || '',
     idCopyName: row.id_copy_name || '',
@@ -1705,9 +1863,28 @@ function getSessionProfileFromUser(email) {
   };
 }
 
+function getSessionProfileFromSupabaseUser(supaUser, fallbackEmail = '') {
+  const email = String(
+    (supaUser && typeof supaUser.email === 'string' && supaUser.email) || fallbackEmail || ''
+  ).trim().toLowerCase();
+  const metadata = supaUser && supaUser.user_metadata && typeof supaUser.user_metadata === 'object'
+    ? supaUser.user_metadata
+    : {};
+  return {
+    firstName: String(metadata.firstName || metadata.given_name || '').trim(),
+    lastName: String(metadata.lastName || metadata.family_name || '').trim(),
+    email,
+    supabaseUserId: String((supaUser && supaUser.id) || '').trim(),
+    countryDial: String(metadata.countryDial || '').trim(),
+    phoneNumber: String(metadata.phoneNumber || '').trim(),
+    registrationCountry: String(metadata.registrationCountry || '').trim()
+  };
+}
+
 function upsertLocalUserFromSupabaseUser(supaUser) {
   const email = String(supaUser && supaUser.email ? supaUser.email : '').trim().toLowerCase();
   if (!email) return null;
+  if (isSupabaseDbConfigured()) return email;
   const supabaseUserId = String(supaUser && supaUser.id ? supaUser.id : '').trim();
 
   const meta = supaUser && typeof supaUser.user_metadata === 'object' && supaUser.user_metadata
@@ -1821,12 +1998,18 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (!enforceMutationOrigin(req, res)) return;
+
   if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
     return;
   }
 
   if (pathname === '/api/auth/send-code' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB) {
+      sendJson(res, 410, { ok: false, message: 'OTP code auth is disabled. Use email/password or OAuth via Supabase.' });
+      return;
+    }
     let body;
     try {
       body = await readJsonBody(req);
@@ -1855,7 +2038,7 @@ async function handleApi(req, res, pathname) {
 
     const otpKey = keyForOtp(method, email, countryDial, phoneNumber);
     const rateKey = `${getClientIp(req)}|${otpKey}`;
-    if (!checkRateLimit(rateKey)) {
+    if (!(await checkRateLimit(rateKey))) {
       sendJson(res, 429, { ok: false, message: 'Too many requests. Please wait and try again.' });
       return;
     }
@@ -1883,6 +2066,7 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/auth/signup' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'signup'))) return;
     let body;
     try {
       body = await readJsonBody(req);
@@ -1917,7 +2101,8 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    upsertLocalUserFromSupabaseUser(signupResult.data && signupResult.data.user ? signupResult.data.user : { email });
+    const signupUser = signupResult.data && signupResult.data.user ? signupResult.data.user : { email };
+    upsertLocalUserFromSupabaseUser(signupUser);
 
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
     if (!loginResult.ok) {
@@ -1929,12 +2114,14 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    setSession(res, getSessionProfileFromUser(email));
+    const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : signupUser;
+    setSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
     sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/index.html' });
     return;
   }
 
   if (pathname === '/api/auth/login' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'login'))) return;
     let body;
     try {
       body = await readJsonBody(req);
@@ -1961,14 +2148,15 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    upsertLocalUserFromSupabaseUser(loginResult.data && loginResult.data.user ? loginResult.data.user : { email });
-
-    setSession(res, getSessionProfileFromUser(email));
+    const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
+    upsertLocalUserFromSupabaseUser(loginUser);
+    setSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
     return;
   }
 
   if (pathname === '/api/auth/supabase-session-login' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'supabase-session-login'))) return;
     let body;
     try {
       body = await readJsonBody(req);
@@ -2016,12 +2204,16 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    setSession(res, getSessionProfileFromUser(email));
+    setSession(res, getSessionProfileFromSupabaseUser(userData, email));
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
     return;
   }
 
   if (pathname === '/api/auth/verify-code' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB) {
+      sendJson(res, 410, { ok: false, message: 'OTP verification is disabled. Use email/password or OAuth via Supabase.' });
+      return;
+    }
     let body;
     try {
       body = await readJsonBody(req);
@@ -2179,15 +2371,6 @@ async function handleApi(req, res, pathname) {
         sendJson(res, updateResult.status || 502, { ok: false, message: msg });
         return;
       }
-
-      const local = dbState.users[email] || {};
-      dbState.users[email] = {
-        ...local,
-        email,
-        passwordUpdatedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      saveDbState();
       sendJson(res, 200, { ok: true, message: 'Password updated.' });
       return;
     }
@@ -2211,6 +2394,7 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/auth/request-password-reset' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'request-password-reset'))) return;
     let body;
     try {
       body = await readJsonBody(req);
@@ -2222,7 +2406,7 @@ async function handleApi(req, res, pathname) {
     const email = String(body.email || '').trim().toLowerCase();
     if (isValidEmail(email) && isSupabaseConfigured()) {
       await supabaseAuthRequest('recover', { email });
-    } else if (isValidEmail(email) && dbState.users[email]) {
+    } else if (!REQUIRE_SUPABASE_DB && isValidEmail(email) && dbState.users[email]) {
       const rawToken = randomToken(32);
       const tokenHash = hashToken(rawToken);
       dbState.passwordResetTokens[tokenHash] = {
@@ -2318,6 +2502,7 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/admin/auth/login' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'admin-login'))) return;
     let body;
     try {
       body = await readJsonBody(req);
@@ -2348,8 +2533,9 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    upsertLocalUserFromSupabaseUser(loginResult.data && loginResult.data.user ? loginResult.data.user : { email });
-    setAdminSession(res, getSessionProfileFromUser(email));
+    const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
+    upsertLocalUserFromSupabaseUser(loginUser);
+    setAdminSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/admin.html' });
     return;
   }
@@ -2361,6 +2547,10 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/profile' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Profile API requires Supabase database configuration.' });
+      return;
+    }
     const session = requireSession(req, res);
     if (!session) return;
 
@@ -2375,32 +2565,6 @@ async function handleApi(req, res, pathname) {
       const remoteProfile = await getSupabaseUserProfile(email, sessionUserId);
       if (remoteProfile) {
         const mapped = mapSupabaseProfileRowToApiProfile(remoteProfile, email);
-        dbState.userProfiles[email] = {
-          ...(dbState.userProfiles[email] || {}),
-          firstName: mapped.firstName,
-          lastName: mapped.lastName,
-          email: mapped.email,
-          phone: mapped.phone,
-          registrationNumber: mapped.registrationNumber,
-          gmcNumber: mapped.gmcNumber,
-          specialistCountry: mapped.specialistCountry,
-          profilePhotoName: mapped.profilePhotoName,
-          profilePhotoDataUrl: mapped.profilePhotoDataUrl,
-          idCopyName: mapped.idCopyName,
-          idCopyDataUrl: mapped.idCopyDataUrl,
-          cvFileName: mapped.cvFileName,
-          updatedAt: mapped.updatedAt
-        };
-        dbState.users[email] = {
-          ...(dbState.users[email] || {}),
-          email,
-          supabaseUserId: remoteProfile.user_id || sessionUserId || '',
-          firstName: mapped.firstName,
-          lastName: mapped.lastName,
-          registrationCountry: mapped.specialistCountry || '',
-          updatedAt: new Date().toISOString()
-        };
-        saveDbState();
         sendJson(res, 200, { ok: true, profile: mapped });
         return;
       }
@@ -2434,6 +2598,10 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/profile' && req.method === 'PUT') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Profile API requires Supabase database configuration.' });
+      return;
+    }
     const session = requireSession(req, res);
     if (!session) return;
 
@@ -2467,32 +2635,6 @@ async function handleApi(req, res, pathname) {
         const upserted = await upsertSupabaseUserProfile(userId, email, clean, existing);
         if (upserted) {
           const mapped = mapSupabaseProfileRowToApiProfile(upserted, email);
-          dbState.userProfiles[email] = {
-            ...(dbState.userProfiles[email] || {}),
-            firstName: mapped.firstName,
-            lastName: mapped.lastName,
-            email: mapped.email,
-            phone: mapped.phone,
-            registrationNumber: mapped.registrationNumber,
-            gmcNumber: mapped.gmcNumber,
-            specialistCountry: mapped.specialistCountry,
-            profilePhotoName: mapped.profilePhotoName,
-            profilePhotoDataUrl: mapped.profilePhotoDataUrl,
-            idCopyName: mapped.idCopyName,
-            idCopyDataUrl: mapped.idCopyDataUrl,
-            cvFileName: mapped.cvFileName,
-            updatedAt: mapped.updatedAt
-          };
-          dbState.users[email] = {
-            ...(dbState.users[email] || {}),
-            email,
-            supabaseUserId: upserted.user_id || sessionUserId || '',
-            firstName: mapped.firstName,
-            lastName: mapped.lastName,
-            registrationCountry: mapped.specialistCountry || '',
-            updatedAt: new Date().toISOString()
-          };
-          saveDbState();
           sendJson(res, 200, { ok: true, profile: mapped });
           return;
         }
@@ -2528,6 +2670,10 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/state' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'State API requires Supabase database configuration.' });
+      return;
+    }
     const session = requireSession(req, res);
     if (!session) return;
 
@@ -2579,6 +2725,10 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/state' && req.method === 'PUT') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'State API requires Supabase database configuration.' });
+      return;
+    }
     const session = requireSession(req, res);
     if (!session) return;
 
@@ -2639,6 +2789,10 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/admin/dashboard' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Admin dashboard requires Supabase database configuration.' });
+      return;
+    }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
 
@@ -2653,6 +2807,10 @@ async function handleApi(req, res, pathname) {
 
   const adminTicketMatch = pathname.match(/^\/api\/admin\/tickets\/([^/]+)$/);
   if (adminTicketMatch && req.method === 'PUT') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Admin ticket updates require Supabase database configuration.' });
+      return;
+    }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
 
@@ -2748,9 +2906,8 @@ async function handleRequest(req, res) {
   const isPublic =
     pathname === '/pages/signin.html' ||
     pathname === '/pages/admin-signin.html' ||
-    pathname === '/media/images/gp-link-logo.svg' ||
-    pathname.startsWith('/media/videos/myintealth-tutorial-') ||
-    pathname.startsWith('/media/videos/amc-tutorial-') ||
+    pathname.startsWith('/media/images/') ||
+    pathname.startsWith('/media/videos/') ||
     pathname === '/favicon.ico';
 
   if (shouldProtectPath(pathname) && !session) {

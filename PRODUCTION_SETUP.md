@@ -31,6 +31,8 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `AUTH_DISABLED=false`
 - `AUTH_SECRET=<strong-random-secret>`
 - `COOKIE_SECURE=true`
+- `ENFORCE_SAME_ORIGIN=true` (blocks cross-site writes to `/api/*`)
+- `REQUIRE_SUPABASE_DB=true` (recommended: disables critical local JSON fallbacks)
 - `SUPABASE_URL=<your-supabase-url>`
 - `SUPABASE_PUBLISHABLE_KEY=<your-supabase-publishable-key>`
 - `SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>` (server-side only)
@@ -42,6 +44,7 @@ Add these in Vercel Project Settings -> Environment Variables:
 Optional:
 - `DB_FILE_PATH=/tmp/app-db.json` (default on Vercel already uses `/tmp`)
 - `OTP_TTL_MS`, `OTP_MAX_ATTEMPTS`, `RATE_WINDOW_MS`, `RATE_MAX_SEND`, `SESSION_TTL_MS`, `MAX_JSON_BODY_BYTES`
+- `AUTH_RATE_WINDOW_MS`, `AUTH_RATE_MAX_ATTEMPTS`
 
 ## 5. Routing and runtime
 - `vercel.json` routes all traffic to `server.js`.
@@ -69,3 +72,18 @@ Impacted server-side data:
 - Profile/state data in local JSON store
 
 For durable production data, move these records to a managed database (for example Supabase Postgres) before scaling.
+
+## 9. Publish-ready security defaults
+- Mutating API requests (`POST/PUT/PATCH/DELETE`) enforce same-origin checks using `Origin/Referer` when `ENFORCE_SAME_ORIGIN=true`.
+- Security headers are enabled on API/static responses (`nosniff`, `X-Frame-Options`, strict referrer policy, and HSTS in production).
+- If `REQUIRE_SUPABASE_DB=true`, critical APIs (`/api/profile`, `/api/state`, admin dashboard/tickets) require Supabase DB configuration and will not silently fall back to local JSON.
+- Runtime security counters (auth rate limits) are persisted in Supabase table `public.runtime_kv`.
+- OTP code endpoints (`/api/auth/send-code`, `/api/auth/verify-code`) are disabled when `REQUIRE_SUPABASE_DB=true`.
+
+## 10. Apply Supabase migrations
+After pulling latest code, run:
+
+1. `supabase link --project-ref <your-project-ref>`
+2. `supabase db push`
+
+This applies required schema, including `public.runtime_kv`.
