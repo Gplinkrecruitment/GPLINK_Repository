@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GP Link Admin Sign In</title>
+  <style>
+    :root {
+      --bg: #eaf0fb;
+      --panel: #ffffff;
+      --line: #d6e0f2;
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue-1: #1d4ed8;
+      --blue-2: #1e40af;
+      --error: #b91c1c;
+      --ok: #166534;
+      --radius: 18px;
+      --shadow: 0 28px 60px -36px rgba(15, 23, 42, 0.5);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(900px 500px at 6% -12%, rgba(29, 78, 216, 0.2), transparent 58%),
+        radial-gradient(760px 460px at 100% 100%, rgba(30, 64, 175, 0.14), transparent 62%),
+        var(--bg);
+      padding: 20px;
+    }
+
+    .panel {
+      width: min(460px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 24px;
+      display: grid;
+      gap: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: -0.03em;
+      font-weight: 760;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+      margin-top: 4px;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+    }
+
+    input {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: #f8fbff;
+      padding: 0 12px;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+      background: #fff;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      min-height: 42px;
+      padding: 0 16px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 760;
+      letter-spacing: 0.03em;
+      color: #fff;
+      cursor: pointer;
+      background: linear-gradient(145deg, var(--blue-1), var(--blue-2));
+      box-shadow: 0 14px 26px -18px rgba(30, 64, 175, 0.95);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .status {
+      min-height: 18px;
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--muted);
+    }
+    .status.error { color: var(--error); }
+    .status.ok { color: var(--ok); }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1>Admin Sign In</h1>
+    <p>Use an internal admin account to access the GP Link operations dashboard.</p>
+    <form id="adminLoginForm">
+      <div class="field">
+        <label for="email">Work email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      </div>
+      <div class="field">
+        <button id="submitBtn" type="submit">Sign In</button>
+      </div>
+      <p id="status" class="status" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <script>
+    const formEl = document.getElementById("adminLoginForm");
+    const statusEl = document.getElementById("status");
+    const submitBtnEl = document.getElementById("submitBtn");
+
+    function setStatus(message, type) {
+      statusEl.textContent = message || "";
+      statusEl.classList.remove("error", "ok");
+      if (type) statusEl.classList.add(type);
+    }
+
+    async function checkExistingSession() {
+      try {
+        const response = await fetch("/api/admin/auth/session", { credentials: "same-origin" });
+        if (response.ok) {
+          window.location.href = "/pages/admin.html";
+        }
+      } catch (err) {
+        // Ignore connectivity checks on load.
+      }
+    }
+
+    formEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus("");
+      submitBtnEl.disabled = true;
+
+      const email = String(formEl.elements.email.value || "").trim();
+      const password = String(formEl.elements.password.value || "");
+      if (!email || !password) {
+        setStatus("Enter your admin email and password.", "error");
+        submitBtnEl.disabled = false;
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/admin/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ email, password })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          setStatus(data.message || "Sign in failed.", "error");
+          return;
+        }
+        setStatus("Signed in. Redirecting...", "ok");
+        window.location.href = data.redirectTo || "/pages/admin.html";
+      } catch (err) {
+        setStatus("Network error. Please try again.", "error");
+      } finally {
+        submitBtnEl.disabled = false;
+      }
+    });
+
+    checkExistingSession();
+  </script>
+</body>
+</html>

@@ -57,6 +57,13 @@
       opacity: 0.92;
       font-weight: 560;
     }
+    .hero-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
 
     .stats {
       display: grid;
@@ -153,6 +160,11 @@
     .btn.primary {
       border-color: var(--blue);
       background: var(--blue);
+      color: #fff;
+    }
+    .btn.hero-btn {
+      border-color: rgba(255, 255, 255, 0.7);
+      background: rgba(255, 255, 255, 0.18);
       color: #fff;
     }
 
@@ -587,7 +599,10 @@
 <body>
   <div class="app">
     <header class="hero">
-      <h1>Admin Dashboard</h1>
+      <div class="hero-top">
+        <h1>Admin Dashboard</h1>
+        <button class="btn hero-btn" id="logoutBtn" type="button">Sign Out</button>
+      </div>
       <p>Manage GP registrations, verify certificates, and respond to support tickets.</p>
       <p id="refreshText" class="inline-note">Loading...</p>
     </header>
@@ -848,6 +863,7 @@
     const contentEl = document.getElementById("content");
     const refreshTextEl = document.getElementById("refreshText");
     const searchInputEl = document.getElementById("searchInput");
+    const logoutBtnEl = document.getElementById("logoutBtn");
     const candidateModalEl = document.getElementById("candidateModal");
     const candidateModalBodyEl = document.getElementById("candidateModalBody");
     const candidateModalCloseEl = document.getElementById("candidateModalClose");
@@ -1298,7 +1314,7 @@
       try {
         const response = await fetch("/api/admin/dashboard", { credentials: "same-origin" });
         if (response.status === 401) {
-          window.location.href = "/pages/signin.html";
+          window.location.href = "/pages/admin-signin.html";
           return;
         }
         if (response.status === 403) {
@@ -1408,6 +1424,19 @@
 
       document.getElementById("exportBtn").addEventListener("click", () => {
         exportCurrentTab();
+      });
+      logoutBtnEl.addEventListener("click", async () => {
+        logoutBtnEl.disabled = true;
+        try {
+          await fetch("/api/admin/auth/logout", {
+            method: "POST",
+            credentials: "same-origin"
+          });
+        } catch (err) {
+          // Continue redirecting on any error.
+        } finally {
+          window.location.href = "/pages/admin-signin.html";
+        }
       });
       candidateModalCloseEl.addEventListener("click", () => {
         closeCandidateModal();

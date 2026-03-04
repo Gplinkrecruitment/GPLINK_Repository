@@ -15,6 +15,14 @@ const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 12 * 60 * 60 * 1000)
 const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 8 * 1024 * 1024);
 const SECRET = process.env.AUTH_SECRET || 'replace-me-in-production';
 const COOKIE_NAME = 'gp_session';
+const ADMIN_COOKIE_NAME = process.env.ADMIN_COOKIE_NAME || 'gp_admin_session';
+const ADMIN_SESSION_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 8 * 60 * 60 * 1000);
+const ADMIN_ALLOWED_HOSTS = new Set(
+  String(process.env.ADMIN_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 const DEFAULT_DB_FILE_PATH = process.env.VERCEL
   ? path.join('/tmp', 'app-db.json')
   : path.join(process.cwd(), 'data', 'app-db.json');
@@ -42,6 +50,10 @@ function validateRuntimeConfig() {
 
   if (ADMIN_EMAILS.size === 0) {
     console.warn('[WARN] ADMIN_EMAILS is empty. Admin routes will be inaccessible in production.');
+  }
+
+  if (ADMIN_ALLOWED_HOSTS.size === 0) {
+    console.warn('[WARN] ADMIN_ALLOWED_HOSTS is empty. Admin routes are blocked in production.');
   }
 }
 
@@ -187,6 +199,23 @@ function getCookies(req) {
     if (key) acc[key] = decodeURIComponent(val);
     return acc;
   }, {});
+}
+
+function getRequestHostname(req) {
+  const host = String(req.headers.host || '').trim().toLowerCase();
+  if (!host) return '';
+  return host.split(':')[0];
+}
+
+function isLoopbackHostname(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function isAllowedAdminHost(req) {
+  const hostname = getRequestHostname(req);
+  if (!hostname) return false;
+  if (ADMIN_ALLOWED_HOSTS.size > 0) return ADMIN_ALLOWED_HOSTS.has(hostname);
+  return NODE_ENV !== 'production' && isLoopbackHostname(hostname);
 }
 
 function randomToken(size = 32) {
@@ -376,6 +405,26 @@ function setSession(res, userProfile) {
   res.setHeader('Set-Cookie', cookie.join('; '));
 }
 
+function setAdminSession(res, userProfile) {
+  const expiresAt = now() + ADMIN_SESSION_TTL_MS;
+  const token = createSignedSessionToken(userProfile, expiresAt);
+
+  const secureCookie = process.env.COOKIE_SECURE
+    ? process.env.COOKIE_SECURE === 'true'
+    : NODE_ENV === 'production';
+
+  const cookie = [
+    `${ADMIN_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+    `Max-Age=${Math.floor(ADMIN_SESSION_TTL_MS / 1000)}`
+  ];
+  if (secureCookie) cookie.push('Secure');
+
+  res.setHeader('Set-Cookie', cookie.join('; '));
+}
+
 function clearSession(res, req) {
   const cookies = getCookies(req);
   const token = cookies[COOKIE_NAME];
@@ -391,6 +440,15 @@ function clearSession(res, req) {
     ? process.env.COOKIE_SECURE === 'true'
     : NODE_ENV === 'production';
   const cookie = [`${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`];
+  if (secureCookie) cookie.push('Secure');
+  res.setHeader('Set-Cookie', cookie.join('; '));
+}
+
+function clearAdminSession(res) {
+  const secureCookie = process.env.COOKIE_SECURE
+    ? process.env.COOKIE_SECURE === 'true'
+    : NODE_ENV === 'production';
+  const cookie = [`${ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`];
   if (secureCookie) cookie.push('Secure');
   res.setHeader('Set-Cookie', cookie.join('; '));
 }
@@ -413,6 +471,14 @@ function getSession(req) {
     return null;
   }
   return session;
+}
+
+function getAdminSession(req) {
+  const cookies = getCookies(req);
+  const token = cookies[ADMIN_COOKIE_NAME];
+  if (!token) return null;
+  const signedSession = parseSignedSessionToken(token);
+  return signedSession || null;
 }
 
 function requireSession(req, res) {
@@ -605,8 +671,15 @@ function isAdminEmail(email) {
 }
 
 function requireAdminSession(req, res) {
-  const session = requireSession(req, res);
-  if (!session) return null;
+  if (!isAllowedAdminHost(req)) {
+    sendJson(res, 404, { ok: false, message: 'Not found' });
+    return null;
+  }
+  const session = getAdminSession(req);
+  if (!session) {
+    sendJson(res, 401, { ok: false, authenticated: false });
+    return null;
+  }
   const email = getSessionEmail(session);
   if (!isAdminEmail(email)) {
     sendJson(res, 403, { ok: false, message: 'Admin access required.' });
@@ -1741,6 +1814,11 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
+    sendJson(res, 404, { ok: false, message: 'Not found' });
+    return;
+  }
+
   if (pathname === '/api/auth/send-code' && req.method === 'POST') {
     let body;
     try {
@@ -2213,6 +2291,68 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === '/api/admin/auth/session' && req.method === 'GET') {
+    const session = getAdminSession(req);
+    if (!session) {
+      sendJson(res, 401, { ok: false, authenticated: false });
+      return;
+    }
+    const email = getSessionEmail(session);
+    if (!isAdminEmail(email)) {
+      sendJson(res, 403, { ok: false, message: 'Admin access required.' });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      authenticated: true,
+      profile: session.userProfile
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/auth/login' && req.method === 'POST') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+    if (!isValidEmail(email) || !password) {
+      sendJson(res, 400, { ok: false, message: 'Please provide a valid email and password.' });
+      return;
+    }
+    if (!isAdminEmail(email)) {
+      sendJson(res, 403, { ok: false, message: 'Admin access required.' });
+      return;
+    }
+
+    const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
+    if (!loginResult.ok) {
+      const msg = loginResult.data && loginResult.data.msg
+        ? loginResult.data.msg
+        : loginResult.data && loginResult.data.message
+          ? loginResult.data.message
+          : 'Invalid email or password.';
+      sendJson(res, loginResult.status === 400 || loginResult.status === 401 ? 401 : loginResult.status, { ok: false, message: msg });
+      return;
+    }
+
+    upsertLocalUserFromSupabaseUser(loginResult.data && loginResult.data.user ? loginResult.data.user : { email });
+    setAdminSession(res, getSessionProfileFromUser(email));
+    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/admin.html' });
+    return;
+  }
+
+  if (pathname === '/api/admin/auth/logout' && req.method === 'POST') {
+    clearAdminSession(res);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (pathname === '/api/profile' && req.method === 'GET') {
     const session = requireSession(req, res);
     if (!session) return;
@@ -2585,9 +2725,17 @@ async function handleRequest(req, res) {
     return;
   }
 
+  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html') && !isAllowedAdminHost(req)) {
+    res.writeHead(404);
+    res.end('Not found');
+    return;
+  }
+
   const session = getSession(req);
+  const adminSession = getAdminSession(req);
   const isPublic =
     pathname === '/pages/signin.html' ||
+    pathname === '/pages/admin-signin.html' ||
     pathname === '/media/images/gp-link-logo.svg' ||
     pathname.startsWith('/media/videos/myintealth-tutorial-') ||
     pathname.startsWith('/media/videos/amc-tutorial-') ||
@@ -2611,13 +2759,19 @@ async function handleRequest(req, res) {
     return;
   }
 
+  if (pathname === '/pages/admin-signin.html' && adminSession) {
+    res.writeHead(302, { Location: '/pages/admin.html' });
+    res.end();
+    return;
+  }
+
   if (pathname === '/pages/admin.html') {
-    if (!session) {
-      res.writeHead(302, { Location: '/pages/signin.html' });
+    if (!adminSession) {
+      res.writeHead(302, { Location: '/pages/admin-signin.html' });
       res.end();
       return;
     }
-    const email = getSessionEmail(session);
+    const email = getSessionEmail(adminSession);
     if (!isAdminEmail(email)) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Admin access required');
@@ -2625,7 +2779,7 @@ async function handleRequest(req, res) {
     }
   }
 
-  if (!isPublic && !session && (pathname.endsWith('.html') || pathname === '/')) {
+  if (pathname !== '/pages/admin.html' && !isPublic && !session && (pathname.endsWith('.html') || pathname === '/')) {
     if (AUTH_DISABLED) {
       serveStatic(req, res, pathname);
       return;
