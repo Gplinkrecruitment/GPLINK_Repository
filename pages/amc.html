@@ -954,15 +954,48 @@
       gap: 10px;
       align-items: center;
     }
+    .substage-tabs-shell {
+      position: relative;
+      border-radius: 999px;
+      padding: 6px;
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.58);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      overflow: hidden;
+    }
+    .substage-glass {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      width: 96px;
+      height: 34px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 16px -14px rgba(37, 99, 235, 0.5);
+      transition: left .32s cubic-bezier(.22,.9,.18,1.05), width .32s cubic-bezier(.22,.9,.18,1.05), opacity .16s ease;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1;
+    }
     .substage-tabs {
       display: flex;
       gap: 8px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       padding: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+      position: relative;
+      z-index: 2;
     }
+    .substage-tabs::-webkit-scrollbar { height: 0; }
     .substage-tab {
       border: 1px solid #d8e5f7;
-      background: #f8fbff;
+      background: transparent;
       color: #1f2937;
       border-radius: 999px;
       padding: 9px 12px;
@@ -970,17 +1003,20 @@
       font-weight: 700;
       cursor: pointer;
       transition: all .16s ease;
+      flex: 0 0 auto;
+      white-space: nowrap;
+      position: relative;
+      z-index: 2;
     }
     .substage-tab[aria-selected="true"] {
-      background: #1d4ed8;
-      color: #fff;
-      border-color: #1d4ed8;
-      box-shadow: 0 10px 20px -16px rgba(29, 78, 216, 0.9);
+      color: #0f172a;
+      border-color: transparent;
+      background: transparent;
     }
     .substage-tab.is-locked {
       color: #94a3b8;
-      background: #f8fafc;
-      border-color: #e2e8f0;
+      background: transparent;
+      border-color: transparent;
     }
     .substage-next {
       border: 0;
@@ -1001,20 +1037,7 @@
       cursor: not-allowed;
       box-shadow: none;
     }
-    .tutorial-card h3,
     .guidance-panel h3 { margin-bottom: 10px; }
-    .tutorial-media {
-      min-height: 112px;
-      border-radius: 14px;
-      background: linear-gradient(140deg, #f4f8ff, #e7f0ff);
-      border: 1px solid #deebff;
-      color: #4b5563;
-      display: grid;
-      place-items: center;
-      font-size: 12px;
-      font-weight: 600;
-      margin-bottom: 10px;
-    }
     .help-pill {
       border: 0;
       border-radius: 999px;
@@ -1297,11 +1320,7 @@
     <main class="main">
       <section class="heading">
         <div class="heading-main">
-          <h2 id="stepTitle">Step 2: AMC</h2>
-          <div class="heading-meta">
-            <p class="step-flow" id="stepFlow">Account -> Upload -> Complete</p>
-            <span class="heading-updated" id="updatedChip">Updated now</span>
-          </div>
+          <h2 id="stepTitle">AMC</h2>
           <div class="substage-progress" aria-label="Step progress">
             <span class="substage-progress-fill" id="substageProgressFill"></span>
           </div>
@@ -1311,18 +1330,12 @@
       <section class="layout single-col">
         <article class="card progress-panel">
           <div class="substage-tabs-wrap">
-            <div class="stage-list substage-tabs" id="stageList" role="tablist" aria-label="Substages"></div>
+            <div class="substage-tabs-shell">
+              <span class="substage-glass" id="substageGlass" aria-hidden="true"></span>
+              <div class="stage-list substage-tabs" id="stageList" role="tablist" aria-label="Substages"></div>
+            </div>
             <button class="substage-next" id="substageNextBtn" type="button" aria-label="Next substage">›</button>
           </div>
-        </article>
-
-        <article class="card tutorial-card">
-          <h3>Watch the tutorial</h3>
-          <div class="tutorial-media" id="tutorialMedia">Tutorial video preview</div>
-          <button class="btn btn-soft" id="watchTutorial" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
-            <span>Watch tutorial</span>
-          </button>
         </article>
 
         <article class="card guidance-panel">
@@ -1336,12 +1349,6 @@
               <p class="line"><span>What GP Link does:</span> <span id="guideSupport">-</span></p>
               <button class="btn btn-primary" id="mainCta" type="button">Continue</button>
             </div>
-          </div>
-
-          <div class="timeline" id="timelineBox">
-            <p id="timelineCurrentRow"><strong>Current:</strong> <span id="timelineCurrent">-</span></p>
-            <p id="timelineNextRow"><strong>Next:</strong> <span id="timelineNext">-</span></p>
-            <p id="timelineAfterRow"><strong>After that:</strong> <span id="timelineAfter">-</span></p>
           </div>
 
           <div class="warning" id="countryGuidance">Country guidance will appear here.</div>
@@ -1501,6 +1508,7 @@
     const footerStatusEl = document.getElementById("footerStatus");
     const stepTitleEl = document.getElementById("stepTitle");
     const stepFlowEl = document.getElementById("stepFlow");
+    const substageGlassEl = document.getElementById("substageGlass");
     const substageProgressFillEl = document.getElementById("substageProgressFill");
     const substageNextBtnEl = document.getElementById("substageNextBtn");
     const stickyStageActionEl = document.getElementById("stickyStageAction");
@@ -1786,9 +1794,27 @@
       const next = STAGES[idx + 1] || null;
       const after = STAGES[idx + 2] || null;
 
-      timelineCurrentEl.textContent = current ? stageMeta[current].label : "Complete";
-      timelineNextEl.textContent = next ? stageMeta[next].label : "Complete";
-      timelineAfterEl.textContent = after ? stageMeta[after].label : "Complete";
+      if (timelineCurrentEl) timelineCurrentEl.textContent = current ? stageMeta[current].label : "Complete";
+      if (timelineNextEl) timelineNextEl.textContent = next ? stageMeta[next].label : "Complete";
+      if (timelineAfterEl) timelineAfterEl.textContent = after ? stageMeta[after].label : "Complete";
+    }
+
+    function moveSubstageGlass() {
+      if (!substageGlassEl || !stageListEl) return;
+      const active = stageListEl.querySelector('.substage-tab[aria-selected="true"]');
+      if (!(active instanceof HTMLElement)) {
+        substageGlassEl.style.opacity = "0";
+        return;
+      }
+      const shell = active.closest(".substage-tabs-shell");
+      if (!(shell instanceof HTMLElement)) return;
+      const shellRect = shell.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      const left = activeRect.left - shellRect.left;
+      substageGlassEl.style.left = `${left}px`;
+      substageGlassEl.style.width = `${activeRect.width}px`;
+      substageGlassEl.style.height = `${activeRect.height}px`;
+      substageGlassEl.style.opacity = "1";
     }
 
     function renderLeft(progress) {
@@ -1828,6 +1854,11 @@
           render(progress);
         };
       }
+      const selectedTabEl = stageListEl.querySelector('.substage-tab[aria-selected="true"]');
+      if (selectedTabEl && typeof selectedTabEl.scrollIntoView === "function") {
+        selectedTabEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      }
+      window.requestAnimationFrame(moveSubstageGlass);
     }
 
     function renderRight(progress) {
@@ -1837,16 +1868,13 @@
       const meta = stageMeta[stageKey];
       const selectedCountry = loadSelectedCountry();
       const countryInfo = countryMap[selectedCountry] || countryMap.uk;
-      const tutorialEligible = stageKey === "create_portfolio" || stageKey === "upload_credentials";
       const status = stageStatus(progress, stageKey);
       const doneCount = STAGES.filter((key) => progress.completed[key]).length;
       const fillPct = Math.max(8, Math.round(((doneCount + (status === "current" ? 0.5 : 0)) / STAGES.length) * 100));
 
-      if (stepTitleEl) stepTitleEl.textContent = "Step 2: AMC";
-      if (stepFlowEl) stepFlowEl.textContent = "Account -> Upload -> Complete";
+      if (stepTitleEl) stepTitleEl.textContent = "AMC";
       if (substageProgressFillEl) substageProgressFillEl.style.width = `${fillPct}%`;
       if (stageChipEl) stageChipEl.textContent = `Current: ${stageMeta[liveStageKey].label}`;
-      if (updatedChipEl) updatedChipEl.textContent = `Updated ${new Date(progress.updatedAt).toLocaleString()}`;
       footerStatusEl.textContent = `Current stage: ${stageMeta[liveStageKey].label}`;
 
       let doNow = meta.doNow;
@@ -1882,12 +1910,6 @@
         }
       };
 
-      const tutorialSeen = loadTutorialSeen();
-      const shouldHighlight = tutorialEligible && !tutorialSeen[stageKey];
-      watchTutorialBtnEl.style.display = "inline-flex";
-      watchTutorialBtnEl.disabled = !tutorialEligible;
-      watchTutorialBtnEl.querySelector("span").textContent = tutorialEligible ? "Watch tutorial" : "Tutorial coming soon";
-      watchTutorialBtnEl.classList.toggle("tutorial-highlight", shouldHighlight);
       const isFinalStage = stageKey === "qualifications_verified";
       if (timelineBoxEl) timelineBoxEl.style.display = isFinalStage ? "none" : "";
       if (guideTimeRowEl) guideTimeRowEl.style.display = isFinalStage ? "none" : "";
@@ -1930,23 +1952,6 @@
       modalEl.classList.remove("show");
       modalEl.setAttribute("aria-hidden", "true");
     }
-
-    document.getElementById("watchTutorial").addEventListener("click", () => {
-      const tutorialSeen = loadTutorialSeen();
-      if (!tutorialSeen[currentStageKey]) {
-        tutorialSeen[currentStageKey] = true;
-        saveTutorialSeen(tutorialSeen);
-      }
-      const tutorialConfig = tutorialByStage[currentStageKey] || tutorialByStage.create_portfolio;
-      tutorialTextEl.textContent = tutorialConfig.text;
-      tutorialSourceEl.src = tutorialConfig.src;
-      tutorialVideoEl.load();
-      tutorialVideoEl.currentTime = 0;
-
-      const progress = loadProgress();
-      renderRight(progress);
-      openModal(tutorialModalEl);
-    });
 
     document.getElementById("topSupportBtn").addEventListener("click", () => {
       window.location.href = "messages.html";
@@ -2157,7 +2162,11 @@
     }
     window.addEventListener("resize", () => {
       if (activeNavItem) moveNavGlass(activeNavItem, false);
+      moveSubstageGlass();
     });
+    if (stageListEl) {
+      stageListEl.addEventListener("scroll", moveSubstageGlass, { passive: true });
+    }
 
     let startY = 0;
     let deltaY = 0;
