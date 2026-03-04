@@ -1277,8 +1277,8 @@
           </div>
           <div class="meta">${ticket.lastMessage || "No messages yet."}</div>
           <div class="row-actions">
-            <button class="btn" data-reply-ticket="${ticket.id}" type="button">Reply</button>
-            <button class="btn primary" data-toggle-ticket="${ticket.id}" data-next-status="${ticket.status === "closed" ? "open" : "closed"}" type="button">${ticket.status === "closed" ? "Reopen" : "Close"}</button>
+            <button class="btn" data-reply-ticket="${ticket.id}" data-candidate-email="${ticket.candidateEmail || ""}" data-candidate-user-id="${ticket.candidateUserId || ""}" type="button">Reply</button>
+            <button class="btn primary" data-toggle-ticket="${ticket.id}" data-candidate-email="${ticket.candidateEmail || ""}" data-candidate-user-id="${ticket.candidateUserId || ""}" data-next-status="${ticket.status === "closed" ? "open" : "closed"}" type="button">${ticket.status === "closed" ? "Reopen" : "Close"}</button>
           </div>
         </article>
       `).join("");
@@ -1468,11 +1468,17 @@
         const replyBtn = event.target.closest("[data-reply-ticket]");
         if (replyBtn) {
           const ticketId = replyBtn.getAttribute("data-reply-ticket");
+          const candidateEmail = replyBtn.getAttribute("data-candidate-email") || "";
+          const candidateUserId = replyBtn.getAttribute("data-candidate-user-id") || "";
           const message = window.prompt("Send reply to candidate:");
           if (!message || !message.trim()) return;
           replyBtn.disabled = true;
           try {
-            await updateTicket(ticketId, { adminReply: message.trim() });
+            await updateTicket(ticketId, {
+              adminReply: message.trim(),
+              candidateEmail,
+              candidateUserId
+            });
             await loadDashboard();
           } catch (err) {
             window.alert(err.message);
@@ -1486,9 +1492,11 @@
         if (toggleBtn) {
           const ticketId = toggleBtn.getAttribute("data-toggle-ticket");
           const status = toggleBtn.getAttribute("data-next-status");
+          const candidateEmail = toggleBtn.getAttribute("data-candidate-email") || "";
+          const candidateUserId = toggleBtn.getAttribute("data-candidate-user-id") || "";
           toggleBtn.disabled = true;
           try {
-            await updateTicket(ticketId, { status });
+            await updateTicket(ticketId, { status, candidateEmail, candidateUserId });
             await loadDashboard();
           } catch (err) {
             window.alert(err.message);

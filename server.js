@@ -1342,7 +1342,10 @@ async function ensureDashboardIncludesSessionUser(dashboard, session, email) {
   };
 }
 
-async function persistSupportCaseUpdate(ticketId, patch) {
+async function persistSupportCaseUpdate(ticketId, patch, scope = {}) {
+  const scopedEmail = typeof scope.candidateEmail === 'string' ? scope.candidateEmail.trim().toLowerCase() : '';
+  const scopedUserId = typeof scope.candidateUserId === 'string' ? scope.candidateUserId.trim() : '';
+
   if (isSupabaseDbConfigured()) {
     const [profilesResult, statesResult] = await Promise.all([
       supabaseDbRequest('user_profiles', 'select=user_id,email'),
@@ -1359,6 +1362,9 @@ async function persistSupportCaseUpdate(ticketId, patch) {
 
       for (const row of statesResult.data) {
         if (!row || typeof row.user_id !== 'string') continue;
+        const rowEmail = String(emailByUserId.get(row.user_id) || '').trim().toLowerCase();
+        if (scopedUserId && row.user_id !== scopedUserId) continue;
+        if (scopedEmail && rowEmail !== scopedEmail) continue;
         const existingState = row.state && typeof row.state === 'object' ? row.state : {};
         const parsedDirectCases = parseJsonLike(existingState.gpLinkSupportCases);
         const directCases = Array.isArray(parsedDirectCases) ? parsedDirectCases : [];
@@ -1402,6 +1408,7 @@ async function persistSupportCaseUpdate(ticketId, patch) {
 
   const allEmails = Object.keys(dbState.userState || {});
   for (const candidateEmail of allEmails) {
+    if (scopedEmail && String(candidateEmail || '').trim().toLowerCase() !== scopedEmail) continue;
     const stateRecord = dbState.userState[candidateEmail] && typeof dbState.userState[candidateEmail] === 'object'
       ? { ...dbState.userState[candidateEmail] }
       : {};
@@ -2635,8 +2642,7 @@ async function handleApi(req, res, pathname) {
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
 
-    const baseDashboard = await collectAdminDashboardData();
-    const dashboard = await ensureDashboardIncludesSessionUser(baseDashboard, adminCtx.session, adminCtx.email);
+    const dashboard = await collectAdminDashboardData();
     sendJson(res, 200, {
       ok: true,
       refreshedAt: new Date().toISOString(),
@@ -2668,6 +2674,8 @@ async function handleApi(req, res, pathname) {
       ? body.status
       : null;
     const adminReply = body && typeof body.adminReply === 'string' ? body.adminReply.trim().slice(0, 2000) : '';
+    const candidateEmail = body && typeof body.candidateEmail === 'string' ? body.candidateEmail.trim().toLowerCase() : '';
+    const candidateUserId = body && typeof body.candidateUserId === 'string' ? body.candidateUserId.trim() : '';
 
     const updatedTicket = await persistSupportCaseUpdate(ticketId, (item) => {
       const updated = {
@@ -2686,7 +2694,7 @@ async function handleApi(req, res, pathname) {
       }
       updated.thread = thread;
       return updated;
-    });
+    }, { candidateEmail, candidateUserId });
 
     if (!updatedTicket) {
       sendJson(res, 404, { ok: false, message: 'Ticket not found.' });
