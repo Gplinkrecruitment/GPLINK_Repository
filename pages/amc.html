@@ -950,7 +950,7 @@
     }
     .substage-tabs-wrap {
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: 1fr;
       gap: 10px;
       align-items: center;
     }
@@ -1035,6 +1035,10 @@
       gap: 10px;
     }
     .next-btn { justify-self: end; }
+    .help-center {
+      justify-self: center;
+      margin-top: 2px;
+    }
     .current-stage-note {
       margin: 4px 0 0;
       text-align: center;
@@ -1234,6 +1238,12 @@
       .btn-undo { width: auto !important; min-height: 34px; }
       #watchTutorial { width: auto !important; min-height: 44px; }
       .heading-meta { align-items: flex-start; }
+      #tutorialVideoInline {
+        width: min(86vw, 360px) !important;
+        max-height: 210px;
+        margin: 0 auto;
+        display: block;
+      }
     }
 
     @media (max-width: 767px) {
@@ -1344,9 +1354,10 @@
         </article>
 
         <div class="bottom-actions">
-          <button class="help-pill" id="contactSupport" type="button">Get Help</button>
+          <button class="help-pill" id="prevStageBtn" type="button">Previous</button>
           <button class="help-pill next-btn" id="nextStageBtn" type="button">Next</button>
         </div>
+        <button class="help-pill help-center" id="contactSupport" type="button">Get Help</button>
         <p class="current-stage-note" id="currentStageText">Current stage: -</p>
       </section>
     </main>
@@ -1501,6 +1512,7 @@
     const substageNextBtnEl = document.getElementById("substageNextBtn");
     const stickyStageActionEl = document.getElementById("stickyStageAction");
     const smartGuidanceCardEl = document.getElementById("smartGuidanceCard");
+    const prevStageBtnEl = document.getElementById("prevStageBtn");
     const nextStageBtnEl = document.getElementById("nextStageBtn");
     const currentStageTextEl = document.getElementById("currentStageText");
 
@@ -1963,6 +1975,17 @@
       render(progress);
     }
 
+    function goToPreviousSubstage() {
+      const progress = loadProgress();
+      const idx = STAGES.indexOf(selectedStageKey);
+      const prev = STAGES[idx - 1];
+      if (!prev) return;
+      if (stageStatus(progress, prev) === "locked") return;
+      selectedStageKey = prev;
+      syncRouteForStage(prev);
+      render(progress);
+    }
+
     document.getElementById("topSupportBtn").addEventListener("click", () => {
       window.location.href = "messages.html";
     });
@@ -1972,6 +1995,7 @@
     document.getElementById("mobileSupportBtn").addEventListener("click", () => {
       window.location.href = "messages.html";
     });
+    if (prevStageBtnEl) prevStageBtnEl.addEventListener("click", goToPreviousSubstage);
     if (nextStageBtnEl) nextStageBtnEl.addEventListener("click", goToNextSubstage);
     if (supportSubmitBtnEl) {
       supportSubmitBtnEl.addEventListener("click", () => {
