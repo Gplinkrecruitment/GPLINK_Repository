@@ -957,13 +957,11 @@
     .substage-tabs-shell {
       position: relative;
       border-radius: 999px;
-      padding: 6px;
-      border: 1px solid rgba(191, 220, 255, 0.95);
-      background: rgba(255, 255, 255, 0.58);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      overflow: hidden;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      overflow: visible;
     }
     .substage-glass {
       position: absolute;
@@ -1018,49 +1016,31 @@
       background: transparent;
       border-color: transparent;
     }
-    .substage-next {
-      border: 0;
-      background: #1d4ed8;
-      color: #fff;
-      width: 36px;
-      height: 36px;
-      border-radius: 999px;
-      font-size: 28px;
-      line-height: 1;
-      cursor: pointer;
-      display: inline-grid;
-      place-items: center;
-      box-shadow: 0 12px 22px -16px rgba(29, 78, 216, 0.95);
-    }
-    .substage-next:disabled {
-      opacity: .4;
-      cursor: not-allowed;
-      box-shadow: none;
-    }
-    .guidance-panel h3 { margin-bottom: 10px; }
+    .tutorial-card h3 { margin: 0 0 8px; }
+    .tutorial-card .sub { margin: 0 0 8px; font-size: 12px; color: #64748b; }
     .help-pill {
       border: 0;
-      border-radius: 999px;
+      border-radius: 10px;
       padding: 12px 18px;
-      background: #dbeafe;
-      color: #0f172a;
+      background: #111111;
+      color: #ffffff;
       font-size: 14px;
       font-weight: 700;
       cursor: pointer;
-      justify-self: start;
+      min-width: 120px;
     }
-    .sticky-action-bar {
-      position: sticky;
-      bottom: 12px;
-      margin-top: 12px;
-      z-index: 20;
-      display: flex;
-      justify-content: center;
+    .bottom-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
     }
-    .sticky-action-btn {
-      min-width: 240px;
-      border-radius: 999px;
-      box-shadow: 0 20px 34px -24px rgba(30, 64, 175, 0.85);
+    .next-btn { justify-self: end; }
+    .current-stage-note {
+      margin: 4px 0 0;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 700;
     }
 
     .mobile-nav {
@@ -1259,7 +1239,9 @@
     @media (max-width: 767px) {
       .nav-menu { display: none; }
       .topbar-row { grid-template-columns: auto; justify-content: flex-start; }
-      .brand-logo { position: static; transform: none; }
+      .brand-logo { display: none; }
+      .topbar { display: none; }
+      .main { padding-top: 0; }
     }
 
     @media (max-width: 560px) {
@@ -1321,9 +1303,6 @@
       <section class="heading">
         <div class="heading-main">
           <h2 id="stepTitle">AMC</h2>
-          <div class="substage-progress" aria-label="Step progress">
-            <span class="substage-progress-fill" id="substageProgressFill"></span>
-          </div>
         </div>
       </section>
 
@@ -1334,12 +1313,22 @@
               <span class="substage-glass" id="substageGlass" aria-hidden="true"></span>
               <div class="stage-list substage-tabs" id="stageList" role="tablist" aria-label="Substages"></div>
             </div>
-            <button class="substage-next" id="substageNextBtn" type="button" aria-label="Next substage">›</button>
+          </div>
+          <div class="substage-progress" aria-label="Step progress">
+            <span class="substage-progress-fill" id="substageProgressFill"></span>
           </div>
         </article>
 
+        <article class="card tutorial-card" id="tutorialCard">
+          <h3>Video tutorial</h3>
+          <p class="sub" id="tutorialTextInline">Create your AMC Candidate Portfolio account by following this walkthrough.</p>
+          <video id="tutorialVideoInline" controls playsinline preload="metadata" style="width:100%; border-radius:12px; border:1px solid #e2e8f0; background:#000;">
+            <source id="tutorialSourceInline" src="../media/videos/amc-tutorial-1.mp4" type="video/mp4" />
+            Your browser does not support the video tag.
+          </video>
+        </article>
+
         <article class="card guidance-panel">
-          <h3>Smart Guidance</h3>
           <div class="guidance-top">
             <div class="do-block" id="smartGuidanceCard">
               <div class="label">What to do now</div>
@@ -1354,13 +1343,12 @@
           <div class="warning" id="countryGuidance">Country guidance will appear here.</div>
         </article>
 
-        <button class="help-pill" id="contactSupport" type="button">Need help?</button>
+        <div class="bottom-actions">
+          <button class="help-pill" id="contactSupport" type="button">Get Help</button>
+          <button class="help-pill next-btn" id="nextStageBtn" type="button">Next</button>
+        </div>
+        <p class="current-stage-note" id="currentStageText">Current stage: -</p>
       </section>
-
-      <p class="footer-note" id="footerStatus">Status synced</p>
-      <div class="sticky-action-bar" id="stickyActionBar">
-        <button class="btn btn-primary sticky-action-btn" id="stickyStageAction" type="button">Mark Complete</button>
-      </div>
     </main>
   </div>
 
@@ -1420,9 +1408,9 @@
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
       <h4 id="supportTitle">Contact support</h4>
       <p>Share what you are seeing in AMC and we will help with the next action quickly.</p>
-      <textarea placeholder="Describe your issue..."></textarea>
+      <textarea id="supportMessage" placeholder="Describe your issue..."></textarea>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn btn-primary" type="button">Submit request</button>
+        <button class="btn btn-primary" id="supportSubmitBtn" type="button">Submit request</button>
         <button class="btn btn-neutral" data-close="supportModal" type="button">Close</button>
       </div>
     </div>
@@ -1513,6 +1501,8 @@
     const substageNextBtnEl = document.getElementById("substageNextBtn");
     const stickyStageActionEl = document.getElementById("stickyStageAction");
     const smartGuidanceCardEl = document.getElementById("smartGuidanceCard");
+    const nextStageBtnEl = document.getElementById("nextStageBtn");
+    const currentStageTextEl = document.getElementById("currentStageText");
 
     const guideTitleEl = document.getElementById("guideTitle");
     const guideDoNowEl = document.getElementById("guideDoNow");
@@ -1539,6 +1529,11 @@
     const tutorialTextEl = document.getElementById("tutorialText");
     const tutorialSourceEl = document.getElementById("tutorialSource");
     const tutorialVideoEl = document.getElementById("tutorialVideo");
+    const tutorialTextInlineEl = document.getElementById("tutorialTextInline");
+    const tutorialSourceInlineEl = document.getElementById("tutorialSourceInline");
+    const tutorialVideoInlineEl = document.getElementById("tutorialVideoInline");
+    const supportMessageEl = document.getElementById("supportMessage");
+    const supportSubmitBtnEl = document.getElementById("supportSubmitBtn");
     const tutorialByStage = {
       create_portfolio: {
         text: "Create your AMC Candidate Portfolio account by following this walkthrough.",
@@ -1842,18 +1837,6 @@
         stageListEl.appendChild(tab);
       }
 
-      const selectedIndex = STAGES.indexOf(selectedStageKey);
-      const nextKey = STAGES[selectedIndex + 1] || null;
-      const nextStatus = nextKey ? stageStatus(progress, nextKey) : "locked";
-      if (substageNextBtnEl) {
-        substageNextBtnEl.disabled = !nextKey || nextStatus === "locked";
-        substageNextBtnEl.onclick = () => {
-          if (!nextKey || nextStatus === "locked") return;
-          selectedStageKey = nextKey;
-          syncRouteForStage(nextKey);
-          render(progress);
-        };
-      }
       const selectedTabEl = stageListEl.querySelector('.substage-tab[aria-selected="true"]');
       if (selectedTabEl && typeof selectedTabEl.scrollIntoView === "function") {
         selectedTabEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
@@ -1875,7 +1858,8 @@
       if (stepTitleEl) stepTitleEl.textContent = "AMC";
       if (substageProgressFillEl) substageProgressFillEl.style.width = `${fillPct}%`;
       if (stageChipEl) stageChipEl.textContent = `Current: ${stageMeta[liveStageKey].label}`;
-      footerStatusEl.textContent = `Current stage: ${stageMeta[liveStageKey].label}`;
+      if (footerStatusEl) footerStatusEl.textContent = `Current stage: ${stageMeta[liveStageKey].label}`;
+      if (currentStageTextEl) currentStageTextEl.textContent = `Current stage: ${stageMeta[liveStageKey].label}`;
 
       let doNow = meta.doNow;
       if (stageKey === "upload_credentials") {
@@ -1891,6 +1875,12 @@
       if (guideWhereEl) guideWhereEl.textContent = meta.where;
       guideTimeEl.textContent = meta.time;
       guideSupportEl.textContent = meta.support;
+      const tutorialConfig = tutorialByStage[stageKey] || tutorialByStage.create_portfolio;
+      if (tutorialTextInlineEl) tutorialTextInlineEl.textContent = tutorialConfig.text;
+      if (tutorialSourceInlineEl) {
+        tutorialSourceInlineEl.src = tutorialConfig.src;
+        if (tutorialVideoInlineEl) tutorialVideoInlineEl.load();
+      }
 
       if (stageKey === "upload_credentials") {
         countryGuidanceEl.style.display = "block";
@@ -1910,31 +1900,7 @@
         }
       };
 
-      const isFinalStage = stageKey === "qualifications_verified";
-      if (timelineBoxEl) timelineBoxEl.style.display = isFinalStage ? "none" : "";
-      if (guideTimeRowEl) guideTimeRowEl.style.display = isFinalStage ? "none" : "";
-      if (timelineCurrentRowEl) timelineCurrentRowEl.style.display = isFinalStage ? "none" : "";
-      if (timelineNextRowEl) timelineNextRowEl.style.display = isFinalStage ? "none" : "";
-      if (timelineAfterRowEl) timelineAfterRowEl.style.display = isFinalStage ? "none" : "";
-      if (secondaryActionsEl) secondaryActionsEl.style.display = isFinalStage ? "none" : "";
-
-      setTimeline(stageKey);
-
-      if (stickyStageActionEl) {
-        stickyStageActionEl.style.display = status === "locked" ? "none" : "inline-flex";
-        stickyStageActionEl.disabled = false;
-        stickyStageActionEl.classList.remove("btn-soft", "btn-neutral");
-        stickyStageActionEl.classList.add("btn-primary");
-        if (status === "done") {
-          stickyStageActionEl.textContent = "Undo Completion";
-          stickyStageActionEl.classList.remove("btn-primary");
-          stickyStageActionEl.classList.add("btn-soft");
-          stickyStageActionEl.onclick = () => undoToStage(progress, stageKey);
-        } else {
-          stickyStageActionEl.textContent = "Mark Complete";
-          stickyStageActionEl.onclick = () => markStageComplete(progress, stageKey);
-        }
-      }
+      if (guideTimeRowEl) guideTimeRowEl.style.display = stageKey === "qualifications_verified" ? "none" : "";
     }
 
     function render(progress) {
@@ -1953,15 +1919,68 @@
       modalEl.setAttribute("aria-hidden", "true");
     }
 
+    function createSupportTicket(message) {
+      const key = "gpLinkSupportCases";
+      let tickets = [];
+      try {
+        const raw = localStorage.getItem(key);
+        const parsed = raw ? JSON.parse(raw) : [];
+        tickets = Array.isArray(parsed) ? parsed : [];
+      } catch (err) {
+        tickets = [];
+      }
+      const text = String(message || "").trim() || "Help requested from AMC registration page.";
+      tickets.unshift({
+        id: `case_${Date.now()}`,
+        category: "AMC",
+        title: "AMC support request",
+        detail: text,
+        status: "open",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        thread: [{ from: "gp", text, ts: new Date().toISOString() }],
+        unread: true
+      });
+      localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
+    }
+
+    function goToNextSubstage() {
+      const progress = loadProgress();
+      const selectedStatus = stageStatus(progress, selectedStageKey);
+      if (selectedStatus === "current" && selectedStageKey === progress.stage) {
+        markStageComplete(progress, selectedStageKey);
+        return;
+      }
+      const idx = STAGES.indexOf(selectedStageKey);
+      const next = STAGES[idx + 1];
+      if (!next) return;
+      if (stageStatus(progress, next) === "locked") {
+        showToast("Complete the previous step to unlock this.");
+        return;
+      }
+      selectedStageKey = next;
+      syncRouteForStage(next);
+      render(progress);
+    }
+
     document.getElementById("topSupportBtn").addEventListener("click", () => {
       window.location.href = "messages.html";
     });
     document.getElementById("contactSupport").addEventListener("click", () => {
-      window.location.href = "messages.html";
+      openModal(supportModalEl);
     });
     document.getElementById("mobileSupportBtn").addEventListener("click", () => {
       window.location.href = "messages.html";
     });
+    if (nextStageBtnEl) nextStageBtnEl.addEventListener("click", goToNextSubstage);
+    if (supportSubmitBtnEl) {
+      supportSubmitBtnEl.addEventListener("click", () => {
+        createSupportTicket(supportMessageEl ? supportMessageEl.value : "");
+        if (supportMessageEl) supportMessageEl.value = "";
+        closeModal(supportModalEl);
+        showToast("Support request submitted");
+      });
+    }
 
     const registrationMenuBtn = document.getElementById("registrationMenuBtn");
     const registrationDropdown = document.getElementById("registrationDropdown");
@@ -2213,17 +2232,14 @@
     });
 
     const initialProgress = loadProgress();
-    const routedStage = stageFromRoute();
-    const routedStatus = routedStage ? stageStatus(initialProgress, routedStage) : "locked";
-    selectedStageKey = routedStage && routedStatus !== "locked" ? routedStage : initialProgress.stage;
+    selectedStageKey = initialProgress.stage;
     syncRouteForStage(selectedStageKey, true);
     render(initialProgress);
 
     window.addEventListener("popstate", () => {
       const progress = loadProgress();
-      const routed = stageFromRoute();
-      const status = routed ? stageStatus(progress, routed) : "locked";
-      selectedStageKey = routed && status !== "locked" ? routed : progress.stage;
+      selectedStageKey = progress.stage;
+      syncRouteForStage(selectedStageKey, true);
       render(progress);
     });
 
