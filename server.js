@@ -632,8 +632,20 @@ function shouldProtectPath(pathname) {
     pathname === '/pages/amc.html' ||
     pathname === '/pages/my-documents.html' ||
     pathname === '/pages/account.html' ||
-    pathname === '/pages/support-cases.html'
+    pathname === '/pages/support-cases.html' ||
+    pathname.startsWith('/registration/')
   );
+}
+
+function mapRegistrationPath(pathname) {
+  const parts = String(pathname || '').split('/').filter(Boolean);
+  if (parts.length < 3 || parts[0] !== 'registration') return null;
+
+  const step = parts[1].toLowerCase();
+  if (step === 'myintealth') return '/pages/myinthealth.html';
+  if (step === 'amc') return '/pages/amc.html';
+  if (step === 'ahpra' || step === 'specialist-registration') return '/pages/ahpra.html';
+  return null;
 }
 
 function sanitizeFilePath(pathname) {
@@ -2989,7 +3001,8 @@ async function handleRequest(req, res) {
   cleanup();
 
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const pathname = url.pathname;
+  const mappedRegistrationPath = mapRegistrationPath(url.pathname);
+  const pathname = mappedRegistrationPath || url.pathname;
 
   if (pathname === '/') {
     res.writeHead(302, { Location: '/pages/index.html' });

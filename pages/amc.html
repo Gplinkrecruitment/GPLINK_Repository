@@ -924,6 +924,122 @@
       font-weight: 550;
     }
 
+    .single-col { grid-template-columns: 1fr; gap: 14px; }
+    .step-flow {
+      margin: 0;
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+    .substage-progress {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: #e8eff9;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .substage-progress-fill {
+      display: block;
+      height: 100%;
+      width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #3b82f6, #93c5fd);
+      transition: width .28s ease;
+    }
+    .substage-tabs-wrap {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+    .substage-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0;
+    }
+    .substage-tab {
+      border: 1px solid #d8e5f7;
+      background: #f8fbff;
+      color: #1f2937;
+      border-radius: 999px;
+      padding: 9px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .16s ease;
+    }
+    .substage-tab[aria-selected="true"] {
+      background: #1d4ed8;
+      color: #fff;
+      border-color: #1d4ed8;
+      box-shadow: 0 10px 20px -16px rgba(29, 78, 216, 0.9);
+    }
+    .substage-tab.is-locked {
+      color: #94a3b8;
+      background: #f8fafc;
+      border-color: #e2e8f0;
+    }
+    .substage-next {
+      border: 0;
+      background: #1d4ed8;
+      color: #fff;
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      font-size: 28px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-grid;
+      place-items: center;
+      box-shadow: 0 12px 22px -16px rgba(29, 78, 216, 0.95);
+    }
+    .substage-next:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .tutorial-card h3,
+    .guidance-panel h3 { margin-bottom: 10px; }
+    .tutorial-media {
+      min-height: 112px;
+      border-radius: 14px;
+      background: linear-gradient(140deg, #f4f8ff, #e7f0ff);
+      border: 1px solid #deebff;
+      color: #4b5563;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .help-pill {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      background: #dbeafe;
+      color: #0f172a;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      justify-self: start;
+    }
+    .sticky-action-bar {
+      position: sticky;
+      bottom: 12px;
+      margin-top: 12px;
+      z-index: 20;
+      display: flex;
+      justify-content: center;
+    }
+    .sticky-action-btn {
+      min-width: 240px;
+      border-radius: 999px;
+      box-shadow: 0 20px 34px -24px rgba(30, 64, 175, 0.85);
+    }
+
     .mobile-nav {
       position: fixed;
       left: 50%;
@@ -1181,37 +1297,44 @@
     <main class="main">
       <section class="heading">
         <div class="heading-main">
-          <h2>AMC Candidate Portfolio</h2>
+          <h2 id="stepTitle">Step 2: AMC</h2>
           <div class="heading-meta">
-            <p>This section relates to your Australian Medical Council (AMC) requirements after EPIC verification.</p>
+            <p class="step-flow" id="stepFlow">Account -> Upload -> Complete</p>
             <span class="heading-updated" id="updatedChip">Updated now</span>
+          </div>
+          <div class="substage-progress" aria-label="Step progress">
+            <span class="substage-progress-fill" id="substageProgressFill"></span>
           </div>
         </div>
       </section>
 
-      <section class="layout">
+      <section class="layout single-col">
         <article class="card progress-panel">
-          <h3>Your Progress in This Step</h3>
-          <p class="sub">Complete each stage in order. Locked stages unlock automatically.</p>
-          <div class="stage-list" id="stageList"></div>
+          <div class="substage-tabs-wrap">
+            <div class="stage-list substage-tabs" id="stageList" role="tablist" aria-label="Substages"></div>
+            <button class="substage-next" id="substageNextBtn" type="button" aria-label="Next substage">›</button>
+          </div>
+        </article>
+
+        <article class="card tutorial-card">
+          <h3>Watch the tutorial</h3>
+          <div class="tutorial-media" id="tutorialMedia">Tutorial video preview</div>
+          <button class="btn btn-soft" id="watchTutorial" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
+            <span>Watch tutorial</span>
+          </button>
         </article>
 
         <article class="card guidance-panel">
-          <h3>Smart Guidance Panel</h3>
-          <p class="sub">Dynamic instructions based on your current AMC stage.</p>
-
+          <h3>Smart Guidance</h3>
           <div class="guidance-top">
-            <div class="do-block">
+            <div class="do-block" id="smartGuidanceCard">
               <div class="label">What to do now</div>
               <p class="line line-title" id="guideTitle">-</p>
               <p class="line"><span>Do now:</span> <span id="guideDoNow">-</span></p>
               <p class="line" id="guideTimeRow"><span>Estimated time:</span> <span id="guideTime">-</span></p>
               <p class="line"><span>What GP Link does:</span> <span id="guideSupport">-</span></p>
               <button class="btn btn-primary" id="mainCta" type="button">Continue</button>
-              <button class="btn btn-soft" id="watchTutorial" type="button">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
-                <span>Watch tutorial</span>
-              </button>
             </div>
           </div>
 
@@ -1221,16 +1344,16 @@
             <p id="timelineAfterRow"><strong>After that:</strong> <span id="timelineAfter">-</span></p>
           </div>
 
-          <div class="actions" id="secondaryActions">
-            <a class="btn btn-soft" href="https://www.amc.org.au" target="_blank" rel="noopener noreferrer">Open AMC</a>
-            <button class="btn btn-soft" id="contactSupport" type="button">Contact support</button>
-          </div>
-
           <div class="warning" id="countryGuidance">Country guidance will appear here.</div>
         </article>
+
+        <button class="help-pill" id="contactSupport" type="button">Need help?</button>
       </section>
 
       <p class="footer-note" id="footerStatus">Status synced</p>
+      <div class="sticky-action-bar" id="stickyActionBar">
+        <button class="btn btn-primary sticky-action-btn" id="stickyStageAction" type="button">Mark Complete</button>
+      </div>
     </main>
   </div>
 
@@ -1298,7 +1421,7 @@
     </div>
   </div>
 
-  <div class="toast" id="toast">Saved ✓</div>
+  <div class="toast" id="toast">Progress saved</div>
 
   <script>
     const AMC_STORAGE_KEY = "gp_amc_progress";
@@ -1350,6 +1473,13 @@
       }
     };
 
+    const stageRouteMap = {
+      create_portfolio: "account",
+      upload_credentials: "upload",
+      qualifications_verified: "complete"
+    };
+    const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([key, value]) => [value, key]));
+
     const countryMap = {
       uk: {
         label: "United Kingdom",
@@ -1369,6 +1499,12 @@
     const stageChipEl = document.getElementById("stageChip");
     const updatedChipEl = document.getElementById("updatedChip");
     const footerStatusEl = document.getElementById("footerStatus");
+    const stepTitleEl = document.getElementById("stepTitle");
+    const stepFlowEl = document.getElementById("stepFlow");
+    const substageProgressFillEl = document.getElementById("substageProgressFill");
+    const substageNextBtnEl = document.getElementById("substageNextBtn");
+    const stickyStageActionEl = document.getElementById("stickyStageAction");
+    const smartGuidanceCardEl = document.getElementById("smartGuidanceCard");
 
     const guideTitleEl = document.getElementById("guideTitle");
     const guideDoNowEl = document.getElementById("guideDoNow");
@@ -1534,6 +1670,23 @@
       }, 1100);
     }
 
+    function stageFromRoute() {
+      const parts = window.location.pathname.split("/").filter(Boolean);
+      if (parts[0] === "registration" && parts[1] === "amc" && parts[2] && routeStageMap[parts[2]]) {
+        return routeStageMap[parts[2]];
+      }
+      return null;
+    }
+
+    function syncRouteForStage(stageKey, replace = false) {
+      const slug = stageRouteMap[stageKey];
+      if (!slug || !window.history || typeof window.history.pushState !== "function") return;
+      const target = `/registration/amc/${slug}`;
+      if (window.location.pathname === target) return;
+      if (replace) window.history.replaceState({ stage: stageKey }, "", target);
+      else window.history.pushState({ stage: stageKey }, "", target);
+    }
+
     function loadSelectedCountry() {
       const raw = localStorage.getItem(COUNTRY_KEY);
       if (raw === "uk" || raw === "ie" || raw === "nz") return raw;
@@ -1610,7 +1763,7 @@
 
       saveProgress(progress);
       render(progress);
-      showToast("Saved ✓");
+      showToast("Progress saved");
     }
 
     function undoToStage(progress, stageKey) {
@@ -1624,7 +1777,7 @@
 
       saveProgress(progress);
       render(progress);
-      showToast("Saved ✓");
+      showToast("Progress saved");
     }
 
     function setTimeline(stageKey) {
@@ -1641,85 +1794,60 @@
     function renderLeft(progress) {
       stageListEl.innerHTML = "";
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
-
       for (const stageKey of STAGES) {
-        const stepNumber = STAGES.indexOf(stageKey) + 1;
         const meta = stageMeta[stageKey];
         const status = stageStatus(progress, stageKey);
-
-        const row = document.createElement("div");
-        row.className = `stage-card ${status}`;
-        if (selectedStageKey === stageKey) row.classList.add("is-selected");
-        row.setAttribute("tabindex", "0");
-        row.setAttribute("role", "button");
-        row.setAttribute("aria-label", `Stage ${stepNumber}: ${meta.label}`);
-
-        const head = document.createElement("div");
-        head.className = "stage-head";
-
-        const textWrap = document.createElement("div");
-        textWrap.innerHTML = `<div class="stage-title-row"><h4>${meta.label}</h4>${status === "current" ? '<span class="stage-current">Current</span>' : ""}</div><p>${meta.short}</p>`;
-
-        const pill = document.createElement("span");
-        pill.className = `pill ${status}`;
-        pill.textContent = status === "locked" ? "Locked" : status === "done" ? "Done" : "Current";
-
-        const node = document.createElement("span");
-        node.className = "stage-node";
-        node.textContent = String(stepNumber);
-
-        head.appendChild(textWrap);
-        head.appendChild(pill);
-
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = status === "current" ? "btn btn-primary" : status === "done" ? "btn btn-soft" : "btn btn-neutral";
-        if (status === "done") btn.classList.add("btn-undo");
-        btn.textContent = buttonLabelFor(status);
-        btn.disabled = status === "locked";
-
-        if (status === "current") {
-          btn.addEventListener("click", (event) => {
-            event.stopPropagation();
-            markStageComplete(progress, stageKey);
-          });
-        } else if (status === "done") {
-          btn.addEventListener("click", (event) => {
-            event.stopPropagation();
-            undoToStage(progress, stageKey);
-          });
-        }
-
-        row.addEventListener("click", () => {
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = `substage-tab ${status === "locked" ? "is-locked" : ""}`;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", selectedStageKey === stageKey ? "true" : "false");
+        tab.setAttribute("aria-label", `${meta.label} (${status})`);
+        tab.innerHTML = `${meta.label}${status === "locked" ? ' <span aria-hidden="true">[lock]</span>' : ""}`;
+        tab.addEventListener("click", () => {
+          if (status === "locked") {
+            showToast("Complete the previous step to unlock this.");
+            return;
+          }
           selectedStageKey = stageKey;
-          renderLeft(progress);
+          syncRouteForStage(stageKey);
+          render(progress);
         });
-        row.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          selectedStageKey = stageKey;
-          renderLeft(progress);
-        });
+        stageListEl.appendChild(tab);
+      }
 
-        row.appendChild(node);
-        row.appendChild(head);
-        row.appendChild(btn);
-        stageListEl.appendChild(row);
+      const selectedIndex = STAGES.indexOf(selectedStageKey);
+      const nextKey = STAGES[selectedIndex + 1] || null;
+      const nextStatus = nextKey ? stageStatus(progress, nextKey) : "locked";
+      if (substageNextBtnEl) {
+        substageNextBtnEl.disabled = !nextKey || nextStatus === "locked";
+        substageNextBtnEl.onclick = () => {
+          if (!nextKey || nextStatus === "locked") return;
+          selectedStageKey = nextKey;
+          syncRouteForStage(nextKey);
+          render(progress);
+        };
       }
     }
 
     function renderRight(progress) {
-      const stageKey = progress.stage;
+      const stageKey = STAGES.includes(selectedStageKey) ? selectedStageKey : progress.stage;
+      const liveStageKey = progress.stage;
       currentStageKey = stageKey;
-      selectedStageKey = stageKey;
       const meta = stageMeta[stageKey];
       const selectedCountry = loadSelectedCountry();
       const countryInfo = countryMap[selectedCountry] || countryMap.uk;
       const tutorialEligible = stageKey === "create_portfolio" || stageKey === "upload_credentials";
+      const status = stageStatus(progress, stageKey);
+      const doneCount = STAGES.filter((key) => progress.completed[key]).length;
+      const fillPct = Math.max(8, Math.round(((doneCount + (status === "current" ? 0.5 : 0)) / STAGES.length) * 100));
 
-      if (stageChipEl) stageChipEl.textContent = `Current: ${meta.label}`;
+      if (stepTitleEl) stepTitleEl.textContent = "Step 2: AMC";
+      if (stepFlowEl) stepFlowEl.textContent = "Account -> Upload -> Complete";
+      if (substageProgressFillEl) substageProgressFillEl.style.width = `${fillPct}%`;
+      if (stageChipEl) stageChipEl.textContent = `Current: ${stageMeta[liveStageKey].label}`;
       if (updatedChipEl) updatedChipEl.textContent = `Updated ${new Date(progress.updatedAt).toLocaleString()}`;
-      footerStatusEl.textContent = `Current stage: ${meta.label}`;
+      footerStatusEl.textContent = `Current stage: ${stageMeta[liveStageKey].label}`;
 
       let doNow = meta.doNow;
       if (stageKey === "upload_credentials") {
@@ -1756,7 +1884,9 @@
 
       const tutorialSeen = loadTutorialSeen();
       const shouldHighlight = tutorialEligible && !tutorialSeen[stageKey];
-      watchTutorialBtnEl.style.display = tutorialEligible ? "inline-flex" : "none";
+      watchTutorialBtnEl.style.display = "inline-flex";
+      watchTutorialBtnEl.disabled = !tutorialEligible;
+      watchTutorialBtnEl.querySelector("span").textContent = tutorialEligible ? "Watch tutorial" : "Tutorial coming soon";
       watchTutorialBtnEl.classList.toggle("tutorial-highlight", shouldHighlight);
       const isFinalStage = stageKey === "qualifications_verified";
       if (timelineBoxEl) timelineBoxEl.style.display = isFinalStage ? "none" : "";
@@ -1767,9 +1897,26 @@
       if (secondaryActionsEl) secondaryActionsEl.style.display = isFinalStage ? "none" : "";
 
       setTimeline(stageKey);
+
+      if (stickyStageActionEl) {
+        stickyStageActionEl.style.display = status === "locked" ? "none" : "inline-flex";
+        stickyStageActionEl.disabled = false;
+        stickyStageActionEl.classList.remove("btn-soft", "btn-neutral");
+        stickyStageActionEl.classList.add("btn-primary");
+        if (status === "done") {
+          stickyStageActionEl.textContent = "Undo Completion";
+          stickyStageActionEl.classList.remove("btn-primary");
+          stickyStageActionEl.classList.add("btn-soft");
+          stickyStageActionEl.onclick = () => undoToStage(progress, stageKey);
+        } else {
+          stickyStageActionEl.textContent = "Mark Complete";
+          stickyStageActionEl.onclick = () => markStageComplete(progress, stageKey);
+        }
+      }
     }
 
     function render(progress) {
+      if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
       renderLeft(progress);
       renderRight(progress);
     }
@@ -2056,8 +2203,41 @@
       });
     });
 
-    const progress = loadProgress();
-    render(progress);
+    const initialProgress = loadProgress();
+    const routedStage = stageFromRoute();
+    const routedStatus = routedStage ? stageStatus(initialProgress, routedStage) : "locked";
+    selectedStageKey = routedStage && routedStatus !== "locked" ? routedStage : initialProgress.stage;
+    syncRouteForStage(selectedStageKey, true);
+    render(initialProgress);
+
+    window.addEventListener("popstate", () => {
+      const progress = loadProgress();
+      const routed = stageFromRoute();
+      const status = routed ? stageStatus(progress, routed) : "locked";
+      selectedStageKey = routed && status !== "locked" ? routed : progress.stage;
+      render(progress);
+    });
+
+    let touchStartX = 0;
+    document.addEventListener("touchstart", (event) => {
+      if (!event.touches || !event.touches[0]) return;
+      touchStartX = event.touches[0].clientX;
+    }, { passive: true });
+    document.addEventListener("touchend", (event) => {
+      if (!event.changedTouches || !event.changedTouches[0]) return;
+      const deltaX = event.changedTouches[0].clientX - touchStartX;
+      if (Math.abs(deltaX) < 60) return;
+      const progress = loadProgress();
+      const currentIdx = STAGES.indexOf(selectedStageKey);
+      if (currentIdx === -1) return;
+      const nextIdx = deltaX < 0 ? currentIdx + 1 : currentIdx - 1;
+      const candidate = STAGES[nextIdx];
+      if (!candidate) return;
+      if (stageStatus(progress, candidate) === "locked") return;
+      selectedStageKey = candidate;
+      syncRouteForStage(candidate);
+      render(progress);
+    }, { passive: true });
   </script>
   <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
     <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
