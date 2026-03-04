@@ -1330,11 +1330,16 @@
         renderContent();
         refreshTextEl.textContent = `Updated ${new Date(data.refreshedAt).toLocaleString()}`;
       } catch (err) {
-        state.dashboard = LOCAL_DEMO_DASHBOARD;
+        state.dashboard = {
+          summary: { totalGps: 0, activeGps: 0, pendingVerifications: 0, openSupportTickets: 0, averageProgress: 0 },
+          candidates: [],
+          verificationQueue: [],
+          tickets: []
+        };
         renderStats();
         renderTabLabels();
         renderContent();
-        refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}). Showing local demo data.`;
+        refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}).`;
       }
     }
 

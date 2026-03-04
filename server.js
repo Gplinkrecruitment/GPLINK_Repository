@@ -88,6 +88,8 @@ const USER_STATE_KEYS = [
   'gp_epic_progress',
   'gp_amc_progress',
   'gp_ahpra_progress',
+  'gp_epic_tutorial_seen',
+  'gp_amc_tutorial_seen',
   'gp_documents_prep',
   'gp_prepared_docs',
   'gp_selected_country',
@@ -154,6 +156,10 @@ function createEmptyState() {
 }
 
 function loadDbState() {
+  if (REQUIRE_SUPABASE_DB && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+    return createEmptyState();
+  }
+
   ensureDirSync(path.dirname(DB_FILE_PATH));
   if (!fs.existsSync(DB_FILE_PATH)) {
     const initial = createEmptyState();
@@ -184,6 +190,9 @@ function loadDbState() {
 let dbState = loadDbState();
 
 function saveDbState() {
+  if (REQUIRE_SUPABASE_DB && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+    return;
+  }
   const tmpPath = `${DB_FILE_PATH}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(dbState, null, 2));
   fs.renameSync(tmpPath, DB_FILE_PATH);
@@ -1220,8 +1229,25 @@ async function collectAdminDashboardData() {
           tickets
         };
       }
+
+      return {
+        summary: {
+          totalGps: 0,
+          activeGps: 0,
+          pendingVerifications: 0,
+          openSupportTickets: 0,
+          averageProgress: 0
+        },
+        candidates: [],
+        verificationQueue: [],
+        tickets: []
+      };
     }
+
+    if (REQUIRE_SUPABASE_DB) return null;
   }
+
+  if (REQUIRE_SUPABASE_DB) return null;
 
   const emails = new Set([
     ...Object.keys(dbState.users || {}),
@@ -2797,6 +2823,10 @@ async function handleApi(req, res, pathname) {
     if (!adminCtx) return;
 
     const dashboard = await collectAdminDashboardData();
+    if (!dashboard) {
+      sendJson(res, 502, { ok: false, message: 'Failed to load admin dashboard from database.' });
+      return;
+    }
     sendJson(res, 200, {
       ok: true,
       refreshedAt: new Date().toISOString(),

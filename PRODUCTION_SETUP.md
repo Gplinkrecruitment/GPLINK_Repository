@@ -77,6 +77,7 @@ For durable production data, move these records to a managed database (for examp
 - Mutating API requests (`POST/PUT/PATCH/DELETE`) enforce same-origin checks using `Origin/Referer` when `ENFORCE_SAME_ORIGIN=true`.
 - Security headers are enabled on API/static responses (`nosniff`, `X-Frame-Options`, strict referrer policy, and HSTS in production).
 - If `REQUIRE_SUPABASE_DB=true`, critical APIs (`/api/profile`, `/api/state`, admin dashboard/tickets) require Supabase DB configuration and will not silently fall back to local JSON.
+- If `REQUIRE_SUPABASE_DB=true`, server-side local JSON persistence is disabled for production runtime paths.
 - Runtime security counters (auth rate limits) are persisted in Supabase table `public.runtime_kv`.
 - OTP code endpoints (`/api/auth/send-code`, `/api/auth/verify-code`) are disabled when `REQUIRE_SUPABASE_DB=true`.
 

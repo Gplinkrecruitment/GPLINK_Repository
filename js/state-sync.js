@@ -3,6 +3,8 @@
     'gp_epic_progress',
     'gp_amc_progress',
     'gp_ahpra_progress',
+    'gp_epic_tutorial_seen',
+    'gp_amc_tutorial_seen',
     'gp_documents_prep',
     'gp_prepared_docs',
     'gp_selected_country',
