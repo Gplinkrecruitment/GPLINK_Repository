@@ -1,26 +1,7 @@
 (function () {
   const UPDATES_KEY = "gp_link_updates";
 
-  const DEFAULT_UPDATES = [
-    {
-      type: "info",
-      title: "EPIC verification queue was checked and remains on track.",
-      detail: "No action needed from you today.",
-      ts: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      type: "action",
-      title: "Please confirm your passport scan is clear and all corners are visible.",
-      detail: "Reply in Support Cases if you want us to review before upload.",
-      ts: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      type: "success",
-      title: "AMC profile details review completed by GP Link.",
-      detail: "Your setup is ready for the next credential action.",
-      ts: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
-    }
-  ];
+  const DEFAULT_UPDATES = [];
 
   function normalizeType(rawType) {
     const type = typeof rawType === "string" ? rawType.toLowerCase() : "info";
@@ -61,7 +42,7 @@
 
   function saveGpLinkUpdates(updates) {
     const clean = sanitizeUpdates(updates);
-    const finalUpdates = clean.length ? clean : sanitizeUpdates(DEFAULT_UPDATES);
+    const finalUpdates = clean.length ? clean : [];
     localStorage.setItem(UPDATES_KEY, JSON.stringify(finalUpdates));
     window.gpLinkUpdates = finalUpdates.slice();
     return window.gpLinkUpdates;
@@ -79,7 +60,7 @@
       return saveGpLinkUpdates(runtime);
     }
 
-    return saveGpLinkUpdates(DEFAULT_UPDATES);
+    return saveGpLinkUpdates([]);
   }
 
   function hasGpLinkActionRequired(updates) {

@@ -143,6 +143,15 @@
     }
   }
 
+  function clearTrackedLocalState() {
+    withSuppressedObserver(() => {
+      STATE_KEYS.forEach((key) => {
+        localStorage.removeItem(key);
+        localStorage.removeItem(`${key}${SAVE_BATCH_META_SUFFIX}`);
+      });
+    });
+  }
+
   function flushBatchedStorageKey(storageKey) {
     const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
     const raw = localStorage.getItem(metaKey);
@@ -212,6 +221,7 @@
 
       try {
         const serverState = await fetchState();
+        clearTrackedLocalState();
         withSuppressedObserver(() => {
           STATE_KEYS.forEach((key) => {
             if (typeof serverState[key] === 'string') {

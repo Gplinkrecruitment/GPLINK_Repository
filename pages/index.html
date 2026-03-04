@@ -1953,7 +1953,7 @@
         const t = item && typeof item.type === "string" ? item.type.toLowerCase() : "";
         return !t.includes("action");
       });
-      const supportCases = dbCases.length ? dbCases : (parseStorage("gpLinkSupportCases") || parseStorage("gp_support_cases"));
+      const supportCases = dbCases.length ? dbCases : parseStorage("gpLinkSupportCases");
       const openCases = Array.isArray(supportCases)
         ? supportCases
             .filter((c) => {
@@ -2546,7 +2546,7 @@
     });
     window.addEventListener("storage", (event) => {
       if (!event || typeof event.key !== "string") return;
-      if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases" || event.key === "gp_support_cases" || event.key === "gp_link_updates" || event.key === DOC_KEY || event.key === `${DOC_KEY}${BATCH_META_SUFFIX}`) {
+      if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases" || event.key === "gp_link_updates" || event.key === DOC_KEY || event.key === `${DOC_KEY}${BATCH_META_SUFFIX}`) {
         renderUpdatesFeed();
       }
     });

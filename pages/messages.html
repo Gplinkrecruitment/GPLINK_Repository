@@ -795,8 +795,6 @@
     const SUPPORT_CASES_KEY = "gpLinkSupportCases";
     const SUPPORT_DRAFT_KEY = "gpLinkSupportDraft";
     const MESSAGE_DB_KEY = "gpLinkMessageDB";
-    const LEGACY_TICKETS_KEY = "gp_support_tickets";
-    const LEGACY_CASES_KEY = "gp_support_cases";
     const UPDATES_READ_KEY = "gp_link_updates_read";
     const DOC_KEY = "gp_documents_prep";
     const PREPARED_BY_YOU_DOCS = [
@@ -967,34 +965,6 @@
       };
     }
 
-    function seedFromLegacyTickets() {
-      const legacy = parseStorage(LEGACY_TICKETS_KEY);
-      if (!Array.isArray(legacy) || !legacy.length) return [];
-      return legacy.map((ticket, idx) => {
-        const createdAt = typeof ticket.createdAt === "string" ? ticket.createdAt : new Date().toISOString();
-        const status = ticket.status === "Solved" ? "closed" : "open";
-        const caseCode = `Case GP-${createdAt.slice(0, 10).replace(/-/g, "")}-${String(idx + 1).padStart(3, "0")}`;
-        return {
-          id: `case_${Date.parse(createdAt) || Date.now()}_${idx + 1}`,
-          caseCode,
-          title: typeof ticket.subject === "string" ? ticket.subject : "Support request",
-          category: "Other",
-          priority: "normal",
-          status,
-          updatedAt: createdAt,
-          createdAt,
-          unread: false,
-          thread: [
-            {
-              from: "me",
-              text: typeof ticket.message === "string" ? ticket.message : "",
-              ts: createdAt
-            }
-          ]
-        };
-      });
-    }
-
     function loadSupportCases() {
       const stored = parseStorage(SUPPORT_CASES_KEY);
       if (Array.isArray(stored) && stored.length) {
@@ -1002,60 +972,8 @@
         window.gpLinkSupportCases = normalized;
         return normalized;
       }
-
-      const legacyCases = parseStorage(LEGACY_CASES_KEY);
-      if (Array.isArray(legacyCases) && legacyCases.length) {
-        const migrated = legacyCases.map(normalizeCase).filter(Boolean);
-        if (migrated.length) {
-          saveStorage(SUPPORT_CASES_KEY, migrated);
-          window.gpLinkSupportCases = migrated;
-          return migrated;
-        }
-      }
-
-      const fromLegacy = seedFromLegacyTickets();
-      if (fromLegacy.length) {
-        const migrated = fromLegacy.map(normalizeCase).filter(Boolean);
-        saveStorage(SUPPORT_CASES_KEY, migrated);
-        window.gpLinkSupportCases = migrated;
-        return migrated;
-      }
-
-      const demo = [
-        {
-          id: "case_demo_1",
-          caseCode: "Case GP-20260223-001",
-          title: "Passport file quality check",
-          category: "Documents",
-          priority: "normal",
-          status: "open",
-          createdAt: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
-          updatedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
-          unread: true,
-          thread: [
-            { from: "me", text: "Can you confirm if my passport scan is acceptable?", ts: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString() },
-            { from: "gp", text: "We reviewed it. Please upload a higher contrast scan with all corners visible.", ts: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString() }
-          ]
-        },
-        {
-          id: "case_demo_2",
-          caseCode: "Case GP-20260222-003",
-          title: "AMC profile name match",
-          category: "AMC",
-          priority: "normal",
-          status: "closed",
-          createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-          updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-          unread: false,
-          thread: [
-            { from: "me", text: "My middle name is missing in AMC. Is that okay?", ts: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() },
-            { from: "gp", text: "All good. We confirmed AMC accepted your current profile setup.", ts: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() }
-          ]
-        }
-      ];
-      saveStorage(SUPPORT_CASES_KEY, demo);
-      window.gpLinkSupportCases = demo;
-      return demo;
+      window.gpLinkSupportCases = [];
+      return [];
     }
 
     function saveSupportCases(cases) {

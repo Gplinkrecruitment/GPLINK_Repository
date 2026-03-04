@@ -2547,7 +2547,11 @@ async function handleApi(req, res, pathname) {
         return;
       }
 
-      sendJson(res, 404, { ok: false, message: 'State not found in database for this user.' });
+      sendJson(res, 200, {
+        ok: true,
+        state: {},
+        updatedAt: null
+      });
       return;
     }
 
