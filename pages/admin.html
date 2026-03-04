@@ -640,7 +640,8 @@
       dashboard: null,
       tab: "registrations",
       query: "",
-      refreshTimer: null
+      refreshTimer: null,
+      isLoading: false
     };
     const LOCAL_DEMO_DASHBOARD = {
       summary: {
@@ -1309,7 +1310,9 @@
       });
     }
 
-    async function loadDashboard() {
+    async function loadDashboard(force = false) {
+      if (state.isLoading && !force) return;
+      state.isLoading = true;
       refreshTextEl.textContent = "Loading latest data...";
       try {
         const response = await fetch("/api/admin/dashboard", { credentials: "same-origin" });
@@ -1340,6 +1343,8 @@
         renderTabLabels();
         renderContent();
         refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}).`;
+      } finally {
+        state.isLoading = false;
       }
     }
 
@@ -1424,7 +1429,7 @@
       });
 
       document.getElementById("refreshBtn").addEventListener("click", () => {
-        loadDashboard();
+        loadDashboard(true);
       });
 
       document.getElementById("exportBtn").addEventListener("click", () => {
@@ -1515,6 +1520,7 @@
     function startAutoRefresh() {
       if (state.refreshTimer) clearInterval(state.refreshTimer);
       state.refreshTimer = setInterval(() => {
+        if (document.visibilityState !== "visible") return;
         loadDashboard();
       }, 15000);
     }
@@ -1522,6 +1528,9 @@
     bindEvents();
     loadDashboard();
     startAutoRefresh();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") loadDashboard();
+    });
   </script>
 </body>
 </html>

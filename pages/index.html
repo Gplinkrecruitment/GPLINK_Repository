@@ -10,36 +10,23 @@
 
       const style = document.createElement('style');
       style.textContent = `
-        .gp-page-loading body > *:not(#gp-universal-skeleton) { visibility: hidden !important; }
         #gp-universal-skeleton {
-          position: fixed; inset: 0; z-index: 10000; background: #eef3fb;
-          display: grid; place-items: center; padding: 18px 12px;
+          position: fixed; inset: 0; z-index: 10000; background: transparent;
+          display: grid; place-items: start center; padding: 10px 12px;
+          pointer-events: none;
         }
         #gp-universal-skeleton .shell {
           position: relative;
           overflow: hidden;
           width: min(1100px, 100%);
-          height: min(760px, 84vh);
-          border-radius: 18px;
+          height: 86px;
+          border-radius: 16px;
           background: linear-gradient(90deg, #e4ebf6 25%, #f2f6fd 37%, #e4ebf6 63%);
           background-size: 400% 100%;
-          box-shadow: 0 0 0 1px rgba(10, 132, 255, .32), 0 0 14px rgba(10, 132, 255, .35), 0 0 28px rgba(10, 132, 255, .2) inset;
-          animation: gpUniversalShimmer 1.35s ease-in-out infinite;
-        }
-        #gp-universal-skeleton .shell::before {
-          content: "";
-          position: absolute;
-          inset: -1px;
-          border-radius: inherit;
-          padding: 1px;
-          background: conic-gradient(from 0deg, #1d9bff 0deg, #9fddff 70deg, #1d9bff 140deg, transparent 220deg, transparent 360deg);
-          -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-          -webkit-mask-composite: xor;
-          mask-composite: exclude;
-          animation: gpLedTrace .95s linear infinite;
+          border: 1px solid rgba(29, 78, 216, .18);
+          animation: gpUniversalShimmer 1.25s ease-in-out infinite;
         }
         @keyframes gpUniversalShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
-        @keyframes gpLedTrace { to { transform: rotate(1turn); } }
       `;
       document.head.appendChild(style);
 
@@ -66,7 +53,7 @@
       if (!pageReady) {
         document.addEventListener('DOMContentLoaded', function () { pageReady = true; maybeDone(); }, { once: true });
       }
-      setTimeout(maybeDone, 12000);
+      setTimeout(maybeDone, 2500);
 
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', mountSkeleton, { once: true });
@@ -1490,11 +1477,11 @@
         <video
           id="heroVideoDesktop"
           class="hero-video hero-video-desktop"
-          autoplay
           muted
           loop
           playsinline
           preload="none"
+          poster="../media/images/account-header-sunset-exact.jpg"
           aria-hidden="true"
         >
           <source id="heroSourceDesktop" data-src="../media/videos/gp-link-hero-desktop.mp4" type="video/mp4" />
@@ -1502,11 +1489,11 @@
         <video
           id="heroVideoMobile"
           class="hero-video hero-video-mobile"
-          autoplay
           muted
           loop
           playsinline
           preload="none"
+          poster="../media/images/account-header-sunset-exact.jpg"
           aria-hidden="true"
         >
           <source id="heroSourceMobile" data-src="../media/videos/gp-link-hero-mobile.mp4" type="video/mp4" />
@@ -1833,6 +1820,15 @@
 
     async function loadSessionLastName() {
       try {
+        if (window.gpSessionProfile && typeof window.gpSessionProfile.lastName === "string") {
+          return window.gpSessionProfile.lastName.trim();
+        }
+        if (window.gpSessionPromise && typeof window.gpSessionPromise.then === "function") {
+          const session = await window.gpSessionPromise;
+          const profile = session && session.profile && typeof session.profile === "object" ? session.profile : null;
+          if (profile && typeof profile.lastName === "string") return profile.lastName.trim();
+          return "";
+        }
         const response = await fetch("/api/auth/session", { credentials: "same-origin" });
         if (!response.ok) return "";
         const data = await response.json();
@@ -2561,14 +2557,17 @@
     let deltaY = 0;
     let dragging = false;
     let heroVideoMode = "";
+    let heroVideoActivated = false;
 
+    const heroSectionEl = document.querySelector(".hero");
     const heroVideoDesktopEl = document.getElementById("heroVideoDesktop");
     const heroVideoMobileEl = document.getElementById("heroVideoMobile");
     const heroSourceDesktopEl = document.getElementById("heroSourceDesktop");
     const heroSourceMobileEl = document.getElementById("heroSourceMobile");
-    function getActiveHeroVideoEl() {
-      return heroVideoMode === "desktop" ? heroVideoDesktopEl : heroVideoMobileEl;
-    }
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const constrainedNetwork = !!(connection && (connection.saveData || /(^|-)2g/.test(String(connection.effectiveType || ""))));
+    const disableHeroVideo = prefersReducedMotion || constrainedNetwork;
 
     function loadHeroVideo(videoEl, sourceEl) {
       if (!videoEl || !sourceEl) return;
@@ -2578,6 +2577,10 @@
         sourceEl.setAttribute("src", nextSrc);
         videoEl.load();
       }
+    }
+
+    function playHeroVideo(videoEl) {
+      if (!videoEl) return;
       const playPromise = videoEl.play();
       if (playPromise && typeof playPromise.catch === "function") playPromise.catch(() => {});
     }
@@ -2597,16 +2600,59 @@
       if (mode === heroVideoMode) return;
       heroVideoMode = mode;
 
+      if (!heroVideoActivated || disableHeroVideo) return;
       if (mode === "desktop") {
         loadHeroVideo(heroVideoDesktopEl, heroSourceDesktopEl);
         unloadHeroVideo(heroVideoMobileEl, heroSourceMobileEl);
+        playHeroVideo(heroVideoDesktopEl);
       } else {
         loadHeroVideo(heroVideoMobileEl, heroSourceMobileEl);
         unloadHeroVideo(heroVideoDesktopEl, heroSourceDesktopEl);
+        playHeroVideo(heroVideoMobileEl);
+      }
+    }
+
+    function removeHeroActivationListeners() {
+      window.removeEventListener("pointerdown", activateHeroVideo, { passive: true });
+      window.removeEventListener("touchstart", activateHeroVideo, { passive: true });
+      window.removeEventListener("keydown", activateHeroVideo);
+      window.removeEventListener("scroll", activateHeroVideo, { passive: true });
+    }
+
+    function activateHeroVideo() {
+      if (heroVideoActivated || disableHeroVideo) return;
+      heroVideoActivated = true;
+      removeHeroActivationListeners();
+      syncHeroVideoMode();
+    }
+
+    function setupHeroVideoLazyStart() {
+      if (disableHeroVideo) return;
+
+      if ("IntersectionObserver" in window && heroSectionEl) {
+        const observer = new IntersectionObserver((entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            observer.disconnect();
+            activateHeroVideo();
+          }
+        }, { rootMargin: "220px 0px 220px 0px" });
+        observer.observe(heroSectionEl);
+      }
+
+      window.addEventListener("pointerdown", activateHeroVideo, { passive: true, once: true });
+      window.addEventListener("touchstart", activateHeroVideo, { passive: true, once: true });
+      window.addEventListener("keydown", activateHeroVideo, { once: true });
+      window.addEventListener("scroll", activateHeroVideo, { passive: true, once: true });
+
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(() => activateHeroVideo(), { timeout: 3500 });
+      } else {
+        window.setTimeout(() => activateHeroVideo(), 2200);
       }
     }
 
     syncHeroVideoMode();
+    setupHeroVideoLazyStart();
 
     mobileRegSheet.addEventListener("touchstart", (e) => {
       if (!mobileRegSheet.classList.contains("show")) return;
@@ -2638,6 +2684,9 @@
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         syncHeroVideoMode();
+      } else {
+        heroVideoDesktopEl && heroVideoDesktopEl.pause();
+        heroVideoMobileEl && heroVideoMobileEl.pause();
       }
     });
   </script>

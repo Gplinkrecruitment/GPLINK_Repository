@@ -275,10 +275,18 @@
     isHydrated: function () { return hydrated; }
   };
 
+  function scheduleHydrate() {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => hydrateState(), { timeout: 2200 });
+      return;
+    }
+    window.setTimeout(() => hydrateState(), 180);
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', hydrateState);
+    document.addEventListener('DOMContentLoaded', scheduleHydrate);
   } else {
-    hydrateState();
+    scheduleHydrate();
   }
 
   installLocalStorageObserver();

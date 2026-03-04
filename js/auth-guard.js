@@ -6,21 +6,30 @@
     pathname === "/pages/privacy.html" ||
     pathname === "/pages/terms.html";
 
-  fetch("/api/auth/session", { credentials: "same-origin" })
-    .then((response) => {
-      if (response.ok) {
-        if (isSignInPage) {
-          window.location.replace("/pages/index.html");
-        }
-        return;
+  const sessionPromise = fetch("/api/auth/session", { credentials: "same-origin" })
+    .then(async (response) => {
+      if (!response.ok) {
+        return { ok: false, authenticated: false, profile: null };
       }
-      if (!isPublicPage) {
-        window.location.replace("/pages/signin.html");
-      }
+      const data = await response.json().catch(() => ({}));
+      const profile = data && data.profile && typeof data.profile === "object" ? data.profile : null;
+      return { ok: true, authenticated: true, profile };
     })
-    .catch(() => {
-      if (!isPublicPage) {
-        window.location.replace("/pages/signin.html");
+    .catch(() => ({ ok: false, authenticated: false, profile: null }));
+
+  // Expose one shared promise so pages can reuse session data without extra round-trips.
+  window.gpSessionPromise = sessionPromise;
+
+  sessionPromise.then((session) => {
+    if (session && session.ok) {
+      window.gpSessionProfile = session.profile || null;
+      if (isSignInPage) {
+        window.location.replace("/pages/index.html");
       }
-    });
+      return;
+    }
+    if (!isPublicPage) {
+      window.location.replace("/pages/signin.html");
+    }
+  });
 })();

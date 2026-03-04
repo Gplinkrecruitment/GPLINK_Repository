@@ -14,6 +14,7 @@ const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS || 10 * 60 * 1000);
 const RATE_MAX_SEND = Number(process.env.RATE_MAX_SEND || 5);
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 12 * 60 * 60 * 1000);
 const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 8 * 1024 * 1024);
+const ADMIN_DASHBOARD_CACHE_TTL_MS = Number(process.env.ADMIN_DASHBOARD_CACHE_TTL_MS || 8000);
 const AUTH_RATE_WINDOW_MS = Number(process.env.AUTH_RATE_WINDOW_MS || 10 * 60 * 1000);
 const AUTH_RATE_MAX_ATTEMPTS = Number(process.env.AUTH_RATE_MAX_ATTEMPTS || 12);
 const SECRET = process.env.AUTH_SECRET || 'replace-me-in-production';
@@ -193,6 +194,11 @@ function loadDbState() {
 }
 
 let dbState = loadDbState();
+let adminDashboardCache = {
+  expiresAt: 0,
+  data: null,
+  inFlight: null
+};
 
 function saveDbState() {
   if (REQUIRE_SUPABASE_DB && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
@@ -1127,6 +1133,45 @@ function getParsedUserState(rawState, updatedAt = null) {
   return out;
 }
 
+function invalidateAdminDashboardCache() {
+  adminDashboardCache.expiresAt = 0;
+  adminDashboardCache.data = null;
+}
+
+async function getCachedAdminDashboardData() {
+  if (ADMIN_DASHBOARD_CACHE_TTL_MS <= 0) {
+    return collectAdminDashboardData();
+  }
+
+  const nowMs = Date.now();
+  if (adminDashboardCache.data && adminDashboardCache.expiresAt > nowMs) {
+    return adminDashboardCache.data;
+  }
+
+  if (adminDashboardCache.inFlight) {
+    return adminDashboardCache.inFlight;
+  }
+
+  adminDashboardCache.inFlight = collectAdminDashboardData()
+    .then((dashboard) => {
+      adminDashboardCache.inFlight = null;
+      if (dashboard) {
+        adminDashboardCache.data = dashboard;
+        adminDashboardCache.expiresAt = Date.now() + ADMIN_DASHBOARD_CACHE_TTL_MS;
+      } else {
+        invalidateAdminDashboardCache();
+      }
+      return dashboard;
+    })
+    .catch((err) => {
+      adminDashboardCache.inFlight = null;
+      invalidateAdminDashboardCache();
+      throw err;
+    });
+
+  return adminDashboardCache.inFlight;
+}
+
 async function collectAdminDashboardData() {
   if (isSupabaseDbConfigured()) {
     const [profilesResult, statesResult] = await Promise.all([
@@ -1560,6 +1605,7 @@ async function persistSupportCaseUpdate(ticketId, patch, scope = {}) {
 
         const finalCase = syncedDirectCases.find((item) => item && String(item.id || '') === ticketId) || nextDbCases.find((item) => item && String(item.id || '') === ticketId);
         const normalized = normalizeSupportCase(finalCase);
+        invalidateAdminDashboardCache();
         return normalized ? { ...normalized, candidateEmail: emailByUserId.get(row.user_id) || '' } : null;
       }
     }
@@ -1604,6 +1650,7 @@ async function persistSupportCaseUpdate(ticketId, patch, scope = {}) {
 
     const finalCase = syncedDirectCases.find((item) => item && String(item.id || '') === ticketId) || nextDbCases.find((item) => item && String(item.id || '') === ticketId);
     const normalized = normalizeSupportCase(finalCase);
+    invalidateAdminDashboardCache();
     return normalized ? { ...normalized, candidateEmail } : null;
   }
 
@@ -2835,6 +2882,7 @@ async function handleApi(req, res, pathname) {
       saveDbState();
     }
 
+    invalidateAdminDashboardCache();
     sendJson(res, 200, { ok: true, updatedAt });
     return;
   }
@@ -2847,7 +2895,7 @@ async function handleApi(req, res, pathname) {
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
 
-    const dashboard = await collectAdminDashboardData();
+    const dashboard = await getCachedAdminDashboardData();
     if (!dashboard) {
       sendJson(res, 502, { ok: false, message: 'Failed to load admin dashboard from database.' });
       return;
