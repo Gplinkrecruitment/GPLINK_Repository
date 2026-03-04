@@ -257,18 +257,12 @@
         window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk } }));
       }
 
-      try {
-        if (stateOk) {
-          flushTrackedBatches();
-          await pushState();
-          if (pendingTrackedChange) {
-            pendingTrackedChange = false;
-            flushTrackedBatches();
-            await pushState();
-          }
-        }
-      } catch (err) {
-        // Non-blocking best-effort sync.
+      // Do not immediately push full state on page load.
+      // This causes large payload uploads and slows navigation.
+      if (stateOk && pendingTrackedChange) {
+        pendingTrackedChange = false;
+        flushTrackedBatches();
+        pushState().catch(() => {});
       }
     })();
 

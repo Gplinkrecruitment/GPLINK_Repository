@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3000);
@@ -83,6 +84,10 @@ const MIME = {
   '.jpeg': 'image/jpeg',
   '.ico': 'image/x-icon'
 };
+
+function isCompressibleType(ext) {
+  return ext === '.html' || ext === '.css' || ext === '.js' || ext === '.json' || ext === '.svg';
+}
 
 const USER_STATE_KEYS = [
   'gp_epic_progress',
@@ -704,6 +709,26 @@ function serveStatic(req, res, pathname) {
     };
     if (NODE_ENV === 'production') headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload';
     if (isVideo) headers['Accept-Ranges'] = 'bytes';
+
+    const acceptsGzip = typeof req.headers['accept-encoding'] === 'string' && req.headers['accept-encoding'].includes('gzip');
+    const shouldGzip = !isMedia && !range && acceptsGzip && isCompressibleType(ext) && stat.size > 1024;
+
+    if (shouldGzip) {
+      delete headers['Content-Length'];
+      headers['Content-Encoding'] = 'gzip';
+      headers['Vary'] = 'Accept-Encoding';
+      res.writeHead(200, headers);
+
+      const stream = fs.createReadStream(filePath);
+      const gzip = zlib.createGzip({ level: 6 });
+      stream.pipe(gzip).pipe(res);
+      stream.on('error', () => {
+        res.writeHead(500);
+        res.end('Server error');
+      });
+      return;
+    }
+
     res.writeHead(200, headers);
 
     const stream = fs.createReadStream(filePath);
