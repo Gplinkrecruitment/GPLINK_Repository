@@ -23,7 +23,6 @@
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
-  <script src="/js/registration-stepper.js"></script>
   <title>MyIntealth - GP Link</title>
   <style>
     :root {
@@ -750,6 +749,98 @@
 
     .single-col { grid-template-columns: 1fr; gap: 14px; }
     .stepper-section { margin-bottom: 14px; }
+
+    /* ---- Registration Stepper (inline) ---- */
+    .gp-stepper { position: relative; width: 100%; }
+    .gp-stepper-wrap { position: relative; border-radius: 16px; }
+    .gp-stepper-wrap::before, .gp-stepper-wrap::after {
+      content: ""; position: absolute; top: 0; bottom: 0; width: 28px;
+      pointer-events: none; opacity: 0; transition: opacity .2s ease; z-index: 4;
+    }
+    .gp-stepper-wrap::before { left: 0; background: linear-gradient(90deg, rgba(244,247,251,.98), rgba(244,247,251,0)); }
+    .gp-stepper-wrap::after  { right: 0; background: linear-gradient(270deg, rgba(244,247,251,.98), rgba(244,247,251,0)); }
+    .gp-stepper-wrap.gp-fade-left::before  { opacity: 1; }
+    .gp-stepper-wrap.gp-fade-right::after  { opacity: 1; }
+    .gp-stepper-viewport { overflow-x: hidden; overflow-y: visible; border-radius: 14px; }
+    .gp-stepper-track {
+      position: relative; display: flex; align-items: stretch;
+      gap: 8px; width: 100%; padding: 4px 4px 16px; min-height: 80px;
+    }
+    .gp-stepper-line {
+      position: absolute;
+      left: var(--gp-line-start, 0px); width: var(--gp-line-width, 0px); top: var(--gp-line-top, 26px);
+      transform: translateY(-50%); height: 2px; border-radius: 999px;
+      background: #d9deea; pointer-events: none; z-index: 0; overflow: hidden;
+    }
+    .gp-stepper-line-fill {
+      width: var(--gp-line-fill, 0px); height: 100%; border-radius: inherit;
+      background: linear-gradient(90deg, #8b5cf6, #6d28d9);
+      transition: width .55s cubic-bezier(.4,0,.2,1);
+    }
+    .gp-stepper-step {
+      position: relative; z-index: 1; border: 0; background: transparent;
+      padding: 0; margin: 0; flex: 1 1 0; min-width: 168px; text-align: left;
+      scroll-snap-align: center; cursor: not-allowed; outline: none; border-radius: 14px;
+    }
+    .gp-stepper-step.gp-clickable { cursor: pointer; }
+    .gp-stepper-step:active .gp-stepper-inner { transform: scale(0.98) !important; }
+    .gp-stepper-inner {
+      position: relative; display: flex; align-items: flex-start; gap: 10px;
+      border-radius: 14px; padding: 10px 12px; height: 100%;
+      border: 1px solid rgba(226,232,240,.85); background: rgba(255,255,255,.55);
+      transition: transform .22s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;
+    }
+    @media (hover: hover) and (pointer: fine) {
+      .gp-stepper-step.gp-clickable:hover .gp-stepper-inner {
+        background: rgba(255,255,255,.9); border-color: rgba(148,163,184,.45);
+        box-shadow: 0 8px 22px -14px rgba(15,23,42,.35);
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); transform: translateY(-2px);
+      }
+    }
+    .gp-stepper-step.gp-active .gp-stepper-inner {
+      border-color: rgba(124,58,237,.28); background: rgba(250,247,255,.88);
+      box-shadow: 0 0 0 2px rgba(124,58,237,.08), 0 4px 16px -8px rgba(124,58,237,.2);
+    }
+    .gp-stepper-step:focus-visible { box-shadow: 0 0 0 2px rgba(76,29,149,.3); border-radius: 14px; }
+    .gp-stepper-circle {
+      flex: 0 0 auto; width: 30px; height: 30px; border-radius: 999px;
+      border: 1px solid #b9a8ff; background: #f4f0ff; color: #5b21b6;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: transform .22s ease, box-shadow .22s ease; margin-top: 1px;
+    }
+    .gp-stepper-step.gp-completed .gp-stepper-circle { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+    .gp-stepper-step.gp-active    .gp-stepper-circle { transform: scale(1.08); box-shadow: 0 0 0 5px rgba(124,58,237,.16), 0 8px 16px -10px rgba(76,29,149,.65); }
+    .gp-stepper-step.gp-locked    .gp-stepper-circle { background: #fff; border-color: #d0d7e3; color: #9aa6b6; }
+    .gp-stepper-step.gp-waiting   .gp-stepper-circle { background: #fff; border-color: #cbd5e1; color: #64748b; }
+    .gp-stepper-step.gp-action_required .gp-stepper-circle { background: #fff7ed; border-color: #fdba74; color: #b45309; }
+    .gp-stepper-dot     { display: block; width: 7px; height: 7px; border-radius: 999px; background: currentColor; }
+    .gp-stepper-spinner { display: block; width: 13px; height: 13px; border-radius: 999px; border: 2px solid rgba(100,116,139,.3); border-top-color: currentColor; animation: gpStepSpin .9s linear infinite; }
+    @keyframes gpStepSpin { to { transform: rotate(360deg); } }
+    .gp-stepper-body { min-width: 0; flex: 1; }
+    .gp-stepper-title-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .gp-stepper-title { margin: 0; font-size: 12px; font-weight: 720; line-height: 1.25; color: #0f172a; }
+    .gp-stepper-step.gp-active  .gp-stepper-title { font-weight: 790; }
+    .gp-stepper-step.gp-locked  .gp-stepper-title { color: #9aa6b6; }
+    .gp-stepper-badge {
+      display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 7px;
+      font-size: 10px; font-weight: 700; background: rgba(124,58,237,.1); color: #7c3aed;
+      border: 1px solid rgba(124,58,237,.2); white-space: nowrap; line-height: 1.4;
+    }
+    .gp-stepper-desc { margin: 3px 0 0; font-size: 11px; line-height: 1.3; color: #667085; }
+    .gp-stepper-step.gp-locked .gp-stepper-desc { color: #9aa6b6; }
+    .gp-stepper-ripple { position: absolute; inset: 0; border-radius: 14px; background: rgba(124,58,237,.14); transform: scale(.75); opacity: 0; pointer-events: none; }
+    .gp-stepper-step.gp-rippling .gp-stepper-ripple { animation: gpStepRipple .28s ease; }
+    @keyframes gpStepRipple { 0% { transform: scale(.75); opacity: .65; } 100% { transform: scale(1.02); opacity: 0; } }
+    @media (max-width: 860px) {
+      .gp-stepper-viewport { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; }
+      .gp-stepper-viewport::-webkit-scrollbar { display: none; }
+      .gp-stepper-track { width: max-content; min-width: 100%; padding-inline: 10px; }
+      .gp-stepper-step { flex: 0 0 min(76vw, 250px); max-width: min(76vw, 250px); }
+      .gp-stepper-fit .gp-stepper-viewport { overflow-x: hidden; scroll-snap-type: none; }
+      .gp-stepper-fit .gp-stepper-track { width: 100%; }
+      .gp-stepper-fit .gp-stepper-step { flex: 1 1 0; max-width: none; }
+    }
+    /* ---- End Stepper ---- */
     .tutorial-card h3 { margin: 0 0 8px; }
     .tutorial-card .sub { margin: 0 0 8px; font-size: 12px; color: #64748b; }
     .guidance-panel h3 { margin-bottom: 10px; }
@@ -1704,94 +1795,151 @@
       return "current";
     }
 
-    let stepperScriptLoader = null;
-    function ensureRegistrationStepperLoaded() {
-      if (window.GPRegistrationStepper) return Promise.resolve(true);
-      if (stepperScriptLoader) return stepperScriptLoader;
-
-      stepperScriptLoader = new Promise((resolve) => {
-        const sources = ["/js/registration-stepper.js", "../js/registration-stepper.js"];
-
-        function tryLoad(index) {
-          if (window.GPRegistrationStepper) {
-            resolve(true);
-            return;
-          }
-          if (index >= sources.length) {
-            resolve(false);
-            return;
-          }
-          const src = sources[index];
-          const existing = document.querySelector(`script[data-stepper-src="${src}"]`);
-          if (existing) {
-            existing.addEventListener("load", () => resolve(!!window.GPRegistrationStepper), { once: true });
-            existing.addEventListener("error", () => tryLoad(index + 1), { once: true });
-            return;
-          }
-
-          const script = document.createElement("script");
-          script.src = src;
-          script.defer = true;
-          script.dataset.stepperSrc = src;
-          script.addEventListener("load", () => resolve(!!window.GPRegistrationStepper), { once: true });
-          script.addEventListener("error", () => tryLoad(index + 1), { once: true });
-          document.head.appendChild(script);
-        }
-
-        tryLoad(0);
-      });
-
-      return stepperScriptLoader;
+    function buildStepIcon(status) {
+      if (status === "completed") return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M13 4.5L6.5 11 3 7.5"/></svg>';
+      if (status === "locked")    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3.5" y="7" width="9" height="6" rx="1.4"/><path d="M5.5 7V5.8a2.5 2.5 0 1 1 5 0V7"/></svg>';
+      if (status === "waiting")   return '<span class="gp-stepper-spinner"></span>';
+      if (status === "action_required") return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M8 2.8l5 9H3z"/><path d="M8 6v3.1"/><path d="M8 11.9h.01"/></svg>';
+      return '<span class="gp-stepper-dot"></span>';
     }
 
-    function renderLegacySubstageTabs(progress) {
-      stageListEl.className = "stage-list substage-tabs";
-      stageListEl.innerHTML = "";
-      for (const stageKey of STAGES) {
-        const meta = stageMeta[stageKey];
-        const status = stageStatus(progress, stageKey);
-        const tab = document.createElement("button");
-        tab.type = "button";
-        tab.className = `substage-tab ${status === "locked" ? "is-locked" : ""} ${status === "done" ? "is-done" : ""} ${status === "current" ? "is-current" : ""}`;
-        tab.setAttribute("role", "tab");
-        tab.setAttribute("aria-selected", progress.stage === stageKey ? "true" : "false");
-        tab.setAttribute("aria-label", `${meta.label} (${status})`);
-        tab.disabled = !(status === "done" || status === "current");
-        const marker = status === "locked" ? String(STAGES.indexOf(stageKey) + 1) : "✓";
-        tab.innerHTML = `
-          <span class="substage-marker" aria-hidden="true">${marker}</span>
-          <span class="substage-copy">
-            <span class="substage-title">${meta.label}</span>
-            <span class="substage-help">Explain your step here.</span>
-          </span>
-        `;
-        tab.addEventListener("click", () => {
-          if (status === "locked") return;
-          selectedStageKey = stageKey;
-          syncRouteForStage(stageKey);
-          render(progress);
+    function renderInlineStepper(container, steps, config) {
+      container.className = "gp-stepper";
+      container.setAttribute("role", "tablist");
+      container.setAttribute("aria-label", config.ariaLabel || "Registration steps");
+      container.innerHTML = "";
+
+      const wrap = document.createElement("div");
+      wrap.className = "gp-stepper-wrap";
+      const viewport = document.createElement("div");
+      viewport.className = "gp-stepper-viewport";
+      const track = document.createElement("div");
+      track.className = "gp-stepper-track";
+
+      const lineEl = document.createElement("span");
+      lineEl.className = "gp-stepper-line";
+      const fillEl = document.createElement("span");
+      fillEl.className = "gp-stepper-line-fill";
+      lineEl.appendChild(fillEl);
+      track.appendChild(lineEl);
+
+      const buttons = [];
+      steps.forEach(function (step, idx) {
+        const status = step.status || "locked";
+        const isCurrent = !!step.current;
+        const clickable = step.interactive !== false && (status === "completed" || status === "current");
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = ["gp-stepper-step", "gp-" + status, isCurrent ? "gp-active" : "", clickable ? "gp-clickable" : ""].filter(Boolean).join(" ");
+        btn.setAttribute("role", "tab");
+        btn.setAttribute("aria-selected", isCurrent ? "true" : "false");
+        btn.setAttribute("aria-current", isCurrent ? "step" : "false");
+        if (!clickable) btn.setAttribute("aria-disabled", "true");
+        btn.tabIndex = isCurrent ? 0 : -1;
+
+        const inner = document.createElement("span");
+        inner.className = "gp-stepper-inner";
+
+        const circle = document.createElement("span");
+        circle.className = "gp-stepper-circle";
+        circle.innerHTML = buildStepIcon(status);
+
+        const body = document.createElement("span");
+        body.className = "gp-stepper-body";
+
+        const titleRow = document.createElement("span");
+        titleRow.className = "gp-stepper-title-row";
+
+        const titleEl = document.createElement("p");
+        titleEl.className = "gp-stepper-title";
+        titleEl.textContent = step.title || ("Step " + (idx + 1));
+        titleRow.appendChild(titleEl);
+
+        if (isCurrent) {
+          const badge = document.createElement("span");
+          badge.className = "gp-stepper-badge";
+          badge.textContent = "Current";
+          titleRow.appendChild(badge);
+        }
+        body.appendChild(titleRow);
+
+        if (step.description) {
+          const desc = document.createElement("p");
+          desc.className = "gp-stepper-desc";
+          desc.textContent = step.description;
+          body.appendChild(desc);
+        }
+
+        const ripple = document.createElement("span");
+        ripple.className = "gp-stepper-ripple";
+        inner.appendChild(circle);
+        inner.appendChild(body);
+        inner.appendChild(ripple);
+        btn.appendChild(inner);
+
+        btn.addEventListener("click", function () {
+          btn.classList.remove("gp-rippling");
+          void btn.offsetWidth;
+          btn.classList.add("gp-rippling");
+          if (!clickable) {
+            config.onLockedStep && config.onLockedStep(step);
+            return;
+          }
+          config.onStepSelect && config.onStepSelect(step);
         });
-        stageListEl.appendChild(tab);
+
+        track.appendChild(btn);
+        buttons.push(btn);
+      });
+
+      viewport.appendChild(track);
+      wrap.appendChild(viewport);
+      container.appendChild(wrap);
+
+      function syncLine() {
+        var circles = buttons.map(function (b) { return b.querySelector(".gp-stepper-circle"); }).filter(Boolean);
+        if (!circles.length) return;
+        var trackBox = track.getBoundingClientRect();
+        if (!trackBox.width) return;
+        var centers = circles.map(function (c) { var box = c.getBoundingClientRect(); return (box.left + box.width / 2) - trackBox.left; });
+        var first = centers[0], last = centers[centers.length - 1];
+        var activeIdx = buttons.findIndex(function (b) { return b.classList.contains("gp-active"); });
+        if (activeIdx === -1) activeIdx = 0;
+        var target = centers[Math.min(activeIdx, centers.length - 1)];
+        var circleBox = circles[0].getBoundingClientRect();
+        track.style.setProperty("--gp-line-start", first + "px");
+        track.style.setProperty("--gp-line-width", Math.max(0, last - first) + "px");
+        track.style.setProperty("--gp-line-fill",  Math.max(0, target - first) + "px");
+        track.style.setProperty("--gp-line-top", ((circleBox.top + circleBox.height / 2) - trackBox.top) + "px");
+        var canScroll = viewport.scrollWidth > viewport.clientWidth + 1;
+        wrap.classList.toggle("gp-fade-left",  canScroll && viewport.scrollLeft > 2);
+        wrap.classList.toggle("gp-fade-right", canScroll && viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2);
+        container.classList.toggle("gp-stepper-fit", !canScroll);
+        if (canScroll && window.matchMedia && window.matchMedia("(max-width: 860px)").matches) {
+          var currentBtn = buttons[Math.max(0, activeIdx)];
+          if (currentBtn) {
+            var vpBox = viewport.getBoundingClientRect();
+            var btnBox = currentBtn.getBoundingClientRect();
+            viewport.scrollTo({ left: Math.max(0, viewport.scrollLeft + (btnBox.left + btnBox.width / 2) - (vpBox.left + vpBox.width / 2)), behavior: "smooth" });
+          }
+        }
       }
+
+      requestAnimationFrame(syncLine);
+      var rafId = 0;
+      window.addEventListener("resize", function () { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(syncLine); });
+      viewport.addEventListener("scroll", function () {
+        var canScroll = viewport.scrollWidth > viewport.clientWidth + 1;
+        wrap.classList.toggle("gp-fade-left",  canScroll && viewport.scrollLeft > 2);
+        wrap.classList.toggle("gp-fade-right", canScroll && viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2);
+      }, { passive: true });
     }
 
     function renderLeft(progress) {
       if (!stageListEl) return;
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
-      if (!window.GPRegistrationStepper || !window.GPRegistrationStepper.render) {
-        stageListEl.className = "registration-stepper-host";
-        stageListEl.textContent = "Loading steps…";
-        ensureRegistrationStepperLoaded().then((loaded) => {
-          if (loaded && window.GPRegistrationStepper && window.GPRegistrationStepper.render) {
-            renderLeft(progress);
-            return;
-          }
-          renderLegacySubstageTabs(progress);
-        });
-        return;
-      }
-      stageListEl.className = "registration-stepper-host";
-      const steps = STAGES.map((stageKey) => {
+      const steps = STAGES.map(function (stageKey) {
         const meta = stageMeta[stageKey];
         const status = stageStatus(progress, stageKey);
         return {
@@ -1803,14 +1951,10 @@
           interactive: status === "done" || status === "current"
         };
       });
-      window.GPRegistrationStepper.render({
-        container: stageListEl,
+      renderInlineStepper(stageListEl, steps, {
         ariaLabel: "MyIntealth registration steps",
-        steps: steps,
-        onLockedStep: () => {
-          showToast("Complete the previous step to unlock this.");
-        },
-        onStepSelect: (step) => {
+        onLockedStep: function () { showToast("Complete the previous step to unlock this."); },
+        onStepSelect: function (step) {
           const key = step && step.id;
           if (!STAGES.includes(key)) return;
           if (stageStatus(progress, key) === "locked") {
