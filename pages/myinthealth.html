@@ -1942,7 +1942,15 @@
       if (!stageListEl) return;
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
       if (!window.GPRegistrationStepper || !window.GPRegistrationStepper.render) {
-        renderLegacySubstageTabs(progress);
+        stageListEl.className = "registration-stepper-host";
+        stageListEl.textContent = "Loading steps…";
+        ensureRegistrationStepperLoaded().then((loaded) => {
+          if (loaded && window.GPRegistrationStepper && window.GPRegistrationStepper.render) {
+            renderLeft(progress);
+            return;
+          }
+          renderLegacySubstageTabs(progress);
+        });
         return;
       }
       stageListEl.className = "registration-stepper-host";
