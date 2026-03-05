@@ -55,6 +55,7 @@
         var(--bg);
       color: var(--text);
       padding: 20px 12px 30px;
+      overflow-x: hidden;
     }
 
     .shell {
@@ -812,6 +813,12 @@
       position: relative;
       z-index: 2;
     }
+    .substage-tabs.stage-list {
+      padding-left: 0;
+    }
+    .substage-tabs.stage-list::before {
+      content: none;
+    }
     .substage-tabs::-webkit-scrollbar { height: 0; }
     .substage-tab {
       border: 1px solid #d8e5f7;
@@ -885,6 +892,8 @@
       line-height: 1.15;
       text-align: center;
       letter-spacing: 0.01em;
+      text-wrap: balance;
+      overflow-wrap: anywhere;
     }
 
     .mobile-reg-title {
@@ -900,10 +909,42 @@
       .topbar h1 { font-size: 26px; }
       .heading h2 { font-size: 20px; }
       .main { padding: 10px; }
+      .layout > * { min-width: 0; }
       .btn { width: 100%; min-height: 44px; }
       .btn-undo { width: auto !important; min-height: 34px; }
       #watchTutorial { width: auto !important; min-height: 44px; }
       .heading-meta { align-items: flex-start; }
+      .substage-tabs-shell {
+        border: 1px solid #d8e5f7;
+        border-radius: 14px;
+        padding: 6px;
+      }
+      .substage-glass { display: none; }
+      .substage-tabs {
+        flex-wrap: wrap;
+        overflow: visible;
+      }
+      .substage-tab {
+        flex: 1 1 calc(50% - 4px);
+        min-width: 0;
+        white-space: normal;
+        text-align: center;
+        line-height: 1.25;
+        border-radius: 12px;
+      }
+      .substage-tab[aria-selected="true"] {
+        border-color: #bfdcff;
+        background: #eaf3ff;
+      }
+      .bottom-actions { grid-template-columns: 1fr; }
+      .next-btn,
+      .help-center {
+        justify-self: stretch;
+      }
+      .help-pill {
+        width: 100%;
+        min-width: 0;
+      }
       #tutorialVideoInline {
         width: min(86vw, 360px) !important;
         max-height: 210px;
@@ -1166,6 +1207,7 @@
       .actions .btn { width: 100%; justify-content: center; }
       #watchTutorial { width: 100%; min-width: 0; }
       .pill { white-space: normal; }
+      .mobile-tab-label { font-size: 9px; }
     }
 
   </style>
