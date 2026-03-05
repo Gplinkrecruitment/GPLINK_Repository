@@ -9,6 +9,9 @@ export default function HomePage() {
         <Link className="text-primary underline" href="/demo/stepper">
           Open stepper demo
         </Link>
+        <Link className="block text-primary underline" href="/myintealth">
+          Open MyIntealth sub-stage nav
+        </Link>
       </div>
     </main>
   )
