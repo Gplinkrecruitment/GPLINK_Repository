@@ -358,112 +358,68 @@
       font-size: 16px;
       font-weight: 760;
     }
-    .progress-step {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #fff;
-      overflow: hidden;
+    .stepper-shell {
       margin-top: 8px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #eef5ff 0%, #f8fbff 55%, #f1efff 100%);
+      padding: 10px;
     }
-    .progress-step > summary {
-      list-style: none;
-      cursor: pointer;
-      display: grid;
-      grid-template-columns: auto 1fr auto auto;
-      gap: 10px;
-      align-items: center;
-      padding: 10px 12px;
-      user-select: none;
+    .stepper-nav {
+      border-radius: 14px;
+      background: #ffffff;
+      border: 1px solid #e8eef9;
+      box-shadow: 0 14px 30px -24px rgba(15, 23, 42, 0.45);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 12px 14px 10px;
     }
-    .progress-step > summary::-webkit-details-marker { display: none; }
-    .step-dot {
+    .step-item {
+      position: relative;
+      flex: 1 1 0;
+      min-width: 0;
+      text-align: center;
+    }
+    .step-item::after {
+      content: "";
+      position: absolute;
+      top: 12px;
+      left: calc(50% + 14px);
+      width: calc(100% - 28px);
+      height: 1px;
+      background: #d9deea;
+    }
+    .step-item:last-child::after { display: none; }
+    .step-marker {
       width: 24px;
       height: 24px;
+      margin: 0 auto 6px;
       border-radius: 999px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 800;
-      border: 1px solid #cbd5e1;
-      color: #475569;
-      background: #f1f5f9;
-    }
-    .step-dot.complete {
-      border-color: #a7e1ba;
-      background: #e8f9ef;
-      color: #166534;
-    }
-    .step-dot.current {
-      border-color: #7db2ff;
-      background: #eaf2ff;
-      color: #1d4ed8;
-    }
-    .step-name {
-      font-size: 14px;
-      font-weight: 700;
-      color: #1f2937;
-    }
-    .step-state {
-      font-size: 11px;
-      font-weight: 750;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: #64748b;
-    }
-    .step-chevron {
-      font-size: 16px;
-      color: #64748b;
-      transform: rotate(0deg);
-      transition: transform 120ms ease;
-    }
-    details[open] > summary .step-chevron { transform: rotate(180deg); }
-    .substeps {
-      border-top: 1px solid #e6edf7;
-      background: #fbfdff;
-      padding: 8px 12px 10px;
+      border: 1px solid #7845ff;
+      background: #7845ff;
+      color: #ffffff;
       display: grid;
-      gap: 6px;
-    }
-    .substep {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      place-items: center;
       font-size: 13px;
-      color: #334155;
-      padding: 4px 0;
-    }
-    .substep-indicator {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: #cbd5e1;
-      flex: 0 0 auto;
-    }
-    .substep.done .substep-indicator { background: #22c55e; }
-    .substep.current .substep-indicator { background: #2563eb; }
-    .substep.pending .substep-indicator { background: #cbd5e1; }
-    .substep-label { flex: 1; }
-    .substep-tag {
-      border-radius: 999px;
-      padding: 2px 6px;
-      font-size: 10px;
       font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      border: 1px solid #dce7f5;
-      color: #475569;
-      background: #f8fafc;
+      line-height: 1;
     }
-    .substep.current .substep-tag {
-      color: #1d4ed8;
-      border-color: #bfdbfe;
-      background: #eff6ff;
+    .step-label {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 650;
+      color: #1f2937;
+      line-height: 1.2;
     }
-    .substep.done .substep-tag {
-      color: #166534;
-      border-color: #b9e8c8;
-      background: #ebf9f0;
+    .step-help {
+      margin: 2px 0 0;
+      font-size: 10px;
+      color: #6b7280;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .modal-actions {
       display: flex;
@@ -591,8 +547,22 @@
       .stats { grid-template-columns: 1fr; }
       .modal-title { font-size: 24px; }
       .candidate-grid { grid-template-columns: 1fr; }
-      .progress-step > summary { grid-template-columns: auto 1fr auto; }
-      .step-state { display: none; }
+      .stepper-nav {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .step-item {
+        text-align: left;
+        display: grid;
+        grid-template-columns: 24px 1fr;
+        column-gap: 8px;
+        align-items: center;
+      }
+      .step-item::after { display: none; }
+      .step-marker { margin: 0; }
+      .step-copy { min-width: 0; }
+      .step-help { white-space: normal; }
     }
   </style>
 </head>
@@ -1053,25 +1023,27 @@
           </div>
         `).join("")
         : `<div class="docs-row"><span>No document data available.</span><span>-</span><span class="doc-pill pending">pending</span><span>-</span></div>`;
-      const stepMarkup = steps.map((step) => `
-        <details class="progress-step" ${step.openByDefault ? "open" : ""}>
-          <summary>
-            <span class="step-dot ${step.state}">${step.state === "complete" ? "✓" : step.stepIndex}</span>
-            <span class="step-name">${escapeHtml(step.name)}</span>
-            <span class="step-state">${step.state === "complete" ? "Complete" : (step.state === "current" ? "Current" : "Pending")}</span>
-            <span class="step-chevron">▾</span>
-          </summary>
-          <div class="substeps">
-            ${step.substeps.map((sub) => `
-              <div class="substep ${sub.state}">
-                <span class="substep-indicator"></span>
-                <span class="substep-label">${escapeHtml(sub.label)}</span>
-                <span class="substep-tag">${sub.state}</span>
+      const navSteps = steps.slice(0, 3);
+      while (navSteps.length < 3) {
+        navSteps.push({
+          name: "Step Title"
+        });
+      }
+      const stepMarkup = `
+        <div class="stepper-shell">
+          <nav class="stepper-nav" aria-label="Registration progress">
+            ${navSteps.map((step) => `
+              <div class="step-item">
+                <span class="step-marker">✓</span>
+                <div class="step-copy">
+                  <p class="step-label">${escapeHtml(step.name || "Step Title")}</p>
+                  <p class="step-help">Explain your step here.</p>
+                </div>
               </div>
             `).join("")}
-          </div>
-        </details>
-      `).join("");
+          </nav>
+        </div>
+      `;
 
       candidateModalBodyEl.innerHTML = `
         <section class="candidate-top">
