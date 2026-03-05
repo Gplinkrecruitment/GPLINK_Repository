@@ -778,7 +778,7 @@
       transition: width .55s cubic-bezier(.4,0,.2,1);
     }
     .gp-stepper-step {
-      position: relative; z-index: 1; border: 0; background: transparent;
+      position: relative; z-index: 1; border: 0; background: #f4f7fb;
       padding: 0; margin: 0; flex: 1 1 0; min-width: 168px; text-align: left;
       scroll-snap-align: center; cursor: not-allowed; outline: none; border-radius: 14px;
     }
@@ -1916,17 +1916,21 @@
         wrap.classList.toggle("gp-fade-left",  canScroll && viewport.scrollLeft > 2);
         wrap.classList.toggle("gp-fade-right", canScroll && viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2);
         container.classList.toggle("gp-stepper-fit", !canScroll);
-        if (canScroll && window.matchMedia && window.matchMedia("(max-width: 860px)").matches) {
-          var currentBtn = buttons[Math.max(0, activeIdx)];
-          if (currentBtn) {
-            var vpBox = viewport.getBoundingClientRect();
-            var btnBox = currentBtn.getBoundingClientRect();
-            viewport.scrollTo({ left: Math.max(0, viewport.scrollLeft + (btnBox.left + btnBox.width / 2) - (vpBox.left + vpBox.width / 2)), behavior: "smooth" });
-          }
-        }
       }
 
-      requestAnimationFrame(syncLine);
+      function centerActiveStep(behavior) {
+        var canScroll = viewport.scrollWidth > viewport.clientWidth + 1;
+        if (!canScroll) return;
+        var activeIdx = buttons.findIndex(function (b) { return b.classList.contains("gp-active"); });
+        if (activeIdx < 0) return;
+        var currentBtn = buttons[activeIdx];
+        var vpBox = viewport.getBoundingClientRect();
+        var btnBox = currentBtn.getBoundingClientRect();
+        var targetLeft = viewport.scrollLeft + (btnBox.left + btnBox.width / 2) - (vpBox.left + vpBox.width / 2);
+        viewport.scrollTo({ left: Math.max(0, targetLeft), behavior: behavior || "instant" });
+      }
+
+      requestAnimationFrame(function () { syncLine(); centerActiveStep("instant"); });
       var rafId = 0;
       window.addEventListener("resize", function () { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(syncLine); });
       viewport.addEventListener("scroll", function () {
@@ -2078,11 +2082,6 @@
 
     function goToNextSubstage() {
       const progress = loadProgress();
-      const selectedStatus = stageStatus(progress, selectedStageKey);
-      if (selectedStatus === "current" && selectedStageKey === progress.stage) {
-        markStageComplete(progress, selectedStageKey);
-        return;
-      }
       const idx = STAGES.indexOf(selectedStageKey);
       const next = STAGES[idx + 1];
       if (!next) return;
