@@ -23,7 +23,7 @@
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
-  <script src="../js/registration-stepper.js"></script>
+  <script src="/js/registration-stepper.js"></script>
   <title>MyIntealth - GP Link</title>
   <style>
     :root {
@@ -1809,9 +1809,38 @@
       return "current";
     }
 
+    function renderLegacySubstageTabs(progress) {
+      stageListEl.className = "stage-list substage-tabs";
+      stageListEl.innerHTML = "";
+      for (const stageKey of STAGES) {
+        const meta = stageMeta[stageKey];
+        const status = stageStatus(progress, stageKey);
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = `substage-tab ${status === "locked" ? "is-locked" : ""}`;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", progress.stage === stageKey ? "true" : "false");
+        tab.setAttribute("aria-label", `${meta.label} (${status})`);
+        tab.textContent = meta.label;
+        tab.disabled = !(status === "done" || status === "current");
+        tab.addEventListener("click", () => {
+          if (status === "locked") return;
+          selectedStageKey = stageKey;
+          syncRouteForStage(stageKey);
+          render(progress);
+        });
+        stageListEl.appendChild(tab);
+      }
+    }
+
     function renderLeft(progress) {
-      if (!stageListEl || !window.GPRegistrationStepper) return;
+      if (!stageListEl) return;
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
+      if (!window.GPRegistrationStepper) {
+        renderLegacySubstageTabs(progress);
+        return;
+      }
+      stageListEl.className = "registration-stepper-host";
       const steps = STAGES.map((stageKey) => {
         const meta = stageMeta[stageKey];
         const status = stageStatus(progress, stageKey);
