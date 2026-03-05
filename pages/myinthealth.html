@@ -781,12 +781,12 @@
     }
     .substage-tabs-shell {
       position: relative;
-      border-radius: 999px;
-      padding: 0;
+      border-radius: 16px;
+      padding: 10px;
       border: 0;
-      background: transparent;
-      box-shadow: none;
-      overflow: visible;
+      background: linear-gradient(135deg, #edf4ff 0%, #f8fbff 55%, #f1efff 100%);
+      box-shadow: inset 0 0 0 1px #e5ecf8;
+      overflow: hidden;
     }
     .substage-glass {
       position: absolute;
@@ -805,15 +805,19 @@
     }
     .substage-tabs {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: nowrap;
-      padding: 0;
+      padding: 12px 14px 10px;
       overflow-x: auto;
       overflow-y: hidden;
       scroll-behavior: smooth;
       -webkit-overflow-scrolling: touch;
       position: relative;
       z-index: 2;
+      border-radius: 14px;
+      border: 1px solid #e8eef9;
+      background: #ffffff;
+      box-shadow: 0 14px 30px -24px rgba(15, 23, 42, 0.45);
     }
     .substage-tabs.stage-list {
       padding-left: 0;
@@ -823,29 +827,85 @@
     }
     .substage-tabs::-webkit-scrollbar { height: 0; }
     .substage-tab {
-      border: 1px solid #d8e5f7;
+      border: 0;
       background: transparent;
       color: #1f2937;
-      border-radius: 999px;
-      padding: 9px 12px;
-      font-size: 12px;
-      font-weight: 700;
+      border-radius: 0;
+      padding: 0;
+      font-size: 11px;
+      font-weight: 650;
       cursor: pointer;
       transition: all .16s ease;
-      flex: 0 0 auto;
-      white-space: nowrap;
+      flex: 1 1 0;
+      min-width: 170px;
+      white-space: normal;
       position: relative;
       z-index: 2;
+      text-align: center;
+    }
+    .substage-tab::after {
+      content: "";
+      position: absolute;
+      top: 12px;
+      left: calc(50% + 14px);
+      width: calc(100% - 28px);
+      height: 1px;
+      background: #d9deea;
+      pointer-events: none;
+    }
+    .substage-tab:last-child::after {
+      content: none;
+    }
+    .substage-tab .substage-marker {
+      width: 24px;
+      height: 24px;
+      margin: 0 auto 6px;
+      border-radius: 999px;
+      border: 1px solid #7845ff;
+      background: #7845ff;
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .substage-tab .substage-copy {
+      display: grid;
+      gap: 2px;
+    }
+    .substage-tab .substage-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 650;
+      color: #1f2937;
+      line-height: 1.2;
+    }
+    .substage-tab .substage-help {
+      margin: 0;
+      font-size: 10px;
+      color: #6b7280;
+      line-height: 1.2;
     }
     .substage-tab[aria-selected="true"] {
       color: #0f172a;
-      border-color: transparent;
-      background: transparent;
     }
     .substage-tab.is-locked {
       color: #94a3b8;
-      background: transparent;
-      border-color: transparent;
+    }
+    .substage-tab.is-locked .substage-marker {
+      background: #ffffff;
+      border-color: #d4d9e5;
+      color: #9aa6b6;
+    }
+    .substage-tab.is-locked .substage-title,
+    .substage-tab.is-locked .substage-help {
+      color: #9aa6b6;
+    }
+    .substage-tab.is-done::after,
+    .substage-tab.is-current::after {
+      background: #7845ff;
     }
     .tutorial-card h3 { margin: 0 0 8px; }
     .tutorial-card .sub { margin: 0 0 8px; font-size: 12px; color: #64748b; }
@@ -917,26 +977,24 @@
       #watchTutorial { width: auto !important; min-height: 44px; }
       .heading-meta { align-items: flex-start; }
       .substage-tabs-shell {
-        border: 1px solid #d8e5f7;
-        border-radius: 14px;
+        border: 0;
+        border-radius: 12px;
         padding: 6px;
       }
       .substage-glass { display: none; }
       .substage-tabs {
-        flex-wrap: wrap;
-        overflow: visible;
+        gap: 8px;
+        padding: 10px;
       }
       .substage-tab {
-        flex: 1 1 calc(50% - 4px);
-        min-width: 0;
-        white-space: normal;
-        text-align: center;
-        line-height: 1.25;
-        border-radius: 12px;
+        min-width: 150px;
+        text-align: left;
       }
-      .substage-tab[aria-selected="true"] {
-        border-color: #bfdcff;
-        background: #eaf3ff;
+      .substage-tab::after {
+        content: none;
+      }
+      .substage-tab .substage-marker {
+        margin: 0 0 6px;
       }
       .bottom-actions { grid-template-columns: 1fr; }
       .next-btn,
@@ -1809,6 +1867,46 @@
       return "current";
     }
 
+    let stepperScriptLoader = null;
+    function ensureRegistrationStepperLoaded() {
+      if (window.GPRegistrationStepper) return Promise.resolve(true);
+      if (stepperScriptLoader) return stepperScriptLoader;
+
+      stepperScriptLoader = new Promise((resolve) => {
+        const sources = ["/js/registration-stepper.js", "../js/registration-stepper.js"];
+
+        function tryLoad(index) {
+          if (window.GPRegistrationStepper) {
+            resolve(true);
+            return;
+          }
+          if (index >= sources.length) {
+            resolve(false);
+            return;
+          }
+          const src = sources[index];
+          const existing = document.querySelector(`script[data-stepper-src="${src}"]`);
+          if (existing) {
+            existing.addEventListener("load", () => resolve(!!window.GPRegistrationStepper), { once: true });
+            existing.addEventListener("error", () => tryLoad(index + 1), { once: true });
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = src;
+          script.defer = true;
+          script.dataset.stepperSrc = src;
+          script.addEventListener("load", () => resolve(!!window.GPRegistrationStepper), { once: true });
+          script.addEventListener("error", () => tryLoad(index + 1), { once: true });
+          document.head.appendChild(script);
+        }
+
+        tryLoad(0);
+      });
+
+      return stepperScriptLoader;
+    }
+
     function renderLegacySubstageTabs(progress) {
       stageListEl.className = "stage-list substage-tabs";
       stageListEl.innerHTML = "";
@@ -1817,12 +1915,19 @@
         const status = stageStatus(progress, stageKey);
         const tab = document.createElement("button");
         tab.type = "button";
-        tab.className = `substage-tab ${status === "locked" ? "is-locked" : ""}`;
+        tab.className = `substage-tab ${status === "locked" ? "is-locked" : ""} ${status === "done" ? "is-done" : ""} ${status === "current" ? "is-current" : ""}`;
         tab.setAttribute("role", "tab");
         tab.setAttribute("aria-selected", progress.stage === stageKey ? "true" : "false");
         tab.setAttribute("aria-label", `${meta.label} (${status})`);
-        tab.textContent = meta.label;
         tab.disabled = !(status === "done" || status === "current");
+        const marker = status === "locked" ? String(STAGES.indexOf(stageKey) + 1) : "✓";
+        tab.innerHTML = `
+          <span class="substage-marker" aria-hidden="true">${marker}</span>
+          <span class="substage-copy">
+            <span class="substage-title">${meta.label}</span>
+            <span class="substage-help">Explain your step here.</span>
+          </span>
+        `;
         tab.addEventListener("click", () => {
           if (status === "locked") return;
           selectedStageKey = stageKey;
@@ -1836,39 +1941,7 @@
     function renderLeft(progress) {
       if (!stageListEl) return;
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
-      if (!window.GPRegistrationStepper) {
-        renderLegacySubstageTabs(progress);
-        return;
-      }
-      stageListEl.className = "registration-stepper-host";
-      const steps = STAGES.map((stageKey) => {
-        const meta = stageMeta[stageKey];
-        const status = stageStatus(progress, stageKey);
-        return {
-          id: stageKey,
-          title: meta.label,
-          description: meta.short,
-          status: mapStepperStatus(stageKey, status),
-          current: progress.stage === stageKey,
-          interactive: status === "done" || status === "current"
-        };
-      });
-      window.GPRegistrationStepper.render({
-        container: stageListEl,
-        ariaLabel: "MyIntealth registration steps",
-        steps: steps,
-        onStepSelect: (step) => {
-          const key = step && step.id;
-          if (!STAGES.includes(key)) return;
-          if (stageStatus(progress, key) === "locked") {
-            showToast("Complete the previous step to unlock this.");
-            return;
-          }
-          selectedStageKey = key;
-          syncRouteForStage(key);
-          render(progress);
-        }
-      });
+      renderLegacySubstageTabs(progress);
     }
 
     function renderRight(progress) {
