@@ -23,6 +23,7 @@
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
+  <script src="../js/registration-stepper.js"></script>
   <title>MyIntealth - GP Link</title>
   <style>
     :root {
@@ -756,6 +757,7 @@
       letter-spacing: 0.01em;
     }
     .substage-progress {
+      display: none;
       width: 100%;
       height: 10px;
       border-radius: 999px;
@@ -1261,8 +1263,7 @@
         <article class="card progress-panel">
           <div class="substage-tabs-wrap">
             <div class="substage-tabs-shell">
-              <span class="substage-glass" id="substageGlass" aria-hidden="true"></span>
-              <div class="stage-list substage-tabs" id="stageList" role="tablist" aria-label="Substages"></div>
+              <div class="registration-stepper-host" id="stageList" role="tablist" aria-label="Substages"></div>
             </div>
           </div>
           <div class="substage-progress" aria-label="Step progress">
@@ -1488,7 +1489,6 @@
     const footerStatusEl = document.getElementById("footerStatus");
     const stepTitleEl = document.getElementById("stepTitle");
     const stepFlowEl = document.getElementById("stepFlow");
-    const substageGlassEl = document.getElementById("substageGlass");
     const substageProgressFillEl = document.getElementById("substageProgressFill");
     const substageNextBtnEl = document.getElementById("substageNextBtn");
     const stickyStageActionEl = document.getElementById("stickyStageAction");
@@ -1801,54 +1801,45 @@
       if (timelineAfterEl) timelineAfterEl.textContent = after ? stageMeta[after].label : "Complete";
     }
 
-    function moveSubstageGlass() {
-      if (!substageGlassEl || !stageListEl) return;
-      const active = stageListEl.querySelector('.substage-tab[aria-selected="true"]');
-      if (!(active instanceof HTMLElement)) {
-        substageGlassEl.style.opacity = "0";
-        return;
-      }
-      const shell = active.closest(".substage-tabs-shell");
-      if (!(shell instanceof HTMLElement)) return;
-      const shellRect = shell.getBoundingClientRect();
-      const activeRect = active.getBoundingClientRect();
-      const left = activeRect.left - shellRect.left;
-      substageGlassEl.style.left = `${left}px`;
-      substageGlassEl.style.width = `${activeRect.width}px`;
-      substageGlassEl.style.height = `${activeRect.height}px`;
-      substageGlassEl.style.opacity = "1";
+    function mapStepperStatus(stageKey, status) {
+      if (status === "done") return "completed";
+      if (status === "locked") return "locked";
+      if (stageKey === "upload_qualifications" && status === "current") return "action_required";
+      if (stageKey === "waiting_verification" && status === "current") return "waiting";
+      return "current";
     }
 
     function renderLeft(progress) {
-      stageListEl.innerHTML = "";
+      if (!stageListEl || !window.GPRegistrationStepper) return;
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
-      for (const stageKey of STAGES) {
+      const steps = STAGES.map((stageKey) => {
         const meta = stageMeta[stageKey];
         const status = stageStatus(progress, stageKey);
-        const tab = document.createElement("button");
-        tab.type = "button";
-        tab.className = `substage-tab ${status === "locked" ? "is-locked" : ""}`;
-        tab.setAttribute("role", "tab");
-        tab.setAttribute("aria-selected", selectedStageKey === stageKey ? "true" : "false");
-        tab.setAttribute("aria-label", `${meta.label} (${status})`);
-        tab.innerHTML = `${meta.label}${status === "locked" ? ' <span aria-hidden="true">[lock]</span>' : ""}`;
-        tab.addEventListener("click", () => {
-          if (status === "locked") {
+        return {
+          id: stageKey,
+          title: meta.label,
+          description: meta.short,
+          status: mapStepperStatus(stageKey, status),
+          current: progress.stage === stageKey,
+          interactive: status === "done" || status === "current"
+        };
+      });
+      window.GPRegistrationStepper.render({
+        container: stageListEl,
+        ariaLabel: "MyIntealth registration steps",
+        steps: steps,
+        onStepSelect: (step) => {
+          const key = step && step.id;
+          if (!STAGES.includes(key)) return;
+          if (stageStatus(progress, key) === "locked") {
             showToast("Complete the previous step to unlock this.");
             return;
           }
-          selectedStageKey = stageKey;
-          syncRouteForStage(stageKey);
+          selectedStageKey = key;
+          syncRouteForStage(key);
           render(progress);
-        });
-        stageListEl.appendChild(tab);
-      }
-
-      const selectedTabEl = stageListEl.querySelector('.substage-tab[aria-selected="true"]');
-      if (selectedTabEl && typeof selectedTabEl.scrollIntoView === "function") {
-        selectedTabEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-      }
-      window.requestAnimationFrame(moveSubstageGlass);
+        }
+      });
     }
 
     function renderRight(progress) {
@@ -2250,11 +2241,8 @@
     }
     window.addEventListener("resize", () => {
       if (activeNavItem) moveNavGlass(activeNavItem, false);
-      moveSubstageGlass();
+      renderLeft(loadProgress());
     });
-    if (stageListEl) {
-      stageListEl.addEventListener("scroll", moveSubstageGlass, { passive: true });
-    }
 
     const initialProgress = loadProgress();
     selectedStageKey = initialProgress.stage;
