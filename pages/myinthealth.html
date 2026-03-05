@@ -773,149 +773,139 @@
       background: linear-gradient(90deg, #3b82f6, #93c5fd);
       transition: width .28s ease;
     }
-    .registration-stepper-wrap {
+    .substage-tabs-wrap {
       display: grid;
       grid-template-columns: 1fr;
       gap: 10px;
       align-items: center;
     }
-    .registration-stepper-shell {
+    .substage-tabs-shell {
       position: relative;
       border-radius: 16px;
-      padding: 8px;
+      padding: 10px;
       border: 0;
-      background: transparent;
-      box-shadow: none;
+      background: linear-gradient(135deg, #edf4ff 0%, #f8fbff 55%, #f1efff 100%);
+      box-shadow: inset 0 0 0 1px #e5ecf8;
       overflow: hidden;
     }
-    .registration-stepper-host {
-      min-height: 86px;
-      border-radius: 14px;
+    .substage-glass {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      width: 96px;
+      height: 34px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 16px -14px rgba(37, 99, 235, 0.5);
+      transition: left .32s cubic-bezier(.22,.9,.18,1.05), width .32s cubic-bezier(.22,.9,.18,1.05), opacity .16s ease;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1;
     }
-    .inline-stepper-viewport {
+    .substage-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: nowrap;
+      padding: 12px 14px 10px;
       overflow-x: auto;
       overflow-y: hidden;
-      scrollbar-width: none;
-      -ms-overflow-style: none;
-      scroll-snap-type: x mandatory;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+      position: relative;
+      z-index: 2;
       border-radius: 14px;
-      border: 1px solid #e7edf9;
-      background: #fff;
-      box-shadow: 0 12px 28px -22px rgba(15, 23, 42, 0.5);
-      padding: 12px 10px 10px;
-      position: relative;
+      border: 1px solid #e8eef9;
+      background: #ffffff;
+      box-shadow: 0 14px 30px -24px rgba(15, 23, 42, 0.45);
     }
-    .inline-stepper-viewport::-webkit-scrollbar { display: none; }
-    .inline-stepper-track {
-      position: relative;
-      display: flex;
-      gap: 8px;
-      align-items: flex-start;
-      min-width: 100%;
-      width: max-content;
-      padding: 0 4px;
+    .substage-tabs.stage-list {
+      padding-left: 0;
     }
-    .inline-stepper-line {
-      position: absolute;
-      left: 16px;
-      right: 16px;
-      top: 12px;
-      height: 2px;
-      background: #d7ddea;
-      border-radius: 999px;
-      overflow: hidden;
-      pointer-events: none;
+    .substage-tabs.stage-list::before {
+      content: none;
     }
-    .inline-stepper-fill {
-      display: block;
-      height: 100%;
-      width: 0;
-      background: linear-gradient(90deg, #8b5cf6, #6d28d9);
-      border-radius: inherit;
-      transition: width .32s ease;
-    }
-    .inline-step {
-      position: relative;
-      z-index: 1;
+    .substage-tabs::-webkit-scrollbar { height: 0; }
+    .substage-tab {
       border: 0;
       background: transparent;
-      color: #0f172a;
-      min-width: 210px;
-      flex: 1 1 0;
-      text-align: center;
-      border-radius: 12px;
+      color: #1f2937;
+      border-radius: 0;
       padding: 0;
-      scroll-snap-align: center;
+      font-size: 11px;
+      font-weight: 650;
       cursor: pointer;
+      transition: all .16s ease;
+      flex: 1 1 0;
+      min-width: 170px;
+      white-space: normal;
+      position: relative;
+      z-index: 2;
+      text-align: center;
     }
-    .inline-step.is-locked { cursor: not-allowed; }
-    .inline-step-inner {
-      border-radius: 12px;
-      padding: 2px 4px;
-      transition: transform .2s ease, box-shadow .2s ease, background-color .2s ease;
-      border: 1px solid transparent;
+    .substage-tab::after {
+      content: "";
+      position: absolute;
+      top: 12px;
+      left: calc(50% + 14px);
+      width: calc(100% - 28px);
+      height: 1px;
+      background: #d9deea;
+      pointer-events: none;
     }
-    .inline-step:hover .inline-step-inner {
-      transform: translateY(-2px);
-      background: rgba(255,255,255,0.45);
-      box-shadow: 0 8px 20px -18px rgba(15, 23, 42, 0.6);
-      border-color: rgba(148, 163, 184, 0.28);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+    .substage-tab:last-child::after {
+      content: none;
     }
-    .inline-step:focus-visible {
-      outline: 2px solid rgba(76, 29, 149, 0.25);
-      outline-offset: 2px;
-    }
-    .inline-dot {
+    .substage-tab .substage-marker {
       width: 24px;
       height: 24px;
       margin: 0 auto 6px;
       border-radius: 999px;
-      border: 1px solid #b9a8ff;
-      background: #f4f0ff;
-      color: #5b21b6;
-      display: grid;
-      place-items: center;
-      font-size: 12px;
+      border: 1px solid #7845ff;
+      background: #7845ff;
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
       font-weight: 800;
       line-height: 1;
     }
-    .inline-step.is-completed .inline-dot {
-      border-color: #7c3aed;
-      background: #7c3aed;
-      color: #fff;
+    .substage-tab .substage-copy {
+      display: grid;
+      gap: 2px;
     }
-    .inline-step.is-current .inline-dot {
-      box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.2);
-      transform: scale(1.06);
-    }
-    .inline-step.is-locked .inline-dot {
-      border-color: #d0d7e3;
-      background: #fff;
-      color: #9aa6b6;
-    }
-    .inline-step-title {
+    .substage-tab .substage-title {
       margin: 0;
       font-size: 12px;
-      font-weight: 720;
+      font-weight: 650;
+      color: #1f2937;
       line-height: 1.2;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
-    .inline-step-help {
-      margin: 2px 0 0;
+    .substage-tab .substage-help {
+      margin: 0;
       font-size: 10px;
       color: #6b7280;
       line-height: 1.2;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
-    .inline-step.is-locked .inline-step-title,
-    .inline-step.is-locked .inline-step-help {
+    .substage-tab[aria-selected="true"] {
+      color: #0f172a;
+    }
+    .substage-tab.is-locked {
       color: #94a3b8;
+    }
+    .substage-tab.is-locked .substage-marker {
+      background: #ffffff;
+      border-color: #d4d9e5;
+      color: #9aa6b6;
+    }
+    .substage-tab.is-locked .substage-title,
+    .substage-tab.is-locked .substage-help {
+      color: #9aa6b6;
+    }
+    .substage-tab.is-done::after,
+    .substage-tab.is-current::after {
+      background: #7845ff;
     }
     .tutorial-card h3 { margin: 0 0 8px; }
     .tutorial-card .sub { margin: 0 0 8px; font-size: 12px; color: #64748b; }
@@ -986,13 +976,26 @@
       .btn-undo { width: auto !important; min-height: 34px; }
       #watchTutorial { width: auto !important; min-height: 44px; }
       .heading-meta { align-items: flex-start; }
-      .registration-stepper-shell {
+      .substage-tabs-shell {
         border: 0;
         border-radius: 12px;
         padding: 6px;
       }
-      .inline-step { min-width: 76vw; text-align: left; }
-      .inline-dot { margin-left: 0; margin-right: 0; }
+      .substage-glass { display: none; }
+      .substage-tabs {
+        gap: 8px;
+        padding: 10px;
+      }
+      .substage-tab {
+        min-width: 150px;
+        text-align: left;
+      }
+      .substage-tab::after {
+        content: none;
+      }
+      .substage-tab .substage-marker {
+        margin: 0 0 6px;
+      }
       .bottom-actions { grid-template-columns: 1fr; }
       .next-btn,
       .help-center {
@@ -1316,8 +1319,8 @@
 
       <section class="layout single-col">
         <article class="card progress-panel">
-          <div class="registration-stepper-wrap">
-            <div class="registration-stepper-shell">
+          <div class="substage-tabs-wrap">
+            <div class="substage-tabs-shell">
               <div class="registration-stepper-host" id="stageList" role="tablist" aria-label="Substages"></div>
             </div>
           </div>
@@ -1904,65 +1907,34 @@
       return stepperScriptLoader;
     }
 
-    function renderInlineStepper(progress) {
-      const steps = STAGES.map((stageKey) => {
+    function renderLegacySubstageTabs(progress) {
+      stageListEl.className = "stage-list substage-tabs";
+      stageListEl.innerHTML = "";
+      for (const stageKey of STAGES) {
         const meta = stageMeta[stageKey];
         const status = stageStatus(progress, stageKey);
-        return {
-          id: stageKey,
-          title: meta.label,
-          description: meta.short,
-          status: mapStepperStatus(stageKey, status),
-          current: progress.stage === stageKey,
-          interactive: status === "done" || status === "current"
-        };
-      });
-      const currentIndex = Math.max(0, steps.findIndex((step) => step.current));
-      const fillPct = steps.length > 1 ? (currentIndex / (steps.length - 1)) * 100 : 100;
-
-      stageListEl.className = "registration-stepper-host";
-      stageListEl.innerHTML = `
-        <div class="inline-stepper-viewport" aria-label="MyIntealth registration steps">
-          <div class="inline-stepper-track">
-            <div class="inline-stepper-line"><span class="inline-stepper-fill" style="width:${fillPct}%;"></span></div>
-            ${steps.map((step, index) => `
-              <button
-                type="button"
-                class="inline-step is-${step.status === "current" ? "current" : step.status} ${step.interactive ? "" : "is-locked"}"
-                data-step-id="${step.id}"
-                role="tab"
-                aria-selected="${step.current ? "true" : "false"}"
-                aria-current="${step.current ? "step" : "false"}"
-                aria-label="${escapeHtml(step.title)}. ${escapeHtml(step.status)}. ${escapeHtml(step.description || "")}"
-              >
-                <span class="inline-step-inner">
-                  <span class="inline-dot">${step.status === "completed" ? "✓" : (step.status === "locked" ? "🔒" : String(index + 1))}</span>
-                  <p class="inline-step-title">${escapeHtml(step.title)}</p>
-                  <p class="inline-step-help">${escapeHtml(step.description || "Explain your step here.")}</p>
-                </span>
-              </button>
-            `).join("")}
-          </div>
-        </div>
-      `;
-
-      stageListEl.querySelectorAll(".inline-step").forEach((button) => {
-        button.addEventListener("click", () => {
-          const key = button.getAttribute("data-step-id");
-          if (!STAGES.includes(key)) return;
-          if (stageStatus(progress, key) === "locked") {
-            showToast("Complete the previous step to unlock this.");
-            return;
-          }
-          selectedStageKey = key;
-          syncRouteForStage(key);
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = `substage-tab ${status === "locked" ? "is-locked" : ""} ${status === "done" ? "is-done" : ""} ${status === "current" ? "is-current" : ""}`;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", progress.stage === stageKey ? "true" : "false");
+        tab.setAttribute("aria-label", `${meta.label} (${status})`);
+        tab.disabled = !(status === "done" || status === "current");
+        const marker = status === "locked" ? String(STAGES.indexOf(stageKey) + 1) : "✓";
+        tab.innerHTML = `
+          <span class="substage-marker" aria-hidden="true">${marker}</span>
+          <span class="substage-copy">
+            <span class="substage-title">${meta.label}</span>
+            <span class="substage-help">Explain your step here.</span>
+          </span>
+        `;
+        tab.addEventListener("click", () => {
+          if (status === "locked") return;
+          selectedStageKey = stageKey;
+          syncRouteForStage(stageKey);
           render(progress);
         });
-      });
-
-      const currentEl = stageListEl.querySelector('.inline-step[aria-current="step"]');
-      if (currentEl && currentEl.scrollIntoView) {
-        currentEl.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+        stageListEl.appendChild(tab);
       }
     }
 
@@ -1970,11 +1942,14 @@
       if (!stageListEl) return;
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
       if (!window.GPRegistrationStepper || !window.GPRegistrationStepper.render) {
-        renderInlineStepper(progress);
+        stageListEl.className = "registration-stepper-host";
+        stageListEl.textContent = "Loading steps…";
         ensureRegistrationStepperLoaded().then((loaded) => {
           if (loaded && window.GPRegistrationStepper && window.GPRegistrationStepper.render) {
             renderLeft(progress);
+            return;
           }
+          renderLegacySubstageTabs(progress);
         });
         return;
       }
