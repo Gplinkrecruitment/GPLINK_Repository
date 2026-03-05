@@ -1941,7 +1941,42 @@
     function renderLeft(progress) {
       if (!stageListEl) return;
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
-      renderLegacySubstageTabs(progress);
+      if (!window.GPRegistrationStepper || !window.GPRegistrationStepper.render) {
+        renderLegacySubstageTabs(progress);
+        return;
+      }
+      stageListEl.className = "registration-stepper-host";
+      const steps = STAGES.map((stageKey) => {
+        const meta = stageMeta[stageKey];
+        const status = stageStatus(progress, stageKey);
+        return {
+          id: stageKey,
+          title: meta.label,
+          description: meta.short,
+          status: mapStepperStatus(stageKey, status),
+          current: progress.stage === stageKey,
+          interactive: status === "done" || status === "current"
+        };
+      });
+      window.GPRegistrationStepper.render({
+        container: stageListEl,
+        ariaLabel: "MyIntealth registration steps",
+        steps: steps,
+        onLockedStep: () => {
+          showToast("Complete the previous step to unlock this.");
+        },
+        onStepSelect: (step) => {
+          const key = step && step.id;
+          if (!STAGES.includes(key)) return;
+          if (stageStatus(progress, key) === "locked") {
+            showToast("Complete the previous step to unlock this.");
+            return;
+          }
+          selectedStageKey = key;
+          syncRouteForStage(key);
+          render(progress);
+        }
+      });
     }
 
     function renderRight(progress) {

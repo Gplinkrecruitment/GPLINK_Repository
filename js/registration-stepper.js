@@ -1,5 +1,7 @@
 (function () {
   const STYLE_ID = "gp-registration-stepper-style";
+  const CONTAINER_STATE = new WeakMap();
+  const MOBILE_BREAKPOINT = 860;
 
   function ensureStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -7,179 +9,220 @@
     style.id = STYLE_ID;
     style.textContent = `
       .registration-stepper {
-        --rs-accent: #2563eb;
-        --rs-accent-soft: #dbeafe;
-        --rs-success: #16a34a;
-        --rs-success-soft: #dcfce7;
-        --rs-warning: #d97706;
-        --rs-warning-soft: #fef3c7;
-        --rs-muted: #94a3b8;
-        --rs-muted-soft: #e2e8f0;
+        --rs-purple: #7c3aed;
+        --rs-purple-soft: #ede9fe;
+        --rs-line: #d9deea;
+        --rs-muted: #9aa6b6;
         --rs-text: #0f172a;
-        --rs-subtext: #64748b;
+        --rs-subtext: #667085;
+        position: relative;
+        width: 100%;
+      }
+
+      .registration-stepper-viewport-wrap {
+        position: relative;
+        border-radius: 16px;
+      }
+
+      .registration-stepper-viewport-wrap::before,
+      .registration-stepper-viewport-wrap::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 22px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity .2s ease;
+        z-index: 4;
+      }
+
+      .registration-stepper-viewport-wrap::before {
+        left: 0;
+        background: linear-gradient(90deg, rgba(255,255,255,.96), rgba(255,255,255,0));
+      }
+
+      .registration-stepper-viewport-wrap::after {
+        right: 0;
+        background: linear-gradient(270deg, rgba(255,255,255,.96), rgba(255,255,255,0));
+      }
+
+      .registration-stepper-viewport-wrap.has-left-fade::before {
+        opacity: 1;
+      }
+
+      .registration-stepper-viewport-wrap.has-right-fade::after {
+        opacity: 1;
+      }
+
+      .registration-stepper-viewport {
+        overflow-x: hidden;
+        overflow-y: visible;
+        border-radius: 14px;
+      }
+
+      .registration-stepper-track {
+        position: relative;
         display: flex;
         align-items: flex-start;
-        gap: 0;
+        gap: clamp(8px, 1vw, 14px);
         width: 100%;
-        overflow-x: auto;
-        overflow-y: hidden;
-        padding: 2px 2px 6px;
-        scroll-behavior: smooth;
-        -webkit-overflow-scrolling: touch;
+        padding: 12px clamp(8px, 1.2vw, 14px) 10px;
+        min-height: 92px;
       }
 
-      .registration-stepper::-webkit-scrollbar {
-        height: 6px;
-      }
-
-      .registration-stepper::-webkit-scrollbar-thumb {
-        background: rgba(148, 163, 184, 0.35);
+      .registration-stepper-line {
+        position: absolute;
+        left: var(--rs-line-start, 0px);
+        width: var(--rs-line-width, 0px);
+        top: calc(12px + (clamp(22px, 2.35vw, 28px) / 2));
+        transform: translateY(-50%);
+        height: 2px;
         border-radius: 999px;
+        background: var(--rs-line);
+        pointer-events: none;
+        z-index: 0;
+        overflow: hidden;
+      }
+
+      .registration-stepper-line-fill {
+        width: var(--rs-fill-width, 0px);
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #8b5cf6, #6d28d9);
+        transition: width .3s ease;
       }
 
       .registration-stepper-step {
         position: relative;
-        flex: 0 0 176px;
-        min-width: 176px;
-        max-width: 210px;
+        z-index: 1;
         border: 0;
         background: transparent;
         color: var(--rs-text);
+        border-radius: 14px;
         padding: 0;
         margin: 0;
-        text-align: left;
-        cursor: pointer;
+        flex: 1 1 0;
+        min-width: 0;
+        text-align: center;
+        scroll-snap-align: center;
+        cursor: default;
         outline: none;
       }
 
-      .registration-stepper-step[disabled] {
+      .registration-stepper-step.is-clickable {
+        cursor: pointer;
+      }
+
+      .registration-stepper-step:not(.is-clickable) {
         cursor: not-allowed;
       }
 
       .registration-stepper-step-inner {
         position: relative;
         display: grid;
-        gap: 8px;
-        border-radius: 14px;
-        padding: 8px 8px 10px;
-        transition: transform .25s ease, box-shadow .25s ease, background-color .25s ease;
+        justify-items: center;
+        gap: 2px;
+        border-radius: 12px;
+        padding: 4px 6px 6px;
+        transition: transform .22s ease, background-color .22s ease, border-color .22s ease, box-shadow .22s ease;
+        border: 1px solid transparent;
       }
 
-      .registration-stepper-step:hover:not([disabled]) .registration-stepper-step-inner,
-      .registration-stepper-step:focus-visible:not([disabled]) .registration-stepper-step-inner {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px -18px rgba(15, 23, 42, 0.6);
-        background: rgba(248, 250, 252, 0.8);
+      @media (hover: hover) and (pointer: fine) {
+        .registration-stepper-step:hover .registration-stepper-step-inner,
+        .registration-stepper-step:focus-visible .registration-stepper-step-inner {
+          background: rgba(255, 255, 255, 0.45);
+          border-color: rgba(148, 163, 184, 0.28);
+          box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.55);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          transform: translateY(-2px);
+        }
       }
 
-      .registration-stepper-step.is-current .registration-stepper-step-inner {
-        background: rgba(239, 246, 255, 0.75);
+      .registration-stepper-step:focus-visible {
+        box-shadow: 0 0 0 2px rgba(76, 29, 149, 0.24);
       }
 
-      .registration-stepper-step-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
+      .registration-stepper-step:active .registration-stepper-step-inner {
+        transform: scale(0.98);
       }
 
       .registration-stepper-circle {
         position: relative;
-        width: 26px;
-        height: 26px;
+        width: clamp(22px, 2.35vw, 28px);
+        height: clamp(22px, 2.35vw, 28px);
         border-radius: 999px;
-        border: 1px solid #bfdbfe;
-        background: #eff6ff;
-        color: #1d4ed8;
+        border: 1px solid #b9a8ff;
+        background: #f4f0ff;
+        color: #5b21b6;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         flex: 0 0 auto;
-        transition: all .25s ease;
-      }
-
-      .registration-stepper-step:hover:not([disabled]) .registration-stepper-circle {
-        transform: scale(1.06);
-      }
-
-      .registration-stepper-title {
-        font-size: 12px;
-        font-weight: 760;
-        line-height: 1.2;
-        letter-spacing: -0.01em;
-        color: var(--rs-text);
-      }
-
-      .registration-stepper-desc {
-        font-size: 11px;
-        line-height: 1.3;
-        color: var(--rs-subtext);
+        transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease, background-color .22s ease;
       }
 
       .registration-stepper-step.is-completed .registration-stepper-circle {
-        background: var(--rs-success);
-        border-color: var(--rs-success);
-        color: #ffffff;
+        background: var(--rs-purple);
+        border-color: var(--rs-purple);
+        color: #fff;
       }
 
-      .registration-stepper-step.is-current .registration-stepper-circle {
-        width: 30px;
-        height: 30px;
-        background: #ffffff;
-        border-color: #60a5fa;
-        color: #2563eb;
-        box-shadow: 0 0 0 5px rgba(147, 197, 253, 0.38), 0 10px 20px -16px rgba(37, 99, 235, 0.95);
+      .registration-stepper-step.is-current-step .registration-stepper-circle {
+        transform: scale(1.08);
+        box-shadow: 0 0 0 5px rgba(124, 58, 237, 0.18), 0 10px 18px -14px rgba(76, 29, 149, 0.8);
       }
 
       .registration-stepper-step.is-locked .registration-stepper-circle {
-        background: #f8fafc;
-        border-color: #e2e8f0;
-        color: #94a3b8;
+        background: #fff;
+        border-color: #d0d7e3;
+        color: #9aa6b6;
       }
 
       .registration-stepper-step.is-waiting .registration-stepper-circle {
-        background: #f8fafc;
+        background: #fff;
         border-color: #cbd5e1;
-        color: #475569;
+        color: #64748b;
       }
 
       .registration-stepper-step.is-action_required .registration-stepper-circle {
-        background: var(--rs-warning-soft);
-        border-color: #f59e0b;
+        background: #fff7ed;
+        border-color: #fdba74;
         color: #b45309;
+      }
+
+      .registration-stepper-title {
+        margin: 0;
+        max-width: 100%;
+        font-size: clamp(11px, 1.15vw, 12px);
+        font-weight: 720;
+        line-height: 1.2;
+        color: var(--rs-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .registration-stepper-step.is-current-step .registration-stepper-title {
+        font-weight: 790;
+      }
+
+      .registration-stepper-desc {
+        margin: 0;
+        max-width: 100%;
+        font-size: clamp(10px, 1vw, 11px);
+        line-height: 1.2;
+        color: var(--rs-subtext);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .registration-stepper-step.is-locked .registration-stepper-title,
       .registration-stepper-step.is-locked .registration-stepper-desc {
-        color: #94a3b8;
-      }
-
-      .registration-stepper-step:focus-visible .registration-stepper-step-inner {
-        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.45);
-      }
-
-      .registration-stepper-line {
-        position: relative;
-        align-self: flex-start;
-        margin-top: 20px;
-        height: 2px;
-        width: 36px;
-        flex: 0 0 36px;
-        border-radius: 999px;
-        background: var(--rs-muted-soft);
-        overflow: hidden;
-      }
-
-      .registration-stepper-line-fill {
-        position: absolute;
-        inset: 0;
-        transform-origin: left;
-        transform: scaleX(0);
-        background: linear-gradient(90deg, #60a5fa, #2563eb);
-        transition: transform .25s ease;
-      }
-
-      .registration-stepper-line.is-filled .registration-stepper-line-fill {
-        transform: scaleX(1);
+        color: var(--rs-muted);
       }
 
       .registration-stepper-icon {
@@ -197,8 +240,8 @@
       }
 
       .registration-stepper-icon.dot {
-        width: 8px;
-        height: 8px;
+        width: 7px;
+        height: 7px;
         border-radius: 999px;
         background: currentColor;
       }
@@ -214,11 +257,12 @@
 
       .registration-stepper-tooltip {
         position: absolute;
-        left: 8px;
-        top: calc(100% + 4px);
-        z-index: 5;
+        left: 50%;
+        top: calc(100% + 6px);
+        transform: translate(-50%, 3px);
+        z-index: 6;
         min-width: 170px;
-        max-width: 220px;
+        max-width: 260px;
         background: #0f172a;
         color: #e2e8f0;
         border-radius: 10px;
@@ -226,31 +270,33 @@
         font-size: 11px;
         line-height: 1.35;
         opacity: 0;
-        transform: translateY(2px);
         pointer-events: none;
         transition: opacity .18s ease, transform .18s ease;
         box-shadow: 0 16px 32px -26px rgba(2, 6, 23, 0.95);
+        white-space: normal;
       }
 
       .registration-stepper-tooltip strong {
         display: block;
         margin-bottom: 2px;
-        color: #ffffff;
+        color: #fff;
         font-size: 11px;
       }
 
-      .registration-stepper-step:hover .registration-stepper-tooltip,
-      .registration-stepper-step:focus-visible .registration-stepper-tooltip {
-        opacity: 1;
-        transform: translateY(0);
+      @media (hover: hover) and (pointer: fine) {
+        .registration-stepper-step:hover .registration-stepper-tooltip,
+        .registration-stepper-step:focus-visible .registration-stepper-tooltip {
+          opacity: 1;
+          transform: translate(-50%, 0);
+        }
       }
 
       .registration-stepper-ripple {
         position: absolute;
         inset: 0;
-        border-radius: 14px;
-        background: rgba(59, 130, 246, 0.18);
-        transform: scale(.7);
+        border-radius: 12px;
+        background: rgba(124, 58, 237, 0.18);
+        transform: scale(.72);
         opacity: 0;
         pointer-events: none;
       }
@@ -260,7 +306,7 @@
       }
 
       @keyframes registrationStepperRipple {
-        0% { transform: scale(.7); opacity: .7; }
+        0% { transform: scale(.72); opacity: .7; }
         100% { transform: scale(1.02); opacity: 0; }
       }
 
@@ -268,23 +314,60 @@
         to { transform: rotate(360deg); }
       }
 
-      @media (max-width: 760px) {
+      @media (max-width: 860px) {
+        .registration-stepper-viewport {
+          overflow-x: auto;
+          scrollbar-width: none;
+          scroll-snap-type: x mandatory;
+        }
+
+        .registration-stepper-viewport::-webkit-scrollbar {
+          display: none;
+        }
+
+        .registration-stepper-track {
+          width: max-content;
+          min-width: 100%;
+          padding-inline: 8px;
+        }
+
         .registration-stepper-step {
-          flex-basis: 160px;
-          min-width: 160px;
+          flex: 0 0 min(76vw, 250px);
+          max-width: min(76vw, 250px);
         }
 
-        .registration-stepper-title {
-          font-size: 11px;
+        .registration-stepper-step .registration-stepper-step-inner {
+          justify-items: start;
+          text-align: left;
         }
 
-        .registration-stepper-desc {
-          font-size: 10px;
+        .registration-stepper-step .registration-stepper-title,
+        .registration-stepper-step .registration-stepper-desc {
+          text-align: left;
         }
 
-        .registration-stepper-line {
-          width: 24px;
-          flex-basis: 24px;
+        .registration-stepper.is-fit .registration-stepper-viewport {
+          overflow-x: hidden;
+          scroll-snap-type: none;
+        }
+
+        .registration-stepper.is-fit .registration-stepper-track {
+          width: 100%;
+        }
+
+        .registration-stepper.is-fit .registration-stepper-step {
+          flex: 1 1 0;
+          max-width: none;
+        }
+
+        .registration-stepper.is-fit .registration-stepper-step .registration-stepper-step-inner {
+          justify-items: center;
+          text-align: center;
+        }
+
+        .registration-stepper.is-fit .registration-stepper-step .registration-stepper-title,
+        .registration-stepper.is-fit .registration-stepper-step .registration-stepper-desc {
+          text-align: center;
         }
       }
     `;
@@ -335,72 +418,172 @@
     return wrap;
   }
 
-  function createLine(isFilled) {
-    const line = document.createElement("span");
-    line.className = "registration-stepper-line";
-    const fill = document.createElement("span");
-    fill.className = "registration-stepper-line-fill";
-    line.appendChild(fill);
-    if (isFilled) {
-      requestAnimationFrame(() => {
-        line.classList.add("is-filled");
-      });
-    }
-    return line;
-  }
-
   function isClickable(step, status) {
     if (typeof step.interactive === "boolean") return step.interactive;
     return status === "completed" || status === "current";
   }
 
+  function showFallbackToast(message) {
+    if (window.GPToast && typeof window.GPToast.show === "function") {
+      window.GPToast.show(message);
+      return;
+    }
+    const existing = document.getElementById("gp-stepper-toast");
+    if (existing) existing.remove();
+    const toast = document.createElement("div");
+    toast.id = "gp-stepper-toast";
+    toast.textContent = message;
+    toast.style.cssText = "position:fixed;left:50%;bottom:22px;transform:translateX(-50%);padding:10px 14px;border-radius:10px;background:rgba(15,23,42,.94);color:#fff;font-size:12px;font-weight:700;z-index:10000;box-shadow:0 14px 30px -20px rgba(2,6,23,.9);";
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      toast.style.transition = "opacity .22s ease";
+      setTimeout(() => toast.remove(), 240);
+    }, 1800);
+  }
+
+  function syncProgressLine(track) {
+    const steps = Array.from(track.querySelectorAll(".registration-stepper-step"));
+    if (!steps.length) return;
+
+    const circles = steps
+      .map((step) => step.querySelector(".registration-stepper-circle"))
+      .filter(Boolean);
+    if (!circles.length) return;
+
+    const trackBox = track.getBoundingClientRect();
+    const centers = circles.map((circle) => {
+      const box = circle.getBoundingClientRect();
+      return (box.left + box.width / 2) - trackBox.left;
+    });
+
+    const first = centers[0];
+    const last = centers[centers.length - 1];
+    let targetIndex = steps.findIndex((step) => step.classList.contains("is-current-step"));
+    if (targetIndex === -1) {
+      targetIndex = Math.max(0, steps.reduce((acc, step, idx) => (step.classList.contains("is-completed") ? idx : acc), 0));
+    }
+    const targetCenter = centers[Math.min(targetIndex, centers.length - 1)];
+
+    track.style.setProperty("--rs-line-start", `${first}px`);
+    track.style.setProperty("--rs-line-width", `${Math.max(0, last - first)}px`);
+    track.style.setProperty("--rs-fill-width", `${Math.max(0, targetCenter - first)}px`);
+  }
+
+  function syncViewportHints(root, viewport, wrap) {
+    const canScroll = viewport.scrollWidth > viewport.clientWidth + 1;
+    const atStart = viewport.scrollLeft <= 2;
+    const atEnd = viewport.scrollLeft + viewport.clientWidth >= viewport.scrollWidth - 2;
+    wrap.classList.toggle("has-left-fade", canScroll && !atStart);
+    wrap.classList.toggle("has-right-fade", canScroll && !atEnd);
+    root.classList.toggle("is-fit", !canScroll);
+  }
+
+  function centerCurrentStep(viewport, currentStep, smooth) {
+    if (!currentStep) return;
+    if (!window.matchMedia || !window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches) return;
+    if (viewport.scrollWidth <= viewport.clientWidth + 1) return;
+    const viewportBox = viewport.getBoundingClientRect();
+    const stepBox = currentStep.getBoundingClientRect();
+    const target = viewport.scrollLeft + (stepBox.left + stepBox.width / 2) - (viewportBox.left + viewportBox.width / 2);
+    viewport.scrollTo({ left: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
+  }
+
+  function bindLayoutSync(root, viewport, wrap, track, currentStep) {
+    const oldState = CONTAINER_STATE.get(root);
+    if (oldState && typeof oldState.cleanup === "function") {
+      oldState.cleanup();
+    }
+
+    let rafId = 0;
+    const sync = (smoothScroll) => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        syncProgressLine(track);
+        syncViewportHints(root, viewport, wrap);
+        centerCurrentStep(viewport, currentStep, smoothScroll);
+      });
+    };
+
+    const onResize = () => sync(false);
+    const onScroll = () => syncViewportHints(root, viewport, wrap);
+
+    window.addEventListener("resize", onResize);
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => sync(false)).catch(() => {});
+    }
+
+    sync(false);
+    requestAnimationFrame(() => sync(true));
+
+    CONTAINER_STATE.set(root, {
+      cleanup: function () {
+        cancelAnimationFrame(rafId);
+        window.removeEventListener("resize", onResize);
+        viewport.removeEventListener("scroll", onScroll);
+      }
+    });
+  }
+
   function render(config) {
-    const container = config && config.container;
+    const root = config && config.container;
     const steps = config && Array.isArray(config.steps) ? config.steps : [];
-    if (!(container instanceof HTMLElement)) return;
+    if (!(root instanceof HTMLElement)) return;
 
     ensureStyles();
-    container.innerHTML = "";
-    container.className = "registration-stepper";
-    container.setAttribute("role", "tablist");
-    container.setAttribute("aria-label", config.ariaLabel || "Registration step navigation");
+    root.innerHTML = "";
+    root.className = "registration-stepper";
+    root.setAttribute("role", "tablist");
+    root.setAttribute("aria-label", config.ariaLabel || "Registration step navigation");
+
+    const wrap = document.createElement("div");
+    wrap.className = "registration-stepper-viewport-wrap";
+    const viewport = document.createElement("div");
+    viewport.className = "registration-stepper-viewport";
+    const track = document.createElement("div");
+    track.className = "registration-stepper-track";
+
+    const line = document.createElement("span");
+    line.className = "registration-stepper-line";
+    const lineFill = document.createElement("span");
+    lineFill.className = "registration-stepper-line-fill";
+    line.appendChild(lineFill);
+    track.appendChild(line);
 
     const buttonRefs = [];
 
     steps.forEach((step, index) => {
       const status = String(step.status || "locked");
       const isCurrentStep = !!step.current;
+      const clickable = isClickable(step, status);
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `registration-stepper-step is-${status}`;
+      button.className = `registration-stepper-step is-${status} ${isCurrentStep ? "is-current-step" : ""} ${clickable ? "is-clickable" : ""}`.trim();
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", isCurrentStep ? "true" : "false");
       button.setAttribute("aria-current", isCurrentStep ? "step" : "false");
       button.setAttribute("aria-label", `${step.title || "Step"}. ${status.replace("_", " ")}. ${step.description || ""}`.trim());
+      if (!clickable) button.setAttribute("aria-disabled", "true");
       button.dataset.stepId = String(step.id || "");
       button.tabIndex = isCurrentStep ? 0 : -1;
-      if (!isClickable(step, status)) button.disabled = true;
 
       const inner = document.createElement("span");
       inner.className = "registration-stepper-step-inner";
-
-      const row = document.createElement("span");
-      row.className = "registration-stepper-step-row";
 
       const circle = document.createElement("span");
       circle.className = "registration-stepper-circle";
       circle.appendChild(createIcon(status, index));
 
-      const title = document.createElement("span");
+      const title = document.createElement("p");
       title.className = "registration-stepper-title";
       title.textContent = step.title || `Step ${index + 1}`;
 
-      row.appendChild(circle);
-      row.appendChild(title);
-      inner.appendChild(row);
+      inner.appendChild(circle);
+      inner.appendChild(title);
 
       if (step.description) {
-        const desc = document.createElement("span");
+        const desc = document.createElement("p");
         desc.className = "registration-stepper-desc";
         desc.textContent = step.description;
         inner.appendChild(desc);
@@ -416,14 +599,20 @@
       const ripple = document.createElement("span");
       ripple.className = "registration-stepper-ripple";
       inner.appendChild(ripple);
-
       button.appendChild(inner);
 
       button.addEventListener("click", () => {
-        if (!isClickable(step, status)) return;
         button.classList.remove("is-rippling");
         void button.offsetWidth;
         button.classList.add("is-rippling");
+        if (!clickable) {
+          if (typeof config.onLockedStep === "function") {
+            config.onLockedStep(step);
+          } else {
+            showFallbackToast("Complete the previous step to unlock this.");
+          }
+          return;
+        }
         if (typeof config.onStepSelect === "function") {
           config.onStepSelect(step);
         }
@@ -455,27 +644,24 @@
           if (target) target.focus();
           return;
         }
-        if ((key === "Enter" || key === " ") && isClickable(step, status)) {
+        if (key === "Enter" || key === " ") {
           event.preventDefault();
           button.click();
         }
       });
 
-      container.appendChild(button);
+      track.appendChild(button);
       buttonRefs.push(button);
-
-      if (index < steps.length - 1) {
-        const line = createLine(status === "completed");
-        container.appendChild(line);
-      }
     });
 
-    const autoTarget = container.querySelector('.registration-stepper-step[aria-current=\"step\"]')
-      || container.querySelector('.registration-stepper-step');
+    viewport.appendChild(track);
+    wrap.appendChild(viewport);
+    root.appendChild(wrap);
 
-    if (autoTarget && typeof autoTarget.scrollIntoView === "function") {
-      autoTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-    }
+    const currentButton = track.querySelector('.registration-stepper-step[aria-current="step"]')
+      || track.querySelector(".registration-stepper-step");
+
+    bindLayoutSync(root, viewport, wrap, track, currentButton);
   }
 
   window.GPRegistrationStepper = { render: render };
