@@ -30,7 +30,7 @@
         position: absolute;
         top: 0;
         bottom: 0;
-        width: 22px;
+        width: 28px;
         pointer-events: none;
         opacity: 0;
         transition: opacity .2s ease;
@@ -39,24 +39,19 @@
 
       .registration-stepper-viewport-wrap::before {
         left: 0;
-        background: linear-gradient(90deg, rgba(255,255,255,.96), rgba(255,255,255,0));
+        background: linear-gradient(90deg, rgba(244,247,251,.98), rgba(244,247,251,0));
       }
 
       .registration-stepper-viewport-wrap::after {
         right: 0;
-        background: linear-gradient(270deg, rgba(255,255,255,.96), rgba(255,255,255,0));
+        background: linear-gradient(270deg, rgba(244,247,251,.98), rgba(244,247,251,0));
       }
 
-      .registration-stepper-viewport-wrap.has-left-fade::before {
-        opacity: 1;
-      }
-
-      .registration-stepper-viewport-wrap.has-right-fade::after {
-        opacity: 1;
-      }
+      .registration-stepper-viewport-wrap.has-left-fade::before { opacity: 1; }
+      .registration-stepper-viewport-wrap.has-right-fade::after { opacity: 1; }
 
       .registration-stepper-viewport {
-        overflow-x: hidden;
+        overflow-x: clip;
         overflow-y: visible;
         border-radius: 14px;
       }
@@ -64,18 +59,19 @@
       .registration-stepper-track {
         position: relative;
         display: flex;
-        align-items: flex-start;
-        gap: clamp(8px, 1vw, 14px);
+        align-items: stretch;
+        gap: clamp(6px, 0.8vw, 10px);
         width: 100%;
-        padding: 12px clamp(8px, 1.2vw, 14px) 10px;
-        min-height: 92px;
+        padding: 4px clamp(2px, 0.8vw, 6px) 16px;
+        min-height: 80px;
       }
 
+      /* Progress line — --rs-line-top is computed from actual circle positions */
       .registration-stepper-line {
         position: absolute;
         left: var(--rs-line-start, 0px);
         width: var(--rs-line-width, 0px);
-        top: calc(12px + (clamp(22px, 2.35vw, 28px) / 2));
+        top: var(--rs-line-top, 26px);
         transform: translateY(-50%);
         height: 2px;
         border-radius: 999px;
@@ -90,9 +86,10 @@
         height: 100%;
         border-radius: inherit;
         background: linear-gradient(90deg, #8b5cf6, #6d28d9);
-        transition: width .3s ease;
+        transition: width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
+      /* Step button */
       .registration-stepper-step {
         position: relative;
         z-index: 1;
@@ -103,56 +100,62 @@
         padding: 0;
         margin: 0;
         flex: 1 1 0;
-        min-width: 0;
-        text-align: center;
+        min-width: 168px;
+        text-align: left;
         scroll-snap-align: center;
         cursor: default;
         outline: none;
       }
 
-      .registration-stepper-step.is-clickable {
-        cursor: pointer;
+      .registration-stepper-step.is-clickable { cursor: pointer; }
+      .registration-stepper-step:not(.is-clickable) { cursor: not-allowed; }
+
+      .registration-stepper-step:active .registration-stepper-step-inner {
+        transform: scale(0.98) !important;
       }
 
-      .registration-stepper-step:not(.is-clickable) {
-        cursor: not-allowed;
-      }
-
+      /* Step card */
       .registration-stepper-step-inner {
         position: relative;
-        display: grid;
-        justify-items: center;
-        gap: 2px;
-        border-radius: 12px;
-        padding: 4px 6px 6px;
-        transition: transform .22s ease, background-color .22s ease, border-color .22s ease, box-shadow .22s ease;
-        border: 1px solid transparent;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        border-radius: 14px;
+        padding: 10px 12px;
+        height: 100%;
+        transition: transform .22s ease, background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
+        border: 1px solid rgba(226, 232, 240, 0.85);
+        background: rgba(255, 255, 255, 0.55);
       }
 
       @media (hover: hover) and (pointer: fine) {
-        .registration-stepper-step:hover .registration-stepper-step-inner,
-        .registration-stepper-step:focus-visible .registration-stepper-step-inner {
-          background: rgba(255, 255, 255, 0.45);
-          border-color: rgba(148, 163, 184, 0.28);
-          box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.55);
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
+        .registration-stepper-step.is-clickable:hover .registration-stepper-step-inner {
+          background: rgba(255, 255, 255, 0.9);
+          border-color: rgba(148, 163, 184, 0.45);
+          box-shadow: 0 8px 22px -14px rgba(15, 23, 42, 0.35);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
           transform: translateY(-2px);
         }
       }
 
+      .registration-stepper-step.is-current-step .registration-stepper-step-inner {
+        border-color: rgba(124, 58, 237, 0.28);
+        background: rgba(250, 247, 255, 0.88);
+        box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.08), 0 4px 16px -8px rgba(124, 58, 237, 0.2);
+      }
+
       .registration-stepper-step:focus-visible {
-        box-shadow: 0 0 0 2px rgba(76, 29, 149, 0.24);
+        box-shadow: 0 0 0 2px rgba(76, 29, 149, 0.3);
+        border-radius: 14px;
       }
 
-      .registration-stepper-step:active .registration-stepper-step-inner {
-        transform: scale(0.98);
-      }
-
+      /* Circle */
       .registration-stepper-circle {
         position: relative;
-        width: clamp(22px, 2.35vw, 28px);
-        height: clamp(22px, 2.35vw, 28px);
+        flex: 0 0 auto;
+        width: clamp(28px, 2.5vw, 32px);
+        height: clamp(28px, 2.5vw, 32px);
         border-radius: 999px;
         border: 1px solid #b9a8ff;
         background: #f4f0ff;
@@ -160,8 +163,8 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        flex: 0 0 auto;
         transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease, background-color .22s ease;
+        margin-top: 1px;
       }
 
       .registration-stepper-step.is-completed .registration-stepper-circle {
@@ -172,7 +175,7 @@
 
       .registration-stepper-step.is-current-step .registration-stepper-circle {
         transform: scale(1.08);
-        box-shadow: 0 0 0 5px rgba(124, 58, 237, 0.18), 0 10px 18px -14px rgba(76, 29, 149, 0.8);
+        box-shadow: 0 0 0 5px rgba(124, 58, 237, 0.16), 0 8px 16px -10px rgba(76, 29, 149, 0.65);
       }
 
       .registration-stepper-step.is-locked .registration-stepper-circle {
@@ -193,38 +196,67 @@
         color: #b45309;
       }
 
+      /* Step body */
+      .registration-stepper-step-body {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .registration-stepper-title-row {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-wrap: wrap;
+        line-height: 1;
+      }
+
       .registration-stepper-title {
         margin: 0;
-        max-width: 100%;
-        font-size: clamp(11px, 1.15vw, 12px);
+        font-size: clamp(11px, 1.05vw, 12px);
         font-weight: 720;
-        line-height: 1.2;
+        line-height: 1.25;
         color: var(--rs-text);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
       }
 
       .registration-stepper-step.is-current-step .registration-stepper-title {
         font-weight: 790;
       }
 
-      .registration-stepper-desc {
-        margin: 0;
-        max-width: 100%;
-        font-size: clamp(10px, 1vw, 11px);
-        line-height: 1.2;
-        color: var(--rs-subtext);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+      .registration-stepper-step.is-locked .registration-stepper-title {
+        color: var(--rs-muted);
       }
 
-      .registration-stepper-step.is-locked .registration-stepper-title,
+      .registration-stepper-current-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 2px 7px;
+        font-size: 10px;
+        font-weight: 700;
+        background: rgba(124, 58, 237, 0.1);
+        color: #7c3aed;
+        border: 1px solid rgba(124, 58, 237, 0.2);
+        white-space: nowrap;
+        line-height: 1.4;
+        flex-shrink: 0;
+      }
+
+      .registration-stepper-desc {
+        margin: 3px 0 0;
+        font-size: clamp(10px, 0.9vw, 11px);
+        line-height: 1.3;
+        color: var(--rs-subtext);
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+
       .registration-stepper-step.is-locked .registration-stepper-desc {
         color: var(--rs-muted);
       }
 
+      /* Icons */
       .registration-stepper-icon {
         width: 14px;
         height: 14px;
@@ -247,38 +279,39 @@
       }
 
       .registration-stepper-spinner {
-        width: 12px;
-        height: 12px;
+        width: 13px;
+        height: 13px;
         border-radius: 999px;
-        border: 2px solid rgba(100, 116, 139, 0.35);
+        border: 2px solid rgba(100, 116, 139, 0.3);
         border-top-color: currentColor;
         animation: registrationStepperSpin .9s linear infinite;
       }
 
+      /* Tooltip (desktop hover only) */
       .registration-stepper-tooltip {
         position: absolute;
         left: 50%;
-        top: calc(100% + 6px);
-        transform: translate(-50%, 3px);
-        z-index: 6;
-        min-width: 170px;
-        max-width: 260px;
+        top: calc(100% + 8px);
+        transform: translate(-50%, 4px);
+        z-index: 10;
+        min-width: 180px;
+        max-width: 270px;
         background: #0f172a;
         color: #e2e8f0;
         border-radius: 10px;
-        padding: 8px 9px;
+        padding: 8px 10px;
         font-size: 11px;
-        line-height: 1.35;
+        line-height: 1.4;
         opacity: 0;
         pointer-events: none;
         transition: opacity .18s ease, transform .18s ease;
-        box-shadow: 0 16px 32px -26px rgba(2, 6, 23, 0.95);
+        box-shadow: 0 14px 28px -20px rgba(2, 6, 23, 0.9);
         white-space: normal;
       }
 
       .registration-stepper-tooltip strong {
         display: block;
-        margin-bottom: 2px;
+        margin-bottom: 3px;
         color: #fff;
         font-size: 11px;
       }
@@ -291,12 +324,13 @@
         }
       }
 
+      /* Ripple */
       .registration-stepper-ripple {
         position: absolute;
         inset: 0;
-        border-radius: 12px;
-        background: rgba(124, 58, 237, 0.18);
-        transform: scale(.72);
+        border-radius: 14px;
+        background: rgba(124, 58, 237, 0.14);
+        transform: scale(.75);
         opacity: 0;
         pointer-events: none;
       }
@@ -306,7 +340,7 @@
       }
 
       @keyframes registrationStepperRipple {
-        0% { transform: scale(.72); opacity: .7; }
+        0% { transform: scale(.75); opacity: .65; }
         100% { transform: scale(1.02); opacity: 0; }
       }
 
@@ -314,6 +348,7 @@
         to { transform: rotate(360deg); }
       }
 
+      /* Mobile */
       @media (max-width: 860px) {
         .registration-stepper-viewport {
           overflow-x: auto;
@@ -328,22 +363,12 @@
         .registration-stepper-track {
           width: max-content;
           min-width: 100%;
-          padding-inline: 8px;
+          padding-inline: 10px;
         }
 
         .registration-stepper-step {
           flex: 0 0 min(76vw, 250px);
           max-width: min(76vw, 250px);
-        }
-
-        .registration-stepper-step .registration-stepper-step-inner {
-          justify-items: start;
-          text-align: left;
-        }
-
-        .registration-stepper-step .registration-stepper-title,
-        .registration-stepper-step .registration-stepper-desc {
-          text-align: left;
         }
 
         .registration-stepper.is-fit .registration-stepper-viewport {
@@ -358,16 +383,6 @@
         .registration-stepper.is-fit .registration-stepper-step {
           flex: 1 1 0;
           max-width: none;
-        }
-
-        .registration-stepper.is-fit .registration-stepper-step .registration-stepper-step-inner {
-          justify-items: center;
-          text-align: center;
-        }
-
-        .registration-stepper.is-fit .registration-stepper-step .registration-stepper-title,
-        .registration-stepper.is-fit .registration-stepper-step .registration-stepper-desc {
-          text-align: center;
         }
       }
     `;
@@ -465,9 +480,14 @@
     }
     const targetCenter = centers[Math.min(targetIndex, centers.length - 1)];
 
+    // Compute vertical center of first circle for accurate line placement
+    const firstCircleBox = circles[0].getBoundingClientRect();
+    const circleTop = (firstCircleBox.top + firstCircleBox.height / 2) - trackBox.top;
+
     track.style.setProperty("--rs-line-start", `${first}px`);
     track.style.setProperty("--rs-line-width", `${Math.max(0, last - first)}px`);
     track.style.setProperty("--rs-fill-width", `${Math.max(0, targetCenter - first)}px`);
+    track.style.setProperty("--rs-line-top", `${circleTop}px`);
   }
 
   function syncViewportHints(root, viewport, wrap) {
@@ -571,24 +591,43 @@
       const inner = document.createElement("span");
       inner.className = "registration-stepper-step-inner";
 
+      // Circle icon (left side of card)
       const circle = document.createElement("span");
       circle.className = "registration-stepper-circle";
       circle.appendChild(createIcon(status, index));
 
+      // Text body (right side of card)
+      const body = document.createElement("span");
+      body.className = "registration-stepper-step-body";
+
+      const titleRow = document.createElement("span");
+      titleRow.className = "registration-stepper-title-row";
+
       const title = document.createElement("p");
       title.className = "registration-stepper-title";
       title.textContent = step.title || `Step ${index + 1}`;
+      titleRow.appendChild(title);
 
-      inner.appendChild(circle);
-      inner.appendChild(title);
+      if (isCurrentStep) {
+        const badge = document.createElement("span");
+        badge.className = "registration-stepper-current-badge";
+        badge.textContent = "Current";
+        titleRow.appendChild(badge);
+      }
+
+      body.appendChild(titleRow);
 
       if (step.description) {
         const desc = document.createElement("p");
         desc.className = "registration-stepper-desc";
         desc.textContent = step.description;
-        inner.appendChild(desc);
+        body.appendChild(desc);
       }
 
+      inner.appendChild(circle);
+      inner.appendChild(body);
+
+      // Tooltip (shown on desktop hover via CSS)
       if (step.title || step.description) {
         const tooltip = document.createElement("span");
         tooltip.className = "registration-stepper-tooltip";
@@ -596,6 +635,7 @@
         inner.appendChild(tooltip);
       }
 
+      // Ripple overlay
       const ripple = document.createElement("span");
       ripple.className = "registration-stepper-ripple";
       inner.appendChild(ripple);

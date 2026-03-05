@@ -749,164 +749,7 @@
     }
 
     .single-col { grid-template-columns: 1fr; gap: 14px; }
-    .step-flow {
-      margin: 0;
-      font-size: 12px;
-      color: #64748b;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-    }
-    .substage-progress {
-      display: none;
-      width: 100%;
-      height: 10px;
-      border-radius: 999px;
-      background: #e8eff9;
-      overflow: hidden;
-      margin-top: 8px;
-    }
-    .substage-progress-fill {
-      display: block;
-      height: 100%;
-      width: 0;
-      border-radius: inherit;
-      background: linear-gradient(90deg, #3b82f6, #93c5fd);
-      transition: width .28s ease;
-    }
-    .substage-tabs-wrap {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      align-items: center;
-    }
-    .substage-tabs-shell {
-      position: relative;
-      border-radius: 16px;
-      padding: 10px;
-      border: 0;
-      background: linear-gradient(135deg, #edf4ff 0%, #f8fbff 55%, #f1efff 100%);
-      box-shadow: inset 0 0 0 1px #e5ecf8;
-      overflow: hidden;
-    }
-    .substage-glass {
-      position: absolute;
-      top: 6px;
-      left: 6px;
-      width: 96px;
-      height: 34px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.72);
-      border: 1px solid rgba(191, 220, 255, 0.95);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 16px -14px rgba(37, 99, 235, 0.5);
-      transition: left .32s cubic-bezier(.22,.9,.18,1.05), width .32s cubic-bezier(.22,.9,.18,1.05), opacity .16s ease;
-      opacity: 0;
-      pointer-events: none;
-      z-index: 1;
-    }
-    .substage-tabs {
-      display: flex;
-      gap: 6px;
-      flex-wrap: nowrap;
-      padding: 12px 14px 10px;
-      overflow-x: auto;
-      overflow-y: hidden;
-      scroll-behavior: smooth;
-      -webkit-overflow-scrolling: touch;
-      position: relative;
-      z-index: 2;
-      border-radius: 14px;
-      border: 1px solid #e8eef9;
-      background: #ffffff;
-      box-shadow: 0 14px 30px -24px rgba(15, 23, 42, 0.45);
-    }
-    .substage-tabs.stage-list {
-      padding-left: 0;
-    }
-    .substage-tabs.stage-list::before {
-      content: none;
-    }
-    .substage-tabs::-webkit-scrollbar { height: 0; }
-    .substage-tab {
-      border: 0;
-      background: transparent;
-      color: #1f2937;
-      border-radius: 0;
-      padding: 0;
-      font-size: 11px;
-      font-weight: 650;
-      cursor: pointer;
-      transition: all .16s ease;
-      flex: 1 1 0;
-      min-width: 170px;
-      white-space: normal;
-      position: relative;
-      z-index: 2;
-      text-align: center;
-    }
-    .substage-tab::after {
-      content: "";
-      position: absolute;
-      top: 12px;
-      left: calc(50% + 14px);
-      width: calc(100% - 28px);
-      height: 1px;
-      background: #d9deea;
-      pointer-events: none;
-    }
-    .substage-tab:last-child::after {
-      content: none;
-    }
-    .substage-tab .substage-marker {
-      width: 24px;
-      height: 24px;
-      margin: 0 auto 6px;
-      border-radius: 999px;
-      border: 1px solid #7845ff;
-      background: #7845ff;
-      color: #ffffff;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      font-weight: 800;
-      line-height: 1;
-    }
-    .substage-tab .substage-copy {
-      display: grid;
-      gap: 2px;
-    }
-    .substage-tab .substage-title {
-      margin: 0;
-      font-size: 12px;
-      font-weight: 650;
-      color: #1f2937;
-      line-height: 1.2;
-    }
-    .substage-tab .substage-help {
-      margin: 0;
-      font-size: 10px;
-      color: #6b7280;
-      line-height: 1.2;
-    }
-    .substage-tab[aria-selected="true"] {
-      color: #0f172a;
-    }
-    .substage-tab.is-locked {
-      color: #94a3b8;
-    }
-    .substage-tab.is-locked .substage-marker {
-      background: #ffffff;
-      border-color: #d4d9e5;
-      color: #9aa6b6;
-    }
-    .substage-tab.is-locked .substage-title,
-    .substage-tab.is-locked .substage-help {
-      color: #9aa6b6;
-    }
-    .substage-tab.is-done::after,
-    .substage-tab.is-current::after {
-      background: #7845ff;
-    }
+    .stepper-section { margin-bottom: 14px; }
     .tutorial-card h3 { margin: 0 0 8px; }
     .tutorial-card .sub { margin: 0 0 8px; font-size: 12px; color: #64748b; }
     .guidance-panel h3 { margin-bottom: 10px; }
@@ -1317,17 +1160,11 @@
         </div>
       </section>
 
+      <div class="stepper-section">
+        <div class="registration-stepper-host" id="stageList" role="tablist" aria-label="MyIntealth registration steps"></div>
+      </div>
+
       <section class="layout single-col">
-        <article class="card progress-panel">
-          <div class="substage-tabs-wrap">
-            <div class="substage-tabs-shell">
-              <div class="registration-stepper-host" id="stageList" role="tablist" aria-label="Substages"></div>
-            </div>
-          </div>
-          <div class="substage-progress" aria-label="Step progress">
-            <span class="substage-progress-fill" id="substageProgressFill"></span>
-          </div>
-        </article>
 
         <article class="card tutorial-card" id="tutorialCard">
           <h3>Video tutorial</h3>
