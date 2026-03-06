@@ -3,112 +3,1212 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MyIntealth - GP Link</title>
-  <link rel="stylesheet" href="../css/shared.css" />
+  <script>
+    (function () {
+      const root = document.documentElement;
+      root.classList.add('gp-page-loading');
+      const style = document.createElement('style');
+      style.textContent = '.gp-page-loading body > *:not(#gp-universal-skeleton){visibility:hidden!important;}#gp-universal-skeleton{position:fixed;inset:0;z-index:10000;background:#eef3fb;display:grid;place-items:center;padding:18px 12px;}#gp-universal-skeleton .shell{position:relative;overflow:hidden;width:min(1100px,100%);height:min(760px,84vh);border-radius:18px;background:linear-gradient(90deg,#e4ebf6 25%,#f2f6fd 37%,#e4ebf6 63%);background-size:400% 100%;box-shadow:0 0 0 1px rgba(10,132,255,.32),0 0 14px rgba(10,132,255,.35),0 0 28px rgba(10,132,255,.2) inset;animation:gpUniversalShimmer 1.35s ease-in-out infinite;}#gp-universal-skeleton .shell::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from 0deg,#1d9bff 0deg,#9fddff 70deg,#1d9bff 140deg,transparent 220deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:gpLedTrace .95s linear infinite;}@keyframes gpUniversalShimmer{0%{background-position:100% 50%;}100%{background-position:0 50%;}}@keyframes gpLedTrace{to{transform:rotate(1turn);}}';
+      document.head.appendChild(style);
+      function mount() { if (!document.body || document.getElementById('gp-universal-skeleton')) return; const el = document.createElement('div'); el.id = 'gp-universal-skeleton'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = '<div class="shell"></div>'; document.body.appendChild(el); }
+      function unmount() { root.classList.remove('gp-page-loading'); const el = document.getElementById('gp-universal-skeleton'); if (el && el.parentNode) el.parentNode.removeChild(el); }
+      let pageReady = document.readyState !== 'loading';
+      function done() { if (pageReady) unmount(); }
+      if (!pageReady) document.addEventListener('DOMContentLoaded', function () { pageReady = true; done(); }, { once: true });
+      setTimeout(done, 12000);
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true }); else mount();
+    })();
+  </script>
   <script src="../js/auth-guard.js" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
+  <title>MyIntealth - GP Link</title>
   <style>
-    /* ─── PAGE-SPECIFIC STYLES ─── */
-    .tutorial-video {
-      width: 100%;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border);
-      background: #000;
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --blue: #0a84ff;
+      --blue-strong: #0066d6;
+      --green: #16a34a;
+      --amber-bg: #fff8e8;
+      --amber-line: #f4d28d;
+      --shadow-soft: 0 18px 38px -28px rgba(15, 23, 42, 0.35);
+      --radius-lg: 18px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
     }
 
-    .tutorial-section {
-      margin-bottom: 16px;
+    * { box-sizing: border-box; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
+        radial-gradient(760px 460px at 100% 0%, rgba(22, 163, 74, 0.12), transparent 58%),
+        var(--bg);
+      color: var(--text);
+      padding: 20px 12px 30px;
+      overflow-x: hidden;
     }
 
-    .tutorial-section h3 {
-      font-size: 15px;
-      font-weight: 800;
-      margin-bottom: 4px;
+    .shell {
+      max-width: 1150px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 22px;
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      overflow: hidden;
     }
 
-    .tutorial-section .tutorial-sub {
-      font-size: 12px;
-      color: var(--muted);
+    .topbar {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid #e6edf7;
+      background: #ffffff;
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      min-height: 56px;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+
+    .brand-logo img {
+      display: block;
+      width: 178px;
+      height: auto;
+    }
+
+    .nav-menu {
+      display: flex;
+      gap: 22px;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+      padding: 6px;
+      border-radius: 14px;
+    }
+
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
+
+    .nav-link,
+    .nav-action,
+    .account-pill {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #111827;
+      border-radius: 0;
+      padding: 6px 10px;
+      font-size: 14px;
       font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      cursor: pointer;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+
+    .nav-icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #334155;
+    }
+
+    .nav-text { line-height: 1; }
+
+    .nav-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+
+    .nav-alert {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .nav-link.active,
+    .nav-action.active,
+    .account-pill.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 104px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05), transform .2s ease, box-shadow .2s ease;
+    }
+
+    .nav-glass.morph { animation: glassMorph .34s ease; }
+
+    .nav-glass.engulf {
+      transform: scale(1.06);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 14px 24px -18px rgba(37, 99, 235, 0.62);
+    }
+
+    @keyframes glassMorph {
+      0% { transform: scaleX(.92) scaleY(1.02); border-radius: 16px; }
+      50% { transform: scaleX(1.08) scaleY(.92); border-radius: 20px; }
+      100% { transform: scaleX(1) scaleY(1); border-radius: 12px; }
+    }
+
+    .reg-dropdown {
+      position: absolute;
+      top: calc(100% + 2px);
+      right: 0;
+      width: min(760px, 92vw);
+      border-radius: 16px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      box-shadow: var(--glass-shadow), 0 14px 26px -18px rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      padding: 10px;
+      z-index: 70;
+      opacity: 0;
+      transform: translateY(4px);
+      pointer-events: none;
+      visibility: hidden;
+      transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
+    }
+
+    .reg-dropdown.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+      visibility: visible;
+    }
+
+    .reg-head {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+
+    .reg-table { display: grid; gap: 8px; }
+
+    .reg-row {
+      display: grid;
+      grid-template-columns: 1.2fr auto auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      background: #fbfdff;
+      border-radius: 12px;
+      padding: 8px 10px;
+    }
+
+    .reg-name { font-size: 12px; font-weight: 800; color: #0f172a; }
+    .reg-sub { font-size: 11px; font-weight: 700; color: #64748b; margin-top: 2px; }
+
+    .reg-pill {
+      border-radius: 999px;
+      padding: 4px 8px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 10px;
+      font-weight: 800;
+      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .reg-pill.locked {
+      border-color: #d1d5db;
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+
+    .reg-btn {
+      border-radius: 999px;
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.58);
+      color: #1e3a8a;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 6px 10px;
+      white-space: nowrap;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .reg-btn.locked {
+      border-color: #dbe4ef;
+      background: rgba(241, 245, 249, 0.82);
+      color: #6b7280;
+      pointer-events: none;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .main { padding: 12px; }
+
+    .heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
       margin-bottom: 10px;
     }
 
-    .warning-note {
-      border-radius: var(--radius-sm);
-      border: 1px solid rgba(245, 158, 11, 0.4);
-      background: rgba(255, 251, 235, 0.5);
-      color: #92400e;
-      padding: 12px;
-      font-size: 13px;
-      line-height: 1.5;
-      font-weight: 500;
-      margin-top: 14px;
+    .heading-main {
+      width: 100%;
+      display: grid;
+      gap: 4px;
     }
 
-    .current-stage-note {
-      text-align: center;
+    .heading-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .heading-updated {
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 620;
+      white-space: nowrap;
+    }
+
+    .heading h2 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -0.02em;
+      font-weight: 740;
+      color: #0f172a;
+    }
+
+    .heading p {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .chip {
+      border: 1px solid #d7e3f6;
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      color: #334155;
+      font-weight: 620;
+      white-space: nowrap;
+    }
+
+    .btn {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.58);
+      color: #1e3a8a;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px -14px rgba(15, 23, 42, 0.45);
+    }
+
+    .btn-primary {
+      color: #1e3a8a;
+      background: rgba(255, 255, 255, 0.62);
+      border-color: rgba(147, 197, 253, 0.95);
+    }
+
+    .btn-soft {
+      color: #1e3a8a;
+      border-color: rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+      opacity: 0.65;
+    }
+
+    .btn-neutral {
+      color: #475569;
+      border-color: #dbe4ef;
+      background: rgba(241, 245, 249, 0.82);
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .btn-undo {
+      width: auto;
+      min-height: 34px;
+      padding: 6px 10px;
+      font-size: 12px;
+      justify-self: flex-start;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-soft);
+      padding: 14px;
+    }
+
+    .card h3 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .sub {
+      margin: 4px 0 10px;
       font-size: 12px;
       color: var(--muted);
+      font-weight: 560;
+    }
+
+    .stage-list {
+      position: relative;
+      display: grid;
+      gap: 10px;
+      padding-left: 32px;
+    }
+
+    .stage-list::before {
+      content: "";
+      position: absolute;
+      left: 11px;
+      top: 14px;
+      bottom: 14px;
+      width: 2px;
+      background: #d7e3f6;
+      border-radius: 999px;
+    }
+
+    .stage-card {
+      position: relative;
+      border: 1px solid #e3eaf4;
+      border-radius: var(--radius-md);
+      background: #fbfdff;
+      padding: 11px;
+      display: grid;
+      gap: 9px;
+      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .stage-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px -16px rgba(15, 23, 42, 0.36);
+    }
+
+    .stage-card.is-selected {
+      border-color: #b8d4fb;
+      background: #f3f8ff;
+      box-shadow: 0 14px 24px -22px rgba(37, 99, 235, 0.7);
+    }
+
+    .stage-card.current {
+      border-color: #bfdcff;
+      background: linear-gradient(180deg, #f8fbff 0%, #f2f8ff 100%);
+    }
+
+    .stage-card.done {
+      border-color: #bde8cc;
+      background: #f2fcf6;
+    }
+
+    .stage-card.locked {
+      background: #f8fafc;
+      border-color: #e4e9f1;
+    }
+
+    .stage-node {
+      position: absolute;
+      left: -32px;
+      top: 14px;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      border: 1px solid #b7cae7;
+      background: #f8fbff;
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+      transition: all .18s ease;
+    }
+
+    .stage-card:hover .stage-node,
+    .stage-card:focus-within .stage-node {
+      transform: scale(1.06);
+      border-color: #60a5fa;
+      color: #1d4ed8;
+      background: #eef6ff;
+    }
+
+    .stage-card.current .stage-node,
+    .stage-card.done .stage-node {
+      border-color: #2563eb;
+      background: #2563eb;
+      color: #fff;
+      box-shadow: 0 6px 14px -10px rgba(37, 99, 235, 0.75);
+    }
+
+    .stage-card.locked .stage-node {
+      border-color: #d1d5db;
+      color: #94a3b8;
+      background: #f8fafc;
+    }
+
+    .stage-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    .stage-title-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .stage-current {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 10px;
+      line-height: 1;
+      font-weight: 800;
+      text-transform: capitalize;
+      color: #1d4ed8;
+      background: #eaf3ff;
+      border: 1px solid #bfdcff;
+      letter-spacing: .02em;
+    }
+
+    .stage-head h4 {
+      margin: 0;
+      font-size: 14px;
       font-weight: 700;
-      margin-top: 8px;
+      color: #111827;
+      letter-spacing: -0.01em;
+    }
+
+    .stage-head p {
+      margin: 3px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+
+    .pill {
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 650;
+      border: 1px solid #d9e4f6;
+      background: #f3f8ff;
+      color: #2459a6;
+      white-space: nowrap;
+      align-self: flex-start;
+    }
+
+    .pill.locked {
+      background: #f8fafc;
+      color: #64748b;
+      border-color: #e2e8f0;
+    }
+
+    .pill.done {
+      background: #ebfaef;
+      color: #15803d;
+      border-color: #bce8cc;
+    }
+
+    .guidance-top {
+      border: 1px solid #dce8f8;
+      border-radius: var(--radius-md);
+      background: linear-gradient(180deg, #f9fcff 0%, #f2f8ff 100%);
+      padding: 11px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .label {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: #eaf3ff;
+      color: #1d4ed8;
+      border: 1px solid #c6dafb;
+      font-size: 11px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      font-weight: 700;
+      padding: 4px 8px;
+      width: fit-content;
+    }
+
+    .line {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.45;
+      color: #334155;
+      font-weight: 620;
+    }
+
+    .line-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .glass-tick {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.58);
+      color: #1d4ed8;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      flex: 0 0 auto;
+    }
+
+    .glass-tick svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .line span:first-child {
+      color: #0f172a;
+      font-weight: 560;
+    }
+
+    .timeline {
+      margin-top: 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid #e2e8f0;
+      background: #f8fbff;
+      padding: 10px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .timeline p {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 650;
+      color: #334155;
+    }
+
+    .actions {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .warning {
+      margin-top: 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--amber-line);
+      background: var(--amber-bg);
+      color: #9a5b0f;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      font-weight: 550;
+    }
+
+    .footer-note {
+      margin: 10px 0 0;
+      text-align: center;
+      font-size: 12px;
+      color: #94a3b8;
+      font-weight: 700;
+    }
+
+    .single-col { grid-template-columns: 1fr; gap: 14px; }
+    .stepper-section { margin-bottom: 14px; }
+
+    /* ---- Registration Stepper (inline) ---- */
+    .gp-stepper { position: relative; width: 100%; }
+    .gp-stepper-wrap { position: relative; border-radius: 16px; }
+    .gp-stepper-wrap::before, .gp-stepper-wrap::after {
+      content: ""; position: absolute; top: 0; bottom: 0; width: 28px;
+      pointer-events: none; opacity: 0; transition: opacity .2s ease; z-index: 4;
+    }
+    .gp-stepper-wrap::before { left: 0; background: linear-gradient(90deg, rgba(244,247,251,.98), rgba(244,247,251,0)); }
+    .gp-stepper-wrap::after  { right: 0; background: linear-gradient(270deg, rgba(244,247,251,.98), rgba(244,247,251,0)); }
+    .gp-stepper-wrap.gp-fade-left::before  { opacity: 1; }
+    .gp-stepper-wrap.gp-fade-right::after  { opacity: 1; }
+    .gp-stepper-viewport { overflow-x: hidden; overflow-y: visible; border-radius: 14px; }
+    .gp-stepper-track {
+      position: relative; display: flex; align-items: stretch;
+      gap: 8px; width: 100%; padding: 4px 4px 16px; min-height: 80px;
+    }
+    .gp-stepper-line {
+      position: absolute;
+      left: var(--gp-line-start, 0px); width: var(--gp-line-width, 0px); top: var(--gp-line-top, 26px);
+      transform: translateY(-50%); height: 2px; border-radius: 999px;
+      background: #d9deea; pointer-events: none; z-index: 0; overflow: hidden;
+    }
+    .gp-stepper-line-fill {
+      width: var(--gp-line-fill, 0px); height: 100%; border-radius: inherit;
+      background: linear-gradient(90deg, #8b5cf6, #6d28d9);
+      transition: width .55s cubic-bezier(.4,0,.2,1);
+    }
+    .gp-stepper-step {
+      position: relative; z-index: 1; border: 0; background: #f4f7fb;
+      padding: 0; margin: 0; flex: 1 1 0; min-width: 168px; text-align: left;
+      scroll-snap-align: center; cursor: not-allowed; outline: none; border-radius: 14px;
+    }
+    .gp-stepper-step.gp-clickable { cursor: pointer; }
+    .gp-stepper-step:active .gp-stepper-inner { transform: scale(0.98) !important; }
+    .gp-stepper-inner {
+      position: relative; display: flex; align-items: flex-start; gap: 10px;
+      border-radius: 14px; padding: 10px 12px; height: 100%;
+      border: 1px solid rgba(226,232,240,.85); background: rgba(255,255,255,.55);
+      transition: transform .22s ease, background .2s ease, border-color .2s ease, box-shadow .2s ease;
+    }
+    @media (hover: hover) and (pointer: fine) {
+      .gp-stepper-step.gp-clickable:hover .gp-stepper-inner {
+        background: rgba(255,255,255,.9); border-color: rgba(148,163,184,.45);
+        box-shadow: 0 8px 22px -14px rgba(15,23,42,.35);
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); transform: translateY(-2px);
+      }
+    }
+    .gp-stepper-step.gp-active .gp-stepper-inner {
+      border-color: rgba(124,58,237,.28); background: rgba(250,247,255,.88);
+      box-shadow: 0 0 0 2px rgba(124,58,237,.08), 0 4px 16px -8px rgba(124,58,237,.2);
+    }
+    .gp-stepper-step:focus-visible { box-shadow: 0 0 0 2px rgba(76,29,149,.3); border-radius: 14px; }
+    .gp-stepper-circle {
+      flex: 0 0 auto; width: 30px; height: 30px; border-radius: 999px;
+      border: 1px solid #b9a8ff; background: #f4f0ff; color: #5b21b6;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: transform .22s ease, box-shadow .22s ease; margin-top: 1px;
+    }
+    .gp-stepper-step.gp-completed .gp-stepper-circle { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+    .gp-stepper-step.gp-active    .gp-stepper-circle { transform: scale(1.08); box-shadow: 0 0 0 5px rgba(124,58,237,.16), 0 8px 16px -10px rgba(76,29,149,.65); }
+    .gp-stepper-step.gp-locked    .gp-stepper-circle { background: #fff; border-color: #d0d7e3; color: #9aa6b6; }
+    .gp-stepper-step.gp-waiting   .gp-stepper-circle { background: #fff; border-color: #cbd5e1; color: #64748b; }
+    .gp-stepper-step.gp-action_required .gp-stepper-circle { background: #fff7ed; border-color: #fdba74; color: #b45309; }
+    .gp-stepper-dot     { display: block; width: 7px; height: 7px; border-radius: 999px; background: currentColor; }
+    .gp-stepper-spinner { display: block; width: 13px; height: 13px; border-radius: 999px; border: 2px solid rgba(100,116,139,.3); border-top-color: currentColor; animation: gpStepSpin .9s linear infinite; }
+    @keyframes gpStepSpin { to { transform: rotate(360deg); } }
+    .gp-stepper-body { min-width: 0; flex: 1; }
+    .gp-stepper-title-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .gp-stepper-title { margin: 0; font-size: 12px; font-weight: 720; line-height: 1.25; color: #0f172a; }
+    .gp-stepper-step.gp-active  .gp-stepper-title { font-weight: 790; }
+    .gp-stepper-step.gp-locked  .gp-stepper-title { color: #9aa6b6; }
+    .gp-stepper-badge {
+      display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 7px;
+      font-size: 10px; font-weight: 700; background: rgba(124,58,237,.1); color: #7c3aed;
+      border: 1px solid rgba(124,58,237,.2); white-space: nowrap; line-height: 1.4;
+    }
+    .gp-stepper-desc { margin: 3px 0 0; font-size: 11px; line-height: 1.3; color: #667085; }
+    .gp-stepper-step.gp-locked .gp-stepper-desc { color: #9aa6b6; }
+    .gp-stepper-ripple { position: absolute; inset: 0; border-radius: 14px; background: rgba(124,58,237,.14); transform: scale(.75); opacity: 0; pointer-events: none; }
+    .gp-stepper-step.gp-rippling .gp-stepper-ripple { animation: gpStepRipple .28s ease; }
+    @keyframes gpStepRipple { 0% { transform: scale(.75); opacity: .65; } 100% { transform: scale(1.02); opacity: 0; } }
+    @media (max-width: 860px) {
+      .gp-stepper-viewport { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; }
+      .gp-stepper-viewport::-webkit-scrollbar { display: none; }
+      .gp-stepper-track { width: max-content; min-width: 100%; padding-inline: 10px; }
+      .gp-stepper-step { flex: 0 0 min(76vw, 250px); max-width: min(76vw, 250px); }
+      .gp-stepper-fit .gp-stepper-viewport { overflow-x: hidden; scroll-snap-type: none; }
+      .gp-stepper-fit .gp-stepper-track { width: 100%; }
+      .gp-stepper-fit .gp-stepper-step { flex: 1 1 0; max-width: none; }
+    }
+    /* ---- End Stepper ---- */
+    .tutorial-card h3 { margin: 0 0 8px; }
+    .tutorial-card .sub { margin: 0 0 8px; font-size: 12px; color: #64748b; }
+    .guidance-panel h3 { margin-bottom: 10px; }
+    .help-pill {
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 18px;
+      background: #111111;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      min-width: 120px;
+    }
+    .bottom-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .next-btn { justify-self: end; }
+    .help-center {
+      justify-self: center;
+      margin-top: 2px;
+    }
+    .current-stage-note {
+      margin: 4px 0 0;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 700;
+    }
+    .smart-guidance-warn {
+      background: #fffbeb;
+      border-color: #fcd34d;
+    }
+
+    .modal-card h4 { margin: 0; font-size: 18px; font-weight: 740; letter-spacing: -0.01em; }
+    .modal-card p { margin: 0; font-size: 13px; line-height: 1.45; color: #64748b; font-weight: 560; }
+    .modal-card textarea { font-size: 12px; }
+    .toast { font-size: 12px; font-weight: 650; }
+
+    .mobile-tab-label {
+      font-size: 10px;
+      font-weight: 620;
+      line-height: 1.15;
+      text-align: center;
+      letter-spacing: 0.01em;
+      text-wrap: balance;
+      overflow-wrap: anywhere;
+    }
+
+    .mobile-reg-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+    .mobile-reg-close { font-size: 14px; font-weight: 900; }
+
+    @media (max-width: 640px) {
+      body { padding: 12px 10px 22px; }
+      .topbar h1 { font-size: 26px; }
+      .heading h2 { font-size: 20px; }
+      .main { padding: 10px; }
+      .layout > * { min-width: 0; }
+      .btn { width: 100%; min-height: 44px; }
+      .btn-undo { width: auto !important; min-height: 34px; }
+      #watchTutorial { width: auto !important; min-height: 44px; }
+      .heading-meta { align-items: flex-start; }
+      .substage-tabs-shell {
+        border: 0;
+        border-radius: 12px;
+        padding: 6px;
+      }
+      .substage-glass { display: none; }
+      .substage-tabs {
+        gap: 8px;
+        padding: 10px;
+      }
+      .substage-tab {
+        min-width: 150px;
+        text-align: left;
+      }
+      .substage-tab::after {
+        content: none;
+      }
+      .substage-tab .substage-marker {
+        margin: 0 0 6px;
+      }
+      .bottom-actions { grid-template-columns: 1fr; }
+      .next-btn,
+      .help-center {
+        justify-self: stretch;
+      }
+      .help-pill {
+        width: 100%;
+        min-width: 0;
+      }
+      #tutorialVideoInline {
+        width: min(86vw, 360px) !important;
+        max-height: 210px;
+        margin: 0 auto;
+        display: block;
+      }
+    }
+
+    @media (max-width: 767px) {
+      .nav-menu { display: none; }
+      .topbar-row { grid-template-columns: auto; justify-content: flex-start; }
+      .brand-logo { display: none; }
+      .topbar { display: none; }
+      .main { padding-top: 0; }
+    }
+
+    #watchTutorial {
+      margin: 2px auto 0;
+      width: auto;
+      min-width: 188px;
+      border-radius: 999px;
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      background: rgba(255, 255, 255, 0.58);
+      color: #0f172a;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    #watchTutorial svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    #watchTutorial.tutorial-highlight {
+      border-color: rgba(96, 165, 250, 0.95);
+      animation: tutorialFloat 2.8s ease-in-out infinite;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 12px 20px -14px rgba(37, 99, 235, 0.7);
+    }
+
+    @keyframes tutorialFloat {
+      0% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+      100% { transform: translateY(0); }
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      z-index: 90;
+    }
+
+    .modal.show { display: flex; }
+
+    .modal-card {
+      width: min(620px, 100%);
+      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      box-shadow: 0 18px 45px -28px rgba(15, 23, 42, 0.65);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .modal-card textarea {
+      width: 100%;
+      min-height: 86px;
+      border-radius: 10px;
+      border: 1px solid #d8e4f6;
+      padding: 9px;
+      font: inherit;
+      resize: vertical;
     }
 
     .toast {
       position: fixed;
-      left: 50%;
-      bottom: 80px;
-      transform: translateX(-50%);
-      padding: 10px 18px;
-      border-radius: var(--radius-sm);
-      background: rgba(15, 23, 42, 0.92);
+      right: 12px;
+      bottom: 92px;
+      z-index: 95;
+      border-radius: 10px;
+      background: #111827;
       color: #fff;
-      font-size: 13px;
-      font-weight: 600;
-      z-index: 10000;
-      pointer-events: none;
+      padding: 9px 11px;
       opacity: 0;
-      transition: opacity .3s ease;
+      transform: translateY(8px);
+      transition: opacity .2s ease, transform .2s ease;
+      pointer-events: none;
     }
 
-    .toast.show {
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    .mobile-nav {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 10px;
+      width: min(420px, calc(100% - 20px));
+      border-radius: 20px;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      background: rgba(15, 23, 42, 0.92);
+      padding: 6px;
+      display: none;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      z-index: 50;
+      box-shadow: 0 18px 30px -24px rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .mobile-tab {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #dbe4f1;
+      border-radius: 14px;
+      min-height: 58px;
+      padding: 6px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .mobile-tab-icon {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      color: #dbe4f1;
+    }
+
+    .mobile-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .mobile-tab-alert {
+      top: -6px;
+      right: -8px;
+      transform: none;
+    }
+
+    .mobile-tab-active {
+      background: rgba(59, 130, 246, 0.2);
+      color: #ffffff;
+    }
+
+    .mobile-tab-active .mobile-tab-icon { color: #7dd3fc; }
+
+    .mobile-tab-icon svg {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mobile-reg-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.42);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+      z-index: 54;
+    }
+
+    .mobile-reg-backdrop.show {
       opacity: 1;
+      pointer-events: auto;
     }
 
-    @media (max-width: 767px) {
-      .step-card {
-        border-radius: var(--radius-md);
-        padding: 16px;
-      }
+    .mobile-reg-sheet {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #ffffff;
+      border-radius: 18px 18px 0 0;
+      border-top: 1px solid #dbe4ef;
+      box-shadow: 0 -20px 40px -28px rgba(15, 23, 42, 0.5);
+      padding: 10px 12px 14px;
+      transform: translateY(100%);
+      transition: transform .24s ease;
+      z-index: 55;
+      max-height: 74vh;
+      overflow: auto;
+      touch-action: pan-y;
     }
+
+    .mobile-reg-sheet.show { transform: translateY(0); }
+
+    .mobile-reg-grab {
+      width: 44px;
+      height: 5px;
+      border-radius: 999px;
+      background: #cbd5e1;
+      margin: 2px auto 10px;
+    }
+
+    .mobile-reg-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .mobile-reg-close {
+      border: 0;
+      background: #f1f5f9;
+      color: #334155;
+      border-radius: 999px;
+      width: 30px;
+      height: 30px;
+      cursor: pointer;
+    }
+
+    .mobile-reg-table { display: grid; gap: 8px; }
+    .mobile-reg-table .reg-row { grid-template-columns: 1fr auto; }
+    .mobile-reg-table .reg-btn { grid-column: 1 / -1; width: 100%; text-align: center; margin-top: 2px; }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .guidance-panel { order: 1; }
+      .progress-panel { order: 2; }
+      body { padding-bottom: 96px; }
+      .mobile-nav { display: grid; }
+    }
+
+    @media (max-width: 560px) {
+      .shell { border-radius: 16px; }
+      .topbar { padding: 12px; }
+      .card,
+      .guidance-top,
+      .timeline,
+      .stage-card { padding: 10px; }
+      .stage-list { padding-left: 28px; }
+      .stage-node { left: -28px; }
+      .stage-head { flex-direction: column; gap: 6px; }
+      .actions { gap: 6px; }
+      .actions .btn { width: 100%; justify-content: center; }
+      #watchTutorial { width: 100%; min-width: 0; }
+      .pill { white-space: normal; }
+      .mobile-tab-label { font-size: 9px; }
+    }
+
   </style>
 </head>
 <body>
-
-  <div class="page-wrap">
-    <!-- ═══ MOBILE HEADER ═══ -->
-    <header class="app-header">
-      <div class="header-greeting">
-        <div class="header-avatar" id="headerAvatarMobile">GP</div>
-        <div class="header-text">
-          <h1>MyIntealth</h1>
-          <p>EPIC Verification</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Notifications">
-          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
-          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        </button>
-        <a class="header-icon-btn" href="account.html" aria-label="Account">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-        </a>
-      </div>
-    </header>
-
-    <!-- ═══ DESKTOP TOPBAR ═══ -->
-    <header class="desktop-topbar">
+  <div class="shell">
+    <header class="topbar">
       <div class="topbar-row">
         <a class="brand-logo" href="index.html" aria-label="GP Link Home">
           <img src="../media/images/gp-link-logo.png" alt="GP Link" />
@@ -117,23 +1217,23 @@
           <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
           <a class="nav-link nav-item" href="index.html" data-nav="home">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
-            <span>Home</span>
+            <span class="nav-text">Home</span>
           </a>
           <button class="nav-action nav-item active" id="registrationMenuBtn" type="button" data-nav="registration">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
-            <span>Registration</span>
+            <span class="nav-text">Registration</span>
           </button>
           <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-            <span>My Documents</span>
+            <span class="nav-text">My Documents</span>
           </a>
           <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
-            <span>Messages</span>
+            <span class="nav-text">Messages</span>
           </button>
           <a class="account-pill nav-item" href="account.html" data-nav="account">
             <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-            <span>Account</span>
+            <span class="nav-text">Account</span>
           </a>
 
           <div class="reg-dropdown" id="registrationDropdown">
@@ -144,93 +1244,101 @@
       </div>
     </header>
 
-    <!-- ═══ PAGE BANNER ═══ -->
-    <div class="page-banner page-banner-1">
-      <div class="banner-step">Step 1 of 3</div>
-      <h1>MyIntealth Account</h1>
-      <p>Create your MyIntealth account, complete EPIC verification, and upload your specialist qualifications.</p>
-    </div>
-
-    <!-- ═══ STEPPER TABS ═══ -->
-    <div class="stepper-nav" id="stepperNav" role="tablist" aria-label="MyIntealth registration steps"></div>
-
-    <!-- ═══ STEP CONTENT ═══ -->
-    <div class="step-card" id="stepContentCard">
-
-      <div class="tutorial-section" id="tutorialCard">
-        <h3>Video tutorial</h3>
-        <p class="tutorial-sub" id="tutorialTextInline">Create your MyIntealth account by following this walkthrough.</p>
-        <video id="tutorialVideoInline" class="tutorial-video" controls playsinline preload="metadata">
-          <source id="tutorialSourceInline" src="../media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
-          Your browser does not support the video tag.
-        </video>
-      </div>
-
-      <div class="guidance-box" id="smartGuidanceCard">
-        <div class="guidance-label">What to do now</div>
-        <p class="guidance-text" style="font-weight:700; color:var(--text); margin-bottom:6px;" id="guideTitle">-</p>
-        <p class="guidance-text"><strong>Do now:</strong> <span id="guideDoNow">-</span></p>
-        <p class="guidance-text" id="guideTimeRow"><strong>Estimated time:</strong> <span id="guideTime">-</span></p>
-        <p class="guidance-text"><strong>What GP Link does:</strong> <span id="guideSupport">-</span></p>
-        <div style="margin-top:12px;">
-          <button class="btn-modern btn-primary" id="mainCta" type="button">Continue</button>
+    <main class="main">
+      <section class="heading">
+        <div class="heading-main">
+          <h2 id="stepTitle">MyIntealth</h2>
         </div>
+      </section>
+
+      <div class="stepper-section">
+        <div class="registration-stepper-host" id="stageList" role="tablist" aria-label="MyIntealth registration steps"></div>
       </div>
 
-      <div class="warning-note" id="amcWarning" style="display:none;">Important: Nominate AMC so they receive the report.</div>
+      <section class="layout single-col">
 
-      <!-- Step navigation -->
-      <div class="step-nav">
-        <button class="step-nav-btn" id="prevStageBtn" type="button">Previous</button>
-        <button class="step-nav-btn" id="contactSupport" type="button">Get Help</button>
-        <button class="step-nav-btn primary" id="nextStageBtn" type="button">Next</button>
-      </div>
+        <article class="card tutorial-card" id="tutorialCard">
+          <h3>Video tutorial</h3>
+          <p class="sub" id="tutorialTextInline">Create your MyIntealth account by following this walkthrough.</p>
+          <video id="tutorialVideoInline" controls playsinline preload="metadata" style="width:100%; border-radius:12px; border:1px solid #e2e8f0; background:#000;">
+            <source id="tutorialSourceInline" src="../media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
+            Your browser does not support the video tag.
+          </video>
+        </article>
 
-      <p class="current-stage-note" id="currentStageText">Current stage: -</p>
-    </div>
+        <article class="card guidance-panel">
+          <div class="guidance-top" id="smartGuidanceCard">
+            <div class="label">What to do now</div>
+            <p class="line line-title" id="guideTitle">-</p>
+            <p class="line"><span>Do now:</span> <span id="guideDoNow">-</span></p>
+            <p class="line" id="guideTimeRow"><span>Estimated time:</span> <span id="guideTime">-</span></p>
+            <p class="line"><span>What GP Link does:</span> <span id="guideSupport">-</span></p>
+            <button class="btn btn-primary" id="mainCta" type="button">Continue</button>
 
-    <!-- ═══ FOOTER ═══ -->
-    <div class="footer-links">
-      <div><a href="privacy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
-      <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
-    </div>
+            <div id="qualificationBox" style="display:none; border:1px solid #dce8f8; border-radius:10px; background:#fff; padding:10px;">
+              <p class="line" style="margin-bottom:6px;"><span>Which country did you obtain your specialist qualification?</span></p>
+              <select id="countrySelect" style="width:100%; border:1px solid #d7e3f6; border-radius:10px; padding:9px; font:inherit; font-size:13px;">
+                <option value="uk">United Kingdom</option>
+                <option value="nz">New Zealand</option>
+                <option value="ie">Ireland</option>
+              </select>
+              <p class="line" id="qualificationInstruction" style="margin-top:8px;"></p>
+            </div>
+          </div>
+
+          <div class="warning" id="amcWarning" style="display:none;">Important: Nominate AMC so they receive the report.</div>
+        </article>
+
+        <div class="bottom-actions">
+          <button class="help-pill" id="prevStageBtn" type="button">Previous</button>
+          <button class="help-pill next-btn" id="nextStageBtn" type="button">Next</button>
+        </div>
+        <button class="help-pill help-center" id="contactSupport" type="button">Get Help</button>
+        <p class="current-stage-note" id="currentStageText">Current stage: -</p>
+      </section>
+    </main>
   </div>
 
-  <!-- ═══ BOTTOM NAV (Mobile) ═══ -->
-  <nav class="bottom-nav" aria-label="Mobile navigation">
-    <a class="bottom-tab" href="index.html">
-      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
-      <span class="bottom-tab-label">Home</span>
-    </a>
-    <button class="bottom-tab bottom-tab-active" id="mobileRegistrationBtn" type="button">
-      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
-      <span class="bottom-tab-label">Registration</span>
-    </button>
-    <button class="bottom-tab" id="mobileSupportBtn" type="button">
-      <span class="bottom-tab-icon">
-        <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
-        <span class="bottom-tab-badge" data-inbox-alert hidden aria-hidden="true">!</span>
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
       </span>
-      <span class="bottom-tab-label">Messages</span>
+      <span class="mobile-tab-label">Home Dashboard</span>
+    </a>
+    <button class="mobile-tab mobile-tab-active" id="mobileRegistrationBtn" type="button">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+      </span>
+      <span class="mobile-tab-label">Registration Process</span>
     </button>
-    <a class="bottom-tab" href="account.html">
-      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
-      <span class="bottom-tab-label">Account</span>
+    <button class="mobile-tab" id="mobileSupportBtn" type="button">
+      <span class="mobile-icon-wrap">
+        <span class="mobile-tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        </span>
+        <span class="mobile-tab-alert nav-alert" data-inbox-alert hidden aria-hidden="true">!</span>
+      </span>
+      <span class="mobile-tab-label">Messages</span>
+    </button>
+    <a class="mobile-tab" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+      </span>
+      <span class="mobile-tab-label">Account</span>
     </a>
   </nav>
 
-  <!-- ═══ MOBILE REGISTRATION SHEET ═══ -->
   <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
   <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
     <div class="mobile-reg-grab" aria-hidden="true"></div>
     <div class="mobile-reg-head">
       <p class="mobile-reg-title">Registration Process</p>
-      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">&times;</button>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">×</button>
     </div>
     <div class="mobile-reg-table" id="mobileRegTable"></div>
   </aside>
 
-  <!-- ═══ TUTORIAL MODAL (legacy, kept for compat) ═══ -->
   <div class="modal" id="tutorialModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle">
       <h4 id="tutorialTitle">Tutorial</h4>
@@ -239,31 +1347,25 @@
         <source id="tutorialSource" src="../media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
         Your browser does not support the video tag.
       </video>
-      <button class="btn-modern btn-outline" data-close="tutorialModal" type="button">Close</button>
+      <button class="btn btn-primary" data-close="tutorialModal" type="button">Close</button>
     </div>
   </div>
 
-  <!-- ═══ SUPPORT MODAL ═══ -->
   <div class="modal" id="supportModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
       <h4 id="supportTitle">Contact support</h4>
       <p>Share what screen you are on and the issue you hit. GP Link will follow up with next actions.</p>
       <textarea id="supportMessage" placeholder="Describe your issue..."></textarea>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn-modern btn-primary" id="supportSubmitBtn" type="button">Submit request</button>
-        <button class="btn-modern btn-outline" data-close="supportModal" type="button">Close</button>
+        <button class="btn btn-primary" id="supportSubmitBtn" type="button">Submit request</button>
+        <button class="btn btn-neutral" data-close="supportModal" type="button">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- ═══ TOAST ═══ -->
   <div class="toast" id="toast">Progress saved</div>
 
   <script>
-    /* ═══════════════════════════════════════════════════
-       ALL EXISTING JS LOGIC — preserved exactly
-       ═══════════════════════════════════════════════════ */
-
     const STORAGE_KEY = "gp_epic_progress";
     const TUTORIAL_SEEN_KEY = "gp_epic_tutorial_seen";
     const AMC_KEY = "gp_amc_progress";
@@ -280,8 +1382,8 @@
         label: "Create your MyIntealth account",
         short: "Create account and finish identity verification.",
         doNow: "Create your account and complete identity verification.",
-        where: "MyIntealth - Create account",
-        time: "10-20 mins",
+        where: "MyIntealth → Create account",
+        time: "10–20 mins",
         support: "We monitor your progress and can help if verification stalls.",
         cta: "Open MyIntealth",
         ctaType: "open"
@@ -290,8 +1392,8 @@
         label: "Upload your specialist qualifications",
         short: "Upload credentials and nominate AMC.",
         doNow: "Upload your specialist qualification and ensure AMC is nominated.",
-        where: "Services - EPIC - Credential Verification - Upload Credentials",
-        time: "10-20 mins",
+        where: "Services → EPIC → Credential Verification → Upload Credentials",
+        time: "10–20 mins",
         support: "We check your submission is correct and chase delays.",
         cta: "Open MyIntealth",
         ctaType: "open"
@@ -299,10 +1401,10 @@
       waiting_verification: {
         label: "EPIC is verifying your documents",
         short: "EPIC checks the uploaded credentials.",
-        doNow: "Nothing required right now - this step takes time.",
+        doNow: "Nothing required right now — this step takes time.",
         where: "No action required",
-        time: "2-3 weeks",
-        support: "We monitor weekly and will escalate if it's delayed.",
+        time: "2–3 weeks",
+        support: "We monitor weekly and will escalate if it’s delayed.",
         cta: "Contact support",
         ctaType: "support"
       },
@@ -319,10 +1421,10 @@
       verification_issued: {
         label: "Verification issued",
         short: "You can move to the AMC module.",
-        doNow: "You're ready to create your AMC Candidate Portfolio.",
+        doNow: "You’re ready to create your AMC Candidate Portfolio.",
         where: "Go to AMC module",
         time: "Next step",
-        support: "We'll guide you through AMC setup.",
+        support: "We’ll guide you through AMC setup.",
         cta: "Go to AMC",
         ctaType: "amc"
       }
@@ -367,36 +1469,47 @@
       }
     };
 
-    /* ─── Short labels for stepper tabs ─── */
-    const stageTabLabels = {
-      create_account: "Create Account",
-      account_establishment: "Establish Account",
-      upload_qualifications: "Upload Quals",
-      waiting_verification: "Verification",
-      verification_issued: "Complete"
-    };
-
-    /* ─── DOM refs ─── */
-    const stepperNavEl = document.getElementById("stepperNav");
+    const stageListEl = document.getElementById("stageList");
+    const stageChipEl = document.getElementById("stageChip");
+    const updatedChipEl = document.getElementById("updatedChip");
+    const footerStatusEl = document.getElementById("footerStatus");
+    const stepTitleEl = document.getElementById("stepTitle");
+    const stepFlowEl = document.getElementById("stepFlow");
+    const substageProgressFillEl = document.getElementById("substageProgressFill");
+    const substageNextBtnEl = document.getElementById("substageNextBtn");
+    const stickyStageActionEl = document.getElementById("stickyStageAction");
     const prevStageBtnEl = document.getElementById("prevStageBtn");
     const nextStageBtnEl = document.getElementById("nextStageBtn");
     const currentStageTextEl = document.getElementById("currentStageText");
     const smartGuidanceCardEl = document.getElementById("smartGuidanceCard");
     const guideTitleEl = document.getElementById("guideTitle");
     const guideDoNowEl = document.getElementById("guideDoNow");
+    const guideWhereEl = document.getElementById("guideWhere");
     const guideTimeEl = document.getElementById("guideTime");
     const guideSupportEl = document.getElementById("guideSupport");
-    const guideTimeRowEl = document.getElementById("guideTimeRow");
     const mainCtaEl = document.getElementById("mainCta");
     const amcWarningEl = document.getElementById("amcWarning");
-    const tutorialTextInlineEl = document.getElementById("tutorialTextInline");
-    const tutorialSourceInlineEl = document.getElementById("tutorialSourceInline");
-    const tutorialVideoInlineEl = document.getElementById("tutorialVideoInline");
+    const watchTutorialBtnEl = document.getElementById("watchTutorial");
+    const guideTimeRowEl = document.getElementById("guideTimeRow");
+    const timelineCurrentRowEl = document.getElementById("timelineCurrentRow");
+    const timelineBoxEl = document.getElementById("timelineBox");
+    const timelineCurrentEl = document.getElementById("timelineCurrent");
+    const timelineNextEl = document.getElementById("timelineNext");
+    const timelineAfterEl = document.getElementById("timelineAfter");
+    const timelineNextRowEl = document.getElementById("timelineNextRow");
+    const timelineAfterRowEl = document.getElementById("timelineAfterRow");
+    const secondaryActionsEl = document.getElementById("secondaryActions");
+    const qualificationBoxEl = document.getElementById("qualificationBox");
+    const qualificationInstructionEl = document.getElementById("qualificationInstruction");
+    const countrySelectEl = document.getElementById("countrySelect");
     const tutorialModalEl = document.getElementById("tutorialModal");
+    const supportModalEl = document.getElementById("supportModal");
     const tutorialTextEl = document.getElementById("tutorialText");
     const tutorialSourceEl = document.getElementById("tutorialSource");
     const tutorialVideoEl = document.getElementById("tutorialVideo");
-    const supportModalEl = document.getElementById("supportModal");
+    const tutorialTextInlineEl = document.getElementById("tutorialTextInline");
+    const tutorialSourceInlineEl = document.getElementById("tutorialSourceInline");
+    const tutorialVideoInlineEl = document.getElementById("tutorialVideoInline");
     const supportMessageEl = document.getElementById("supportMessage");
     const supportSubmitBtnEl = document.getElementById("supportSubmitBtn");
     const mobileRegistrationBtn = document.getElementById("mobileRegistrationBtn");
@@ -406,7 +1519,6 @@
     const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
     const toastEl = document.getElementById("toast");
 
-    /* ─── Batched save helpers ─── */
     function loadBatchMeta(metaKey) {
       const raw = localStorage.getItem(metaKey);
       if (!raw) return { pending: 0, lastValue: "" };
@@ -453,7 +1565,6 @@
       if (document.visibilityState === "hidden") flushAllBatchedSaves();
     });
 
-    /* ─── Progress data ─── */
     function defaultProgress() {
       return {
         stage: "create_account",
@@ -490,6 +1601,8 @@
           base.completed[key] = value.completed[key];
         }
       }
+      // Backward compatibility: users who already reached later stages before
+      // this step was inserted should not be forced backward.
       if (base.completed.upload_qualifications || base.completed.waiting_verification || base.completed.verification_issued) {
         base.completed.account_establishment = true;
       }
@@ -547,7 +1660,6 @@
       }
     }
 
-    /* ─── Tutorial seen tracking ─── */
     function defaultTutorialSeen() {
       return {
         create_account: false,
@@ -578,7 +1690,6 @@
       queueBatchedSave(TUTORIAL_SEEN_KEY, JSON.stringify(state));
     }
 
-    /* ─── Country tracking ─── */
     function loadSelectedCountry() {
       const raw = localStorage.getItem(COUNTRY_KEY);
       if (raw === "uk" || raw === "ie" || raw === "nz") return raw;
@@ -592,7 +1703,6 @@
       }
     }
 
-    /* ─── Toast ─── */
     function showToast(message) {
       toastEl.textContent = message;
       toastEl.classList.add("show");
@@ -600,7 +1710,6 @@
       showToast._timer = setTimeout(() => toastEl.classList.remove("show"), 1200);
     }
 
-    /* ─── Routing ─── */
     function stageFromRoute() {
       const parts = window.location.pathname.split("/").filter(Boolean);
       if (parts[0] === "registration" && parts[1] === "myintealth" && parts[2] && routeStageMap[parts[2]]) {
@@ -618,7 +1727,6 @@
       else window.history.pushState({ stage: stageKey }, "", target);
     }
 
-    /* ─── Stage helpers ─── */
     function stageStatus(progress, stageKey) {
       if (progress.completed[stageKey]) return "done";
       if (progress.stage === stageKey) return "current";
@@ -669,92 +1777,248 @@
       showToast("Progress saved");
     }
 
-    /* ─── Stepper tab rendering ─── */
-    function renderStepperTabs(progress) {
-      stepperNavEl.innerHTML = "";
-      STAGES.forEach((stageKey) => {
+    function setTimeline(stageKey) {
+      const idx = STAGES.indexOf(stageKey);
+      const current = STAGES[idx] || null;
+      const next = STAGES[idx + 1] || null;
+      const after = STAGES[idx + 2] || null;
+      if (timelineCurrentEl) timelineCurrentEl.textContent = current ? stageMeta[current].label : "Complete";
+      if (timelineNextEl) timelineNextEl.textContent = next ? stageMeta[next].label : "Complete";
+      if (timelineAfterEl) timelineAfterEl.textContent = after ? stageMeta[after].label : "Complete";
+    }
+
+    function mapStepperStatus(stageKey, status) {
+      if (status === "done") return "completed";
+      if (status === "locked") return "locked";
+      if (stageKey === "upload_qualifications" && status === "current") return "action_required";
+      if (stageKey === "waiting_verification" && status === "current") return "waiting";
+      return "current";
+    }
+
+    function buildStepIcon(status) {
+      if (status === "completed") return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M13 4.5L6.5 11 3 7.5"/></svg>';
+      if (status === "locked")    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3.5" y="7" width="9" height="6" rx="1.4"/><path d="M5.5 7V5.8a2.5 2.5 0 1 1 5 0V7"/></svg>';
+      if (status === "waiting")   return '<span class="gp-stepper-spinner"></span>';
+      if (status === "action_required") return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M8 2.8l5 9H3z"/><path d="M8 6v3.1"/><path d="M8 11.9h.01"/></svg>';
+      return '<span class="gp-stepper-dot"></span>';
+    }
+
+    function renderInlineStepper(container, steps, config) {
+      container.className = "gp-stepper";
+      container.setAttribute("role", "tablist");
+      container.setAttribute("aria-label", config.ariaLabel || "Registration steps");
+      container.innerHTML = "";
+
+      const wrap = document.createElement("div");
+      wrap.className = "gp-stepper-wrap";
+      const viewport = document.createElement("div");
+      viewport.className = "gp-stepper-viewport";
+      const track = document.createElement("div");
+      track.className = "gp-stepper-track";
+
+      const lineEl = document.createElement("span");
+      lineEl.className = "gp-stepper-line";
+      const fillEl = document.createElement("span");
+      fillEl.className = "gp-stepper-line-fill";
+      lineEl.appendChild(fillEl);
+      track.appendChild(lineEl);
+
+      const buttons = [];
+      steps.forEach(function (step, idx) {
+        const status = step.status || "locked";
+        const isCurrent = !!step.current;
+        const clickable = step.interactive !== false && (status === "completed" || status === "current");
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = ["gp-stepper-step", "gp-" + status, isCurrent ? "gp-active" : "", clickable ? "gp-clickable" : ""].filter(Boolean).join(" ");
+        btn.setAttribute("role", "tab");
+        btn.setAttribute("aria-selected", isCurrent ? "true" : "false");
+        btn.setAttribute("aria-current", isCurrent ? "step" : "false");
+        if (!clickable) btn.setAttribute("aria-disabled", "true");
+        btn.tabIndex = isCurrent ? 0 : -1;
+
+        const inner = document.createElement("span");
+        inner.className = "gp-stepper-inner";
+
+        const circle = document.createElement("span");
+        circle.className = "gp-stepper-circle";
+        circle.innerHTML = buildStepIcon(status);
+
+        const body = document.createElement("span");
+        body.className = "gp-stepper-body";
+
+        const titleRow = document.createElement("span");
+        titleRow.className = "gp-stepper-title-row";
+
+        const titleEl = document.createElement("p");
+        titleEl.className = "gp-stepper-title";
+        titleEl.textContent = step.title || ("Step " + (idx + 1));
+        titleRow.appendChild(titleEl);
+
+        if (isCurrent) {
+          const badge = document.createElement("span");
+          badge.className = "gp-stepper-badge";
+          badge.textContent = "Current";
+          titleRow.appendChild(badge);
+        }
+        body.appendChild(titleRow);
+
+        if (step.description) {
+          const desc = document.createElement("p");
+          desc.className = "gp-stepper-desc";
+          desc.textContent = step.description;
+          body.appendChild(desc);
+        }
+
+        const ripple = document.createElement("span");
+        ripple.className = "gp-stepper-ripple";
+        inner.appendChild(circle);
+        inner.appendChild(body);
+        inner.appendChild(ripple);
+        btn.appendChild(inner);
+
+        btn.addEventListener("click", function () {
+          btn.classList.remove("gp-rippling");
+          void btn.offsetWidth;
+          btn.classList.add("gp-rippling");
+          if (!clickable) {
+            config.onLockedStep && config.onLockedStep(step);
+            return;
+          }
+          config.onStepSelect && config.onStepSelect(step);
+        });
+
+        track.appendChild(btn);
+        buttons.push(btn);
+      });
+
+      viewport.appendChild(track);
+      wrap.appendChild(viewport);
+      container.appendChild(wrap);
+
+      function syncLine() {
+        var circles = buttons.map(function (b) { return b.querySelector(".gp-stepper-circle"); }).filter(Boolean);
+        if (!circles.length) return;
+        var trackBox = track.getBoundingClientRect();
+        if (!trackBox.width) return;
+        var centers = circles.map(function (c) { var box = c.getBoundingClientRect(); return (box.left + box.width / 2) - trackBox.left; });
+        var first = centers[0], last = centers[centers.length - 1];
+        var activeIdx = buttons.findIndex(function (b) { return b.classList.contains("gp-active"); });
+        if (activeIdx === -1) activeIdx = 0;
+        var target = centers[Math.min(activeIdx, centers.length - 1)];
+        var circleBox = circles[0].getBoundingClientRect();
+        track.style.setProperty("--gp-line-start", first + "px");
+        track.style.setProperty("--gp-line-width", Math.max(0, last - first) + "px");
+        track.style.setProperty("--gp-line-fill",  Math.max(0, target - first) + "px");
+        track.style.setProperty("--gp-line-top", ((circleBox.top + circleBox.height / 2) - trackBox.top) + "px");
+        var canScroll = viewport.scrollWidth > viewport.clientWidth + 1;
+        wrap.classList.toggle("gp-fade-left",  canScroll && viewport.scrollLeft > 2);
+        wrap.classList.toggle("gp-fade-right", canScroll && viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2);
+        container.classList.toggle("gp-stepper-fit", !canScroll);
+      }
+
+      function centerActiveStep(behavior) {
+        var canScroll = viewport.scrollWidth > viewport.clientWidth + 1;
+        if (!canScroll) return;
+        var activeIdx = buttons.findIndex(function (b) { return b.classList.contains("gp-active"); });
+        if (activeIdx < 0) return;
+        var currentBtn = buttons[activeIdx];
+        var vpBox = viewport.getBoundingClientRect();
+        var btnBox = currentBtn.getBoundingClientRect();
+        var targetLeft = viewport.scrollLeft + (btnBox.left + btnBox.width / 2) - (vpBox.left + vpBox.width / 2);
+        viewport.scrollTo({ left: Math.max(0, targetLeft), behavior: behavior || "instant" });
+      }
+
+      requestAnimationFrame(function () { syncLine(); centerActiveStep("instant"); });
+      var rafId = 0;
+      window.addEventListener("resize", function () { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(syncLine); });
+      viewport.addEventListener("scroll", function () {
+        var canScroll = viewport.scrollWidth > viewport.clientWidth + 1;
+        wrap.classList.toggle("gp-fade-left",  canScroll && viewport.scrollLeft > 2);
+        wrap.classList.toggle("gp-fade-right", canScroll && viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - 2);
+      }, { passive: true });
+    }
+
+    function renderLeft(progress) {
+      if (!stageListEl) return;
+      if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
+      const steps = STAGES.map(function (stageKey) {
+        const meta = stageMeta[stageKey];
         const status = stageStatus(progress, stageKey);
-        const isSelected = stageKey === selectedStageKey;
-        const tab = document.createElement("button");
-        tab.type = "button";
-        tab.className = "stepper-tab";
-        tab.setAttribute("role", "tab");
-        tab.setAttribute("aria-selected", isSelected ? "true" : "false");
-
-        if (isSelected) tab.classList.add("active");
-        if (status === "done") tab.classList.add("completed");
-        if (status === "locked") tab.classList.add("locked");
-
-        const dot = document.createElement("span");
-        dot.className = "stepper-tab-dot";
-        if (status === "done") dot.classList.add("done");
-        else if (status === "current") dot.classList.add("current");
-        else dot.classList.add("locked-d");
-
-        tab.appendChild(dot);
-        tab.appendChild(document.createTextNode(stageTabLabels[stageKey] || stageMeta[stageKey].label));
-
-        tab.addEventListener("click", () => {
-          if (status === "locked") {
+        return {
+          id: stageKey,
+          title: meta.label,
+          description: meta.short,
+          status: mapStepperStatus(stageKey, status),
+          current: progress.stage === stageKey,
+          interactive: status === "done" || status === "current"
+        };
+      });
+      renderInlineStepper(stageListEl, steps, {
+        ariaLabel: "MyIntealth registration steps",
+        onLockedStep: function () { showToast("Complete the previous step to unlock this."); },
+        onStepSelect: function (step) {
+          const key = step && step.id;
+          if (!STAGES.includes(key)) return;
+          if (stageStatus(progress, key) === "locked") {
             showToast("Complete the previous step to unlock this.");
             return;
           }
-          selectedStageKey = stageKey;
-          syncRouteForStage(stageKey);
+          selectedStageKey = key;
+          syncRouteForStage(key);
           render(progress);
-        });
-
-        stepperNavEl.appendChild(tab);
-      });
-
-      // Scroll active tab into view
-      requestAnimationFrame(() => {
-        const activeTab = stepperNavEl.querySelector(".stepper-tab.active");
-        if (activeTab) {
-          activeTab.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
         }
       });
     }
 
-    /* ─── Content rendering ─── */
-    function renderContent(progress) {
+    function renderRight(progress) {
       const stageKey = STAGES.includes(selectedStageKey) ? selectedStageKey : progress.stage;
       const liveStageKey = progress.stage;
       currentStageKey = stageKey;
       const meta = stageMeta[stageKey];
       const status = stageStatus(progress, stageKey);
       const currentIndex = STAGES.indexOf(stageKey);
+      const doneCount = STAGES.filter((key) => progress.completed[key]).length;
+      const fillPct = Math.max(6, Math.round(((doneCount + (status === "current" ? 0.5 : 0)) / STAGES.length) * 100));
 
+      if (stepTitleEl) stepTitleEl.textContent = "MyIntealth";
+      if (substageProgressFillEl) substageProgressFillEl.style.width = `${fillPct}%`;
+      if (stageChipEl) stageChipEl.textContent = `Current: ${stageMeta[liveStageKey].label}`;
+      if (footerStatusEl) footerStatusEl.textContent = `Current stage: ${stageMeta[liveStageKey].label}`;
       if (currentStageTextEl) currentStageTextEl.textContent = `Current stage: ${stageMeta[liveStageKey].label}`;
 
       let doNowText = meta.doNow;
       if (stageKey === "upload_qualifications") {
         const country = loadSelectedCountry();
+        countrySelectEl.value = country;
         const map = uploadByCountry[country] || uploadByCountry.uk;
         doNowText = map.doNow;
+        qualificationInstructionEl.textContent = map.instruction;
+        qualificationBoxEl.style.display = "block";
         amcWarningEl.style.display = "block";
       } else {
+        qualificationBoxEl.style.display = "none";
         amcWarningEl.style.display = "none";
       }
 
       if (stageKey === "verification_issued") {
-        guideTitleEl.innerHTML = `${meta.label} <svg style="width:18px;height:18px;vertical-align:middle;stroke:#16a34a;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg>`;
+        guideTitleEl.innerHTML = `${meta.label}<span class="glass-tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg></span>`;
       } else {
         guideTitleEl.textContent = meta.label;
       }
       guideDoNowEl.textContent = doNowText;
+      if (guideWhereEl) guideWhereEl.textContent = meta.where;
       guideTimeEl.textContent = meta.time;
       guideSupportEl.textContent = meta.support;
-
       const tutorialConfig = tutorialByStage[stageKey] || tutorialByStage.create_account;
       if (tutorialTextInlineEl) tutorialTextInlineEl.textContent = tutorialConfig.text;
       if (tutorialSourceInlineEl) {
         tutorialSourceInlineEl.src = tutorialConfig.src;
         if (tutorialVideoInlineEl) tutorialVideoInlineEl.load();
       }
-
       if (smartGuidanceCardEl) {
-        smartGuidanceCardEl.classList.toggle("warn", status === "current" && stageKey === liveStageKey && stageKey !== "waiting_verification" && stageKey !== "verification_issued" && progress.completed[stageKey] === false && progress.completed[STAGES[Math.max(0, currentIndex - 1)]] === true);
+        smartGuidanceCardEl.classList.toggle("smart-guidance-warn", status === "current" && stageKey === liveStageKey && stageKey !== "waiting_verification" && stageKey !== "verification_issued" && progress.completed[stageKey] === false && progress.completed[STAGES[Math.max(0, currentIndex - 1)]] === true);
       }
 
       if (stageKey === "waiting_verification") {
@@ -773,22 +2037,14 @@
       };
 
       if (guideTimeRowEl) guideTimeRowEl.style.display = stageKey === "verification_issued" ? "none" : "";
-
-      // Show/hide tutorial card based on whether video exists
-      const tutorialCard = document.getElementById("tutorialCard");
-      if (tutorialCard) {
-        tutorialCard.style.display = tutorialByStage[stageKey] ? "" : "none";
-      }
     }
 
-    /* ─── Master render ─── */
     function render(progress) {
       if (!STAGES.includes(selectedStageKey)) selectedStageKey = progress.stage;
-      renderStepperTabs(progress);
-      renderContent(progress);
+      renderLeft(progress);
+      renderRight(progress);
     }
 
-    /* ─── Modal helpers ─── */
     function openModal(modalEl) {
       modalEl.classList.add("show");
       modalEl.setAttribute("aria-hidden", "false");
@@ -799,7 +2055,6 @@
       modalEl.setAttribute("aria-hidden", "true");
     }
 
-    /* ─── Support tickets ─── */
     function createSupportTicket(message) {
       const key = "gpLinkSupportCases";
       let tickets = [];
@@ -825,7 +2080,6 @@
       localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
     }
 
-    /* ─── Nav between substeps ─── */
     function goToNextSubstage() {
       const progress = loadProgress();
       const idx = STAGES.indexOf(selectedStageKey);
@@ -851,7 +2105,6 @@
       render(progress);
     }
 
-    /* ─── Event bindings ─── */
     if (tutorialVideoEl) tutorialVideoEl.addEventListener("error", () => showToast("Tutorial failed to load"));
 
     document.getElementById("topSupportBtn").addEventListener("click", () => {
@@ -883,22 +2136,16 @@
     });
 
     [tutorialModalEl, supportModalEl].forEach((modalEl) => {
-      if (modalEl) {
-        modalEl.addEventListener("click", (e) => {
-          if (e.target === modalEl) closeModal(modalEl);
-        });
-      }
+      modalEl.addEventListener("click", (e) => {
+        if (e.target === modalEl) closeModal(modalEl);
+      });
     });
 
-    /* ─── Mobile notification btn ─── */
-    const mobileNotifBtn = document.getElementById("mobileNotifBtn");
-    if (mobileNotifBtn) {
-      mobileNotifBtn.addEventListener("click", () => {
-        window.location.href = "messages.html";
-      });
-    }
+    countrySelectEl.addEventListener("change", () => {
+      saveSelectedCountry(countrySelectEl.value);
+      renderRight(loadProgress());
+    });
 
-    /* ─── Registration dropdown & nav glass ─── */
     const registrationMenuBtn = document.getElementById("registrationMenuBtn");
     const registrationDropdown = document.getElementById("registrationDropdown");
     const regTableEl = document.getElementById("regTable");
@@ -966,6 +2213,9 @@
         navGlassInitialized = true;
         return;
       }
+      navGlassEl.classList.remove("morph");
+      void navGlassEl.offsetWidth;
+      navGlassEl.classList.add("morph");
       navGlassEl.style.left = `${rect.left - parentRect.left}px`;
       navGlassEl.style.top = `${rect.top - parentRect.top}px`;
       navGlassEl.style.width = `${rect.width}px`;
@@ -1057,7 +2307,6 @@
       }
     });
 
-    /* ─── Mobile reg sheet ─── */
     function openMobileRegistration() {
       renderRegistrationRows();
       mobileRegSheet.style.transform = "";
@@ -1100,7 +2349,6 @@
       else mobileRegSheet.style.transform = "";
     });
 
-    /* ─── Nav glass init ─── */
     activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
     setActiveNav(activeNavItem, false);
     if (navMenuEl) {
@@ -1118,9 +2366,9 @@
     }
     window.addEventListener("resize", () => {
       if (activeNavItem) moveNavGlass(activeNavItem, false);
+      renderLeft(loadProgress());
     });
 
-    /* ─── Init ─── */
     const initialProgress = loadProgress();
     selectedStageKey = initialProgress.stage;
     syncRouteForStage(selectedStageKey, true);
@@ -1133,7 +2381,6 @@
       render(progress);
     });
 
-    /* ─── Swipe navigation ─── */
     let touchStartX = 0;
     document.addEventListener("touchstart", (event) => {
       if (!event.touches || !event.touches[0]) return;
@@ -1155,5 +2402,9 @@
       render(progress);
     }, { passive: true });
   </script>
+  <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
+    <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
+    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+  </div>
 </body>
 </html>
