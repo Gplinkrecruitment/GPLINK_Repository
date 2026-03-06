@@ -341,8 +341,8 @@
       height: 0;
       border-left: 4px solid transparent;
       border-right: 4px solid transparent;
-      border-bottom: 7px solid #1d4ed8;
-      transform: translateY(-1px);
+      border-top: 7px solid #1d4ed8;
+      transform: translateY(1px);
     }
     @keyframes ctaPulseRing {
       0% { transform: scale(0.98); opacity: .9; }
@@ -1172,6 +1172,12 @@
 
         if (!isLocked) {
           btn.addEventListener("click", () => {
+            const selectedIdx = TAB_STAGES.indexOf(key);
+            for (let i = selectedIdx + 1; i < STAGES.length; i++) {
+              progress.completed[STAGES[i]] = false;
+            }
+            progress.stage = key;
+            saveProgress(progress, true);
             currentTabKey = key;
             syncRouteForStage(key);
             renderPage(progress);
@@ -1314,7 +1320,7 @@
         navHtml += hasPrev
           ? `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
           : `<span class="spacer" aria-hidden="true"></span>`;
-        navHtml += `<button class="btn-action complete" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      navHtml += `<button class="btn-action complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
       }
       actionsEl.innerHTML = html;
       navActionsEl.innerHTML = navHtml;
