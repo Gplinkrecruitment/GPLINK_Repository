@@ -413,6 +413,25 @@
       return clean.endsWith("messages.html") || clean.endsWith("/pages/messages.html");
     }
 
+    function bindDirectTrigger(el) {
+      if (!el || el.__gpAlertBound) return;
+      el.__gpAlertBound = true;
+      el.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const root = ensurePanelRoot();
+        if (root.classList.contains("show")) closePanel();
+        else openPanel(el);
+      }, true);
+    }
+
+    bindDirectTrigger(document.getElementById("topSupportBtn"));
+    bindDirectTrigger(document.getElementById("mobileNotifBtn"));
+    bindDirectTrigger(document.getElementById("mobileSupportBtn"));
+    document.querySelectorAll(".nav-menu .nav-item[href$='messages.html'], .mobile-tab[href$='messages.html']").forEach((el) => {
+      if (el.querySelector("[data-inbox-alert]")) bindDirectTrigger(el);
+    });
+
     document.addEventListener("click", (event) => {
       const targetEl = event.target instanceof Element
         ? event.target

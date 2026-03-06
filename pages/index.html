@@ -936,24 +936,10 @@
           <div class="pc-progress-track"><div class="pc-progress-fill" id="pc-main-bar" style="width:3%"></div></div>
         </div>
       </a>
-      <a class="progress-card progress-card-2" id="nextStepCard" href="#">
-        <div class="pc-top">
-          <div class="pc-badge">Up Next</div>
-          <div class="pc-title" id="pc-next-title">AMC Portfolio</div>
-          <div class="pc-sub" id="pc-next-sub">Create AMC candidate portfolio and upload credentials.</div>
-        </div>
-        <div class="pc-bottom">
-          <div class="pc-progress-row">
-            <span class="pc-progress-label">Steps Complete</span>
-            <span class="pc-progress-val" id="steps-complete">0/6</span>
-          </div>
-          <div class="pc-progress-track"><div class="pc-progress-fill" id="progress-bar" style="width:3%"></div></div>
-        </div>
-      </a>
       <a class="progress-card progress-card-3" href="my-documents.html">
         <div class="pc-top">
-          <div class="pc-badge">Documents</div>
-          <div class="pc-title">My Documents</div>
+          <div class="pc-badge">Specialist Registration</div>
+          <div class="pc-title">Supporting Documents</div>
           <div class="pc-sub" id="pc-docs-sub">Upload and manage your registration documents.</div>
         </div>
         <div class="pc-bottom">
@@ -968,7 +954,6 @@
     <div class="carousel-dots" id="carouselDots">
       <button class="carousel-dot active" data-index="0"></button>
       <button class="carousel-dot" data-index="1"></button>
-      <button class="carousel-dot" data-index="2"></button>
     </div>
 
     <!-- HIDDEN METRICS -->
@@ -1517,10 +1502,12 @@
       const snap = getProgressSnapshot();
       const ringOffset = Math.max(0, ringCirc - (snap.progressPercent * ringCirc) / 100);
 
-      document.getElementById("steps-complete").textContent = `${snap.completedSteps}/${TOTAL_STEPS}`;
+      const stepsCompleteEl = document.getElementById("steps-complete");
+      const progressBarEl = document.getElementById("progress-bar");
+      if (stepsCompleteEl) stepsCompleteEl.textContent = `${snap.completedSteps}/${TOTAL_STEPS}`;
       document.getElementById("ring-num").textContent = `${Math.round(snap.progressPercent)}%`;
       document.getElementById("progress-ring").setAttribute("stroke-dashoffset", ringOffset.toFixed(4));
-      document.getElementById("progress-bar").style.width = `${snap.progressPercent}%`;
+      if (progressBarEl) progressBarEl.style.width = `${snap.progressPercent}%`;
 
       // Progress cards
       const mainCard = document.getElementById("mainProgressCard");
@@ -1537,24 +1524,6 @@
       }
       if (mainPercent) mainPercent.textContent = `${Math.round(snap.progressPercent)}%`;
       if (mainBar) mainBar.style.width = `${snap.progressPercent}%`;
-
-      // Next step card
-      const nextCard = document.getElementById("nextStepCard");
-      const nextTitle = document.getElementById("pc-next-title");
-      const nextSub = document.getElementById("pc-next-sub");
-      if (!snap.epicDone) {
-        if (nextTitle) nextTitle.textContent = "AMC Portfolio";
-        if (nextSub) nextSub.textContent = "Create AMC candidate portfolio and upload credentials.";
-        if (nextCard) nextCard.href = "#";
-      } else if (!snap.amcDone) {
-        if (nextTitle) nextTitle.textContent = "AHPRA Registration";
-        if (nextSub) nextSub.textContent = "Prepare and submit your specialist registration application.";
-        if (nextCard) nextCard.href = "#";
-      } else {
-        if (nextTitle) nextTitle.textContent = "Visa and Relocation";
-        if (nextSub) nextSub.textContent = "Sponsorship, visa processing and relocation.";
-        if (nextCard) nextCard.href = "#";
-      }
 
       // Docs card
       const docsVal = document.getElementById("pc-docs-val");
