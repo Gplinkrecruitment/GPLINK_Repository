@@ -374,28 +374,6 @@
     }
     .btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; }
 
-    /* ---- TRUST ---- */
-    .trust-block {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 18px; margin-bottom: 16px;
-    }
-    .trust-block > .trust-heading { font-weight: 800; color: var(--text); font-size: 15px; margin-bottom: 12px; }
-    .trust-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .trust-col {
-      border: 1px solid #e8edf5; border-radius: 14px;
-      background: #fafbfd; padding: 14px;
-    }
-    .trust-col h4 { font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
-    .trust-col ul { list-style: none; display: grid; gap: 6px; }
-    .trust-col li {
-      font-size: 12px; font-weight: 500; color: #334155;
-      display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
-    }
-    .trust-col li::before {
-      content: ""; width: 6px; height: 6px; border-radius: 50%;
-      background: var(--blue); flex-shrink: 0; margin-top: 5px;
-    }
-
     .footer-links {
       text-align: center; padding: 16px 0;
       font-size: 12px; color: #94a3b8; font-weight: 600;
@@ -599,10 +577,11 @@
       .desktop-topbar { display: none; }
       .bottom-nav { display: grid; }
       .app-header { display: flex; }
-      .trust-grid { grid-template-columns: 1fr; }
       .step-info-grid { grid-template-columns: 1fr; }
       .btn-action { width: 100%; justify-content: center; }
       .step-nav-actions .btn-action { width: auto; }
+      .desktop-only-section { display: none; }
+      .desktop-complete-btn { display: none !important; }
       .dash-wrap { padding-bottom: 80px; }
       .step-tab { padding: 8px 12px; font-size: 12px; }
       .step-tab-num { width: 22px; height: 22px; font-size: 10px; }
@@ -731,7 +710,7 @@
     </div>
 
     <!-- HELP CARD -->
-    <div class="help-card">
+    <div class="help-card desktop-only-section">
       <div class="txt">
         <strong>Need Help Along the Way?</strong>
         Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
@@ -739,29 +718,6 @@
       <div class="help-actions">
         <a class="btn-modern btn-primary" href="messages.html">Contact Support <span>&#8594;</span></a>
         <a class="btn-modern btn-outline" href="support-cases.html">View Support Cases <span>&#8594;</span></a>
-      </div>
-    </div>
-
-    <!-- TRUST BLOCK -->
-    <div class="trust-block">
-      <div class="trust-heading">You're not doing this alone.</div>
-      <div class="trust-grid">
-        <div class="trust-col">
-          <h4>You do:</h4>
-          <ul>
-            <li>Create your MyIntealth account</li>
-            <li>Upload your specialist qualifications</li>
-            <li>Complete the NotaryCam session</li>
-          </ul>
-        </div>
-        <div class="trust-col">
-          <h4>GP Link does:</h4>
-          <ul>
-            <li>Monitor your EPIC verification progress</li>
-            <li>Chase delays and escalate issues</li>
-            <li>Guide you through each step</li>
-          </ul>
-        </div>
       </div>
     </div>
 
@@ -1163,6 +1119,20 @@
       showToast("Progress reverted");
     }
 
+    function rewindToPreviousStep(progress, key) {
+      const tabIdx = TAB_STAGES.indexOf(key);
+      if (tabIdx <= 0) return;
+      const previous = TAB_STAGES[tabIdx - 1];
+      progress.completed[key] = false;
+      if (key === "waiting_verification") progress.completed.verification_issued = false;
+      progress.stage = previous;
+      saveProgress(progress, true);
+      syncRouteForStage(previous);
+      currentTabKey = previous;
+      renderPage(progress);
+      showToast("Progress reverted");
+    }
+
     // ─── RENDER: STEP TABS ──────────────────────────────────────
     let tabElements = [];
 
@@ -1337,15 +1307,12 @@
 
       if (effectiveKey === "verification_issued") {
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-        html += `<button class="btn-action secondary" id="actionUndoBtn" type="button">Undo Completion</button>`;
       } else if (isCurrent && !isWaiting) {
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
-        html += `<button class="btn-action complete" id="actionCompleteBtn" type="button"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Mark Complete</button>`;
+        html += `<button class="btn-action complete desktop-complete-btn" id="actionCompleteBtn" type="button"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Mark Complete</button>`;
       } else if (isWaiting) {
-        html += `<button class="btn-action primary" id="actionCompleteBtn" type="button">Mark as Verified</button>`;
+        html += `<button class="btn-action primary desktop-complete-btn" id="actionCompleteBtn" type="button">Mark as Verified</button>`;
         html += `<button class="btn-action secondary" id="actionSupportBtn" type="button">Contact Support</button>`;
-      } else if (isDone) {
-        html += `<button class="btn-action secondary" id="actionUndoBtn" type="button">Undo Completion</button>`;
       }
 
       navHtml += hasPrev
@@ -1372,11 +1339,6 @@
         completeBtn.addEventListener("click", () => markStageComplete(progress, key));
       }
 
-      const undoBtn = document.getElementById("actionUndoBtn");
-      if (undoBtn) {
-        undoBtn.addEventListener("click", () => undoToStage(progress, key));
-      }
-
       const supportBtn = document.getElementById("actionSupportBtn");
       if (supportBtn) {
         supportBtn.addEventListener("click", () => openModal(supportModalEl));
@@ -1385,9 +1347,7 @@
       const prevBtn = document.getElementById("actionPrevBtn");
       if (prevBtn) {
         prevBtn.addEventListener("click", () => {
-          currentTabKey = TAB_STAGES[tabIdx - 1];
-          syncRouteForStage(currentTabKey);
-          renderPage(progress);
+          rewindToPreviousStep(progress, key);
         });
       }
 
