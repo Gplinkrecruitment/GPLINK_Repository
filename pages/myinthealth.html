@@ -1127,6 +1127,7 @@
       if (tabIdx <= 0) return;
       const previous = TAB_STAGES[tabIdx - 1];
       progress.completed[key] = false;
+      progress.completed[previous] = false;
       if (key === "waiting_verification") progress.completed.verification_issued = false;
       progress.stage = previous;
       saveProgress(progress, true);
@@ -1192,17 +1193,18 @@
       stepTabGlassEl.style.opacity = "1";
       const parentRect = stepTabsEl.getBoundingClientRect();
       const rect = activeBtn.getBoundingClientRect();
+      const left = rect.left - parentRect.left + stepTabsEl.scrollLeft;
       if (!animate) {
         const prev = stepTabGlassEl.style.transition;
         stepTabGlassEl.style.transition = "none";
-        stepTabGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        stepTabGlassEl.style.left = `${left}px`;
         stepTabGlassEl.style.width = `${rect.width}px`;
         stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
         stepTabGlassEl.style.height = `${rect.height}px`;
         void stepTabGlassEl.offsetWidth;
         stepTabGlassEl.style.transition = prev;
       } else {
-        stepTabGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        stepTabGlassEl.style.left = `${left}px`;
         stepTabGlassEl.style.width = `${rect.width}px`;
         stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
         stepTabGlassEl.style.height = `${rect.height}px`;
