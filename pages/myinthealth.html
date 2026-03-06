@@ -388,6 +388,27 @@
       display: block; font-weight: 800; font-size: 15px;
       color: var(--text); margin-bottom: 4px;
     }
+    .help-card .trust-grid {
+      width: 100%;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    .help-card .trust-col {
+      border: 1px solid #e8edf5; border-radius: 14px;
+      background: #fafbfd; padding: 14px;
+    }
+    .help-card .trust-col h4 {
+      font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 8px;
+    }
+    .help-card .trust-col ul { list-style: none; display: grid; gap: 6px; }
+    .help-card .trust-col li {
+      font-size: 12px; font-weight: 500; color: #334155;
+      display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
+    }
+    .help-card .trust-col li::before {
+      content: "";
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--blue); flex-shrink: 0; margin-top: 5px;
+    }
     .help-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .btn-modern {
       display: inline-flex; align-items: center; gap: 8px;
@@ -735,8 +756,26 @@
     <!-- HELP CARD -->
     <div class="help-card desktop-only-section">
       <div class="txt">
-        <strong>Need Help Along the Way?</strong>
+        <strong>We're Here For You!</strong>
         Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
+      </div>
+      <div class="trust-grid">
+        <div class="trust-col">
+          <h4>You do:</h4>
+          <ul>
+            <li>Upload required documents</li>
+            <li>Complete key forms</li>
+            <li>Confirm details when requested</li>
+          </ul>
+        </div>
+        <div class="trust-col">
+          <h4>We do:</h4>
+          <ul>
+            <li>Guide each step in order</li>
+            <li>Check progress and timelines</li>
+            <li>Flag issues and coordinate support</li>
+          </ul>
+        </div>
       </div>
       <div class="help-actions">
         <a class="btn-modern btn-primary" href="/pages/messages.html">Contact Support <span>&#8594;</span></a>
