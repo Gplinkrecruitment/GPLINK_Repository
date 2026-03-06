@@ -642,7 +642,7 @@ function mapRegistrationPath(pathname) {
   if (parts.length < 3 || parts[0] !== 'registration') return null;
 
   const step = parts[1].toLowerCase();
-  if (step === 'myintealth') return '/pages/myinthealth.html';
+  if (step === 'myintealth' || step === 'myinthealth') return '/pages/myinthealth.html';
   if (step === 'amc') return '/pages/amc.html';
   if (step === 'ahpra' || step === 'specialist-registration') return '/pages/ahpra.html';
   return null;

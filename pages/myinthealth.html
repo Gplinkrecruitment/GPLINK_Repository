@@ -371,6 +371,18 @@
     }
     .doc-badge.uploaded { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
     .doc-badge.missing { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .doc-action {
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #334155;
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .doc-action:hover { background: #f8fafc; border-color: #94a3b8; }
 
     /* ---- HELP CARD ---- */
     .help-card {
@@ -528,6 +540,7 @@
     }
     .reg-btn:hover { background: #dbeafe; }
     .reg-btn.locked { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
+    .reg-btn:disabled { cursor: not-allowed; }
 
     /* ---- MOBILE REG SHEET ---- */
     .mobile-reg-backdrop {
@@ -780,7 +793,7 @@
       </div>
       <div class="help-actions">
         <a class="btn-modern btn-primary" href="messages.html">Contact Support <span>&#8594;</span></a>
-        <a class="btn-modern btn-outline" href="#">View FAQs <span>&#8594;</span></a>
+        <a class="btn-modern btn-outline" href="support-cases.html">View Support Cases <span>&#8594;</span></a>
       </div>
     </div>
 
@@ -868,6 +881,7 @@
     const TUTORIAL_SEEN_KEY = "gp_epic_tutorial_seen";
     const AMC_KEY = "gp_amc_progress";
     const COUNTRY_KEY = "gp_selected_country";
+    const DOCS_KEY = "gp_epic_docs";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const MYINTEALTH_URL = "https://login.myintealth.app/myintealthid.onmicrosoft.com/B2C_1A_id-signup_signin_claim_sf_applicant/samlp/sso/login";
@@ -929,7 +943,17 @@
         cta: "Contact Support",
         ctaType: "support"
       },
-      verification_issued: null
+      verification_issued: {
+        label: "Complete",
+        full: "Verification Issued",
+        short: "Your EPIC verification is complete. You can move to the AMC Portfolio.",
+        doNow: "Proceed to your AMC Portfolio and continue your registration.",
+        time: "5 minutes",
+        support: "We continue tracking your AMC stage and can help if issues appear.",
+        next: "You will start AMC portfolio setup and document submission.",
+        cta: "Go to AMC Portfolio",
+        ctaType: "amc"
+      }
     };
 
     const stageRouteMap = {
@@ -992,7 +1016,7 @@
     }
 
     function flushAllBatchedSaves() {
-      [STORAGE_KEY, TUTORIAL_SEEN_KEY, COUNTRY_KEY].forEach(flushBatchedSave);
+      [STORAGE_KEY, TUTORIAL_SEEN_KEY, COUNTRY_KEY, DOCS_KEY].forEach(flushBatchedSave);
     }
 
     window.addEventListener("beforeunload", flushAllBatchedSaves);
@@ -1071,6 +1095,41 @@
       if (c === "uk" || c === "ie" || c === "nz") queueBatchedSave(COUNTRY_KEY, c);
     }
 
+    function defaultDocsState() {
+      const out = {};
+      requiredDocs.forEach(doc => { out[doc.key] = false; });
+      return out;
+    }
+
+    function saveDocsState(docs, force) {
+      queueBatchedSave(DOCS_KEY, JSON.stringify(docs), force);
+    }
+
+    function loadDocsState(progress) {
+      const fallback = defaultDocsState();
+      const raw = localStorage.getItem(DOCS_KEY);
+      if (!raw) {
+        if (progress && progress.completed && progress.completed.upload_qualifications) {
+          requiredDocs.forEach(doc => { fallback[doc.key] = true; });
+          saveDocsState(fallback, true);
+        }
+        return fallback;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return fallback;
+        requiredDocs.forEach(doc => { fallback[doc.key] = parsed[doc.key] === true; });
+        return fallback;
+      } catch (e) {
+        return fallback;
+      }
+    }
+
+    function allRequiredDocsUploaded(progress) {
+      const docs = loadDocsState(progress);
+      return requiredDocs.every(doc => docs[doc.key] === true);
+    }
+
     function stageStatus(progress, key) {
       if (progress.completed[key]) return "done";
       if (progress.stage === key) return "current";
@@ -1084,6 +1143,21 @@
     function activeTabStage(progress) {
       if (progress.stage === "verification_issued") return "waiting_verification";
       return progress.stage;
+    }
+
+    function stageFromRoute(pathname) {
+      const parts = String(pathname || "").split("/").filter(Boolean);
+      if (parts.length < 3 || parts[0] !== "registration" || (parts[1] !== "myintealth" && parts[1] !== "myinthealth")) return null;
+      const routeStage = routeStageMap[parts[2]];
+      return STAGES.includes(routeStage) ? routeStage : null;
+    }
+
+    function pickTabFromRoute(progress) {
+      const routeStage = stageFromRoute(window.location.pathname);
+      if (!routeStage) return null;
+      const viewStage = routeStage === "verification_issued" ? "waiting_verification" : routeStage;
+      if (!TAB_STAGES.includes(viewStage)) return null;
+      return stageStatus(progress, viewStage) === "locked" ? null : viewStage;
     }
 
     function syncRouteForStage(key, replace) {
@@ -1118,8 +1192,20 @@
       showToast._t = setTimeout(() => toastEl.classList.remove("show"), 1400);
     }
 
-    function openModal(el) { el.classList.add("show"); el.setAttribute("aria-hidden", "false"); }
-    function closeModal(el) { el.classList.remove("show"); el.setAttribute("aria-hidden", "true"); }
+    let lastFocusedElement = null;
+    function openModal(el) {
+      lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      el.classList.add("show");
+      el.setAttribute("aria-hidden", "false");
+      const firstFocusable = el.querySelector("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])");
+      if (firstFocusable instanceof HTMLElement) firstFocusable.focus();
+    }
+    function closeModal(el) {
+      el.classList.remove("show");
+      el.setAttribute("aria-hidden", "true");
+      if (lastFocusedElement && typeof lastFocusedElement.focus === "function") lastFocusedElement.focus();
+      lastFocusedElement = null;
+    }
 
     function createSupportTicket(message) {
       const key = "gpLinkSupportCases";
@@ -1129,7 +1215,7 @@
       tickets.unshift({
         id: `case_${Date.now()}`, category: "EPIC", title: "MyIntealth support request",
         detail: text, status: "open", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        thread: [{ from: "gp", text, ts: new Date().toISOString() }], unread: true
+        thread: [{ from: "me", text, ts: new Date().toISOString() }], unread: true
       });
       localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
     }
@@ -1137,6 +1223,10 @@
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
     function markStageComplete(progress, key) {
       if (progress.stage !== key) return;
+      if (key === "upload_qualifications" && !allRequiredDocsUploaded(progress)) {
+        showToast("Mark required documents as uploaded first.");
+        return;
+      }
       progress.completed[key] = true;
 
       // When completing waiting_verification, also complete verification_issued and redirect
@@ -1144,7 +1234,10 @@
         progress.completed.verification_issued = true;
         progress.stage = "verification_issued";
         saveProgress(progress, true);
-        window.location.href = "amc.html";
+        syncRouteForStage(progress.stage);
+        currentTabKey = activeTabStage(progress);
+        renderPage(progress);
+        showToast("Verification marked complete");
         return;
       }
 
@@ -1152,6 +1245,7 @@
       const next = STAGES[idx + 1];
       if (next) progress.stage = next;
       saveProgress(progress, true);
+      syncRouteForStage(progress.stage);
       currentTabKey = activeTabStage(progress);
       renderPage(progress);
       showToast("Progress saved");
@@ -1163,6 +1257,7 @@
       for (let i = idx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
       progress.stage = key;
       saveProgress(progress, true);
+      syncRouteForStage(key);
       currentTabKey = activeTabStage(progress);
       renderPage(progress);
       showToast("Progress reverted");
@@ -1248,8 +1343,9 @@
     // ─── RENDER: STEP CONTENT ───────────────────────────────────
     function renderStepContent(progress) {
       const key = currentTabKey;
-      const meta = stageMeta[key];
-      if (!meta) return; // verification_issued has no content
+      const effectiveKey = (key === "waiting_verification" && progress.completed.verification_issued) ? "verification_issued" : key;
+      const meta = stageMeta[effectiveKey];
+      if (!meta) return;
       const status = stageStatus(progress, key);
       const isDone = status === "done";
       const isCurrent = status === "current";
@@ -1337,7 +1433,10 @@
       const hasPrev = tabIdx > 0;
       const hasNext = tabIdx < TAB_STAGES.length - 1 && stageStatus(progress, TAB_STAGES[tabIdx + 1]) !== "locked";
 
-      if (isCurrent && !isWaiting) {
+      if (effectiveKey === "verification_issued") {
+        html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
+        html += `<button class="btn-action secondary" id="actionUndoBtn" type="button">Undo Completion</button>`;
+      } else if (isCurrent && !isWaiting) {
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
         html += `<button class="btn-action complete" id="actionCompleteBtn" type="button"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Mark Complete</button>`;
       } else if (isWaiting) {
@@ -1428,10 +1527,10 @@
     function renderDocs(progress) {
       const list = document.getElementById("docsList");
       list.innerHTML = "";
-      const isUploaded = progress.completed.upload_qualifications;
+      const docsState = loadDocsState(progress);
 
       requiredDocs.forEach(doc => {
-        const uploaded = isUploaded;
+        const uploaded = docsState[doc.key] === true;
         const item = document.createElement("div");
         item.className = "doc-item";
         item.innerHTML = `
@@ -1446,8 +1545,23 @@
             <div class="doc-status">${doc.desc}</div>
           </div>
           <span class="doc-badge ${uploaded ? "uploaded" : "missing"}">${uploaded ? "Uploaded" : "Required"}</span>
+          <button class="doc-action" type="button" data-doc-key="${doc.key}">
+            ${uploaded ? "Mark Required" : "Mark Uploaded"}
+          </button>
         `;
         list.appendChild(item);
+      });
+
+      list.querySelectorAll("[data-doc-key]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const key = btn.getAttribute("data-doc-key");
+          if (!key) return;
+          const next = loadDocsState(progress);
+          if (!(key in next)) return;
+          next[key] = !next[key];
+          saveDocsState(next, true);
+          renderDocs(progress);
+        });
       });
     }
 
@@ -1501,7 +1615,23 @@
         const sc = row.locked ? "locked" : "";
         const el = document.createElement("div");
         el.className = "reg-row";
-        el.innerHTML = `<div><div class="reg-name">${row.title}</div><div class="reg-sub">${row.sub}</div></div><span class="reg-pill ${sc}">${row.status}</span><a class="reg-btn ${sc}" href="${row.href}">${row.cta}</a>`;
+        const textWrap = document.createElement("div");
+        textWrap.innerHTML = `<div class="reg-name">${row.title}</div><div class="reg-sub">${row.sub}</div>`;
+        const pill = document.createElement("span");
+        pill.className = `reg-pill ${sc}`.trim();
+        pill.textContent = row.status;
+        const ctaEl = row.locked ? document.createElement("button") : document.createElement("a");
+        ctaEl.className = `reg-btn ${sc}`.trim();
+        ctaEl.textContent = row.cta;
+        if (row.locked) {
+          ctaEl.type = "button";
+          ctaEl.disabled = true;
+        } else {
+          ctaEl.href = row.href;
+        }
+        el.appendChild(textWrap);
+        el.appendChild(pill);
+        el.appendChild(ctaEl);
         regTableEl.appendChild(el);
         mobileRegTable.appendChild(el.cloneNode(true));
       });
@@ -1614,6 +1744,26 @@
     });
 
     supportModalEl.addEventListener("click", e => { if (e.target === supportModalEl) closeModal(supportModalEl); });
+    supportModalEl.addEventListener("keydown", e => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeModal(supportModalEl);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusables = [...supportModalEl.querySelectorAll("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])")]
+        .filter(el => !el.hasAttribute("disabled"));
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
 
     countrySelectEl.addEventListener("change", () => {
       saveSelectedCountry(countrySelectEl.value);
@@ -1658,18 +1808,15 @@
 
     const initialProgress = loadProgress();
 
-    // If all stages are done, redirect to AMC
-    if (initialProgress.stage === "verification_issued" && initialProgress.completed.verification_issued) {
-      window.location.href = "amc.html";
-    } else {
-      currentTabKey = activeTabStage(initialProgress);
-      syncRouteForStage(initialProgress.stage, true);
-      renderPage(initialProgress);
-    }
+    const routeTab = pickTabFromRoute(initialProgress);
+    currentTabKey = routeTab || activeTabStage(initialProgress);
+    if (!routeTab) syncRouteForStage(initialProgress.stage, true);
+    renderPage(initialProgress);
 
     window.addEventListener("popstate", () => {
       const progress = loadProgress();
-      currentTabKey = activeTabStage(progress);
+      const tabFromRoute = pickTabFromRoute(progress);
+      currentTabKey = tabFromRoute || activeTabStage(progress);
       renderPage(progress);
     });
   </script>
