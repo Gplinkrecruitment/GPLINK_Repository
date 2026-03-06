@@ -198,7 +198,6 @@
       content: ""; position: absolute; top: 0; left: 0; right: 0;
       height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
     }
-    .step-content.action-state::before { background: linear-gradient(90deg, #f59e0b, #f97316); }
     .step-content.waiting-state::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
     .step-content.done-state::before { background: linear-gradient(90deg, #16a34a, #22c55e); }
 
@@ -209,7 +208,6 @@
       letter-spacing: 0.03em; margin-bottom: 8px;
       background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
     }
-    .step-content-badge.action { background: #fffbeb; color: #92400e; border-color: #fde68a; }
     .step-content-badge.waiting { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
     .step-content-badge.done { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
 
@@ -1238,15 +1236,13 @@
       // Card accent
       const card = document.getElementById("stepContent");
       card.className = "step-content";
-      if (isAction) card.classList.add("action-state");
-      else if (isWaiting) card.classList.add("waiting-state");
+      if (isWaiting) card.classList.add("waiting-state");
       else if (isDone || allDone) card.classList.add("done-state");
 
       // Badge
       const badge = document.getElementById("stepBadge");
       if (isDone) { badge.className = "step-content-badge done"; badge.textContent = "Complete"; }
       else if (isWaiting) { badge.className = "step-content-badge waiting"; badge.textContent = "Waiting on EPIC"; }
-      else if (isAction) { badge.className = "step-content-badge action"; badge.textContent = "Action Required"; }
       else { badge.className = "step-content-badge"; badge.textContent = "What to do now"; }
 
       // Title & sub
