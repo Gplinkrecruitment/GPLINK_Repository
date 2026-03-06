@@ -1174,6 +1174,10 @@
     });
     const mobileNotifBtn = document.getElementById("mobileNotifBtn");
     if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", () => {
+      if (typeof window.openGpAlertPanel === "function") {
+        window.openGpAlertPanel(mobileNotifBtn);
+        return;
+      }
       window.location.href = "messages.html";
     });
     document.querySelectorAll("[data-close]").forEach((btn) => {
@@ -1185,9 +1189,16 @@
     supportModalEl.addEventListener("click", (e) => {
       if (e.target === supportModalEl) closeSupportModal();
     });
-    document.getElementById("topSupportBtn").addEventListener("click", () => {
-      window.location.href = "messages.html";
-    });
+    const topSupportBtn = document.getElementById("topSupportBtn");
+    if (topSupportBtn) {
+      topSupportBtn.addEventListener("click", () => {
+        if (typeof window.openGpAlertPanel === "function") {
+          window.openGpAlertPanel(topSupportBtn);
+          return;
+        }
+        window.location.href = "messages.html";
+      });
+    }
 
     const registrationMenuBtn = document.getElementById("registrationMenuBtn");
     const registrationDropdown = document.getElementById("registrationDropdown");

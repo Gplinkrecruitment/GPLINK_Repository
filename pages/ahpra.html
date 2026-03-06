@@ -2794,9 +2794,16 @@
       showToast("Upload saved");
     });
 
-    document.getElementById("topSupportBtn").addEventListener("click", () => {
-      window.location.href = "messages.html";
-    });
+    const topSupportBtn = document.getElementById("topSupportBtn");
+    if (topSupportBtn) {
+      topSupportBtn.addEventListener("click", () => {
+        if (typeof window.openGpAlertPanel === "function") {
+          window.openGpAlertPanel(topSupportBtn);
+          return;
+        }
+        window.location.href = "messages.html";
+      });
+    }
     document.getElementById("contactSupport").addEventListener("click", () => {
       window.location.href = "messages.html";
     });

@@ -388,6 +388,13 @@
   }
 
   function installAlertTriggers() {
+    function isMessagesHref(value) {
+      const href = typeof value === "string" ? value.trim() : "";
+      if (!href) return false;
+      const clean = href.split("#")[0];
+      return clean.endsWith("messages.html") || clean.endsWith("/pages/messages.html");
+    }
+
     document.addEventListener("click", (event) => {
       const closeBtn = event.target instanceof Element ? event.target.closest("[data-alert-close]") : null;
       if (closeBtn) {
@@ -396,9 +403,19 @@
         return;
       }
 
-      const trigger = event.target instanceof Element
+      let trigger = event.target instanceof Element
         ? event.target.closest("#topSupportBtn, #mobileNotifBtn")
         : null;
+      if (!trigger && event.target instanceof Element) {
+        const navCandidate = event.target.closest(".nav-menu .nav-item, .mobile-tab");
+        if (navCandidate) {
+          const href = navCandidate.getAttribute("href");
+          const hasBellBadge = !!navCandidate.querySelector("[data-inbox-alert]");
+          if (hasBellBadge && isMessagesHref(href)) {
+            trigger = navCandidate;
+          }
+        }
+      }
       if (trigger) {
         event.preventDefault();
         event.stopImmediatePropagation();

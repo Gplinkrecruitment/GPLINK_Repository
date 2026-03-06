@@ -1539,10 +1539,25 @@
     });
 
     // ─── EVENT LISTENERS ────────────────────────────────────────
-    document.getElementById("topSupportBtn").addEventListener("click", () => { window.location.href = "/pages/messages.html"; });
+    const topSupportBtn = document.getElementById("topSupportBtn");
+    if (topSupportBtn) {
+      topSupportBtn.addEventListener("click", () => {
+        if (typeof window.openGpAlertPanel === "function") {
+          window.openGpAlertPanel(topSupportBtn);
+          return;
+        }
+        window.location.href = "/pages/messages.html";
+      });
+    }
     document.getElementById("mobileSupportBtn").addEventListener("click", () => { window.location.href = "/pages/messages.html"; });
     const mobileNotifBtn = document.getElementById("mobileNotifBtn");
-    if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", () => { window.location.href = "/pages/messages.html"; });
+    if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", () => {
+      if (typeof window.openGpAlertPanel === "function") {
+        window.openGpAlertPanel(mobileNotifBtn);
+        return;
+      }
+      window.location.href = "/pages/messages.html";
+    });
 
     if (supportSubmitBtnEl) {
       supportSubmitBtnEl.addEventListener("click", () => {
