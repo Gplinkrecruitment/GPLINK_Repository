@@ -260,6 +260,17 @@
     .step-actions {
       display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
     }
+    .step-nav-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .step-nav-actions .spacer {
+      width: 1px;
+      height: 1px;
+    }
 
     .btn-action {
       display: inline-flex; align-items: center; gap: 8px;
@@ -327,62 +338,6 @@
       font-size: 12px; color: #475569; font-weight: 500;
       margin-top: 8px; line-height: 1.45;
     }
-
-    /* ---- DOCUMENTS SECTION ---- */
-    .docs-section {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 18px;
-      margin-bottom: 16px;
-    }
-    .docs-title {
-      display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
-    }
-    .docs-title svg {
-      width: 20px; height: 20px; stroke: var(--blue);
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .docs-title span { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
-    .docs-list { display: grid; gap: 8px; }
-    .doc-item {
-      display: flex; align-items: center; gap: 12px;
-      border: 1px solid #e8edf5; border-radius: 14px;
-      background: #fafbfd; padding: 12px 14px;
-      transition: border-color .15s ease;
-    }
-    .doc-item:hover { border-color: #c7d2fe; }
-    .doc-icon {
-      width: 36px; height: 36px; border-radius: 10px;
-      display: grid; place-items: center; flex-shrink: 0;
-      background: #f1f5f9; color: #64748b;
-    }
-    .doc-icon svg {
-      width: 18px; height: 18px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .doc-icon.uploaded { background: #ecfdf5; color: #16a34a; }
-    .doc-icon.missing { background: #fef2f2; color: #dc2626; }
-    .doc-body { flex: 1; min-width: 0; }
-    .doc-name { font-size: 13px; font-weight: 700; color: var(--text); }
-    .doc-status { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 1px; }
-    .doc-badge {
-      padding: 4px 10px; border-radius: 999px;
-      font-size: 10px; font-weight: 700;
-      text-transform: uppercase; flex-shrink: 0;
-    }
-    .doc-badge.uploaded { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
-    .doc-badge.missing { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-    .doc-action {
-      border: 1px solid #cbd5e1;
-      background: #fff;
-      color: #334155;
-      border-radius: 10px;
-      padding: 6px 10px;
-      font-size: 11px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all .15s ease;
-    }
-    .doc-action:hover { background: #f8fafc; border-color: #94a3b8; }
 
     /* ---- HELP CARD ---- */
     .help-card {
@@ -647,6 +602,7 @@
       .trust-grid { grid-template-columns: 1fr; }
       .step-info-grid { grid-template-columns: 1fr; }
       .btn-action { width: 100%; justify-content: center; }
+      .step-nav-actions .btn-action { width: auto; }
       .dash-wrap { padding-bottom: 80px; }
       .step-tab { padding: 8px 12px; font-size: 12px; }
       .step-tab-num { width: 22px; height: 22px; font-size: 10px; }
@@ -771,18 +727,7 @@
         </select>
         <p class="qual-note" id="qualificationInstruction"></p>
       </div>
-    </div>
-
-    <!-- DOCUMENTS SECTION -->
-    <div class="docs-section" id="docsSection">
-      <div class="docs-title">
-        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-        <span>Required Documents</span>
-      </div>
-      <p style="font-size: 13px; color: #64748b; font-weight: 500; margin-bottom: 12px;">
-        These documents are needed for your EPIC credential verification. Upload them via MyIntealth when prompted.
-      </p>
-      <div class="docs-list" id="docsList"></div>
+      <div class="step-nav-actions" id="stepNavActions"></div>
     </div>
 
     <!-- HELP CARD -->
@@ -881,7 +826,6 @@
     const TUTORIAL_SEEN_KEY = "gp_epic_tutorial_seen";
     const AMC_KEY = "gp_amc_progress";
     const COUNTRY_KEY = "gp_selected_country";
-    const DOCS_KEY = "gp_epic_docs";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const MYINTEALTH_URL = "https://login.myintealth.app/myintealthid.onmicrosoft.com/B2C_1A_id-signup_signin_claim_sf_applicant/samlp/sso/login";
@@ -977,11 +921,6 @@
       upload_qualifications: { text: "Upload your specialist qualifications by following this walkthrough.", src: "../media/videos/myintealth-tutorial-2.mp4" }
     };
 
-    const requiredDocs = [
-      { key: "specialist_qualification", title: "Specialist Qualification (e.g. MRCGP / MICGP / FRNZCGP)", desc: "Certified copy of your specialist qualification certificate" },
-      { key: "primary_medical_degree", title: "Primary Medical Degree (MBBS / MBChB)", desc: "Certified copy of your primary medical degree" }
-    ];
-
     // ─── STATE MANAGEMENT ────────────────────────────────────────
     function loadBatchMeta(metaKey) {
       const raw = localStorage.getItem(metaKey);
@@ -1016,7 +955,7 @@
     }
 
     function flushAllBatchedSaves() {
-      [STORAGE_KEY, TUTORIAL_SEEN_KEY, COUNTRY_KEY, DOCS_KEY].forEach(flushBatchedSave);
+      [STORAGE_KEY, TUTORIAL_SEEN_KEY, COUNTRY_KEY].forEach(flushBatchedSave);
     }
 
     window.addEventListener("beforeunload", flushAllBatchedSaves);
@@ -1093,41 +1032,6 @@
 
     function saveSelectedCountry(c) {
       if (c === "uk" || c === "ie" || c === "nz") queueBatchedSave(COUNTRY_KEY, c);
-    }
-
-    function defaultDocsState() {
-      const out = {};
-      requiredDocs.forEach(doc => { out[doc.key] = false; });
-      return out;
-    }
-
-    function saveDocsState(docs, force) {
-      queueBatchedSave(DOCS_KEY, JSON.stringify(docs), force);
-    }
-
-    function loadDocsState(progress) {
-      const fallback = defaultDocsState();
-      const raw = localStorage.getItem(DOCS_KEY);
-      if (!raw) {
-        if (progress && progress.completed && progress.completed.upload_qualifications) {
-          requiredDocs.forEach(doc => { fallback[doc.key] = true; });
-          saveDocsState(fallback, true);
-        }
-        return fallback;
-      }
-      try {
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== "object") return fallback;
-        requiredDocs.forEach(doc => { fallback[doc.key] = parsed[doc.key] === true; });
-        return fallback;
-      } catch (e) {
-        return fallback;
-      }
-    }
-
-    function allRequiredDocsUploaded(progress) {
-      const docs = loadDocsState(progress);
-      return requiredDocs.every(doc => docs[doc.key] === true);
     }
 
     function stageStatus(progress, key) {
@@ -1223,10 +1127,6 @@
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
     function markStageComplete(progress, key) {
       if (progress.stage !== key) return;
-      if (key === "upload_qualifications" && !allRequiredDocsUploaded(progress)) {
-        showToast("Mark required documents as uploaded first.");
-        return;
-      }
       progress.completed[key] = true;
 
       // When completing waiting_verification, also complete verification_issued and redirect
@@ -1426,7 +1326,9 @@
 
       // Actions
       const actionsEl = document.getElementById("stepActions");
+      const navActionsEl = document.getElementById("stepNavActions");
       let html = '';
+      let navHtml = '';
 
       // Previous button
       const tabIdx = TAB_STAGES.indexOf(key);
@@ -1446,14 +1348,14 @@
         html += `<button class="btn-action secondary" id="actionUndoBtn" type="button">Undo Completion</button>`;
       }
 
-      if (hasPrev) {
-        html += `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
-      }
-      if (hasNext) {
-        html += `<button class="btn-action secondary" id="actionNextBtn" type="button">Next <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-      }
-
+      navHtml += hasPrev
+        ? `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
+        : `<span class="spacer" aria-hidden="true"></span>`;
+      navHtml += hasNext
+        ? `<button class="btn-action primary" id="actionNextBtn" type="button">Next <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`
+        : `<span class="spacer" aria-hidden="true"></span>`;
       actionsEl.innerHTML = html;
+      navActionsEl.innerHTML = navHtml;
 
       // Wire buttons
       const openBtn = document.getElementById("actionOpenBtn");
@@ -1486,7 +1388,6 @@
           currentTabKey = TAB_STAGES[tabIdx - 1];
           syncRouteForStage(currentTabKey);
           renderPage(progress);
-          document.getElementById("stepContent").scrollIntoView({ behavior: "smooth", block: "start" });
         });
       }
 
@@ -1496,7 +1397,6 @@
           currentTabKey = TAB_STAGES[tabIdx + 1];
           syncRouteForStage(currentTabKey);
           renderPage(progress);
-          document.getElementById("stepContent").scrollIntoView({ behavior: "smooth", block: "start" });
         });
       }
     }
@@ -1512,7 +1412,7 @@
         return;
       }
 
-      card.style.display = "";
+      card.style.display = "block";
       if (tutorialDescEl) tutorialDescEl.textContent = config.text;
       if (tutorialSourceEl) {
         const currentSrc = tutorialSourceEl.getAttribute("src");
@@ -1523,54 +1423,11 @@
       }
     }
 
-    // ─── RENDER: DOCUMENTS ──────────────────────────────────────
-    function renderDocs(progress) {
-      const list = document.getElementById("docsList");
-      list.innerHTML = "";
-      const docsState = loadDocsState(progress);
-
-      requiredDocs.forEach(doc => {
-        const uploaded = docsState[doc.key] === true;
-        const item = document.createElement("div");
-        item.className = "doc-item";
-        item.innerHTML = `
-          <div class="doc-icon ${uploaded ? "uploaded" : "missing"}">
-            ${uploaded
-              ? '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>'
-              : '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>'
-            }
-          </div>
-          <div class="doc-body">
-            <div class="doc-name">${doc.title}</div>
-            <div class="doc-status">${doc.desc}</div>
-          </div>
-          <span class="doc-badge ${uploaded ? "uploaded" : "missing"}">${uploaded ? "Uploaded" : "Required"}</span>
-          <button class="doc-action" type="button" data-doc-key="${doc.key}">
-            ${uploaded ? "Mark Required" : "Mark Uploaded"}
-          </button>
-        `;
-        list.appendChild(item);
-      });
-
-      list.querySelectorAll("[data-doc-key]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const key = btn.getAttribute("data-doc-key");
-          if (!key) return;
-          const next = loadDocsState(progress);
-          if (!(key in next)) return;
-          next[key] = !next[key];
-          saveDocsState(next, true);
-          renderDocs(progress);
-        });
-      });
-    }
-
     // ─── MAIN RENDER ────────────────────────────────────────────
     function renderPage(progress) {
       renderStepTabs(progress);
       renderTutorial(progress);
       renderStepContent(progress);
-      renderDocs(progress);
     }
 
     // ─── REGISTRATION DROPDOWN ──────────────────────────────────
