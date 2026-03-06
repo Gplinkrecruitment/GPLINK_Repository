@@ -357,7 +357,7 @@
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "No Current Updates";
+      empty.textContent = "No Updates Yet";
       listEl.appendChild(empty);
       refreshInboxBadges();
       return;
@@ -430,8 +430,8 @@
     bindDirectTrigger(document.getElementById("topSupportBtn"));
     bindDirectTrigger(document.getElementById("mobileNotifBtn"));
     bindDirectTrigger(document.getElementById("mobileSupportBtn"));
-    document.querySelectorAll(".nav-menu .nav-item[href$='messages.html'], .mobile-tab[href$='messages.html']").forEach((el) => {
-      if (el.querySelector("[data-inbox-alert]")) bindDirectTrigger(el);
+    document.querySelectorAll(".nav-menu .nav-item[href*='messages.html'], .mobile-tab[href*='messages.html']").forEach((el) => {
+      bindDirectTrigger(el);
     });
 
     document.addEventListener("click", (event) => {
@@ -451,8 +451,7 @@
         const navCandidate = targetEl.closest(".nav-menu .nav-item, .mobile-tab");
         if (navCandidate) {
           const href = navCandidate.getAttribute("href");
-          const hasBellBadge = !!navCandidate.querySelector("[data-inbox-alert]");
-          if (hasBellBadge && isMessagesHref(href)) {
+          if (isMessagesHref(href)) {
             trigger = navCandidate;
           }
         }
