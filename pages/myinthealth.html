@@ -929,17 +929,7 @@
         cta: "Contact Support",
         ctaType: "support"
       },
-      verification_issued: {
-        label: "Complete",
-        full: "Verification Complete",
-        short: "Your EPIC verification has been issued.",
-        doNow: "You're ready to create your AMC Candidate Portfolio.",
-        time: "Next step",
-        support: "We'll guide you through AMC setup.",
-        next: "Proceed to the AMC Portfolio module to continue registration.",
-        cta: "Go to AMC Portfolio",
-        ctaType: "amc"
-      }
+      verification_issued: null
     };
 
     const stageRouteMap = {
@@ -1259,6 +1249,7 @@
     function renderStepContent(progress) {
       const key = currentTabKey;
       const meta = stageMeta[key];
+      if (!meta) return; // verification_issued has no content
       const status = stageStatus(progress, key);
       const isDone = status === "done";
       const isCurrent = status === "current";
@@ -1666,9 +1657,15 @@
     }
 
     const initialProgress = loadProgress();
-    currentTabKey = activeTabStage(initialProgress);
-    syncRouteForStage(initialProgress.stage, true);
-    renderPage(initialProgress);
+
+    // If all stages are done, redirect to AMC
+    if (initialProgress.stage === "verification_issued" && initialProgress.completed.verification_issued) {
+      window.location.href = "amc.html";
+    } else {
+      currentTabKey = activeTabStage(initialProgress);
+      syncRouteForStage(initialProgress.stage, true);
+      renderPage(initialProgress);
+    }
 
     window.addEventListener("popstate", () => {
       const progress = loadProgress();
