@@ -994,7 +994,7 @@
           <div class="task-name">MyIntealth Account</div>
           <div class="task-status-text" id="step1-status-text">Not started yet</div>
         </div>
-        <span class="task-priority current-p" id="step1-pill">Current</span>
+        <span class="task-priority current-p" id="step1-pill">Continue</span>
         <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
       </a>
       <a class="task-item" id="task2" href="#">
@@ -1017,26 +1017,6 @@
         <span class="task-priority locked-p" id="step3-pill">Locked</span>
         <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
       </a>
-      <a class="task-item locked" id="task4" href="#">
-        <span class="task-dot locked-dot"></span>
-        <div class="task-body">
-          <div class="task-cat">Step 4</div>
-          <div class="task-name">Visa and Relocation</div>
-          <div class="task-status-text" id="step4-status-text">No action needed yet</div>
-        </div>
-        <span class="task-priority locked-p" id="step4-pill">Locked</span>
-        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
-      </a>
-      <a class="task-item locked" id="task5" href="#">
-        <span class="task-dot locked-dot"></span>
-        <div class="task-body">
-          <div class="task-cat">Step 5</div>
-          <div class="task-name">Provider Number</div>
-          <div class="task-status-text" id="step5-status-text">No action needed yet</div>
-        </div>
-        <span class="task-priority locked-p" id="step5-pill">Locked</span>
-        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
-      </a>
       <a class="task-item locked" id="task6" href="#">
         <span class="task-dot locked-dot"></span>
         <div class="task-body">
@@ -1047,46 +1027,6 @@
         <span class="task-priority locked-p" id="step6-pill">Locked</span>
         <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
       </a>
-    </div>
-
-    <!-- WHAT TO DO NEXT -->
-    <div class="next-steps-card">
-      <div class="next-steps-title">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M16.5 7.5l-4 8-4-4 8-4z"></path></svg>
-        <span>What to do next</span>
-      </div>
-      <div class="next-steps-list">
-        <div class="next-step-row">
-          <span class="next-step-arrow">&#8594;</span>
-          <span><span class="next-step-label">Immediate:</span> <span id="immediate"></span></span>
-        </div>
-        <div class="next-step-row">
-          <span class="next-step-arrow">&#8594;</span>
-          <span><span class="next-step-label">This week:</span> <span id="this-week"></span></span>
-        </div>
-        <div class="next-step-row">
-          <span class="next-step-arrow">&#8594;</span>
-          <span><span class="next-step-label">Coming up:</span> <span id="coming-up"></span></span>
-        </div>
-      </div>
-      <div class="need-line">What you'll need: Passport, MRCGP/CCT PDFs, and any name-change documents.</div>
-    </div>
-
-    <!-- GP LINK UPDATES -->
-    <div class="updates-section updates-card" id="gp-updates-card">
-      <div class="updates-section-title">
-        <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg>
-        <span>GP Link Updates</span>
-      </div>
-      <p style="font-size:13px; color:#64748b; font-weight:500; margin-bottom:10px;" id="updates-subtitle">Messages from the GP Link team about what changed and what to do next.</p>
-      <p class="updates-alert" id="updates-alert" hidden>Action required - please review below.</p>
-      <div class="updates-feed">
-        <div class="updates-list" id="gp-updates-list"></div>
-        <a class="updates-link" id="gp-updates-link" href="messages.html">View all updates <span>&#8594;</span></a>
-        <span id="epic-status" style="display:none">Not started yet</span>
-        <span id="amc-status" style="display:none">Not started yet</span>
-        <span id="docs-status" style="display:none">Not started yet</span>
-      </div>
     </div>
 
     <!-- HELP CARD -->
@@ -1178,7 +1118,7 @@
   </div>
 
   <script>
-    const TOTAL_STEPS = 6;
+    const TOTAL_STEPS = 4;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const DOC_KEY = "gp_documents_prep";
@@ -1561,7 +1501,7 @@
       if (statusEl) statusEl.textContent = statusText;
       if (href) taskEl.href = href;
       if (pill) {
-        pill.textContent = state === "done" ? "Done" : state === "current" ? "Current" : "Locked";
+        pill.textContent = state === "done" ? "Done" : state === "current" ? "Continue" : "Locked";
         pill.className = `task-priority ${state === "done" ? "done-p" : state === "current" ? "current-p" : "locked-p"}`;
       }
       taskEl.classList.toggle("locked", state === "locked");
@@ -1633,37 +1573,9 @@
         nextMilestoneEl.textContent = `Next milestone: Step ${nextStep} complete`;
       }
 
-      const immediate = !snap.epicDone
-        ? "Upload identity and specialist files in MyIntealth, then confirm your verification request is submitted."
-        : !snap.amcDone
-          ? "Upload remaining credentials in AMC and confirm ECFMG verification has started."
-          : "Prepare the final AHPRA submission forms and supporting evidence for review.";
-      const thisWeek = !snap.epicDone
-        ? "Check for any MyIntealth feedback and re-upload only if EPIC requests updates."
-        : !snap.amcDone
-          ? "Review AMC profile details for exact name match and document clarity."
-          : "Coordinate institution-sent evidence and keep copies in My Documents.";
-      const comingUp = !snap.epicDone
-        ? "AMC portfolio actions unlock once EPIC verification is issued."
-        : !snap.amcDone
-          ? "AHPRA registration actions unlock after AMC verification progresses."
-          : "Visa, provider number, and commencement steps unlock in sequence.";
-
-      document.getElementById("immediate").textContent = immediate;
-      document.getElementById("this-week").textContent = thisWeek;
-      document.getElementById("coming-up").textContent = comingUp;
-
-      document.getElementById("epic-status").textContent = snap.epicDone ? "Verification issued" : snap.epicCurrentLabel;
-      document.getElementById("amc-status").textContent = snap.amcDone ? "Qualifications verified" : snap.amcCurrentLabel;
-      document.getElementById("docs-status").textContent = snap.docsDone
-        ? "All required documents ready"
-        : `Prepared ${snap.preparedUploaded}/4 \u2022 Requested ${snap.institutionRequested}/3 \u2022 Ready ${snap.supervisedReady}/5`;
-
       setTaskVisual(1, snap.epicDone ? "done" : "current", snap.epicDone ? "Completed" : snap.epicCurrentLabel, "myinthealth.html");
       setTaskVisual(2, !snap.epicDone ? "locked" : snap.amcDone ? "done" : "current", !snap.epicDone ? "Unlocked after Step 1" : snap.amcDone ? "Completed" : snap.amcCurrentLabel, snap.epicDone ? "amc.html" : "#");
       setTaskVisual(3, !snap.amcDone ? "locked" : "current", !snap.amcDone ? "Unlocked after Step 2" : "In progress", snap.amcDone ? "ahpra.html" : "#");
-      setTaskVisual(4, "locked", "No action needed yet", "#");
-      setTaskVisual(5, "locked", "No action needed yet", "#");
       setTaskVisual(6, "locked", "No action needed yet", "#");
 
       renderUpdatesFeed();
@@ -1677,7 +1589,7 @@
           sub: "Create account and complete EPIC verification.",
           mobileDetail: "EPIC verification is set up and moving forward.",
           mobileStatus: snap.epicCurrentLabel,
-          status: snap.epicDone ? "Done" : "Current",
+          status: snap.epicDone ? "Done" : "Continue",
           locked: false,
           href: "myinthealth.html",
           cta: "Continue"
@@ -1687,7 +1599,7 @@
           sub: "Create AMC candidate portfolio and upload credentials.",
           mobileDetail: "AMC portfolio is created and connected to your verification.",
           mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
-          status: snap.epicDone ? (snap.amcDone ? "Done" : "Current") : "Locked",
+          status: snap.epicDone ? (snap.amcDone ? "Done" : "Continue") : "Locked",
           locked: !snap.epicDone,
           href: snap.epicDone ? "amc.html" : "#",
           cta: snap.epicDone ? "Continue" : "Locked"
@@ -1697,20 +1609,10 @@
           sub: "Prepare and submit your specialist registration application.",
           mobileDetail: "Specialist registration application is prepared and submitted correctly.",
           mobileStatus: snap.amcDone ? "In progress" : "Unlocked after Step 2 is complete",
-          status: snap.amcDone ? "Current" : "Locked",
+          status: snap.amcDone ? "Continue" : "Locked",
           locked: !snap.amcDone,
           href: snap.amcDone ? "ahpra.html" : "#",
           cta: snap.amcDone ? "Continue" : "Locked"
-        },
-        {
-          title: "4. Visa and Relocation",
-          sub: "Sponsorship, visa processing and relocation.",
-          mobileDetail: "Visa pathway and relocation planning are coordinated in sequence.",
-          mobileStatus: "No action needed yet",
-          status: "Locked",
-          locked: true,
-          href: "#",
-          cta: "Locked"
         }
       ];
     }
@@ -1743,7 +1645,7 @@
       }
 
       rows.forEach((row, idx) => {
-        const isCurrent = row.status === "Current" && !row.locked;
+        const isCurrent = row.status === "Continue" && !row.locked;
         const cardEl = document.createElement("div");
         cardEl.className = `mobile-step-card ${row.locked ? "locked" : "unlocked"} ${isCurrent ? "current open" : ""}`;
         const bodyId = `mobileStepBody${idx}`;
@@ -1751,7 +1653,7 @@
           ? `<span class="mobile-step-pill locked">Locked</span>`
           : row.status === "Done"
             ? `<span class="mobile-step-pill done">Done</span>`
-            : `<span class="mobile-step-pill current">Current</span>`;
+            : `<span class="mobile-step-pill current">Continue</span>`;
         cardEl.innerHTML = `
           <button class="mobile-step-head" type="button" ${isCurrent ? "disabled" : ""} aria-expanded="${isCurrent ? "true" : "false"}" aria-controls="${bodyId}">
             <span class="mobile-step-title">${row.title}</span>
