@@ -4,129 +4,51 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Terms of Service - GP Link</title>
+  <link rel="stylesheet" href="../css/shared.css" />
   <style>
-    :root {
-      --bg: #eef3fb;
-      --line: #dbe5f1;
-      --text: #0f172a;
-      --blue: #1d4ed8;
-      --shadow: 0 18px 40px -28px rgba(15, 23, 42, 0.45);
+    body { padding: 18px 12px 28px; }
+    .legal-wrap { max-width: 800px; margin: 0 auto; }
+    .legal-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 14px 18px; border-radius: var(--radius-md);
+      background: var(--card); border: 1px solid var(--border);
+      box-shadow: var(--shadow); margin-bottom: 14px;
     }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
-        radial-gradient(760px 460px at 100% 0%, rgba(29, 78, 216, 0.14), transparent 58%),
-        var(--bg);
-      padding: 18px 12px 28px;
+    .legal-topbar .brand-logo img { width: 140px; }
+    .legal-content {
+      background: var(--card); border-radius: var(--radius);
+      border: 1px solid var(--border); box-shadow: var(--shadow);
+      padding: 28px; line-height: 1.7;
     }
-
-    .shell {
-      max-width: 980px;
-      margin: 0 auto;
-      display: grid;
-      gap: 12px;
+    .legal-content h1 {
+      font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 6px;
     }
-
-    .topbar {
-      border: 1px solid rgba(226, 232, 240, 0.82);
-      border-radius: 16px;
-      background: #ffffff;
-      padding: 14px 16px;
-      box-shadow: 0 12px 25px -22px rgba(2, 6, 23, 0.25);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
+    .legal-content h2 {
+      margin: 20px 0 8px; font-size: 16px; font-weight: 800; color: var(--blue2);
     }
-
-    .brand-logo img {
-      width: 176px;
-      display: block;
-    }
-
-    .back-link {
-      text-decoration: none;
-      border: 1px solid #bfdbfe;
-      border-radius: 999px;
-      background: #eff6ff;
-      color: var(--blue);
-      font-size: 12px;
-      font-weight: 750;
-      padding: 8px 12px;
-    }
-
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.92);
-      box-shadow: var(--shadow);
-      padding: 22px;
-      line-height: 1.6;
-    }
-
-    h1 {
-      margin: 0 0 8px;
-      font-size: 30px;
-      font-weight: 860;
-      letter-spacing: -0.01em;
-    }
-
-    h2 {
-      margin: 18px 0 8px;
-      font-size: 17px;
-      font-weight: 800;
-      color: #1e3a8a;
-    }
-
-    p {
-      margin: 0 0 10px;
-      font-size: 14px;
-    }
-
-    ul {
-      margin: 0 0 12px 18px;
-      padding: 0;
-      font-size: 14px;
-    }
-
-    .legal-footer {
-      text-align: center;
-      font-size: 12px;
-      color: #64748b;
-      line-height: 1.45;
-      margin-top: 10px;
-    }
-
-    .legal-footer a {
-      color: #334155;
-      text-decoration: underline;
-    }
+    .legal-content p { margin: 0 0 10px; font-size: 14px; font-weight: 400; color: #334155; }
+    .legal-content ul { margin: 0 0 12px 18px; padding: 0; font-size: 14px; color: #334155; }
+    .legal-content li { margin-bottom: 3px; }
+    .legal-content strong { font-weight: 700; color: var(--text); }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <header class="topbar">
+  <div class="legal-wrap">
+    <header class="legal-topbar">
       <a class="brand-logo" href="index.html" aria-label="GP Link home">
         <img src="../media/images/gp-link-logo.png" alt="GP Link" />
       </a>
-      <a class="back-link" href="index.html">Back to Dashboard</a>
+      <a class="btn-modern btn-outline" href="index.html">Back to Dashboard</a>
     </header>
 
-    <main class="card">
+    <main class="legal-content">
       <h1>Terms of Service</h1>
       <p>GP LINK RECRUITMENT AUSTRALIA PTY LTD<br>Effective Date: 24/02/2026</p>
 
       <h2>1. Introduction</h2>
-      <p>These Terms of Service (“Terms”) govern your access to and use of the GP Link platform, website, and related services (“Services”).</p>
-      <p>GP LINK RECRUITMENT AUSTRALIA PTY LTD (“GP Link”, “we”, “us”, or “our”) provides recruitment, compliance support, and relocation coordination services for medical practitioners seeking employment and specialist registration in Australia.</p>
-      <p>By accessing or using our Services, you agree to be bound by these Terms.</p>
-      <p>If you do not agree, you must not use the platform.</p>
+      <p>These Terms of Service ("Terms") govern your access to and use of the GP Link platform, website, and related services ("Services").</p>
+      <p>GP LINK RECRUITMENT AUSTRALIA PTY LTD ("GP Link", "we", "us", or "our") provides recruitment, compliance support, and relocation coordination services for medical practitioners seeking employment and specialist registration in Australia.</p>
+      <p>By accessing or using our Services, you agree to be bound by these Terms. If you do not agree, you must not use the platform.</p>
 
       <h2>2. Eligibility</h2>
       <p>To use GP Link, you must:</p>
@@ -144,46 +66,17 @@
         <li>Medical recruitment services</li>
         <li>Introduction to Australian medical practices</li>
         <li>Guidance on specialist registration processes</li>
-        <li>Assistance coordinating with regulatory bodies including:</li>
-        <li>Australian Health Practitioner Regulation Agency (AHPRA)</li>
-        <li>Australian Medical Council (AMC)</li>
+        <li>Assistance coordinating with regulatory bodies including AHPRA and AMC</li>
         <li>General relocation coordination support</li>
       </ul>
-      <p>GP Link is not:</p>
-      <ul>
-        <li>A regulatory authority</li>
-        <li>A migration agent (unless separately engaged)</li>
-        <li>A law firm</li>
-        <li>An employer</li>
-      </ul>
+      <p>GP Link is not a regulatory authority, migration agent (unless separately engaged), law firm, or employer.</p>
       <p>We do not guarantee registration approval, visa approval, employment offers, or income levels.</p>
 
       <h2>4. Recruitment Relationship</h2>
-      <p>GP Link acts as an independent recruitment intermediary between medical practitioners and healthcare providers.</p>
-      <p>We may:</p>
-      <ul>
-        <li>Share your professional profile with medical practices (with your consent)</li>
-        <li>Facilitate interviews and contract discussions</li>
-        <li>Coordinate onboarding steps</li>
-      </ul>
-      <p>Final employment contracts are entered into directly between you and the hiring practice or organisation.</p>
-      <p>GP Link is not a party to your employment agreement.</p>
+      <p>GP Link acts as an independent recruitment intermediary between medical practitioners and healthcare providers. Final employment contracts are entered into directly between you and the hiring practice or organisation. GP Link is not a party to your employment agreement.</p>
 
       <h2>5. No Guarantee of Outcomes</h2>
-      <p>While we provide structured guidance and support:</p>
-      <ul>
-        <li>Regulatory bodies make independent decisions regarding specialist registration.</li>
-        <li>Employers make independent hiring decisions.</li>
-        <li>Government authorities make independent visa determinations.</li>
-      </ul>
-      <p>GP Link does not guarantee:</p>
-      <ul>
-        <li>Registration approval</li>
-        <li>Employment placement</li>
-        <li>Specific remuneration</li>
-        <li>Visa approval</li>
-        <li>Timeframes for relocation</li>
-      </ul>
+      <p>While we provide structured guidance and support, regulatory bodies, employers, and government authorities make independent decisions. GP Link does not guarantee registration approval, employment placement, specific remuneration, visa approval, or timeframes for relocation.</p>
 
       <h2>6. User Responsibilities</h2>
       <p>You agree to:</p>
@@ -194,102 +87,51 @@
         <li>Maintain confidentiality of your login credentials</li>
         <li>Respond promptly to compliance-related requests</li>
       </ul>
-      <p>You must not:</p>
-      <ul>
-        <li>Upload fraudulent documents</li>
-        <li>Misrepresent qualifications or registration history</li>
-        <li>Attempt to interfere with the platform’s security</li>
-      </ul>
+      <p>You must not upload fraudulent documents, misrepresent qualifications, or attempt to interfere with the platform's security.</p>
       <p>If fraud or misrepresentation is detected, GP Link may immediately terminate your account and notify relevant authorities where required.</p>
 
       <h2>7. Document Authenticity</h2>
-      <p>You are solely responsible for ensuring that all uploaded documents are genuine and legally obtained.</p>
-      <p>GP Link may rely on the information you provide but is not responsible for independently verifying authenticity unless explicitly engaged to do so.</p>
-      <p>Any consequences arising from inaccurate or fraudulent documentation are your responsibility.</p>
+      <p>You are solely responsible for ensuring that all uploaded documents are genuine and legally obtained. Any consequences arising from inaccurate or fraudulent documentation are your responsibility.</p>
 
       <h2>8. Fees</h2>
-      <p>For doctors:</p>
-      <p>GP Link typically charges recruitment fees to hiring practices, not to candidates, unless otherwise agreed in writing.</p>
-      <p>For practices:</p>
-      <p>Recruitment fees are governed by separate Recruitment Service Agreements.</p>
-      <p>Any additional service fees (if applicable) will be disclosed before engagement.</p>
+      <p>GP Link typically charges recruitment fees to hiring practices, not to candidates, unless otherwise agreed in writing. Any additional service fees will be disclosed before engagement.</p>
 
       <h2>9. Intellectual Property</h2>
-      <p>All content, branding, workflows, dashboards, documentation templates, and platform design elements are the intellectual property of GP Link Pty Ltd.</p>
-      <p>You may not:</p>
-      <ul>
-        <li>Copy platform structure for commercial use</li>
-        <li>Reproduce proprietary materials</li>
-        <li>Reverse engineer the system</li>
-      </ul>
+      <p>All content, branding, workflows, dashboards, documentation templates, and platform design elements are the intellectual property of GP Link Pty Ltd. You may not copy platform structure for commercial use, reproduce proprietary materials, or reverse engineer the system.</p>
 
       <h2>10. Confidentiality</h2>
-      <p>You agree to maintain confidentiality regarding:</p>
-      <ul>
-        <li>Practice offers</li>
-        <li>Commercial terms</li>
-        <li>Internal processes</li>
-        <li>Recruiter communications</li>
-      </ul>
-      <p>GP Link also maintains confidentiality of your profile in accordance with our Privacy Policy.</p>
+      <p>You agree to maintain confidentiality regarding practice offers, commercial terms, internal processes, and recruiter communications. GP Link also maintains confidentiality of your profile in accordance with our Privacy Policy.</p>
 
       <h2>11. Limitation of Liability</h2>
-      <p>To the maximum extent permitted by law:</p>
-      <p>GP Link shall not be liable for:</p>
-      <ul>
-        <li>Regulatory refusal decisions</li>
-        <li>Visa denials</li>
-        <li>Employment termination</li>
-        <li>Loss of income</li>
-        <li>Indirect or consequential damages</li>
-        <li>Delays caused by third parties</li>
-      </ul>
-      <p>Our liability is limited to the amount (if any) paid by you for Services directly provided by GP Link.</p>
-      <p>Nothing in these Terms excludes rights under the Australian Consumer Law where applicable.</p>
+      <p>To the maximum extent permitted by law, GP Link shall not be liable for regulatory refusal decisions, visa denials, employment termination, loss of income, indirect or consequential damages, or delays caused by third parties.</p>
+      <p>Our liability is limited to the amount (if any) paid by you for Services directly provided by GP Link. Nothing in these Terms excludes rights under the Australian Consumer Law where applicable.</p>
 
       <h2>12. Platform Availability</h2>
-      <p>We aim to maintain reliable platform access but do not guarantee uninterrupted service.</p>
-      <p>We may:</p>
-      <ul>
-        <li>Update features</li>
-        <li>Modify functionality</li>
-        <li>Temporarily suspend access for maintenance</li>
-      </ul>
-      <p>Without liability.</p>
+      <p>We aim to maintain reliable platform access but do not guarantee uninterrupted service. We may update features, modify functionality, or temporarily suspend access for maintenance without liability.</p>
 
       <h2>13. Termination</h2>
-      <p>You may terminate your account at any time by written request.</p>
-      <p>GP Link may suspend or terminate access if:</p>
-      <ul>
-        <li>You breach these Terms</li>
-        <li>You engage in fraud or misconduct</li>
-        <li>Continued use poses regulatory or legal risk</li>
-      </ul>
-      <p>Termination does not affect accrued rights or obligations.</p>
+      <p>You may terminate your account at any time by written request. GP Link may suspend or terminate access if you breach these Terms, engage in fraud, or if continued use poses regulatory or legal risk. Termination does not affect accrued rights or obligations.</p>
 
       <h2>14. Privacy</h2>
-      <p>Your use of GP Link is also governed by our Privacy Policy, which explains how we collect, use, and store your personal information.</p>
+      <p>Your use of GP Link is also governed by our <a href="privacy.html" style="color:var(--blue);text-decoration:underline;">Privacy Policy</a>, which explains how we collect, use, and store your personal information.</p>
 
       <h2>15. Dispute Resolution</h2>
-      <p>If a dispute arises, parties agree to first attempt resolution through good-faith negotiation.</p>
-      <p>If unresolved, disputes will be governed by the laws of New South Wales, Australia.</p>
+      <p>If a dispute arises, parties agree to first attempt resolution through good-faith negotiation. If unresolved, disputes will be governed by the laws of New South Wales, Australia.</p>
 
       <h2>16. Governing Law</h2>
-      <p>These Terms are governed by the laws of New South Wales, Australia.</p>
-      <p>You submit to the exclusive jurisdiction of the courts of New South Wales.</p>
+      <p>These Terms are governed by the laws of New South Wales, Australia. You submit to the exclusive jurisdiction of the courts of New South Wales.</p>
 
       <h2>17. Changes to These Terms</h2>
-      <p>We may update these Terms from time to time.</p>
-      <p>Continued use of the platform after changes constitutes acceptance of the updated Terms.</p>
+      <p>We may update these Terms from time to time. Continued use of the platform after changes constitutes acceptance of the updated Terms.</p>
 
       <h2>18. Contact Information</h2>
       <p>GP LINK RECRUITMENT AUSTRALIA PTY LTD<br>Email: hello@mygplink.com.au<br>Parramatta, NSW, Australia</p>
     </main>
 
-  </div>
-  <div class="legal-footer">
-    <div><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a></div>
-    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+    <div class="footer-links" style="padding-top:12px;">
+      <div><a href="privacy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
+      <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
+    </div>
   </div>
 </body>
 </html>

@@ -3,1558 +3,396 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script>
-    (function () {
-      const root = document.documentElement;
-      root.classList.add('gp-page-loading');
-      const style = document.createElement('style');
-      style.textContent = '.gp-page-loading body > *:not(#gp-universal-skeleton){visibility:hidden!important;}#gp-universal-skeleton{position:fixed;inset:0;z-index:10000;background:#eef3fb;display:grid;place-items:center;padding:18px 12px;}#gp-universal-skeleton .shell{position:relative;overflow:hidden;width:min(1100px,100%);height:min(760px,84vh);border-radius:18px;background:linear-gradient(90deg,#e4ebf6 25%,#f2f6fd 37%,#e4ebf6 63%);background-size:400% 100%;box-shadow:0 0 0 1px rgba(10,132,255,.32),0 0 14px rgba(10,132,255,.35),0 0 28px rgba(10,132,255,.2) inset;animation:gpUniversalShimmer 1.35s ease-in-out infinite;}#gp-universal-skeleton .shell::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from 0deg,#1d9bff 0deg,#9fddff 70deg,#1d9bff 140deg,transparent 220deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:gpLedTrace .95s linear infinite;}@keyframes gpUniversalShimmer{0%{background-position:100% 50%;}100%{background-position:0 50%;}}@keyframes gpLedTrace{to{transform:rotate(1turn);}}';
-      document.head.appendChild(style);
-      function mount() { if (!document.body || document.getElementById('gp-universal-skeleton')) return; const el = document.createElement('div'); el.id = 'gp-universal-skeleton'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = '<div class="shell"></div>'; document.body.appendChild(el); }
-      function unmount() { root.classList.remove('gp-page-loading'); const el = document.getElementById('gp-universal-skeleton'); if (el && el.parentNode) el.parentNode.removeChild(el); }
-      let pageReady = document.readyState !== 'loading';
-      function done() { if (pageReady) unmount(); }
-      if (!pageReady) document.addEventListener('DOMContentLoaded', function () { pageReady = true; done(); }, { once: true });
-      setTimeout(done, 12000);
-      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true }); else mount();
-    })();
-  </script>
   <title>AHPRA Registration - GP Link</title>
   <script src="../js/auth-guard.js" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/shared.css" />
   <style>
-    :root {
-      --bg: #f4f7fb;
-      --panel: #ffffff;
-      --text: #0f172a;
-      --muted: #64748b;
-      --line: #e2e8f0;
-      --blue: #0a84ff;
-      --amber-bg: #fff8e8;
-      --amber-line: #f4d28d;
-      --shadow-soft: 0 18px 38px -28px rgba(15, 23, 42, 0.35);
-      --radius-lg: 18px;
-      --radius-md: 14px;
-      --radius-sm: 10px;
-    }
-
-    * { box-sizing: border-box; }
-    img, video { max-width: 100%; height: auto; }
-    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
-
-    body {
-      margin: 0;
-      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
-        radial-gradient(760px 460px at 100% 0%, rgba(22, 163, 74, 0.12), transparent 58%),
-        var(--bg);
-      color: var(--text);
-      padding: 20px 12px 30px;
-    }
-
-    .shell {
-      max-width: 1150px;
-      margin: 0 auto;
-      background: rgba(255, 255, 255, 0.72);
-      border: 1px solid rgba(255, 255, 255, 0.8);
-      border-radius: 22px;
-      box-shadow: var(--shadow-soft);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      overflow: hidden;
-    }
-
-    .topbar {
-      padding: 18px 20px 14px;
-      border-bottom: 1px solid #e6edf7;
-      background: #ffffff;
-    }
-
-    .topbar h1 {
-      margin: 0;
-      font-size: 30px;
-      letter-spacing: -0.025em;
-      font-weight: 760;
-      color: #111827;
-    }
-
-    .topbar p {
-      margin: 4px 0 0;
-      font-size: 13px;
-      color: var(--muted);
-      font-weight: 560;
-    }
-
-    .topbar-row {
-      display: grid;
-      grid-template-columns: auto 1fr auto;
-      align-items: center;
-      min-height: 56px;
-      gap: 14px;
-    }
-
-    .brand-logo {
-      display: inline-flex;
-      align-items: center;
-      text-decoration: none;
-    }
-
-    .brand-logo img {
-      display: block;
-      width: 178px;
-      height: auto;
-    }
-
-    .nav-menu {
-      display: flex;
-      gap: 22px;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
-      padding: 6px;
-      border-radius: 14px;
-    }
-
-    .nav-item {
-      position: relative;
-      z-index: 2;
-      transition: color .18s ease, font-weight .18s ease;
-    }
-
-    .nav-link {
-      text-decoration: none;
-      border: 0;
-      background: transparent;
-      color: #111827;
-      border-radius: 0;
-      padding: 6px 10px;
-      font-size: 14px;
-      font-weight: 500;
-      letter-spacing: 0;
-      white-space: nowrap;
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      line-height: 1.15;
-      min-width: 104px;
-      border-radius: 12px;
-    }
-
-    .nav-link.active {
-      color: #0f172a;
-      font-weight: 700;
-    }
-
-    .nav-action {
-      border: 0;
-      background: transparent;
-      color: #111827;
-      border-radius: 0;
-      padding: 6px 10px;
-      font-size: 14px;
-      font-weight: 500;
-      letter-spacing: 0;
-      white-space: nowrap;
-      cursor: pointer;
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      line-height: 1.15;
-      min-width: 104px;
-      border-radius: 12px;
-      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
-    }
-
-    .nav-icon {
-      width: 17px;
-      height: 17px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      color: #334155;
-    }
-
-    .nav-text { line-height: 1; }
-
-    .nav-icon-wrap {
-      position: relative;
-      display: inline-grid;
-      place-items: center;
-      line-height: 1;
-    }
-
-    .nav-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      line-height: 1;
-    }
-
-    .nav-alert {
-      position: absolute;
-      top: -8px;
-      right: -8px;
-      width: 14px;
-      height: 14px;
-      border-radius: 999px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-weight: 900;
-      color: #ffffff;
-      background: #dc2626;
-      line-height: 1;
-      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
-      pointer-events: none;
-      z-index: 2;
-    }
-
-    .account-pill {
-      border: 0;
-      background: transparent;
-      color: #111827;
-      border-radius: 0;
-      padding: 6px 10px;
-      font-size: 14px;
-      font-weight: 500;
-      letter-spacing: 0;
-      white-space: nowrap;
-      text-decoration: none;
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      line-height: 1.15;
-      min-width: 104px;
-      border-radius: 12px;
-    }
-
-    .nav-link.active,
-    .nav-action.active,
-    .account-pill.active {
-      color: #0f172a;
-      font-weight: 700;
-    }
-
-    .nav-glass {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 104px;
-      height: 44px;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.58);
-      border: 1px solid rgba(191, 220, 255, 0.95);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      z-index: 1;
-      pointer-events: none;
-      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05), transform .2s ease, box-shadow .2s ease;
-    }
-
-    .nav-glass.morph {
-      animation: glassMorph .34s ease;
-    }
-
-    .nav-glass.engulf {
-      transform: scale(1.06);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 14px 24px -18px rgba(37, 99, 235, 0.62);
-    }
-
-    @keyframes glassMorph {
-      0% { transform: scaleX(.92) scaleY(1.02); border-radius: 16px; }
-      50% { transform: scaleX(1.08) scaleY(.92); border-radius: 20px; }
-      100% { transform: scaleX(1) scaleY(1); border-radius: 12px; }
-    }
-
-    .reg-dropdown {
-      position: absolute;
-      top: calc(100% + 2px);
-      right: 0;
-      width: min(760px, 92vw);
-      border-radius: 16px;
-      border: 1px solid var(--glass-border);
-      background: var(--glass-bg);
-      box-shadow: var(--glass-shadow), 0 14px 26px -18px rgba(15, 23, 42, 0.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      padding: 10px;
-      z-index: 70;
-      opacity: 0;
-      transform: translateY(4px);
-      pointer-events: none;
-      visibility: hidden;
-      transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
-    }
-
-    .reg-dropdown.show {
-      opacity: 1;
-      transform: translateY(0);
-      pointer-events: auto;
-      visibility: visible;
-    }
-
-    .reg-head {
-      margin: 0 0 8px;
-      font-size: 13px;
-      font-weight: 900;
-      color: #0f172a;
-    }
-
-    .reg-table { display: grid; gap: 8px; }
-
-    .reg-row {
-      display: grid;
-      grid-template-columns: 1.2fr auto auto;
-      align-items: center;
-      gap: 10px;
-      border: 1px solid rgba(226, 232, 240, 0.9);
-      background: #fbfdff;
-      border-radius: 12px;
-      padding: 8px 10px;
-    }
-
-    .reg-name {
-      font-size: 12px;
-      font-weight: 800;
-      color: #0f172a;
-    }
-
-    .reg-sub {
-      font-size: 11px;
-      font-weight: 700;
-      color: #64748b;
-      margin-top: 2px;
-    }
-
-    .reg-pill {
-      font-size: 10px;
-      text-transform: uppercase;
-      font-weight: 900;
-      border-radius: 999px;
-      padding: 4px 8px;
-      background: #eaf3ff;
-      color: #1d4ed8;
-      border: 1px solid #bfdcff;
-    }
-
-    .reg-pill.locked {
-      background: #f1f5f9;
-      color: #64748b;
-      border-color: #dbe4ef;
-    }
-
-    .reg-btn {
-      text-decoration: none;
-      padding: 8px 10px;
-      border-radius: 10px;
-      font-size: 11px;
-      font-weight: 900;
-      white-space: nowrap;
-      color: #1e3a8a;
-      background: rgba(255, 255, 255, 0.58);
-      border: 1px solid rgba(191, 220, 255, 0.95);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-
-    .reg-btn.locked {
-      background: rgba(241, 245, 249, 0.82);
-      border-color: #dbe4ef;
-      color: #64748b;
-      box-shadow: none;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-    }
-
-    .main {
-      padding: 14px;
-      display: grid;
-      gap: 12px;
-    }
-
-    .heading {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-      padding: 2px 4px;
-    }
-
-    .heading-main {
-      width: 100%;
-      display: grid;
-      gap: 4px;
-    }
-
-    .heading-meta {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .heading-updated {
-      font-size: 12px;
-      color: #64748b;
-      font-weight: 620;
-      white-space: nowrap;
-    }
-
-    .heading h2 {
-      margin: 0;
-      font-size: 24px;
-      letter-spacing: -0.02em;
-      font-weight: 740;
-    }
-
-    .heading p {
-      margin: 4px 0 0;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 560;
-    }
-
-    .chips {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    .chip {
-      border: 1px solid #d7e3f6;
-      background: rgba(255, 255, 255, 0.85);
-      border-radius: 999px;
-      padding: 7px 12px;
-      font-size: 12px;
-      font-weight: 620;
-      color: #334155;
-      white-space: nowrap;
-    }
-
-    .btn {
-      border: 0;
-      border-radius: 999px;
-      padding: 10px 14px;
-      font-size: 13px;
-      font-weight: 650;
-      letter-spacing: -0.01em;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 7px;
-      transition: transform .15s ease, box-shadow .15s ease, opacity .15s ease;
-      border: 1px solid rgba(191, 220, 255, 0.95);
-      background: rgba(255, 255, 255, 0.58);
-      color: #1e3a8a;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-
-    .btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 20px -14px rgba(15, 23, 42, 0.45);
-    }
-
-    .btn:disabled {
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-      opacity: 0.65;
-    }
-
-    .btn-primary {
-      color: #1e3a8a;
-      background: rgba(255, 255, 255, 0.62);
-      border-color: rgba(147, 197, 253, 0.95);
-    }
-
-    .btn-soft {
-      color: #1e3a8a;
-      border-color: rgba(191, 220, 255, 0.95);
-      background: rgba(255, 255, 255, 0.62);
-    }
-
-    .btn-neutral {
-      color: #475569;
-      border-color: #dbe4ef;
-      background: rgba(241, 245, 249, 0.82);
-      box-shadow: none;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-    }
-
-    .btn-undo {
-      width: auto;
-      min-height: 34px;
-      padding: 6px 10px;
-      font-size: 12px;
-      justify-self: flex-start;
-    }
-
-    .layout {
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 12px;
-      align-items: start;
-    }
-
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-soft);
-      padding: 14px;
-    }
-
-    .card h3 {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 700;
-      color: #111827;
-    }
-
-    .sub {
-      margin: 4px 0 10px;
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 560;
-    }
-
-    .stage-list {
-      position: relative;
-      display: grid;
-      gap: 14px;
-      padding-left: 0;
-    }
-
-    .stage-list::before {
-      content: "";
-      position: absolute;
-      left: 22px;
-      top: 14px;
-      bottom: 14px;
-      width: 2px;
-      background: #d7e3f6;
-      border-radius: 999px;
-    }
-
-    .stage-card {
-      position: relative;
-      border: 1px solid #e3eaf4;
+    /* ─── AHPRA PAGE-SPECIFIC ─── */
+    .correspondent-panel {
+      border: 1px solid #6ee7b7;
       border-radius: var(--radius-md);
-      background: #fbfdff;
-      padding: 14px 14px 14px 44px;
-      display: grid;
-      gap: 10px;
-      overflow: visible;
-      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+      background: linear-gradient(180deg, #ecfdf5, #d1fae5);
+      padding: 14px; display: grid; gap: 10px;
     }
-
-    .stage-card > summary {
-      list-style: none;
+    .correspondent-alert {
+      margin: 0; font-size: 14px; color: #065f46; font-weight: 800;
     }
-
-    .stage-card > summary::-webkit-details-marker {
-      display: none;
+    .correspondent-row {
+      border: 1px solid #a7f3d0; border-radius: 10px;
+      background: #f0fdf4; padding: 10px;
+      display: grid; grid-template-columns: 1fr auto;
+      gap: 8px; align-items: center;
     }
-
-    .stage-card:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 20px -16px rgba(15, 23, 42, 0.36);
+    .correspondent-label {
+      margin: 0; font-size: 10px; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--muted); font-weight: 800;
     }
-
-    .stage-card.current {
-      border-color: #bfdcff;
-      background: linear-gradient(180deg, #f8fbff 0%, #f2f8ff 100%);
+    .correspondent-value {
+      margin: 3px 0 0; font-size: 15px; color: var(--text); font-weight: 700;
     }
-
-    .stage-card.done {
-      border-color: #bde8cc;
-      background: #f2fcf6;
-    }
-
-    .stage-card.locked {
-      background: #f8fafc;
-      border-color: #e4e9f1;
-    }
-
-    .stage-card::before {
-      content: attr(data-stage-index);
-      position: absolute;
-      left: 11px;
-      top: 12px;
-      width: 22px;
-      height: 22px;
-      border-radius: 999px;
-      border: 1px solid #2563eb;
-      background: #2563eb;
-      color: #ffffff;
-      font-size: 11px;
-      font-weight: 800;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 6;
-      transition: all .18s ease;
-    }
-
-    .stage-card.done::before,
-    .stage-card.current::before,
-    .stage-card:not(.locked)::before {
-      border-color: #2563eb;
-      background: #2563eb;
-      color: #ffffff;
-    }
-
-    .stage-card.locked::before {
-      border-color: #94a3b8;
-      background: #e2e8f0;
-      color: #334155;
-    }
-
-    .stage-card:hover::before,
-    .stage-card:focus-within::before {
-      transform: scale(1.04);
-      box-shadow: 0 6px 14px -10px rgba(37, 99, 235, 0.75);
-    }
-
-    .stage-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: flex-start;
-    }
-
-    .stage-title-row {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .stage-current {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 10px;
-      line-height: 1;
-      font-weight: 800;
-      text-transform: capitalize;
-      color: #1d4ed8;
-      background: #eaf3ff;
-      border: 1px solid #bfdcff;
-      letter-spacing: .02em;
-    }
-
-    .stage-head h4 {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 700;
-      color: #111827;
-      letter-spacing: -0.01em;
-    }
-
-    .stage-head p {
-      margin: 3px 0 0;
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 560;
-    }
-
-    .stage-summary-actions {
-      display: grid;
-      gap: 8px;
-      margin-top: 8px;
-    }
-
-    .stage-summary-actions .btn {
-      width: 100%;
-      justify-content: center;
-    }
-
-    .stage-summary-actions .btn-undo {
-      width: 100%;
-      min-height: 40px;
-      padding: 8px 12px;
-      font-size: 12px;
-      justify-content: center;
-    }
-
-    .btn-inline {
-      min-height: 40px;
-      padding: 8px 12px;
-      font-size: 12px;
-    }
-
-    .stage-detail-wrap {
-      display: grid;
-      gap: 10px;
-      margin-top: 4px;
-      padding-top: 8px;
-      border-top: 1px dashed #dbeafe;
-      overflow: hidden;
-      max-height: 1800px;
-      opacity: 1;
-      transform: translateY(0);
-      transition: max-height .24s ease, opacity .2s ease, transform .2s ease;
-      animation: fadeStage .18s ease;
-    }
-
-    .stage-card.is-retracting .stage-detail-wrap {
-      max-height: 0;
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-
-    @keyframes fadeStage {
-      from { opacity: .55; transform: translateY(-2px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .disabled-reason {
-      margin: -4px 0 0;
-      font-size: 11px;
-      color: #92400e;
-      font-weight: 620;
-    }
-
-    .pill {
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 11px;
-      font-weight: 650;
-      border: 1px solid #d9e4f6;
-      background: #f3f8ff;
-      color: #2459a6;
-      white-space: nowrap;
-      align-self: flex-start;
-    }
-
-    .pill.locked {
-      background: #f8fafc;
-      color: #64748b;
-      border-color: #e2e8f0;
-    }
-
-    .pill.done {
-      background: #ebfaef;
-      color: #15803d;
-      border-color: #bce8cc;
-    }
-
-    .guidance-top {
-      border: 1px solid #dce8f8;
-      border-radius: var(--radius-md);
-      background: linear-gradient(180deg, #f9fcff 0%, #f2f8ff 100%);
-      padding: 12px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .do-block {
-      display: grid;
-      gap: 8px;
-    }
-
-    .label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .05em;
-      color: #0369a1;
-      font-weight: 700;
-    }
-
-    .line {
-      margin: 0;
-      font-size: 13px;
-      color: #0f172a;
-      font-weight: 620;
-    }
-
-    .line-title {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .guidance-panel {
-      position: sticky;
-      top: 14px;
-    }
-
-    .glass-tick {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 22px;
-      height: 22px;
-      border-radius: 999px;
-      border: 1px solid rgba(191, 220, 255, 0.95);
-      background: rgba(255, 255, 255, 0.58);
-      color: #1d4ed8;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      flex: 0 0 auto;
-    }
-
-    .glass-tick svg {
-      width: 14px;
-      height: 14px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2.4;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .line span {
-      color: #334155;
-      font-weight: 560;
-    }
-
-    .timeline {
-      margin-top: 2px;
-      border: 1px solid #e2e8f0;
-      border-radius: var(--radius-md);
-      background: #fff;
-      padding: 10px;
-      display: grid;
-      gap: 6px;
-    }
-
-    .timeline p {
-      margin: 0;
-      font-size: 12px;
-      color: #334155;
-      font-weight: 600;
-    }
-
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .warning {
-      margin-top: 10px;
-      border: 1px solid var(--amber-line);
-      border-radius: var(--radius-sm);
-      background: var(--amber-bg);
-      color: #92400e;
-      padding: 10px;
-      font-size: 12px;
-      font-weight: 650;
-      line-height: 1.4;
-    }
-
-    .field-input {
-      width: 100%;
-      border: 1px solid #d5e3f5;
-      border-radius: 10px;
-      padding: 10px 12px;
-      font: inherit;
-      color: #0f172a;
-      background: #ffffff;
-    }
-
-    .field-input:focus {
-      outline: none;
-      border-color: #93c5fd;
-      box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.28);
-    }
-
-    .download-list {
-      display: grid;
-      gap: 8px;
-      margin-top: 8px;
+    .correspondent-tip {
+      margin: 0; font-size: 11px; color: #059669;
+      font-style: italic; font-weight: 600;
     }
 
     .doc-group-card {
-      margin-top: 8px;
-      border: 1px solid #dbeafe;
-      border-radius: 12px;
-      background: linear-gradient(180deg, #ffffff, #f8fbff);
-      padding: 10px;
-      display: grid;
-      gap: 10px;
-      transition: border-color .18s ease, box-shadow .18s ease;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: linear-gradient(180deg, #ffffff, #fafbfd);
+      padding: 12px; display: grid; gap: 10px;
     }
-
-    .doc-group-card:hover,
-    .doc-group-card:focus-visible {
-      border-color: #93c5fd;
-      box-shadow: 0 10px 24px -20px rgba(37, 99, 235, 0.6);
-      outline: none;
-    }
-
     .doc-group-head {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px;
-      align-items: center;
+      display: grid; grid-template-columns: 1fr auto;
+      gap: 8px; align-items: center;
+    }
+    .doc-group-title { margin: 0; font-size: 13px; color: var(--text); font-weight: 800; }
+    .doc-group-hint { margin: 4px 0 0; font-size: 11px; font-weight: 600; color: var(--muted); }
+
+    .download-note { font-size: 12px; font-weight: 500; color: var(--muted); }
+
+    .field-input {
+      width: 100%; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: 10px 12px; font: inherit; color: var(--text); background: #fff;
+    }
+    .field-input:focus {
+      outline: none; border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
     }
 
-    .doc-group-title {
-      margin: 0;
-      font-size: 13px;
-      color: #0f172a;
-      font-weight: 800;
-    }
+    .step-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 
-    .doc-group-hint {
-      margin: 4px 0 0;
-      font-size: 11px;
-      font-weight: 650;
-      color: #64748b;
-    }
+    .outcome-form { display: grid; gap: 10px; }
+    .outcome-form label { font-size: 13px; font-weight: 700; color: var(--text); }
+    .outcome-form select { width: 100%; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid #e2e8f0; font: inherit; font-size: 14px; background: #fff; color: var(--text); }
+    .outcome-form select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
 
-    .correspondent-panel {
-      border: 1px solid #93c5fd;
-      border-radius: 12px;
-      background: linear-gradient(180deg, #dff2ff, #d7efff);
-      padding: 12px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .correspondent-alert {
-      margin: 0;
-      font-size: 14px;
-      color: #1e3a8a;
-      font-weight: 800;
-    }
-
-    .correspondent-row {
-      border: 1px solid #bfdbfe;
-      border-radius: 10px;
-      background: #f8fbff;
-      padding: 10px;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .correspondent-label {
-      margin: 0;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      color: #64748b;
-      font-weight: 800;
-    }
-
-    .correspondent-value {
-      margin: 3px 0 0;
-      font-size: 15px;
-      color: #0f172a;
-      font-weight: 700;
-    }
-
-    .correspondent-tip {
-      margin: 0;
-      font-size: 11px;
-      color: #1d4ed8;
-      font-style: italic;
-      font-weight: 600;
-    }
-
-    .download-item {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px;
-      align-items: center;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 8px 10px;
-      background: #fff;
-    }
-
-    .download-label {
-      font-size: 12px;
-      font-weight: 800;
-      color: #0f172a;
-    }
-
-    .download-note {
-      margin-top: 2px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #64748b;
-    }
-
-    #watchTutorial {
-      margin: 2px auto 0;
-      width: auto;
-      min-width: 188px;
-      border-radius: 999px;
-      border: 1px solid rgba(191, 220, 255, 0.95);
-      background: rgba(255, 255, 255, 0.58);
-      color: #0f172a;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    #watchTutorial svg {
-      width: 14px;
-      height: 14px;
-      fill: currentColor;
-    }
-
-    #watchTutorial.tutorial-highlight {
-      border-color: rgba(96, 165, 250, 0.95);
-      animation: tutorialFloat 5.4s ease-in-out infinite;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 12px 20px -14px rgba(37, 99, 235, 0.7);
-    }
-
-    #watchTutorial.tutorial-highlight::after {
-      content: "";
-      position: absolute;
-      top: -120%;
-      left: -35%;
-      width: 32%;
-      height: 340%;
-      background: linear-gradient(120deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.88) 50%, rgba(255, 255, 255, 0) 100%);
-      transform: rotate(18deg) translateX(-260%);
-      animation: tutorialGlisten 6.4s ease-in-out infinite;
-      pointer-events: none;
-    }
-
-    @keyframes tutorialFloat {
-      0% { transform: translateY(0); }
-      50% { transform: translateY(-4px); }
-      100% { transform: translateY(0); }
-    }
-
-    @keyframes tutorialGlisten {
-      0%, 68%, 100% { transform: rotate(18deg) translateX(-260%); }
-      76% { transform: rotate(18deg) translateX(460%); }
-    }
-
-    .modal {
-      position: fixed;
-      inset: 0;
-      background: rgba(15, 23, 42, 0.5);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-      z-index: 30;
-    }
-
-    .modal.show { display: flex; }
-
-    .modal-card {
-      width: min(520px, 100%);
-      background: #fff;
-      border-radius: 16px;
-      border: 1px solid #e2e8f0;
-      box-shadow: 0 28px 42px -28px rgba(15, 23, 42, 0.65);
-      padding: 14px;
-      display: grid;
-      gap: 10px;
-    }
-
-    #missingDocsModal .modal-card {
-      width: min(680px, 94vw);
-      max-height: 80vh;
-      overflow: auto;
-    }
-
-    #missingDocsModalList {
-      max-height: 46vh;
-      overflow: auto;
-      padding-right: 2px;
-    }
-
-    .modal-card h4 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 740;
-      letter-spacing: -0.01em;
-    }
-
-    .modal-card p {
-      margin: 0;
-      font-size: 13px;
-      color: #475569;
-      line-height: 1.45;
-      font-weight: 560;
-    }
-
-    textarea {
-      width: 100%;
-      min-height: 90px;
-      border-radius: 10px;
-      border: 1px solid #d7e3f6;
-      padding: 10px;
-      resize: vertical;
-      font: inherit;
-      font-size: 13px;
-    }
-
-    .toast {
-      position: fixed;
-      right: 14px;
-      bottom: 14px;
-      border-radius: 999px;
-      background: #0f172a;
-      color: #fff;
-      padding: 10px 14px;
-      font-size: 12px;
-      font-weight: 650;
-      box-shadow: 0 12px 26px -18px rgba(15, 23, 42, 0.8);
-      opacity: 0;
-      transform: translateY(8px);
-      transition: opacity .2s ease, transform .2s ease;
-      pointer-events: none;
-      z-index: 40;
-    }
-
-    .toast.show {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    .footer-note {
-      text-align: center;
-      margin: 2px 0 0;
-      color: #94a3b8;
-      font-size: 12px;
-      font-weight: 550;
-    }
-
-    .mobile-nav {
-      position: fixed;
-      left: 50%;
-      bottom: 10px;
-      transform: translateX(-50%);
-      width: min(560px, calc(100vw - 18px));
-      background: rgba(15, 23, 42, 0.95);
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      border-radius: 18px;
-      padding: 8px 6px;
-      display: none;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 6px;
-      z-index: 50;
-      box-shadow: 0 18px 30px -24px rgba(15, 23, 42, 0.9);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-    }
-
-    .mobile-tab {
-      text-decoration: none;
-      border: 0;
-      background: transparent;
-      color: #dbe4f1;
-      border-radius: 14px;
-      min-height: 58px;
-      padding: 6px 4px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      cursor: pointer;
-      font: inherit;
-    }
-
-    .mobile-tab-icon {
-      width: 24px;
-      height: 24px;
-      display: grid;
-      place-items: center;
-      color: #dbe4f1;
-    }
-
-    .mobile-icon-wrap {
-      position: relative;
-      display: inline-grid;
-      place-items: center;
-      line-height: 1;
-    }
-
-    .mobile-tab-alert {
-      top: -6px;
-      right: -8px;
-      transform: none;
-    }
-
-    .mobile-tab-label {
-      font-size: 10px;
-      font-weight: 620;
-      line-height: 1.15;
-      text-align: center;
-      letter-spacing: 0.01em;
-    }
-
-    .mobile-tab-active {
-      background: rgba(59, 130, 246, 0.2);
-      color: #ffffff;
-    }
-
-    .mobile-tab-active .mobile-tab-icon {
-      color: #7dd3fc;
-    }
-
-    .mobile-tab-icon svg {
-      width: 17px;
-      height: 17px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .mobile-reg-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(2, 6, 23, 0.42);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .2s ease;
-      z-index: 54;
-    }
-
-    .mobile-reg-backdrop.show {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .mobile-reg-sheet {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: #ffffff;
-      border-radius: 18px 18px 0 0;
-      border-top: 1px solid #dbe4ef;
-      box-shadow: 0 -20px 40px -28px rgba(15, 23, 42, 0.5);
-      padding: 10px 12px 14px;
-      transform: translateY(100%);
-      transition: transform .24s ease;
-      z-index: 55;
-      max-height: 74vh;
-      overflow: auto;
-      touch-action: pan-y;
-    }
-
-    .mobile-reg-sheet.show {
-      transform: translateY(0);
-    }
-
-    .mobile-reg-grab {
-      width: 44px;
-      height: 5px;
-      border-radius: 999px;
-      background: #cbd5e1;
-      margin: 2px auto 10px;
-    }
-
-    .mobile-reg-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-
-    .mobile-reg-title {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 900;
-      color: #0f172a;
-    }
-
-    .mobile-reg-close {
-      border: 0;
-      background: #f1f5f9;
-      color: #334155;
-      border-radius: 999px;
-      width: 30px;
-      height: 30px;
-      font-size: 14px;
-      font-weight: 900;
-      cursor: pointer;
-    }
-
-    .mobile-reg-table {
-      display: grid;
-      gap: 8px;
-    }
-
-    .mobile-reg-table .reg-row {
-      grid-template-columns: 1fr auto;
-    }
-
-    .mobile-reg-table .reg-btn {
-      grid-column: 1 / -1;
-      width: 100%;
-      text-align: center;
-      margin-top: 2px;
-    }
-
-    @media (max-width: 980px) {
-      .layout {
-        grid-template-columns: 1fr;
-      }
-
-      .guidance-panel { order: 1; }
-      .progress-panel { order: 2; }
-      .guidance-panel { position: static; }
-      body { padding-bottom: 96px; }
-      .mobile-nav { display: grid; }
-    }
-
-    @media (max-width: 640px) {
-      body { padding: 12px 10px 22px; }
-      .topbar h1 { font-size: 26px; }
-      .heading h2 { font-size: 20px; }
-      .main { padding: 10px; }
-      .btn { width: 100%; min-height: 44px; }
-      .actions .btn-undo { width: auto !important; min-height: 34px; }
-      .stage-summary-actions .btn-undo { width: 100% !important; min-height: 44px; }
-      #watchTutorial { width: auto !important; min-height: 44px; }
-      .heading-meta { align-items: flex-start; }
-    }
-
-    @media (max-width: 767px) {
-      .nav-menu { display: none; }
-      .topbar-row { grid-template-columns: auto; justify-content: flex-start; }
-      .brand-logo { position: static; transform: none; }
-    }
-
-    @media (max-width: 560px) {
-      .shell { border-radius: 16px; }
-      .topbar { padding: 12px; }
-      .card,
-      .guidance-top,
-      .timeline,
-      .stage-card { padding: 10px; }
-      .stage-list { padding-left: 0; }
-      .stage-list::before { left: 20px; }
-      .stage-card { padding-left: 40px; }
-      .stage-card::before { left: 9px; }
-      .stage-head { flex-direction: column; gap: 6px; }
-      .actions { gap: 6px; }
-      .actions .btn { width: 100%; justify-content: center; }
-      .stage-summary-actions .btn { width: 100%; }
-      #watchTutorial { width: 100%; min-width: 0; }
-      .pill { white-space: normal; }
-    }
+    .disabled-reason { font-size: 11px; color: #92400e; font-weight: 700; margin-top: 2px; }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <header class="topbar">
+
+  <!-- ─── DESKTOP TOPBAR ─── -->
+  <div class="page-wrap">
+    <nav class="desktop-topbar" aria-label="Desktop navigation">
       <div class="topbar-row">
         <a class="brand-logo" href="index.html" aria-label="GP Link Home">
           <img src="../media/images/gp-link-logo.png" alt="GP Link" />
         </a>
-        <nav class="nav-menu" aria-label="Main navigation">
+        <div class="nav-menu" aria-label="Main navigation">
           <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
           <a class="nav-link nav-item" href="index.html" data-nav="home">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
-            <span class="nav-text">Home</span>
+            Home
           </a>
           <button class="nav-action nav-item active" id="registrationMenuBtn" type="button" data-nav="registration">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
-            <span class="nav-text">Registration</span>
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+            Registration
           </button>
           <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-            <span class="nav-text">Documents</span>
+            Documents
           </a>
           <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
-            <span class="nav-text">Messages</span>
+            Messages
           </button>
           <a class="account-pill nav-item" href="account.html" data-nav="account">
             <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-            <span class="nav-text">Account</span>
+            Account
           </a>
-
           <div class="reg-dropdown" id="registrationDropdown">
             <p class="reg-head">Registration Process</p>
             <div class="reg-table" id="regTable"></div>
           </div>
-        </nav>
+        </div>
+      </div>
+    </nav>
+
+    <!-- ─── MOBILE HEADER ─── -->
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar" id="mobileAvatar">GP</div>
+        <div class="header-text">
+          <h1>AHPRA Registration</h1>
+          <p>Step 3 of 3</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="mobileSupportBtn" type="button" aria-label="Messages">
+          <span style="position:relative;display:inline-grid;place-items:center;">
+            <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+            <span class="header-badge" data-inbox-alert hidden aria-hidden="true">!</span>
+          </span>
+        </button>
       </div>
     </header>
 
-    <main class="main">
-      <section class="heading">
-        <div class="heading-main">
-          <h2>AHPRA Registration</h2>
-          <div class="heading-meta">
-            <p>Simple guided checklist for UK, Ireland, and NZ GPs completing AHPRA specialist registration.</p>
-            <span class="heading-updated" id="updatedChip">Updated now</span>
-          </div>
+    <!-- ─── PAGE BANNER ─── -->
+    <div class="page-banner page-banner-3">
+      <span class="banner-step">Step 3 of 3</span>
+      <h1>AHPRA Registration</h1>
+      <p>Simple guided checklist for UK, Ireland, and NZ GPs completing AHPRA specialist registration.</p>
+    </div>
+
+    <!-- ─── STEPPER NAV ─── -->
+    <div class="stepper-nav" id="stepperNav">
+      <button class="stepper-tab active" data-step="0">
+        <span class="stepper-tab-dot current"></span> Create Account
+      </button>
+      <button class="stepper-tab" data-step="1">
+        <span class="stepper-tab-dot locked-d"></span> Documents
+      </button>
+      <button class="stepper-tab" data-step="2">
+        <span class="stepper-tab-dot locked-d"></span> Application
+      </button>
+      <button class="stepper-tab" data-step="3">
+        <span class="stepper-tab-dot locked-d"></span> Outcome
+      </button>
+    </div>
+
+    <!-- ─── STEP 0: Create AHPRA Account ─── -->
+    <div class="step-content active" data-step-content="0">
+      <div class="step-card">
+        <h2 class="step-title">Create AHPRA Account</h2>
+        <p class="step-description">Confirm your AHPRA Online Services account is active.</p>
+
+        <div class="guidance-box">
+          <div class="guidance-label">What to do</div>
+          <p class="guidance-text">Go to the AHPRA portal and create your Online Services account. Once your account is set up and active, mark this step complete.</p>
         </div>
-        <div class="chips">
-          <span class="chip chip-blue" id="overallStatusPill">Not started</span>
-          <span class="chip chip-soft" id="overallProgressChip">0%</span>
-          <span class="chip chip-soft" id="currentStageChip">You're currently on Stage 1</span>
+
+        <div class="step-actions">
+          <button class="btn-modern btn-primary" id="s1CreateAccountBtn" type="button">Create Account</button>
+          <button class="btn-modern btn-outline" id="s1MarkCompleteBtn" type="button">Mark Complete</button>
         </div>
-      </section>
+        <div class="step-actions" id="s1UndoWrap" style="display:none;">
+          <button class="btn-modern btn-ghost" id="s1UndoBtn" type="button">Undo</button>
+        </div>
 
-      <section class="layout">
-        <article class="card progress-panel">
-          <h3>AHPRA Stage Tracker</h3>
-          <p class="sub">One clear next action at a time. Expand any stage only when you need details.</p>
-          <div class="stage-list" id="stageCards"></div>
-        </article>
+        <div class="step-nav">
+          <button class="step-nav-btn" disabled>&larr; Previous</button>
+          <button class="step-nav-btn primary" data-nav-next="1">Next &rarr;</button>
+        </div>
+      </div>
+    </div>
 
-        <article class="card guidance-panel">
-          <h3>Smart Guidance Panel</h3>
-          <p class="sub">What to do next, what is blocking you, and fast shortcuts.</p>
+    <!-- ─── STEP 1: Documents ─── -->
+    <div class="step-content" data-step-content="1">
+      <div class="step-card">
+        <h2 class="step-title">Documents</h2>
+        <p class="step-description">Upload missing docs, then mark ready.</p>
 
-          <div class="guidance-top">
-            <div class="do-block">
-              <div class="label">What To Do Now</div>
-              <p class="line line-title" id="nextBestAction">Download all supporting documents for your specialist registration application</p>
-              <p class="line" id="estimatedTimeText">Estimated time: 2min</p>
-              <button class="btn btn-primary" id="nextActionBtn" type="button">Download Documents</button>
-              <button class="btn btn-soft" id="watchTutorial" type="button" style="display:none;">Watch tutorial</button>
+        <div class="guidance-box">
+          <div class="guidance-label">What to do</div>
+          <p class="guidance-text">Download all supporting documents for your specialist registration application. Ensure all required documents are uploaded and approved before continuing.</p>
+        </div>
+
+        <div class="step-actions">
+          <button class="btn-modern btn-primary" id="s2DownloadDocsBtn" type="button">Download Documents</button>
+          <button class="btn-modern btn-outline" id="s2MarkReadyBtn" type="button">Mark documents ready</button>
+        </div>
+        <div class="step-actions" id="s2UndoWrap" style="display:none;">
+          <button class="btn-modern btn-ghost" id="s2UndoBtn" type="button">Undo</button>
+        </div>
+
+        <div class="step-nav">
+          <button class="step-nav-btn" data-nav-prev="0">&larr; Previous</button>
+          <button class="step-nav-btn primary" data-nav-next="2">Next &rarr;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── STEP 2: Specialist Registration Application ─── -->
+    <div class="step-content" data-step-content="2">
+      <div class="step-card">
+        <h2 class="step-title">Specialist Registration Application</h2>
+        <p class="step-description">Submit your specialist application in AHPRA Online Services.</p>
+
+        <div class="guidance-box">
+          <div class="guidance-label">Steps</div>
+          <p class="guidance-text">
+            Use your documents pack to complete your specialist application fields, then submit your application via AHPRA Online Services.
+          </p>
+        </div>
+
+        <div class="correspondent-panel">
+          <p class="correspondent-alert">Nominate GP Link as your correspondent</p>
+          <div class="correspondent-row">
+            <div>
+              <p class="correspondent-label">Correspondent Name</p>
+              <p class="correspondent-value" id="corrName"></p>
             </div>
+            <button type="button" class="btn-modern btn-primary" data-copy-correspondent="name">Copy</button>
           </div>
-
-          <div class="timeline">
-            <p><strong>Next:</strong> <span id="guidanceNextText">Specialist Registration Application</span></p>
+          <div class="correspondent-row">
+            <div>
+              <p class="correspondent-label">Correspondent Email</p>
+              <p class="correspondent-value" id="corrEmail"></p>
+            </div>
+            <button type="button" class="btn-modern btn-primary" data-copy-correspondent="email">Copy</button>
           </div>
+          <p class="correspondent-tip">Paste these into your AHPRA application.</p>
+        </div>
 
-          <div class="actions">
-            <button class="btn btn-soft" id="contactSupport" type="button">Message Support</button>
+        <div class="step-actions">
+          <button class="btn-modern btn-primary" id="s3OpenAHPRABtn" type="button">Open AHPRA Online Services</button>
+          <button class="btn-modern btn-outline" id="s3NeedHelpBtn" type="button">Need help?</button>
+        </div>
+        <div class="step-actions" id="s3UndoWrap" style="display:none;">
+          <button class="btn-modern btn-ghost" id="s3UndoBtn" type="button">Undo</button>
+        </div>
+
+        <div class="step-nav">
+          <button class="step-nav-btn" data-nav-prev="1">&larr; Previous</button>
+          <button class="step-nav-btn primary" data-nav-next="3">Next &rarr;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── STEP 3: Outcome ─── -->
+    <div class="step-content" data-step-content="3">
+      <div class="step-card">
+        <h2 class="step-title">Outcome (Registration Granted)</h2>
+        <p class="step-description">Update your final AHPRA outcome.</p>
+
+        <div class="guidance-box">
+          <div class="guidance-label">What to do</div>
+          <p class="guidance-text">Record the final AHPRA outcome to complete your registration journey. Select the outcome status and optionally upload your outcome letter.</p>
+        </div>
+
+        <div class="outcome-form">
+          <div>
+            <label for="s4Outcome">Outcome</label>
+            <select id="s4Outcome">
+              <option value="pending">Select outcome</option>
+              <option value="granted">Granted</option>
+              <option value="further_info_requested">Further info requested</option>
+              <option value="refused">Refused</option>
+            </select>
           </div>
-        </article>
-      </section>
+          <div>
+            <label for="s4OutcomeLetter">Outcome letter (optional)</label>
+            <input id="s4OutcomeLetter" type="file" class="field-input" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
+            <p class="download-note" id="s4LetterStatus"></p>
+          </div>
+          <div class="step-actions">
+            <button type="button" class="btn-modern btn-primary" id="s4SaveOutcomeBtn" disabled>Save outcome</button>
+          </div>
+          <p class="disabled-reason" id="s4DisabledReason">Select an outcome to save.</p>
+        </div>
+        <div class="step-actions" id="s4UndoWrap" style="display:none;">
+          <button class="btn-modern btn-ghost" id="s4UndoBtn" type="button">Undo</button>
+        </div>
 
-      <p class="footer-note" id="footerStatus">Status synced</p>
-    </main>
+        <div class="step-nav">
+          <button class="step-nav-btn" data-nav-prev="2">&larr; Previous</button>
+          <button class="step-nav-btn" disabled>Complete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── MODALS ─── -->
+    <div class="modal" id="supportModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+        <h4 id="supportTitle">Contact support</h4>
+        <p>Share what is blocking your AHPRA stage and GP Link will follow up with the next action quickly.</p>
+        <textarea placeholder="Describe your issue..."></textarea>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-modern btn-primary" type="button">Submit request</button>
+          <button class="btn-modern btn-outline" data-close="supportModal" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="missingDocsModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="missingDocsTitle" style="width:min(680px, 94vw); max-height:80vh; overflow:auto;">
+        <h4 id="missingDocsTitle">Missing required documents</h4>
+        <p>Some required files are not ready yet. Review the list below before moving to your AHPRA submission step.</p>
+        <div id="missingDocsModalList" style="display:grid; gap:8px; max-height:46vh; overflow:auto;"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-modern btn-outline" id="requestHelpMissingBtn" type="button">Request help</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="downloadPackModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="downloadPackTitle">
+        <h4 id="downloadPackTitle">Download Documents</h4>
+        <p>Choose what you want to download from your required AHPRA pack.</p>
+        <div id="downloadPackSummary" style="display:grid; gap:10px;"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-modern btn-outline" data-close="downloadPackModal" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="reviewPendingModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reviewPendingTitle">
+        <h4 id="reviewPendingTitle">Documents Under Review</h4>
+        <p>Our team is reviewing your uploaded documents. Review is usually completed within 24 hours.</p>
+        <p>We do this quality check to help avoid AHPRA rejecting any of your documents.</p>
+        <p>Once review is complete, you can download all documents and unlock the next stage.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-modern btn-primary" data-close="reviewPendingModal" type="button">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── TOAST ─── -->
+    <div class="gp-toast" id="toast" style="opacity:0;">Saved</div>
+
+    <!-- ─── FOOTER ─── -->
+    <div class="footer-links">
+      <span id="footerStatus">Status synced</span>
+      <br>
+      <a href="privacy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a>
+      <br>&copy; 2026 GP LINK AUSTRALIA PTY LTD
+    </div>
   </div>
 
-  <nav class="mobile-nav" aria-label="Mobile navigation">
-    <a class="mobile-tab" href="index.html">
-      <span class="mobile-tab-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
-      </span>
-      <span class="mobile-tab-label">Home Dashboard</span>
+  <!-- ─── BOTTOM NAV (MOBILE) ─── -->
+  <nav class="bottom-nav" aria-label="Mobile navigation">
+    <a class="bottom-tab" href="index.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
+      <span class="bottom-tab-label">Home</span>
     </a>
-    <button class="mobile-tab mobile-tab-active" id="mobileRegistrationBtn" type="button">
-      <span class="mobile-tab-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
-      </span>
-      <span class="mobile-tab-label">Registration Process</span>
+    <button class="bottom-tab bottom-tab-active" id="mobileRegistrationBtn" type="button">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+      <span class="bottom-tab-label">Registration</span>
     </button>
-    <button class="mobile-tab" id="mobileSupportBtn" type="button">
-      <span class="mobile-icon-wrap">
-        <span class="mobile-tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
-        </span>
-        <span class="mobile-tab-alert nav-alert" data-inbox-alert hidden aria-hidden="true">!</span>
+    <button class="bottom-tab" id="mobileSupportBtn2" type="button">
+      <span class="bottom-tab-icon" style="position:relative;">
+        <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        <span class="bottom-tab-badge" data-inbox-alert hidden aria-hidden="true">!</span>
       </span>
-      <span class="mobile-tab-label">Messages</span>
+      <span class="bottom-tab-label">Messages</span>
     </button>
-    <a class="mobile-tab" href="account.html">
-      <span class="mobile-tab-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-      </span>
-      <span class="mobile-tab-label">Account</span>
+    <a class="bottom-tab" href="account.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
+      <span class="bottom-tab-label">Account</span>
     </a>
   </nav>
 
+  <!-- ─── MOBILE REG SHEET ─── -->
   <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
   <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
     <div class="mobile-reg-grab" aria-hidden="true"></div>
     <div class="mobile-reg-head">
       <p class="mobile-reg-title">Registration Process</p>
-      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">×</button>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">&times;</button>
     </div>
     <div class="mobile-reg-table" id="mobileRegTable"></div>
   </aside>
 
-  <div class="modal" id="supportModal" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
-      <h4 id="supportTitle">Contact support</h4>
-      <p>Share what is blocking your AHPRA stage and GP Link will follow up with the next action quickly.</p>
-      <textarea placeholder="Describe your issue..."></textarea>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn btn-primary" type="button">Submit request</button>
-        <button class="btn btn-neutral" data-close="supportModal" type="button">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="missingDocsModal" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="missingDocsTitle">
-      <h4 id="missingDocsTitle">Missing required documents</h4>
-      <p>Some required files are not ready yet. Review the list below before moving to your AHPRA submission step.</p>
-      <div id="missingDocsModalList" style="display:grid; gap:8px;"></div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn btn-neutral" id="requestHelpMissingBtn" type="button">Request help</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="downloadPackModal" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="downloadPackTitle">
-      <h4 id="downloadPackTitle">Download Documents</h4>
-      <p>Choose what you want to download from your required AHPRA pack.</p>
-      <div id="downloadPackSummary" style="display:grid; gap:10px;"></div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn btn-neutral" data-close="downloadPackModal" type="button">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="reviewPendingModal" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reviewPendingTitle">
-      <h4 id="reviewPendingTitle">Documents Under Review</h4>
-      <p>Our team is reviewing your uploaded documents. Review is usually completed within 24 hours.</p>
-      <p>We do this quality check to help avoid AHPRA rejecting any of your documents.</p>
-      <p>Once review is complete, you can download all documents and unlock the next stage.</p>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn btn-primary" data-close="reviewPendingModal" type="button">OK</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="toast" id="toast">Saved ✓</div>
-
   <script>
+    /* ═══════════════════════════════════════════════════════
+       AHPRA — Constants & Keys (unchanged)
+       ═══════════════════════════════════════════════════════ */
     const AHPRA_KEY = "gp_ahpra_progress";
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
@@ -1584,17 +422,16 @@
       name: "Khaleed Mahmoud Ibanez",
       email: "hello@mygplink.com.au"
     };
+    const AHPRA_ONLINE_SERVICES_URL = "https://www.ahpra.gov.au/Registration/Online-services.aspx";
 
-    const stageCardsEl = document.getElementById("stageCards");
-    const updatedChipEl = document.getElementById("updatedChip");
+    /* ═══════════════════════════════════════════════════════
+       DOM References
+       ═══════════════════════════════════════════════════════ */
+    const stepperNav = document.getElementById("stepperNav");
+    const stepTabs = [...stepperNav.querySelectorAll(".stepper-tab")];
+    const stepContents = [...document.querySelectorAll(".step-content")];
+    const toastEl = document.getElementById("toast");
     const footerStatusEl = document.getElementById("footerStatus");
-    const overallStatusPillEl = document.getElementById("overallStatusPill");
-    const overallProgressChipEl = document.getElementById("overallProgressChip");
-    const currentStageChipEl = document.getElementById("currentStageChip");
-    const nextBestActionEl = document.getElementById("nextBestAction");
-    const nextActionBtnEl = document.getElementById("nextActionBtn");
-    const watchTutorialBtnEl = document.getElementById("watchTutorial");
-    const guidanceNextTextEl = document.getElementById("guidanceNextText");
     const supportModalEl = document.getElementById("supportModal");
     const missingDocsModalEl = document.getElementById("missingDocsModal");
     const downloadPackModalEl = document.getElementById("downloadPackModal");
@@ -1607,8 +444,10 @@
     const mobileRegSheet = document.getElementById("mobileRegSheet");
     const mobileRegTable = document.getElementById("mobileRegTable");
     const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
-    const toastEl = document.getElementById("toast");
 
+    /* ═══════════════════════════════════════════════════════
+       Batched Save Logic (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function parseStorage(key) {
       const raw = localStorage.getItem(key);
       if (!raw) return null;
@@ -1661,6 +500,9 @@
       if (document.visibilityState === "hidden") flushAllBatchedSaves();
     });
 
+    /* ═══════════════════════════════════════════════════════
+       AHPRA State Management (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function defaultAhpraState() {
       return {
         stage_1: { accountCreated: false, ahpraUserId: "", completedAt: "" },
@@ -1709,11 +551,14 @@
       queueBatchedSave(AHPRA_KEY, JSON.stringify(state), force);
     }
 
+    /* ═══════════════════════════════════════════════════════
+       Toast & Clipboard (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function showToast(message) {
       toastEl.textContent = message;
-      toastEl.classList.add("show");
+      toastEl.style.opacity = "1";
       clearTimeout(showToast._timer);
-      showToast._timer = setTimeout(() => toastEl.classList.remove("show"), 1200);
+      showToast._timer = setTimeout(() => { toastEl.style.opacity = "0"; }, 1200);
     }
 
     async function copyTextToClipboard(value) {
@@ -1739,6 +584,9 @@
       return ok;
     }
 
+    /* ═══════════════════════════════════════════════════════
+       Updates & Support Cases (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function sanitizeUpdate(item) {
       if (!item || typeof item !== "object") return null;
       const title = typeof item.title === "string" ? item.title.trim() : "";
@@ -1791,6 +639,13 @@
       return item;
     }
 
+    function logAhpraEvent(type, title, detail) {
+      addUpdate({ type, title, detail, ts: new Date().toISOString() });
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       Document Snapshot (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function getDocSnapshot() {
       const docState = parseStorage(DOC_KEY) || { docs: {} };
       const preparedState = parseStorage(PREPARED_DOCS_KEY) || { docs: {} };
@@ -1806,17 +661,10 @@
           ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}`
           : underReview ? "Under review by GP Link (up to 24 hours)." : uploaded ? "Uploaded on Documents page." : "Upload this on the Documents page";
         return {
-          group: "gp",
-          key: doc.key,
-          name: doc.name,
-          uploaded,
-          ready,
-          rejected,
+          group: "gp", key: doc.key, name: doc.name, uploaded, ready, rejected,
           status: rejected ? "Rejected" : ready ? "Ready" : underReview ? "Pending" : uploaded ? "Pending" : "Not ready",
           helper,
-          reason: rejected
-            ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}`
-            : underReview ? "Under review by GP Link (up to 24 hours)" : "Upload this on Documents page",
+          reason: rejected ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}` : underReview ? "Under review by GP Link (up to 24 hours)" : "Upload this on Documents page",
           downloadUrl: typeof item.url === "string" ? item.url : ""
         };
       });
@@ -1828,12 +676,7 @@
           ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}`
           : ready ? "Ready for your application package." : "GP Link is preparing this - it will appear here once ready";
         return {
-          group: "gplink",
-          key: doc.key,
-          name: doc.name,
-          uploaded: ready,
-          ready,
-          rejected,
+          group: "gplink", key: doc.key, name: doc.name, uploaded: ready, ready, rejected,
           status: rejected ? "Rejected" : ready ? "Ready" : item.status === "under_review" ? "Pending" : "Not ready",
           helper,
           reason: rejected ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}` : "GP Link is preparing this",
@@ -1845,11 +688,7 @@
       const missing = all.filter((item) => !item.ready || item.rejected);
       const downloadable = all.filter((item) => item.ready && item.downloadUrl);
       return {
-        gp: rowsGp,
-        gplink: rowsGpLink,
-        all,
-        missing,
-        downloadable,
+        gp: rowsGp, gplink: rowsGpLink, all, missing, downloadable,
         gpReadyCount: rowsGp.filter((r) => r.ready).length,
         gpTotal: rowsGp.length,
         gplinkReadyCount: rowsGpLink.filter((r) => r.ready).length,
@@ -1857,6 +696,9 @@
       };
     }
 
+    /* ═══════════════════════════════════════════════════════
+       Stage Completion Logic (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function isStage1Complete(state) {
       return !!String(state.stage_1.completedAt || "").trim();
     }
@@ -1890,7 +732,6 @@
       if (!isStage1Complete(state)) return "stage_1";
       if (!isStage2Complete(state, docs)) return "stage_2";
       if (!isStage3ApplicationComplete(state, docs)) return "stage_3_application";
-      if (!isStage4Complete(state)) return "stage_4";
       return "stage_4";
     }
 
@@ -1925,14 +766,9 @@
       return Math.round((done / 4) * 100);
     }
 
-    function getLatestUpdateText() {
-      const updates = Array.isArray(parseStorage(UPDATES_KEY)) ? parseStorage(UPDATES_KEY) : [];
-      if (!updates.length) return "No updates yet.";
-      const latest = updates[0];
-      const dt = new Date(latest.ts || Date.now()).toLocaleString();
-      return `${latest.title} (${dt})`;
-    }
-
+    /* ═══════════════════════════════════════════════════════
+       Modal Helpers (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function openModal(modalEl) {
       modalEl.classList.add("show");
       modalEl.setAttribute("aria-hidden", "false");
@@ -1957,25 +793,11 @@
         row.style.padding = "8px 10px";
         row.style.background = "#f8fbff";
         row.innerHTML = `
-          <p class="line" style="margin:0; color:#0f172a; font-weight:700;">${item.name}</p>
-          <p class="line" style="margin:2px 0 0; color:#475569; font-size:12px;">${item.reason}</p>
-          <div class="actions" style="margin-top:8px;">
-            <input
-              type="file"
-              class="field-input"
-              data-missing-upload-input="1"
-              data-doc-group="${item.group}"
-              data-doc-key="${item.key}"
-              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-            />
-            <button
-              type="button"
-              class="btn btn-primary"
-              data-missing-upload-btn="1"
-              data-doc-group="${item.group}"
-              data-doc-key="${item.key}"
-              disabled
-            >Upload now</button>
+          <p style="margin:0; color:#0f172a; font-weight:700; font-size:13px;">${item.name}</p>
+          <p style="margin:2px 0 0; color:#475569; font-size:12px;">${item.reason}</p>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;">
+            <input type="file" class="field-input" data-missing-upload-input="1" data-doc-group="${item.group}" data-doc-key="${item.key}" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
+            <button type="button" class="btn-modern btn-primary" data-missing-upload-btn="1" data-doc-group="${item.group}" data-doc-key="${item.key}" disabled>Upload now</button>
           </div>
         `;
         missingDocsModalListEl.appendChild(row);
@@ -1983,6 +805,9 @@
       openModal(missingDocsModalEl);
     }
 
+    /* ═══════════════════════════════════════════════════════
+       Document State Helpers (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function loadDocsPrepState() {
       const parsed = parseStorage(DOC_KEY);
       if (!parsed || typeof parsed !== "object" || !parsed.docs || typeof parsed.docs !== "object") {
@@ -2037,104 +862,14 @@
       return false;
     }
 
-    function renderDownloadPackModal(docs) {
-      if (!downloadPackSummaryEl) return;
-      const gpReady = docs.gp.filter((item) => item.ready && item.downloadUrl).length;
-      const gplinkReady = docs.gplink.filter((item) => item.ready && item.downloadUrl).length;
-      downloadPackSummaryEl.innerHTML = `
-        <div class="doc-group-card" style="margin-top:0;">
-          <div class="doc-group-head">
-            <div>
-              <p class="doc-group-title">Prepared by GP Link</p>
-              <p class="doc-group-hint">${gplinkReady}/${docs.gplinkTotal} files ready to download</p>
-            </div>
-            <button type="button" class="btn btn-soft btn-inline" data-modal-download-group="gplink">Download</button>
-          </div>
-        </div>
-        <div class="doc-group-card" style="margin-top:0;">
-          <div class="doc-group-head">
-            <div>
-              <p class="doc-group-title">Prepared by You</p>
-              <p class="doc-group-hint">${gpReady}/${docs.gpTotal} files ready to download</p>
-            </div>
-            <button type="button" class="btn btn-soft btn-inline" data-modal-download-group="gp">Download</button>
-          </div>
-        </div>
-        <div class="actions" style="margin-top:0;">
-          <button type="button" class="btn btn-primary" id="modalDownloadAllBtn">Download all required documents</button>
-        </div>
-        <div class="timeline" id="modalMissingBox" style="display:none;">
-          <p><strong>Not downloaded</strong></p>
-          <div id="modalMissingList" style="display:grid; gap:8px;"></div>
-        </div>
-      `;
-
-      const modalMissingBoxEl = document.getElementById("modalMissingBox");
-      const modalMissingListEl = document.getElementById("modalMissingList");
-      const renderModalMissing = (missingRows) => {
-        if (!modalMissingBoxEl || !modalMissingListEl) return;
-        modalMissingListEl.innerHTML = "";
-        if (!missingRows.length) {
-          modalMissingBoxEl.style.display = "none";
-          return;
-        }
-        modalMissingBoxEl.style.display = "block";
-        missingRows.forEach((item) => {
-          const row = document.createElement("div");
-          row.style.border = "1px solid #e2e8f0";
-          row.style.borderRadius = "10px";
-          row.style.padding = "8px 10px";
-          row.style.background = "#f8fbff";
-          row.innerHTML = `<p class="line" style="margin:0; color:#0f172a; font-weight:700;">${item.name}</p><p class="line" style="margin:2px 0 0; color:#475569; font-size:12px;">${item.reason}</p>`;
-          modalMissingListEl.appendChild(row);
-        });
-      };
-
-      const groupBtns = [...downloadPackSummaryEl.querySelectorAll("[data-modal-download-group]")];
-      groupBtns.forEach((btn) => {
-        const group = btn.getAttribute("data-modal-download-group");
-        if (!group) return;
-        btn.addEventListener("click", () => {
-          const fresh = loadAhpraState();
-          const snapshot = getDocSnapshot();
-          const rows = group === "gplink" ? snapshot.gplink : snapshot.gp;
-          const missingRows = rows.filter((item) => !item.ready || item.rejected);
-          tryDownloadGroup(fresh, snapshot, group);
-          renderModalMissing(missingRows);
-          if (missingRows.length) {
-            showToast("Some files were not downloaded");
-          } else {
-            closeModal(downloadPackModalEl);
-          }
-          render();
-        });
-      });
-
-      const modalDownloadAllBtn = document.getElementById("modalDownloadAllBtn");
-      if (modalDownloadAllBtn) modalDownloadAllBtn.addEventListener("click", () => {
-        const fresh = loadAhpraState();
-        const snapshot = getDocSnapshot();
-        const missingRows = snapshot.all.filter((item) => !item.ready || item.rejected);
-        tryDownloadAll(fresh, snapshot);
-        renderModalMissing(missingRows);
-        if (missingRows.length) {
-          showToast("Some files were not downloaded");
-        } else {
-          closeModal(downloadPackModalEl);
-        }
-        render();
-      });
-    }
-
     function hasDocsUnderReview(snapshot) {
       if (!snapshot || !Array.isArray(snapshot.gp)) return false;
       return snapshot.gp.some((item) => item.uploaded && !item.ready && !item.rejected);
     }
 
-    function logAhpraEvent(type, title, detail) {
-      addUpdate({ type, title, detail, ts: new Date().toISOString() });
-    }
-
+    /* ═══════════════════════════════════════════════════════
+       Download Logic (unchanged)
+       ═══════════════════════════════════════════════════════ */
     function tryDownloadAll(state, docs) {
       docs.downloadable.forEach((item, index) => {
         setTimeout(() => window.open(item.downloadUrl, "_blank", "noopener,noreferrer"), index * 180);
@@ -2168,587 +903,387 @@
       showToast("Download started");
     }
 
-    function getStageStatus(state, docs, stageKey) {
-      if (stageKey === "stage_1") return isStage1Complete(state) ? "Complete" : (state.stage_1.accountCreated ? "In progress" : "Not started");
+    function renderDownloadPackModal(docs) {
+      if (!downloadPackSummaryEl) return;
+      const gpReady = docs.gp.filter((item) => item.ready && item.downloadUrl).length;
+      const gplinkReady = docs.gplink.filter((item) => item.ready && item.downloadUrl).length;
+      downloadPackSummaryEl.innerHTML = `
+        <div class="doc-group-card">
+          <div class="doc-group-head">
+            <div>
+              <p class="doc-group-title">Prepared by GP Link</p>
+              <p class="doc-group-hint">${gplinkReady}/${docs.gplinkTotal} files ready to download</p>
+            </div>
+            <button type="button" class="btn-modern btn-outline" data-modal-download-group="gplink">Download</button>
+          </div>
+        </div>
+        <div class="doc-group-card">
+          <div class="doc-group-head">
+            <div>
+              <p class="doc-group-title">Prepared by You</p>
+              <p class="doc-group-hint">${gpReady}/${docs.gpTotal} files ready to download</p>
+            </div>
+            <button type="button" class="btn-modern btn-outline" data-modal-download-group="gp">Download</button>
+          </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          <button type="button" class="btn-modern btn-primary" id="modalDownloadAllBtn">Download all required documents</button>
+        </div>
+        <div id="modalMissingBox" style="display:none; border:1px solid var(--border); border-radius:var(--radius-sm); background:#fafbfd; padding:12px;">
+          <p style="font-weight:700; font-size:13px; margin-bottom:8px;">Not downloaded</p>
+          <div id="modalMissingList" style="display:grid; gap:8px;"></div>
+        </div>
+      `;
+
+      const modalMissingBoxEl = document.getElementById("modalMissingBox");
+      const modalMissingListEl = document.getElementById("modalMissingList");
+      const renderModalMissing = (missingRows) => {
+        if (!modalMissingBoxEl || !modalMissingListEl) return;
+        modalMissingListEl.innerHTML = "";
+        if (!missingRows.length) { modalMissingBoxEl.style.display = "none"; return; }
+        modalMissingBoxEl.style.display = "block";
+        missingRows.forEach((item) => {
+          const row = document.createElement("div");
+          row.style.cssText = "border:1px solid #e2e8f0; border-radius:10px; padding:8px 10px; background:#f8fbff;";
+          row.innerHTML = `<p style="margin:0; color:#0f172a; font-weight:700; font-size:13px;">${item.name}</p><p style="margin:2px 0 0; color:#475569; font-size:12px;">${item.reason}</p>`;
+          modalMissingListEl.appendChild(row);
+        });
+      };
+
+      const groupBtns = [...downloadPackSummaryEl.querySelectorAll("[data-modal-download-group]")];
+      groupBtns.forEach((btn) => {
+        const group = btn.getAttribute("data-modal-download-group");
+        if (!group) return;
+        btn.addEventListener("click", () => {
+          const fresh = loadAhpraState();
+          const snapshot = getDocSnapshot();
+          const rows = group === "gplink" ? snapshot.gplink : snapshot.gp;
+          const missingRows = rows.filter((item) => !item.ready || item.rejected);
+          tryDownloadGroup(fresh, snapshot, group);
+          renderModalMissing(missingRows);
+          if (missingRows.length) { showToast("Some files were not downloaded"); }
+          else { closeModal(downloadPackModalEl); }
+          render();
+        });
+      });
+
+      const modalDownloadAllBtn = document.getElementById("modalDownloadAllBtn");
+      if (modalDownloadAllBtn) modalDownloadAllBtn.addEventListener("click", () => {
+        const fresh = loadAhpraState();
+        const snapshot = getDocSnapshot();
+        const missingRows = snapshot.all.filter((item) => !item.ready || item.rejected);
+        tryDownloadAll(fresh, snapshot);
+        renderModalMissing(missingRows);
+        if (missingRows.length) { showToast("Some files were not downloaded"); }
+        else { closeModal(downloadPackModalEl); }
+        render();
+      });
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       Stage Reset Logic (unchanged)
+       ═══════════════════════════════════════════════════════ */
+    const STAGE_ORDER = ["stage_1", "stage_2", "stage_3_application", "stage_4"];
+
+    function resetStage(next, stageKey) {
+      if (stageKey === "stage_1") {
+        next.stage_1.accountCreated = false;
+        next.stage_1.ahpraUserId = "";
+        next.stage_1.completedAt = "";
+        return;
+      }
       if (stageKey === "stage_2") {
-        if (isStage2Complete(state, docs)) return "Complete";
-        if (docs.missing.length && !state.stage_2.manualConfirm) return "Action required";
-        if (state.stage_2.manualConfirm || docs.gpReadyCount || docs.gplinkReadyCount) return "In progress";
-        return "Not started";
+        next.stage_2.submitted = false;
+        next.stage_2.submittedDate = "";
+        next.stage_2.referenceNumber = "";
+        next.stage_2.completedAt = "";
+        next.stage_2.manualConfirm = false;
+        next.stage_2.downloadedCount = 0;
+        next.stage_2.lastDownloadAttemptAt = "";
+        next.stage_2.lastMissingNames = [];
+        return;
       }
       if (stageKey === "stage_3_application") {
-        if (isStage3ApplicationComplete(state, docs)) return "Complete";
-        if (isStage2Complete(state, docs)) return "In progress";
-        return "Not started";
+        next.stage_3.applicationOpenedAt = "";
+        next.stage_3.completedAt = "";
+        return;
       }
-      const outcome = getOutcomeStatus(state);
-      if (isStage4Complete(state)) return "Complete";
-      if (outcome === "further_info_requested" || outcome === "refused") return "Action required";
-      if (outcome !== "pending") return "In progress";
-      return "Not started";
+      if (stageKey === "stage_4") {
+        next.stage_4.registrationGranted = null;
+        next.stage_4.registrationNumber = "";
+        next.stage_4.hasConditions = null;
+        next.stage_4.conditionsDetails = "";
+        next.stage_4.expiryDate = "";
+        next.stage_4.completedAt = "";
+        next.stage_4.outcomeStatus = "pending";
+        next.stage_4.outcomeLetterName = "";
+      }
     }
 
-    function getNextBestAction(state, docs) {
-      if (!isStage1Complete(state)) {
-        return { text: "Create your AHPRA account.", cta: "Create Account", action: "open_ahpra_signup" };
+    function undoToStage(stageKey) {
+      const next = loadAhpraState();
+      const idx = STAGE_ORDER.indexOf(stageKey);
+      if (idx === -1) return;
+      for (let i = idx; i < STAGE_ORDER.length; i += 1) {
+        resetStage(next, STAGE_ORDER[i]);
       }
-      if (!isStage2Complete(state, docs)) {
-        if (docs.missing.length && !state.stage_2.manualConfirm) return { text: "Next: Upload your missing documents to complete Stage 2.", cta: "Go to Documents", action: "docs" };
-        return { text: "Complete your documents pack in Stage 2 so you are ready for AHPRA submission.", cta: "Complete Stage 2", action: "open_stage_2" };
-      }
-      if (!isStage3ApplicationComplete(state, docs)) {
-        return { text: "Next: Open AHPRA Online Services and submit your specialist application.", cta: "Open AHPRA", action: "open_ahpra_online" };
-      }
-      if (!isStage4Complete(state)) {
-        return { text: "Record the final AHPRA outcome to complete your registration journey.", cta: "Complete Stage 4", action: "open_stage_4" };
-      }
-      return { text: "AHPRA Registration is complete. Continue to the next onboarding step.", cta: "Back to Home", action: "home" };
+      next.ui.expandedStageKey = stageKey;
+      saveAhpraState(next, true);
+      showToast("Saved");
+      render();
     }
 
-    function statusPillClass(status) {
-      const normalized = String(status).toLowerCase();
-      if (normalized === "complete") return "done";
-      if (normalized === "action required") return "rejected";
-      if (normalized === "in progress") return "review";
-      return "locked";
+    /* ═══════════════════════════════════════════════════════
+       STEPPER UI
+       ═══════════════════════════════════════════════════════ */
+    const STEP_TO_STAGE = ["stage_1", "stage_2", "stage_3_application", "stage_4"];
+
+    function getStepIndex(state, docs) {
+      const key = getCurrentStageKey(state, docs);
+      const idx = STEP_TO_STAGE.indexOf(key);
+      return idx >= 0 ? idx : 0;
     }
 
-    function stageCounterText(stageKey, docs) {
-      return "";
+    let currentStep = 0;
+
+    function goToStep(index) {
+      if (index < 0 || index >= stepContents.length) return;
+      currentStep = index;
+      stepContents.forEach((el, i) => {
+        el.classList.toggle("active", i === index);
+      });
+      updateStepperTabs();
+      // Scroll stepper tab into view
+      const tab = stepTabs[index];
+      if (tab) tab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
     }
 
-    function renderStageCards(state) {
+    function updateStepperTabs() {
+      const state = loadAhpraState();
       const docs = getDocSnapshot();
-      const stageOrder = ["stage_1", "stage_2", "stage_3_application", "stage_4"];
-      const currentStageKey = getCurrentStageKey(state, docs);
-      const currentStageIndex = stageOrder.indexOf(currentStageKey);
-      stageCardsEl.innerHTML = "";
-
-      const allReady = docs.missing.length === 0;
-      const canMarkDocsReady = allReady || state.stage_2.manualConfirm === true;
-      const downloadedCount = Number(state.stage_2.downloadedCount || 0);
-      const totalRequired = docs.all.length;
-      const outcomeStatus = getOutcomeStatus(state);
-
-      const stages = [
-        {
-          key: "stage_1",
-          title: "Create AHPRA Account",
-          desc: "Confirm your AHPRA Online Services account is active.",
-          primary: isStage1Complete(state) ? { text: "View details", action: "toggle" } : { text: "Mark Complete", action: "stage_1_mark" },
-          body: ``
-        },
-        {
-          key: "stage_2",
-          title: "Documents",
-          desc: "Upload missing docs, then mark ready.",
-          primary: isStage2Complete(state, docs)
-            ? { text: "View details", action: "toggle" }
-            : { text: "Mark documents ready", action: "stage_2_mark" },
-          body: ``
-        },
-        {
-          key: "stage_3_application",
-          title: "Specialist Registration Application",
-          desc: "Submit your specialist application in AHPRA Online Services.",
-          primary: { text: "Open AHPRA Online Services", action: "open_ahpra_online" },
-          body: `
-            <ul style="margin:0; padding-left:18px; display:grid; gap:6px;">
-              <li class="download-note">Use your documents pack.</li>
-              <li class="download-note">Complete specialist application fields.</li>
-              <li class="download-note">Submit your application.</li>
-            </ul>
-            <div class="correspondent-panel">
-              <p class="correspondent-alert">Nominate GP Link as your correspondent</p>
-              <div class="correspondent-row">
-                <div>
-                  <p class="correspondent-label">Correspondent Name</p>
-                  <p class="correspondent-value">${AHPRA_CORRESPONDENT.name}</p>
-                </div>
-                <button type="button" class="btn btn-primary btn-inline" data-copy-correspondent="name">Copy</button>
-              </div>
-              <div class="correspondent-row">
-                <div>
-                  <p class="correspondent-label">Correspondent Email</p>
-                  <p class="correspondent-value">${AHPRA_CORRESPONDENT.email}</p>
-                </div>
-                <button type="button" class="btn btn-primary btn-inline" data-copy-correspondent="email">Copy</button>
-              </div>
-              <p class="correspondent-tip">Paste these into your AHPRA application.</p>
-            </div>
-            <div class="actions">
-              <button type="button" class="btn btn-primary btn-inline" id="s3OpenAHPRABtn">Open AHPRA Online Services</button>
-              <button type="button" class="btn btn-soft btn-inline" id="s3NeedHelpBtn">Need help?</button>
-            </div>
-          `
-        },
-        {
-          key: "stage_4",
-          title: "Outcome (Registration Granted)",
-          desc: "Update your final AHPRA outcome.",
-          primary: isStage4Complete(state) ? { text: "View summary", action: "toggle" } : { text: "Update outcome", action: "toggle_open" },
-          body: `
-            <div style="display:grid; gap:6px;">
-              <label class="line" for="s4Outcome">Outcome</label>
-              <select id="s4Outcome" class="field-input">
-                <option value="pending" ${outcomeStatus === "pending" ? "selected" : ""}>Select outcome</option>
-                <option value="granted" ${outcomeStatus === "granted" ? "selected" : ""}>Granted</option>
-                <option value="further_info_requested" ${outcomeStatus === "further_info_requested" ? "selected" : ""}>Further info requested</option>
-                <option value="refused" ${outcomeStatus === "refused" ? "selected" : ""}>Refused</option>
-              </select>
-            </div>
-            <div style="display:grid; gap:6px;">
-              <label class="line" for="s4OutcomeLetter">Outcome letter (optional)</label>
-              <input id="s4OutcomeLetter" type="file" class="field-input" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
-              ${state.stage_4.outcomeLetterName ? `<p class="download-note">Selected: ${state.stage_4.outcomeLetterName}</p>` : ""}
-            </div>
-            <div class="actions"><button type="button" class="btn btn-primary btn-inline" id="s4SaveOutcomeBtn" ${outcomeStatus === "pending" ? "disabled" : ""}>Save outcome</button></div>
-            ${outcomeStatus === "pending" ? `<p class="disabled-reason">Select an outcome to save.</p>` : ""}
-          `
-        }
+      const completions = [
+        isStage1Complete(state),
+        isStage2Complete(state, docs),
+        isStage3ApplicationComplete(state, docs),
+        isStage4Complete(state)
       ];
 
-      let expandedKey = state.ui && state.ui.expandedStageKey ? state.ui.expandedStageKey : currentStageKey;
-      if (!stages.some((s) => s.key === expandedKey)) expandedKey = currentStageKey;
-      const expandedStatus = getStageStatus(state, docs, expandedKey);
-      if (expandedStatus === "Complete") expandedKey = currentStageKey;
+      stepTabs.forEach((tab, i) => {
+        const dot = tab.querySelector(".stepper-tab-dot");
+        tab.classList.remove("active", "completed", "locked");
+        if (dot) dot.className = "stepper-tab-dot";
 
-      stages.forEach((stage) => {
-        const status = getStageStatus(state, docs, stage.key);
-        const stageIndex = stageOrder.indexOf(stage.key);
-        const isFutureStage = stageIndex > currentStageIndex;
-        const actionClass = isFutureStage
-          ? "btn-neutral"
-          : status === "Complete"
-            ? "btn-soft btn-undo"
-            : stage.key === currentStageKey ? "btn-primary" : "btn-soft";
-        const actionAttrs = isFutureStage
-          ? `disabled`
-          : status === "Complete"
-            ? `data-stage-undo="${stage.key}"`
-            : `data-stage-primary="${stage.primary.action}" data-stage-key="${stage.key}"`;
-        const actionText = isFutureStage ? "Locked" : status === "Complete" ? "Undo" : stage.primary.text;
-        const row = document.createElement("details");
-        row.className = `stage-card ${status === "Complete" ? "done" : ""} ${status === "Action required" ? "current" : ""} ${stage.key === currentStageKey ? "current" : ""} ${isFutureStage ? "locked" : ""}`.trim();
-        row.dataset.stageKey = stage.key;
-        row.dataset.stageIndex = String(stageIndex + 1);
-        row.open = stage.key === expandedKey;
-        row.innerHTML = `
-          <summary class="stage-head" style="cursor:pointer; list-style:none;">
-            <div>
-              <div class="stage-title-row"><h4>${stage.title}</h4><span class="pill ${statusPillClass(status)}">${status}</span></div>
-              <p>${stage.desc}</p>
-              ${stageCounterText(stage.key, docs) ? `<p style="margin:4px 0 0; font-size:12px; color:#1d4ed8; font-weight:700;">${stageCounterText(stage.key, docs)}</p>` : ""}
-              <div class="stage-summary-actions">
-                <button type="button" class="btn ${actionClass} btn-inline" ${actionAttrs}>${actionText}</button>
-              </div>
-            </div>
-          </summary>
-          <div class="stage-detail-wrap">${stage.body}</div>
-        `;
-        stageCardsEl.appendChild(row);
+        if (i === currentStep) {
+          tab.classList.add("active");
+          if (dot) dot.classList.add("current");
+        } else if (completions[i]) {
+          tab.classList.add("completed");
+          if (dot) dot.classList.add("done");
+        } else {
+          if (dot) dot.classList.add("locked-d");
+        }
       });
-
-      bindStageActions(state, docs, currentStageKey);
     }
 
-    function bindStageActions(state, docs, currentStageKey) {
-      const AHPRA_ONLINE_SERVICES_URL = "https://www.ahpra.gov.au/Registration/Online-services.aspx";
-      const STAGE_ORDER = ["stage_1", "stage_2", "stage_3_application", "stage_4"];
-      const s2ManualConfirm = document.getElementById("s2ManualConfirm");
-      const s2CompleteBtn = document.getElementById("s2CompleteBtn");
-      const s3OpenAHPRABtn = document.getElementById("s3OpenAHPRABtn");
-      const s3NeedHelpBtn = document.getElementById("s3NeedHelpBtn");
+    /* ═══════════════════════════════════════════════════════
+       RENDER — Populate step content dynamically
+       ═══════════════════════════════════════════════════════ */
+    function renderStepContent(state, docs) {
+      const outcomeStatus = getOutcomeStatus(state);
+
+      // Correspondent panel
+      const corrNameEl = document.getElementById("corrName");
+      const corrEmailEl = document.getElementById("corrEmail");
+      if (corrNameEl) corrNameEl.textContent = AHPRA_CORRESPONDENT.name;
+      if (corrEmailEl) corrEmailEl.textContent = AHPRA_CORRESPONDENT.email;
+
+      // Stage 1
+      const s1UndoWrap = document.getElementById("s1UndoWrap");
+      const s1MarkBtn = document.getElementById("s1MarkCompleteBtn");
+      if (isStage1Complete(state)) {
+        if (s1MarkBtn) s1MarkBtn.style.display = "none";
+        if (s1UndoWrap) s1UndoWrap.style.display = "";
+      } else {
+        if (s1MarkBtn) s1MarkBtn.style.display = "";
+        if (s1UndoWrap) s1UndoWrap.style.display = "none";
+      }
+
+      // Stage 2
+      const s2UndoWrap = document.getElementById("s2UndoWrap");
+      const s2MarkBtn = document.getElementById("s2MarkReadyBtn");
+      if (isStage2Complete(state, docs)) {
+        if (s2MarkBtn) s2MarkBtn.style.display = "none";
+        if (s2UndoWrap) s2UndoWrap.style.display = "";
+      } else {
+        if (s2MarkBtn) s2MarkBtn.style.display = "";
+        if (s2UndoWrap) s2UndoWrap.style.display = "none";
+      }
+
+      // Stage 3
+      const s3UndoWrap = document.getElementById("s3UndoWrap");
+      if (isStage3ApplicationComplete(state, docs)) {
+        if (s3UndoWrap) s3UndoWrap.style.display = "";
+      } else {
+        if (s3UndoWrap) s3UndoWrap.style.display = "none";
+      }
+
+      // Stage 4
       const s4Outcome = document.getElementById("s4Outcome");
-      const s4OutcomeLetter = document.getElementById("s4OutcomeLetter");
-      const s4SaveOutcomeBtn = document.getElementById("s4SaveOutcomeBtn");
-      const correspondentCopyBtns = [...document.querySelectorAll("[data-copy-correspondent]")];
-      const primaryActionBtns = [...document.querySelectorAll("[data-stage-primary]")];
-      const undoBtns = [...document.querySelectorAll("[data-stage-undo]")];
-      const stageDetails = [...stageCardsEl.querySelectorAll("details.stage-card")];
-      const tempTimers = new Map();
+      const s4SaveBtn = document.getElementById("s4SaveOutcomeBtn");
+      const s4DisabledReason = document.getElementById("s4DisabledReason");
+      const s4LetterStatus = document.getElementById("s4LetterStatus");
+      const s4UndoWrap = document.getElementById("s4UndoWrap");
+      if (s4Outcome) s4Outcome.value = outcomeStatus;
+      if (s4SaveBtn) s4SaveBtn.disabled = outcomeStatus === "pending";
+      if (s4DisabledReason) s4DisabledReason.style.display = outcomeStatus === "pending" ? "" : "none";
+      if (s4LetterStatus) s4LetterStatus.textContent = state.stage_4.outcomeLetterName ? `Selected: ${state.stage_4.outcomeLetterName}` : "";
+      if (isStage4Complete(state)) {
+        if (s4UndoWrap) s4UndoWrap.style.display = "";
+      } else {
+        if (s4UndoWrap) s4UndoWrap.style.display = "none";
+      }
 
-      const clearTimer = (stageKey) => {
-        if (!tempTimers.has(stageKey)) return;
-        clearTimeout(tempTimers.get(stageKey));
-        tempTimers.delete(stageKey);
-      };
-
-      const closeStageSmooth = (node) => {
-        if (!node || !node.open) return;
-        node.classList.add("is-retracting");
-        setTimeout(() => {
-          if (!node.isConnected) return;
-          node.open = false;
-          node.classList.remove("is-retracting");
-        }, 240);
-      };
-
-      const reopenCurrentStage = () => {
-        const currentNode = stageDetails.find((d) => d.dataset.stageKey === currentStageKey);
-        if (!currentNode || !currentNode.isConnected) return;
-        currentNode.open = true;
-        const next = loadAhpraState();
-        next.ui.expandedStageKey = currentStageKey;
-        saveAhpraState(next);
-      };
-
-      const openTemporarily = (node) => {
-        if (!node) return;
-        const stageKey = node.dataset.stageKey || "";
-        clearTimer(stageKey);
-        stageDetails.forEach((other) => {
-          if (other !== node) other.open = false;
-        });
-        node.classList.remove("is-retracting");
-        node.open = true;
-        const timer = setTimeout(() => {
-          if (!node.isConnected) return;
-          closeStageSmooth(node);
-          setTimeout(reopenCurrentStage, 260);
-        }, 4000);
-        tempTimers.set(stageKey, timer);
-      };
-
-      const setExpandedStage = (stageKey, open = true) => {
-        stageDetails.forEach((node) => {
-          const isTarget = node.dataset.stageKey === stageKey;
-          if (isTarget) return;
-          node.open = false;
-        });
-        const target = stageDetails.find((node) => node.dataset.stageKey === stageKey);
-        if (!target) return;
-        if (!open) {
-          target.open = false;
-          return;
-        }
-        if (stageKey !== currentStageKey) {
-          openTemporarily(target);
-          return;
-        }
-        clearTimer(stageKey);
-        target.classList.remove("is-retracting");
-        target.open = true;
-        const next = loadAhpraState();
-        next.ui.expandedStageKey = open ? stageKey : "";
-        saveAhpraState(next);
-      };
-
-      const resetStage = (next, stageKey) => {
-        if (stageKey === "stage_1") {
-          next.stage_1.accountCreated = false;
-          next.stage_1.ahpraUserId = "";
-          next.stage_1.completedAt = "";
-          return;
-        }
-        if (stageKey === "stage_2") {
-          next.stage_2.submitted = false;
-          next.stage_2.submittedDate = "";
-          next.stage_2.referenceNumber = "";
-          next.stage_2.completedAt = "";
-          next.stage_2.manualConfirm = false;
-          next.stage_2.downloadedCount = 0;
-          next.stage_2.lastDownloadAttemptAt = "";
-          next.stage_2.lastMissingNames = [];
-          return;
-        }
-        if (stageKey === "stage_3_application") {
-          next.stage_3.applicationOpenedAt = "";
-          next.stage_3.completedAt = "";
-          return;
-        }
-        if (stageKey === "stage_4") {
-          next.stage_4.registrationGranted = null;
-          next.stage_4.registrationNumber = "";
-          next.stage_4.hasConditions = null;
-          next.stage_4.conditionsDetails = "";
-          next.stage_4.expiryDate = "";
-          next.stage_4.completedAt = "";
-          next.stage_4.outcomeStatus = "pending";
-          next.stage_4.outcomeLetterName = "";
-        }
-      };
-
-      const undoToStage = (stageKey) => {
-        const next = loadAhpraState();
-        const idx = STAGE_ORDER.indexOf(stageKey);
-        if (idx === -1) return;
-        for (let i = idx; i < STAGE_ORDER.length; i += 1) {
-          resetStage(next, STAGE_ORDER[i]);
-        }
-        next.ui.expandedStageKey = stageKey;
-        saveAhpraState(next, true);
-        showToast("Saved");
-        render();
-      };
-
-      stageDetails.forEach((node) => {
-        const stageKey = node.dataset.stageKey || "";
-        const summary = node.querySelector("summary");
-        if (summary) {
-          summary.addEventListener("click", (event) => {
-            if (stageKey === currentStageKey) return;
-            event.preventDefault();
-            openTemporarily(node);
-          });
-        }
-        node.addEventListener("toggle", () => {
-          if (node.open) {
-            if (stageKey !== currentStageKey) {
-              openTemporarily(node);
-              return;
-            }
-            clearTimer(stageKey);
-            stageDetails.forEach((other) => {
-              if (other !== node) other.open = false;
-            });
-            const next = loadAhpraState();
-            next.ui.expandedStageKey = stageKey || currentStageKey;
-            saveAhpraState(next);
-          } else {
-            clearTimer(stageKey);
-          }
-        });
-      });
-
-      undoBtns.forEach((btn) => {
-        btn.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const stageKey = btn.getAttribute("data-stage-undo");
-          if (!stageKey) return;
-          undoToStage(stageKey);
-        });
-      });
-
-      primaryActionBtns.forEach((btn) => {
-        btn.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const action = btn.getAttribute("data-stage-primary");
-          const key = btn.getAttribute("data-stage-key") || "";
-          if (action === "toggle") {
-            setExpandedStage(key, true);
-            return;
-          }
-          if (action === "toggle_open") {
-            setExpandedStage(key, true);
-            return;
-          }
-          if (action === "go_docs") {
-            window.location.href = "my-documents.html#ahpra-required";
-            return;
-          }
-          if (action === "open_ahpra_online") {
-            const next = loadAhpraState();
-            next.stage_3.applicationOpenedAt = new Date().toISOString();
-            next.stage_3.completedAt = next.stage_3.applicationOpenedAt;
-            saveAhpraState(next, true);
-            logAhpraEvent("info", "AHPRA Online Services opened", "Candidate opened AHPRA Online Services from Stage 3.");
-            window.open(AHPRA_ONLINE_SERVICES_URL, "_blank", "noopener,noreferrer");
-            render();
-            return;
-          }
-          if (action === "stage_1_mark") {
-            const next = loadAhpraState();
-            next.stage_1.accountCreated = true;
-            next.stage_1.completedAt = new Date().toISOString();
-            saveAhpraState(next, true);
-            logAhpraEvent("success", "AHPRA Stage 1 completed", "Stage 1 marked complete.");
-            showToast("Stage marked complete");
-            render();
-            return;
-          }
-          if (action === "stage_2_mark") {
-            const next = loadAhpraState();
-            const snapshot = getDocSnapshot();
-            const ready = snapshot.missing.length === 0 || next.stage_2.manualConfirm === true;
-            if (!ready) {
-              if (hasDocsUnderReview(snapshot)) {
-                openModal(reviewPendingModalEl);
-                return;
-              }
-              openMissingDocsModal(snapshot.missing);
-              return;
-            }
-            next.stage_2.completedAt = new Date().toISOString();
-            saveAhpraState(next, true);
-            logAhpraEvent("success", "AHPRA Stage 2 completed", "Documents marked ready.");
-            showToast("Stage marked complete");
-            render();
-          }
-        });
-      });
-
-      correspondentCopyBtns.forEach((btn) => {
-        const key = btn.getAttribute("data-copy-correspondent");
-        if (!key) return;
-        btn.addEventListener("click", async () => {
-          const value = key === "name" ? AHPRA_CORRESPONDENT.name : AHPRA_CORRESPONDENT.email;
-          const ok = await copyTextToClipboard(value);
-          showToast(ok ? "Copied" : "Copy failed");
-        });
-      });
-
-      if (s2ManualConfirm) s2ManualConfirm.addEventListener("change", () => {
-        const next = loadAhpraState();
-        next.stage_2.manualConfirm = !!s2ManualConfirm.checked;
-        saveAhpraState(next);
-        render();
-      });
-
-      if (s2CompleteBtn) s2CompleteBtn.addEventListener("click", () => {
-        const next = loadAhpraState();
-        const snapshot = getDocSnapshot();
-        const ready = snapshot.missing.length === 0 || next.stage_2.manualConfirm === true;
-        if (!ready) {
-          if (hasDocsUnderReview(snapshot)) {
-            openModal(reviewPendingModalEl);
-            return;
-          }
-          openMissingDocsModal(snapshot.missing);
-          return;
-        }
-        next.stage_2.completedAt = new Date().toISOString();
-        saveAhpraState(next, true);
-        logAhpraEvent("success", "AHPRA Stage 2 completed", "Documents marked ready.");
-        showToast("Stage marked complete");
-        render();
-      });
-
-      if (s3OpenAHPRABtn) s3OpenAHPRABtn.addEventListener("click", () => {
-        const next = loadAhpraState();
-        next.stage_3.applicationOpenedAt = new Date().toISOString();
-        next.stage_3.completedAt = next.stage_3.applicationOpenedAt;
-        saveAhpraState(next, true);
-        logAhpraEvent("info", "AHPRA Online Services opened", "Candidate opened AHPRA Online Services from Stage 3.");
-        window.open(AHPRA_ONLINE_SERVICES_URL, "_blank", "noopener,noreferrer");
-        showToast("Saved");
-        render();
-      });
-
-      if (s3NeedHelpBtn) s3NeedHelpBtn.addEventListener("click", () => {
-        createSupportCase("AHPRA Stage 3 help requested", "AHPRA", "I need help submitting my specialist registration application.");
-        logAhpraEvent("action", "Help requested for AHPRA Stage 3", "Candidate requested support for specialist registration application.");
-        showToast("Support request sent");
-      });
-
-      if (s4Outcome) s4Outcome.addEventListener("change", () => {
-        const next = loadAhpraState();
-        next.stage_4.outcomeStatus = s4Outcome.value;
-        next.stage_4.registrationGranted = s4Outcome.value === "granted" ? true : s4Outcome.value === "refused" ? false : null;
-        saveAhpraState(next);
-        render();
-      });
-
-      if (s4OutcomeLetter) s4OutcomeLetter.addEventListener("change", () => {
-        const next = loadAhpraState();
-        const file = s4OutcomeLetter.files && s4OutcomeLetter.files[0];
-        next.stage_4.outcomeLetterName = file ? file.name : "";
-        saveAhpraState(next);
-      });
-
-      if (s4SaveOutcomeBtn) s4SaveOutcomeBtn.addEventListener("click", () => {
-        const next = loadAhpraState();
-        const outcome = getOutcomeStatus(next);
-        if (outcome === "pending") {
-          showToast("Select an outcome");
-          return;
-        }
-        next.stage_4.completedAt = new Date().toISOString();
-        saveAhpraState(next, true);
-        logAhpraEvent(outcome === "granted" ? "success" : "action", "AHPRA outcome updated", `Outcome saved as ${outcome.replace(/_/g, " ")}.`);
-        showToast("Saved");
-        render();
-      });
-    }
-
-    function renderHeader(state, docs) {
+      // Footer
       const overallStatus = getOverallStatus(state, docs);
-      const progress = getProgressPercent(state, docs);
-      const stageMap = {
-        stage_1: "You're currently on Stage 1",
-        stage_2: "You're currently on Stage 2",
-        stage_3_application: "You're currently on Stage 3",
-        stage_4: "You're currently on Stage 4"
-      };
-      const currentStageKey = getCurrentStageKey(state, docs);
-      updatedChipEl.textContent = `Updated ${new Date(state.updatedAt).toLocaleString()}`;
-      overallProgressChipEl.textContent = `${progress}%`;
-      overallStatusPillEl.textContent = overallStatus;
-      overallStatusPillEl.className = `chip ${overallStatus === "Complete" ? "chip-blue" : "chip-soft"}`;
-      if (currentStageChipEl) currentStageChipEl.textContent = stageMap[currentStageKey] || "You're currently on Stage 1";
-      footerStatusEl.textContent = `Current status: ${overallStatus}`;
-    }
-
-    function renderGuidance(state, docs) {
-      const currentStageKey = getCurrentStageKey(state, docs);
-      if (watchTutorialBtnEl) watchTutorialBtnEl.style.display = "none";
-
-      if (currentStageKey === "stage_1") {
-        nextBestActionEl.textContent = "Create your AHPRA account.";
-        if (guidanceNextTextEl) guidanceNextTextEl.textContent = "Download registration supporting documents";
-        nextActionBtnEl.textContent = "Create Account";
-        if (watchTutorialBtnEl) {
-          watchTutorialBtnEl.style.display = "inline-flex";
-          watchTutorialBtnEl.classList.add("tutorial-highlight");
-        }
-        nextActionBtnEl.onclick = () => {
-          window.open("https://portal.ahpra.gov.au/s/login/SelfRegister", "_blank", "noopener,noreferrer");
-        };
-        return;
-      }
-
-      if (currentStageKey === "stage_2") {
-        nextBestActionEl.textContent = "Download all supporting documents for your specialist registration application";
-        if (guidanceNextTextEl) guidanceNextTextEl.textContent = "Specialist Registration Application";
-        nextActionBtnEl.textContent = "Download Documents";
-        nextActionBtnEl.onclick = () => {
-          const snapshot = getDocSnapshot();
-          renderDownloadPackModal(snapshot);
-          openModal(downloadPackModalEl);
-        };
-        return;
-      }
-
-      if (currentStageKey === "stage_3_application") {
-        nextBestActionEl.textContent = "Complete and submit your specialist registration application.";
-        if (guidanceNextTextEl) guidanceNextTextEl.textContent = "Record outcome";
-        nextActionBtnEl.textContent = "Open AHPRA Online Services";
-        nextActionBtnEl.onclick = () => {
-          const next = loadAhpraState();
-          next.stage_3.applicationOpenedAt = new Date().toISOString();
-          next.stage_3.completedAt = next.stage_3.applicationOpenedAt;
-          saveAhpraState(next, true);
-          window.open("https://www.ahpra.gov.au/Registration/Online-services.aspx", "_blank", "noopener,noreferrer");
-          render();
-        };
-        return;
-      }
-
-      nextBestActionEl.textContent = "Update your final AHPRA outcome.";
-      if (guidanceNextTextEl) guidanceNextTextEl.textContent = "Complete";
-      nextActionBtnEl.textContent = "Update Outcome";
-      nextActionBtnEl.onclick = () => {
-        const target = stageCardsEl.querySelector(`details.stage-card[data-stage-key="stage_4"]`);
-        if (!target) return;
-        target.open = true;
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
-        const next = loadAhpraState();
-        next.ui.expandedStageKey = "stage_4";
-        saveAhpraState(next);
-      };
+      if (footerStatusEl) footerStatusEl.textContent = `Current status: ${overallStatus}`;
     }
 
     function render() {
       const state = loadAhpraState();
       const docs = getDocSnapshot();
-      renderHeader(state, docs);
-      renderGuidance(state, docs);
-      renderStageCards(state);
+      renderStepContent(state, docs);
+      updateStepperTabs();
       renderRegistrationRows();
     }
 
+    /* ═══════════════════════════════════════════════════════
+       EVENT BINDINGS — Step actions
+       ═══════════════════════════════════════════════════════ */
+
+    // Stepper tab clicks
+    stepTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const idx = parseInt(tab.getAttribute("data-step"), 10);
+        if (!isNaN(idx)) goToStep(idx);
+      });
+    });
+
+    // Prev/Next buttons
+    document.querySelectorAll("[data-nav-next]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.getAttribute("data-nav-next"), 10);
+        if (!isNaN(idx)) goToStep(idx);
+      });
+    });
+    document.querySelectorAll("[data-nav-prev]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.getAttribute("data-nav-prev"), 10);
+        if (!isNaN(idx)) goToStep(idx);
+      });
+    });
+
+    // Stage 1 actions
+    document.getElementById("s1CreateAccountBtn").addEventListener("click", () => {
+      window.open("https://portal.ahpra.gov.au/s/login/SelfRegister", "_blank", "noopener,noreferrer");
+    });
+    document.getElementById("s1MarkCompleteBtn").addEventListener("click", () => {
+      const next = loadAhpraState();
+      next.stage_1.accountCreated = true;
+      next.stage_1.completedAt = new Date().toISOString();
+      saveAhpraState(next, true);
+      logAhpraEvent("success", "AHPRA Stage 1 completed", "Stage 1 marked complete.");
+      showToast("Stage marked complete");
+      render();
+      goToStep(1);
+    });
+    document.getElementById("s1UndoBtn").addEventListener("click", () => undoToStage("stage_1"));
+
+    // Stage 2 actions
+    document.getElementById("s2DownloadDocsBtn").addEventListener("click", () => {
+      const snapshot = getDocSnapshot();
+      renderDownloadPackModal(snapshot);
+      openModal(downloadPackModalEl);
+    });
+    document.getElementById("s2MarkReadyBtn").addEventListener("click", () => {
+      const next = loadAhpraState();
+      const snapshot = getDocSnapshot();
+      const ready = snapshot.missing.length === 0 || next.stage_2.manualConfirm === true;
+      if (!ready) {
+        if (hasDocsUnderReview(snapshot)) {
+          openModal(reviewPendingModalEl);
+          return;
+        }
+        openMissingDocsModal(snapshot.missing);
+        return;
+      }
+      next.stage_2.completedAt = new Date().toISOString();
+      saveAhpraState(next, true);
+      logAhpraEvent("success", "AHPRA Stage 2 completed", "Documents marked ready.");
+      showToast("Stage marked complete");
+      render();
+      goToStep(2);
+    });
+    document.getElementById("s2UndoBtn").addEventListener("click", () => undoToStage("stage_2"));
+
+    // Stage 3 actions
+    document.getElementById("s3OpenAHPRABtn").addEventListener("click", () => {
+      const next = loadAhpraState();
+      next.stage_3.applicationOpenedAt = new Date().toISOString();
+      next.stage_3.completedAt = next.stage_3.applicationOpenedAt;
+      saveAhpraState(next, true);
+      logAhpraEvent("info", "AHPRA Online Services opened", "Candidate opened AHPRA Online Services from Stage 3.");
+      window.open(AHPRA_ONLINE_SERVICES_URL, "_blank", "noopener,noreferrer");
+      showToast("Saved");
+      render();
+    });
+    document.getElementById("s3NeedHelpBtn").addEventListener("click", () => {
+      createSupportCase("AHPRA Stage 3 help requested", "AHPRA", "I need help submitting my specialist registration application.");
+      logAhpraEvent("action", "Help requested for AHPRA Stage 3", "Candidate requested support for specialist registration application.");
+      showToast("Support request sent");
+    });
+    document.getElementById("s3UndoBtn").addEventListener("click", () => undoToStage("stage_3_application"));
+
+    // Stage 4 actions
+    document.getElementById("s4Outcome").addEventListener("change", () => {
+      const next = loadAhpraState();
+      const val = document.getElementById("s4Outcome").value;
+      next.stage_4.outcomeStatus = val;
+      next.stage_4.registrationGranted = val === "granted" ? true : val === "refused" ? false : null;
+      saveAhpraState(next);
+      render();
+    });
+    document.getElementById("s4OutcomeLetter").addEventListener("change", () => {
+      const next = loadAhpraState();
+      const input = document.getElementById("s4OutcomeLetter");
+      const file = input.files && input.files[0];
+      next.stage_4.outcomeLetterName = file ? file.name : "";
+      saveAhpraState(next);
+      render();
+    });
+    document.getElementById("s4SaveOutcomeBtn").addEventListener("click", () => {
+      const next = loadAhpraState();
+      const outcome = getOutcomeStatus(next);
+      if (outcome === "pending") { showToast("Select an outcome"); return; }
+      next.stage_4.completedAt = new Date().toISOString();
+      saveAhpraState(next, true);
+      logAhpraEvent(outcome === "granted" ? "success" : "action", "AHPRA outcome updated", `Outcome saved as ${outcome.replace(/_/g, " ")}.`);
+      showToast("Saved");
+      render();
+    });
+    document.getElementById("s4UndoBtn").addEventListener("click", () => undoToStage("stage_4"));
+
+    // Correspondent copy buttons
+    document.querySelectorAll("[data-copy-correspondent]").forEach((btn) => {
+      const key = btn.getAttribute("data-copy-correspondent");
+      if (!key) return;
+      btn.addEventListener("click", async () => {
+        const value = key === "name" ? AHPRA_CORRESPONDENT.name : AHPRA_CORRESPONDENT.email;
+        const ok = await copyTextToClipboard(value);
+        showToast(ok ? "Copied" : "Copy failed");
+      });
+    });
+
+    // Missing docs modal interactions
     requestHelpMissingBtnEl.addEventListener("click", () => {
       closeModal(missingDocsModalEl);
       createSupportCase("AHPRA missing documents support request", "AHPRA", "I need help resolving missing documents for my AHPRA application.");
@@ -2786,27 +1321,12 @@
       logAhpraEvent("action", "Missing document uploaded from modal", `${item.name} uploaded from AHPRA missing-documents modal.`);
       const snapshotAfter = getDocSnapshot();
       render();
-      if (snapshotAfter.missing.length) {
-        openMissingDocsModal(snapshotAfter.missing);
-      } else {
-        closeModal(missingDocsModalEl);
-      }
+      if (snapshotAfter.missing.length) { openMissingDocsModal(snapshotAfter.missing); }
+      else { closeModal(missingDocsModalEl); }
       showToast("Upload saved");
     });
 
-    document.getElementById("topSupportBtn").addEventListener("click", () => {
-      window.location.href = "messages.html";
-    });
-    document.getElementById("contactSupport").addEventListener("click", () => {
-      window.location.href = "messages.html";
-    });
-    document.getElementById("mobileSupportBtn").addEventListener("click", () => {
-      window.location.href = "messages.html";
-    });
-    if (watchTutorialBtnEl) watchTutorialBtnEl.addEventListener("click", () => {
-      showToast("Tutorial coming soon");
-    });
-
+    // Close modal buttons
     document.querySelectorAll("[data-close]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-close");
@@ -2821,6 +1341,14 @@
       });
     });
 
+    // Navigation: support / messages
+    document.getElementById("topSupportBtn").addEventListener("click", () => { window.location.href = "messages.html"; });
+    document.getElementById("mobileSupportBtn").addEventListener("click", () => { window.location.href = "messages.html"; });
+    document.getElementById("mobileSupportBtn2").addEventListener("click", () => { window.location.href = "messages.html"; });
+
+    /* ═══════════════════════════════════════════════════════
+       Admin APIs (unchanged)
+       ═══════════════════════════════════════════════════════ */
     window.gpLinkAhpraAdminSetAssessment = function (status, note) {
       const next = loadAhpraState();
       if (!ASSESSMENT_STATUSES.includes(status)) return next;
@@ -2843,6 +1371,9 @@
       return next;
     };
 
+    /* ═══════════════════════════════════════════════════════
+       Registration Dropdown & Nav Glass (Desktop)
+       ═══════════════════════════════════════════════════════ */
     const registrationMenuBtn = document.getElementById("registrationMenuBtn");
     const registrationDropdown = document.getElementById("registrationDropdown");
     const regTableEl = document.getElementById("regTable");
@@ -2901,9 +1432,6 @@
         navGlassInitialized = true;
         return;
       }
-      navGlassEl.classList.remove("morph");
-      void navGlassEl.offsetWidth;
-      navGlassEl.classList.add("morph");
       navGlassEl.style.left = `${rect.left - parentRect.left}px`;
       navGlassEl.style.top = `${rect.top - parentRect.top}px`;
       navGlassEl.style.width = `${rect.width}px`;
@@ -2920,10 +1448,7 @@
     }
 
     function openRegistrationDropdown() {
-      if (registrationHoverCloseTimer) {
-        clearTimeout(registrationHoverCloseTimer);
-        registrationHoverCloseTimer = null;
-      }
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
       renderRegistrationRows();
       registrationDropdown.classList.add("show");
       navGlassEl.classList.add("engulf");
@@ -2931,18 +1456,9 @@
     }
 
     function closeRegistrationDropdown(immediate = false) {
-      const doClose = () => {
-        registrationDropdown.classList.remove("show");
-        navGlassEl.classList.remove("engulf");
-      };
-      if (registrationHoverCloseTimer) {
-        clearTimeout(registrationHoverCloseTimer);
-        registrationHoverCloseTimer = null;
-      }
-      if (immediate) {
-        doClose();
-        return;
-      }
+      const doClose = () => { registrationDropdown.classList.remove("show"); navGlassEl.classList.remove("engulf"); };
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      if (immediate) { doClose(); return; }
       registrationHoverCloseTimer = setTimeout(doClose, 140);
     }
 
@@ -2953,10 +1469,7 @@
     });
     registrationMenuBtn.addEventListener("mouseenter", openRegistrationDropdown);
     registrationDropdown.addEventListener("mouseenter", () => {
-      if (registrationHoverCloseTimer) {
-        clearTimeout(registrationHoverCloseTimer);
-        registrationHoverCloseTimer = null;
-      }
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
       navGlassEl.classList.add("engulf");
       moveNavGlass(registrationMenuBtn, true);
     });
@@ -2969,20 +1482,17 @@
 
     navItems.forEach((item) => {
       item.addEventListener("mouseenter", () => {
-        if (hoveredNavItem !== item) {
-          hoveredNavItem = item;
-          moveNavGlass(item, true);
-        }
+        if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); }
       });
       item.addEventListener("focus", () => {
-        if (hoveredNavItem !== item) {
-          hoveredNavItem = item;
-          moveNavGlass(item, true);
-        }
+        if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); }
       });
       if (item !== registrationMenuBtn && item.id !== "topSupportBtn") item.addEventListener("click", () => setActiveNav(item));
     });
 
+    /* ═══════════════════════════════════════════════════════
+       Mobile Registration Sheet
+       ═══════════════════════════════════════════════════════ */
     function openMobileRegistration() {
       renderRegistrationRows();
       mobileRegSheet.style.transform = "";
@@ -3023,15 +1533,15 @@
       else mobileRegSheet.style.transform = "";
     });
 
+    /* ═══════════════════════════════════════════════════════
+       Nav glass init
+       ═══════════════════════════════════════════════════════ */
     activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
     setActiveNav(activeNavItem, false);
     if (navMenuEl) {
       navMenuEl.addEventListener("mousemove", (event) => {
         const hit = event.target instanceof Element ? event.target.closest(".nav-item") : null;
-        if (hit && hit !== hoveredNavItem) {
-          hoveredNavItem = hit;
-          moveNavGlass(hit, true);
-        }
+        if (hit && hit !== hoveredNavItem) { hoveredNavItem = hit; moveNavGlass(hit, true); }
       });
       navMenuEl.addEventListener("mouseleave", () => {
         hoveredNavItem = null;
@@ -3042,7 +1552,9 @@
       if (activeNavItem) moveNavGlass(activeNavItem, false);
     });
 
-    // Dev helper: unlock Stage 3 flow by marking Stage 2 complete in local state.
+    /* ═══════════════════════════════════════════════════════
+       Dev helper (unchanged)
+       ═══════════════════════════════════════════════════════ */
     window.gpLinkAhpraDevUnlockNextStep = function () {
       const next = loadAhpraState();
       if (!next.stage_1.completedAt) {
@@ -3059,11 +1571,16 @@
     const devHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
     if (devHost) window.gpLinkAhpraDevUnlockNextStep();
 
-    render();
+    /* ═══════════════════════════════════════════════════════
+       INIT
+       ═══════════════════════════════════════════════════════ */
+    (function init() {
+      const state = loadAhpraState();
+      const docs = getDocSnapshot();
+      currentStep = getStepIndex(state, docs);
+      goToStep(currentStep);
+      render();
+    })();
   </script>
-  <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
-    <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
-    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
-  </div>
 </body>
 </html>

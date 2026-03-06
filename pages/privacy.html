@@ -4,134 +4,50 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Privacy Policy - GP Link</title>
+  <link rel="stylesheet" href="../css/shared.css" />
   <style>
-    :root {
-      --bg: #eef3fb;
-      --panel: #ffffff;
-      --line: #dbe5f1;
-      --text: #0f172a;
-      --muted: #64748b;
-      --blue: #1d4ed8;
-      --shadow: 0 18px 40px -28px rgba(15, 23, 42, 0.45);
+    body { padding: 18px 12px 28px; }
+    .legal-wrap { max-width: 800px; margin: 0 auto; }
+    .legal-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 14px 18px; border-radius: var(--radius-md);
+      background: var(--card); border: 1px solid var(--border);
+      box-shadow: var(--shadow); margin-bottom: 14px;
     }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
-        radial-gradient(760px 460px at 100% 0%, rgba(29, 78, 216, 0.14), transparent 58%),
-        var(--bg);
-      padding: 18px 12px 28px;
+    .legal-topbar .brand-logo img { width: 140px; }
+    .legal-content {
+      background: var(--card); border-radius: var(--radius);
+      border: 1px solid var(--border); box-shadow: var(--shadow);
+      padding: 28px; line-height: 1.7;
     }
-
-    .shell {
-      max-width: 980px;
-      margin: 0 auto;
-      display: grid;
-      gap: 12px;
+    .legal-content h1 {
+      font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 6px;
     }
-
-    .topbar {
-      border: 1px solid rgba(226, 232, 240, 0.82);
-      border-radius: 16px;
-      background: #ffffff;
-      padding: 14px 16px;
-      box-shadow: 0 12px 25px -22px rgba(2, 6, 23, 0.25);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
+    .legal-content h2 {
+      margin: 20px 0 8px; font-size: 16px; font-weight: 800; color: var(--blue2);
     }
-
-    .brand-logo img {
-      width: 176px;
-      display: block;
-    }
-
-    .back-link {
-      text-decoration: none;
-      border: 1px solid #bfdbfe;
-      border-radius: 999px;
-      background: #eff6ff;
-      color: var(--blue);
-      font-size: 12px;
-      font-weight: 750;
-      padding: 8px 12px;
-    }
-
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.92);
-      box-shadow: var(--shadow);
-      padding: 22px;
-      line-height: 1.6;
-    }
-
-    h1 {
-      margin: 0 0 8px;
-      font-size: 30px;
-      font-weight: 860;
-      letter-spacing: -0.01em;
-    }
-
-    h2 {
-      margin: 18px 0 8px;
-      font-size: 17px;
-      font-weight: 800;
-      color: #1e3a8a;
-    }
-
-    p {
-      margin: 0 0 10px;
-      font-size: 14px;
-    }
-
-    ul {
-      margin: 0 0 12px 18px;
-      padding: 0;
-      font-size: 14px;
-    }
-
-    .lead {
-      color: #334155;
-      font-weight: 540;
-    }
-
-    .legal-footer {
-      text-align: center;
-      font-size: 12px;
-      color: #64748b;
-      line-height: 1.45;
-      margin-top: 10px;
-    }
-
-    .legal-footer a {
-      color: #334155;
-      text-decoration: underline;
-    }
+    .legal-content p { margin: 0 0 10px; font-size: 14px; font-weight: 400; color: #334155; }
+    .legal-content ul { margin: 0 0 12px 18px; padding: 0; font-size: 14px; color: #334155; }
+    .legal-content li { margin-bottom: 3px; }
+    .legal-content strong { font-weight: 700; color: var(--text); }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <header class="topbar">
+  <div class="legal-wrap">
+    <header class="legal-topbar">
       <a class="brand-logo" href="index.html" aria-label="GP Link home">
         <img src="../media/images/gp-link-logo.png" alt="GP Link" />
       </a>
-      <a class="back-link" href="index.html">Back to Dashboard</a>
+      <a class="btn-modern btn-outline" href="index.html">Back to Dashboard</a>
     </header>
 
-    <main class="card"> 
+    <main class="legal-content">
       <h1>Privacy Policy</h1>
       <p>GP LINK RECRUITMENT AUSTRALIA PTY LTD</p>
       <p>Effective Date: 24/02/2026</p>
 
       <h2>1. Introduction</h2>
-      <p>GP LINK RECRUITMENT AUSTRALIA PTY LTD (“GP Link”, “we”, “us”, or “our”) is committed to protecting your privacy and handling your personal information in a transparent and secure manner.</p>
+      <p>GP LINK RECRUITMENT AUSTRALIA PTY LTD ("GP Link", "we", "us", or "our") is committed to protecting your privacy and handling your personal information in a transparent and secure manner.</p>
       <p>GP Link is a medical recruitment and relocation platform that assists General Practitioners and medical professionals with employment placement, specialist registration processes, regulatory applications, and relocation to Australia.</p>
       <p>This Privacy Policy explains:</p>
       <ul>
@@ -160,7 +76,7 @@
         <li>Date of birth</li>
         <li>Contact details (email, phone number)</li>
         <li>Nationality and residency status</li>
-        <li>Identification documents (passport, driver’s licence)</li>
+        <li>Identification documents (passport, driver's licence)</li>
       </ul>
       <p><strong>B. Professional Information</strong></p>
       <ul>
@@ -194,9 +110,7 @@
       <ul>
         <li>Assess your eligibility for specialist registration</li>
         <li>Facilitate recruitment to Australian medical practices</li>
-        <li>Communicate with regulatory bodies such as:</li>
-        <li>Australian Health Practitioner Regulation Agency (AHPRA)</li>
-        <li>Australian Medical Council (AMC)</li>
+        <li>Communicate with regulatory bodies such as AHPRA and AMC</li>
         <li>Share your profile with approved medical practices (with consent)</li>
         <li>Assist with visa coordination</li>
         <li>Improve platform functionality</li>
@@ -222,25 +136,14 @@
         <li>Limited internal access to sensitive documents</li>
         <li>Audit logging for data access</li>
       </ul>
-      <p>We take reasonable steps to protect personal information from misuse, loss, unauthorised access, modification, or disclosure.</p>
-      <p>However, no system can guarantee 100% security.</p>
+      <p>We take reasonable steps to protect personal information from misuse, loss, unauthorised access, modification, or disclosure. However, no system can guarantee 100% security.</p>
 
       <h2>8. International Data Transfers</h2>
-      <p>As we assist doctors relocating from the UK, Ireland, New Zealand, and other countries, your data may be transferred to:</p>
-      <ul>
-        <li>Australia</li>
-        <li>The United Kingdom</li>
-        <li>Other relevant regulatory jurisdictions</li>
-      </ul>
+      <p>As we assist doctors relocating from the UK, Ireland, New Zealand, and other countries, your data may be transferred to Australia, the United Kingdom, or other relevant regulatory jurisdictions.</p>
       <p>We take reasonable steps to ensure overseas recipients comply with appropriate data protection standards.</p>
 
       <h2>9. Data Retention</h2>
-      <p>We retain personal information:</p>
-      <ul>
-        <li>For as long as required to provide recruitment services</li>
-        <li>As required by regulatory or legal obligations</li>
-        <li>For a reasonable period after account closure for compliance and dispute resolution</li>
-      </ul>
+      <p>We retain personal information for as long as required to provide recruitment services, as required by regulatory or legal obligations, and for a reasonable period after account closure for compliance and dispute resolution.</p>
       <p>You may request deletion of your account, subject to legal and compliance retention requirements.</p>
 
       <h2>10. Your Rights</h2>
@@ -253,29 +156,15 @@
         <li>Object to certain processing</li>
         <li>Lodge a complaint with a regulatory authority</li>
       </ul>
-      <p>Australian users may lodge complaints with the Office of the Australian Information Commissioner (OAIC).</p>
-      <p>EU/UK users may lodge complaints with their local data protection authority.</p>
+      <p>Australian users may lodge complaints with the Office of the Australian Information Commissioner (OAIC). EU/UK users may lodge complaints with their local data protection authority.</p>
 
       <h2>11. Cookies and Platform Tracking</h2>
-      <p>GP Link may use cookies and similar technologies to:</p>
-      <ul>
-        <li>Maintain login sessions</li>
-        <li>Improve user experience</li>
-        <li>Monitor platform performance</li>
-      </ul>
-      <p>We do not use invasive tracking or sell behavioural data.</p>
+      <p>GP Link may use cookies and similar technologies to maintain login sessions, improve user experience, and monitor platform performance. We do not use invasive tracking or sell behavioural data.</p>
 
       <h2>12. Third-Party Services</h2>
-      <p>GP Link may integrate with third-party providers, including:</p>
-      <ul>
-        <li>Cloud hosting providers</li>
-        <li>Document verification services</li>
-        <li>Email service providers</li>
-        <li>Payment processors (if applicable)</li>
-      </ul>
-      <p>We require third parties to maintain reasonable data security standards.</p>
+      <p>GP Link may integrate with third-party providers including cloud hosting, document verification services, email service providers, and payment processors. We require third parties to maintain reasonable data security standards.</p>
 
-      <h2>13. Children’s Privacy</h2>
+      <h2>13. Children's Privacy</h2>
       <p>GP Link is intended for medical professionals and individuals over 18 years of age. We do not knowingly collect information from minors.</p>
 
       <h2>14. Changes to This Policy</h2>
@@ -286,10 +175,10 @@
       <p>GP LINK RECRUITMENT AUSTRALIA PTY LTD<br>Email: hello@mygplink.com.au<br>Parramatta, NSW, Australia</p>
     </main>
 
-  </div>
-  <div class="legal-footer">
-    <div><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a></div>
-    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+    <div class="footer-links" style="padding-top:12px;">
+      <div><a href="privacy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
+      <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
+    </div>
   </div>
 </body>
 </html>
