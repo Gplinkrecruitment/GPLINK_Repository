@@ -303,6 +303,56 @@
     }
     .btn-action.secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
     .btn-action:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    .btn-action.cta-pulse {
+      position: relative;
+      overflow: visible;
+    }
+    .btn-action.cta-pulse::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 14px;
+      border: 2px solid rgba(37, 99, 235, 0.55);
+      animation: ctaPulseRing 1.5s ease-out infinite;
+      pointer-events: none;
+    }
+    .btn-action .cta-cursor {
+      position: absolute;
+      top: -12px;
+      right: -10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #fff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      box-shadow: 0 6px 14px -8px rgba(30, 64, 175, 0.55);
+      animation: ctaCursorBounce 1.2s ease-in-out infinite;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .btn-action .cta-cursor::before {
+      content: "";
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-bottom: 7px solid #1d4ed8;
+      transform: translateY(-1px);
+    }
+    @keyframes ctaPulseRing {
+      0% { transform: scale(0.98); opacity: .9; }
+      70% { transform: scale(1.06); opacity: .15; }
+      100% { transform: scale(1.08); opacity: 0; }
+    }
+    @keyframes ctaCursorBounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
 
     /* Progress bar in step content */
     .step-progress-row {
@@ -1260,16 +1310,27 @@
 
       const markDisabled = !isCurrent || isDone;
       const markLabel = isDone ? "Completed" : "Mark Complete";
-      navHtml += hasPrev
-        ? `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
-        : `<span class="spacer" aria-hidden="true"></span>`;
-      navHtml += `<button class="btn-action complete" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      if (effectiveKey !== "verification_issued") {
+        navHtml += hasPrev
+          ? `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
+          : `<span class="spacer" aria-hidden="true"></span>`;
+        navHtml += `<button class="btn-action complete" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      }
       actionsEl.innerHTML = html;
       navActionsEl.innerHTML = navHtml;
 
       // Wire buttons
       const openBtn = document.getElementById("actionOpenBtn");
       if (openBtn) {
+        if (effectiveKey === "verification_issued") {
+          openBtn.classList.add("cta-pulse");
+          if (!openBtn.querySelector(".cta-cursor")) {
+            const hint = document.createElement("span");
+            hint.className = "cta-cursor";
+            hint.textContent = "Click Here";
+            openBtn.appendChild(hint);
+          }
+        }
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.open(MYINTEALTH_URL, "_blank", "noopener,noreferrer");
           else if (meta.ctaType === "support") openModal(supportModalEl);
