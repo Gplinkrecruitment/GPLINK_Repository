@@ -324,25 +324,6 @@
       white-space: nowrap;
     }
 
-    /* ---- QUALIFICATION SELECT ---- */
-    .qual-box {
-      background: #f8fafc; border-radius: 12px;
-      border: 1px solid #e8edf5; padding: 14px;
-      margin-top: 16px;
-    }
-    .qual-box label {
-      display: block; font-size: 12px; font-weight: 700;
-      color: var(--text); margin-bottom: 6px;
-    }
-    .qual-box select {
-      width: 100%; border: 1px solid #e2e8f0; border-radius: 10px;
-      padding: 9px 12px; font: inherit; font-size: 13px; background: #fff;
-    }
-    .qual-box .qual-note {
-      font-size: 12px; color: #475569; font-weight: 500;
-      margin-top: 8px; line-height: 1.45;
-    }
-
     /* ---- HELP CARD ---- */
     .help-card {
       background: #fff; border-radius: var(--radius);
@@ -576,6 +557,7 @@
       .desktop-topbar { display: block; }
       .bottom-nav { display: none; }
       .dash-wrap { padding-bottom: 40px; }
+      .step-actions { justify-content: center; }
     }
     @media (max-width: 767px) {
       .desktop-topbar { display: none; }
@@ -699,16 +681,6 @@
 
       <div class="step-actions" id="stepActions"></div>
 
-      <!-- Qualification country selector (upload stage only) -->
-      <div class="qual-box" id="qualificationBox" style="display: none;">
-        <label for="countrySelect">Which country did you obtain your specialist qualification?</label>
-        <select id="countrySelect">
-          <option value="uk">United Kingdom</option>
-          <option value="nz">New Zealand</option>
-          <option value="ie">Ireland</option>
-        </select>
-        <p class="qual-note" id="qualificationInstruction"></p>
-      </div>
       <div class="step-nav-actions" id="stepNavActions"></div>
     </div>
 
@@ -784,7 +756,6 @@
     const STORAGE_KEY = "gp_epic_progress";
     const TUTORIAL_SEEN_KEY = "gp_epic_tutorial_seen";
     const AMC_KEY = "gp_amc_progress";
-    const COUNTRY_KEY = "gp_selected_country";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const MYINTEALTH_URL = "https://login.myintealth.app/myintealthid.onmicrosoft.com/B2C_1A_id-signup_signin_claim_sf_applicant/samlp/sso/login";
@@ -868,12 +839,6 @@
     };
     const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([k, v]) => [v, k]));
 
-    const uploadByCountry = {
-      uk: { instruction: "Upload your MRCGP certificate (certified copy).", doNow: "Upload your MRCGP and ensure AMC is nominated." },
-      ie: { instruction: "Upload your MICGP certificate (certified copy).", doNow: "Upload your MICGP and ensure AMC is nominated." },
-      nz: { instruction: "Upload your FRNZCGP certificate (certified copy).", doNow: "Upload your FRNZCGP and ensure AMC is nominated." }
-    };
-
     const tutorialByStage = {
       create_account: { text: "Create your MyIntealth account by following this walkthrough.", src: "../media/videos/myintealth-tutorial-1.mp4" },
       account_establishment: { text: "Establish your EPIC account and complete your NotaryCam session.", src: "../media/videos/myintealth-tutorial-3.mp4" },
@@ -914,7 +879,7 @@
     }
 
     function flushAllBatchedSaves() {
-      [STORAGE_KEY, TUTORIAL_SEEN_KEY, COUNTRY_KEY].forEach(flushBatchedSave);
+      [STORAGE_KEY, TUTORIAL_SEEN_KEY].forEach(flushBatchedSave);
     }
 
     window.addEventListener("beforeunload", flushAllBatchedSaves);
@@ -982,17 +947,6 @@
       } catch (e) { const f = defaultProgress(); saveProgress(f, true); return f; }
     }
 
-    function loadSelectedCountry() {
-      const raw = localStorage.getItem(COUNTRY_KEY);
-      if (raw === "uk" || raw === "ie" || raw === "nz") return raw;
-      queueBatchedSave(COUNTRY_KEY, "uk", true);
-      return "uk";
-    }
-
-    function saveSelectedCountry(c) {
-      if (c === "uk" || c === "ie" || c === "nz") queueBatchedSave(COUNTRY_KEY, c);
-    }
-
     function stageStatus(progress, key) {
       if (progress.completed[key]) return "done";
       if (progress.stage === key) return "current";
@@ -1037,9 +991,6 @@
     const supportModalEl = document.getElementById("supportModal");
     const supportMessageEl = document.getElementById("supportMessage");
     const supportSubmitBtnEl = document.getElementById("supportSubmitBtn");
-    const countrySelectEl = document.getElementById("countrySelect");
-    const qualificationBoxEl = document.getElementById("qualificationBox");
-    const qualificationInstructionEl = document.getElementById("qualificationInstruction");
     const tutorialVideoEl = document.getElementById("tutorialVideo");
     const tutorialSourceEl = document.getElementById("tutorialSource");
     const tutorialDescEl = document.getElementById("tutorialDesc");
@@ -1269,16 +1220,7 @@
       }
 
       // Info grid
-      let doNow = meta.doNow;
-      if (key === "upload_qualifications" && isCurrent) {
-        const country = loadSelectedCountry();
-        countrySelectEl.value = country;
-        doNow = (uploadByCountry[country] || uploadByCountry.uk).doNow;
-        qualificationInstructionEl.textContent = (uploadByCountry[country] || uploadByCountry.uk).instruction;
-        qualificationBoxEl.style.display = "block";
-      } else {
-        qualificationBoxEl.style.display = "none";
-      }
+      const doNow = meta.doNow;
 
       document.getElementById("stepInfoGrid").innerHTML = `
         <div class="step-info-item">
@@ -1314,8 +1256,6 @@
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
       } else if (isCurrent && !isWaiting) {
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
-      } else if (isWaiting) {
-        html += `<button class="btn-action secondary" id="actionSupportBtn" type="button">Contact Support</button>`;
       }
 
       const markDisabled = !isCurrent || isDone;
@@ -1340,11 +1280,6 @@
       const markBtn = document.getElementById("actionMarkBtn");
       if (markBtn && !markBtn.disabled) {
         markBtn.addEventListener("click", () => markStageComplete(progress, key));
-      }
-
-      const supportBtn = document.getElementById("actionSupportBtn");
-      if (supportBtn) {
-        supportBtn.addEventListener("click", () => openModal(supportModalEl));
       }
 
       const prevBtn = document.getElementById("actionPrevBtn");
@@ -1575,11 +1510,6 @@
         e.preventDefault();
         first.focus();
       }
-    });
-
-    countrySelectEl.addEventListener("change", () => {
-      saveSelectedCountry(countrySelectEl.value);
-      renderPage(loadProgress());
     });
 
     // Touch drag for mobile reg sheet
