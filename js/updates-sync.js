@@ -7,6 +7,24 @@
 
   const DEFAULT_UPDATES = [];
   const DEFAULT_READ_STATE = {};
+  const memoryStore = Object.create(null);
+
+  function safeGetItem(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (err) {
+      return Object.prototype.hasOwnProperty.call(memoryStore, key) ? memoryStore[key] : null;
+    }
+  }
+
+  function safeSetItem(key, value) {
+    const str = String(value);
+    try {
+      localStorage.setItem(key, str);
+    } catch (err) {
+      memoryStore[key] = str;
+    }
+  }
 
   function normalizeType(rawType) {
     const type = typeof rawType === "string" ? rawType.toLowerCase() : "info";
@@ -34,7 +52,7 @@
   }
 
   function parseStoredUpdates() {
-    const raw = localStorage.getItem(UPDATES_KEY);
+    const raw = safeGetItem(UPDATES_KEY);
     if (!raw) return null;
     try {
       const parsed = JSON.parse(raw);
@@ -46,7 +64,7 @@
   }
 
   function parseReadState() {
-    const raw = localStorage.getItem(READ_KEY);
+    const raw = safeGetItem(READ_KEY);
     if (!raw) return { ...DEFAULT_READ_STATE };
     try {
       const parsed = JSON.parse(raw);
@@ -59,7 +77,7 @@
 
   function saveReadState(state) {
     const next = state && typeof state === "object" ? state : {};
-    localStorage.setItem(READ_KEY, JSON.stringify(next));
+    safeSetItem(READ_KEY, JSON.stringify(next));
     return next;
   }
 
@@ -71,7 +89,7 @@
   }
 
   function parseSupportCases() {
-    const raw = localStorage.getItem(SUPPORT_CASES_KEY);
+    const raw = safeGetItem(SUPPORT_CASES_KEY);
     if (!raw) return [];
     try {
       const parsed = JSON.parse(raw);
@@ -92,7 +110,7 @@
       return { ...entry, unread: !!unread };
     });
     if (changed) {
-      localStorage.setItem(SUPPORT_CASES_KEY, JSON.stringify(next));
+      safeSetItem(SUPPORT_CASES_KEY, JSON.stringify(next));
     }
   }
 
@@ -154,7 +172,7 @@
   function saveGpLinkUpdates(updates) {
     const clean = sanitizeUpdates(updates);
     const finalUpdates = clean.length ? clean : [];
-    localStorage.setItem(UPDATES_KEY, JSON.stringify(finalUpdates));
+    safeSetItem(UPDATES_KEY, JSON.stringify(finalUpdates));
     window.gpLinkUpdates = finalUpdates.slice();
     return window.gpLinkUpdates;
   }
@@ -407,7 +425,7 @@
         return;
       }
 
-      let trigger = targetEl ? targetEl.closest("#topSupportBtn, #mobileNotifBtn") : null;
+      let trigger = targetEl ? targetEl.closest("#topSupportBtn, #mobileNotifBtn, #mobileSupportBtn") : null;
       if (!trigger && targetEl) {
         const navCandidate = targetEl.closest(".nav-menu .nav-item, .mobile-tab");
         if (navCandidate) {
