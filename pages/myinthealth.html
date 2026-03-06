@@ -57,9 +57,6 @@
       --card: rgba(255, 255, 255, 0.92);
       --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
       --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
-      --glass-bg: rgba(255, 255, 255, 0.72);
-      --glass-border: rgba(191, 220, 255, 0.95);
-      --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
       --radius: 20px;
     }
 
@@ -85,9 +82,7 @@
       display: flex; align-items: center;
       justify-content: space-between; padding: 18px 0 14px;
     }
-
     .header-greeting { display: flex; align-items: center; gap: 12px; }
-
     .header-avatar {
       width: 48px; height: 48px; border-radius: 50%;
       background: linear-gradient(135deg, #2563eb, #7c3aed);
@@ -96,33 +91,20 @@
       flex-shrink: 0; border: 2px solid #fff;
       box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
     }
-
-    .header-text h1 {
-      font-size: 20px; font-weight: 800;
-      letter-spacing: -0.02em; line-height: 1.2;
-    }
-
-    .header-text p {
-      font-size: 13px; color: var(--muted);
-      font-weight: 500; margin-top: 1px;
-    }
-
+    .header-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+    .header-text p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 1px; }
     .header-actions { display: flex; gap: 8px; align-items: center; }
-
     .header-icon-btn {
       width: 42px; height: 42px; border-radius: 14px;
       border: 1px solid #e2e8f0; background: #fff;
       display: grid; place-items: center; cursor: pointer;
       position: relative; transition: all .15s ease; color: #475569;
     }
-
     .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
-
     .header-icon-btn svg {
       width: 20px; height: 20px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-
     .header-badge {
       position: absolute; top: -4px; right: -4px;
       width: 18px; height: 18px; border-radius: 50%;
@@ -132,390 +114,219 @@
       border: 2px solid #f0f4fa;
     }
 
-    /* ---- SUBSTEP NAVIGATION ---- */
-    .sn-wrap { margin-bottom: 16px; }
-
-    .sn-progress-header {
-      background: #fff; border-radius: 16px; border: 1px solid #e8edf5;
-      padding: 18px 20px; box-shadow: var(--shadow2); margin-bottom: 12px;
-    }
-    .sn-progress-top {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
-    }
-    .sn-progress-label {
-      font-size: 11px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px;
-    }
-    .sn-progress-title {
-      font-size: 18px; font-weight: 800; letter-spacing: -0.01em; color: var(--text);
-    }
-    .sn-progress-pct {
-      font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: var(--text);
-    }
-    .sn-progress-count {
-      font-size: 12px; color: var(--muted); font-weight: 500;
-    }
-    .sn-bar-track {
-      height: 6px; border-radius: 999px; background: #f1f5f9; overflow: hidden;
-    }
-    .sn-bar-fill {
-      height: 100%; border-radius: 999px;
-      background: linear-gradient(90deg, #2563eb, #3b82f6);
-      transition: width .5s ease;
-    }
-    .sn-bar-fill.complete {
-      background: linear-gradient(90deg, #16a34a, #22c55e);
-    }
-
-    /* Mobile step rail */
-    .sn-mobile-rail {
-      display: none; background: #fff; border-radius: 16px;
-      border: 1px solid #e8edf5; padding: 12px 8px;
-      margin-bottom: 12px; position: relative; overflow: hidden;
-    }
-    .sn-rail-scroll {
-      display: flex; align-items: flex-end; gap: 2px;
-      overflow-x: auto; padding: 0 8px 4px;
+    /* ---- STEP TABS (horizontal navigation) ---- */
+    .step-tabs {
+      display: flex; align-items: center;
+      gap: 4px; padding: 8px 0 12px;
+      position: relative;
+      overflow-x: auto;
       -ms-overflow-style: none; scrollbar-width: none;
-      scroll-snap-type: x mandatory;
     }
-    .sn-rail-scroll::-webkit-scrollbar { display: none; }
-    .sn-rail-fade-l, .sn-rail-fade-r {
-      position: absolute; top: 0; bottom: 0; width: 24px;
-      pointer-events: none; z-index: 2;
-    }
-    .sn-rail-fade-l { left: 0; background: linear-gradient(90deg, #fff, transparent); }
-    .sn-rail-fade-r { right: 0; background: linear-gradient(270deg, #fff, transparent); }
+    .step-tabs::-webkit-scrollbar { display: none; }
 
-    .sn-pill {
-      display: flex; flex-direction: column; align-items: center;
-      gap: 4px; min-width: 56px; padding: 0 4px;
-      background: none; border: 0; cursor: pointer;
-      font-family: inherit; scroll-snap-align: center;
-      transition: opacity .2s;
+    .step-tab-glass {
+      position: absolute; z-index: 1;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(191, 220, 255, 0.9);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px -10px rgba(37, 99, 235, 0.35);
+      pointer-events: none;
+      transition: left .35s cubic-bezier(.22,.9,.18,1.05),
+                  width .35s cubic-bezier(.22,.9,.18,1.05);
     }
-    .sn-pill:disabled { opacity: .45; cursor: not-allowed; }
-    .sn-pill-circle {
-      width: 32px; height: 32px; border-radius: 50%;
+
+    .step-tab {
+      position: relative; z-index: 2;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px; border-radius: 14px;
+      font-size: 13px; font-weight: 600; color: #64748b;
+      cursor: pointer; border: 0; background: transparent;
+      font-family: inherit; white-space: nowrap;
+      transition: color .2s;
+      flex-shrink: 0;
+    }
+    .step-tab:hover { color: var(--text); }
+    .step-tab.active { color: var(--blue); font-weight: 700; }
+    .step-tab.done { color: #059669; }
+    .step-tab:disabled { opacity: .4; cursor: not-allowed; }
+    .step-tab:disabled:hover { color: #64748b; }
+
+    .step-tab-num {
+      width: 26px; height: 26px; border-radius: 50%;
       display: grid; place-items: center;
       font-size: 11px; font-weight: 700;
-      border: 2px solid #e2e8f0; background: #fff; color: #64748b;
-      transition: all .2s;
+      background: #e8edf5; color: #64748b;
+      flex-shrink: 0; transition: all .2s;
     }
-    .sn-pill-circle svg {
-      width: 14px; height: 14px; stroke: currentColor;
+    .step-tab-num svg {
+      width: 13px; height: 13px; stroke: currentColor;
       fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
     }
-    .sn-pill-circle.done { background: #10b981; border-color: #10b981; color: #fff; }
-    .sn-pill-circle.active { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 2px 8px -2px rgba(37,99,235,.4); }
-    .sn-pill-circle.action { background: #fef3c7; border-color: #f59e0b; color: #b45309; }
-    .sn-pill-circle.locked { background: #f1f5f9; border-color: #e2e8f0; color: #94a3b8; }
-    .sn-pill-label {
-      font-size: 9px; font-weight: 600; text-align: center;
-      max-width: 60px; line-height: 1.2; color: #94a3b8;
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-    }
-    .sn-pill-label.active { color: #1d4ed8; }
-    .sn-pill-label.done { color: #059669; }
-    .sn-connector {
-      width: 24px; height: 2px; border-radius: 999px;
-      background: #e2e8f0; flex-shrink: 0; align-self: flex-start;
-      margin-top: 15px;
-    }
-    .sn-connector.done { background: #6ee7b7; }
+    .step-tab-num.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px -2px rgba(37,99,235,.4); }
+    .step-tab-num.done { background: var(--green); color: #fff; }
+    .step-tab-num.locked { background: #f1f5f9; color: #94a3b8; }
 
-    /* Substep cards */
-    .sn-cards { display: grid; gap: 8px; margin-bottom: 12px; }
-    .sn-card {
-      display: flex; align-items: center; gap: 14px;
-      background: #fff; border-radius: 16px; padding: 14px 16px;
-      border: 1px solid #e8edf5; cursor: pointer;
-      transition: all .2s ease; width: 100%; text-align: left;
-      font-family: inherit; font-size: inherit; color: inherit;
-    }
-    .sn-card:hover {
-      border-color: #c7d2fe; box-shadow: 0 4px 16px -8px rgba(37,99,235,.12);
-      transform: translateY(-1px);
-    }
-    .sn-card.selected-current { border-color: #93c5fd; background: rgba(239,246,255,.5); box-shadow: 0 4px 16px -8px rgba(37,99,235,.12); }
-    .sn-card.selected-done { border-color: #86efac; background: rgba(236,253,245,.4); }
-    .sn-card.selected-action { border-color: #fde68a; background: rgba(255,251,235,.4); }
-    .sn-card.is-current { border-color: rgba(147,197,253,.5); background: linear-gradient(135deg, rgba(239,246,255,.4), #fff); }
-    .sn-card.is-done { border-color: rgba(187,247,208,.5); }
-    .sn-card.is-action { border-color: rgba(253,230,138,.5); background: linear-gradient(135deg, rgba(255,251,235,.3), #fff); }
-    .sn-card.is-locked { opacity: .55; cursor: not-allowed; }
-    .sn-card.is-locked:hover { transform: none; box-shadow: none; border-color: #e8edf5; }
-
-    .sn-card-icon {
-      width: 36px; height: 36px; border-radius: 12px;
-      display: grid; place-items: center; flex-shrink: 0;
-    }
-    .sn-card-icon svg {
-      width: 18px; height: 18px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .sn-card-icon.current { background: #eff6ff; color: #2563eb; }
-    .sn-card-icon.done { background: #ecfdf5; color: #16a34a; }
-    .sn-card-icon.locked { background: #f1f5f9; color: #94a3b8; }
-    .sn-card-icon.action { background: #fffbeb; color: #d97706; }
-    .sn-card-icon.waiting { background: #f5f3ff; color: #7c3aed; }
-
-    .sn-card-body { flex: 1; min-width: 0; }
-    .sn-card-step {
-      font-size: 11px; font-weight: 600; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 1px;
-    }
-    .sn-card-title { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.3; }
-    .sn-card-title.locked { color: #94a3b8; }
-    .sn-card-desc { font-size: 12px; color: var(--muted); font-weight: 500; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .sn-card-desc.locked { color: #94a3b8; }
-
-    .sn-card-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-    .sn-badge {
-      padding: 4px 10px; border-radius: 999px;
-      font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.03em; white-space: nowrap;
-    }
-    .sn-badge.current-b { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-    .sn-badge.done-b { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
-    .sn-badge.locked-b { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-    .sn-badge.action-b { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
-    .sn-badge.waiting-b { background: #f5f3ff; color: #5b21b6; border: 1px solid #ddd6fe; }
-    .sn-card-chevron {
-      width: 16px; height: 16px; color: #94a3b8; flex-shrink: 0;
-      transition: transform .15s;
-    }
-    .sn-card:hover .sn-card-chevron { transform: translateX(2px); }
-    .sn-card-chevron svg {
-      width: 16px; height: 16px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    /* Detail panel */
-    .sn-detail {
-      background: #fff; border-radius: 16px; border: 1px solid #e8edf5;
-      overflow: hidden; margin-bottom: 12px;
-      animation: snSlideIn .2s ease;
-    }
-    @keyframes snSlideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-    .sn-detail.hidden { display: none; }
-    .sn-detail.border-action { border-color: #fde68a; }
-    .sn-detail.border-done { border-color: #bbf7d0; }
-    .sn-detail-accent {
-      height: 3px;
-      background: linear-gradient(90deg, #2563eb, #3b82f6);
-    }
-    .sn-detail-accent.action { background: linear-gradient(90deg, #f59e0b, #f97316); }
-    .sn-detail-accent.done { background: linear-gradient(90deg, #16a34a, #22c55e); }
-    .sn-detail-body { padding: 20px; }
-    .sn-detail-header {
-      display: flex; align-items: flex-start; justify-content: space-between;
-      gap: 12px; margin-bottom: 14px;
-    }
-    .sn-detail-title {
-      font-size: 17px; font-weight: 800; color: var(--text);
-      letter-spacing: -0.01em; line-height: 1.3;
-    }
-    .sn-detail-desc {
-      font-size: 13px; color: #475569; font-weight: 500;
-      line-height: 1.5; margin-top: 4px;
-    }
-    .sn-detail-close {
-      width: 32px; height: 32px; border-radius: 10px;
-      border: 0; background: transparent; cursor: pointer;
-      display: grid; place-items: center; color: #94a3b8;
-      transition: all .15s; flex-shrink: 0; font-family: inherit;
-    }
-    .sn-detail-close:hover { background: #f1f5f9; color: #475569; }
-    .sn-detail-close svg {
-      width: 16px; height: 16px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    .sn-detail-warning {
-      display: flex; align-items: flex-start; gap: 12px;
-      background: #fffbeb; border: 1px solid #fde68a;
-      border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
-    }
-    .sn-detail-warning-icon {
-      width: 32px; height: 32px; border-radius: 10px;
-      background: #fef3c7; display: grid; place-items: center; flex-shrink: 0;
-    }
-    .sn-detail-warning-icon svg {
-      width: 16px; height: 16px; stroke: #b45309;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .sn-detail-warning-title { font-size: 13px; font-weight: 700; color: #92400e; }
-    .sn-detail-warning-text { font-size: 12px; color: #a16207; font-weight: 500; line-height: 1.45; margin-top: 2px; }
-
-    .sn-detail-grid {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 10px; margin-bottom: 14px;
-    }
-    .sn-detail-item {
-      background: #f8fafc; border-radius: 12px;
-      border: 1px solid #e8edf5; padding: 12px;
-    }
-    .sn-detail-item-label {
-      font-size: 10px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px;
-    }
-    .sn-detail-item-value {
-      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
-    }
-    .sn-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-
-    /* Navigation controls */
-    .sn-nav-controls {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; margin-bottom: 16px;
-    }
-    .sn-nav-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 10px 16px; border-radius: 12px;
-      font-size: 13px; font-weight: 700; border: 1px solid;
-      cursor: pointer; font-family: inherit; transition: all .15s;
-    }
-    .sn-nav-btn svg {
-      width: 16px; height: 16px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .sn-nav-btn.prev { background: #fff; color: #475569; border-color: #e2e8f0; }
-    .sn-nav-btn.prev:hover:not(:disabled) { background: #f8fafc; border-color: #cbd5e1; }
-    .sn-nav-btn.next { background: var(--blue); color: #fff; border-color: var(--blue); box-shadow: 0 4px 12px -4px rgba(37,99,235,.4); }
-    .sn-nav-btn.next:hover:not(:disabled) { background: var(--blue2); transform: translateY(-1px); }
-    .sn-nav-btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
-    .sn-nav-step-text { font-size: 12px; font-weight: 600; color: var(--muted); }
-
-    /* ---- GUIDANCE PANEL ---- */
-    .guidance-card {
+    /* ---- TUTORIAL VIDEO ---- */
+    .tutorial-card {
       background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 20px;
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-bottom: 16px;
+    }
+    .tutorial-title {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 4px;
+    }
+    .tutorial-title svg {
+      width: 20px; height: 20px; stroke: var(--blue);
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .tutorial-title span { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+    .tutorial-desc { font-size: 13px; color: var(--muted); font-weight: 500; margin-bottom: 12px; }
+    .tutorial-video {
+      width: 100%; border-radius: 12px;
+      border: 1px solid #e2e8f0; background: #000;
+    }
+
+    /* ---- STEP CONTENT PANEL ---- */
+    .step-content {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 22px;
       margin-bottom: 16px; position: relative; overflow: hidden;
     }
-
-    .guidance-card::before {
+    .step-content::before {
       content: ""; position: absolute; top: 0; left: 0; right: 0;
       height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
     }
+    .step-content.action-state::before { background: linear-gradient(90deg, #f59e0b, #f97316); }
+    .step-content.waiting-state::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+    .step-content.done-state::before { background: linear-gradient(90deg, #16a34a, #22c55e); }
 
-    .guidance-card.action-state::before {
-      background: linear-gradient(90deg, #f59e0b, #f97316);
-    }
-    .guidance-card.waiting-state::before {
-      background: linear-gradient(90deg, #8b5cf6, #a78bfa);
-    }
-    .guidance-card.done-state::before {
-      background: linear-gradient(90deg, #16a34a, #22c55e);
-    }
-
-    .guidance-header {
-      display: flex; align-items: flex-start;
-      justify-content: space-between; gap: 12px;
-      margin-bottom: 14px; flex-wrap: wrap;
-    }
-
-    .guidance-title-area { flex: 1; min-width: 0; }
-
-    .guidance-phase-badge {
+    .step-content-badge {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 4px 10px; border-radius: 999px;
       font-size: 10px; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.03em; margin-bottom: 8px;
       background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
     }
-    .guidance-phase-badge.action { background: #fffbeb; color: #92400e; border-color: #fde68a; }
-    .guidance-phase-badge.waiting { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
-    .guidance-phase-badge.done { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .step-content-badge.action { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+    .step-content-badge.waiting { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
+    .step-content-badge.done { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
 
-    .guidance-title {
-      font-size: 18px; font-weight: 800;
+    .step-content-title {
+      font-size: 20px; font-weight: 800;
       letter-spacing: -0.01em; line-height: 1.3;
       margin-bottom: 4px;
     }
-
-    .guidance-sub {
+    .step-content-sub {
       font-size: 13px; color: #475569;
-      font-weight: 500; line-height: 1.5;
+      font-weight: 500; line-height: 1.5; margin-bottom: 16px;
     }
 
-    .guidance-grid {
+    .step-content-warning {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: #fffbeb; border: 1px solid #fde68a;
+      border-radius: 14px; padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .step-content-warning.hidden { display: none; }
+    .step-content-warning-icon {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: #fef3c7; display: grid; place-items: center; flex-shrink: 0;
+    }
+    .step-content-warning-icon svg {
+      width: 18px; height: 18px; stroke: #b45309;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .step-content-warning-title { font-size: 13px; font-weight: 700; color: #92400e; margin-bottom: 2px; }
+    .step-content-warning-text { font-size: 12px; color: #a16207; font-weight: 500; line-height: 1.45; }
+
+    .step-info-grid {
       display: grid; grid-template-columns: 1fr 1fr;
-      gap: 10px; margin-bottom: 14px;
+      gap: 10px; margin-bottom: 16px;
     }
-
-    .guidance-detail {
+    .step-info-item {
       background: #f8fafc; border-radius: 12px;
-      border: 1px solid #e8edf5; padding: 12px;
+      border: 1px solid #e8edf5; padding: 14px;
+    }
+    .step-info-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .step-info-value {
+      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
     }
 
-    .guidance-detail-label {
-      font-size: 10px; font-weight: 700;
-      color: var(--muted); text-transform: uppercase;
-      letter-spacing: 0.04em; margin-bottom: 4px;
+    .step-actions {
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
     }
 
-    .guidance-detail-value {
-      font-size: 13px; font-weight: 600; color: var(--text);
-      line-height: 1.4;
-    }
-
-    .guidance-cta {
+    .btn-action {
       display: inline-flex; align-items: center; gap: 8px;
       padding: 11px 20px; border-radius: 12px;
       font-size: 13px; font-weight: 700;
       text-decoration: none; border: 1px solid;
       transition: all .15s ease; cursor: pointer;
-      font-family: inherit; background: var(--blue);
-      color: #fff; border-color: var(--blue);
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+      font-family: inherit;
     }
-    .guidance-cta:hover { background: var(--blue2); transform: translateY(-1px); }
-    .guidance-cta svg {
+    .btn-action:hover { transform: translateY(-1px); }
+    .btn-action svg {
       width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
+    .btn-action.primary {
+      background: var(--blue); color: #fff; border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .btn-action.primary:hover { background: var(--blue2); }
+    .btn-action.complete {
+      background: #fff; color: #059669; border-color: #bbf7d0;
+    }
+    .btn-action.complete:hover { background: #ecfdf5; }
+    .btn-action.secondary {
+      background: #fff; color: #334155; border-color: #e2e8f0; box-shadow: none;
+    }
+    .btn-action.secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .btn-action:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
 
-    .guidance-cta-secondary {
-      background: #fff; color: #334155; border-color: #e2e8f0;
-      box-shadow: none;
+    /* Progress bar in step content */
+    .step-progress-row {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 16px;
     }
-    .guidance-cta-secondary:hover {
-      background: #f8fafc; border-color: #cbd5e1;
+    .step-progress-track {
+      flex: 1; height: 6px; border-radius: 999px;
+      background: #e8edf5; overflow: hidden;
     }
-
-    .guidance-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-
-    /* ---- ACTION ALERT ---- */
-    .action-alert {
-      background: #fffbeb; border-radius: 14px;
-      border: 1px solid #fde68a; padding: 14px 16px;
-      margin-bottom: 16px; display: flex;
-      align-items: flex-start; gap: 12px;
+    .step-progress-fill {
+      height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, #2563eb, #3b82f6);
+      transition: width .5s ease;
     }
-    .action-alert.hidden { display: none; }
-
-    .action-alert-icon {
-      width: 32px; height: 32px; border-radius: 10px;
-      background: #fef3c7; display: grid; place-items: center;
-      flex-shrink: 0;
-    }
-    .action-alert-icon svg {
-      width: 18px; height: 18px; stroke: #b45309;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    .action-alert-title {
-      font-size: 13px; font-weight: 700;
-      color: #92400e; margin-bottom: 2px;
-    }
-    .action-alert-text {
-      font-size: 12px; color: #a16207;
-      font-weight: 500; line-height: 1.45;
+    .step-progress-fill.complete { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .step-progress-text {
+      font-size: 12px; font-weight: 700; color: var(--muted);
+      white-space: nowrap;
     }
 
-    /* (step-list and step-detail replaced by substep nav above) */
+    /* ---- QUALIFICATION SELECT ---- */
+    .qual-box {
+      background: #f8fafc; border-radius: 12px;
+      border: 1px solid #e8edf5; padding: 14px;
+      margin-top: 16px;
+    }
+    .qual-box label {
+      display: block; font-size: 12px; font-weight: 700;
+      color: var(--text); margin-bottom: 6px;
+    }
+    .qual-box select {
+      width: 100%; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: 9px 12px; font: inherit; font-size: 13px; background: #fff;
+    }
+    .qual-box .qual-note {
+      font-size: 12px; color: #475569; font-weight: 500;
+      margin-top: 8px; line-height: 1.45;
+    }
 
     /* ---- DOCUMENTS SECTION ---- */
     .docs-section {
@@ -523,23 +334,15 @@
       border: 1px solid #e8edf5; padding: 18px;
       margin-bottom: 16px;
     }
-
     .docs-title {
-      display: flex; align-items: center; gap: 8px;
-      margin-bottom: 14px;
+      display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
     }
-
     .docs-title svg {
       width: 20px; height: 20px; stroke: var(--blue);
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-
-    .docs-title span {
-      font-size: 16px; font-weight: 800; letter-spacing: -0.01em;
-    }
-
+    .docs-title span { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
     .docs-list { display: grid; gap: 8px; }
-
     .doc-item {
       display: flex; align-items: center; gap: 12px;
       border: 1px solid #e8edf5; border-radius: 14px;
@@ -547,7 +350,6 @@
       transition: border-color .15s ease;
     }
     .doc-item:hover { border-color: #c7d2fe; }
-
     .doc-icon {
       width: 36px; height: 36px; border-radius: 10px;
       display: grid; place-items: center; flex-shrink: 0;
@@ -559,11 +361,9 @@
     }
     .doc-icon.uploaded { background: #ecfdf5; color: #16a34a; }
     .doc-icon.missing { background: #fef2f2; color: #dc2626; }
-
     .doc-body { flex: 1; min-width: 0; }
     .doc-name { font-size: 13px; font-weight: 700; color: var(--text); }
     .doc-status { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 1px; }
-
     .doc-badge {
       padding: 4px 10px; border-radius: 999px;
       font-size: 10px; font-weight: 700;
@@ -571,38 +371,6 @@
     }
     .doc-badge.uploaded { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
     .doc-badge.missing { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-    .doc-badge.review { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
-
-    /* ---- VIDEO TUTORIAL ---- */
-    .tutorial-card {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 18px;
-      margin-bottom: 16px;
-    }
-
-    .tutorial-title {
-      display: flex; align-items: center; gap: 8px;
-      margin-bottom: 4px;
-    }
-
-    .tutorial-title svg {
-      width: 20px; height: 20px; stroke: var(--blue);
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    .tutorial-title span {
-      font-size: 16px; font-weight: 800; letter-spacing: -0.01em;
-    }
-
-    .tutorial-desc {
-      font-size: 13px; color: var(--muted);
-      font-weight: 500; margin-bottom: 12px;
-    }
-
-    .tutorial-video {
-      width: 100%; border-radius: 12px;
-      border: 1px solid #e2e8f0; background: #000;
-    }
 
     /* ---- HELP CARD ---- */
     .help-card {
@@ -612,36 +380,28 @@
       display: flex; align-items: flex-start;
       justify-content: space-between; gap: 16px; flex-wrap: wrap;
     }
-
     .help-card .txt {
       font-size: 13px; font-weight: 500; color: #334155;
       line-height: 1.5; max-width: 600px;
     }
-
     .help-card .txt strong {
       display: block; font-weight: 800; font-size: 15px;
       color: var(--text); margin-bottom: 4px;
     }
-
     .help-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-
     .btn-modern {
       display: inline-flex; align-items: center; gap: 8px;
       padding: 10px 16px; border-radius: 12px;
       font-size: 13px; font-weight: 700;
       text-decoration: none; border: 1px solid;
-      transition: all .15s ease; cursor: pointer;
-      font-family: inherit;
+      transition: all .15s ease; cursor: pointer; font-family: inherit;
     }
     .btn-modern:hover { transform: translateY(-1px); }
-
     .btn-primary {
-      background: var(--blue); color: #fff;
-      border-color: var(--blue);
+      background: var(--blue); color: #fff; border-color: var(--blue);
       box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
     }
     .btn-primary:hover { background: var(--blue2); }
-
     .btn-outline {
       background: #fff; color: #334155; border-color: #e2e8f0;
     }
@@ -650,32 +410,20 @@
     /* ---- TRUST ---- */
     .trust-block {
       background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 18px;
-      margin-bottom: 16px;
+      border: 1px solid #e8edf5; padding: 18px; margin-bottom: 16px;
     }
-
-    .trust-block > .trust-heading {
-      font-weight: 800; color: var(--text); font-size: 15px; margin-bottom: 12px;
-    }
-
-    .trust-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-    }
-
+    .trust-block > .trust-heading { font-weight: 800; color: var(--text); font-size: 15px; margin-bottom: 12px; }
+    .trust-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .trust-col {
       border: 1px solid #e8edf5; border-radius: 14px;
       background: #fafbfd; padding: 14px;
     }
-
     .trust-col h4 { font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
-
     .trust-col ul { list-style: none; display: grid; gap: 6px; }
-
     .trust-col li {
       font-size: 12px; font-weight: 500; color: #334155;
       display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
     }
-
     .trust-col li::before {
       content: ""; width: 6px; height: 6px; border-radius: 50%;
       background: var(--blue); flex-shrink: 0; margin-top: 5px;
@@ -700,47 +448,32 @@
     .desktop-topbar {
       padding: 12px 16px; border-radius: 16px;
       margin-bottom: 6px; background: #fff;
-      border: 1px solid #e8edf5;
-      box-shadow: var(--shadow2);
+      border: 1px solid #e8edf5; box-shadow: var(--shadow2);
     }
-
     .topbar-row {
       display: grid; grid-template-columns: auto 1fr auto;
       align-items: center; min-height: 52px; gap: 14px;
     }
-
     .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
     .brand-logo img { display: block; width: 160px; height: auto; }
-
     .nav-menu {
       display: flex; gap: 6px; align-items: center;
-      justify-content: center; position: relative;
-      padding: 4px; border-radius: 14px;
+      justify-content: center; position: relative; padding: 4px; border-radius: 14px;
     }
-
     .nav-item { position: relative; z-index: 2; }
-
     .nav-link, .nav-action, .account-pill {
-      text-decoration: none; border: 0;
-      background: transparent; color: #64748b;
-      padding: 8px 14px; font-size: 13px;
-      font-weight: 600; white-space: nowrap;
-      display: inline-flex; align-items: center;
-      gap: 6px; line-height: 1.15;
-      border-radius: 12px; cursor: pointer;
-      font-family: inherit; transition: color .15s ease;
+      text-decoration: none; border: 0; background: transparent; color: #64748b;
+      padding: 8px 14px; font-size: 13px; font-weight: 600; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 6px; line-height: 1.15;
+      border-radius: 12px; cursor: pointer; font-family: inherit; transition: color .15s ease;
     }
-
     .nav-link:hover, .nav-action:hover, .account-pill:hover { color: var(--text); }
     .nav-link.active, .nav-action.active, .account-pill.active { color: var(--text); font-weight: 700; }
-
     .nav-icon {
       width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-
     .nav-icon-wrap { position: relative; display: inline-grid; place-items: center; }
-
     .nav-alert {
       position: absolute; top: -6px; right: -8px;
       width: 14px; height: 14px; border-radius: 50%;
@@ -749,7 +482,6 @@
       background: #dc2626; pointer-events: none; z-index: 2;
       box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.6);
     }
-
     .nav-glass {
       position: absolute; top: 0; left: 0;
       width: 100px; height: 40px; border-radius: 12px;
@@ -758,7 +490,6 @@
       z-index: 1; pointer-events: none;
       transition: left .3s cubic-bezier(.22,.9,.18,1.05), top .3s cubic-bezier(.22,.9,.18,1.05), width .3s cubic-bezier(.22,.9,.18,1.05), height .3s cubic-bezier(.22,.9,.18,1.05);
     }
-
     .nav-glass.engulf { background: rgba(37, 99, 235, 0.1); }
 
     /* ---- REGISTRATION DROPDOWN ---- */
@@ -772,31 +503,23 @@
       pointer-events: none; visibility: hidden;
       transition: opacity .15s ease, transform .15s ease, visibility .15s ease;
     }
-    .reg-dropdown.show {
-      opacity: 1; transform: translateY(0);
-      pointer-events: auto; visibility: visible;
-    }
-
+    .reg-dropdown.show { opacity: 1; transform: translateY(0); pointer-events: auto; visibility: visible; }
     .reg-head { margin: 0 0 10px; font-size: 14px; font-weight: 800; }
     .reg-table { display: grid; gap: 8px; }
-
     .reg-row {
       display: grid; grid-template-columns: 1.2fr auto auto;
       align-items: center; gap: 10px;
       border: 1px solid #e8edf5; background: #fafbfd;
       border-radius: 14px; padding: 10px 12px;
     }
-
     .reg-name { font-size: 13px; font-weight: 700; }
     .reg-sub { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 2px; }
-
     .reg-pill {
       font-size: 10px; text-transform: uppercase; font-weight: 800;
       border-radius: 999px; padding: 4px 10px;
       background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
     }
     .reg-pill.locked { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
-
     .reg-btn {
       text-decoration: none; padding: 8px 14px; border-radius: 10px;
       font-size: 12px; font-weight: 700; white-space: nowrap;
@@ -812,7 +535,6 @@
       opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 54;
     }
     .mobile-reg-backdrop.show { opacity: 1; pointer-events: auto; }
-
     .mobile-reg-sheet {
       position: fixed; left: 0; right: 0; bottom: 0;
       background: #fff; border-radius: 20px 20px 0 0;
@@ -820,73 +542,44 @@
       box-shadow: 0 -16px 40px -20px rgba(15, 23, 42, 0.3);
       padding: 10px 14px 18px; z-index: 55;
       max-height: 74vh; overflow: auto;
-      transform: translateY(100%); transition: transform .25s ease;
-      touch-action: pan-y;
+      transform: translateY(100%); transition: transform .25s ease; touch-action: pan-y;
     }
     .mobile-reg-sheet.show { transform: translateY(0); }
-
-    .mobile-reg-grab {
-      width: 40px; height: 4px; border-radius: 999px;
-      background: #d1d5db; margin: 4px auto 12px;
-    }
-
-    .mobile-reg-head {
-      display: flex; justify-content: space-between;
-      align-items: center; margin-bottom: 10px;
-    }
-
+    .mobile-reg-grab { width: 40px; height: 4px; border-radius: 999px; background: #d1d5db; margin: 4px auto 12px; }
+    .mobile-reg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .mobile-reg-title { font-size: 16px; font-weight: 800; }
-
     .mobile-reg-close {
       border: 0; background: #f1f5f9; color: #475569;
       border-radius: 50%; width: 32px; height: 32px;
-      font-size: 16px; font-weight: 800; cursor: pointer;
-      display: grid; place-items: center;
+      font-size: 16px; font-weight: 800; cursor: pointer; display: grid; place-items: center;
     }
-
     .mobile-reg-table { display: grid; gap: 8px; }
     .mobile-reg-table .reg-row { grid-template-columns: 1fr auto; }
     .mobile-reg-table .reg-btn { grid-column: 1 / -1; width: 100%; text-align: center; margin-top: 2px; }
 
     /* ---- BOTTOM NAV ---- */
     .bottom-nav {
-      position: fixed; left: 50%; bottom: 0;
-      transform: translateX(-50%);
+      position: fixed; left: 50%; bottom: 0; transform: translateX(-50%);
       width: 100%; max-width: 560px;
       background: rgba(255, 255, 255, 0.92);
       backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border-top: 1px solid #e2e8f0;
       padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
-      display: none; grid-template-columns: repeat(4, 1fr);
-      gap: 4px; z-index: 50;
+      display: none; grid-template-columns: repeat(4, 1fr); gap: 4px; z-index: 50;
     }
-
     .bottom-tab {
-      text-decoration: none; border: 0;
-      background: transparent; color: #94a3b8;
-      border-radius: 12px; min-height: 52px;
-      padding: 6px 4px; display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      gap: 3px; cursor: pointer; font: inherit;
-      transition: all .15s ease;
+      text-decoration: none; border: 0; background: transparent; color: #94a3b8;
+      border-radius: 12px; min-height: 52px; padding: 6px 4px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; cursor: pointer; font: inherit; transition: all .15s ease;
     }
-
     .bottom-tab svg {
       width: 22px; height: 22px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-
-    .bottom-tab-label {
-      font-size: 10px; font-weight: 600; line-height: 1.15;
-      text-align: center;
-    }
-
-    .bottom-tab-active {
-      color: var(--blue); background: rgba(37, 99, 235, 0.08);
-    }
-
+    .bottom-tab-label { font-size: 10px; font-weight: 600; line-height: 1.15; text-align: center; }
+    .bottom-tab-active { color: var(--blue); background: rgba(37, 99, 235, 0.08); }
     .bottom-tab-icon { position: relative; display: inline-grid; place-items: center; }
-
     .bottom-tab-badge {
       position: absolute; top: -5px; right: -8px;
       width: 16px; height: 16px; border-radius: 50%;
@@ -903,7 +596,6 @@
       padding: 16px; z-index: 60;
     }
     .modal.show { display: flex; }
-
     .modal-card {
       width: min(480px, 100%); background: #fff;
       border-radius: var(--radius); border: 1px solid #e8edf5;
@@ -924,33 +616,9 @@
       border-radius: 10px; background: #111827; color: #fff;
       padding: 9px 14px; font-size: 12px; font-weight: 650;
       opacity: 0; transform: translateY(8px);
-      transition: opacity .2s ease, transform .2s ease;
-      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease; pointer-events: none;
     }
     .toast.show { opacity: 1; transform: translateY(0); }
-
-    /* ---- QUALIFICATION SELECT ---- */
-    .qual-box {
-      background: #f8fafc; border-radius: 12px;
-      border: 1px solid #e8edf5; padding: 14px;
-      margin-top: 14px;
-    }
-
-    .qual-box label {
-      display: block; font-size: 12px; font-weight: 700;
-      color: var(--text); margin-bottom: 6px;
-    }
-
-    .qual-box select {
-      width: 100%; border: 1px solid #e2e8f0; border-radius: 10px;
-      padding: 9px 12px; font: inherit; font-size: 13px;
-      background: #fff;
-    }
-
-    .qual-box .qual-note {
-      font-size: 12px; color: #475569; font-weight: 500;
-      margin-top: 8px; line-height: 1.45;
-    }
 
     /* ---- RESPONSIVE ---- */
     @media (min-width: 768px) {
@@ -959,22 +627,20 @@
       .bottom-nav { display: none; }
       .dash-wrap { padding-bottom: 40px; }
     }
-
     @media (max-width: 767px) {
       .desktop-topbar { display: none; }
       .bottom-nav { display: grid; }
       .app-header { display: flex; }
       .trust-grid { grid-template-columns: 1fr; }
-      .guidance-grid { grid-template-columns: 1fr; }
-      .sn-detail-grid { grid-template-columns: 1fr; }
-      .sn-mobile-rail { display: block; }
-      .guidance-cta { width: 100%; justify-content: center; }
+      .step-info-grid { grid-template-columns: 1fr; }
+      .btn-action { width: 100%; justify-content: center; }
       .dash-wrap { padding-bottom: 80px; }
+      .step-tab { padding: 8px 12px; font-size: 12px; }
+      .step-tab-num { width: 22px; height: 22px; font-size: 10px; }
+      .step-tab-num svg { width: 11px; height: 11px; }
     }
-
     @media (max-width: 480px) {
-      .sn-progress-title { font-size: 16px; }
-      .sn-progress-pct { font-size: 20px; }
+      .step-content-title { font-size: 18px; }
     }
   </style>
 </head>
@@ -1029,7 +695,6 @@
             <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
             <span>Account</span>
           </a>
-
           <div class="reg-dropdown" id="registrationDropdown">
             <p class="reg-head">Registration Process</p>
             <div class="reg-table" id="regTable"></div>
@@ -1038,126 +703,50 @@
       </div>
     </header>
 
-    <!-- SUBSTEP NAVIGATION -->
-    <div class="sn-wrap" id="substepNav">
-      <!-- Progress Header -->
-      <div class="sn-progress-header">
-        <div class="sn-progress-top">
-          <div>
-            <div class="sn-progress-label">MyIntealth Process</div>
-            <div class="sn-progress-title" id="snCurrentTitle">Create Your Account</div>
-          </div>
-          <div style="text-align:right;">
-            <div class="sn-progress-pct" id="snPct">0%</div>
-            <div class="sn-progress-count" id="snCount">0 of 5 complete</div>
-          </div>
-        </div>
-        <div class="sn-bar-track">
-          <div class="sn-bar-fill" id="snBarFill" style="width:2%"></div>
-        </div>
-      </div>
+    <!-- HORIZONTAL STEP TABS -->
+    <nav class="step-tabs" id="stepTabs" aria-label="Step navigation">
+      <div class="step-tab-glass" id="stepTabGlass"></div>
+    </nav>
 
-      <!-- Mobile Step Rail -->
-      <div class="sn-mobile-rail">
-        <div class="sn-rail-scroll" id="snRailScroll"></div>
-        <div class="sn-rail-fade-l"></div>
-        <div class="sn-rail-fade-r"></div>
+    <!-- TUTORIAL VIDEO -->
+    <div class="tutorial-card" id="tutorialCard">
+      <div class="tutorial-title">
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span>Video Walkthrough</span>
       </div>
-
-      <!-- Detail Panel (shown when a card is clicked) -->
-      <div class="sn-detail hidden" id="snDetail">
-        <div class="sn-detail-accent" id="snDetailAccent"></div>
-        <div class="sn-detail-body">
-          <div class="sn-detail-header">
-            <div style="flex:1;min-width:0;">
-              <span class="sn-badge" id="snDetailBadge" style="margin-bottom:6px;display:inline-flex;"></span>
-              <div class="sn-detail-title" id="snDetailTitle">-</div>
-              <div class="sn-detail-desc" id="snDetailDesc">-</div>
-            </div>
-            <button class="sn-detail-close" id="snDetailClose" type="button" aria-label="Close">
-              <svg viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
-            </button>
-          </div>
-          <div class="sn-detail-warning hidden" id="snDetailWarning">
-            <div class="sn-detail-warning-icon">
-              <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
-            </div>
-            <div>
-              <div class="sn-detail-warning-title">Attention needed</div>
-              <div class="sn-detail-warning-text" id="snDetailWarningText">-</div>
-            </div>
-          </div>
-          <div class="sn-detail-grid" id="snDetailGrid"></div>
-          <div class="sn-detail-actions" id="snDetailActions"></div>
-        </div>
-      </div>
-
-      <!-- Substep Cards -->
-      <div class="sn-cards" id="snCards"></div>
-
-      <!-- Navigation Controls -->
-      <div class="sn-nav-controls">
-        <button class="sn-nav-btn prev" id="snPrevBtn" type="button" disabled>
-          <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
-          Previous
-        </button>
-        <span class="sn-nav-step-text" id="snStepText">Step 1 of 5</span>
-        <button class="sn-nav-btn next" id="snNextBtn" type="button">
-          Next
-          <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
-        </button>
-      </div>
+      <p class="tutorial-desc" id="tutorialDesc">Create your MyIntealth account by following this walkthrough.</p>
+      <video class="tutorial-video" id="tutorialVideo" controls playsinline preload="metadata">
+        <source id="tutorialSource" src="../media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
+        Your browser does not support the video tag.
+      </video>
     </div>
 
-    <!-- ACTION ALERT (dynamic) -->
-    <div class="action-alert hidden" id="actionAlert">
-      <div class="action-alert-icon">
-        <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
-      </div>
-      <div>
-        <div class="action-alert-title" id="alertTitle">Action required</div>
-        <div class="action-alert-text" id="alertText">-</div>
-      </div>
-    </div>
+    <!-- STEP CONTENT -->
+    <div class="step-content" id="stepContent">
+      <div class="step-content-badge" id="stepBadge">What to do now</div>
+      <h2 class="step-content-title" id="stepTitle">Create Your Account</h2>
+      <p class="step-content-sub" id="stepSub">Set up your MyIntealth account and verify your identity.</p>
 
-    <!-- GUIDANCE PANEL (What to do now) -->
-    <div class="guidance-card" id="guidanceCard">
-      <div class="guidance-header">
-        <div class="guidance-title-area">
-          <div class="guidance-phase-badge" id="guidanceBadge">
-            <span id="guidanceBadgeText">What to do now</span>
-          </div>
-          <h2 class="guidance-title" id="guidanceTitle">Create your MyIntealth account</h2>
-          <p class="guidance-sub" id="guidanceSub">Create your account and complete identity verification to begin the EPIC process.</p>
+      <div class="step-progress-row">
+        <div class="step-progress-track">
+          <div class="step-progress-fill" id="stepProgressFill" style="width:2%"></div>
+        </div>
+        <span class="step-progress-text" id="stepProgressText">0 of 4 complete</span>
+      </div>
+
+      <div class="step-content-warning hidden" id="stepWarning">
+        <div class="step-content-warning-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+        </div>
+        <div>
+          <div class="step-content-warning-title" id="stepWarningTitle">Attention needed</div>
+          <div class="step-content-warning-text" id="stepWarningText">-</div>
         </div>
       </div>
-      <div class="guidance-grid" id="guidanceGrid">
-        <div class="guidance-detail">
-          <div class="guidance-detail-label">Your Action</div>
-          <div class="guidance-detail-value" id="guidanceAction">Create your account and complete identity verification.</div>
-        </div>
-        <div class="guidance-detail">
-          <div class="guidance-detail-label">Estimated Time</div>
-          <div class="guidance-detail-value" id="guidanceTime">10-20 minutes</div>
-        </div>
-        <div class="guidance-detail">
-          <div class="guidance-detail-label">GP Link Support</div>
-          <div class="guidance-detail-value" id="guidanceSupport">We monitor your progress and can help if verification stalls.</div>
-        </div>
-        <div class="guidance-detail">
-          <div class="guidance-detail-label">What Happens Next</div>
-          <div class="guidance-detail-value" id="guidanceNext">After account creation, you'll establish your EPIC account.</div>
-        </div>
-      </div>
-      <div class="guidance-actions">
-        <button class="guidance-cta" id="mainCta" type="button">
-          Open MyIntealth
-          <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        </button>
-        <button class="guidance-cta guidance-cta-secondary" id="guidanceHelpBtn" type="button">
-          Get Help
-        </button>
-      </div>
+
+      <div class="step-info-grid" id="stepInfoGrid"></div>
+
+      <div class="step-actions" id="stepActions"></div>
 
       <!-- Qualification country selector (upload stage only) -->
       <div class="qual-box" id="qualificationBox" style="display: none;">
@@ -1171,8 +760,6 @@
       </div>
     </div>
 
-    <!-- (Step list replaced by substep navigation above) -->
-
     <!-- DOCUMENTS SECTION -->
     <div class="docs-section" id="docsSection">
       <div class="docs-title">
@@ -1183,19 +770,6 @@
         These documents are needed for your EPIC credential verification. Upload them via MyIntealth when prompted.
       </p>
       <div class="docs-list" id="docsList"></div>
-    </div>
-
-    <!-- TUTORIAL VIDEO -->
-    <div class="tutorial-card" id="tutorialCard">
-      <div class="tutorial-title">
-        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Video Walkthrough</span>
-      </div>
-      <p class="tutorial-desc" id="tutorialDesc">Create your MyIntealth account by following this walkthrough.</p>
-      <video class="tutorial-video" id="tutorialVideo" controls playsinline preload="metadata">
-        <source id="tutorialSource" src="../media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
-        Your browser does not support the video tag.
-      </video>
     </div>
 
     <!-- HELP CARD -->
@@ -1289,6 +863,7 @@
   <div class="toast" id="toast">Progress saved</div>
 
   <script>
+    // ─── CONSTANTS ───────────────────────────────────────────────
     const STORAGE_KEY = "gp_epic_progress";
     const TUTORIAL_SEEN_KEY = "gp_epic_tutorial_seen";
     const AMC_KEY = "gp_amc_progress";
@@ -1296,11 +871,23 @@
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const MYINTEALTH_URL = "https://login.myintealth.app/myintealthid.onmicrosoft.com/B2C_1A_id-signup_signin_claim_sf_applicant/samlp/sso/login";
+
+    // Internal stages (keep verification_issued for backward compat)
     const STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification", "verification_issued"];
+
+    // Visible tabs (4 steps only)
+    const TAB_STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification"];
+    const TAB_LABELS = {
+      create_account: "Account",
+      account_establishment: "Establishment",
+      upload_qualifications: "Qualifications",
+      waiting_verification: "Verification"
+    };
 
     const stageMeta = {
       create_account: {
-        label: "Create Your Account",
+        label: "Account",
+        full: "Create Your Account",
         short: "Set up your MyIntealth account and verify your identity.",
         doNow: "Create your account and complete identity verification.",
         time: "10-20 minutes",
@@ -1310,7 +897,8 @@
         ctaType: "open"
       },
       account_establishment: {
-        label: "Establish EPIC Account",
+        label: "Establishment",
+        full: "Establish EPIC Account",
         short: "Complete your NotaryCam session to establish your EPIC account.",
         doNow: "Establish your EPIC account and complete your NotaryCam session.",
         time: "10-20 minutes",
@@ -1320,7 +908,8 @@
         ctaType: "open"
       },
       upload_qualifications: {
-        label: "Upload Qualifications",
+        label: "Qualifications",
+        full: "Upload Qualifications",
         short: "Upload your specialist qualification and nominate AMC.",
         doNow: "Upload your specialist qualification and ensure AMC is nominated.",
         time: "10-20 minutes",
@@ -1330,18 +919,20 @@
         ctaType: "open"
       },
       waiting_verification: {
-        label: "Awaiting EPIC Verification",
+        label: "Verification",
+        full: "Awaiting EPIC Verification",
         short: "EPIC is reviewing and verifying your uploaded credentials.",
         doNow: "Nothing required right now. EPIC is verifying your documents.",
         time: "1-3 weeks typically",
         support: "We monitor weekly and will escalate if it's delayed.",
-        next: "Once verified, your EPIC verification will be issued.",
+        next: "Once verified, you can proceed to the AMC Portfolio.",
         cta: "Contact Support",
         ctaType: "support"
       },
       verification_issued: {
-        label: "Verification Complete",
-        short: "Your EPIC verification has been issued. Ready for AMC.",
+        label: "Complete",
+        full: "Verification Complete",
+        short: "Your EPIC verification has been issued.",
         doNow: "You're ready to create your AMC Candidate Portfolio.",
         time: "Next step",
         support: "We'll guide you through AMC setup.",
@@ -1377,7 +968,7 @@
       { key: "primary_medical_degree", title: "Primary Medical Degree (MBBS / MBChB)", desc: "Certified copy of your primary medical degree" }
     ];
 
-    // --- State management ---
+    // ─── STATE MANAGEMENT ────────────────────────────────────────
     function loadBatchMeta(metaKey) {
       const raw = localStorage.getItem(metaKey);
       if (!raw) return { pending: 0, lastValue: "" };
@@ -1499,10 +1090,10 @@
       return "current";
     }
 
-    function stageFromRoute() {
-      const parts = window.location.pathname.split("/").filter(Boolean);
-      if (parts[0] === "registration" && parts[1] === "myintealth" && parts[2] && routeStageMap[parts[2]]) return routeStageMap[parts[2]];
-      return null;
+    // Get the active tab stage (maps verification_issued back to waiting_verification for display)
+    function activeTabStage(progress) {
+      if (progress.stage === "verification_issued") return "waiting_verification";
+      return progress.stage;
     }
 
     function syncRouteForStage(key, replace) {
@@ -1514,7 +1105,7 @@
       else window.history.pushState({ stage: key }, "", target);
     }
 
-    // --- DOM refs ---
+    // ─── DOM REFS ────────────────────────────────────────────────
     const toastEl = document.getElementById("toast");
     const supportModalEl = document.getElementById("supportModal");
     const supportMessageEl = document.getElementById("supportMessage");
@@ -1525,24 +1116,10 @@
     const tutorialVideoEl = document.getElementById("tutorialVideo");
     const tutorialSourceEl = document.getElementById("tutorialSource");
     const tutorialDescEl = document.getElementById("tutorialDesc");
+    const stepTabsEl = document.getElementById("stepTabs");
+    const stepTabGlassEl = document.getElementById("stepTabGlass");
 
-    // Substep nav refs
-    const snCardsEl = document.getElementById("snCards");
-    const snDetailEl = document.getElementById("snDetail");
-    const snDetailAccent = document.getElementById("snDetailAccent");
-    const snDetailBadge = document.getElementById("snDetailBadge");
-    const snDetailTitle = document.getElementById("snDetailTitle");
-    const snDetailDesc = document.getElementById("snDetailDesc");
-    const snDetailWarning = document.getElementById("snDetailWarning");
-    const snDetailWarningText = document.getElementById("snDetailWarningText");
-    const snDetailGrid = document.getElementById("snDetailGrid");
-    const snDetailActions = document.getElementById("snDetailActions");
-    const snDetailClose = document.getElementById("snDetailClose");
-    const snRailScroll = document.getElementById("snRailScroll");
-    const snPrevBtn = document.getElementById("snPrevBtn");
-    const snNextBtn = document.getElementById("snNextBtn");
-
-    let selectedStageKey = null;
+    let currentTabKey = null; // tracks which tab is selected/viewed
 
     function showToast(msg) {
       toastEl.textContent = msg;
@@ -1567,19 +1144,25 @@
       localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
     }
 
+    // ─── MARK COMPLETE / UNDO ────────────────────────────────────
     function markStageComplete(progress, key) {
       if (progress.stage !== key) return;
       progress.completed[key] = true;
-      const idx = STAGES.indexOf(key);
-      const next = STAGES[idx + 1];
-      if (next) progress.stage = next;
-      if (key === "verification_issued") {
+
+      // When completing waiting_verification, also complete verification_issued and redirect
+      if (key === "waiting_verification") {
+        progress.completed.verification_issued = true;
+        progress.stage = "verification_issued";
         saveProgress(progress, true);
         window.location.href = "amc.html";
         return;
       }
-      saveProgress(progress);
-      selectedStageKey = null;
+
+      const idx = STAGES.indexOf(key);
+      const next = STAGES[idx + 1];
+      if (next) progress.stage = next;
+      saveProgress(progress, true);
+      currentTabKey = activeTabStage(progress);
       renderPage(progress);
       showToast("Progress saved");
     }
@@ -1589,367 +1172,201 @@
       if (idx === -1) return;
       for (let i = idx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
       progress.stage = key;
-      saveProgress(progress);
-      selectedStageKey = null;
+      saveProgress(progress, true);
+      currentTabKey = activeTabStage(progress);
       renderPage(progress);
       showToast("Progress reverted");
     }
 
-    // --- Step icons ---
-    function stepDotIcon(type) {
-      if (type === "done") return '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
-      if (type === "locked") return '<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
-      if (type === "waiting") return '<span class="spin-icon"></span>';
-      if (type === "action") return '<svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>';
-      return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>';
+    // ─── RENDER: STEP TABS ──────────────────────────────────────
+    let tabElements = [];
+
+    function renderStepTabs(progress) {
+      // Remove old tab buttons (keep the glass)
+      tabElements.forEach(el => el.remove());
+      tabElements = [];
+
+      TAB_STAGES.forEach((key, idx) => {
+        const status = stageStatus(progress, key);
+        const isDone = status === "done";
+        const isActive = currentTabKey === key;
+        const isLocked = status === "locked";
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "step-tab";
+        if (isActive) btn.classList.add("active");
+        if (isDone && !isActive) btn.classList.add("done");
+        if (isLocked) btn.disabled = true;
+
+        let numClass = "step-tab-num";
+        if (isDone) numClass += " done";
+        else if (isActive) numClass += " active";
+        else if (isLocked) numClass += " locked";
+
+        const numContent = isDone
+          ? '<svg viewBox="0 0 16 16"><path d="M13 4.5L6.5 11 3 7.5"/></svg>'
+          : (idx + 1);
+
+        btn.innerHTML = `<span class="${numClass}">${numContent}</span>${TAB_LABELS[key]}`;
+
+        if (!isLocked) {
+          btn.addEventListener("click", () => {
+            currentTabKey = key;
+            syncRouteForStage(key);
+            renderPage(progress);
+          });
+        } else {
+          btn.addEventListener("click", () => showToast("Complete the previous step first."));
+        }
+
+        stepTabsEl.appendChild(btn);
+        tabElements.push(btn);
+      });
+
+      // Position glass on active tab
+      requestAnimationFrame(() => positionTabGlass(false));
     }
 
-    function getStepType(key, status) {
-      if (status === "done") return "done";
-      if (status === "locked") return "locked";
-      if (key === "waiting_verification" && status === "current") return "waiting";
-      if (key === "upload_qualifications" && status === "current") return "action";
-      return "current";
-    }
-
-    function getStepBadgeLabel(type) {
-      if (type === "done") return "Complete";
-      if (type === "locked") return "Locked";
-      if (type === "waiting") return "Waiting";
-      if (type === "action") return "Action Required";
-      return "Current";
-    }
-
-    function getStepBadgeClass(type) {
-      if (type === "done") return "done-b";
-      if (type === "locked") return "locked-b";
-      if (type === "waiting") return "waiting-b";
-      if (type === "action") return "action-b";
-      return "current-b";
-    }
-
-    function getStepStatusText(key, status, progress) {
-      if (status === "done") return "Completed";
-      if (status === "locked") {
-        const idx = STAGES.indexOf(key);
-        const prev = idx > 0 ? stageMeta[STAGES[idx - 1]].label : "";
-        return prev ? `Unlocked after: ${prev}` : "Locked";
+    function positionTabGlass(animate) {
+      const activeBtn = stepTabsEl.querySelector(".step-tab.active");
+      if (!activeBtn) { stepTabGlassEl.style.opacity = "0"; return; }
+      stepTabGlassEl.style.opacity = "1";
+      const parentRect = stepTabsEl.getBoundingClientRect();
+      const rect = activeBtn.getBoundingClientRect();
+      if (!animate) {
+        const prev = stepTabGlassEl.style.transition;
+        stepTabGlassEl.style.transition = "none";
+        stepTabGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        stepTabGlassEl.style.width = `${rect.width}px`;
+        stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        stepTabGlassEl.style.height = `${rect.height}px`;
+        void stepTabGlassEl.offsetWidth;
+        stepTabGlassEl.style.transition = prev;
+      } else {
+        stepTabGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        stepTabGlassEl.style.width = `${rect.width}px`;
+        stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        stepTabGlassEl.style.height = `${rect.height}px`;
       }
-      if (key === "waiting_verification") return "EPIC is processing - no action needed";
-      if (key === "verification_issued") return "Your EPIC verification has been issued";
-      return stageMeta[key].short;
+
+      // Scroll active tab into view
+      const scrollTarget = activeBtn.offsetLeft - stepTabsEl.offsetWidth / 2 + activeBtn.offsetWidth / 2;
+      stepTabsEl.scrollTo({ left: Math.max(0, scrollTarget), behavior: animate ? "smooth" : "auto" });
     }
 
-    // --- Render substep navigation ---
-    function renderSubstepProgress(progress) {
-      const doneCount = STAGES.filter(k => progress.completed[k]).length;
-      const pct = Math.round((doneCount / STAGES.length) * 100);
-      const currentIdx = STAGES.indexOf(progress.stage) + 1;
-      const meta = stageMeta[progress.stage];
-      const allDone = doneCount === STAGES.length;
-
-      document.getElementById("snCurrentTitle").textContent = allDone ? "All Steps Complete!" : meta.label;
-      document.getElementById("snPct").textContent = `${pct}%`;
-      document.getElementById("snCount").textContent = `${doneCount} of ${STAGES.length} complete`;
-
-      const bar = document.getElementById("snBarFill");
-      bar.style.width = `${Math.max(2, pct)}%`;
-      bar.classList.toggle("complete", allDone);
-
-      // Step text
-      document.getElementById("snStepText").textContent = `Step ${currentIdx} of ${STAGES.length}`;
-
-      // Nav buttons
-      const currentStageIdx = STAGES.indexOf(progress.stage);
-      snPrevBtn.disabled = currentStageIdx <= 0;
-      const nextStage = STAGES[currentStageIdx + 1];
-      snNextBtn.disabled = !nextStage || stageStatus(progress, nextStage) === "locked";
-    }
-
-    // --- Render guidance panel ---
-    function renderGuidance(progress) {
-      const key = progress.stage;
+    // ─── RENDER: STEP CONTENT ───────────────────────────────────
+    function renderStepContent(progress) {
+      const key = currentTabKey;
       const meta = stageMeta[key];
       const status = stageStatus(progress, key);
-      const type = getStepType(key, status);
+      const isDone = status === "done";
+      const isCurrent = status === "current";
+      const isWaiting = key === "waiting_verification" && isCurrent;
+      const isAction = key === "upload_qualifications" && isCurrent;
       const allDone = STAGES.every(k => progress.completed[k]);
 
-      const card = document.getElementById("guidanceCard");
-      card.className = "guidance-card";
-      if (type === "action") card.classList.add("action-state");
-      else if (type === "waiting") card.classList.add("waiting-state");
-      else if (allDone) card.classList.add("done-state");
+      // Card accent
+      const card = document.getElementById("stepContent");
+      card.className = "step-content";
+      if (isAction) card.classList.add("action-state");
+      else if (isWaiting) card.classList.add("waiting-state");
+      else if (isDone || allDone) card.classList.add("done-state");
 
-      const badgeEl = document.getElementById("guidanceBadge");
-      const badgeTextEl = document.getElementById("guidanceBadgeText");
-      if (type === "waiting") {
-        badgeEl.className = "guidance-phase-badge waiting";
-        badgeTextEl.textContent = "Waiting on EPIC";
-      } else if (type === "action") {
-        badgeEl.className = "guidance-phase-badge action";
-        badgeTextEl.textContent = "Action Required";
-      } else if (allDone) {
-        badgeEl.className = "guidance-phase-badge done";
-        badgeTextEl.textContent = "All Complete";
+      // Badge
+      const badge = document.getElementById("stepBadge");
+      if (isDone) { badge.className = "step-content-badge done"; badge.textContent = "Complete"; }
+      else if (isWaiting) { badge.className = "step-content-badge waiting"; badge.textContent = "Waiting on EPIC"; }
+      else if (isAction) { badge.className = "step-content-badge action"; badge.textContent = "Action Required"; }
+      else { badge.className = "step-content-badge"; badge.textContent = "What to do now"; }
+
+      // Title & sub
+      document.getElementById("stepTitle").textContent = meta.full;
+      document.getElementById("stepSub").textContent = meta.short;
+
+      // Progress bar
+      const doneCount = TAB_STAGES.filter(k => progress.completed[k]).length;
+      const pct = Math.round((doneCount / TAB_STAGES.length) * 100);
+      const fill = document.getElementById("stepProgressFill");
+      fill.style.width = `${Math.max(2, pct)}%`;
+      fill.classList.toggle("complete", doneCount === TAB_STAGES.length);
+      document.getElementById("stepProgressText").textContent = `${doneCount} of ${TAB_STAGES.length} complete`;
+
+      // Warning
+      const warning = document.getElementById("stepWarning");
+      if (isAction) {
+        warning.classList.remove("hidden");
+        document.getElementById("stepWarningTitle").textContent = "Documents need uploading";
+        document.getElementById("stepWarningText").textContent = "You need to upload your specialist qualification to EPIC via MyIntealth. Make sure to nominate AMC as the recipient.";
+      } else if (isWaiting) {
+        warning.classList.remove("hidden");
+        document.getElementById("stepWarningTitle").textContent = "No action needed";
+        document.getElementById("stepWarningText").textContent = "EPIC is currently reviewing your credentials. This typically takes 1-3 weeks.";
       } else {
-        badgeEl.className = "guidance-phase-badge";
-        badgeTextEl.textContent = "What to do now";
+        warning.classList.add("hidden");
       }
 
-      document.getElementById("guidanceTitle").textContent = allDone ? "EPIC Verification Complete!" : meta.label;
-      document.getElementById("guidanceSub").textContent = allDone
-        ? "Congratulations! Your EPIC verification is complete. You can now proceed to the AMC Portfolio."
-        : meta.short;
-
-      let doNowText = meta.doNow;
-      if (key === "upload_qualifications") {
+      // Info grid
+      let doNow = meta.doNow;
+      if (key === "upload_qualifications" && isCurrent) {
         const country = loadSelectedCountry();
         countrySelectEl.value = country;
-        const map = uploadByCountry[country] || uploadByCountry.uk;
-        doNowText = map.doNow;
-        qualificationInstructionEl.textContent = map.instruction;
+        doNow = (uploadByCountry[country] || uploadByCountry.uk).doNow;
+        qualificationInstructionEl.textContent = (uploadByCountry[country] || uploadByCountry.uk).instruction;
         qualificationBoxEl.style.display = "block";
       } else {
         qualificationBoxEl.style.display = "none";
       }
 
-      if (key === "waiting_verification" && !allDone) {
-        doNowText = "Nothing required from you right now. EPIC is reviewing your credentials. This usually takes 1-3 weeks.";
-      }
-
-      document.getElementById("guidanceAction").textContent = doNowText;
-      document.getElementById("guidanceTime").textContent = meta.time;
-      document.getElementById("guidanceSupport").textContent = meta.support;
-      document.getElementById("guidanceNext").textContent = allDone
-        ? "Proceed to AMC Portfolio to continue your registration journey."
-        : meta.next;
-
-      const ctaEl = document.getElementById("mainCta");
-      ctaEl.textContent = allDone ? "Go to AMC Portfolio" : meta.cta;
-      ctaEl.onclick = () => {
-        if (allDone || meta.ctaType === "amc") { window.location.href = "amc.html"; }
-        else if (meta.ctaType === "open") { window.open(MYINTEALTH_URL, "_blank", "noopener,noreferrer"); }
-        else if (meta.ctaType === "support") { openModal(supportModalEl); }
-      };
-
-      // Action alert
-      const alertEl = document.getElementById("actionAlert");
-      const alertTitle = document.getElementById("alertTitle");
-      const alertText = document.getElementById("alertText");
-
-      if (type === "action" && !allDone) {
-        alertEl.classList.remove("hidden");
-        alertTitle.textContent = "Documents need uploading";
-        alertText.textContent = "You need to upload your specialist qualification to EPIC via MyIntealth. Make sure to nominate AMC as the recipient.";
-      } else if (type === "waiting" && !allDone) {
-        alertEl.classList.add("hidden");
-      } else {
-        alertEl.classList.add("hidden");
-      }
-    }
-
-    // --- Render substep card list ---
-    function renderSubstepCards(progress) {
-      snCardsEl.innerHTML = "";
-
-      STAGES.forEach((key, idx) => {
-        const status = stageStatus(progress, key);
-        const type = getStepType(key, status);
-        const meta = stageMeta[key];
-        const isLocked = status === "locked";
-        const isSelected = selectedStageKey === key;
-
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = "sn-card";
-        if (isLocked) card.classList.add("is-locked");
-        else if (isSelected && status === "done") card.classList.add("selected-done");
-        else if (isSelected && type === "action") card.classList.add("selected-action");
-        else if (isSelected) card.classList.add("selected-current");
-        else if (status === "done") card.classList.add("is-done");
-        else if (type === "action") card.classList.add("is-action");
-        else if (status === "current") card.classList.add("is-current");
-
-        card.innerHTML = `
-          <div class="sn-card-icon ${type}">${stepDotIcon(type)}</div>
-          <div class="sn-card-body">
-            <div class="sn-card-step">Step ${idx + 1}</div>
-            <div class="sn-card-title${isLocked ? ' locked' : ''}">${meta.label}</div>
-            <div class="sn-card-desc${isLocked ? ' locked' : ''}">${meta.short}</div>
-          </div>
-          <div class="sn-card-right">
-            <span class="sn-badge ${getStepBadgeClass(type)}">${getStepBadgeLabel(type)}</span>
-            ${!isLocked ? '<span class="sn-card-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>' : ''}
-          </div>
-        `;
-
-        if (!isLocked) {
-          card.addEventListener("click", () => {
-            if (selectedStageKey === key) {
-              selectedStageKey = null;
-              snDetailEl.classList.add("hidden");
-            } else {
-              selectedStageKey = key;
-              syncRouteForStage(key);
-              renderSubstepDetail(progress, key);
-            }
-            renderSubstepCards(progress);
-          });
-        } else {
-          card.addEventListener("click", () => showToast("Complete the previous step to unlock this."));
-        }
-
-        snCardsEl.appendChild(card);
-      });
-    }
-
-    // --- Render mobile step rail ---
-    function renderMobileRail(progress) {
-      snRailScroll.innerHTML = "";
-      STAGES.forEach((key, idx) => {
-        const status = stageStatus(progress, key);
-        const type = getStepType(key, status);
-        const meta = stageMeta[key];
-        const isLocked = status === "locked";
-        const isActive = selectedStageKey === key || (!selectedStageKey && progress.stage === key);
-        const isDone = status === "done";
-
-        const pill = document.createElement("button");
-        pill.type = "button";
-        pill.disabled = isLocked;
-        pill.className = "sn-pill";
-
-        let circleClass = "sn-pill-circle";
-        if (isDone) circleClass += " done";
-        else if (isActive) circleClass += " active";
-        else if (type === "action") circleClass += " action";
-        else if (isLocked) circleClass += " locked";
-
-        let labelClass = "sn-pill-label";
-        if (isActive) labelClass += " active";
-        else if (isDone) labelClass += " done";
-
-        const circleContent = isDone
-          ? '<svg viewBox="0 0 16 16"><path d="M13 4.5L6.5 11 3 7.5"/></svg>'
-          : (idx + 1);
-
-        pill.innerHTML = `<div class="${circleClass}">${circleContent}</div><span class="${labelClass}">${meta.label}</span>`;
-
-        if (!isLocked) {
-          pill.addEventListener("click", () => {
-            selectedStageKey = key;
-            syncRouteForStage(key);
-            renderSubstepDetail(progress, key);
-            renderSubstepCards(progress);
-            renderMobileRail(progress);
-          });
-        }
-
-        snRailScroll.appendChild(pill);
-
-        if (idx < STAGES.length - 1) {
-          const conn = document.createElement("div");
-          conn.className = "sn-connector" + (isDone ? " done" : "");
-          snRailScroll.appendChild(conn);
-        }
-      });
-
-      // Scroll to active pill
-      requestAnimationFrame(() => {
-        const activeIdx = selectedStageKey ? STAGES.indexOf(selectedStageKey) : STAGES.indexOf(progress.stage);
-        const children = snRailScroll.children;
-        const childIdx = activeIdx * 2; // each pill + connector
-        if (children[childIdx]) {
-          const child = children[childIdx];
-          const scrollTarget = child.offsetLeft - snRailScroll.offsetWidth / 2 + child.offsetWidth / 2;
-          snRailScroll.scrollTo({ left: Math.max(0, scrollTarget), behavior: "smooth" });
-        }
-      });
-    }
-
-    // --- Render substep detail panel ---
-    function renderSubstepDetail(progress, key) {
-      const status = stageStatus(progress, key);
-      const type = getStepType(key, status);
-      const meta = stageMeta[key];
-      const isDone = status === "done";
-      const isAction = type === "action";
-
-      snDetailEl.classList.remove("hidden");
-      snDetailEl.className = "sn-detail" + (isAction ? " border-action" : isDone ? " border-done" : "");
-
-      // Accent
-      snDetailAccent.className = "sn-detail-accent" + (isAction ? " action" : isDone ? " done" : "");
-
-      // Badge
-      snDetailBadge.textContent = getStepBadgeLabel(type);
-      snDetailBadge.className = `sn-badge ${getStepBadgeClass(type)}`;
-
-      // Title & desc
-      snDetailTitle.textContent = meta.label;
-      snDetailDesc.textContent = meta.short;
-
-      // Warning
-      if (isAction && status === "current") {
-        snDetailWarning.classList.remove("hidden");
-        snDetailWarningText.textContent = "You need to upload your specialist qualification to EPIC via MyIntealth. Make sure to nominate AMC as the recipient.";
-      } else if (key === "waiting_verification" && status === "current") {
-        snDetailWarning.classList.remove("hidden");
-        snDetailWarningText.textContent = "EPIC is currently reviewing your credentials. This typically takes 1-3 weeks. No action is needed from you.";
-      } else {
-        snDetailWarning.classList.add("hidden");
-      }
-
-      // Info grid
-      let doNow = meta.doNow;
-      if (key === "upload_qualifications") {
-        const country = loadSelectedCountry();
-        doNow = (uploadByCountry[country] || uploadByCountry.uk).doNow;
-      }
-      if (key === "waiting_verification" && status === "current") {
-        doNow = "Nothing required. EPIC is verifying your documents.";
-      }
-
-      snDetailGrid.innerHTML = `
-        <div class="sn-detail-item">
-          <div class="sn-detail-item-label">Your Action</div>
-          <div class="sn-detail-item-value">${doNow}</div>
+      document.getElementById("stepInfoGrid").innerHTML = `
+        <div class="step-info-item">
+          <div class="step-info-label">Your Action</div>
+          <div class="step-info-value">${doNow}</div>
         </div>
-        <div class="sn-detail-item">
-          <div class="sn-detail-item-label">Estimated Time</div>
-          <div class="sn-detail-item-value">${meta.time}</div>
+        <div class="step-info-item">
+          <div class="step-info-label">Estimated Time</div>
+          <div class="step-info-value">${meta.time}</div>
         </div>
-        <div class="sn-detail-item">
-          <div class="sn-detail-item-label">GP Link Support</div>
-          <div class="sn-detail-item-value">${meta.support}</div>
+        <div class="step-info-item">
+          <div class="step-info-label">GP Link Support</div>
+          <div class="step-info-value">${meta.support}</div>
         </div>
-        <div class="sn-detail-item">
-          <div class="sn-detail-item-label">What Happens Next</div>
-          <div class="sn-detail-item-value">${meta.next}</div>
+        <div class="step-info-item">
+          <div class="step-info-label">What Happens Next</div>
+          <div class="step-info-value">${meta.next}</div>
         </div>
       `;
 
       // Actions
-      let actionsHTML = '';
-      if (isDone) {
-        actionsHTML = `<button class="guidance-cta guidance-cta-secondary" id="snUndoBtn" type="button">Undo Completion</button>`;
-      } else if (status === "current") {
-        if (key === "verification_issued") {
-          actionsHTML = `<button class="guidance-cta" id="snActionBtn" type="button">Go to AMC Portfolio</button>`;
-        } else if (key === "waiting_verification") {
-          actionsHTML = `<button class="guidance-cta" id="snActionBtn" type="button">Mark as Verified</button>`;
-        } else {
-          const openLabel = meta.cta || "Open MyIntealth";
-          actionsHTML = `
-            <button class="guidance-cta" id="snOpenBtn" type="button">${openLabel} <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
-            <button class="guidance-cta guidance-cta-secondary" id="snActionBtn" type="button">Mark Complete</button>
-          `;
-        }
-      }
-      snDetailActions.innerHTML = actionsHTML;
+      const actionsEl = document.getElementById("stepActions");
+      let html = '';
 
-      // Wire action buttons
-      const openBtn = document.getElementById("snOpenBtn");
+      // Previous button
+      const tabIdx = TAB_STAGES.indexOf(key);
+      const hasPrev = tabIdx > 0;
+      const hasNext = tabIdx < TAB_STAGES.length - 1 && stageStatus(progress, TAB_STAGES[tabIdx + 1]) !== "locked";
+
+      if (isCurrent && !isWaiting) {
+        html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
+        html += `<button class="btn-action complete" id="actionCompleteBtn" type="button"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Mark Complete</button>`;
+      } else if (isWaiting) {
+        html += `<button class="btn-action primary" id="actionCompleteBtn" type="button">Mark as Verified</button>`;
+        html += `<button class="btn-action secondary" id="actionSupportBtn" type="button">Contact Support</button>`;
+      } else if (isDone) {
+        html += `<button class="btn-action secondary" id="actionUndoBtn" type="button">Undo Completion</button>`;
+      }
+
+      if (hasPrev) {
+        html += `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
+      }
+      if (hasNext) {
+        html += `<button class="btn-action secondary" id="actionNextBtn" type="button">Next <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
+      }
+
+      actionsEl.innerHTML = html;
+
+      // Wire buttons
+      const openBtn = document.getElementById("actionOpenBtn");
       if (openBtn) {
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.open(MYINTEALTH_URL, "_blank", "noopener,noreferrer");
@@ -1957,27 +1374,69 @@
           else if (meta.ctaType === "amc") window.location.href = "amc.html";
         });
       }
-      const actionBtn = document.getElementById("snActionBtn");
-      if (actionBtn) {
-        actionBtn.addEventListener("click", () => markStageComplete(progress, key));
+
+      const completeBtn = document.getElementById("actionCompleteBtn");
+      if (completeBtn) {
+        completeBtn.addEventListener("click", () => markStageComplete(progress, key));
       }
-      const undoBtn = document.getElementById("snUndoBtn");
+
+      const undoBtn = document.getElementById("actionUndoBtn");
       if (undoBtn) {
-        undoBtn.addEventListener("click", () => {
-          undoToStage(progress, key);
-          snDetailEl.classList.add("hidden");
+        undoBtn.addEventListener("click", () => undoToStage(progress, key));
+      }
+
+      const supportBtn = document.getElementById("actionSupportBtn");
+      if (supportBtn) {
+        supportBtn.addEventListener("click", () => openModal(supportModalEl));
+      }
+
+      const prevBtn = document.getElementById("actionPrevBtn");
+      if (prevBtn) {
+        prevBtn.addEventListener("click", () => {
+          currentTabKey = TAB_STAGES[tabIdx - 1];
+          syncRouteForStage(currentTabKey);
+          renderPage(progress);
+          document.getElementById("stepContent").scrollIntoView({ behavior: "smooth", block: "start" });
         });
       }
 
-      snDetailEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      const nextBtn = document.getElementById("actionNextBtn");
+      if (nextBtn) {
+        nextBtn.addEventListener("click", () => {
+          currentTabKey = TAB_STAGES[tabIdx + 1];
+          syncRouteForStage(currentTabKey);
+          renderPage(progress);
+          document.getElementById("stepContent").scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
     }
 
-    // --- Render documents ---
+    // ─── RENDER: TUTORIAL ───────────────────────────────────────
+    function renderTutorial(progress) {
+      const key = currentTabKey;
+      const config = tutorialByStage[key];
+      const card = document.getElementById("tutorialCard");
+
+      if (!config) {
+        card.style.display = "none";
+        return;
+      }
+
+      card.style.display = "";
+      if (tutorialDescEl) tutorialDescEl.textContent = config.text;
+      if (tutorialSourceEl) {
+        const currentSrc = tutorialSourceEl.getAttribute("src");
+        if (currentSrc !== config.src) {
+          tutorialSourceEl.src = config.src;
+          if (tutorialVideoEl) tutorialVideoEl.load();
+        }
+      }
+    }
+
+    // ─── RENDER: DOCUMENTS ──────────────────────────────────────
     function renderDocs(progress) {
       const list = document.getElementById("docsList");
       list.innerHTML = "";
-
-      const uploadStatus = stageStatus(progress, "upload_qualifications");
       const isUploaded = progress.completed.upload_qualifications;
 
       requiredDocs.forEach(doc => {
@@ -2001,37 +1460,15 @@
       });
     }
 
-    // --- Render tutorial ---
-    function renderTutorial(progress) {
-      const key = progress.stage;
-      const config = tutorialByStage[key] || tutorialByStage.create_account;
-      const card = document.getElementById("tutorialCard");
-
-      if (key === "waiting_verification" || key === "verification_issued") {
-        card.style.display = "none";
-        return;
-      }
-
-      card.style.display = "";
-      if (tutorialDescEl) tutorialDescEl.textContent = config.text;
-      if (tutorialSourceEl) {
-        tutorialSourceEl.src = config.src;
-        if (tutorialVideoEl) tutorialVideoEl.load();
-      }
-    }
-
-    // --- Main render ---
+    // ─── MAIN RENDER ────────────────────────────────────────────
     function renderPage(progress) {
-      renderSubstepProgress(progress);
-      renderSubstepCards(progress);
-      renderMobileRail(progress);
-      if (selectedStageKey) renderSubstepDetail(progress, selectedStageKey);
-      renderGuidance(progress);
-      renderDocs(progress);
+      renderStepTabs(progress);
       renderTutorial(progress);
+      renderStepContent(progress);
+      renderDocs(progress);
     }
 
-    // --- Registration dropdown (shared with dashboard) ---
+    // ─── REGISTRATION DROPDOWN ──────────────────────────────────
     const registrationMenuBtn = document.getElementById("registrationMenuBtn");
     const registrationDropdown = document.getElementById("registrationDropdown");
     const regTableEl = document.getElementById("regTable");
@@ -2162,47 +1599,11 @@
       }
     });
 
-    // --- Substep nav event listeners ---
-    snDetailClose.addEventListener("click", () => {
-      snDetailEl.classList.add("hidden");
-      selectedStageKey = null;
-      renderSubstepCards(loadProgress());
-    });
-
-    snPrevBtn.addEventListener("click", () => {
-      const progress = loadProgress();
-      const idx = STAGES.indexOf(progress.stage);
-      if (idx > 0) {
-        selectedStageKey = STAGES[idx - 1];
-        syncRouteForStage(selectedStageKey);
-        renderSubstepCards(progress);
-        renderMobileRail(progress);
-        renderSubstepDetail(progress, selectedStageKey);
-      }
-    });
-
-    snNextBtn.addEventListener("click", () => {
-      const progress = loadProgress();
-      const idx = STAGES.indexOf(progress.stage);
-      if (idx < STAGES.length - 1) {
-        const nextKey = STAGES[idx + 1];
-        if (stageStatus(progress, nextKey) !== "locked") {
-          selectedStageKey = nextKey;
-          syncRouteForStage(selectedStageKey);
-          renderSubstepCards(progress);
-          renderMobileRail(progress);
-          renderSubstepDetail(progress, selectedStageKey);
-        }
-      }
-    });
-
-    // --- Event listeners ---
+    // ─── EVENT LISTENERS ────────────────────────────────────────
     document.getElementById("topSupportBtn").addEventListener("click", () => { window.location.href = "messages.html"; });
     document.getElementById("mobileSupportBtn").addEventListener("click", () => { window.location.href = "messages.html"; });
     const mobileNotifBtn = document.getElementById("mobileNotifBtn");
     if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", () => { window.location.href = "messages.html"; });
-
-    document.getElementById("guidanceHelpBtn").addEventListener("click", () => openModal(supportModalEl));
 
     if (supportSubmitBtnEl) {
       supportSubmitBtnEl.addEventListener("click", () => {
@@ -2244,7 +1645,13 @@
       if (deltaY > 90) closeMobileRegistration(); else mobileRegSheet.style.transform = "";
     });
 
-    // --- Init ---
+    // Reposition glass on resize
+    window.addEventListener("resize", () => {
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+      positionTabGlass(false);
+    });
+
+    // ─── INIT ───────────────────────────────────────────────────
     activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
     setActiveNav(activeNavItem, false);
     if (navMenuEl) {
@@ -2257,16 +1664,15 @@
         if (activeNavItem) moveNavGlass(activeNavItem, true);
       });
     }
-    window.addEventListener("resize", () => {
-      if (activeNavItem) moveNavGlass(activeNavItem, false);
-    });
 
     const initialProgress = loadProgress();
+    currentTabKey = activeTabStage(initialProgress);
     syncRouteForStage(initialProgress.stage, true);
     renderPage(initialProgress);
 
     window.addEventListener("popstate", () => {
       const progress = loadProgress();
+      currentTabKey = activeTabStage(progress);
       renderPage(progress);
     });
   </script>
