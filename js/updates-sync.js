@@ -357,7 +357,7 @@
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "No alerts right now.";
+      empty.textContent = "No Current Updates";
       listEl.appendChild(empty);
       refreshInboxBadges();
       return;
@@ -387,13 +387,12 @@
   function openPanel(triggerEl) {
     const root = ensurePanelRoot();
     renderPanel();
-    const rect = triggerEl && triggerEl.getBoundingClientRect ? triggerEl.getBoundingClientRect() : null;
-    if (rect) {
-      const cx = Math.round(rect.left + rect.width / 2);
-      const clamped = Math.max(80, Math.min(window.innerWidth - 80, cx));
-      root.style.left = `${clamped}px`;
-      root.style.transform = "translate(-50%, -16px) scale(.98)";
-    }
+    // Clear any stale inline styles so CSS classes control positioning
+    root.style.transform = "";
+    root.style.left = "";
+    root.classList.remove("show");
+    // Force reflow so the browser registers the hidden state before animating
+    void root.offsetHeight;
     root.classList.add("show");
     root.setAttribute("aria-hidden", "false");
   }
@@ -403,6 +402,9 @@
     if (!root) return;
     root.classList.remove("show");
     root.setAttribute("aria-hidden", "true");
+    // Clear inline styles so next open starts from CSS defaults
+    root.style.transform = "";
+    root.style.left = "";
   }
 
   function installAlertTriggers() {
