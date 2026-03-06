@@ -267,6 +267,10 @@
       gap: 10px;
       margin-top: 14px;
     }
+    .step-nav-actions .btn-action {
+      min-width: 140px;
+      justify-content: center;
+    }
     .step-nav-actions .spacer {
       width: 1px;
       height: 1px;
@@ -581,7 +585,6 @@
       .btn-action { width: 100%; justify-content: center; }
       .step-nav-actions .btn-action { width: auto; }
       .desktop-only-section { display: none; }
-      .desktop-complete-btn { display: none !important; }
       .dash-wrap { padding-bottom: 80px; }
       .step-tab { padding: 8px 12px; font-size: 12px; }
       .step-tab-num { width: 22px; height: 22px; font-size: 10px; }
@@ -1309,18 +1312,16 @@
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
       } else if (isCurrent && !isWaiting) {
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
-        html += `<button class="btn-action complete desktop-complete-btn" id="actionCompleteBtn" type="button"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Mark Complete</button>`;
       } else if (isWaiting) {
-        html += `<button class="btn-action primary desktop-complete-btn" id="actionCompleteBtn" type="button">Mark as Verified</button>`;
         html += `<button class="btn-action secondary" id="actionSupportBtn" type="button">Contact Support</button>`;
       }
 
+      const markDisabled = !isCurrent || isDone;
+      const markLabel = isDone ? "Completed" : "Mark Complete";
       navHtml += hasPrev
         ? `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
         : `<span class="spacer" aria-hidden="true"></span>`;
-      navHtml += hasNext
-        ? `<button class="btn-action primary" id="actionNextBtn" type="button">Next <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`
-        : `<span class="spacer" aria-hidden="true"></span>`;
+      navHtml += `<button class="btn-action complete" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
       actionsEl.innerHTML = html;
       navActionsEl.innerHTML = navHtml;
 
@@ -1334,9 +1335,9 @@
         });
       }
 
-      const completeBtn = document.getElementById("actionCompleteBtn");
-      if (completeBtn) {
-        completeBtn.addEventListener("click", () => markStageComplete(progress, key));
+      const markBtn = document.getElementById("actionMarkBtn");
+      if (markBtn && !markBtn.disabled) {
+        markBtn.addEventListener("click", () => markStageComplete(progress, key));
       }
 
       const supportBtn = document.getElementById("actionSupportBtn");
@@ -1351,14 +1352,6 @@
         });
       }
 
-      const nextBtn = document.getElementById("actionNextBtn");
-      if (nextBtn) {
-        nextBtn.addEventListener("click", () => {
-          currentTabKey = TAB_STAGES[tabIdx + 1];
-          syncRouteForStage(currentTabKey);
-          renderPage(progress);
-        });
-      }
     }
 
     // ─── RENDER: TUTORIAL ───────────────────────────────────────
