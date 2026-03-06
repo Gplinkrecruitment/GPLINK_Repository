@@ -642,7 +642,7 @@
           <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
           <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
         </button>
-        <a class="header-icon-btn" href="account.html" aria-label="Account">
+        <a class="header-icon-btn" href="/pages/account.html" aria-label="Account">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
         </a>
       </div>
@@ -651,12 +651,12 @@
     <!-- DESKTOP TOPBAR -->
     <header class="desktop-topbar">
       <div class="topbar-row">
-        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
+        <a class="brand-logo" href="/pages/index.html" aria-label="GP Link Home">
           <img src="../media/images/gp-link-logo.png" alt="GP Link" />
         </a>
         <nav class="nav-menu" aria-label="Main navigation">
           <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
-          <a class="nav-link nav-item" href="index.html" data-nav="home">
+          <a class="nav-link nav-item" href="/pages/index.html" data-nav="home">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
             <span>Home</span>
           </a>
@@ -664,7 +664,7 @@
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
             <span>Registration</span>
           </button>
-          <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
+          <a class="nav-link nav-item" href="/pages/my-documents.html" data-nav="documents">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
             <span>My Documents</span>
           </a>
@@ -672,7 +672,7 @@
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
             <span>Messages</span>
           </button>
-          <a class="account-pill nav-item" href="account.html" data-nav="account">
+          <a class="account-pill nav-item" href="/pages/account.html" data-nav="account">
             <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
             <span>Account</span>
           </a>
@@ -739,20 +739,20 @@
         Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
       </div>
       <div class="help-actions">
-        <a class="btn-modern btn-primary" href="messages.html">Contact Support <span>&#8594;</span></a>
-        <a class="btn-modern btn-outline" href="support-cases.html">View Support Cases <span>&#8594;</span></a>
+        <a class="btn-modern btn-primary" href="/pages/messages.html">Contact Support <span>&#8594;</span></a>
+        <a class="btn-modern btn-outline" href="/pages/support-cases.html">View Support Cases <span>&#8594;</span></a>
       </div>
     </div>
 
     <div class="footer-links">
-      <div><a href="privacy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
+      <div><a href="/pages/privacy.html">Privacy Policy</a> &middot; <a href="/pages/terms.html">Terms of Service</a></div>
       <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
     </div>
   </div>
 
   <!-- BOTTOM NAV (Mobile) -->
   <nav class="bottom-nav" aria-label="Mobile navigation">
-    <a class="bottom-tab" href="index.html">
+    <a class="bottom-tab" href="/pages/index.html">
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
       <span class="bottom-tab-label">Home</span>
     </a>
@@ -767,7 +767,7 @@
       </span>
       <span class="bottom-tab-label">Messages</span>
     </button>
-    <a class="bottom-tab" href="account.html">
+    <a class="bottom-tab" href="/pages/account.html">
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
       <span class="bottom-tab-label">Account</span>
     </a>
@@ -1176,12 +1176,11 @@
       requestAnimationFrame(() => positionTabGlass(false));
     }
 
-    function positionTabGlass(animate) {
-      const activeBtn = stepTabsEl.querySelector(".step-tab.active");
-      if (!activeBtn) { stepTabGlassEl.style.opacity = "0"; return; }
+    function setTabGlassToButton(targetBtn, animate) {
+      if (!targetBtn) { stepTabGlassEl.style.opacity = "0"; return; }
       stepTabGlassEl.style.opacity = "1";
       const parentRect = stepTabsEl.getBoundingClientRect();
-      const rect = activeBtn.getBoundingClientRect();
+      const rect = targetBtn.getBoundingClientRect();
       const left = rect.left - parentRect.left + stepTabsEl.scrollLeft;
       if (!animate) {
         const prev = stepTabGlassEl.style.transition;
@@ -1198,6 +1197,12 @@
         stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
         stepTabGlassEl.style.height = `${rect.height}px`;
       }
+    }
+
+    function positionTabGlass(animate) {
+      const activeBtn = stepTabsEl.querySelector(".step-tab.active");
+      if (!activeBtn) { stepTabGlassEl.style.opacity = "0"; return; }
+      setTabGlassToButton(activeBtn, animate);
 
       // Scroll active tab into view
       const scrollTarget = activeBtn.offsetLeft - stepTabsEl.offsetWidth / 2 + activeBtn.offsetWidth / 2;
@@ -1321,7 +1326,7 @@
           if (meta.ctaType === "open") window.open(AMC_URL, "_blank", "noopener,noreferrer");
           else if (meta.ctaType === "open_signup") window.open(AMC_SIGNUP_URL, "_blank", "noopener,noreferrer");
           else if (meta.ctaType === "support") openModal(supportModalEl);
-          else if (meta.ctaType === "ahpra") window.location.href = "ahpra.html";
+          else if (meta.ctaType === "ahpra") window.location.href = "/pages/ahpra.html";
         });
       }
 
@@ -1516,10 +1521,10 @@
     });
 
     // ─── EVENT LISTENERS ────────────────────────────────────────
-    document.getElementById("topSupportBtn").addEventListener("click", () => { window.location.href = "messages.html"; });
-    document.getElementById("mobileSupportBtn").addEventListener("click", () => { window.location.href = "messages.html"; });
+    document.getElementById("topSupportBtn").addEventListener("click", () => { window.location.href = "/pages/messages.html"; });
+    document.getElementById("mobileSupportBtn").addEventListener("click", () => { window.location.href = "/pages/messages.html"; });
     const mobileNotifBtn = document.getElementById("mobileNotifBtn");
-    if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", () => { window.location.href = "messages.html"; });
+    if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", () => { window.location.href = "/pages/messages.html"; });
 
     if (supportSubmitBtnEl) {
       supportSubmitBtnEl.addEventListener("click", () => {
@@ -1574,6 +1579,28 @@
     mobileRegSheet.addEventListener("touchend", () => {
       if (!dragging) return; dragging = false;
       if (deltaY > 90) closeMobileRegistration(); else mobileRegSheet.style.transform = "";
+    });
+
+    let hoveredStepTabBtn = null;
+    stepTabsEl.addEventListener("mousemove", e => {
+      if (!tabElements.length) return;
+      const x = e.clientX;
+      let closest = null;
+      let min = Number.POSITIVE_INFINITY;
+      tabElements.forEach(btn => {
+        const r = btn.getBoundingClientRect();
+        const cx = r.left + (r.width / 2);
+        const d = Math.abs(cx - x);
+        if (d < min) { min = d; closest = btn; }
+      });
+      if (closest && closest !== hoveredStepTabBtn) {
+        hoveredStepTabBtn = closest;
+        setTabGlassToButton(closest, true);
+      }
+    });
+    stepTabsEl.addEventListener("mouseleave", () => {
+      hoveredStepTabBtn = null;
+      positionTabGlass(true);
     });
 
     // Reposition glass on resize
