@@ -1136,6 +1136,17 @@
       showToast("Progress reverted");
     }
 
+    function resetProgressToStage(progress, key) {
+      const stageIdx = STAGES.indexOf(key);
+      if (stageIdx === -1) return;
+      for (let i = stageIdx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
+      progress.stage = key;
+      saveProgress(progress, true);
+      currentTabKey = key;
+      syncRouteForStage(key);
+      renderPage(progress);
+    }
+
     // ─── RENDER: STEP TABS ──────────────────────────────────────
     let tabElements = [];
 
@@ -1170,15 +1181,7 @@
 
         if (!isLocked) {
           btn.addEventListener("click", () => {
-            const stageIdx = STAGES.indexOf(key);
-            for (let i = stageIdx; i < STAGES.length; i++) {
-              progress.completed[STAGES[i]] = false;
-            }
-            progress.stage = key;
-            saveProgress(progress, true);
-            currentTabKey = key;
-            syncRouteForStage(key);
-            renderPage(progress);
+            resetProgressToStage(progress, key);
           });
         } else {
           btn.addEventListener("click", () => showToast("Complete the previous step first."));
