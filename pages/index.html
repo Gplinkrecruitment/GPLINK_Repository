@@ -1173,12 +1173,12 @@
       window.location.href = "messages.html";
     });
     const mobileNotifBtn = document.getElementById("mobileNotifBtn");
-    if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", () => {
+    if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       if (typeof window.openGpAlertPanel === "function") {
         window.openGpAlertPanel(mobileNotifBtn);
-        return;
       }
-      window.location.href = "messages.html";
     });
     document.querySelectorAll("[data-close]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1191,12 +1191,12 @@
     });
     const topSupportBtn = document.getElementById("topSupportBtn");
     if (topSupportBtn) {
-      topSupportBtn.addEventListener("click", () => {
+      topSupportBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         if (typeof window.openGpAlertPanel === "function") {
           window.openGpAlertPanel(topSupportBtn);
-          return;
         }
-        window.location.href = "messages.html";
       });
     }
 

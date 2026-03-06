@@ -396,18 +396,20 @@
     }
 
     document.addEventListener("click", (event) => {
-      const closeBtn = event.target instanceof Element ? event.target.closest("[data-alert-close]") : null;
+      const targetEl = event.target instanceof Element
+        ? event.target
+        : (event.target && event.target.parentElement ? event.target.parentElement : null);
+
+      const closeBtn = targetEl ? targetEl.closest("[data-alert-close]") : null;
       if (closeBtn) {
         event.preventDefault();
         closePanel();
         return;
       }
 
-      let trigger = event.target instanceof Element
-        ? event.target.closest("#topSupportBtn, #mobileNotifBtn")
-        : null;
-      if (!trigger && event.target instanceof Element) {
-        const navCandidate = event.target.closest(".nav-menu .nav-item, .mobile-tab");
+      let trigger = targetEl ? targetEl.closest("#topSupportBtn, #mobileNotifBtn") : null;
+      if (!trigger && targetEl) {
+        const navCandidate = targetEl.closest(".nav-menu .nav-item, .mobile-tab");
         if (navCandidate) {
           const href = navCandidate.getAttribute("href");
           const hasBellBadge = !!navCandidate.querySelector("[data-inbox-alert]");

@@ -2796,12 +2796,12 @@
 
     const topSupportBtn = document.getElementById("topSupportBtn");
     if (topSupportBtn) {
-      topSupportBtn.addEventListener("click", () => {
+      topSupportBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         if (typeof window.openGpAlertPanel === "function") {
           window.openGpAlertPanel(topSupportBtn);
-          return;
         }
-        window.location.href = "messages.html";
       });
     }
     document.getElementById("contactSupport").addEventListener("click", () => {
