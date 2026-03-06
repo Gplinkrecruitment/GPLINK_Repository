@@ -132,91 +132,261 @@
       border: 2px solid #f0f4fa;
     }
 
-    /* ---- BACK LINK ---- */
-    .back-link {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 13px; font-weight: 600; color: var(--blue);
-      text-decoration: none; padding: 6px 0; margin-bottom: 4px;
+    /* ---- SUBSTEP NAVIGATION ---- */
+    .sn-wrap { margin-bottom: 16px; }
+
+    .sn-progress-header {
+      background: #fff; border-radius: 16px; border: 1px solid #e8edf5;
+      padding: 18px 20px; box-shadow: var(--shadow2); margin-bottom: 12px;
     }
-    .back-link:hover { text-decoration: underline; }
-    .back-link svg {
+    .sn-progress-top {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+    }
+    .sn-progress-label {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px;
+    }
+    .sn-progress-title {
+      font-size: 18px; font-weight: 800; letter-spacing: -0.01em; color: var(--text);
+    }
+    .sn-progress-pct {
+      font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: var(--text);
+    }
+    .sn-progress-count {
+      font-size: 12px; color: var(--muted); font-weight: 500;
+    }
+    .sn-bar-track {
+      height: 6px; border-radius: 999px; background: #f1f5f9; overflow: hidden;
+    }
+    .sn-bar-fill {
+      height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, #2563eb, #3b82f6);
+      transition: width .5s ease;
+    }
+    .sn-bar-fill.complete {
+      background: linear-gradient(90deg, #16a34a, #22c55e);
+    }
+
+    /* Mobile step rail */
+    .sn-mobile-rail {
+      display: none; background: #fff; border-radius: 16px;
+      border: 1px solid #e8edf5; padding: 12px 8px;
+      margin-bottom: 12px; position: relative; overflow: hidden;
+    }
+    .sn-rail-scroll {
+      display: flex; align-items: flex-end; gap: 2px;
+      overflow-x: auto; padding: 0 8px 4px;
+      -ms-overflow-style: none; scrollbar-width: none;
+      scroll-snap-type: x mandatory;
+    }
+    .sn-rail-scroll::-webkit-scrollbar { display: none; }
+    .sn-rail-fade-l, .sn-rail-fade-r {
+      position: absolute; top: 0; bottom: 0; width: 24px;
+      pointer-events: none; z-index: 2;
+    }
+    .sn-rail-fade-l { left: 0; background: linear-gradient(90deg, #fff, transparent); }
+    .sn-rail-fade-r { right: 0; background: linear-gradient(270deg, #fff, transparent); }
+
+    .sn-pill {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 4px; min-width: 56px; padding: 0 4px;
+      background: none; border: 0; cursor: pointer;
+      font-family: inherit; scroll-snap-align: center;
+      transition: opacity .2s;
+    }
+    .sn-pill:disabled { opacity: .45; cursor: not-allowed; }
+    .sn-pill-circle {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 11px; font-weight: 700;
+      border: 2px solid #e2e8f0; background: #fff; color: #64748b;
+      transition: all .2s;
+    }
+    .sn-pill-circle svg {
+      width: 14px; height: 14px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .sn-pill-circle.done { background: #10b981; border-color: #10b981; color: #fff; }
+    .sn-pill-circle.active { background: #2563eb; border-color: #2563eb; color: #fff; box-shadow: 0 2px 8px -2px rgba(37,99,235,.4); }
+    .sn-pill-circle.action { background: #fef3c7; border-color: #f59e0b; color: #b45309; }
+    .sn-pill-circle.locked { background: #f1f5f9; border-color: #e2e8f0; color: #94a3b8; }
+    .sn-pill-label {
+      font-size: 9px; font-weight: 600; text-align: center;
+      max-width: 60px; line-height: 1.2; color: #94a3b8;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .sn-pill-label.active { color: #1d4ed8; }
+    .sn-pill-label.done { color: #059669; }
+    .sn-connector {
+      width: 24px; height: 2px; border-radius: 999px;
+      background: #e2e8f0; flex-shrink: 0; align-self: flex-start;
+      margin-top: 15px;
+    }
+    .sn-connector.done { background: #6ee7b7; }
+
+    /* Substep cards */
+    .sn-cards { display: grid; gap: 8px; margin-bottom: 12px; }
+    .sn-card {
+      display: flex; align-items: center; gap: 14px;
+      background: #fff; border-radius: 16px; padding: 14px 16px;
+      border: 1px solid #e8edf5; cursor: pointer;
+      transition: all .2s ease; width: 100%; text-align: left;
+      font-family: inherit; font-size: inherit; color: inherit;
+    }
+    .sn-card:hover {
+      border-color: #c7d2fe; box-shadow: 0 4px 16px -8px rgba(37,99,235,.12);
+      transform: translateY(-1px);
+    }
+    .sn-card.selected-current { border-color: #93c5fd; background: rgba(239,246,255,.5); box-shadow: 0 4px 16px -8px rgba(37,99,235,.12); }
+    .sn-card.selected-done { border-color: #86efac; background: rgba(236,253,245,.4); }
+    .sn-card.selected-action { border-color: #fde68a; background: rgba(255,251,235,.4); }
+    .sn-card.is-current { border-color: rgba(147,197,253,.5); background: linear-gradient(135deg, rgba(239,246,255,.4), #fff); }
+    .sn-card.is-done { border-color: rgba(187,247,208,.5); }
+    .sn-card.is-action { border-color: rgba(253,230,138,.5); background: linear-gradient(135deg, rgba(255,251,235,.3), #fff); }
+    .sn-card.is-locked { opacity: .55; cursor: not-allowed; }
+    .sn-card.is-locked:hover { transform: none; box-shadow: none; border-color: #e8edf5; }
+
+    .sn-card-icon {
+      width: 36px; height: 36px; border-radius: 12px;
+      display: grid; place-items: center; flex-shrink: 0;
+    }
+    .sn-card-icon svg {
+      width: 18px; height: 18px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .sn-card-icon.current { background: #eff6ff; color: #2563eb; }
+    .sn-card-icon.done { background: #ecfdf5; color: #16a34a; }
+    .sn-card-icon.locked { background: #f1f5f9; color: #94a3b8; }
+    .sn-card-icon.action { background: #fffbeb; color: #d97706; }
+    .sn-card-icon.waiting { background: #f5f3ff; color: #7c3aed; }
+
+    .sn-card-body { flex: 1; min-width: 0; }
+    .sn-card-step {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 1px;
+    }
+    .sn-card-title { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.3; }
+    .sn-card-title.locked { color: #94a3b8; }
+    .sn-card-desc { font-size: 12px; color: var(--muted); font-weight: 500; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sn-card-desc.locked { color: #94a3b8; }
+
+    .sn-card-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .sn-badge {
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; white-space: nowrap;
+    }
+    .sn-badge.current-b { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .sn-badge.done-b { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
+    .sn-badge.locked-b { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+    .sn-badge.action-b { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .sn-badge.waiting-b { background: #f5f3ff; color: #5b21b6; border: 1px solid #ddd6fe; }
+    .sn-card-chevron {
+      width: 16px; height: 16px; color: #94a3b8; flex-shrink: 0;
+      transition: transform .15s;
+    }
+    .sn-card:hover .sn-card-chevron { transform: translateX(2px); }
+    .sn-card-chevron svg {
       width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
-    /* ---- PAGE TITLE ---- */
-    .page-title-row {
+    /* Detail panel */
+    .sn-detail {
+      background: #fff; border-radius: 16px; border: 1px solid #e8edf5;
+      overflow: hidden; margin-bottom: 12px;
+      animation: snSlideIn .2s ease;
+    }
+    @keyframes snSlideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    .sn-detail.hidden { display: none; }
+    .sn-detail.border-action { border-color: #fde68a; }
+    .sn-detail.border-done { border-color: #bbf7d0; }
+    .sn-detail-accent {
+      height: 3px;
+      background: linear-gradient(90deg, #2563eb, #3b82f6);
+    }
+    .sn-detail-accent.action { background: linear-gradient(90deg, #f59e0b, #f97316); }
+    .sn-detail-accent.done { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .sn-detail-body { padding: 20px; }
+    .sn-detail-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 12px; margin-bottom: 14px;
+    }
+    .sn-detail-title {
+      font-size: 17px; font-weight: 800; color: var(--text);
+      letter-spacing: -0.01em; line-height: 1.3;
+    }
+    .sn-detail-desc {
+      font-size: 13px; color: #475569; font-weight: 500;
+      line-height: 1.5; margin-top: 4px;
+    }
+    .sn-detail-close {
+      width: 32px; height: 32px; border-radius: 10px;
+      border: 0; background: transparent; cursor: pointer;
+      display: grid; place-items: center; color: #94a3b8;
+      transition: all .15s; flex-shrink: 0; font-family: inherit;
+    }
+    .sn-detail-close:hover { background: #f1f5f9; color: #475569; }
+    .sn-detail-close svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .sn-detail-warning {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: #fffbeb; border: 1px solid #fde68a;
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+    }
+    .sn-detail-warning-icon {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: #fef3c7; display: grid; place-items: center; flex-shrink: 0;
+    }
+    .sn-detail-warning-icon svg {
+      width: 16px; height: 16px; stroke: #b45309;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .sn-detail-warning-title { font-size: 13px; font-weight: 700; color: #92400e; }
+    .sn-detail-warning-text { font-size: 12px; color: #a16207; font-weight: 500; line-height: 1.45; margin-top: 2px; }
+
+    .sn-detail-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; margin-bottom: 14px;
+    }
+    .sn-detail-item {
+      background: #f8fafc; border-radius: 12px;
+      border: 1px solid #e8edf5; padding: 12px;
+    }
+    .sn-detail-item-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px;
+    }
+    .sn-detail-item-value {
+      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
+    }
+    .sn-detail-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    /* Navigation controls */
+    .sn-nav-controls {
       display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
-    }
-
-    .page-title-row h1 {
-      font-size: 22px; font-weight: 800;
-      letter-spacing: -0.02em;
-    }
-
-    .page-title-badge {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 5px 12px; border-radius: 999px;
-      font-size: 11px; font-weight: 700;
-      background: #eff6ff; color: #1d4ed8;
-      border: 1px solid #bfdbfe;
-    }
-    .page-title-badge.done-badge {
-      background: #ecfdf5; color: #166534; border-color: #bbf7d0;
-    }
-
-    .page-title-badge-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: currentColor;
-    }
-
-    /* ---- SUMMARY CARDS ---- */
-    .summary-cards {
-      display: grid; grid-template-columns: repeat(3, 1fr);
       gap: 12px; margin-bottom: 16px;
     }
-
-    .summary-card {
-      background: #fff; border-radius: 16px;
-      border: 1px solid #e8edf5; padding: 16px;
-      transition: all .2s ease;
+    .sn-nav-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 16px; border-radius: 12px;
+      font-size: 13px; font-weight: 700; border: 1px solid;
+      cursor: pointer; font-family: inherit; transition: all .15s;
     }
-    .summary-card:hover {
-      border-color: #c7d2fe;
-      box-shadow: 0 4px 16px -8px rgba(37, 99, 235, 0.12);
+    .sn-nav-btn svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-
-    .summary-card-label {
-      font-size: 11px; font-weight: 700;
-      color: var(--muted); text-transform: uppercase;
-      letter-spacing: 0.04em; margin-bottom: 6px;
-    }
-
-    .summary-card-value {
-      font-size: 22px; font-weight: 800;
-      letter-spacing: -0.02em; line-height: 1.2;
-      margin-bottom: 4px;
-    }
-
-    .summary-card-sub {
-      font-size: 12px; color: var(--muted); font-weight: 500;
-    }
-
-    .summary-progress-track {
-      height: 6px; border-radius: 999px;
-      background: #e8edf5; overflow: hidden;
-      margin-top: 10px;
-    }
-
-    .summary-progress-fill {
-      height: 100%; border-radius: 999px;
-      background: linear-gradient(90deg, #2563eb, #3b82f6);
-      transition: width .4s ease;
-    }
-    .summary-progress-fill.complete {
-      background: linear-gradient(90deg, #16a34a, #22c55e);
-    }
+    .sn-nav-btn.prev { background: #fff; color: #475569; border-color: #e2e8f0; }
+    .sn-nav-btn.prev:hover:not(:disabled) { background: #f8fafc; border-color: #cbd5e1; }
+    .sn-nav-btn.next { background: var(--blue); color: #fff; border-color: var(--blue); box-shadow: 0 4px 12px -4px rgba(37,99,235,.4); }
+    .sn-nav-btn.next:hover:not(:disabled) { background: var(--blue2); transform: translateY(-1px); }
+    .sn-nav-btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    .sn-nav-step-text { font-size: 12px; font-weight: 600; color: var(--muted); }
 
     /* ---- GUIDANCE PANEL ---- */
     .guidance-card {
@@ -345,153 +515,7 @@
       font-weight: 500; line-height: 1.45;
     }
 
-    /* ---- SECTION HEADING ---- */
-    .section-head {
-      display: flex; align-items: center;
-      justify-content: space-between;
-      padding: 12px 0 10px;
-    }
-
-    .section-title {
-      font-size: 18px; font-weight: 800;
-      letter-spacing: -0.02em; color: var(--text);
-    }
-
-    .section-link {
-      font-size: 13px; font-weight: 700;
-      color: var(--blue); text-decoration: none;
-      display: inline-flex; align-items: center; gap: 4px;
-    }
-    .section-link:hover { text-decoration: underline; }
-
-    /* ---- STEP LIST ---- */
-    .step-list { display: grid; gap: 10px; margin-bottom: 16px; }
-
-    .step-item {
-      display: flex; align-items: center; gap: 14px;
-      background: #fff; border-radius: 16px;
-      padding: 16px; border: 1px solid #e8edf5;
-      transition: all .2s ease; cursor: pointer;
-    }
-    .step-item:hover {
-      border-color: #c7d2fe;
-      box-shadow: 0 4px 16px -8px rgba(37, 99, 235, 0.15);
-      transform: translateY(-1px);
-    }
-
-    .step-item.is-current {
-      border-color: #93c5fd;
-      background: linear-gradient(135deg, rgba(239, 246, 255, 0.8), rgba(255, 255, 255, 0.95));
-      box-shadow: 0 4px 16px -8px rgba(37, 99, 235, 0.12);
-    }
-
-    .step-item.is-done {
-      border-color: #bbf7d0;
-      background: linear-gradient(135deg, rgba(236, 253, 245, 0.6), rgba(255, 255, 255, 0.95));
-    }
-
-    .step-item.is-locked { opacity: 0.6; cursor: default; }
-    .step-item.is-locked:hover { transform: none; box-shadow: none; border-color: #e8edf5; }
-
-    .step-dot {
-      width: 36px; height: 36px; border-radius: 12px;
-      display: grid; place-items: center; flex-shrink: 0;
-    }
-    .step-dot svg {
-      width: 18px; height: 18px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .step-dot.current { background: #eff6ff; color: #2563eb; }
-    .step-dot.done { background: #ecfdf5; color: #16a34a; }
-    .step-dot.locked { background: #f1f5f9; color: #94a3b8; }
-    .step-dot.action { background: #fffbeb; color: #d97706; }
-    .step-dot.waiting { background: #f5f3ff; color: #7c3aed; }
-
-    .step-body { flex: 1; min-width: 0; }
-
-    .step-label {
-      font-size: 11px; font-weight: 600;
-      color: var(--muted); text-transform: uppercase;
-      letter-spacing: 0.04em; margin-bottom: 2px;
-    }
-
-    .step-name {
-      font-size: 14px; font-weight: 700;
-      color: var(--text); line-height: 1.3;
-    }
-
-    .step-status-text {
-      font-size: 12px; color: var(--muted);
-      font-weight: 500; margin-top: 2px;
-    }
-
-    .step-badge {
-      padding: 5px 12px; border-radius: 999px;
-      font-size: 11px; font-weight: 700;
-      flex-shrink: 0; text-transform: capitalize;
-    }
-    .step-badge.current-b { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-    .step-badge.done-b { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
-    .step-badge.locked-b { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-    .step-badge.action-b { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
-    .step-badge.waiting-b { background: #f5f3ff; color: #5b21b6; border: 1px solid #ddd6fe; }
-
-    .step-arrow {
-      width: 20px; height: 20px; color: #94a3b8; flex-shrink: 0;
-    }
-    .step-arrow svg {
-      width: 20px; height: 20px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    /* ---- STEP DETAIL (expanded) ---- */
-    .step-detail {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 20px;
-      margin-bottom: 16px;
-    }
-    .step-detail.hidden { display: none; }
-
-    .step-detail-head {
-      display: flex; align-items: flex-start;
-      justify-content: space-between; gap: 12px;
-      margin-bottom: 14px; flex-wrap: wrap;
-    }
-
-    .step-detail-title {
-      font-size: 16px; font-weight: 800;
-      letter-spacing: -0.01em;
-    }
-
-    .step-detail-desc {
-      font-size: 13px; color: #475569;
-      font-weight: 500; line-height: 1.5;
-      margin-bottom: 12px;
-    }
-
-    .step-detail-actions {
-      display: flex; gap: 10px; flex-wrap: wrap;
-      align-items: center;
-    }
-
-    .step-detail-grid {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 10px; margin-bottom: 14px;
-    }
-
-    .step-detail-item {
-      background: #f8fafc; border-radius: 12px;
-      border: 1px solid #e8edf5; padding: 12px;
-    }
-
-    .step-detail-item-label {
-      font-size: 10px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px;
-    }
-
-    .step-detail-item-value {
-      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
-    }
+    /* (step-list and step-detail replaced by substep nav above) */
 
     /* ---- DOCUMENTS SECTION ---- */
     .docs-section {
@@ -941,17 +965,16 @@
       .bottom-nav { display: grid; }
       .app-header { display: flex; }
       .trust-grid { grid-template-columns: 1fr; }
-      .summary-cards { grid-template-columns: 1fr; }
       .guidance-grid { grid-template-columns: 1fr; }
-      .step-detail-grid { grid-template-columns: 1fr; }
-      .page-title-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+      .sn-detail-grid { grid-template-columns: 1fr; }
+      .sn-mobile-rail { display: block; }
       .guidance-cta { width: 100%; justify-content: center; }
       .dash-wrap { padding-bottom: 80px; }
     }
 
     @media (max-width: 480px) {
-      .page-title-row h1 { font-size: 19px; }
-      .summary-card-value { font-size: 18px; }
+      .sn-progress-title { font-size: 16px; }
+      .sn-progress-pct { font-size: 20px; }
     }
   </style>
 </head>
@@ -1015,40 +1038,74 @@
       </div>
     </header>
 
-    <!-- BACK LINK -->
-    <a class="back-link" href="index.html">
-      <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-      Back to Dashboard
-    </a>
-
-    <!-- PAGE TITLE -->
-    <div class="page-title-row">
-      <h1>MyIntealth / EPIC Verification</h1>
-      <span class="page-title-badge" id="pageBadge">
-        <span class="page-title-badge-dot"></span>
-        <span id="pageBadgeText">In Progress</span>
-      </span>
-    </div>
-
-    <!-- SUMMARY CARDS -->
-    <div class="summary-cards" id="summaryCards">
-      <div class="summary-card">
-        <div class="summary-card-label">Current Phase</div>
-        <div class="summary-card-value" id="summaryPhase">Create Account</div>
-        <div class="summary-card-sub" id="summaryPhaseSub">Step 1 of 5</div>
-      </div>
-      <div class="summary-card">
-        <div class="summary-card-label">Progress</div>
-        <div class="summary-card-value" id="summaryProgress">0%</div>
-        <div class="summary-card-sub" id="summaryProgressSub">0 of 5 tasks complete</div>
-        <div class="summary-progress-track">
-          <div class="summary-progress-fill" id="summaryProgressBar" style="width: 3%"></div>
+    <!-- SUBSTEP NAVIGATION -->
+    <div class="sn-wrap" id="substepNav">
+      <!-- Progress Header -->
+      <div class="sn-progress-header">
+        <div class="sn-progress-top">
+          <div>
+            <div class="sn-progress-label">MyIntealth Process</div>
+            <div class="sn-progress-title" id="snCurrentTitle">Create Your Account</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="sn-progress-pct" id="snPct">0%</div>
+            <div class="sn-progress-count" id="snCount">0 of 5 complete</div>
+          </div>
+        </div>
+        <div class="sn-bar-track">
+          <div class="sn-bar-fill" id="snBarFill" style="width:2%"></div>
         </div>
       </div>
-      <div class="summary-card">
-        <div class="summary-card-label">Documents</div>
-        <div class="summary-card-value" id="summaryDocs">Required</div>
-        <div class="summary-card-sub" id="summaryDocsSub">Specialist qualification + medical degree</div>
+
+      <!-- Mobile Step Rail -->
+      <div class="sn-mobile-rail">
+        <div class="sn-rail-scroll" id="snRailScroll"></div>
+        <div class="sn-rail-fade-l"></div>
+        <div class="sn-rail-fade-r"></div>
+      </div>
+
+      <!-- Detail Panel (shown when a card is clicked) -->
+      <div class="sn-detail hidden" id="snDetail">
+        <div class="sn-detail-accent" id="snDetailAccent"></div>
+        <div class="sn-detail-body">
+          <div class="sn-detail-header">
+            <div style="flex:1;min-width:0;">
+              <span class="sn-badge" id="snDetailBadge" style="margin-bottom:6px;display:inline-flex;"></span>
+              <div class="sn-detail-title" id="snDetailTitle">-</div>
+              <div class="sn-detail-desc" id="snDetailDesc">-</div>
+            </div>
+            <button class="sn-detail-close" id="snDetailClose" type="button" aria-label="Close">
+              <svg viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="sn-detail-warning hidden" id="snDetailWarning">
+            <div class="sn-detail-warning-icon">
+              <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+            </div>
+            <div>
+              <div class="sn-detail-warning-title">Attention needed</div>
+              <div class="sn-detail-warning-text" id="snDetailWarningText">-</div>
+            </div>
+          </div>
+          <div class="sn-detail-grid" id="snDetailGrid"></div>
+          <div class="sn-detail-actions" id="snDetailActions"></div>
+        </div>
+      </div>
+
+      <!-- Substep Cards -->
+      <div class="sn-cards" id="snCards"></div>
+
+      <!-- Navigation Controls -->
+      <div class="sn-nav-controls">
+        <button class="sn-nav-btn prev" id="snPrevBtn" type="button" disabled>
+          <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+          Previous
+        </button>
+        <span class="sn-nav-step-text" id="snStepText">Step 1 of 5</span>
+        <button class="sn-nav-btn next" id="snNextBtn" type="button">
+          Next
+          <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
       </div>
     </div>
 
@@ -1114,39 +1171,7 @@
       </div>
     </div>
 
-    <!-- STEP-BY-STEP FLOW -->
-    <div class="section-head">
-      <span class="section-title">Step-by-Step Process</span>
-      <span class="section-link" id="stepsProgress">0 of 5 complete</span>
-    </div>
-
-    <div class="step-list" id="stepList"></div>
-
-    <!-- STEP DETAIL (expanded view of selected step) -->
-    <div class="step-detail hidden" id="stepDetail">
-      <div class="step-detail-head">
-        <div>
-          <div class="step-detail-title" id="detailTitle">-</div>
-        </div>
-        <span class="step-badge" id="detailBadge">Current</span>
-      </div>
-      <p class="step-detail-desc" id="detailDesc">-</p>
-      <div class="step-detail-grid" id="detailGrid">
-        <div class="step-detail-item">
-          <div class="step-detail-item-label">What to do</div>
-          <div class="step-detail-item-value" id="detailDo">-</div>
-        </div>
-        <div class="step-detail-item">
-          <div class="step-detail-item-label">Estimated Time</div>
-          <div class="step-detail-item-value" id="detailTime">-</div>
-        </div>
-      </div>
-      <div class="step-detail-actions">
-        <button class="guidance-cta" id="detailCta" type="button">Continue</button>
-        <button class="guidance-cta guidance-cta-secondary" id="detailUndoBtn" type="button" style="display: none;">Undo</button>
-        <button class="guidance-cta guidance-cta-secondary" id="detailCloseBtn" type="button">Close</button>
-      </div>
-    </div>
+    <!-- (Step list replaced by substep navigation above) -->
 
     <!-- DOCUMENTS SECTION -->
     <div class="docs-section" id="docsSection">
@@ -1497,10 +1522,25 @@
     const countrySelectEl = document.getElementById("countrySelect");
     const qualificationBoxEl = document.getElementById("qualificationBox");
     const qualificationInstructionEl = document.getElementById("qualificationInstruction");
-    const stepListEl = document.getElementById("stepList");
     const tutorialVideoEl = document.getElementById("tutorialVideo");
     const tutorialSourceEl = document.getElementById("tutorialSource");
     const tutorialDescEl = document.getElementById("tutorialDesc");
+
+    // Substep nav refs
+    const snCardsEl = document.getElementById("snCards");
+    const snDetailEl = document.getElementById("snDetail");
+    const snDetailAccent = document.getElementById("snDetailAccent");
+    const snDetailBadge = document.getElementById("snDetailBadge");
+    const snDetailTitle = document.getElementById("snDetailTitle");
+    const snDetailDesc = document.getElementById("snDetailDesc");
+    const snDetailWarning = document.getElementById("snDetailWarning");
+    const snDetailWarningText = document.getElementById("snDetailWarningText");
+    const snDetailGrid = document.getElementById("snDetailGrid");
+    const snDetailActions = document.getElementById("snDetailActions");
+    const snDetailClose = document.getElementById("snDetailClose");
+    const snRailScroll = document.getElementById("snRailScroll");
+    const snPrevBtn = document.getElementById("snPrevBtn");
+    const snNextBtn = document.getElementById("snNextBtn");
 
     let selectedStageKey = null;
 
@@ -1600,48 +1640,30 @@
       return stageMeta[key].short;
     }
 
-    // --- Render summary cards ---
-    function renderSummary(progress) {
+    // --- Render substep navigation ---
+    function renderSubstepProgress(progress) {
       const doneCount = STAGES.filter(k => progress.completed[k]).length;
       const pct = Math.round((doneCount / STAGES.length) * 100);
       const currentIdx = STAGES.indexOf(progress.stage) + 1;
       const meta = stageMeta[progress.stage];
       const allDone = doneCount === STAGES.length;
 
-      document.getElementById("summaryPhase").textContent = allDone ? "Complete" : meta.label;
-      document.getElementById("summaryPhaseSub").textContent = allDone ? "All steps done" : `Step ${currentIdx} of ${STAGES.length}`;
-      document.getElementById("summaryProgress").textContent = `${pct}%`;
-      document.getElementById("summaryProgressSub").textContent = `${doneCount} of ${STAGES.length} tasks complete`;
+      document.getElementById("snCurrentTitle").textContent = allDone ? "All Steps Complete!" : meta.label;
+      document.getElementById("snPct").textContent = `${pct}%`;
+      document.getElementById("snCount").textContent = `${doneCount} of ${STAGES.length} complete`;
 
-      const bar = document.getElementById("summaryProgressBar");
-      bar.style.width = `${Math.max(3, pct)}%`;
+      const bar = document.getElementById("snBarFill");
+      bar.style.width = `${Math.max(2, pct)}%`;
       bar.classList.toggle("complete", allDone);
 
-      // Docs summary
-      const docsEl = document.getElementById("summaryDocs");
-      const docsSubEl = document.getElementById("summaryDocsSub");
-      const hasUploadStage = progress.completed.upload_qualifications;
-      if (hasUploadStage) {
-        docsEl.textContent = "Uploaded";
-        docsSubEl.textContent = "Qualifications submitted to EPIC";
-      } else if (stageStatus(progress, "upload_qualifications") === "current") {
-        docsEl.textContent = "Action Needed";
-        docsSubEl.textContent = "Upload your specialist qualification";
-      } else {
-        docsEl.textContent = "Not Yet";
-        docsSubEl.textContent = "Required at upload stage";
-      }
+      // Step text
+      document.getElementById("snStepText").textContent = `Step ${currentIdx} of ${STAGES.length}`;
 
-      // Page badge
-      const badge = document.getElementById("pageBadge");
-      const badgeText = document.getElementById("pageBadgeText");
-      if (allDone) {
-        badge.className = "page-title-badge done-badge";
-        badgeText.textContent = "Complete";
-      } else {
-        badge.className = "page-title-badge";
-        badgeText.textContent = "In Progress";
-      }
+      // Nav buttons
+      const currentStageIdx = STAGES.indexOf(progress.stage);
+      snPrevBtn.disabled = currentStageIdx <= 0;
+      const nextStage = STAGES[currentStageIdx + 1];
+      snNextBtn.disabled = !nextStage || stageStatus(progress, nextStage) === "locked";
     }
 
     // --- Render guidance panel ---
@@ -1726,109 +1748,228 @@
       }
     }
 
-    // --- Render step list ---
-    function renderStepList(progress) {
-      stepListEl.innerHTML = "";
-      const doneCount = STAGES.filter(k => progress.completed[k]).length;
-      document.getElementById("stepsProgress").textContent = `${doneCount} of ${STAGES.length} complete`;
+    // --- Render substep card list ---
+    function renderSubstepCards(progress) {
+      snCardsEl.innerHTML = "";
 
       STAGES.forEach((key, idx) => {
         const status = stageStatus(progress, key);
         const type = getStepType(key, status);
         const meta = stageMeta[key];
+        const isLocked = status === "locked";
+        const isSelected = selectedStageKey === key;
 
-        const item = document.createElement("div");
-        item.className = `step-item ${status === "done" ? "is-done" : status === "current" ? "is-current" : "is-locked"}`;
-        item.innerHTML = `
-          <div class="step-dot ${type}">${stepDotIcon(type)}</div>
-          <div class="step-body">
-            <div class="step-label">Step ${idx + 1}</div>
-            <div class="step-name">${meta.label}</div>
-            <div class="step-status-text">${getStepStatusText(key, status, progress)}</div>
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "sn-card";
+        if (isLocked) card.classList.add("is-locked");
+        else if (isSelected && status === "done") card.classList.add("selected-done");
+        else if (isSelected && type === "action") card.classList.add("selected-action");
+        else if (isSelected) card.classList.add("selected-current");
+        else if (status === "done") card.classList.add("is-done");
+        else if (type === "action") card.classList.add("is-action");
+        else if (status === "current") card.classList.add("is-current");
+
+        card.innerHTML = `
+          <div class="sn-card-icon ${type}">${stepDotIcon(type)}</div>
+          <div class="sn-card-body">
+            <div class="sn-card-step">Step ${idx + 1}</div>
+            <div class="sn-card-title${isLocked ? ' locked' : ''}">${meta.label}</div>
+            <div class="sn-card-desc${isLocked ? ' locked' : ''}">${meta.short}</div>
           </div>
-          <span class="step-badge ${getStepBadgeClass(type)}">${getStepBadgeLabel(type)}</span>
-          <span class="step-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
+          <div class="sn-card-right">
+            <span class="sn-badge ${getStepBadgeClass(type)}">${getStepBadgeLabel(type)}</span>
+            ${!isLocked ? '<span class="sn-card-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>' : ''}
+          </div>
         `;
 
-        if (status !== "locked") {
-          item.addEventListener("click", () => {
-            selectedStageKey = key;
-            syncRouteForStage(key);
-            renderStepDetail(progress, key);
-            item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        if (!isLocked) {
+          card.addEventListener("click", () => {
+            if (selectedStageKey === key) {
+              selectedStageKey = null;
+              snDetailEl.classList.add("hidden");
+            } else {
+              selectedStageKey = key;
+              syncRouteForStage(key);
+              renderSubstepDetail(progress, key);
+            }
+            renderSubstepCards(progress);
           });
         } else {
-          item.addEventListener("click", () => showToast("Complete the previous step to unlock this."));
+          card.addEventListener("click", () => showToast("Complete the previous step to unlock this."));
         }
 
-        stepListEl.appendChild(item);
+        snCardsEl.appendChild(card);
       });
     }
 
-    // --- Render step detail ---
-    function renderStepDetail(progress, key) {
-      const detail = document.getElementById("stepDetail");
+    // --- Render mobile step rail ---
+    function renderMobileRail(progress) {
+      snRailScroll.innerHTML = "";
+      STAGES.forEach((key, idx) => {
+        const status = stageStatus(progress, key);
+        const type = getStepType(key, status);
+        const meta = stageMeta[key];
+        const isLocked = status === "locked";
+        const isActive = selectedStageKey === key || (!selectedStageKey && progress.stage === key);
+        const isDone = status === "done";
+
+        const pill = document.createElement("button");
+        pill.type = "button";
+        pill.disabled = isLocked;
+        pill.className = "sn-pill";
+
+        let circleClass = "sn-pill-circle";
+        if (isDone) circleClass += " done";
+        else if (isActive) circleClass += " active";
+        else if (type === "action") circleClass += " action";
+        else if (isLocked) circleClass += " locked";
+
+        let labelClass = "sn-pill-label";
+        if (isActive) labelClass += " active";
+        else if (isDone) labelClass += " done";
+
+        const circleContent = isDone
+          ? '<svg viewBox="0 0 16 16"><path d="M13 4.5L6.5 11 3 7.5"/></svg>'
+          : (idx + 1);
+
+        pill.innerHTML = `<div class="${circleClass}">${circleContent}</div><span class="${labelClass}">${meta.label}</span>`;
+
+        if (!isLocked) {
+          pill.addEventListener("click", () => {
+            selectedStageKey = key;
+            syncRouteForStage(key);
+            renderSubstepDetail(progress, key);
+            renderSubstepCards(progress);
+            renderMobileRail(progress);
+          });
+        }
+
+        snRailScroll.appendChild(pill);
+
+        if (idx < STAGES.length - 1) {
+          const conn = document.createElement("div");
+          conn.className = "sn-connector" + (isDone ? " done" : "");
+          snRailScroll.appendChild(conn);
+        }
+      });
+
+      // Scroll to active pill
+      requestAnimationFrame(() => {
+        const activeIdx = selectedStageKey ? STAGES.indexOf(selectedStageKey) : STAGES.indexOf(progress.stage);
+        const children = snRailScroll.children;
+        const childIdx = activeIdx * 2; // each pill + connector
+        if (children[childIdx]) {
+          const child = children[childIdx];
+          const scrollTarget = child.offsetLeft - snRailScroll.offsetWidth / 2 + child.offsetWidth / 2;
+          snRailScroll.scrollTo({ left: Math.max(0, scrollTarget), behavior: "smooth" });
+        }
+      });
+    }
+
+    // --- Render substep detail panel ---
+    function renderSubstepDetail(progress, key) {
       const status = stageStatus(progress, key);
       const type = getStepType(key, status);
       const meta = stageMeta[key];
+      const isDone = status === "done";
+      const isAction = type === "action";
 
-      detail.classList.remove("hidden");
-      document.getElementById("detailTitle").textContent = meta.label;
-      document.getElementById("detailDesc").textContent = meta.short;
+      snDetailEl.classList.remove("hidden");
+      snDetailEl.className = "sn-detail" + (isAction ? " border-action" : isDone ? " border-done" : "");
 
-      const badge = document.getElementById("detailBadge");
-      badge.textContent = getStepBadgeLabel(type);
-      badge.className = `step-badge ${getStepBadgeClass(type)}`;
+      // Accent
+      snDetailAccent.className = "sn-detail-accent" + (isAction ? " action" : isDone ? " done" : "");
 
+      // Badge
+      snDetailBadge.textContent = getStepBadgeLabel(type);
+      snDetailBadge.className = `sn-badge ${getStepBadgeClass(type)}`;
+
+      // Title & desc
+      snDetailTitle.textContent = meta.label;
+      snDetailDesc.textContent = meta.short;
+
+      // Warning
+      if (isAction && status === "current") {
+        snDetailWarning.classList.remove("hidden");
+        snDetailWarningText.textContent = "You need to upload your specialist qualification to EPIC via MyIntealth. Make sure to nominate AMC as the recipient.";
+      } else if (key === "waiting_verification" && status === "current") {
+        snDetailWarning.classList.remove("hidden");
+        snDetailWarningText.textContent = "EPIC is currently reviewing your credentials. This typically takes 1-3 weeks. No action is needed from you.";
+      } else {
+        snDetailWarning.classList.add("hidden");
+      }
+
+      // Info grid
       let doNow = meta.doNow;
       if (key === "upload_qualifications") {
         const country = loadSelectedCountry();
         doNow = (uploadByCountry[country] || uploadByCountry.uk).doNow;
       }
       if (key === "waiting_verification" && status === "current") {
-        doNow = "Nothing required. EPIC is verifying your documents. This usually takes 1-3 weeks.";
+        doNow = "Nothing required. EPIC is verifying your documents.";
       }
 
-      document.getElementById("detailDo").textContent = doNow;
-      document.getElementById("detailTime").textContent = meta.time;
+      snDetailGrid.innerHTML = `
+        <div class="sn-detail-item">
+          <div class="sn-detail-item-label">Your Action</div>
+          <div class="sn-detail-item-value">${doNow}</div>
+        </div>
+        <div class="sn-detail-item">
+          <div class="sn-detail-item-label">Estimated Time</div>
+          <div class="sn-detail-item-value">${meta.time}</div>
+        </div>
+        <div class="sn-detail-item">
+          <div class="sn-detail-item-label">GP Link Support</div>
+          <div class="sn-detail-item-value">${meta.support}</div>
+        </div>
+        <div class="sn-detail-item">
+          <div class="sn-detail-item-label">What Happens Next</div>
+          <div class="sn-detail-item-value">${meta.next}</div>
+        </div>
+      `;
 
-      const ctaEl = document.getElementById("detailCta");
-      const undoBtn = document.getElementById("detailUndoBtn");
-
-      if (status === "done") {
-        ctaEl.style.display = "none";
-        undoBtn.style.display = "";
-        undoBtn.textContent = "Undo Completion";
-        undoBtn.onclick = () => {
-          undoToStage(progress, key);
-          detail.classList.add("hidden");
-        };
+      // Actions
+      let actionsHTML = '';
+      if (isDone) {
+        actionsHTML = `<button class="guidance-cta guidance-cta-secondary" id="snUndoBtn" type="button">Undo Completion</button>`;
       } else if (status === "current") {
-        undoBtn.style.display = "none";
         if (key === "verification_issued") {
-          ctaEl.textContent = "Go to AMC Portfolio";
-          ctaEl.onclick = () => {
-            markStageComplete(progress, key);
-          };
+          actionsHTML = `<button class="guidance-cta" id="snActionBtn" type="button">Go to AMC Portfolio</button>`;
         } else if (key === "waiting_verification") {
-          ctaEl.textContent = "Mark as Verified";
-          ctaEl.onclick = () => markStageComplete(progress, key);
+          actionsHTML = `<button class="guidance-cta" id="snActionBtn" type="button">Mark as Verified</button>`;
         } else {
-          ctaEl.textContent = "Mark Complete";
-          ctaEl.onclick = () => markStageComplete(progress, key);
+          const openLabel = meta.cta || "Open MyIntealth";
+          actionsHTML = `
+            <button class="guidance-cta" id="snOpenBtn" type="button">${openLabel} <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+            <button class="guidance-cta guidance-cta-secondary" id="snActionBtn" type="button">Mark Complete</button>
+          `;
         }
-        ctaEl.style.display = "";
-      } else {
-        ctaEl.style.display = "none";
-        undoBtn.style.display = "none";
+      }
+      snDetailActions.innerHTML = actionsHTML;
+
+      // Wire action buttons
+      const openBtn = document.getElementById("snOpenBtn");
+      if (openBtn) {
+        openBtn.addEventListener("click", () => {
+          if (meta.ctaType === "open") window.open(MYINTEALTH_URL, "_blank", "noopener,noreferrer");
+          else if (meta.ctaType === "support") openModal(supportModalEl);
+          else if (meta.ctaType === "amc") window.location.href = "amc.html";
+        });
+      }
+      const actionBtn = document.getElementById("snActionBtn");
+      if (actionBtn) {
+        actionBtn.addEventListener("click", () => markStageComplete(progress, key));
+      }
+      const undoBtn = document.getElementById("snUndoBtn");
+      if (undoBtn) {
+        undoBtn.addEventListener("click", () => {
+          undoToStage(progress, key);
+          snDetailEl.classList.add("hidden");
+        });
       }
 
-      document.getElementById("detailCloseBtn").onclick = () => {
-        detail.classList.add("hidden");
-        selectedStageKey = null;
-      };
-
-      detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      snDetailEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
     // --- Render documents ---
@@ -1881,9 +2022,11 @@
 
     // --- Main render ---
     function renderPage(progress) {
-      renderSummary(progress);
+      renderSubstepProgress(progress);
+      renderSubstepCards(progress);
+      renderMobileRail(progress);
+      if (selectedStageKey) renderSubstepDetail(progress, selectedStageKey);
       renderGuidance(progress);
-      renderStepList(progress);
       renderDocs(progress);
       renderTutorial(progress);
     }
@@ -2016,6 +2159,40 @@
       item.addEventListener("focus", () => { if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); } });
       if (item !== registrationMenuBtn && item.id !== "topSupportBtn") {
         item.addEventListener("click", () => setActiveNav(item));
+      }
+    });
+
+    // --- Substep nav event listeners ---
+    snDetailClose.addEventListener("click", () => {
+      snDetailEl.classList.add("hidden");
+      selectedStageKey = null;
+      renderSubstepCards(loadProgress());
+    });
+
+    snPrevBtn.addEventListener("click", () => {
+      const progress = loadProgress();
+      const idx = STAGES.indexOf(progress.stage);
+      if (idx > 0) {
+        selectedStageKey = STAGES[idx - 1];
+        syncRouteForStage(selectedStageKey);
+        renderSubstepCards(progress);
+        renderMobileRail(progress);
+        renderSubstepDetail(progress, selectedStageKey);
+      }
+    });
+
+    snNextBtn.addEventListener("click", () => {
+      const progress = loadProgress();
+      const idx = STAGES.indexOf(progress.stage);
+      if (idx < STAGES.length - 1) {
+        const nextKey = STAGES[idx + 1];
+        if (stageStatus(progress, nextKey) !== "locked") {
+          selectedStageKey = nextKey;
+          syncRouteForStage(selectedStageKey);
+          renderSubstepCards(progress);
+          renderMobileRail(progress);
+          renderSubstepDetail(progress, selectedStageKey);
+        }
       }
     });
 
