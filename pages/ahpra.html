@@ -1210,15 +1210,17 @@
     }
 
     let lastFocusedElement = null;
+    const modalTriggerByEl = new WeakMap();
     function openModal(el, triggerEl) {
       if (!el) return;
       const card = el.querySelector(".modal-card");
+      const source = triggerEl instanceof HTMLElement
+        ? triggerEl
+        : (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+      if (source) modalTriggerByEl.set(el, source);
       if (card) {
         let originX = window.innerWidth / 2;
         let originY = window.innerHeight / 2;
-        const source = triggerEl instanceof HTMLElement
-          ? triggerEl
-          : (document.activeElement instanceof HTMLElement ? document.activeElement : null);
         if (source) {
           const rect = source.getBoundingClientRect();
           originX = rect.left + (rect.width / 2);
@@ -1234,9 +1236,22 @@
       if (firstFocusable instanceof HTMLElement) firstFocusable.focus();
     }
     function closeModal(el) {
+      if (!el) return;
+      const card = el.querySelector(".modal-card");
+      const source = modalTriggerByEl.get(el);
+      if (card && source instanceof HTMLElement) {
+        const rect = source.getBoundingClientRect();
+        card.style.setProperty("--modal-origin-x", `${Math.round(rect.left + (rect.width / 2))}px`);
+        card.style.setProperty("--modal-origin-y", `${Math.round(rect.top + (rect.height / 2))}px`);
+      }
       el.classList.remove("show");
       el.setAttribute("aria-hidden", "true");
-      if (lastFocusedElement && typeof lastFocusedElement.focus === "function") lastFocusedElement.focus();
+      const focusTarget = lastFocusedElement;
+      if (focusTarget && typeof focusTarget.focus === "function") {
+        window.setTimeout(() => {
+          try { focusTarget.focus(); } catch (e) {}
+        }, 170);
+      }
       lastFocusedElement = null;
     }
 

@@ -591,17 +591,35 @@
 
     /* ---- MODALS ---- */
     .modal {
-      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5);
-      display: none; align-items: center; justify-content: center;
+      position: fixed; inset: 0;
+      background: rgba(240, 244, 250, 0.34);
+      backdrop-filter: blur(0px) saturate(1.02);
+      -webkit-backdrop-filter: blur(0px) saturate(1.02);
+      display: flex; align-items: center; justify-content: center;
       padding: 16px; z-index: 60;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
     }
-    .modal.show { display: flex; }
+    .modal.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      backdrop-filter: blur(16px) saturate(1.05);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+    }
     .modal-card {
       width: min(480px, 100%); background: #fff;
       border-radius: var(--radius); border: 1px solid #e8edf5;
       box-shadow: 0 24px 48px -16px rgba(15, 23, 42, 0.25);
       padding: 20px; display: grid; gap: 12px;
+      transform: translateY(20px) scale(0.92);
+      opacity: 0;
+      transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
+      transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
     }
+    .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
     .modal-card h4 { font-size: 18px; font-weight: 800; }
     .modal-card p { font-size: 13px; color: #475569; line-height: 1.5; font-weight: 500; }
     .modal-card textarea {
@@ -1078,7 +1096,25 @@
     }
 
     let lastFocusedElement = null;
-    function openModal(el) {
+    const modalTriggerByEl = new WeakMap();
+    function openModal(el, triggerEl) {
+      if (!el) return;
+      const card = el.querySelector(".modal-card");
+      const source = triggerEl instanceof HTMLElement
+        ? triggerEl
+        : (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+      if (source) modalTriggerByEl.set(el, source);
+      if (card) {
+        let originX = window.innerWidth / 2;
+        let originY = window.innerHeight / 2;
+        if (source) {
+          const rect = source.getBoundingClientRect();
+          originX = rect.left + (rect.width / 2);
+          originY = rect.top + (rect.height / 2);
+        }
+        card.style.setProperty("--modal-origin-x", `${Math.round(originX)}px`);
+        card.style.setProperty("--modal-origin-y", `${Math.round(originY)}px`);
+      }
       lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       el.classList.add("show");
       el.setAttribute("aria-hidden", "false");
@@ -1086,9 +1122,22 @@
       if (firstFocusable instanceof HTMLElement) firstFocusable.focus();
     }
     function closeModal(el) {
+      if (!el) return;
+      const card = el.querySelector(".modal-card");
+      const source = modalTriggerByEl.get(el);
+      if (card && source instanceof HTMLElement) {
+        const rect = source.getBoundingClientRect();
+        card.style.setProperty("--modal-origin-x", `${Math.round(rect.left + (rect.width / 2))}px`);
+        card.style.setProperty("--modal-origin-y", `${Math.round(rect.top + (rect.height / 2))}px`);
+      }
       el.classList.remove("show");
       el.setAttribute("aria-hidden", "true");
-      if (lastFocusedElement && typeof lastFocusedElement.focus === "function") lastFocusedElement.focus();
+      const focusTarget = lastFocusedElement;
+      if (focusTarget && typeof focusTarget.focus === "function") {
+        window.setTimeout(() => {
+          try { focusTarget.focus(); } catch (e) {}
+        }, 170);
+      }
       lastFocusedElement = null;
     }
 
@@ -1369,7 +1418,7 @@
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.open(AMC_URL, "_blank", "noopener,noreferrer");
           else if (meta.ctaType === "open_signup") window.open(AMC_SIGNUP_URL, "_blank", "noopener,noreferrer");
-          else if (meta.ctaType === "support") openModal(supportModalEl);
+          else if (meta.ctaType === "support") openModal(supportModalEl, openBtn);
           else if (meta.ctaType === "ahpra") window.location.href = "/pages/ahpra.html";
         });
       }

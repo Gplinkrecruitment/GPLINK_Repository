@@ -100,6 +100,7 @@ const USER_STATE_KEYS = [
   'gp_ahpra_progress',
   'gp_epic_tutorial_seen',
   'gp_amc_tutorial_seen',
+  'gp_ahpra_tutorial_seen',
   'gp_documents_prep',
   'gp_prepared_docs',
   'gp_selected_country',
@@ -107,6 +108,7 @@ const USER_STATE_KEYS = [
   'gp_link_updates_read',
   'gpLinkSupportCases',
   'gpLinkMessageDB',
+  'gpLinkSupportDraft',
   'gp_account_profile'
 ];
 
