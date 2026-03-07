@@ -1193,19 +1193,21 @@
       // Remove old tab buttons (keep the glass)
       tabElements.forEach(el => el.remove());
       tabElements = [];
+      const isMobileView = window.matchMedia("(max-width: 767px)").matches;
 
       TAB_STAGES.forEach((key, idx) => {
         const status = stageStatus(progress, key);
         const isDone = status === "done";
         const isActive = currentTabKey === key;
         const isLocked = status === "locked";
+        const isSelectable = !isLocked && (!isMobileView || isDone || isActive);
 
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "step-tab";
         if (isActive) btn.classList.add("active");
         if (isDone && !isActive) btn.classList.add("done");
-        if (isLocked) btn.disabled = true;
+        if (!isSelectable) btn.disabled = true;
 
         let numClass = "step-tab-num";
         if (isDone) numClass += " done";
@@ -1218,7 +1220,7 @@
 
         btn.innerHTML = `<span class="${numClass}">${numContent}</span>${TAB_LABELS[key]}`;
 
-        if (!isLocked) {
+        if (isSelectable) {
           btn.addEventListener("click", () => {
             resetProgressToStage(progress, key);
           });
