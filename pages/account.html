@@ -3,9 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script>
-    document.documentElement.classList.add("account-loading");
-  </script>
   <script src="../js/auth-guard.js" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js" defer></script>
@@ -41,63 +38,6 @@
         radial-gradient(760px 460px at 100% 0%, rgba(22, 163, 74, 0.12), transparent 58%),
         var(--bg);
       padding: 18px 12px 92px;
-    }
-
-    .account-skeleton {
-      position: fixed;
-      inset: 0;
-      z-index: 10000;
-      background: #eef3fb;
-      padding: 18px 12px;
-      display: none;
-    }
-
-    .account-loading .account-skeleton {
-      display: block;
-    }
-
-    .account-loading .shell,
-    .account-loading .legal-footer {
-      visibility: hidden;
-    }
-
-    .account-skeleton-shell {
-      max-width: 1100px;
-      margin: 0 auto;
-      display: grid;
-      gap: 12px;
-    }
-
-    .account-skeleton-topbar,
-    .account-skeleton-rail,
-    .account-skeleton-main {
-      border-radius: 18px;
-      background: linear-gradient(90deg, #e4ebf6 25%, #f2f6fd 37%, #e4ebf6 63%);
-      background-size: 400% 100%;
-      animation: accountSkeletonShimmer 1.3s ease-in-out infinite;
-    }
-
-    .account-skeleton-topbar {
-      height: 84px;
-    }
-
-    .account-skeleton-grid {
-      display: grid;
-      grid-template-columns: 240px minmax(0, 1fr);
-      gap: 12px;
-    }
-
-    .account-skeleton-rail {
-      min-height: 540px;
-    }
-
-    .account-skeleton-main {
-      min-height: 640px;
-    }
-
-    @keyframes accountSkeletonShimmer {
-      0% { background-position: 100% 50%; }
-      100% { background-position: 0 50%; }
     }
 
     .shell {
@@ -245,8 +185,8 @@
     .card {
       border: 1px solid var(--line);
       border-radius: var(--radius-lg);
-      background: rgba(255, 255, 255, 0.88);
-      box-shadow: var(--shadow-soft);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 22px 45px -35px rgba(15, 23, 42, 0.7);
       padding: 14px;
       backdrop-filter: blur(4px);
       -webkit-backdrop-filter: blur(4px);
@@ -542,6 +482,74 @@
       gap: 10px;
     }
 
+    .mobile-profile-card {
+      border: 1px solid rgba(222, 248, 252, 0.95);
+      border-radius: 18px;
+      background: linear-gradient(155deg, rgba(150, 235, 229, 0.42) 0%, rgba(47, 136, 165, 0.28) 58%, rgba(66, 148, 192, 0.16) 100%);
+      padding: 12px;
+      box-shadow: 0 16px 30px -24px rgba(15, 23, 42, 0.68);
+      display: grid;
+      gap: 12px;
+    }
+
+    .mobile-profile-search {
+      height: 34px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      background: rgba(255, 255, 255, 0.54);
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.76);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 0 11px;
+    }
+
+    .mobile-profile-search svg {
+      width: 14px;
+      height: 14px;
+      stroke: rgba(15, 23, 42, 0.52);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mobile-profile-meta {
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.86);
+      background: rgba(255, 255, 255, 0.74);
+      padding: 12px;
+      display: grid;
+      justify-items: center;
+      text-align: center;
+      gap: 4px;
+    }
+
+    .mobile-avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 999px;
+      object-fit: cover;
+      border: 3px solid rgba(255, 255, 255, 0.94);
+      box-shadow: 0 10px 20px -14px rgba(15, 23, 42, 0.8);
+      margin-top: -34px;
+      background: #dbeafe;
+    }
+
+    .mobile-profile-name {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 850;
+      color: #0f172a;
+    }
+
+    .mobile-profile-copy {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 700;
+      color: #475569;
+    }
+
     .mobile-completeness-card {
       border: 1px solid #dbeafe;
       border-radius: 14px;
@@ -575,16 +583,17 @@
     }
 
     .mobile-launcher {
-      border: 1px solid #dbeafe;
-      border-radius: 14px;
-      background: #f8fbff;
-      padding: 12px;
+      border: 1px solid rgba(222, 236, 255, 0.95);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 13px 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
       cursor: pointer;
       text-align: left;
+      box-shadow: 0 16px 22px -24px rgba(15, 23, 42, 0.55);
     }
 
     .mobile-launcher-title {
@@ -600,7 +609,7 @@
       font-weight: 620;
       color: #475569;
       line-height: 1.3;
-      display: none;
+      display: block;
     }
 
     .mobile-launcher-action {
@@ -617,6 +626,8 @@
     .section-card {
       border-radius: 18px;
       padding: 16px;
+      border-color: rgba(191, 219, 254, 0.78);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 251, 255, 0.92) 100%);
     }
 
     .section-title {
@@ -627,10 +638,12 @@
     }
 
     .section-subtitle {
-      margin: 0 0 10px;
-      font-size: 13px;
-      font-weight: 820;
-      color: #334155;
+      margin: 0;
+      font-size: 12px;
+      font-weight: 840;
+      color: #1e3a8a;
+      text-transform: uppercase;
+      letter-spacing: .04em;
     }
 
     .section-head {
@@ -638,7 +651,9 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(219, 234, 254, 0.9);
     }
 
     .section-head .section-subtitle {
@@ -994,9 +1009,9 @@
       display: none;
       grid-template-columns: repeat(4, 1fr);
       gap: 6px;
-      border: 1px solid rgba(148, 163, 184, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.26);
       border-radius: 20px;
-      background: rgba(15, 23, 42, 0.92);
+      background: rgba(8, 20, 34, 0.82);
       padding: 6px;
       box-shadow: 0 18px 30px -24px rgba(15, 23, 42, 0.9);
       backdrop-filter: blur(8px);
@@ -1096,20 +1111,32 @@
     @media (max-width: 767px) {
       body {
         padding: 10px 8px 116px;
+        background:
+          radial-gradient(520px 360px at -10% -10%, rgba(151, 245, 232, 0.6), transparent 62%),
+          radial-gradient(520px 360px at 100% 0%, rgba(118, 188, 228, 0.38), transparent 62%),
+          linear-gradient(160deg, #bdece7 0%, #8ec9d3 44%, #7cb3cc 100%);
       }
       .shell {
-        border-radius: 16px;
-        padding: 8px;
-        gap: 8px;
+        border-radius: 0;
+        padding: 0;
+        gap: 10px;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
       }
       .topbar { display: none; }
       .mobile-nav { display: grid; }
       .workspace {
-        gap: 8px;
+        gap: 10px;
       }
       .account-stage { order: 1; }
       .mobile-edit-hub {
         display: grid;
+      }
+      .hero-card {
+        display: none;
       }
       .detail-grid {
         display: block;
@@ -1185,55 +1212,6 @@
       .profile-rail {
         display: none;
       }
-      .hero-card {
-        border-radius: 16px;
-      }
-      .hero-cover {
-        min-height: 156px;
-        background-position: center 46%;
-      }
-      .hero-strip {
-        margin-top: -36px;
-        padding: 0 12px 12px;
-        gap: 10px;
-      }
-      .hero-left {
-        width: 100%;
-        gap: 10px;
-        align-items: flex-end;
-      }
-      .avatar {
-        width: 84px;
-        height: 84px;
-        border-width: 3px;
-      }
-      .hero-meta {
-        gap: 4px;
-        padding-bottom: 0;
-      }
-      .page-title {
-        font-size: 24px;
-      }
-      .helper-line {
-        font-size: 12px;
-        line-height: 1.35;
-      }
-      .hero-actions {
-        width: 100%;
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        justify-content: stretch;
-        gap: 8px;
-        padding-bottom: 2px;
-      }
-      .hero-actions .btn {
-        width: 100%;
-        text-align: center;
-      }
-      .save-state {
-        grid-column: 1 / -1;
-        font-size: 11px;
-      }
       .card.section-card {
         border-radius: 14px;
         padding: 12px;
@@ -1272,6 +1250,10 @@
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
       }
+      .mobile-tab.mobile-tab-active {
+        background: rgba(77, 172, 234, 0.26);
+        color: #ffffff;
+      }
     }
 
     @media (max-width: 460px) {
@@ -1305,31 +1287,9 @@
       }
     }
 
-    @media (max-width: 900px) {
-      .account-skeleton-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .account-skeleton-rail {
-        min-height: 220px;
-      }
-
-      .account-skeleton-main {
-        min-height: 620px;
-      }
-    }
   </style>
 </head>
 <body>
-  <div class="account-skeleton" aria-hidden="true">
-    <div class="account-skeleton-shell">
-      <div class="account-skeleton-topbar"></div>
-      <div class="account-skeleton-grid">
-        <div class="account-skeleton-rail"></div>
-        <div class="account-skeleton-main"></div>
-      </div>
-    </div>
-  </div>
   <div class="shell">
     <header class="topbar">
       <div class="topbar-row">
@@ -1409,6 +1369,16 @@
         </header>
 
         <section class="mobile-edit-hub" aria-label="Edit account sections">
+          <div class="mobile-profile-card">
+            <div class="mobile-profile-search" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            </div>
+            <div class="mobile-profile-meta">
+              <img id="mobileAvatarImg" class="mobile-avatar" alt="Profile photo" hidden />
+              <p class="mobile-profile-name" id="mobileHeroName">Dr Last name</p>
+              <p class="mobile-profile-copy" id="mobileHeroEmail">Not provided yet</p>
+            </div>
+          </div>
           <div class="mobile-completeness-card">
             <div class="mobile-completeness-top">
               <span>Profile completeness</span>
@@ -1422,14 +1392,14 @@
               <p class="mobile-launcher-title">Personal Details</p>
               <p class="mobile-launcher-copy">Name, phone, country and registration number.</p>
             </span>
-            <span class="mobile-launcher-action">Edit</span>
+            <span class="mobile-launcher-action">Open</span>
           </button>
           <button class="mobile-launcher" type="button" data-open-section="accountSecurityCard">
             <span>
               <p class="mobile-launcher-title">Account & Security</p>
               <p class="mobile-launcher-copy">Email and password controls.</p>
             </span>
-            <span class="mobile-launcher-action">Edit</span>
+            <span class="mobile-launcher-action">Open</span>
           </button>
           <button class="mobile-launcher" type="button" data-open-section="documentsCard">
             <span>
@@ -1689,6 +1659,9 @@
       hint: document.getElementById("mobileCompletenessHint")
     };
     const heroAccountTitleEl = document.getElementById("heroAccountTitle");
+    const mobileHeroNameEl = document.getElementById("mobileHeroName");
+    const mobileHeroEmailEl = document.getElementById("mobileHeroEmail");
+    const mobileAvatarImgEl = document.getElementById("mobileAvatarImg");
 
     const uploadUi = {
       profilePhoto: {
@@ -1972,6 +1945,8 @@
       const registrationValue = fieldEls.registrationNumber.value.trim();
 
       if (heroAccountTitleEl) heroAccountTitleEl.textContent = last ? `Dr ${last}` : "Dr Last name";
+      if (mobileHeroNameEl) mobileHeroNameEl.textContent = last ? `Dr ${last}` : "Dr Last name";
+      if (mobileHeroEmailEl) mobileHeroEmailEl.textContent = email || "Not provided yet";
       summaryEls.email.textContent = email || "Not provided yet";
       summaryEls.country.textContent = state.profile.specialistCountry || "Not provided yet";
       summaryEls.registration.textContent = registrationValue ? `Registration Number: ${registrationValue}` : "Registration Number: Not provided yet";
@@ -2008,11 +1983,14 @@
       const photo = state.profile.files.profilePhoto;
       if (photo && photo.url) {
         summaryEls.avatarImg.src = photo.url;
+        if (mobileAvatarImgEl) mobileAvatarImgEl.src = photo.url;
       } else {
         const placeholder = buildAvatarPlaceholder(first, last);
         summaryEls.avatarImg.src = placeholder;
+        if (mobileAvatarImgEl) mobileAvatarImgEl.src = placeholder;
       }
       summaryEls.avatarImg.hidden = false;
+      if (mobileAvatarImgEl) mobileAvatarImgEl.hidden = false;
     }
 
     function updateSaveButtonState() {
@@ -2417,8 +2395,6 @@
       } catch (err) {
         applyProfileToForm({});
         setSaveState("We couldn’t save your changes. Please check your connection and try again.", "error");
-      } finally {
-        document.documentElement.classList.remove("account-loading");
       }
       activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
       setActiveNav(activeNavItem, false);
