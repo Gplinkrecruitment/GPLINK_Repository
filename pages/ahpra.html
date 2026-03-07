@@ -836,6 +836,40 @@
     </div>
   </div>
 
+  <div class="modal" id="missingDocsModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="missingDocsTitle">
+      <h4 id="missingDocsTitle">Missing Supporting Documents</h4>
+      <p>Upload missing documents below to continue this step.</p>
+      <div id="missingDocsModalList" style="display:grid; gap:8px;"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-primary" id="requestHelpMissingBtn" type="button">Request Help</button>
+        <button class="btn-modern btn-outline" data-close="missingDocsModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="downloadPackModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="downloadPackTitle">
+      <h4 id="downloadPackTitle">Download Supporting Documents</h4>
+      <p>Download ready files now. Missing items can be uploaded directly from this flow.</p>
+      <div id="downloadPackSummary" style="display:grid; gap:10px;"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-outline" data-close="downloadPackModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="reviewPendingModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reviewPendingTitle">
+      <h4 id="reviewPendingTitle">Documents Under Review</h4>
+      <p>Your uploaded documents are currently under GP Link review (usually within 24 hours).</p>
+      <p>Once review is complete, you can download all documents and continue.</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-primary" data-close="reviewPendingModal" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast">Progress saved</div>
 
   <script>
@@ -844,9 +878,25 @@
     const TUTORIAL_SEEN_KEY = "gp_ahpra_tutorial_seen";
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
+    const DOC_KEY = "gp_documents_prep";
+    const PREPARED_DOCS_KEY = "gp_prepared_docs";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const AHPRA_URL = "https://www.ahpra.gov.au/Registration/Online-services.aspx";
+
+    const GP_REQUIRED_DOCS = [
+      { key: "primary_medical_degree", name: "Certified copy of Primary Medical Degree (MBBS/MBChB)" },
+      { key: "mrcgp_certified", name: "Certified copy of MRCGP (issued from Aug 2007 onward)" },
+      { key: "cct_certified", name: "Certified copy of CCT (General Practice)" },
+      { key: "cv_signed_dated", name: "CV (Signed + dated)" }
+    ];
+    const GPLINK_REQUIRED_DOCS = [
+      { key: "sppa_00", name: "Supervised Practice Plan - SPPA-00" },
+      { key: "section_g", name: "Supervised Practice Plan - Section G" },
+      { key: "position_description", name: "Position Description" },
+      { key: "offer_contract", name: "Letter of Offer / Employment Contract" },
+      { key: "supervisor_cv", name: "Supervisor's CV" }
+    ];
 
     // Internal stages (keep verification_issued for backward compat)
     const STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification", "verification_issued"];
@@ -891,8 +941,8 @@
         time: "10-20 minutes",
         support: "We verify completeness and quality before final submission.",
         next: "Once prepared, submit your specialist application.",
-        cta: "Open AHPRA",
-        ctaType: "open"
+        cta: "Download Supporting Documents",
+        ctaType: "download_docs"
       },
       waiting_verification: {
         label: "Verification",
@@ -1075,6 +1125,12 @@
     const supportModalEl = document.getElementById("supportModal");
     const supportMessageEl = document.getElementById("supportMessage");
     const supportSubmitBtnEl = document.getElementById("supportSubmitBtn");
+    const missingDocsModalEl = document.getElementById("missingDocsModal");
+    const downloadPackModalEl = document.getElementById("downloadPackModal");
+    const reviewPendingModalEl = document.getElementById("reviewPendingModal");
+    const missingDocsModalListEl = document.getElementById("missingDocsModalList");
+    const downloadPackSummaryEl = document.getElementById("downloadPackSummary");
+    const requestHelpMissingBtnEl = document.getElementById("requestHelpMissingBtn");
     const tutorialVideoEl = document.getElementById("tutorialVideo");
     const tutorialSourceEl = document.getElementById("tutorialSource");
     const tutorialDescEl = document.getElementById("tutorialDesc");
@@ -1118,9 +1174,200 @@
       localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
     }
 
+    function readJsonStorage(key, fallback) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      try { return JSON.parse(raw); } catch (e) { return fallback; }
+    }
+
+    function getDocSnapshot() {
+      const docState = readJsonStorage(DOC_KEY, { docs: {} }) || { docs: {} };
+      const preparedState = readJsonStorage(PREPARED_DOCS_KEY, { docs: {} }) || { docs: {} };
+
+      const rowsGp = GP_REQUIRED_DOCS.map((doc) => {
+        const item = (docState.docs && docState.docs[doc.key]) || {};
+        const uploaded = item.uploaded === true;
+        const status = typeof item.status === "string" ? item.status : (uploaded ? "under_review" : "pending");
+        const rejected = status === "rejected";
+        const underReview = status === "under_review";
+        const ready = status === "accepted" || status === "approved" || !!item.url;
+        const reason = rejected
+          ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}`
+          : underReview ? "Under review by GP Link (up to 24 hours)." : uploaded ? "Uploaded on Documents page." : "Upload this on the Documents page";
+        return {
+          group: "gp",
+          key: doc.key,
+          name: doc.name,
+          uploaded,
+          ready,
+          rejected,
+          status: rejected ? "Rejected" : ready ? "Ready" : underReview ? "Pending" : uploaded ? "Pending" : "Not ready",
+          reason,
+          downloadUrl: typeof item.url === "string" ? item.url : ""
+        };
+      });
+
+      const rowsGpLink = GPLINK_REQUIRED_DOCS.map((doc) => {
+        const item = (preparedState.docs && preparedState.docs[doc.key]) || {};
+        const ready = !!(item.ready || item.url);
+        const rejected = item.status === "rejected";
+        return {
+          group: "gplink",
+          key: doc.key,
+          name: doc.name,
+          uploaded: ready,
+          ready,
+          rejected,
+          status: rejected ? "Rejected" : ready ? "Ready" : "Not ready",
+          reason: rejected ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}` : "GP Link is preparing this",
+          downloadUrl: typeof item.url === "string" ? item.url : ""
+        };
+      });
+
+      const all = [...rowsGp, ...rowsGpLink];
+      const missing = all.filter((item) => !item.ready || item.rejected);
+      const downloadable = all.filter((item) => item.ready && item.downloadUrl);
+      return { gp: rowsGp, gplink: rowsGpLink, all, missing, downloadable, gpTotal: rowsGp.length, gplinkTotal: rowsGpLink.length };
+    }
+
+    function saveMissingUploadToDocuments(item, file) {
+      if (!item || !file) return false;
+      if (item.group === "gp") {
+        const state = readJsonStorage(DOC_KEY, { docs: {}, country: "uk" }) || { docs: {}, country: "uk" };
+        state.docs = state.docs && typeof state.docs === "object" ? state.docs : {};
+        state.docs[item.key] = { ...(state.docs[item.key] || {}), uploaded: true, fileName: file.name, status: "under_review" };
+        state.updatedAt = new Date().toISOString();
+        localStorage.setItem(DOC_KEY, JSON.stringify(state));
+        return true;
+      }
+      if (item.group === "gplink") {
+        const state = readJsonStorage(PREPARED_DOCS_KEY, { docs: {}, country: "uk" }) || { docs: {}, country: "uk" };
+        state.docs = state.docs && typeof state.docs === "object" ? state.docs : {};
+        const current = state.docs[item.key] || {};
+        state.docs[item.key] = { ...current, fileName: file.name, ready: true, url: typeof current.url === "string" ? current.url : "" };
+        state.updatedAt = new Date().toISOString();
+        localStorage.setItem(PREPARED_DOCS_KEY, JSON.stringify(state));
+        return true;
+      }
+      return false;
+    }
+
+    function hasDocsUnderReview(snapshot) {
+      if (!snapshot || !Array.isArray(snapshot.gp)) return false;
+      return snapshot.gp.some((item) => item.uploaded && !item.ready && !item.rejected);
+    }
+
+    function tryDownloadRows(rows) {
+      rows.forEach((item, index) => {
+        setTimeout(() => window.open(item.downloadUrl, "_blank", "noopener,noreferrer"), index * 180);
+      });
+    }
+
+    function openMissingDocsModal(missingItems) {
+      if (!missingDocsModalListEl || !missingDocsModalEl) return;
+      const rows = Array.isArray(missingItems) ? missingItems : [];
+      missingDocsModalListEl.innerHTML = "";
+      rows.forEach((item) => {
+        const row = document.createElement("div");
+        row.style.border = "1px solid #e2e8f0";
+        row.style.borderRadius = "12px";
+        row.style.padding = "10px 12px";
+        row.style.background = "#f8fbff";
+        if (item.group !== "gp") {
+          row.innerHTML = `<p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">${item.name}</p><p style="margin:4px 0 0; font-size:12px; color:#475569;">${item.reason}</p>`;
+          missingDocsModalListEl.appendChild(row);
+          return;
+        }
+        row.innerHTML = `
+          <p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">${item.name}</p>
+          <p style="margin:4px 0 8px; font-size:12px; color:#475569;">${item.reason}</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="file" data-missing-upload-input="1" data-doc-group="${item.group}" data-doc-key="${item.key}" style="font-size:12px;" />
+            <button type="button" class="btn-modern btn-primary" data-missing-upload-btn="1" data-doc-group="${item.group}" data-doc-key="${item.key}" disabled>Upload</button>
+          </div>
+        `;
+        missingDocsModalListEl.appendChild(row);
+      });
+      openModal(missingDocsModalEl);
+    }
+
+    function renderDownloadPackModal(snapshot) {
+      if (!downloadPackSummaryEl || !downloadPackModalEl) return;
+      const gpReady = snapshot.gp.filter((item) => item.ready && item.downloadUrl).length;
+      const gplinkReady = snapshot.gplink.filter((item) => item.ready && item.downloadUrl).length;
+      const gpMissing = snapshot.gp.filter((item) => !item.ready || item.rejected);
+      const allMissing = snapshot.all.filter((item) => !item.ready || item.rejected);
+
+      downloadPackSummaryEl.innerHTML = `
+        <div style="border:1px solid #e2e8f0; border-radius:12px; padding:12px; background:#f8fbff;">
+          <p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">Prepared by GP Link</p>
+          <p style="margin:4px 0 8px; font-size:12px; color:#475569;">${gplinkReady}/${snapshot.gplinkTotal} files ready to download</p>
+          <button type="button" class="btn-modern btn-outline" data-modal-download-group="gplink">Download</button>
+        </div>
+        <div style="border:1px solid #e2e8f0; border-radius:12px; padding:12px; background:#f8fbff;">
+          <p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">Prepared by You</p>
+          <p style="margin:4px 0 8px; font-size:12px; color:#475569;">${gpReady}/${snapshot.gpTotal} files ready to download</p>
+          <button type="button" class="btn-modern btn-outline" data-modal-download-group="gp">Download</button>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn-modern btn-primary" id="modalDownloadAllBtn">Download All Required Documents</button>
+          ${gpMissing.length ? '<button type="button" class="btn-modern btn-outline" id="modalUploadMissingBtn">Upload Missing Documents</button>' : ""}
+        </div>
+        ${allMissing.length ? `<div style="border:1px solid #fde68a; border-radius:12px; padding:10px 12px; background:#fffbeb;"><p style="margin:0; font-size:12px; font-weight:700; color:#92400e;">${allMissing.length} document(s) not ready yet.</p></div>` : ""}
+      `;
+
+      const groupBtns = [...downloadPackSummaryEl.querySelectorAll("[data-modal-download-group]")];
+      groupBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const fresh = getDocSnapshot();
+          const group = btn.getAttribute("data-modal-download-group");
+          const rows = group === "gplink" ? fresh.gplink : fresh.gp;
+          const downloadable = rows.filter((item) => item.ready && item.downloadUrl);
+          if (!downloadable.length) {
+            showToast("No ready documents in this section");
+            return;
+          }
+          tryDownloadRows(downloadable);
+          showToast("Download started");
+        });
+      });
+
+      const allBtn = document.getElementById("modalDownloadAllBtn");
+      if (allBtn) allBtn.addEventListener("click", () => {
+        const fresh = getDocSnapshot();
+        if (!fresh.downloadable.length) {
+          showToast("No ready documents to download");
+          return;
+        }
+        tryDownloadRows(fresh.downloadable);
+        showToast("Download started");
+      });
+
+      const uploadMissingBtn = document.getElementById("modalUploadMissingBtn");
+      if (uploadMissingBtn) uploadMissingBtn.addEventListener("click", () => {
+        const fresh = getDocSnapshot();
+        openMissingDocsModal(fresh.missing);
+      });
+    }
+
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
     function markStageComplete(progress, key) {
       if (progress.stage !== key) return;
+
+      if (key === "upload_qualifications") {
+        const snapshot = getDocSnapshot();
+        if (snapshot.missing.length) {
+          if (hasDocsUnderReview(snapshot)) {
+            if (reviewPendingModalEl) openModal(reviewPendingModalEl);
+            showToast("Some documents are still under review");
+          } else {
+            openMissingDocsModal(snapshot.missing);
+            showToast("Upload missing documents to continue");
+          }
+          return;
+        }
+      }
+
       progress.completed[key] = true;
 
       // Completing submit-application stage moves to final submitted state
@@ -1381,6 +1628,11 @@
         }
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.open(AHPRA_URL, "_blank", "noopener,noreferrer");
+          else if (meta.ctaType === "download_docs") {
+            const snapshot = getDocSnapshot();
+            renderDownloadPackModal(snapshot);
+            if (downloadPackModalEl) openModal(downloadPackModalEl);
+          }
           else if (meta.ctaType === "support") openModal(supportModalEl);
           else if (meta.ctaType === "home") {
             const target = "/pages/index.html";
@@ -1612,6 +1864,58 @@
       });
     }
 
+    if (requestHelpMissingBtnEl) {
+      requestHelpMissingBtnEl.addEventListener("click", () => {
+        createSupportTicket("I need help with missing supporting documents for AHPRA.");
+        closeModal(missingDocsModalEl);
+        showToast("Support request submitted");
+      });
+    }
+
+    if (missingDocsModalListEl) {
+      missingDocsModalListEl.addEventListener("change", (e) => {
+        const input = e.target;
+        if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
+        const docKey = input.getAttribute("data-doc-key");
+        const docGroup = input.getAttribute("data-doc-group");
+        if (!docKey || !docGroup) return;
+        const uploadBtn = missingDocsModalListEl.querySelector(`[data-missing-upload-btn="1"][data-doc-group="${docGroup}"][data-doc-key="${docKey}"]`);
+        if (uploadBtn instanceof HTMLButtonElement) uploadBtn.disabled = !(input.files && input.files.length);
+      });
+
+      missingDocsModalListEl.addEventListener("click", (e) => {
+        const btn = e.target instanceof HTMLElement ? e.target.closest("[data-missing-upload-btn='1']") : null;
+        if (!(btn instanceof HTMLButtonElement)) return;
+        const docKey = btn.getAttribute("data-doc-key");
+        const docGroup = btn.getAttribute("data-doc-group");
+        if (!docKey || !docGroup) return;
+        const input = missingDocsModalListEl.querySelector(`[data-missing-upload-input="1"][data-doc-group="${docGroup}"][data-doc-key="${docKey}"]`);
+        if (!(input instanceof HTMLInputElement) || !input.files || !input.files.length) {
+          showToast("Choose a file first");
+          return;
+        }
+        const snapshot = getDocSnapshot();
+        const item = snapshot.all.find((row) => row.key === docKey && row.group === docGroup);
+        if (!item) {
+          showToast("Could not find document row");
+          return;
+        }
+        const ok = saveMissingUploadToDocuments(item, input.files[0]);
+        if (!ok) {
+          showToast("Upload failed");
+          return;
+        }
+        const fresh = getDocSnapshot();
+        if (!fresh.missing.length) {
+          closeModal(missingDocsModalEl);
+          showToast("All required documents are now uploaded");
+          return;
+        }
+        openMissingDocsModal(fresh.missing);
+        showToast("Document uploaded");
+      });
+    }
+
     document.querySelectorAll("[data-close]").forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-close");
@@ -1620,7 +1924,13 @@
       });
     });
 
-    supportModalEl.addEventListener("click", e => { if (e.target === supportModalEl) closeModal(supportModalEl); });
+    [supportModalEl, missingDocsModalEl, downloadPackModalEl, reviewPendingModalEl].forEach((modalEl) => {
+      if (!modalEl) return;
+      modalEl.addEventListener("click", (e) => {
+        if (e.target === modalEl) closeModal(modalEl);
+      });
+    });
+
     supportModalEl.addEventListener("keydown", e => {
       if (e.key === "Escape") {
         e.preventDefault();
