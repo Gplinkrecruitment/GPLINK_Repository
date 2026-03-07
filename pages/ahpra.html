@@ -592,8 +592,9 @@
     /* ---- MODALS ---- */
     .modal {
       position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5);
-      display: none; align-items: center; justify-content: center;
+      display: none; align-items: flex-start; justify-content: center;
       padding: 16px; z-index: 60;
+      overflow-y: auto;
     }
     .modal.show { display: flex; }
     .modal-card {
@@ -601,6 +602,9 @@
       border-radius: var(--radius); border: 1px solid #e8edf5;
       box-shadow: 0 24px 48px -16px rgba(15, 23, 42, 0.25);
       padding: 20px; display: grid; gap: 12px;
+      max-height: calc(100dvh - 32px);
+      overflow-y: auto;
+      margin: auto 0;
     }
     .modal-card h4 { font-size: 18px; font-weight: 800; }
     .modal-card p { font-size: 13px; color: #475569; line-height: 1.5; font-weight: 500; }
@@ -640,6 +644,12 @@
       .step-tab { padding: 8px 12px; font-size: 12px; }
       .step-tab-num { width: 22px; height: 22px; font-size: 10px; }
       .step-tab-num svg { width: 11px; height: 11px; }
+      .modal { padding: 10px; }
+      .modal-card {
+        width: 100%;
+        max-height: calc(100dvh - 20px);
+        border-radius: 16px;
+      }
     }
     @media (max-width: 480px) {
       .step-content-title { font-size: 18px; }
@@ -1257,6 +1267,11 @@
       return snapshot.gp.some((item) => item.uploaded && !item.ready && !item.rejected);
     }
 
+    function getGpMissing(snapshot) {
+      if (!snapshot || !Array.isArray(snapshot.gp)) return [];
+      return snapshot.gp.filter((item) => !item.ready || item.rejected);
+    }
+
     function tryDownloadRows(rows) {
       rows.forEach((item, index) => {
         setTimeout(() => window.open(item.downloadUrl, "_blank", "noopener,noreferrer"), index * 180);
@@ -1265,19 +1280,19 @@
 
     function openMissingDocsModal(missingItems) {
       if (!missingDocsModalListEl || !missingDocsModalEl) return;
-      const rows = Array.isArray(missingItems) ? missingItems : [];
+      const rows = Array.isArray(missingItems) ? missingItems.filter((item) => item && item.group === "gp") : [];
       missingDocsModalListEl.innerHTML = "";
+      if (!rows.length) {
+        missingDocsModalListEl.innerHTML = `<div style="border:1px solid #e2e8f0; border-radius:12px; padding:12px; background:#f8fbff;"><p style="margin:0; font-size:13px; color:#475569;">No documents require upload from you at the moment.</p></div>`;
+        openModal(missingDocsModalEl);
+        return;
+      }
       rows.forEach((item) => {
         const row = document.createElement("div");
         row.style.border = "1px solid #e2e8f0";
         row.style.borderRadius = "12px";
         row.style.padding = "10px 12px";
         row.style.background = "#f8fbff";
-        if (item.group !== "gp") {
-          row.innerHTML = `<p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">${item.name}</p><p style="margin:4px 0 0; font-size:12px; color:#475569;">${item.reason}</p>`;
-          missingDocsModalListEl.appendChild(row);
-          return;
-        }
         row.innerHTML = `
           <p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">${item.name}</p>
           <p style="margin:4px 0 8px; font-size:12px; color:#475569;">${item.reason}</p>
@@ -1346,7 +1361,8 @@
       const uploadMissingBtn = document.getElementById("modalUploadMissingBtn");
       if (uploadMissingBtn) uploadMissingBtn.addEventListener("click", () => {
         const fresh = getDocSnapshot();
-        openMissingDocsModal(fresh.missing);
+        if (downloadPackModalEl) closeModal(downloadPackModalEl);
+        openMissingDocsModal(getGpMissing(fresh));
       });
     }
 
@@ -1356,13 +1372,15 @@
 
       if (key === "upload_qualifications") {
         const snapshot = getDocSnapshot();
-        if (snapshot.missing.length) {
-          if (hasDocsUnderReview(snapshot)) {
+        const gpMissing = getGpMissing(snapshot);
+        const gplinkMissing = snapshot.gplink.filter((item) => !item.ready || item.rejected);
+        if (gpMissing.length || gplinkMissing.length) {
+          if (gpMissing.length) {
+            openMissingDocsModal(gpMissing);
+            showToast("Upload missing documents to continue");
+          } else if (hasDocsUnderReview(snapshot) || gplinkMissing.length) {
             if (reviewPendingModalEl) openModal(reviewPendingModalEl);
             showToast("Some documents are still under review");
-          } else {
-            openMissingDocsModal(snapshot.missing);
-            showToast("Upload missing documents to continue");
           }
           return;
         }
@@ -1906,12 +1924,19 @@
           return;
         }
         const fresh = getDocSnapshot();
-        if (!fresh.missing.length) {
+        const gpMissing = getGpMissing(fresh);
+        const gplinkMissing = fresh.gplink.filter((row) => !row.ready || row.rejected);
+        if (!gpMissing.length) {
           closeModal(missingDocsModalEl);
-          showToast("All required documents are now uploaded");
+          if (gplinkMissing.length) {
+            if (reviewPendingModalEl) openModal(reviewPendingModalEl);
+            showToast("Your documents were uploaded. GP Link files are still being prepared.");
+          } else {
+            showToast("All required documents are now uploaded");
+          }
           return;
         }
-        openMissingDocsModal(fresh.missing);
+        openMissingDocsModal(gpMissing);
         showToast("Document uploaded");
       });
     }
