@@ -593,13 +593,23 @@
     .modal {
       position: fixed; inset: 0;
       background: rgba(240, 244, 250, 0.34);
-      backdrop-filter: blur(16px) saturate(1.05);
-      -webkit-backdrop-filter: blur(16px) saturate(1.05);
-      display: none; align-items: flex-start; justify-content: center;
+      backdrop-filter: blur(0px) saturate(1.02);
+      -webkit-backdrop-filter: blur(0px) saturate(1.02);
+      display: flex; align-items: flex-start; justify-content: center;
       padding: 16px; z-index: 60;
       overflow-y: auto;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
     }
-    .modal.show { display: flex; }
+    .modal.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      backdrop-filter: blur(16px) saturate(1.05);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+    }
     .modal-card {
       width: min(920px, 100%);
       background: rgba(255, 255, 255, 0.86);
@@ -610,9 +620,10 @@
       max-height: calc(100dvh - 32px);
       overflow-y: auto;
       margin: auto 0;
-      transform: translateY(22px) scale(0.985);
+      transform: translateY(20px) scale(0.92);
       opacity: 0;
       transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
+      transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
     }
     .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
     .modal-card h4 { font-size: 18px; font-weight: 800; }
@@ -1199,7 +1210,23 @@
     }
 
     let lastFocusedElement = null;
-    function openModal(el) {
+    function openModal(el, triggerEl) {
+      if (!el) return;
+      const card = el.querySelector(".modal-card");
+      if (card) {
+        let originX = window.innerWidth / 2;
+        let originY = window.innerHeight / 2;
+        const source = triggerEl instanceof HTMLElement
+          ? triggerEl
+          : (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+        if (source) {
+          const rect = source.getBoundingClientRect();
+          originX = rect.left + (rect.width / 2);
+          originY = rect.top + (rect.height / 2);
+        }
+        card.style.setProperty("--modal-origin-x", `${Math.round(originX)}px`);
+        card.style.setProperty("--modal-origin-y", `${Math.round(originY)}px`);
+      }
       lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       el.classList.add("show");
       el.setAttribute("aria-hidden", "false");
@@ -1447,7 +1474,7 @@
       setTimeout(() => URL.revokeObjectURL(blobUrl), 8000);
     }
 
-    function openMissingDocsModal(missingItems) {
+    function openMissingDocsModal(missingItems, triggerEl) {
       if (!missingDocsModalListEl || !missingDocsModalEl) return;
       const rows = Array.isArray(missingItems) ? missingItems.filter((item) => item && item.group === "gp") : [];
       missingDocsModalListEl.innerHTML = "";
@@ -1457,7 +1484,7 @@
           requestHelpMissingBtnEl.textContent = "Done";
           requestHelpMissingBtnEl.setAttribute("data-mode", "done");
         }
-        openModal(missingDocsModalEl);
+        openModal(missingDocsModalEl, triggerEl);
         return;
       }
       if (requestHelpMissingBtnEl) {
@@ -1486,7 +1513,7 @@
         `;
         missingDocsModalListEl.appendChild(row);
       });
-      openModal(missingDocsModalEl);
+      openModal(missingDocsModalEl, triggerEl);
     }
 
     function renderDownloadPackModal(snapshot) {
@@ -1535,7 +1562,7 @@
         const anyMissing = fresh.all.some((item) => item.rejected || !item.ready || !item.downloadUrl);
         if (anyMissing) {
           closeModal(downloadPackModalEl);
-          openMissingDocsModal(getGpMissing(fresh));
+          openMissingDocsModal(getGpMissing(fresh), allBtn);
           showToast("Upload missing documents to continue");
           return;
         }
@@ -1835,9 +1862,9 @@
           else if (meta.ctaType === "download_docs") {
             const snapshot = getDocSnapshot();
             renderDownloadPackModal(snapshot);
-            if (downloadPackModalEl) openModal(downloadPackModalEl);
+            if (downloadPackModalEl) openModal(downloadPackModalEl, openBtn);
           }
-          else if (meta.ctaType === "support") openModal(supportModalEl);
+          else if (meta.ctaType === "support") openModal(supportModalEl, openBtn);
           else if (meta.ctaType === "home") {
             const target = "/pages/index.html";
             if (window.location.pathname !== target) window.location.assign(target);
@@ -2075,7 +2102,7 @@
           closeModal(missingDocsModalEl);
           const fresh = getDocSnapshot();
           renderDownloadPackModal(fresh);
-          if (downloadPackModalEl) openModal(downloadPackModalEl);
+          if (downloadPackModalEl) openModal(downloadPackModalEl, requestHelpMissingBtnEl);
           return;
         }
         createSupportTicket("I need help with missing supporting documents for AHPRA.");
@@ -2110,12 +2137,12 @@
         const gpMissing = getGpMissing(fresh);
         const gplinkMissing = fresh.gplink.filter((row) => !row.ready || row.rejected);
         if (!gpMissing.length) {
-          openMissingDocsModal([]);
+          openMissingDocsModal([], input);
           if (gplinkMissing.length) showToast("Your upload is complete. GP Link files are still being prepared.");
           else showToast("All required documents are now uploaded");
           return;
         }
-        openMissingDocsModal(gpMissing);
+        openMissingDocsModal(gpMissing, input);
         showToast("Document uploaded");
       });
 
