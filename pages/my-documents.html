@@ -400,7 +400,7 @@
 
     .layout {
       display: grid;
-      grid-template-columns: 1.08fr 0.92fr;
+      grid-template-columns: 1fr;
       gap: 12px;
       align-items: start;
     }
@@ -965,23 +965,6 @@
           <p class="sub">Track the files needed before the Specialist Registration step.</p>
           <div class="progress-grid" id="progressGrid"></div>
         </article>
-
-        <article class="card">
-          <h3>Smart Guidance Panel</h3>
-          <p class="sub">Dynamic guidance based on your sign-in country selection.</p>
-
-          <div class="guidance-top">
-            <div class="label">What to do now</div>
-            <p class="line"><span>Do now:</span> <span id="guideDoNow">-</span></p>
-            <p class="line"><span>Estimated prep time:</span> <span id="guideTime">-</span></p>
-            <p class="line"><span>What GP Link does:</span> <span id="guideSupport">-</span></p>
-            <button class="btn btn-primary" id="markAllReady" type="button">Mark docs ready</button>
-          </div>
-
-          <div class="doc-list" id="docList"></div>
-
-          <div class="notice" id="countryNotice" style="display:none;"></div>
-        </article>
       </section>
 
     </main>
@@ -1113,16 +1096,7 @@
       }
     ];
 
-    const countryChipEl = document.getElementById("countryChip");
-    const docsChipEl = document.getElementById("docsChip");
     const progressGridEl = document.getElementById("progressGrid");
-    const docListEl = document.getElementById("docList");
-    const countryNoticeEl = document.getElementById("countryNotice");
-    const guideDoNowEl = document.getElementById("guideDoNow");
-    const guideWhereEl = document.getElementById("guideWhere");
-    const guideTimeEl = document.getElementById("guideTime");
-    const guideSupportEl = document.getElementById("guideSupport");
-    const markAllReadyEl = document.getElementById("markAllReady");
     const expandState = {
       supervised_docs: false,
       prepared_by_you: false,
@@ -1312,12 +1286,10 @@
         item.className = "progress-item";
         item.innerHTML = `<div><h4>Country flow not yet enabled</h4><p>UK document flow is active first. ${formatCountry(country)} will be added next.</p></div><span class="pill">Pending</span>`;
         progressGridEl.appendChild(item);
-        if (docsChipEl) docsChipEl.textContent = "0/0 uploaded";
         return;
       }
 
       const uploaded = countUploaded(state, UK_DOCS);
-      if (docsChipEl) docsChipEl.textContent = `${uploaded}/${UK_DOCS.length} uploaded`;
       const prepared = loadPreparedDocs(country);
       const readyCount = SUPERVISED_PRACTICE_DOCS.filter((doc) => {
         const file = prepared.docs[doc.key];
@@ -1550,35 +1522,9 @@
       });
     }
 
-    function renderGuidance(country, state) {
-      if (countryChipEl) countryChipEl.textContent = `Country: ${formatCountry(country)}`;
-
-      if (country !== "uk") {
-        guideDoNowEl.textContent = `Your ${formatCountry(country)} document flow is coming next.`;
-        if (guideWhereEl) guideWhereEl.textContent = "My Documents module";
-        guideTimeEl.textContent = "Pending rollout";
-        guideSupportEl.textContent = "We will unlock your country-specific checklist automatically.";
-        countryNoticeEl.style.display = "block";
-        countryNoticeEl.textContent = `${formatCountry(country)} documents are not enabled yet in this first release. UK is active first.`;
-        docListEl.innerHTML = "";
-        markAllReadyEl.disabled = true;
-        return;
-      }
-
-      guideDoNowEl.textContent = "Upload your prepared certified documents below for review and safekeeping.";
-      if (guideWhereEl) guideWhereEl.textContent = "Specialist Registration → Document Upload";
-      guideTimeEl.textContent = "20–45 mins";
-      guideSupportEl.textContent = "We review each upload and keep everything in one place for your next registration step.";
-      countryNoticeEl.style.display = "none";
-      markAllReadyEl.disabled = false;
-
-      docListEl.innerHTML = "";
-    }
-
     function renderAll(country, state) {
       captureExpandState();
       renderProgress(country, state);
-      renderGuidance(country, state);
     }
 
     function bootDocumentModule() {
@@ -1620,16 +1566,6 @@
         renderAll(country, state);
       });
 
-      markAllReadyEl.addEventListener("click", () => {
-        if (country !== "uk") return;
-        UK_DOCS.forEach((doc) => {
-          if (!state.docs[doc.key] || !state.docs[doc.key].uploaded) {
-            state.docs[doc.key] = { uploaded: true, fileName: "Manually marked", status: "under_review" };
-          }
-        });
-        saveDocsState(state);
-        renderAll(country, state);
-      });
     }
 
     const supportModalEl = document.getElementById("supportModal");
