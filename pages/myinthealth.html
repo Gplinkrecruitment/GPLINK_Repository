@@ -1383,7 +1383,11 @@
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.open(MYINTEALTH_URL, "_blank", "noopener,noreferrer");
           else if (meta.ctaType === "support") openModal(supportModalEl);
-          else if (meta.ctaType === "amc") window.location.href = "/pages/amc.html";
+          else if (meta.ctaType === "amc") {
+            const target = "/pages/amc.html";
+            if (window.location.pathname !== target) window.location.assign(target);
+            else window.location.reload();
+          }
         });
       }
 
@@ -1684,9 +1688,24 @@
     // ─── INIT ───────────────────────────────────────────────────
     activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
     setActiveNav(activeNavItem, false);
+    function getClosestNavItemByX(clientX) {
+      let closest = null;
+      let minDistance = Number.POSITIVE_INFINITY;
+      navItems.forEach((item) => {
+        const rect = item.getBoundingClientRect();
+        const center = rect.left + (rect.width / 2);
+        const distance = Math.abs(center - clientX);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = item;
+        }
+      });
+      return closest;
+    }
+
     if (navMenuEl) {
       navMenuEl.addEventListener("mousemove", e => {
-        const hit = e.target instanceof Element ? e.target.closest(".nav-item") : null;
+        const hit = getClosestNavItemByX(e.clientX);
         if (hit && hit !== hoveredNavItem) { hoveredNavItem = hit; moveNavGlass(hit, true); }
       });
       navMenuEl.addEventListener("mouseleave", () => {

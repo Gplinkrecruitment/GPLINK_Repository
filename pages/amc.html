@@ -1669,9 +1669,24 @@
     // ─── INIT ───────────────────────────────────────────────────
     activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
     setActiveNav(activeNavItem, false);
+    function getClosestNavItemByX(clientX) {
+      let closest = null;
+      let minDistance = Number.POSITIVE_INFINITY;
+      navItems.forEach((item) => {
+        const rect = item.getBoundingClientRect();
+        const center = rect.left + (rect.width / 2);
+        const distance = Math.abs(center - clientX);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = item;
+        }
+      });
+      return closest;
+    }
+
     if (navMenuEl) {
       navMenuEl.addEventListener("mousemove", e => {
-        const hit = e.target instanceof Element ? e.target.closest(".nav-item") : null;
+        const hit = getClosestNavItemByX(e.clientX);
         if (hit && hit !== hoveredNavItem) { hoveredNavItem = hit; moveNavGlass(hit, true); }
       });
       navMenuEl.addEventListener("mouseleave", () => {
