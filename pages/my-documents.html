@@ -1583,9 +1583,7 @@
       topSupportBtn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (typeof window.openGpAlertPanel === "function") {
-          window.openGpAlertPanel(topSupportBtn);
-        }
+        window.location.href = "/pages/messages.html";
       });
     }
     document.getElementById("mobileSupportBtn").addEventListener("click", () => {
@@ -1625,8 +1623,7 @@
       return [
         { title: "1. MyIntealth Account", sub: "Create account and complete EPIC verification.", status: epicDone ? "Done" : "Current", locked: false, href: "myinthealth.html", cta: "Continue" },
         { title: "2. AMC Portfolio", sub: "Create AMC candidate portfolio and upload credentials.", status: epicDone ? (amcDone ? "Done" : "Current") : "Locked", locked: !epicDone, href: epicDone ? "amc.html" : "#", cta: epicDone ? "Continue" : "Locked" },
-        { title: "3. AHPRA Registration", sub: "Specialist registration submission and assessment.", status: amcDone ? "Current" : "Locked", locked: !amcDone, href: amcDone ? "ahpra.html" : "#", cta: amcDone ? "Continue" : "Locked" },
-        { title: "4. Visa and Relocation", sub: "Sponsorship, visa processing and relocation.", status: "Locked", locked: true, href: "#", cta: "Locked" }
+        { title: "3. AHPRA Registration", sub: "Specialist registration submission and assessment.", status: amcDone ? "Current" : "Locked", locked: !amcDone, href: amcDone ? "ahpra.html" : "#", cta: amcDone ? "Continue" : "Locked" }
       ];
     }
 

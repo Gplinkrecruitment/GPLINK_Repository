@@ -1515,8 +1515,7 @@
       return [
         { title: "1. MyIntealth Account", sub: "Create account and complete EPIC verification.", status: epicDone ? "Done" : "Current", locked: false, href: "myinthealth.html", cta: "Continue" },
         { title: "2. AMC Portfolio", sub: "Create AMC candidate portfolio and upload credentials.", status: epicDone ? (amcDone ? "Done" : "Current") : "Locked", locked: !epicDone, href: epicDone ? "amc.html" : "#", cta: epicDone ? "Continue" : "Locked" },
-        { title: "3. AHPRA Registration", sub: "Specialist registration submission.", status: amcDone ? "Current" : "Locked", locked: !amcDone, href: amcDone ? "ahpra.html" : "#", cta: amcDone ? "Continue" : "Locked" },
-        { title: "4. Visa and Relocation", sub: "Sponsorship, visa processing and relocation.", status: "Locked", locked: true, href: "#", cta: "Locked" }
+        { title: "3. AHPRA Registration", sub: "Specialist registration submission.", status: amcDone ? "Current" : "Locked", locked: !amcDone, href: amcDone ? "ahpra.html" : "#", cta: amcDone ? "Continue" : "Locked" }
       ];
     }
 
@@ -1638,12 +1637,16 @@
       topSupportBtn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (typeof window.openGpAlertPanel === "function") {
-          window.openGpAlertPanel(topSupportBtn);
-        }
+        window.location.href = "/pages/messages.html";
       });
     }
-    // mobileSupportBtn click is handled by updates-sync.js (alert panel)
+    const mobileSupportBtn = document.getElementById("mobileSupportBtn");
+    if (mobileSupportBtn) mobileSupportBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.location.href = "/pages/messages.html";
+    });
+    // mobileNotifBtn click opens alert panel
     const mobileNotifBtn = document.getElementById("mobileNotifBtn");
     if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", (e) => {
       e.preventDefault();

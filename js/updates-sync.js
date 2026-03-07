@@ -427,12 +427,7 @@
       }, true);
     }
 
-    bindDirectTrigger(document.getElementById("topSupportBtn"));
     bindDirectTrigger(document.getElementById("mobileNotifBtn"));
-    bindDirectTrigger(document.getElementById("mobileSupportBtn"));
-    document.querySelectorAll(".nav-menu .nav-item[href*='messages.html'], .mobile-tab[href*='messages.html']").forEach((el) => {
-      bindDirectTrigger(el);
-    });
 
     document.addEventListener("click", (event) => {
       const targetEl = event.target instanceof Element
@@ -446,16 +441,7 @@
         return;
       }
 
-      let trigger = targetEl ? targetEl.closest("#topSupportBtn, #mobileNotifBtn, #mobileSupportBtn") : null;
-      if (!trigger && targetEl) {
-        const navCandidate = targetEl.closest(".nav-menu .nav-item, .mobile-tab");
-        if (navCandidate) {
-          const href = navCandidate.getAttribute("href");
-          if (isMessagesHref(href)) {
-            trigger = navCandidate;
-          }
-        }
-      }
+      const trigger = targetEl ? targetEl.closest("#mobileNotifBtn") : null;
       if (trigger) {
         event.preventDefault();
         event.stopImmediatePropagation();
