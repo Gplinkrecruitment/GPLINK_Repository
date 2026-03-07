@@ -160,13 +160,17 @@
       });
     });
 
+    const kindPriority = { action: 0, support: 1, update: 2 };
     out.sort((a, b) => {
+      const aPri = Object.prototype.hasOwnProperty.call(kindPriority, a.kind) ? kindPriority[a.kind] : 9;
+      const bPri = Object.prototype.hasOwnProperty.call(kindPriority, b.kind) ? kindPriority[b.kind] : 9;
+      if (aPri !== bPri) return aPri - bPri;
       const aTs = new Date(a.ts).getTime() || 0;
       const bTs = new Date(b.ts).getTime() || 0;
       return bTs - aTs;
     });
 
-    return out.slice(0, 30);
+    return out.slice(0, 3);
   }
 
   function saveGpLinkUpdates(updates) {
@@ -428,6 +432,7 @@
     }
 
     bindDirectTrigger(document.getElementById("mobileNotifBtn"));
+    bindDirectTrigger(document.getElementById("topSupportBtn"));
 
     document.addEventListener("click", (event) => {
       const targetEl = event.target instanceof Element
@@ -441,7 +446,7 @@
         return;
       }
 
-      const trigger = targetEl ? targetEl.closest("#mobileNotifBtn") : null;
+      const trigger = targetEl ? targetEl.closest("#mobileNotifBtn, #topSupportBtn") : null;
       if (trigger) {
         event.preventDefault();
         event.stopImmediatePropagation();
