@@ -582,52 +582,13 @@
       font-weight: 760;
     }
 
-    .mobile-launcher {
-      border: 1px solid rgba(222, 236, 255, 0.95);
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 13px 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      cursor: pointer;
-      text-align: left;
-      box-shadow: 0 16px 22px -24px rgba(15, 23, 42, 0.55);
-    }
-
-    .mobile-launcher-title {
-      margin: 0;
-      font-size: 13px;
-      font-weight: 800;
-      color: #1e3a8a;
-    }
-
-    .mobile-launcher-copy {
-      margin: 2px 0 0;
-      font-size: 11px;
-      font-weight: 620;
-      color: #475569;
-      line-height: 1.3;
-      display: block;
-    }
-
-    .mobile-launcher-action {
-      border: 1px solid #bfdbfe;
-      border-radius: 999px;
-      background: #ffffff;
-      color: #1d4ed8;
-      font-size: 11px;
-      font-weight: 780;
-      padding: 6px 10px;
-      white-space: nowrap;
-    }
-
     .section-card {
       border-radius: 18px;
       padding: 16px;
       border-color: rgba(191, 219, 254, 0.78);
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 251, 255, 0.92) 100%);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
     }
 
     .section-title {
@@ -656,20 +617,90 @@
       border-bottom: 1px solid rgba(219, 234, 254, 0.9);
     }
 
-    .section-head .section-subtitle {
-      margin: 0;
+    .section-toggle {
+      width: 100%;
+      border: 1px solid rgba(173, 210, 255, 0.72);
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.54);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 16px 30px -28px rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+      text-align: left;
+      color: #0f172a;
     }
 
-    .mobile-section-close {
-      display: none;
-      border: 1px solid #bfdbfe;
-      border-radius: 999px;
-      background: #ffffff;
-      color: #1d4ed8;
+    .section-toggle-left {
+      display: grid;
+      gap: 4px;
+    }
+
+    .section-toggle-note {
+      margin: 0;
       font-size: 11px;
-      font-weight: 780;
-      padding: 6px 10px;
+      color: #475569;
+      font-weight: 700;
+    }
+
+    .section-toggle-caret {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid rgba(173, 210, 255, 0.9);
+      background: rgba(255, 255, 255, 0.7);
+      display: grid;
+      place-items: center;
+      color: #1d4ed8;
+      font-size: 14px;
+      line-height: 1;
+      transition: transform .24s ease;
+    }
+
+    .section-body {
+      display: grid;
+      gap: 12px;
+    }
+
+    .section-card.is-collapsed .section-body {
+      display: none;
+    }
+
+    .section-card.is-collapsed .section-head {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .section-card.is-collapsed .section-toggle-caret {
+      transform: rotate(-90deg);
+    }
+
+    .account-signout-wrap {
+      margin-top: 14px;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .signout-btn {
+      border: 1px solid rgba(239, 68, 68, 0.5);
+      border-radius: 999px;
+      background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 10px 16px;
       cursor: pointer;
+      box-shadow: 0 16px 28px -22px rgba(127, 29, 29, 0.9);
+    }
+
+    .signout-btn:disabled {
+      opacity: .6;
+      cursor: wait;
     }
 
     .fields {
@@ -1018,23 +1049,6 @@
       -webkit-backdrop-filter: blur(8px);
     }
 
-    .section-modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(15, 23, 42, 0.35);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-      z-index: 120;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .18s ease;
-    }
-
-    .section-modal-backdrop.show {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
     .mobile-tab {
       text-decoration: none;
       border: 0;
@@ -1139,75 +1153,8 @@
         display: none;
       }
       .detail-grid {
-        display: block;
-        margin: 0;
-        padding: 0;
-        gap: 0;
-      }
-      .detail-grid > .mobile-popup-section,
-      .account-stage > .mobile-popup-section {
-        display: none;
-      }
-      .mobile-popup-section.is-open {
-        display: grid !important;
-        position: fixed;
-        left: 8px;
-        right: 8px;
-        top: 68px;
-        bottom: 86px;
-        z-index: 140;
-        overflow: auto;
-        padding: 12px;
-        border-radius: 16px;
-        background: #ffffff;
-        border: 1px solid #dbeafe;
-        box-shadow: 0 28px 40px -30px rgba(2, 6, 23, 0.5);
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-        filter: none !important;
-        opacity: 1 !important;
-        transform: translateZ(0);
-        isolation: isolate;
-        will-change: auto;
-        align-content: start;
-        grid-auto-rows: max-content;
-      }
-      .mobile-popup-section.is-open .section-head {
-        margin-bottom: 14px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid #e2e8f0;
-      }
-      .mobile-popup-section.is-open * {
-        filter: none !important;
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-      }
-      .mobile-popup-section.is-open .mobile-section-close {
-        display: inline-flex;
-      }
-      .mobile-popup-section.is-open .fields {
-        margin-top: 0;
-        gap: 14px;
-      }
-      .mobile-popup-section.is-open .section-head,
-      .mobile-popup-section.is-open .fields,
-      .mobile-popup-section.is-open .security-box,
-      .mobile-popup-section.is-open .uploads,
-      .mobile-popup-section.is-open .privacy-line,
-      .mobile-popup-section.is-open .bottom-actions {
-        align-self: start;
-      }
-      .mobile-popup-section.is-open .field {
-        gap: 7px;
-      }
-      .mobile-popup-section.is-open .input-note {
-        margin-top: 1px;
-      }
-      .mobile-popup-section.is-open .security-box {
-        margin-top: 14px;
-      }
-      .mobile-popup-section.is-open .privacy-line {
-        margin-top: 14px;
+        display: grid;
+        gap: 10px;
       }
       .profile-rail {
         display: none;
@@ -1215,6 +1162,13 @@
       .card.section-card {
         border-radius: 14px;
         padding: 12px;
+      }
+      .section-head {
+        margin-bottom: 10px;
+      }
+      .section-toggle {
+        border-radius: 12px;
+        padding: 9px 10px;
       }
       .security-actions .btn {
         flex: 1 1 140px;
@@ -1235,20 +1189,12 @@
         flex: 1 1 100%;
         text-align: left;
       }
-      body.modal-open {
-        overflow: hidden;
+      .account-signout-wrap {
+        justify-content: stretch;
       }
-      body.modal-open .shell,
-      body.modal-open .account-stage {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-        filter: none !important;
-      }
-      body.modal-open .hero-card,
-      body.modal-open .card,
-      body.modal-open .mobile-popup-section.is-open {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
+      .signout-btn {
+        width: 100%;
+        padding: 11px 14px;
       }
       .mobile-tab.mobile-tab-active {
         background: rgba(77, 172, 234, 0.26);
@@ -1387,42 +1333,20 @@
             <div class="progress-track"><div class="progress-fill" id="mobileCompletenessBar"></div></div>
             <p class="mobile-completeness-hint" id="mobileCompletenessHint">Complete your profile to speed up employer applications.</p>
           </div>
-          <button class="mobile-launcher" type="button" data-open-section="personalDetailsCard">
-            <span>
-              <p class="mobile-launcher-title">Personal Details</p>
-              <p class="mobile-launcher-copy">Name, phone, country and registration number.</p>
-            </span>
-            <span class="mobile-launcher-action">Open</span>
-          </button>
-          <button class="mobile-launcher" type="button" data-open-section="accountSecurityCard">
-            <span>
-              <p class="mobile-launcher-title">Account & Security</p>
-              <p class="mobile-launcher-copy">Email and password controls.</p>
-            </span>
-            <span class="mobile-launcher-action">Open</span>
-          </button>
-          <button class="mobile-launcher" type="button" data-open-section="documentsCard">
-            <span>
-              <p class="mobile-launcher-title">Identity & Documents</p>
-              <p class="mobile-launcher-copy">Upload photo, ID and CV files.</p>
-            </span>
-            <span class="mobile-launcher-action">Open</span>
-          </button>
-          <button class="mobile-launcher" type="button" data-open-section="relocationDetailsCard">
-            <span>
-              <p class="mobile-launcher-title">Relocation Details</p>
-              <p class="mobile-launcher-copy">Set your preferred Australian city.</p>
-            </span>
-            <span class="mobile-launcher-action">Open</span>
-          </button>
         </section>
 
         <div class="detail-grid">
-          <section class="card section-card mobile-popup-section" id="personalDetailsCard">
+          <section class="card section-card" id="personalDetailsCard">
             <div class="section-head">
-              <p class="section-subtitle">Personal Details</p>
-              <button class="mobile-section-close" type="button" data-close-section>Close</button>
+              <button class="section-toggle" type="button" data-card-toggle aria-expanded="true">
+                <span class="section-toggle-left">
+                  <span class="section-subtitle">Personal Details</span>
+                  <span class="section-toggle-note">Name, phone, country and registration number.</span>
+                </span>
+                <span class="section-toggle-caret" aria-hidden="true">▾</span>
+              </button>
             </div>
+            <div class="section-body">
             <div class="fields">
               <div class="field">
                 <label for="firstName">First name</label>
@@ -1450,13 +1374,20 @@
                 <p class="input-note">This is used for verification with your registration authority.</p>
               </div>
             </div>
+            </div>
           </section>
 
-          <section class="card section-card mobile-popup-section" id="accountSecurityCard">
+          <section class="card section-card is-collapsed" id="accountSecurityCard">
             <div class="section-head">
-              <p class="section-subtitle">Account & Security</p>
-              <button class="mobile-section-close" type="button" data-close-section>Close</button>
+              <button class="section-toggle" type="button" data-card-toggle aria-expanded="false">
+                <span class="section-toggle-left">
+                  <span class="section-subtitle">Account & Security</span>
+                  <span class="section-toggle-note">Email access and password controls.</span>
+                </span>
+                <span class="section-toggle-caret" aria-hidden="true">▾</span>
+              </button>
             </div>
+            <div class="section-body">
             <div class="fields">
               <div class="field">
                 <label for="email">Email</label>
@@ -1488,13 +1419,20 @@
                 </div>
               </div>
             </div>
+            </div>
           </section>
 
-          <section class="card section-card mobile-popup-section" id="documentsCard">
+          <section class="card section-card is-collapsed" id="documentsCard">
             <div class="section-head">
-              <p class="section-subtitle">Identity & Supporting Documents</p>
-              <button class="mobile-section-close" type="button" data-close-section>Close</button>
+              <button class="section-toggle" type="button" data-card-toggle aria-expanded="false">
+                <span class="section-toggle-left">
+                  <span class="section-subtitle">Identity & Supporting Documents</span>
+                  <span class="section-toggle-note">Upload ID and CV files for verification.</span>
+                </span>
+                <span class="section-toggle-caret" aria-hidden="true">▾</span>
+              </button>
             </div>
+            <div class="section-body">
             <div class="uploads">
               <article class="upload-card" data-upload-card="idCopy">
                 <h3 class="upload-title">Copy of ID</h3>
@@ -1526,13 +1464,20 @@
               <button class="btn primary" id="saveBtn" type="button" disabled>Save details</button>
               <p class="save-state" id="saveStateText">Changes not saved</p>
             </div>
+            </div>
           </section>
 
-          <section class="card section-card mobile-popup-section" id="relocationDetailsCard">
+          <section class="card section-card is-collapsed" id="relocationDetailsCard">
             <div class="section-head">
-              <p class="section-subtitle">Relocation Details</p>
-              <button class="mobile-section-close" type="button" data-close-section>Close</button>
+              <button class="section-toggle" type="button" data-card-toggle aria-expanded="false">
+                <span class="section-toggle-left">
+                  <span class="section-subtitle">Relocation Details</span>
+                  <span class="section-toggle-note">Preferred city and relocation timeline.</span>
+                </span>
+                <span class="section-toggle-caret" aria-hidden="true">▾</span>
+              </button>
             </div>
+            <div class="section-body">
             <div class="fields">
               <div class="field">
                 <label for="cityOfChoice">City of choice</label>
@@ -1575,13 +1520,15 @@
                 </select>
               </div>
             </div>
+            </div>
           </section>
+        </div>
+        <div class="account-signout-wrap">
+          <button class="signout-btn" id="accountSignOutBtn" type="button">Sign Out</button>
         </div>
       </section>
     </main>
   </div>
-
-  <div class="section-modal-backdrop" id="sectionModalBackdrop" hidden></div>
 
   <nav class="mobile-nav" aria-label="Mobile navigation">
     <a class="mobile-tab" href="index.html">
@@ -1628,10 +1575,9 @@
     const confirmPasswordEl = document.getElementById("confirmPassword");
     const setPasswordBtnEl = document.getElementById("setPasswordBtn");
     const forgotPasswordBtnEl = document.getElementById("forgotPasswordBtn");
-    const mobileSectionOpenBtns = [...document.querySelectorAll("[data-open-section]")];
-    const mobileSectionCloseBtns = [...document.querySelectorAll("[data-close-section]")];
-    const mobilePopupSections = [...document.querySelectorAll(".mobile-popup-section")];
-    const sectionModalBackdropEl = document.getElementById("sectionModalBackdrop");
+    const cardSectionEls = [...document.querySelectorAll(".section-card")];
+    const cardToggleBtns = [...document.querySelectorAll("[data-card-toggle]")];
+    const accountSignOutBtnEl = document.getElementById("accountSignOutBtn");
     const securityToggleBtnEl = document.getElementById("securityToggleBtn");
     const securityContentEl = document.getElementById("securityContent");
     const securityToggleIconEl = document.getElementById("securityToggleIcon");
@@ -1763,29 +1709,11 @@
       if (headerResetBtnEl) headerResetBtnEl.disabled = !!disabled;
     }
 
-    function isMobileViewport() {
-      return window.matchMedia("(max-width: 767px)").matches;
-    }
-
-    function closeAllMobileSections() {
-      mobilePopupSections.forEach((section) => section.classList.remove("is-open"));
-      if (sectionModalBackdropEl) {
-        sectionModalBackdropEl.classList.remove("show");
-        sectionModalBackdropEl.hidden = true;
-      }
-      document.body.classList.remove("modal-open");
-    }
-
-    function openMobileSection(sectionId) {
-      const target = document.getElementById(sectionId);
-      if (!target) return;
-      closeAllMobileSections();
-      target.classList.add("is-open");
-      if (sectionModalBackdropEl) {
-        sectionModalBackdropEl.hidden = false;
-        requestAnimationFrame(() => sectionModalBackdropEl.classList.add("show"));
-      }
-      document.body.classList.add("modal-open");
+    function setCardExpanded(sectionEl, expanded) {
+      if (!sectionEl) return;
+      sectionEl.classList.toggle("is-collapsed", !expanded);
+      const btn = sectionEl.querySelector("[data-card-toggle]");
+      if (btn) btn.setAttribute("aria-expanded", expanded ? "true" : "false");
     }
 
     function mapCountryValue(rawCountry) {
@@ -2266,17 +2194,26 @@
       });
     }
 
-    mobileSectionOpenBtns.forEach((btn) => {
-      btn.addEventListener("click", (event) => {
-        event.preventDefault();
-        openMobileSection(btn.getAttribute("data-open-section"));
+    cardToggleBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const section = btn.closest(".section-card");
+        if (!section) return;
+        const expanded = btn.getAttribute("aria-expanded") !== "true";
+        setCardExpanded(section, expanded);
       });
     });
-    mobileSectionCloseBtns.forEach((btn) => {
-      btn.addEventListener("click", closeAllMobileSections);
-    });
-    if (sectionModalBackdropEl) {
-      sectionModalBackdropEl.addEventListener("click", closeAllMobileSections);
+    if (accountSignOutBtnEl) {
+      accountSignOutBtnEl.addEventListener("click", async () => {
+        accountSignOutBtnEl.disabled = true;
+        accountSignOutBtnEl.textContent = "Signing Out...";
+        try {
+          await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+        } catch (err) {
+          // Allow redirect fallback even if API call fails.
+        } finally {
+          window.location.href = "/logout";
+        }
+      });
     }
     if (headerSaveBtnEl) {
       headerSaveBtnEl.addEventListener("click", () => {
@@ -2384,7 +2321,6 @@
     });
 
     window.addEventListener("resize", () => {
-      if (!isMobileViewport()) closeAllMobileSections();
       if (activeNavItem) moveNavGlass(activeNavItem, false);
     });
 
