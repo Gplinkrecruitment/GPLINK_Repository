@@ -1095,15 +1095,6 @@
       e.stopPropagation();
       window.location.href = "/pages/messages.html";
     });
-    // mobileNotifBtn click opens alert panel
-    const mobileNotifBtn = document.getElementById("mobileNotifBtn");
-    if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof window.openGpAlertPanel === "function") {
-        window.openGpAlertPanel(mobileNotifBtn);
-      }
-    });
     document.querySelectorAll("[data-close]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-close");
@@ -1113,15 +1104,6 @@
     supportModalEl.addEventListener("click", (e) => {
       if (e.target === supportModalEl) closeSupportModal();
     });
-    const topSupportBtn = document.getElementById("topSupportBtn");
-    if (topSupportBtn) {
-      topSupportBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        window.location.href = "/pages/messages.html";
-      });
-    }
-
     const registrationMenuBtn = document.getElementById("registrationMenuBtn");
     const registrationDropdown = document.getElementById("registrationDropdown");
     const regTableEl = document.getElementById("regTable");

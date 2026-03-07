@@ -1561,14 +1561,6 @@
       supportModalEl.setAttribute("aria-hidden", "true");
     }
 
-    const topSupportBtn = document.getElementById("topSupportBtn");
-    if (topSupportBtn) {
-      topSupportBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        window.location.href = "/pages/messages.html";
-      });
-    }
     document.getElementById("mobileSupportBtn").addEventListener("click", () => {
       window.location.href = "messages.html";
     });

@@ -412,28 +412,6 @@
   }
 
   function installAlertTriggers() {
-    function isMessagesHref(value) {
-      const href = typeof value === "string" ? value.trim() : "";
-      if (!href) return false;
-      const clean = href.split("#")[0];
-      return clean.endsWith("messages.html") || clean.endsWith("/pages/messages.html");
-    }
-
-    function bindDirectTrigger(el) {
-      if (!el || el.__gpAlertBound) return;
-      el.__gpAlertBound = true;
-      el.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        const root = ensurePanelRoot();
-        if (root.classList.contains("show")) closePanel();
-        else openPanel(el);
-      }, true);
-    }
-
-    bindDirectTrigger(document.getElementById("mobileNotifBtn"));
-    bindDirectTrigger(document.getElementById("topSupportBtn"));
-
     document.addEventListener("click", (event) => {
       const targetEl = event.target instanceof Element
         ? event.target

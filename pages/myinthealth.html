@@ -1599,28 +1599,11 @@
     });
 
     // ─── EVENT LISTENERS ────────────────────────────────────────
-    const topSupportBtn = document.getElementById("topSupportBtn");
-    if (topSupportBtn) {
-      topSupportBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        window.location.href = "/pages/messages.html";
-      });
-    }
     const mobileSupportBtn = document.getElementById("mobileSupportBtn");
     if (mobileSupportBtn) mobileSupportBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       window.location.href = "/pages/messages.html";
-    });
-    // mobileNotifBtn click opens alert panel
-    const mobileNotifBtn = document.getElementById("mobileNotifBtn");
-    if (mobileNotifBtn) mobileNotifBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof window.openGpAlertPanel === "function") {
-        window.openGpAlertPanel(mobileNotifBtn);
-      }
     });
 
     if (supportSubmitBtnEl) {
