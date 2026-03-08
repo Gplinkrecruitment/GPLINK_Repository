@@ -1,0 +1,1281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Welcome - GP Link</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --red: #dc2626;
+      --orange: #f59e0b;
+      --text: #0f172a;
+      --muted: #64748b;
+      --light: #94a3b8;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --radius: 20px;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    /* ── LAYOUT ───────────────────────────────── */
+    .onboarding-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── BACKGROUND BLOBS ─────────────────────── */
+    .blob-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 420px;
+      overflow: hidden;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0.55;
+      transition: all 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .blob-1 {
+      width: 260px; height: 260px;
+      background: #93c5fd;
+      top: -80px; left: -40px;
+    }
+    .blob-2 {
+      width: 220px; height: 220px;
+      background: #a5b4fc;
+      top: -40px; right: -60px;
+    }
+    .blob-3 {
+      width: 180px; height: 180px;
+      background: #6ee7b7;
+      top: 60px; left: 40%;
+    }
+
+    /* per-step blob color variations */
+    [data-step="0"] .blob-1 { background: #93c5fd; }
+    [data-step="0"] .blob-2 { background: #a5b4fc; }
+    [data-step="0"] .blob-3 { background: #6ee7b7; }
+
+    [data-step="1"] .blob-1 { background: #6ee7b7; top: -60px; left: -20px; }
+    [data-step="1"] .blob-2 { background: #93c5fd; }
+    [data-step="1"] .blob-3 { background: #fbbf24; }
+
+    [data-step="2"] .blob-1 { background: #a5b4fc; }
+    [data-step="2"] .blob-2 { background: #f9a8d4; }
+    [data-step="2"] .blob-3 { background: #93c5fd; top: 80px; }
+
+    [data-step="3"] .blob-1 { background: #fbbf24; }
+    [data-step="3"] .blob-2 { background: #6ee7b7; }
+    [data-step="3"] .blob-3 { background: #a5b4fc; }
+
+    [data-step="4"] .blob-1 { background: #f9a8d4; }
+    [data-step="4"] .blob-2 { background: #93c5fd; }
+    [data-step="4"] .blob-3 { background: #fbbf24; }
+
+    [data-step="5"] .blob-1 { background: #6ee7b7; }
+    [data-step="5"] .blob-2 { background: #a5b4fc; }
+    [data-step="5"] .blob-3 { background: #93c5fd; }
+
+    [data-step="6"] .blob-1 { background: #93c5fd; }
+    [data-step="6"] .blob-2 { background: #6ee7b7; }
+    [data-step="6"] .blob-3 { background: #fbbf24; }
+
+    [data-step="7"] .blob-1 { background: #a5b4fc; top: -100px; }
+    [data-step="7"] .blob-2 { background: #6ee7b7; }
+    [data-step="7"] .blob-3 { background: #93c5fd; top: 40px; }
+
+    /* ── BACK BUTTON ──────────────────────────── */
+    .back-btn {
+      position: absolute;
+      top: 16px; left: 16px;
+      z-index: 10;
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,0.75);
+      backdrop-filter: blur(12px);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.15s ease, opacity 0.3s ease;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .back-btn.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .back-btn:active { transform: scale(0.92); }
+    .back-btn svg {
+      width: 20px; height: 20px;
+      stroke: var(--text);
+      fill: none; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ── SLIDE AREA ───────────────────────────── */
+    .slides-viewport {
+      flex: 1;
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+    }
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 0 24px;
+      opacity: 0;
+      transform: translateX(60px);
+      transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .slide::-webkit-scrollbar { display: none; }
+    .slide.active {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+    .slide.exit-left {
+      opacity: 0;
+      transform: translateX(-60px);
+    }
+
+    /* ── ILLUSTRATION AREA ────────────────────── */
+    .slide-illustration {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 220px;
+      padding: 30px 0 10px;
+    }
+    .slide-illustration svg {
+      width: 180px;
+      height: 180px;
+      filter: drop-shadow(0 20px 30px rgba(0,0,0,0.10));
+    }
+
+    /* ── CONTENT CARD ─────────────────────────── */
+    .slide-content {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 28px 24px 24px;
+      box-shadow: 0 8px 30px rgba(15,23,42,0.08);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slide-content h1 {
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 10px;
+      color: var(--text);
+    }
+
+    .slide-content p {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 20px;
+    }
+
+    .slide-content .form-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ── FORM ELEMENTS ────────────────────────── */
+    label.field-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    input[type="text"],
+    input[type="date"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 15px;
+      color: var(--text);
+      background: #fff;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 100px;
+    }
+
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 36px;
+    }
+
+    .field-error {
+      font-size: 12px;
+      color: var(--red);
+      margin-top: 4px;
+      display: none;
+    }
+    .field-error.show { display: block; }
+
+    .field-hint {
+      font-size: 12px;
+      color: var(--light);
+      margin-top: 4px;
+    }
+
+    /* ── COUNTRY SEARCH ───────────────────────── */
+    .country-search-wrap {
+      position: relative;
+    }
+    .country-search-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 15px;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+    }
+    .country-search-input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+    .country-list {
+      list-style: none;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      margin-top: 6px;
+      background: #fff;
+      scrollbar-width: thin;
+    }
+    .country-list li {
+      padding: 12px 14px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .country-list li:hover,
+    .country-list li.highlighted { background: rgba(37,99,235,0.06); }
+    .country-list li.selected {
+      background: rgba(37,99,235,0.10);
+      font-weight: 600;
+      color: var(--blue);
+    }
+    .country-list li .country-flag { font-size: 20px; }
+
+    .other-country-input {
+      margin-top: 8px;
+      display: none;
+    }
+    .other-country-input.show { display: block; }
+
+    /* ── FILE UPLOAD ──────────────────────────── */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      padding: 24px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+    .upload-zone:hover { border-color: var(--blue); background: rgba(37,99,235,0.03); }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .upload-zone-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+    .upload-zone-icon svg {
+      width: 36px; height: 36px;
+      stroke: var(--light);
+      fill: none; stroke-width: 1.5;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .upload-zone-text {
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .upload-zone-text span {
+      color: var(--blue);
+      font-weight: 600;
+    }
+    .upload-zone-hint {
+      font-size: 12px;
+      color: var(--light);
+      margin-top: 4px;
+    }
+
+    /* ── UPLOAD CARDS ─────────────────────────── */
+    .upload-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      background: #fff;
+      transition: border-color 0.2s;
+    }
+    .upload-card.completed { border-color: var(--green); }
+    .upload-card.error { border-color: var(--red); }
+    .upload-card.scanning { border-color: var(--orange); }
+
+    .upload-card-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .upload-card-icon.pending { background: #f1f5f9; }
+    .upload-card-icon.pending svg { stroke: var(--light); }
+    .upload-card-icon.completed { background: #ecfdf5; }
+    .upload-card-icon.completed svg { stroke: var(--green); }
+    .upload-card-icon.scanning { background: #fef3c7; }
+    .upload-card-icon.scanning svg { stroke: var(--orange); }
+    .upload-card-icon.error { background: #fef2f2; }
+    .upload-card-icon.error svg { stroke: var(--red); }
+    .upload-card-icon svg {
+      width: 20px; height: 20px;
+      fill: none; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .upload-card-body { flex: 1; min-width: 0; }
+    .upload-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .upload-card-status {
+      font-size: 12px;
+      margin-top: 2px;
+    }
+    .upload-card-status.pending { color: var(--light); }
+    .upload-card-status.completed { color: var(--green); }
+    .upload-card-status.scanning { color: var(--orange); }
+    .upload-card-status.error { color: var(--red); }
+    .upload-card-status.review { color: var(--blue); }
+
+    .upload-card-action {
+      flex-shrink: 0;
+    }
+    .upload-card-action button {
+      border: none;
+      background: none;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 8px;
+      transition: background 0.15s;
+    }
+    .upload-card-action button:hover { background: #f1f5f9; }
+    .upload-card-action svg {
+      width: 18px; height: 18px;
+      stroke: var(--muted);
+      fill: none; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* upload progress bar */
+    .upload-progress {
+      height: 3px;
+      background: #e2e8f0;
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden;
+      display: none;
+    }
+    .upload-progress.show { display: block; }
+    .upload-progress-bar {
+      height: 100%;
+      background: var(--blue);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    /* scan animation */
+    @keyframes pulse-scan {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .scanning .upload-card-status { animation: pulse-scan 1.5s ease-in-out infinite; }
+
+    /* ── WHO IS MOVING OPTIONS ────────────────── */
+    .option-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .option-card {
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 12px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s, transform 0.15s;
+      background: #fff;
+    }
+    .option-card:hover { border-color: var(--blue); }
+    .option-card:active { transform: scale(0.97); }
+    .option-card.selected {
+      border-color: var(--blue);
+      background: rgba(37,99,235,0.06);
+    }
+    .option-card-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+    .option-card-icon svg {
+      width: 32px; height: 32px;
+      stroke: var(--muted);
+      fill: none; stroke-width: 1.5;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .option-card.selected .option-card-icon svg { stroke: var(--blue); }
+    .option-card-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .option-card.selected .option-card-label { color: var(--blue); }
+
+    .children-count-wrap {
+      display: none;
+      margin-top: 12px;
+    }
+    .children-count-wrap.show { display: block; }
+    .stepper-input {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .stepper-btn {
+      width: 40px; height: 40px;
+      border-radius: 12px;
+      border: 1.5px solid var(--border);
+      background: #fff;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .stepper-btn:hover { border-color: var(--blue); }
+    .stepper-btn:active { background: rgba(37,99,235,0.06); }
+    .stepper-value {
+      font-size: 20px;
+      font-weight: 700;
+      min-width: 30px;
+      text-align: center;
+    }
+
+    /* ── REVIEW SUMMARY ───────────────────────── */
+    .review-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .review-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 12px 0;
+      border-bottom: 1px solid #f1f5f9;
+      gap: 12px;
+    }
+    .review-row:last-child { border-bottom: none; }
+    .review-label {
+      font-size: 13px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .review-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      text-align: right;
+      word-break: break-word;
+    }
+    .review-value.status-verified { color: var(--green); }
+    .review-value.status-pending { color: var(--orange); }
+    .review-value.status-missing { color: var(--red); }
+
+    /* ── BOTTOM CONTROLS ──────────────────────── */
+    .bottom-controls {
+      position: relative;
+      z-index: 2;
+      padding: 16px 24px calc(env(safe-area-inset-bottom, 12px) + 16px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    /* progress dots */
+    .progress-dots {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .progress-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #cbd5e1;
+      transition: all 0.3s ease;
+    }
+    .progress-dot.active {
+      width: 24px;
+      border-radius: 4px;
+      background: var(--text);
+    }
+    .progress-dot.done {
+      background: var(--blue);
+    }
+
+    /* button row */
+    .btn-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    .btn-skip {
+      border: none;
+      background: none;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 10px 16px;
+      border-radius: 12px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .btn-skip:hover { color: var(--text); background: rgba(0,0,0,0.04); }
+    .btn-skip.invisible { visibility: hidden; }
+
+    .btn-next {
+      border: none;
+      background: var(--text);
+      color: #fff;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 14px 32px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: transform 0.15s, opacity 0.15s, background 0.2s;
+      min-width: 120px;
+      text-align: center;
+    }
+    .btn-next:hover { background: #1e293b; }
+    .btn-next:active { transform: scale(0.96); }
+    .btn-next:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-next.submit {
+      background: var(--blue);
+    }
+    .btn-next.submit:hover { background: var(--blue2); }
+
+    /* ── LOADING OVERLAY ──────────────────────── */
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.92);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .loading-overlay.show { display: flex; }
+    .loading-spinner {
+      width: 40px; height: 40px;
+      border: 3px solid #e2e8f0;
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    /* ── SUCCESS SCREEN ───────────────────────── */
+    .success-screen {
+      position: fixed;
+      inset: 0;
+      background: #fff;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 40px 24px;
+      text-align: center;
+    }
+    .success-screen.show { display: flex; }
+    .success-check {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: #ecfdf5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+    .success-check svg {
+      width: 40px; height: 40px;
+      stroke: var(--green);
+      fill: none; stroke-width: 2.5;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .success-screen h1 {
+      font-size: 26px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    .success-screen p {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.55;
+      max-width: 320px;
+      margin-bottom: 32px;
+    }
+    .success-screen .btn-next { min-width: 200px; }
+
+    /* ── DESKTOP POLISH ───────────────────────── */
+    @media (min-width: 520px) {
+      .onboarding-shell {
+        max-width: 440px;
+        margin-top: 20px;
+        height: calc(100% - 40px);
+        border-radius: 24px;
+        box-shadow: 0 20px 60px rgba(15,23,42,0.10);
+        overflow: hidden;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- loading overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loadingText">Saving your progress...</div>
+  </div>
+
+  <!-- success screen -->
+  <div class="success-screen" id="successScreen">
+    <div class="success-check">
+      <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+    </div>
+    <h1>You're all set!</h1>
+    <p>Your profile is ready. We'll guide you through each step of your registration and relocation journey.</p>
+    <button class="btn-next" id="successContinueBtn">Go to Dashboard</button>
+  </div>
+
+  <div class="onboarding-shell" id="shell" data-step="0">
+    <!-- blobs -->
+    <div class="blob-canvas">
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      <div class="blob blob-3"></div>
+    </div>
+
+    <!-- back button -->
+    <button class="back-btn" id="backBtn" aria-label="Go back">
+      <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+
+    <!-- slides viewport -->
+    <div class="slides-viewport">
+
+      <!-- STEP 0: Welcome -->
+      <div class="slide active" data-slide="0">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Globe with Australia -->
+            <circle cx="100" cy="90" r="60" fill="#dbeafe" stroke="#93c5fd" stroke-width="2"/>
+            <ellipse cx="100" cy="90" rx="60" ry="20" fill="none" stroke="#bfdbfe" stroke-width="1" stroke-dasharray="4 3"/>
+            <ellipse cx="100" cy="90" rx="20" ry="60" fill="none" stroke="#bfdbfe" stroke-width="1" stroke-dasharray="4 3"/>
+            <!-- Simplified Australia shape -->
+            <path d="M108 85c3-1 8 0 12 3s6 7 5 10-3 5-7 5-6 2-9 1-5-3-6-6 1-6 2-8c1-1 2-4 3-5z" fill="#3b82f6" opacity="0.7"/>
+            <!-- Location pin -->
+            <g transform="translate(112,72)">
+              <path d="M0-18c-7 0-12 5-12 12 0 9 12 22 12 22s12-13 12-22c0-7-5-12-12-12z" fill="#ef4444"/>
+              <circle cx="0" cy="-6" r="4" fill="#fff"/>
+            </g>
+            <!-- Doctor figure -->
+            <g transform="translate(55,130)">
+              <circle cx="15" cy="8" r="10" fill="#fbbf24"/>
+              <rect x="5" y="18" width="20" height="24" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+              <path d="M10 22v8M20 22v8" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="15" cy="26" r="2" fill="#3b82f6"/>
+            </g>
+            <!-- Plane trail -->
+            <path d="M30 60 Q60 30 100 50 T170 40" fill="none" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <g transform="translate(168,36) rotate(15)">
+              <path d="M0 0l-6-3v2l-8 1 8 1v2z" fill="#3b82f6"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Start your move to Australia</h1>
+          <p>We'll quickly verify your details and tailor your relocation journey. It only takes a few minutes.</p>
+        </div>
+      </div>
+
+      <!-- STEP 1: Country of qualification -->
+      <div class="slide" data-slide="1">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Globe network -->
+            <circle cx="100" cy="85" r="55" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="2"/>
+            <path d="M50 85h100M100 30v110" stroke="#a7f3d0" stroke-width="1"/>
+            <ellipse cx="100" cy="85" rx="55" ry="20" fill="none" stroke="#a7f3d0" stroke-width="1"/>
+            <ellipse cx="100" cy="85" rx="25" ry="55" fill="none" stroke="#a7f3d0" stroke-width="1"/>
+            <!-- Connection dots -->
+            <circle cx="65" cy="70" r="5" fill="#10b981"/>
+            <circle cx="120" cy="60" r="4" fill="#3b82f6"/>
+            <circle cx="85" cy="100" r="4" fill="#f59e0b"/>
+            <circle cx="135" cy="90" r="5" fill="#ef4444"/>
+            <circle cx="112" cy="108" r="4" fill="#8b5cf6"/>
+            <!-- Lines between dots -->
+            <line x1="65" y1="70" x2="120" y2="60" stroke="#d1d5db" stroke-width="1"/>
+            <line x1="120" y1="60" x2="135" y2="90" stroke="#d1d5db" stroke-width="1"/>
+            <line x1="85" y1="100" x2="112" y2="108" stroke="#d1d5db" stroke-width="1"/>
+            <!-- Arrow pointing to Australia pin -->
+            <g transform="translate(112,100)">
+              <path d="M0-6c-4 0-7 3-7 7s7 13 7 13 7-9 7-13-3-7-7-7z" fill="#2563eb"/>
+              <circle cx="0" cy="1" r="2.5" fill="#fff"/>
+            </g>
+            <!-- Passport icon -->
+            <g transform="translate(30,135)">
+              <rect x="0" y="0" width="30" height="40" rx="4" fill="#1e40af"/>
+              <rect x="5" y="5" width="20" height="14" rx="2" fill="#dbeafe"/>
+              <line x1="5" y1="24" x2="25" y2="24" stroke="#93c5fd" stroke-width="1.5"/>
+              <line x1="5" y1="28" x2="20" y2="28" stroke="#93c5fd" stroke-width="1.5"/>
+              <line x1="5" y1="32" x2="22" y2="32" stroke="#93c5fd" stroke-width="1.5"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Where are you qualified?</h1>
+          <p>Tell us where you're currently qualified so we can tailor your registration journey.</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" for="countrySearch">Country of qualification</label>
+              <div class="country-search-wrap">
+                <input type="text" class="country-search-input" id="countrySearch" placeholder="Search for your country..." autocomplete="off" />
+                <ul class="country-list" id="countryList"></ul>
+              </div>
+              <input type="text" class="country-search-input other-country-input" id="otherCountryInput" placeholder="Enter your country..." />
+              <div class="field-error" id="countryError">Please select your country of qualification.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: Specialist qualification upload -->
+      <div class="slide" data-slide="2">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Certificate -->
+            <rect x="35" y="35" width="130" height="100" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="35" y="35" width="130" height="24" rx="8" fill="#dbeafe"/>
+            <rect x="35" y="51" width="130" height="8" rx="0" fill="#dbeafe"/>
+            <!-- Certificate details -->
+            <rect x="55" y="70" width="90" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="65" y="80" width="70" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="55" y="90" width="90" height="4" rx="2" fill="#e2e8f0"/>
+            <!-- Seal -->
+            <circle cx="100" cy="112" r="12" fill="#fbbf24" opacity="0.3"/>
+            <circle cx="100" cy="112" r="8" fill="#fbbf24"/>
+            <path d="M96 112l3 3 5-6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- Shield verify -->
+            <g transform="translate(140,90)">
+              <path d="M15 2l12 4v10c0 8-5 14-12 17-7-3-12-9-12-17V6z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+              <path d="M10 14l4 4 8-8" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+            <!-- Stethoscope hint -->
+            <g transform="translate(20,145)">
+              <path d="M20 10c0-5 4-9 9-9s9 4 9 9v12c0 3-2 5-5 5h-8c-3 0-5-2-5-5z" fill="none" stroke="#93c5fd" stroke-width="2"/>
+              <circle cx="29" cy="32" r="4" fill="#3b82f6"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Verify your qualification</h1>
+          <p>Upload a clear copy of your specialist qualification so we can verify your details.</p>
+          <div class="form-area">
+            <div id="qualUploadArea">
+              <div class="upload-zone" id="qualUploadZone">
+                <input type="file" id="qualFileInput" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
+                <div class="upload-zone-icon">
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
+                <div class="upload-zone-text">Tap to upload or <span>browse files</span></div>
+                <div class="upload-zone-hint">PDF, JPG, PNG, DOC up to 10MB</div>
+              </div>
+            </div>
+            <div id="qualUploadCard" style="display:none;">
+              <div class="upload-card" id="qualCard">
+                <div class="upload-card-icon pending" id="qualCardIcon">
+                  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div class="upload-card-body">
+                  <div class="upload-card-title" id="qualCardTitle">document.pdf</div>
+                  <div class="upload-card-status pending" id="qualCardStatus">Uploading...</div>
+                  <div class="upload-progress" id="qualProgress"><div class="upload-progress-bar" id="qualProgressBar"></div></div>
+                </div>
+                <div class="upload-card-action">
+                  <button type="button" id="qualReplaceBtn" title="Replace file">
+                    <svg viewBox="0 0 24 24"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="field-error" id="qualError">Please upload your specialist qualification.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 3: Relocation timeline & city -->
+      <div class="slide" data-slide="3">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Calendar -->
+            <rect x="30" y="45" width="90" height="80" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="30" y="45" width="90" height="22" rx="8" fill="#3b82f6"/>
+            <rect x="30" y="59" width="90" height="8" rx="0" fill="#3b82f6"/>
+            <line x1="50" y1="40" x2="50" y2="50" stroke="#93c5fd" stroke-width="3" stroke-linecap="round"/>
+            <line x1="100" y1="40" x2="100" y2="50" stroke="#93c5fd" stroke-width="3" stroke-linecap="round"/>
+            <!-- Calendar grid -->
+            <g fill="#e2e8f0">
+              <rect x="38" y="74" width="10" height="10" rx="2"/>
+              <rect x="53" y="74" width="10" height="10" rx="2"/>
+              <rect x="68" y="74" width="10" height="10" rx="2"/>
+              <rect x="83" y="74" width="10" height="10" rx="2"/>
+              <rect x="98" y="74" width="10" height="10" rx="2"/>
+              <rect x="38" y="90" width="10" height="10" rx="2"/>
+              <rect x="53" y="90" width="10" height="10" rx="2"/>
+            </g>
+            <rect x="68" y="90" width="10" height="10" rx="3" fill="#3b82f6"/>
+            <g fill="#e2e8f0">
+              <rect x="83" y="90" width="10" height="10" rx="2"/>
+              <rect x="98" y="90" width="10" height="10" rx="2"/>
+              <rect x="38" y="106" width="10" height="10" rx="2"/>
+              <rect x="53" y="106" width="10" height="10" rx="2"/>
+              <rect x="68" y="106" width="10" height="10" rx="2"/>
+            </g>
+            <!-- Australia map silhouette -->
+            <g transform="translate(125,50)">
+              <path d="M10 20c-3 1-6 8-4 14s8 14 16 16 18-1 22-6 6-12 3-18-8-10-14-11-10 0-14 2-5 2-9 3z" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+              <!-- City dots -->
+              <circle cx="38" cy="28" r="3" fill="#3b82f6"/>
+              <circle cx="32" cy="36" r="3" fill="#60a5fa"/>
+              <circle cx="22" cy="38" r="3" fill="#93c5fd"/>
+              <circle cx="8" cy="30" r="2.5" fill="#93c5fd"/>
+            </g>
+            <!-- Arrow -->
+            <path d="M110 100 Q135 80 148 70" fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4 3"/>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>When and where?</h1>
+          <p>Tell us your target arrival date and preferred city in Australia.</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" for="targetDate">Target date to arrive in Australia</label>
+              <input type="date" id="targetDate" />
+              <div class="field-hint">Must be at least 5 months from today to allow for registration and relocation.</div>
+              <div class="field-error" id="dateError">Please select a valid date.</div>
+            </div>
+            <div>
+              <label class="field-label" for="preferredCity">Preferred city</label>
+              <select id="preferredCity">
+                <option value="" disabled selected>Choose a city</option>
+                <option value="Sydney">Sydney</option>
+                <option value="Brisbane">Brisbane</option>
+                <option value="Melbourne">Melbourne</option>
+                <option value="Adelaide">Adelaide</option>
+                <option value="Perth">Perth</option>
+                <option value="Darwin">Darwin</option>
+                <option value="Canberra">Canberra</option>
+              </select>
+              <div class="field-error" id="cityError">Please select a preferred city.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4: Who is moving -->
+      <div class="slide" data-slide="4">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Family scene -->
+            <!-- Doctor (main) -->
+            <g transform="translate(70,50)">
+              <circle cx="15" cy="12" r="14" fill="#fbbf24"/>
+              <rect x="2" y="26" width="26" height="32" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+              <circle cx="15" cy="36" r="3" fill="#3b82f6"/>
+              <path d="M8 30v10M22 30v10" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+            </g>
+            <!-- Partner -->
+            <g transform="translate(115,55)">
+              <circle cx="12" cy="10" r="12" fill="#f9a8d4"/>
+              <rect x="1" y="22" width="22" height="28" rx="7" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+            </g>
+            <!-- Child 1 -->
+            <g transform="translate(45,80)">
+              <circle cx="9" cy="7" r="9" fill="#93c5fd"/>
+              <rect x="1" y="16" width="16" height="20" rx="5" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+            </g>
+            <!-- Heart -->
+            <g transform="translate(96,38)">
+              <path d="M5 0C2.5-2 0 0 0 2.5S2.5 7 5 9c2.5-2 5-4.5 5-6.5S7.5-2 5 0z" fill="#f43f5e" opacity="0.7"/>
+            </g>
+            <!-- Plane + trail -->
+            <path d="M20 140 Q80 100 160 130" fill="none" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <g transform="translate(158,127) rotate(-15)">
+              <path d="M0 0l-6-3v2l-8 1 8 1v2z" fill="#3b82f6"/>
+            </g>
+            <!-- Suitcases -->
+            <g transform="translate(60,140)">
+              <rect x="0" y="5" width="18" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+              <line x1="4" y1="0" x2="14" y2="0" stroke="#93c5fd" stroke-width="2" stroke-linecap="round"/>
+              <line x1="4" y1="0" x2="4" y2="5" stroke="#93c5fd" stroke-width="1.5"/>
+              <line x1="14" y1="0" x2="14" y2="5" stroke="#93c5fd" stroke-width="1.5"/>
+            </g>
+            <g transform="translate(82,145)">
+              <rect x="0" y="5" width="14" height="17" rx="3" fill="#ede9fe" stroke="#a5b4fc" stroke-width="1.5"/>
+              <line x1="3" y1="0" x2="11" y2="0" stroke="#a5b4fc" stroke-width="2" stroke-linecap="round"/>
+              <line x1="3" y1="0" x2="3" y2="5" stroke="#a5b4fc" stroke-width="1.5"/>
+              <line x1="11" y1="0" x2="11" y2="5" stroke="#a5b4fc" stroke-width="1.5"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Who's relocating?</h1>
+          <p>Let us know who's making the move so we can support your whole family.</p>
+          <div class="form-area">
+            <div class="option-grid" id="whoMovingGrid">
+              <div class="option-card" data-value="just_me">
+                <div class="option-card-icon">
+                  <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <div class="option-card-label">Just me</div>
+              </div>
+              <div class="option-card" data-value="me_partner">
+                <div class="option-card-icon">
+                  <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                </div>
+                <div class="option-card-label">Me & partner</div>
+              </div>
+              <div class="option-card" data-value="me_children">
+                <div class="option-card-icon">
+                  <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><circle cx="19" cy="11" r="3"/></svg>
+                </div>
+                <div class="option-card-label">Me & children</div>
+              </div>
+              <div class="option-card" data-value="me_partner_children">
+                <div class="option-card-icon">
+                  <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="20" cy="14" r="2.5"/></svg>
+                </div>
+                <div class="option-card-label">Family</div>
+              </div>
+            </div>
+            <div class="field-error" id="whoError">Please select who is relocating.</div>
+            <div class="children-count-wrap" id="childrenCountWrap">
+              <label class="field-label">How many children?</label>
+              <div class="stepper-input">
+                <button type="button" class="stepper-btn" id="childMinus">&minus;</button>
+                <span class="stepper-value" id="childCount">1</span>
+                <button type="button" class="stepper-btn" id="childPlus">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 5: Special considerations -->
+      <div class="slide" data-slide="5">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Notepad -->
+            <rect x="40" y="30" width="120" height="140" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="40" y="30" width="120" height="28" rx="10" fill="#ede9fe"/>
+            <rect x="40" y="50" width="120" height="8" rx="0" fill="#ede9fe"/>
+            <!-- Lines -->
+            <rect x="55" y="70" width="90" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="55" y="82" width="70" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="55" y="94" width="85" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="55" y="106" width="60" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="55" y="118" width="80" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="55" y="130" width="50" height="3" rx="1.5" fill="#e2e8f0"/>
+            <!-- Pencil -->
+            <g transform="translate(140,100) rotate(30)">
+              <rect x="-3" y="-30" width="6" height="40" rx="1" fill="#fbbf24"/>
+              <polygon points="0,12 -3,10 3,10" fill="#f97316"/>
+              <rect x="-3" y="-30" width="6" height="6" rx="1" fill="#f9a8d4"/>
+            </g>
+            <!-- Checkmarks -->
+            <g transform="translate(45,70)">
+              <circle cx="0" cy="1.5" r="4" fill="#ecfdf5"/>
+              <path d="M-2 1.5l1.5 1.5 3-3" stroke="#10b981" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            </g>
+            <g transform="translate(45,94)">
+              <circle cx="0" cy="1.5" r="4" fill="#ecfdf5"/>
+              <path d="M-2 1.5l1.5 1.5 3-3" stroke="#10b981" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Anything else?</h1>
+          <p>Tell us anything important that may affect your move or practice preference.</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" for="specialNotes">Special considerations (optional)</label>
+              <textarea id="specialNotes" placeholder="For example: schooling preferences, partner employment needs, visa timing, preferred climate, family considerations, location restrictions..."></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 6: Supporting documents -->
+      <div class="slide" data-slide="6">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Stack of documents -->
+            <rect x="50" y="50" width="100" height="120" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="55" y="45" width="100" height="120" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="60" y="40" width="100" height="120" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <!-- CV header -->
+            <rect x="60" y="40" width="100" height="24" rx="8" fill="#dbeafe"/>
+            <rect x="60" y="56" width="100" height="8" rx="0" fill="#dbeafe"/>
+            <!-- CV content -->
+            <circle cx="82" cy="78" r="10" fill="#f1f5f9"/>
+            <rect x="98" y="72" width="50" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="98" y="80" width="35" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="70" y="96" width="78" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="70" y="105" width="65" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="70" y="114" width="72" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="70" y="123" width="55" height="3" rx="1.5" fill="#e2e8f0"/>
+            <!-- ID card -->
+            <g transform="translate(20,120)">
+              <rect x="0" y="0" width="50" height="35" rx="5" fill="#fef3c7" stroke="#fbbf24" stroke-width="1.5"/>
+              <circle cx="16" cy="13" r="7" fill="#fde68a"/>
+              <rect x="28" y="8" width="16" height="3" rx="1.5" fill="#f59e0b"/>
+              <rect x="28" y="14" width="12" height="3" rx="1.5" fill="#f59e0b"/>
+              <rect x="5" y="26" width="40" height="3" rx="1.5" fill="#f59e0b"/>
+            </g>
+            <!-- Shield -->
+            <g transform="translate(145,110)">
+              <path d="M15 2l12 4v10c0 8-5 14-12 17-7-3-12-9-12-17V6z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+              <path d="M10 14l4 4 8-8" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Supporting documents</h1>
+          <p>Upload your CV and ID to complete your profile. Your qualification is already uploaded.</p>
+          <div class="form-area">
+            <!-- Qualification (already uploaded) -->
+            <div class="upload-card" id="docQualCard">
+              <div class="upload-card-icon" id="docQualIcon">
+                <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </div>
+              <div class="upload-card-body">
+                <div class="upload-card-title">Specialist Qualification</div>
+                <div class="upload-card-status" id="docQualStatus">Not uploaded</div>
+              </div>
+              <div class="upload-card-action">
+                <button type="button" id="docQualReplace" title="Replace">
+                  <svg viewBox="0 0 24 24"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                </button>
+              </div>
+            </div>
+            <!-- CV upload -->
+            <div id="cvUploadArea">
+              <div class="upload-card" id="cvCard" style="cursor:pointer;" tabindex="0">
+                <div class="upload-card-icon pending" id="cvCardIcon">
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
+                <div class="upload-card-body">
+                  <div class="upload-card-title">Up-to-date CV</div>
+                  <div class="upload-card-status pending" id="cvCardStatus">Tap to upload</div>
+                  <div class="upload-progress" id="cvProgress"><div class="upload-progress-bar" id="cvProgressBar"></div></div>
+                </div>
+                <input type="file" id="cvFileInput" accept=".pdf,.doc,.docx" style="display:none;" />
+              </div>
+            </div>
+            <!-- ID upload -->
+            <div id="idUploadArea">
+              <div class="upload-card" id="idCard" style="cursor:pointer;" tabindex="0">
+                <div class="upload-card-icon pending" id="idCardIcon">
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
+                <div class="upload-card-body">
+                  <div class="upload-card-title">ID Document</div>
+                  <div class="upload-card-status pending" id="idCardStatus">Passport, licence, or national ID</div>
+                  <div class="upload-progress" id="idProgress"><div class="upload-progress-bar" id="idProgressBar"></div></div>
+                </div>
+                <input type="file" id="idFileInput" accept=".pdf,.jpg,.jpeg,.png" style="display:none;" />
+              </div>
+            </div>
+            <div class="field-error" id="docsError">Please upload your CV and ID document.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 7: Review & Submit -->
+      <div class="slide" data-slide="7">
+        <div class="slide-illustration" style="min-height:140px; padding: 20px 0 0;">
+          <svg viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg">
+            <!-- Clipboard -->
+            <rect x="50" y="10" width="100" height="120" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="70" y="2" width="60" height="16" rx="8" fill="#e2e8f0"/>
+            <rect x="80" y="6" width="40" height="8" rx="4" fill="#fff"/>
+            <!-- Check rows -->
+            <g transform="translate(62,30)">
+              <circle cx="6" cy="6" r="6" fill="#ecfdf5"/><path d="M3 6l2.5 2.5 5-5" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="60" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g transform="translate(62,50)">
+              <circle cx="6" cy="6" r="6" fill="#ecfdf5"/><path d="M3 6l2.5 2.5 5-5" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="50" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g transform="translate(62,70)">
+              <circle cx="6" cy="6" r="6" fill="#ecfdf5"/><path d="M3 6l2.5 2.5 5-5" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="55" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g transform="translate(62,90)">
+              <circle cx="6" cy="6" r="6" fill="#ecfdf5"/><path d="M3 6l2.5 2.5 5-5" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="45" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g transform="translate(62,110)">
+              <circle cx="6" cy="6" r="6" fill="#dbeafe"/><path d="M3 6l2.5 2.5 5-5" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="55" height="4" rx="2" fill="#dbeafe"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Review your details</h1>
+          <p>Check everything looks right before we set up your dashboard.</p>
+          <div class="form-area">
+            <div class="review-list" id="reviewList">
+              <!-- populated by JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end slides-viewport -->
+
+    <!-- bottom controls -->
+    <div class="bottom-controls">
+      <div class="progress-dots" id="progressDots">
+        <div class="progress-dot active"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-skip invisible" id="skipBtn">SKIP</button>
+        <button class="btn-next" id="nextBtn">NEXT</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/onboarding.js"></script>
+</body>
+</html>

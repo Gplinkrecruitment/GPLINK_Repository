@@ -113,7 +113,9 @@ const USER_STATE_KEYS = [
   'gpLinkSupportCases',
   'gpLinkMessageDB',
   'gpLinkSupportDraft',
-  'gp_account_profile'
+  'gp_account_profile',
+  'gp_onboarding_complete',
+  'gp_onboarding'
 ];
 
 const EPIC_STAGE_META = [
@@ -2827,6 +2829,121 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
     clearSession(res, req);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Onboarding endpoints ──────────────────────────────────────
+  if (pathname === '/api/onboarding/save' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    if (isSupabaseDbConfigured()) {
+      const userId = getSessionSupabaseUserId(session);
+      if (userId) {
+        const existing = await supabaseDbRequest('user_state', `user_id=eq.${userId}`, { method: 'GET' });
+        const current = existing.ok && Array.isArray(existing.data) && existing.data[0]
+          ? (typeof existing.data[0].state === 'string' ? JSON.parse(existing.data[0].state) : existing.data[0].state)
+          : {};
+        current.gp_onboarding = body;
+        const payload = { user_id: userId, state: JSON.stringify(current), updated_at: new Date().toISOString() };
+        if (existing.ok && existing.data && existing.data.length > 0) {
+          await supabaseDbRequest('user_state', `user_id=eq.${userId}`, {
+            method: 'PATCH',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify(payload)
+          });
+        } else {
+          await supabaseDbRequest('user_state', '', {
+            method: 'POST',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify(payload)
+          });
+        }
+      }
+    } else {
+      const dbState = loadDbState();
+      if (!dbState.userState[email]) dbState.userState[email] = {};
+      dbState.userState[email].gp_onboarding = body;
+      saveDbState(dbState);
+    }
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (pathname === '/api/onboarding/complete' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    // Save complete onboarding data and mark as done
+    if (isSupabaseDbConfigured()) {
+      const userId = getSessionSupabaseUserId(session);
+      if (userId) {
+        const existing = await supabaseDbRequest('user_state', `user_id=eq.${userId}`, { method: 'GET' });
+        const current = existing.ok && Array.isArray(existing.data) && existing.data[0]
+          ? (typeof existing.data[0].state === 'string' ? JSON.parse(existing.data[0].state) : existing.data[0].state)
+          : {};
+        current.gp_onboarding = body;
+        current.gp_onboarding_complete = true;
+        const payload = { user_id: userId, state: JSON.stringify(current), updated_at: new Date().toISOString() };
+        if (existing.ok && existing.data && existing.data.length > 0) {
+          await supabaseDbRequest('user_state', `user_id=eq.${userId}`, {
+            method: 'PATCH',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify(payload)
+          });
+        } else {
+          await supabaseDbRequest('user_state', '', {
+            method: 'POST',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify(payload)
+          });
+        }
+
+        // Also update user profile with onboarding data
+        const profileUpdate = {};
+        if (body.country) profileUpdate.qualification_country = body.country === 'OTHER' ? body.countryOther : body.country;
+        if (body.preferredCity) profileUpdate.preferred_city = body.preferredCity;
+        if (body.targetDate) profileUpdate.target_arrival_date = body.targetDate;
+        if (body.whoMoving) profileUpdate.who_moving = body.whoMoving;
+        if (body.childrenCount) profileUpdate.children_count = body.childrenCount;
+        if (Object.keys(profileUpdate).length > 0) {
+          profileUpdate.onboarding_completed_at = new Date().toISOString();
+          await supabaseDbRequest('user_profiles', `user_id=eq.${userId}`, {
+            method: 'PATCH',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify(profileUpdate)
+          });
+        }
+      }
+    } else {
+      const dbState = loadDbState();
+      if (!dbState.userState[email]) dbState.userState[email] = {};
+      dbState.userState[email].gp_onboarding = body;
+      dbState.userState[email].gp_onboarding_complete = true;
+      if (!dbState.userProfiles[email]) dbState.userProfiles[email] = {};
+      if (body.country) dbState.userProfiles[email].qualification_country = body.country === 'OTHER' ? body.countryOther : body.country;
+      if (body.preferredCity) dbState.userProfiles[email].preferred_city = body.preferredCity;
+      if (body.targetDate) dbState.userProfiles[email].target_arrival_date = body.targetDate;
+      if (body.whoMoving) dbState.userProfiles[email].who_moving = body.whoMoving;
+      if (body.childrenCount) dbState.userProfiles[email].children_count = body.childrenCount;
+      dbState.userProfiles[email].onboarding_completed_at = new Date().toISOString();
+      saveDbState(dbState);
+    }
+    sendJson(res, 200, { ok: true, message: 'Onboarding complete.' });
     return;
   }
 
