@@ -528,16 +528,16 @@
       border-top: 1px solid #e2e8f0;
       padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
       display: none; grid-template-columns: repeat(5, 1fr);
-      gap: 4px; z-index: 50;
+      gap: 4px; z-index: 50; overflow: visible;
     }
 
     .bottom-tab {
       text-decoration: none; border: 0;
       background: transparent; color: #94a3b8;
-      border-radius: 12px; min-height: 52px;
+      border-radius: 12px; min-height: 46px;
       padding: 6px 4px; display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      gap: 3px; cursor: pointer; font: inherit;
+      gap: 0; cursor: pointer; font: inherit;
       transition: all .15s ease;
     }
 
@@ -546,23 +546,21 @@
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
-    .bottom-tab-label {
-      font-size: 10px; font-weight: 600; line-height: 1.15;
-      text-align: center;
-    }
+    .bottom-tab-label { display: none; }
 
     .bottom-tab-active {
       color: var(--blue); background: rgba(37, 99, 235, 0.08);
     }
 
     .bottom-tab-icon { position: relative; display: inline-grid; place-items: center; }
+    .bottom-tab-scan { transform: translateY(-11px); }
     .bottom-tab-scan .bottom-tab-icon {
-      width: 26px; height: 26px; border-radius: 999px;
-      background: linear-gradient(180deg,#3b82f6 0%,#1d4ed8 100%);
+      width: 38px; height: 38px; border-radius: 999px;
+      background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
       color: #fff;
-      box-shadow: 0 10px 20px -14px rgba(29,78,216,.95);
+      box-shadow: 0 0 0 6px rgba(147, 197, 253, 0.42), 0 16px 22px -16px rgba(37, 99, 235, 0.9);
     }
-    .bottom-tab-scan .bottom-tab-icon svg { width: 15px; height: 15px; }
+    .bottom-tab-scan .bottom-tab-icon svg { width: 19px; height: 19px; }
 
     .bottom-tab-badge {
       position: absolute; top: -5px; right: -8px;
