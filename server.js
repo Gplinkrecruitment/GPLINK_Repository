@@ -2189,6 +2189,43 @@ function getSessionProfileFromSupabaseUser(supaUser, fallbackEmail = '') {
   };
 }
 
+// Ensure a user_profiles row exists in Supabase for a newly authenticated user.
+// Called after signup/login to guarantee that state, profile, and onboarding
+// endpoints can resolve the user ID.
+async function ensureSupabaseUserProfile(supaUser) {
+  if (!isSupabaseDbConfigured()) return;
+  const supabaseUserId = String(supaUser && supaUser.id ? supaUser.id : '').trim();
+  const email = String(supaUser && supaUser.email ? supaUser.email : '').trim().toLowerCase();
+  if (!supabaseUserId || !email) return;
+
+  // Check if row already exists
+  const existing = await supabaseDbRequest(
+    'user_profiles',
+    `select=user_id&user_id=eq.${encodeURIComponent(supabaseUserId)}&limit=1`
+  );
+  if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) return;
+
+  const meta = supaUser && typeof supaUser.user_metadata === 'object' && supaUser.user_metadata
+    ? supaUser.user_metadata
+    : {};
+  const payload = {
+    user_id: supabaseUserId,
+    email,
+    first_name: String(meta.firstName || meta.given_name || '').trim(),
+    last_name: String(meta.lastName || meta.family_name || '').trim(),
+    country_dial: String(meta.countryDial || '').trim(),
+    phone_number: String(meta.phoneNumber || '').trim(),
+    registration_country: String(meta.registrationCountry || '').trim(),
+    updated_at: new Date().toISOString()
+  };
+
+  await supabaseDbRequest('user_profiles', 'on_conflict=user_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: [payload]
+  });
+}
+
 function upsertLocalUserFromSupabaseUser(supaUser) {
   const email = String(supaUser && supaUser.email ? supaUser.email : '').trim().toLowerCase();
   if (!email) return null;
@@ -2425,6 +2462,7 @@ async function handleApi(req, res, pathname) {
 
         const signupUser = signupResult.data && signupResult.data.user ? signupResult.data.user : { email };
         upsertLocalUserFromSupabaseUser(signupUser);
+        await ensureSupabaseUserProfile(signupUser);
 
         // Attempt immediate login to get a session
         const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
@@ -2435,6 +2473,7 @@ async function handleApi(req, res, pathname) {
 
         const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : signupUser;
         upsertLocalUserFromSupabaseUser(loginUser);
+        await ensureSupabaseUserProfile(loginUser);
         const profile = getSessionProfileFromSupabaseUser(loginUser, email);
         const access = createOAuthAccessToken(profile);
         const refreshToken = createOAuthRefreshToken(email);
@@ -2483,6 +2522,7 @@ async function handleApi(req, res, pathname) {
         }
         const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
         upsertLocalUserFromSupabaseUser(loginUser);
+        await ensureSupabaseUserProfile(loginUser);
         const profile = getSessionProfileFromSupabaseUser(loginUser, email);
         const access = createOAuthAccessToken(profile);
         const refreshToken = createOAuthRefreshToken(email);
@@ -2603,6 +2643,7 @@ async function handleApi(req, res, pathname) {
 
     const signupUser = signupResult.data && signupResult.data.user ? signupResult.data.user : { email };
     upsertLocalUserFromSupabaseUser(signupUser);
+    await ensureSupabaseUserProfile(signupUser);
 
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
     if (!loginResult.ok) {
@@ -2615,6 +2656,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : signupUser;
+    await ensureSupabaseUserProfile(loginUser);
     setSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
     sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/index.html' });
     return;
@@ -2650,6 +2692,7 @@ async function handleApi(req, res, pathname) {
 
     const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
     upsertLocalUserFromSupabaseUser(loginUser);
+    await ensureSupabaseUserProfile(loginUser);
     setSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
     return;
@@ -2703,6 +2746,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 400, { ok: false, message: 'Supabase user has no email address.' });
       return;
     }
+    await ensureSupabaseUserProfile(userData);
 
     setSession(res, getSessionProfileFromSupabaseUser(userData, email));
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
@@ -2845,27 +2889,12 @@ async function handleApi(req, res, pathname) {
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
 
     if (isSupabaseDbConfigured()) {
-      const userId = getSessionSupabaseUserId(session);
+      const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
       if (userId) {
-        const existing = await supabaseDbRequest('user_state', `user_id=eq.${userId}`, { method: 'GET' });
-        const current = existing.ok && Array.isArray(existing.data) && existing.data[0]
-          ? (typeof existing.data[0].state === 'string' ? JSON.parse(existing.data[0].state) : existing.data[0].state)
-          : {};
+        const remote = await getSupabaseUserStateByEmail(email);
+        const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
         current.gp_onboarding = body;
-        const payload = { user_id: userId, state: JSON.stringify(current), updated_at: new Date().toISOString() };
-        if (existing.ok && existing.data && existing.data.length > 0) {
-          await supabaseDbRequest('user_state', `user_id=eq.${userId}`, {
-            method: 'PATCH',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify(payload)
-          });
-        } else {
-          await supabaseDbRequest('user_state', '', {
-            method: 'POST',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify(payload)
-          });
-        }
+        await upsertSupabaseUserState(userId, current, new Date().toISOString());
       }
     } else {
       const dbState = loadDbState();
@@ -2890,28 +2919,13 @@ async function handleApi(req, res, pathname) {
 
     // Save complete onboarding data and mark as done
     if (isSupabaseDbConfigured()) {
-      const userId = getSessionSupabaseUserId(session);
+      const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
       if (userId) {
-        const existing = await supabaseDbRequest('user_state', `user_id=eq.${userId}`, { method: 'GET' });
-        const current = existing.ok && Array.isArray(existing.data) && existing.data[0]
-          ? (typeof existing.data[0].state === 'string' ? JSON.parse(existing.data[0].state) : existing.data[0].state)
-          : {};
+        const remote = await getSupabaseUserStateByEmail(email);
+        const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
         current.gp_onboarding = body;
         current.gp_onboarding_complete = true;
-        const payload = { user_id: userId, state: JSON.stringify(current), updated_at: new Date().toISOString() };
-        if (existing.ok && existing.data && existing.data.length > 0) {
-          await supabaseDbRequest('user_state', `user_id=eq.${userId}`, {
-            method: 'PATCH',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify(payload)
-          });
-        } else {
-          await supabaseDbRequest('user_state', '', {
-            method: 'POST',
-            headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify(payload)
-          });
-        }
+        await upsertSupabaseUserState(userId, current, new Date().toISOString());
 
         // Also update user profile with onboarding data
         const profileUpdate = {};
@@ -2922,7 +2936,7 @@ async function handleApi(req, res, pathname) {
         if (body.childrenCount) profileUpdate.children_count = body.childrenCount;
         if (Object.keys(profileUpdate).length > 0) {
           profileUpdate.onboarding_completed_at = new Date().toISOString();
-          await supabaseDbRequest('user_profiles', `user_id=eq.${userId}`, {
+          await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
             method: 'PATCH',
             headers: { Prefer: 'return=minimal' },
             body: JSON.stringify(profileUpdate)
@@ -3190,6 +3204,7 @@ async function handleApi(req, res, pathname) {
 
     const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
     upsertLocalUserFromSupabaseUser(loginUser);
+    await ensureSupabaseUserProfile(loginUser);
     setAdminSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/admin.html' });
     return;
@@ -3405,10 +3420,15 @@ async function handleApi(req, res, pathname) {
     const currentLocal = dbState.userState[email] && typeof dbState.userState[email] === 'object'
       ? dbState.userState[email]
       : {};
-    const currentRemote = isSupabaseDbConfigured()
+    let currentRemote = isSupabaseDbConfigured()
       ? await getSupabaseUserStateByEmail(email)
       : null;
-    if (isSupabaseDbConfigured() && (!currentRemote || !currentRemote.userId)) {
+    // If no user_profiles row found by email, try userId from session
+    let resolvedUserId = currentRemote && currentRemote.userId ? currentRemote.userId : null;
+    if (isSupabaseDbConfigured() && !resolvedUserId) {
+      resolvedUserId = getSessionSupabaseUserId(session);
+    }
+    if (isSupabaseDbConfigured() && !resolvedUserId) {
       sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for state update.' });
       return;
     }
@@ -3428,8 +3448,8 @@ async function handleApi(req, res, pathname) {
 
     const updatedAt = next.updatedAt;
 
-    if (currentRemote && currentRemote.userId) {
-      const saved = await upsertSupabaseUserState(currentRemote.userId, next, updatedAt);
+    if (resolvedUserId) {
+      const saved = await upsertSupabaseUserState(resolvedUserId, next, updatedAt);
       if (!saved) {
         sendJson(res, 502, { ok: false, message: 'Failed to persist user state to database.' });
         return;

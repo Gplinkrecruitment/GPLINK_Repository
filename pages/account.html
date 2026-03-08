@@ -1246,6 +1246,515 @@
       }
     }
 
+    .uber-account-header {
+      display: grid;
+      gap: 14px;
+      border-bottom: 1px solid #dedede;
+      padding: 4px 0 14px;
+    }
+
+    .uber-top-row {
+      display: grid;
+      grid-template-columns: 44px 1fr 44px;
+      align-items: center;
+    }
+
+    .uber-close {
+      text-decoration: none;
+      color: #111;
+      font-size: 46px;
+      line-height: .7;
+      text-align: center;
+      font-weight: 300;
+    }
+
+    .uber-title {
+      margin: 0;
+      text-align: center;
+      font-size: 44px;
+      font-weight: 560;
+      letter-spacing: -0.01em;
+      color: #111;
+    }
+
+    .uber-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-bottom: 1px solid #dcdcdc;
+    }
+
+    .uber-tab {
+      border: 0;
+      background: transparent;
+      font: inherit;
+      color: #171717;
+      font-size: 24px;
+      padding: 14px 8px;
+      border-bottom: 6px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .uber-tab.is-active {
+      background: #e8e8e8;
+      border-bottom-color: #111;
+      font-weight: 600;
+    }
+
+    .uber-search {
+      border-radius: 16px;
+      background: #e8e8e8;
+      color: #666;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      font-size: 20px;
+    }
+
+    .uber-search svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .uber-home-panel {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+      padding: 14px 0 4px;
+    }
+
+    .uber-tab-heading {
+      margin: 2px 0 0;
+      color: #111;
+      font-size: 62px;
+      line-height: 1.05;
+      font-weight: 760;
+      letter-spacing: -0.02em;
+    }
+
+    .uber-home-avatar {
+      width: 118px;
+      height: 118px;
+      border-radius: 999px;
+      object-fit: cover;
+      background: #dadada;
+    }
+
+    .uber-home-name {
+      margin: 0;
+      font-size: 46px;
+      line-height: 1.1;
+      color: #111;
+      font-weight: 700;
+    }
+
+    .uber-home-email {
+      margin: 0;
+      font-size: 26px;
+      color: #555;
+    }
+
+    .uber-home-actions {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .uber-home-action {
+      border: 0;
+      background: #e7e7e7;
+      color: #111;
+      border-radius: 16px;
+      font: inherit;
+      font-size: 21px;
+      font-weight: 560;
+      padding: 20px 10px;
+      cursor: pointer;
+    }
+
+    .uber-suggestion {
+      width: 100%;
+      border: 1px solid #d9d9d9;
+      border-radius: 20px;
+      background: #f0f0f0;
+      padding: 20px;
+      display: grid;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .uber-suggestion h3 {
+      margin: 0;
+      color: #111;
+      font-size: 42px;
+      line-height: 1.05;
+    }
+
+    .uber-suggestion p {
+      margin: 0;
+      font-size: 24px;
+      color: #333;
+      line-height: 1.4;
+    }
+
+    .uber-pill-btn {
+      border: 0;
+      border-radius: 999px;
+      background: #dedede;
+      color: #111;
+      font: inherit;
+      font-size: 22px;
+      font-weight: 620;
+      padding: 12px 20px;
+      width: fit-content;
+      cursor: pointer;
+    }
+
+    .uber-hidden {
+      display: none !important;
+    }
+
+    body {
+      background: #ececec;
+      color: #111;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 0 0 40px;
+    }
+
+    .shell {
+      max-width: 860px;
+      border-radius: 0;
+      border: 0;
+      background: #efefef;
+      box-shadow: none;
+      padding: 16px;
+      gap: 14px;
+    }
+
+    .topbar,
+    .profile-rail,
+    .mobile-nav,
+    .mobile-edit-hub {
+      display: none !important;
+    }
+
+    .workspace {
+      grid-template-columns: 1fr;
+      min-height: auto;
+    }
+
+    .account-stage {
+      gap: 16px;
+    }
+
+    .hero-card {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .hero-cover {
+      display: none;
+    }
+
+    .hero-strip {
+      margin-top: 0;
+      padding: 0;
+      background: transparent;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .hero-left {
+      align-items: center;
+    }
+
+    .avatar {
+      width: 124px;
+      height: 124px;
+      border: 0;
+      box-shadow: none;
+      background: #d7d7d7;
+    }
+
+    .change-picture-btn {
+      text-decoration: none;
+      color: #111;
+      border: 1px solid #d9d9d9;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+
+    .hero-meta {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      padding: 0;
+      gap: 2px;
+    }
+
+    .page-title {
+      font-size: 34px;
+      font-weight: 700;
+      color: #111;
+    }
+
+    .helper-line {
+      font-size: 18px;
+      color: #555;
+      margin-top: 2px;
+    }
+
+    .hero-actions {
+      width: 100%;
+      justify-content: flex-start;
+      padding-bottom: 0;
+    }
+
+    .btn,
+    .signout-btn {
+      background: #dedede;
+      border: 0;
+      color: #111;
+      font-size: 18px;
+      padding: 10px 18px;
+      box-shadow: none;
+    }
+
+    .detail-grid {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    .section-card {
+      border: 0;
+      border-radius: 0;
+      border-top: 1px solid #d9d9d9;
+      border-left: 0;
+      background: transparent;
+      box-shadow: none;
+      padding: 12px 0 8px;
+    }
+
+    .section-head {
+      border-bottom: 0;
+      margin-bottom: 8px;
+      padding-bottom: 0;
+    }
+
+    .section-toggle {
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      background: transparent;
+      padding: 0;
+    }
+
+    .section-subtitle {
+      font-size: 20px;
+      color: #111;
+      letter-spacing: 0;
+      text-transform: none;
+      font-weight: 720;
+    }
+
+    .section-toggle-note {
+      font-size: 14px;
+      color: #666;
+      font-weight: 500;
+    }
+
+    .section-toggle-caret {
+      border: 0;
+      background: transparent;
+      color: #b1b1b1;
+      width: auto;
+      height: auto;
+      font-size: 24px;
+    }
+
+    label {
+      font-size: 16px;
+      font-weight: 650;
+      color: #111;
+    }
+
+    input,
+    select,
+    .readonly-wrap {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      border-bottom: 1px solid #dddddd;
+      padding-left: 0;
+      padding-right: 0;
+      font-size: 18px;
+      color: #222;
+      box-shadow: none !important;
+    }
+
+    .readonly-wrap {
+      grid-template-columns: 22px 1fr;
+      padding-top: 4px;
+      padding-bottom: 4px;
+    }
+
+    .input-note,
+    .security-copy,
+    .privacy-line,
+    .upload-copy,
+    .upload-updated {
+      font-size: 14px;
+      color: #666;
+    }
+
+    .uploads {
+      grid-template-columns: 1fr;
+    }
+
+    .upload-card {
+      border: 1px solid #dbdbdb;
+      border-radius: 14px;
+      background: #f5f5f5;
+    }
+
+    .upload-title {
+      color: #111;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .upload-action {
+      border: 0;
+      background: #dfdfdf;
+      color: #111;
+      font-size: 16px;
+      padding: 8px 14px;
+    }
+
+    .security-box {
+      border: 1px solid #d8d8d8;
+      border-radius: 12px;
+      background: #f5f5f5;
+    }
+
+    .security-toggle {
+      border: 0;
+      background: transparent;
+      color: #111;
+      font-size: 17px;
+    }
+
+    .security-title,
+    .security-status,
+    .meta-key,
+    .meta-value,
+    .progress-top,
+    .summary-meta,
+    .summary-country {
+      color: #111;
+    }
+
+    .account-signout-wrap {
+      justify-content: flex-start;
+      margin-top: 8px;
+      border-top: 1px solid #d9d9d9;
+      padding-top: 14px;
+    }
+
+    @media (max-width: 920px) {
+      .shell {
+        max-width: 100%;
+      }
+      .uber-title {
+        font-size: 42px;
+      }
+      .page-title {
+        font-size: 32px;
+      }
+      .uber-suggestion h3 {
+        font-size: 38px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 0 0 22px;
+      }
+      .shell {
+        padding: 10px 12px;
+      }
+      .uber-title {
+        font-size: 28px;
+      }
+      .uber-close {
+        font-size: 38px;
+      }
+      .uber-tab {
+        font-size: 18px;
+        padding: 12px 6px;
+      }
+      .uber-search {
+        font-size: 18px;
+      }
+      .uber-home-name {
+        font-size: 56px;
+      }
+      .uber-tab-heading {
+        font-size: 48px;
+      }
+      .uber-home-email {
+        font-size: 18px;
+      }
+      .uber-home-actions {
+        grid-template-columns: 1fr;
+      }
+      .uber-home-action {
+        text-align: left;
+        font-size: 22px;
+      }
+      .uber-suggestion h3 {
+        font-size: 28px;
+      }
+      .uber-suggestion p {
+        font-size: 16px;
+      }
+      .page-title {
+        font-size: 26px;
+      }
+      .helper-line {
+        font-size: 16px;
+      }
+      label {
+        font-size: 15px;
+      }
+      input,
+      select,
+      .readonly-wrap {
+        font-size: 17px;
+      }
+      .btn,
+      .signout-btn,
+      .upload-action {
+        font-size: 16px;
+      }
+      .mobile-nav {
+        display: none !important;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -1306,7 +1815,41 @@
       </aside>
 
       <section class="account-stage" aria-label="My Account">
-        <header class="hero-card">
+        <section class="uber-account-header" aria-label="Account navigation">
+          <div class="uber-top-row">
+            <a class="uber-close" href="index.html" aria-label="Close account">×</a>
+            <h1 class="uber-title">GP Link Account</h1>
+          </div>
+          <div class="uber-tabs" role="tablist" aria-label="Account sections">
+            <button class="uber-tab is-active" data-uber-tab="home" role="tab" type="button">Home</button>
+            <button class="uber-tab" data-uber-tab="personal" role="tab" type="button">Personal info</button>
+            <button class="uber-tab" data-uber-tab="security" role="tab" type="button">Security</button>
+            <button class="uber-tab" data-uber-tab="privacy" role="tab" type="button">Privacy & data</button>
+          </div>
+          <div class="uber-search" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <span>Ask me anything about your account...</span>
+          </div>
+        </section>
+        <h2 class="uber-tab-heading uber-hidden" id="uberTabHeading">Personal info</h2>
+
+        <section class="uber-home-panel" id="uberHomePanel" aria-label="Account home">
+          <img id="uberHomeAvatar" class="uber-home-avatar" alt="Profile photo" hidden />
+          <h2 class="uber-home-name" id="uberHomeName">Dr Last name</h2>
+          <p class="uber-home-email" id="uberHomeEmail">Not provided yet</p>
+          <div class="uber-home-actions">
+            <button class="uber-home-action" type="button" data-uber-tab-target="personal">Personal info</button>
+            <button class="uber-home-action" type="button" data-uber-tab-target="security">Security</button>
+            <button class="uber-home-action" type="button" data-uber-tab-target="privacy">Privacy & data</button>
+          </div>
+          <div class="uber-suggestion">
+            <h3>Complete your account check-up</h3>
+            <p>Review personal details, security settings and documents to keep your account current.</p>
+            <button type="button" class="uber-pill-btn" data-uber-tab-target="personal">Begin check-up</button>
+          </div>
+        </section>
+
+        <header class="hero-card" id="heroCard">
           <div class="hero-cover"></div>
           <div class="hero-strip">
             <div class="hero-left">
@@ -1348,7 +1891,7 @@
           </div>
         </section>
 
-        <div class="detail-grid">
+        <div class="detail-grid" id="detailGrid">
           <section class="card section-card" id="personalDetailsCard">
             <div class="section-head">
               <button class="section-toggle" type="button" data-card-toggle aria-expanded="true">
@@ -1603,8 +2146,17 @@
     const navGlassEl = document.getElementById("navGlass");
     const navMenuEl = document.querySelector(".nav-menu");
     const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    const detailGridEl = document.getElementById("detailGrid");
+    const heroCardEl = document.getElementById("heroCard");
+    const uberHomePanelEl = document.getElementById("uberHomePanel");
+    const uberTabBtns = [...document.querySelectorAll("[data-uber-tab]")];
+    const uberTabTargetBtns = [...document.querySelectorAll("[data-uber-tab-target]")];
+    const uberHomeNameEl = document.getElementById("uberHomeName");
+    const uberHomeEmailEl = document.getElementById("uberHomeEmail");
+    const uberHomeAvatarEl = document.getElementById("uberHomeAvatar");
     let activeNavItem = null;
     let hoveredNavItem = null;
+    let activeUberTab = "home";
 
     const summaryEls = {
       avatarImg: document.getElementById("avatarImg"),
@@ -1731,6 +2283,52 @@
       sectionEl.classList.toggle("is-collapsed", !expanded);
       const btn = sectionEl.querySelector("[data-card-toggle]");
       if (btn) btn.setAttribute("aria-expanded", expanded ? "true" : "false");
+    }
+
+    function setUberTab(tab) {
+      const next = ["home", "personal", "security", "privacy"].includes(tab) ? tab : "home";
+      activeUberTab = next;
+      uberTabBtns.forEach((btn) => {
+        btn.classList.toggle("is-active", btn.getAttribute("data-uber-tab") === next);
+      });
+
+      const personalCard = document.getElementById("personalDetailsCard");
+      const relocationCard = document.getElementById("relocationDetailsCard");
+      const securityCard = document.getElementById("accountSecurityCard");
+      const documentsCard = document.getElementById("documentsCard");
+
+      if (uberHomePanelEl) uberHomePanelEl.classList.toggle("uber-hidden", next !== "home");
+      if (heroCardEl) heroCardEl.classList.toggle("uber-hidden", next !== "personal");
+      if (detailGridEl) detailGridEl.classList.toggle("uber-hidden", next === "home");
+      if (accountSignOutBtnEl && accountSignOutBtnEl.parentElement) {
+        accountSignOutBtnEl.parentElement.classList.toggle("uber-hidden", next !== "security");
+      }
+
+      [personalCard, relocationCard, securityCard, documentsCard].forEach((card) => {
+        if (card) card.classList.remove("uber-hidden");
+      });
+
+      if (next === "personal") {
+        if (securityCard) securityCard.classList.add("uber-hidden");
+        if (documentsCard) documentsCard.classList.add("uber-hidden");
+        setCardExpanded(personalCard, true);
+        setCardExpanded(relocationCard, true);
+      } else if (next === "security") {
+        if (personalCard) personalCard.classList.add("uber-hidden");
+        if (relocationCard) relocationCard.classList.add("uber-hidden");
+        if (documentsCard) documentsCard.classList.add("uber-hidden");
+        setCardExpanded(securityCard, true);
+      } else if (next === "privacy") {
+        if (personalCard) personalCard.classList.add("uber-hidden");
+        if (relocationCard) relocationCard.classList.add("uber-hidden");
+        if (securityCard) securityCard.classList.add("uber-hidden");
+        if (heroCardEl) heroCardEl.classList.add("uber-hidden");
+        if (detailGridEl) detailGridEl.classList.remove("uber-hidden");
+        setCardExpanded(documentsCard, true);
+      } else {
+        if (heroCardEl) heroCardEl.classList.add("uber-hidden");
+        if (detailGridEl) detailGridEl.classList.add("uber-hidden");
+      }
     }
 
     function mapCountryValue(rawCountry) {
@@ -1888,10 +2486,13 @@
       const email = fieldEls.email.value.trim();
       const registrationLabel = registrationNumberLabelEl.textContent || "Registration number";
       const registrationValue = fieldEls.registrationNumber.value.trim();
+      const fullName = `${first} ${last}`.trim();
 
       if (heroAccountTitleEl) heroAccountTitleEl.textContent = last ? `Dr ${last}` : "Dr Last name";
       if (mobileHeroNameEl) mobileHeroNameEl.textContent = last ? `Dr ${last}` : "Dr Last name";
       if (mobileHeroEmailEl) mobileHeroEmailEl.textContent = email || "Not provided yet";
+      if (uberHomeNameEl) uberHomeNameEl.textContent = fullName || "Dr Last name";
+      if (uberHomeEmailEl) uberHomeEmailEl.textContent = email || "Not provided yet";
       summaryEls.email.textContent = email || "Not provided yet";
       summaryEls.country.textContent = state.profile.specialistCountry || "Not provided yet";
       summaryEls.registration.textContent = registrationValue ? `Registration Number: ${registrationValue}` : "Registration Number: Not provided yet";
@@ -1929,13 +2530,16 @@
       if (photo && photo.url) {
         summaryEls.avatarImg.src = photo.url;
         if (mobileAvatarImgEl) mobileAvatarImgEl.src = photo.url;
+        if (uberHomeAvatarEl) uberHomeAvatarEl.src = photo.url;
       } else {
         const placeholder = buildAvatarPlaceholder(first, last);
         summaryEls.avatarImg.src = placeholder;
         if (mobileAvatarImgEl) mobileAvatarImgEl.src = placeholder;
+        if (uberHomeAvatarEl) uberHomeAvatarEl.src = placeholder;
       }
       summaryEls.avatarImg.hidden = false;
       if (mobileAvatarImgEl) mobileAvatarImgEl.hidden = false;
+      if (uberHomeAvatarEl) uberHomeAvatarEl.hidden = false;
     }
 
     function updateSaveButtonState() {
@@ -2219,6 +2823,20 @@
         setCardExpanded(section, expanded);
       });
     });
+
+    uberTabBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const next = btn.getAttribute("data-uber-tab") || "home";
+        setUberTab(next);
+      });
+    });
+
+    uberTabTargetBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const next = btn.getAttribute("data-uber-tab-target") || "home";
+        setUberTab(next);
+      });
+    });
     if (accountSignOutBtnEl) {
       accountSignOutBtnEl.addEventListener("click", async () => {
         accountSignOutBtnEl.disabled = true;
@@ -2354,6 +2972,7 @@
       window.requestAnimationFrame(() => {
         if (activeNavItem) moveNavGlass(activeNavItem, false);
       });
+      setUberTab("home");
     })();
   </script>
   <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
