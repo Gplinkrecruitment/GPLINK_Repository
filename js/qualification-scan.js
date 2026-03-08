@@ -531,75 +531,69 @@
   }
 
   /* ─── Submission ─── */
-  function sleep(ms) {
-    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  function delay(ms, fn) {
+    return new Promise(function (resolve) {
+      setTimeout(function () { if (fn) fn(); resolve(); }, ms);
+    });
   }
 
-  async function handleSubmit() {
+  function handleSubmit() {
     if (!selectedFile) return;
 
     showStep('scanning');
     resetPhases();
+    setPhase(0);
 
-    try {
-      // Phase 0: Upload
-      setPhase(0);
-      var extracted = await readTextSnippet(selectedFile);
-      await sleep(600);
+    var file = selectedFile;
 
-      // Phase 1: Analyze
-      setPhase(1);
-      var textEl = document.getElementById('gpScanText');
-      var payload = {
-        fileName: selectedFile.name || 'document',
-        mimeType: selectedFile.type || '',
-        sizeBytes: Number(selectedFile.size || 0),
-        textSnippet: ((textEl && textEl.value) ? textEl.value : '') + '\n' + extracted
-      };
-      await sleep(400);
-
-      // Phase 2: Classify
-      setPhase(2);
-      var response = await fetch('/api/ai/scan-qualification', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+    readTextSnippet(file).then(function (extracted) {
+      return delay(600, function () { setPhase(1); }).then(function () {
+        var textEl = document.getElementById('gpScanText');
+        var payload = {
+          fileName: file.name || 'document',
+          mimeType: file.type || '',
+          sizeBytes: Number(file.size || 0),
+          textSnippet: ((textEl && textEl.value) ? textEl.value : '') + '\n' + extracted
+        };
+        return delay(400, function () { setPhase(2); }).then(function () {
+          return fetch('/api/ai/scan-qualification', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        });
       });
-      var data = await response.json().catch(function () { return {}; });
-
-      if (!response.ok || !data || !data.ok || !data.classification || !data.classification.key) {
-        throw new Error(data && data.message ? data.message : 'Could not identify this document. Please try again.');
-      }
-
-      await sleep(500);
-
-      // Phase 3: File
-      setPhase(3);
-      var docsState = getDocumentsState();
-      if (!docsState.docs || typeof docsState.docs !== 'object') docsState.docs = {};
-      docsState.docs[data.classification.key] = {
-        uploaded: true,
-        fileName: selectedFile.name,
-        status: 'under_review',
-        source: 'ai_scan',
-        updatedAt: new Date().toISOString(),
-        confidence: typeof data.classification.confidence === 'number' ? data.classification.confidence : null
-      };
-      saveDocumentsState(docsState);
-      await sleep(500);
-
-      // Done
-      completeAllPhases();
-      await sleep(600);
-
-      showStep('result');
-      renderSuccessResult(data.classification, selectedFile.name);
-
-    } catch (err) {
+    }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (data) {
+        if (!response.ok || !data || !data.ok || !data.classification || !data.classification.key) {
+          throw new Error(data && data.message ? data.message : 'Could not identify this document. Please try again.');
+        }
+        return delay(500, function () { setPhase(3); }).then(function () {
+          var docsState = getDocumentsState();
+          if (!docsState.docs || typeof docsState.docs !== 'object') docsState.docs = {};
+          docsState.docs[data.classification.key] = {
+            uploaded: true,
+            fileName: file.name,
+            status: 'under_review',
+            source: 'ai_scan',
+            updatedAt: new Date().toISOString(),
+            confidence: typeof data.classification.confidence === 'number' ? data.classification.confidence : null
+          };
+          saveDocumentsState(docsState);
+          return delay(500);
+        }).then(function () {
+          completeAllPhases();
+          return delay(600);
+        }).then(function () {
+          showStep('result');
+          renderSuccessResult(data.classification, file.name);
+        });
+      });
+    }).catch(function (err) {
       showStep('result');
       renderErrorResult(err && err.message ? err.message : 'Something went wrong.');
-    }
+    });
   }
 
   /* ─── Nav button builders ─── */
@@ -655,19 +649,28 @@
   /* ─── Install ─── */
   function install() {
     ensureStyles();
+    ensureModal(); // Pre-create modal in DOM
     buildDesktopNavButton();
     buildMobileNavButtons();
 
-    // Also bind onclick directly to all existing scan triggers as a robust fallback
+    // Bind click + touchend directly to all scan trigger buttons
+    function bindScanTrigger(el) {
+      if (!el || el.__gpScanBound) return;
+      el.__gpScanBound = true;
+      el.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openModal();
+      });
+      el.addEventListener('touchend', function (e) {
+        e.preventDefault();
+        openModal();
+      }, { passive: false });
+    }
+
     var existingTriggers = document.querySelectorAll('[data-qual-scan-trigger]');
     for (var i = 0; i < existingTriggers.length; i++) {
-      (function (el) {
-        el.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          openModal();
-        });
-      })(existingTriggers[i]);
+      bindScanTrigger(existingTriggers[i]);
     }
 
     document.addEventListener('click', function (event) {
