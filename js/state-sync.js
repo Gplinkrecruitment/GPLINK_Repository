@@ -19,6 +19,7 @@
     'gp_onboarding_complete'
   ];
   const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
+  const SESSION_OWNER_KEY = 'gp_state_owner';
   const AUTO_PUSH_DEBOUNCE_MS = 450;
 
   let hydrated = false;
@@ -26,7 +27,7 @@
   let suppressLocalObserver = false;
   let pendingTrackedChange = false;
   let pushTimer = null;
-  let earlyReadyDispatched = false;
+  let shuttingDown = false;
 
   async function fetchState() {
     const response = await fetch('/api/state', { credentials: 'same-origin' });
@@ -36,6 +37,7 @@
   }
 
   async function pushState() {
+    if (shuttingDown) return;
     const payload = { state: {} };
     STATE_KEYS.forEach((key) => {
       const raw = localStorage.getItem(key);
@@ -67,21 +69,34 @@
     withSuppressedObserver(() => {
       STATE_KEYS.forEach((key) => {
         localStorage.removeItem(key);
-        localStorage.removeItem(`${key}${SAVE_BATCH_META_SUFFIX}`);
+        localStorage.removeItem(key + SAVE_BATCH_META_SUFFIX);
       });
     });
   }
 
+  // Detect if localStorage belongs to a different user and wipe it immediately.
+  // This runs synchronously before any page rendering to prevent data leaks.
+  function enforceOwnership(email) {
+    if (!email) return;
+    var currentOwner = '';
+    try { currentOwner = localStorage.getItem(SESSION_OWNER_KEY) || ''; } catch (e) {}
+    if (currentOwner && currentOwner !== email) {
+      // Different user — clear all previous user's data immediately
+      clearTrackedLocalState();
+    }
+    try { localStorage.setItem(SESSION_OWNER_KEY, email); } catch (e) {}
+  }
+
   function flushBatchedStorageKey(storageKey) {
-    const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
-    const raw = localStorage.getItem(metaKey);
+    var metaKey = storageKey + SAVE_BATCH_META_SUFFIX;
+    var raw = localStorage.getItem(metaKey);
     if (!raw) return;
 
-    let meta = null;
+    var meta = null;
     try { meta = JSON.parse(raw); } catch (err) { meta = null; }
     if (!meta || typeof meta !== 'object') return;
-    const pending = Number.isInteger(meta.pending) ? meta.pending : 0;
-    const lastValue = typeof meta.lastValue === 'string' ? meta.lastValue : '';
+    var pending = Number.isInteger(meta.pending) ? meta.pending : 0;
+    var lastValue = typeof meta.lastValue === 'string' ? meta.lastValue : '';
     if (pending > 0 && lastValue) {
       localStorage.setItem(storageKey, lastValue);
       meta.pending = 0;
@@ -96,12 +111,14 @@
   }
 
   function scheduleAutoPush() {
+    if (shuttingDown) return;
     pendingTrackedChange = true;
     if (pushTimer) window.clearTimeout(pushTimer);
     pushTimer = window.setTimeout(async () => {
       pushTimer = null;
       if (!pendingTrackedChange) return;
       if (!hydrated) return;
+      if (shuttingDown) return;
       pendingTrackedChange = false;
       flushTrackedBatches();
       await pushState();
@@ -113,8 +130,8 @@
   }
 
   function installLocalStorageObserver() {
-    const originalSetItem = localStorage.setItem.bind(localStorage);
-    const originalRemoveItem = localStorage.removeItem.bind(localStorage);
+    var originalSetItem = localStorage.setItem.bind(localStorage);
+    var originalRemoveItem = localStorage.removeItem.bind(localStorage);
 
     localStorage.setItem = function patchedSetItem(key, value) {
       originalSetItem(key, value);
@@ -135,15 +152,22 @@
     if (hydratePromise) return hydratePromise;
 
     hydratePromise = (async () => {
-      // Unblock page rendering immediately; hydrate state in the background.
-      if (!earlyReadyDispatched) {
-        earlyReadyDispatched = true;
-        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk: true, fastPath: true } }));
-      }
-      let stateOk = false;
+      var stateOk = false;
 
       try {
-        const serverState = await fetchState();
+        // Get current user email from session to enforce ownership
+        var sessionEmail = '';
+        try {
+          var session = window.gpSessionPromise ? await window.gpSessionPromise : null;
+          if (session && session.ok && session.profile && session.profile.email) {
+            sessionEmail = session.profile.email;
+          }
+        } catch (e) {}
+
+        // Immediately clear stale data if user changed (synchronous, before any rendering)
+        if (sessionEmail) enforceOwnership(sessionEmail);
+
+        var serverState = await fetchState();
         clearTrackedLocalState();
         withSuppressedObserver(() => {
           STATE_KEYS.forEach((key) => {
@@ -153,30 +177,17 @@
           });
         });
         stateOk = true;
-
-        try {
-          const cachedProfile = localStorage.getItem('gp_account_profile');
-          if (cachedProfile && typeof cachedProfile === 'string') {
-            // Keep existing profile cache available to pages that read from localStorage.
-            localStorage.setItem('gp_account_profile', cachedProfile);
-          }
-        } catch (err) {
-        }
-
-        hydrated = stateOk;
-        if (stateOk) {
-          window.dispatchEvent(new Event('gp-state-hydrated'));
-        }
+        hydrated = true;
+        window.dispatchEvent(new Event('gp-state-hydrated'));
       } catch (err) {
+        // Hydration failed — clear all user data so stale data is never shown
         hydrated = false;
+        clearTrackedLocalState();
       } finally {
-        // Keep legacy pages compatible if they wait for this event more than once.
-        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk } }));
+        window.dispatchEvent(new CustomEvent('gp-data-ready', { detail: { stateOk: stateOk } }));
       }
 
-      // Do not immediately push full state on page load.
-      // This causes large payload uploads and slows navigation.
-      if (stateOk && pendingTrackedChange) {
+      if (stateOk && pendingTrackedChange && !shuttingDown) {
         pendingTrackedChange = false;
         flushTrackedBatches();
         pushState().catch(() => {});
@@ -186,18 +197,26 @@
     return hydratePromise;
   }
 
+  function beginShutdown() {
+    shuttingDown = true;
+    if (pushTimer) { window.clearTimeout(pushTimer); pushTimer = null; }
+    pendingTrackedChange = false;
+    hydrated = false;
+    clearTrackedLocalState();
+    try { localStorage.removeItem(SESSION_OWNER_KEY); } catch (e) {}
+  }
+
   window.gpLinkStateSync = {
     hydrate: hydrateState,
     push: pushState,
-    isHydrated: function () { return hydrated; }
+    isHydrated: function () { return hydrated; },
+    shutdown: beginShutdown
   };
 
   function scheduleHydrate() {
-    if (typeof window.requestIdleCallback === 'function') {
-      window.requestIdleCallback(() => hydrateState(), { timeout: 2200 });
-      return;
-    }
-    window.setTimeout(() => hydrateState(), 180);
+    // Hydrate as soon as possible — don't defer with requestIdleCallback
+    // to minimise the window where stale data could be visible.
+    window.setTimeout(() => hydrateState(), 0);
   }
 
   if (document.readyState === 'loading') {
@@ -209,7 +228,9 @@
   installLocalStorageObserver();
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') pushState();
+    if (!shuttingDown && document.visibilityState === 'hidden') pushState();
   });
-  window.addEventListener('beforeunload', pushState);
+  window.addEventListener('beforeunload', () => {
+    if (!shuttingDown) pushState();
+  });
 })();

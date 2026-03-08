@@ -42,23 +42,15 @@
     signOutBtn.textContent = "Sign Out";
     signOutBtn.addEventListener("click", async function () {
       signOutBtn.disabled = true;
+      // Immediately stop state-sync and clear all user data before logout
+      if (window.gpLinkStateSync && window.gpLinkStateSync.shutdown) {
+        window.gpLinkStateSync.shutdown();
+      }
       try {
         await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
       } catch (err) {
         // Redirect regardless to ensure session is cleared via server route.
       } finally {
-        // Clear all user-specific localStorage to prevent data leaking between accounts
-        var userKeys = [
-          'gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress',
-          'gp_epic_tutorial_seen', 'gp_amc_tutorial_seen', 'gp_ahpra_tutorial_seen',
-          'gp_documents_prep', 'gp_prepared_docs', 'gp_selected_country',
-          'gp_link_updates', 'gp_link_updates_read',
-          'gpLinkSupportCases', 'gpLinkMessageDB', 'gpLinkSupportDraft',
-          'gp_account_profile', 'gp_onboarding', 'gp_onboarding_complete'
-        ];
-        userKeys.forEach(function (k) {
-          try { localStorage.removeItem(k); localStorage.removeItem(k + '__save_batch_meta'); } catch (e) {}
-        });
         window.location.href = "/logout";
       }
     });

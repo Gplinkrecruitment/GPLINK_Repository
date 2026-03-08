@@ -1753,6 +1753,12 @@
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") renderUpdatesFeed();
     });
+    // Re-render after state-sync hydrates the current user's data from the server
+    window.addEventListener("gp-state-hydrated", function () {
+      renderDashboard();
+      renderUpdatesFeed();
+      renderRegistrationRows();
+    }, { once: true });
 
     // Carousel dots
     const carousel = document.getElementById("progressCarousel");

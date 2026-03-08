@@ -1729,6 +1729,12 @@
       currentTabKey = tabFromRoute || activeTabStage(progress);
       renderPage(progress);
     });
+    // Re-render after state-sync hydrates the current user's data
+    window.addEventListener("gp-state-hydrated", function () {
+      const progress = loadProgress();
+      currentTabKey = activeTabStage(progress);
+      renderPage(progress);
+    }, { once: true });
   </script>
 </body>
 </html>
