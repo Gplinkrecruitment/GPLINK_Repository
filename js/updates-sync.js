@@ -427,9 +427,18 @@
 
     function bindTrigger(id) {
       const el = document.getElementById(id);
+      if (!el) return;
+      bindTriggerEl(el);
+    }
+
+    function bindTriggerEl(el) {
       if (!el || el.__gpAlertTriggerBound) return;
       el.__gpAlertTriggerBound = true;
       el.addEventListener("click", (event) => {
+        if (Date.now() < suppressClickUntil) return;
+        toggleFromTrigger(event, el);
+      }, true);
+      el.addEventListener("pointerup", (event) => {
         if (Date.now() < suppressClickUntil) return;
         toggleFromTrigger(event, el);
       }, true);
@@ -441,6 +450,11 @@
 
     bindTrigger("mobileNotifBtn");
     bindTrigger("topSupportBtn");
+    bindTrigger("mobileSupportBtn");
+
+    document.querySelectorAll('[aria-label="Notifications"], [data-alert-trigger]').forEach((el) => {
+      bindTriggerEl(el);
+    });
 
     document.addEventListener("click", (event) => {
       const targetEl = event.target instanceof Element
