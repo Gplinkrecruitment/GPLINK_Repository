@@ -1,10 +1,8 @@
 (function () {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-  var SCRIPT_VERSION = '20260309a';
   var MODAL_ID = 'gp-qual-scan-modal';
   var STYLE_ID = 'gp-qual-scan-style';
-  var FAB_ID = 'gp-qual-scan-fab';
 
   var DOC_LABELS = {
     primary_medical_degree: 'Primary medical degree',
@@ -16,14 +14,20 @@
     criminal_history: 'Criminal history check'
   };
 
+  function scanIconSvg() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg>';
+  }
+
   function ensureStyles() {
     if (document.getElementById(STYLE_ID)) return;
     var style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = [
-      '.gp-qual-scan-fab{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);width:56px;height:56px;border-radius:999px;border:1px solid rgba(191,220,255,.95);background:rgba(255,255,255,.66);box-shadow:inset 0 1px 0 rgba(255,255,255,.88),0 14px 28px -20px rgba(37,99,235,.62);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:grid;place-items:center;z-index:96;cursor:pointer;color:#1d4ed8;}',
-      '.gp-qual-scan-fab svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}',
-      '.gp-qual-scan-fab:hover{transform:translateX(-50%) scale(1.03);}',
+      '.gp-qual-scan-desktop{border:1px solid rgba(191,220,255,.95)!important;border-radius:12px!important;background:rgba(255,255,255,.6)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.88),0 10px 16px -14px rgba(37,99,235,.45)!important;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);}',
+      '.gp-qual-scan-mobile-icon{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:999px;background:linear-gradient(180deg,#3b82f6 0%,#1d4ed8 100%);color:#fff;box-shadow:0 10px 20px -14px rgba(29,78,216,.95);}',
+      '.gp-qual-scan-mobile-icon svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}',
+      '.gp-qual-scan-mobile-tab{position:relative;z-index:3;}',
+      '.gp-qual-scan-mobile-tab .bottom-tab-label,.gp-qual-scan-mobile-tab .mobile-tab-label{font-weight:760;}',
       '.gp-qual-scan-backdrop{position:fixed;inset:0;background:rgba(240,244,250,.34);backdrop-filter:blur(0) saturate(1.02);-webkit-backdrop-filter:blur(0) saturate(1.02);display:flex;align-items:center;justify-content:center;padding:14px;z-index:1300;opacity:0;pointer-events:none;transition:opacity .22s ease,backdrop-filter .22s ease,-webkit-backdrop-filter .22s ease;}',
       '.gp-qual-scan-backdrop.show{opacity:1;pointer-events:auto;backdrop-filter:blur(16px) saturate(1.04);-webkit-backdrop-filter:blur(16px) saturate(1.04);}',
       '.gp-qual-scan-modal{width:min(560px,100%);border-radius:18px;border:1px solid rgba(191,220,255,.95);background:rgba(255,255,255,.74);box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 22px 42px -24px rgba(2,6,23,.55);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding:14px;display:grid;gap:10px;transform:translateY(20px) scale(.93);opacity:0;transition:transform .3s cubic-bezier(.22,.9,.18,1.02),opacity .3s ease;}',
@@ -43,8 +47,7 @@
       '.gp-qual-scan-result{border:1px solid #dbeafe;border-radius:12px;background:rgba(239,246,255,.72);padding:10px;display:none;gap:4px;}',
       '.gp-qual-scan-result.show{display:grid;}',
       '.gp-qual-scan-result strong{font-size:12px;color:#1e3a8a;}',
-      '.gp-qual-scan-result span{font-size:12px;color:#334155;}',
-      '@media (min-width:768px){.gp-qual-scan-fab{bottom:18px;left:auto;right:20px;transform:none;}.gp-qual-scan-fab:hover{transform:scale(1.03);}}'
+      '.gp-qual-scan-result span{font-size:12px;color:#334155;}'
     ].join('');
     document.head.appendChild(style);
   }
@@ -65,9 +68,7 @@
     if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === 'function') {
       window.gpLinkStateSync.push();
     }
-    try {
-      window.dispatchEvent(new Event('storage'));
-    } catch (err) {}
+    window.dispatchEvent(new CustomEvent('gp-documents-updated', { detail: { source: 'qualification-scan' } }));
   }
 
   function readTextSnippet(file) {
@@ -188,9 +189,7 @@
       resultEl.className = 'gp-qual-scan-result show';
       resultEl.innerHTML = '<strong>Filed successfully</strong><span>Mapped to: ' + label + (conf !== null ? ' (' + conf + '% confidence)' : '') + '</span>';
 
-      window.setTimeout(function () {
-        closeModal();
-      }, 900);
+      window.setTimeout(function () { closeModal(); }, 950);
     } catch (err) {
       resultEl.className = 'gp-qual-scan-result show';
       resultEl.innerHTML = '<strong>Scan failed</strong><span>' + (err && err.message ? err.message : 'Please try again.') + '</span>';
@@ -200,43 +199,79 @@
     }
   }
 
-  function buildFab() {
-    var existing = document.getElementById(FAB_ID);
-    if (existing) return existing;
+  function buildDesktopNavButton() {
+    var navMenu = document.querySelector('.nav-menu');
+    if (!navMenu || navMenu.querySelector('[data-qual-scan-trigger="desktop"]')) return;
+
     var btn = document.createElement('button');
-    btn.id = FAB_ID;
     btn.type = 'button';
-    btn.className = 'gp-qual-scan-fab';
+    btn.className = 'nav-action nav-item gp-qual-scan-desktop';
+    btn.setAttribute('data-qual-scan-trigger', 'desktop');
     btn.setAttribute('aria-label', 'Scan qualification');
-    btn.setAttribute('title', 'Scan qualification');
-    btn.setAttribute('data-alert-trigger', 'scan');
-    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg>';
-    document.body.appendChild(btn);
-    return btn;
+    btn.innerHTML = scanIconSvg() + '<span>Scan</span>';
+
+    var accountNode = navMenu.querySelector('.account-nav-wrap') || navMenu.querySelector('.account-pill');
+    if (accountNode && accountNode.parentNode === navMenu) navMenu.insertBefore(btn, accountNode);
+    else navMenu.appendChild(btn);
+  }
+
+  function buildMobileNavButtons() {
+    var containers = document.querySelectorAll('.bottom-nav, .mobile-nav');
+    containers.forEach(function (container) {
+      if (container.querySelector('[data-qual-scan-trigger="mobile"]')) return;
+
+      var isBottom = container.classList.contains('bottom-nav');
+      var cls = isBottom ? 'bottom-tab' : 'mobile-tab';
+      var iconCls = isBottom ? 'bottom-tab-icon' : 'mobile-tab-icon';
+      var labelCls = isBottom ? 'bottom-tab-label' : 'mobile-tab-label';
+
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = cls + ' gp-qual-scan-mobile-tab';
+      btn.setAttribute('data-qual-scan-trigger', 'mobile');
+      btn.setAttribute('aria-label', 'Scan qualification');
+      btn.innerHTML = '<span class="' + iconCls + ' gp-qual-scan-mobile-icon">' + scanIconSvg() + '</span><span class="' + labelCls + '">Scan</span>';
+
+      var beforeIndex = Math.ceil(container.children.length / 2);
+      var ref = container.children[beforeIndex] || null;
+      container.insertBefore(btn, ref);
+
+      if (container.style && !container.dataset.gpScanGridAdjusted) {
+        container.style.gridTemplateColumns = 'repeat(5, minmax(0, 1fr))';
+        container.dataset.gpScanGridAdjusted = '1';
+      }
+    });
   }
 
   function install() {
     ensureStyles();
-    var fab = buildFab();
-    fab.addEventListener('click', function (event) {
-      event.preventDefault();
-      event.stopPropagation();
-      openModal();
-    });
+    buildDesktopNavButton();
+    buildMobileNavButtons();
 
     document.addEventListener('click', function (event) {
       var target = event.target instanceof Element ? event.target : null;
       if (!target) return;
+
+      var trigger = target.closest('[data-qual-scan-trigger]');
+      if (trigger) {
+        event.preventDefault();
+        event.stopPropagation();
+        openModal();
+        return;
+      }
+
       if (target.closest('[data-scan-close]')) {
         event.preventDefault();
         closeModal();
         return;
       }
+
       if (target.id === 'gpQualScanSubmit') {
         event.preventDefault();
         handleSubmit();
         return;
       }
+
       var modal = document.getElementById(MODAL_ID);
       if (!modal || !modal.classList.contains('show')) return;
       if (target === modal) closeModal();
