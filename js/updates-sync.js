@@ -412,6 +412,27 @@
   }
 
   function installAlertTriggers() {
+    function toggleFromTrigger(event, triggerEl) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      }
+      const root = ensurePanelRoot();
+      if (root.classList.contains("show")) closePanel();
+      else openPanel(triggerEl);
+    }
+
+    function bindTrigger(id) {
+      const el = document.getElementById(id);
+      if (!el || el.__gpAlertTriggerBound) return;
+      el.__gpAlertTriggerBound = true;
+      el.addEventListener("click", (event) => toggleFromTrigger(event, el), true);
+    }
+
+    bindTrigger("mobileNotifBtn");
+    bindTrigger("topSupportBtn");
+
     document.addEventListener("click", (event) => {
       const targetEl = event.target instanceof Element
         ? event.target
@@ -421,16 +442,6 @@
       if (closeBtn) {
         event.preventDefault();
         closePanel();
-        return;
-      }
-
-      const trigger = targetEl ? targetEl.closest("#mobileNotifBtn, #topSupportBtn") : null;
-      if (trigger) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        const root = ensurePanelRoot();
-        if (root.classList.contains("show")) closePanel();
-        else openPanel(trigger);
         return;
       }
 
