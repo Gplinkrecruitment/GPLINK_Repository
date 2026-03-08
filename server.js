@@ -21,6 +21,8 @@ const SECRET = process.env.AUTH_SECRET || 'replace-me-in-production';
 const COOKIE_NAME = 'gp_session';
 const ADMIN_COOKIE_NAME = process.env.ADMIN_COOKIE_NAME || 'gp_admin_session';
 const ADMIN_SESSION_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 8 * 60 * 60 * 1000);
+const OAUTH_ACCESS_TTL_MS = Number(process.env.OAUTH_ACCESS_TTL_MS || 15 * 60 * 1000);  // 15 min
+const OAUTH_REFRESH_TTL_MS = Number(process.env.OAUTH_REFRESH_TTL_MS || 7 * 24 * 60 * 60 * 1000); // 7 days
 const ENFORCE_SAME_ORIGIN = process.env.ENFORCE_SAME_ORIGIN
   ? process.env.ENFORCE_SAME_ORIGIN === 'true'
   : NODE_ENV === 'production';
@@ -44,6 +46,8 @@ const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
 const HERO_MOBILE_WEBM_URL = String(process.env.HERO_MOBILE_WEBM_URL || '').trim();
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
+const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini').trim();
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -161,6 +165,7 @@ function createEmptyState() {
     rateLimits: {},
     sessions: {},
     passwordResetTokens: {},
+    refreshTokens: {},
     users: {},
     userProfiles: {},
     userState: {}
@@ -189,6 +194,7 @@ function loadDbState() {
       rateLimits: parsed && parsed.rateLimits && typeof parsed.rateLimits === 'object' ? parsed.rateLimits : {},
       sessions: parsed && parsed.sessions && typeof parsed.sessions === 'object' ? parsed.sessions : {},
       passwordResetTokens: parsed && parsed.passwordResetTokens && typeof parsed.passwordResetTokens === 'object' ? parsed.passwordResetTokens : {},
+      refreshTokens: parsed && parsed.refreshTokens && typeof parsed.refreshTokens === 'object' ? parsed.refreshTokens : {},
       users: parsed && parsed.users && typeof parsed.users === 'object' ? parsed.users : {},
       userProfiles: parsed && parsed.userProfiles && typeof parsed.userProfiles === 'object' ? parsed.userProfiles : {},
       userState: parsed && parsed.userState && typeof parsed.userState === 'object' ? parsed.userState : {}
@@ -215,15 +221,22 @@ function saveDbState() {
   fs.renameSync(tmpPath, DB_FILE_PATH);
 }
 
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://rqrqcfxalkvzwbedvsjs.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://rqrqcfxalkvzwbedvsjs.supabase.co; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+  'X-Permitted-Cross-Domain-Policies': 'none'
+};
+
 function sendJson(res, status, data, headers = {}) {
   const body = JSON.stringify(data);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    ...SECURITY_HEADERS,
     ...(NODE_ENV === 'production' ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload' } : {}),
     ...headers
   });
@@ -376,6 +389,73 @@ function isStrongPassword(password) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// OAuth 2.0 access & refresh token helpers
+// ---------------------------------------------------------------------------
+function createOAuthAccessToken(userProfile) {
+  const expiresAt = now() + OAUTH_ACCESS_TTL_MS;
+  const payload = base64UrlEncode(JSON.stringify({ sub: userProfile.email, profile: userProfile, expiresAt, type: 'access' }));
+  const signature = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+  return { token: `${payload}.${signature}`, expiresAt, expiresIn: Math.floor(OAUTH_ACCESS_TTL_MS / 1000) };
+}
+
+function parseOAuthAccessToken(token) {
+  const raw = String(token || '');
+  const dotIdx = raw.lastIndexOf('.');
+  if (dotIdx <= 0) return null;
+  const payload = raw.slice(0, dotIdx);
+  const signature = raw.slice(dotIdx + 1);
+  const expected = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+  if (signature.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'))) return null;
+
+  try {
+    const parsed = JSON.parse(base64UrlDecode(payload));
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.type !== 'access') return null;
+    if (typeof parsed.expiresAt !== 'number') return null;
+    if (parsed.expiresAt <= now()) return { expired: true, profile: parsed.profile };
+    return { expired: false, profile: parsed.profile };
+  } catch {
+    return null;
+  }
+}
+
+function createOAuthRefreshToken(email) {
+  const tokenValue = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(tokenValue).digest('hex');
+  dbState.refreshTokens[tokenHash] = {
+    email: String(email).trim().toLowerCase(),
+    createdAt: now(),
+    expiresAt: now() + OAUTH_REFRESH_TTL_MS,
+  };
+  saveDbState();
+  return tokenValue;
+}
+
+function consumeOAuthRefreshToken(tokenValue) {
+  const tokenHash = crypto.createHash('sha256').update(String(tokenValue || '')).digest('hex');
+  const entry = dbState.refreshTokens[tokenHash];
+  if (!entry) return null;
+  // Always delete the token (single-use rotation)
+  delete dbState.refreshTokens[tokenHash];
+  saveDbState();
+  if (entry.expiresAt <= now()) return null;
+  return entry;
+}
+
+function revokeOAuthRefreshToken(tokenValue) {
+  const tokenHash = crypto.createHash('sha256').update(String(tokenValue || '')).digest('hex');
+  delete dbState.refreshTokens[tokenHash];
+  saveDbState();
+}
+
+function getBearerToken(req) {
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
+  return null;
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -402,6 +482,108 @@ function readJsonBody(req) {
 
     req.on('error', reject);
   });
+}
+
+const QUAL_SCAN_OPTIONS = [
+  { key: 'primary_medical_degree', label: 'Primary medical degree', patterns: [/primary medical degree/i, /\bmbbs\b/i, /\bmbchb\b/i, /\bmd\b/i, /medical degree/i] },
+  { key: 'mrcgp_certified', label: 'MRCGP certificate', patterns: [/\bmrcgp\b/i, /member of the royal college of general practitioners/i] },
+  { key: 'cct_certified', label: 'CCT certificate', patterns: [/\bcct\b/i, /certificate of completion of training/i, /\bpmetb\b/i] },
+  { key: 'cv_signed_dated', label: 'Signed CV', patterns: [/\bcurriculum vitae\b/i, /\bcv\b/i, /resume/i, /signed and dated/i] },
+  { key: 'certificate_good_standing', label: 'Certificate of good standing', patterns: [/good standing/i, /certificate of standing/i] },
+  { key: 'confirmation_training', label: 'Confirmation of training', patterns: [/confirmation of training/i, /training completion/i, /specialist training/i] },
+  { key: 'criminal_history', label: 'Criminal history check', patterns: [/criminal history/i, /police clearance/i, /background check/i, /dbs check/i] }
+];
+
+function heuristicQualificationClassification(fileName, snippet) {
+  const text = `${String(fileName || '')}\n${String(snippet || '')}`.slice(0, 16000);
+  let best = null;
+  for (const option of QUAL_SCAN_OPTIONS) {
+    let score = 0;
+    option.patterns.forEach((pattern) => {
+      if (pattern.test(text)) score += 1;
+    });
+    if (!best || score > best.score) {
+      best = { option, score };
+    }
+  }
+
+  if (!best || best.score <= 0) {
+    return {
+      key: 'primary_medical_degree',
+      label: 'Primary medical degree',
+      confidence: 0.35,
+      reason: 'No exact qualification keywords found. Defaulting to Primary medical degree.'
+    };
+  }
+
+  const confidence = Math.min(0.96, 0.45 + (best.score * 0.16));
+  return {
+    key: best.option.key,
+    label: best.option.label,
+    confidence,
+    reason: 'Matched qualification keywords in file name/content.'
+  };
+}
+
+async function classifyQualificationWithAI(fileName, textSnippet) {
+  const prompt = [
+    'Classify this doctor qualification document into exactly one key.',
+    'Valid keys: primary_medical_degree, mrcgp_certified, cct_certified, cv_signed_dated, certificate_good_standing, confirmation_training, criminal_history.',
+    'Return strict JSON with: key, confidence (0..1), reason.',
+    `file_name: ${String(fileName || '').slice(0, 260)}`,
+    `text_snippet: ${String(textSnippet || '').slice(0, 7000)}`
+  ].join('\n');
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: OPENAI_SCAN_MODEL,
+      input: prompt,
+      max_output_tokens: 180,
+      temperature: 0
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('AI model request failed');
+  }
+  const payload = await response.json();
+  const text = payload && typeof payload.output_text === 'string'
+    ? payload.output_text
+    : '';
+  if (!text) throw new Error('AI model returned empty output');
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    const objMatch = text.match(/\{[\s\S]*\}/);
+    if (objMatch) parsed = JSON.parse(objMatch[0]);
+  }
+  if (!parsed || typeof parsed !== 'object') throw new Error('AI response JSON invalid');
+
+  const selectedKey = String(parsed.key || '').trim();
+  const valid = QUAL_SCAN_OPTIONS.find((item) => item.key === selectedKey);
+  if (!valid) throw new Error('AI selected unsupported key');
+
+  const confidence = Math.max(0, Math.min(1, Number(parsed.confidence || 0.7)));
+  const reason = String(parsed.reason || 'Classified by AI model').slice(0, 220);
+  return { key: valid.key, label: valid.label, confidence, reason };
+}
+
+async function classifyQualificationDocument(fileName, textSnippet) {
+  if (OPENAI_API_KEY) {
+    try {
+      return await classifyQualificationWithAI(fileName, textSnippet);
+    } catch (err) {
+      // Fall back to deterministic keyword classifier.
+    }
+  }
+  return heuristicQualificationClassification(fileName, textSnippet);
 }
 
 function normalizePhone(countryDial, phoneNumber) {
@@ -708,9 +890,7 @@ function serveStatic(req, res, pathname) {
           'Content-Range': `bytes ${start}-${end}/${stat.size}`,
           'Accept-Ranges': 'bytes',
           'Cache-Control': cacheControl,
-          'X-Content-Type-Options': 'nosniff',
-          'X-Frame-Options': 'DENY',
-          'Referrer-Policy': 'strict-origin-when-cross-origin',
+          ...SECURITY_HEADERS,
           ...(NODE_ENV === 'production' ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload' } : {})
         });
         const rangedStream = fs.createReadStream(filePath, { start, end });
@@ -727,9 +907,7 @@ function serveStatic(req, res, pathname) {
       'Content-Type': mime,
       'Content-Length': stat.size,
       'Cache-Control': cacheControl,
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'DENY',
-      'Referrer-Policy': 'strict-origin-when-cross-origin'
+      ...SECURITY_HEADERS
     };
     if (NODE_ENV === 'production') headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload';
     if (isVideo) headers['Accept-Ranges'] = 'bytes';
@@ -2159,7 +2337,7 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = String(Math.floor(10000000 + Math.random() * 90000000));
     dbState.otpChallenges[otpKey] = {
       codeHash: hashOtp(otpKey, code),
       expiresAt: now() + OTP_TTL_MS,
@@ -2178,6 +2356,163 @@ async function handleApi(req, res, pathname) {
       message: `If the details are valid, a code has been sent to ${destination}.`,
       expiresInSeconds: Math.floor(OTP_TTL_MS / 1000)
     });
+    return;
+  }
+
+  // ─── OAuth 2.0 Token Endpoint ───────────────────────────────────────────
+  if (pathname === '/api/auth/oauth/token' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'oauth'))) return;
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, error: 'invalid_request', message: 'Invalid request body.' });
+      return;
+    }
+
+    const grantType = String(body.grant_type || '');
+
+    // ── grant_type=signup ──
+    if (grantType === 'signup') {
+      const email = String(body.email || '').trim().toLowerCase();
+      const password = String(body.password || '');
+      const firstName = String(body.firstName || '').trim();
+      const lastName = String(body.lastName || '').trim();
+
+      if (!isValidEmail(email)) {
+        sendJson(res, 400, { ok: false, error: 'invalid_email', message: 'Please provide a valid email address.' });
+        return;
+      }
+      if (!firstName || !lastName) {
+        sendJson(res, 400, { ok: false, error: 'missing_fields', message: 'firstName and lastName are required.' });
+        return;
+      }
+      if (!isStrongPassword(password)) {
+        sendJson(res, 400, { ok: false, error: 'weak_password', message: 'Password must be at least 12 characters and include upper, lower, number, and symbol.' });
+        return;
+      }
+      if (dbState.users[email]) {
+        sendJson(res, 409, { ok: false, error: 'account_exists', message: 'An account with this email already exists.' });
+        return;
+      }
+
+      dbState.users[email] = {
+        firstName,
+        lastName,
+        email,
+        passwordHash: hashPassword(password),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      saveDbState();
+
+      const profile = getSessionProfileFromUser(email);
+      const access = createOAuthAccessToken(profile);
+      const refreshToken = createOAuthRefreshToken(email);
+      setSession(res, profile);
+      sendJson(res, 200, {
+        ok: true,
+        token_type: 'Bearer',
+        access_token: access.token,
+        expires_in: access.expiresIn,
+        refresh_token: refreshToken,
+        profile,
+      });
+      return;
+    }
+
+    // ── grant_type=password ──
+    if (grantType === 'password') {
+      const email = String(body.email || '').trim().toLowerCase();
+      const password = String(body.password || '');
+
+      if (!isValidEmail(email) || !password) {
+        sendJson(res, 400, { ok: false, error: 'invalid_request', message: 'Email and password are required.' });
+        return;
+      }
+
+      const user = dbState.users[email];
+      if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+        sendJson(res, 401, { ok: false, error: 'invalid_credentials', message: 'Invalid email or password.' });
+        return;
+      }
+
+      const profile = getSessionProfileFromUser(email);
+      const access = createOAuthAccessToken(profile);
+      const refreshToken = createOAuthRefreshToken(email);
+      setSession(res, profile);
+      sendJson(res, 200, {
+        ok: true,
+        token_type: 'Bearer',
+        access_token: access.token,
+        expires_in: access.expiresIn,
+        refresh_token: refreshToken,
+        profile,
+      });
+      return;
+    }
+
+    // ── grant_type=refresh_token ──
+    if (grantType === 'refresh_token') {
+      const refreshTokenValue = String(body.refresh_token || '').trim();
+      if (!refreshTokenValue) {
+        sendJson(res, 400, { ok: false, error: 'invalid_request', message: 'refresh_token is required.' });
+        return;
+      }
+
+      const entry = consumeOAuthRefreshToken(refreshTokenValue);
+      if (!entry) {
+        sendJson(res, 401, { ok: false, error: 'invalid_refresh_token', message: 'Refresh token is invalid or expired.' });
+        return;
+      }
+
+      const profile = getSessionProfileFromUser(entry.email);
+      const access = createOAuthAccessToken(profile);
+      const newRefreshToken = createOAuthRefreshToken(entry.email);
+      setSession(res, profile);
+      sendJson(res, 200, {
+        ok: true,
+        token_type: 'Bearer',
+        access_token: access.token,
+        expires_in: access.expiresIn,
+        refresh_token: newRefreshToken,
+        profile,
+      });
+      return;
+    }
+
+    sendJson(res, 400, { ok: false, error: 'unsupported_grant_type', message: 'Supported grant types: password, signup, refresh_token.' });
+    return;
+  }
+
+  // ─── OAuth 2.0 UserInfo Endpoint ──────────────────────────────────────
+  if (pathname === '/api/auth/oauth/userinfo' && req.method === 'GET') {
+    const bearer = getBearerToken(req);
+    if (!bearer) {
+      sendJson(res, 401, { ok: false, error: 'missing_token', message: 'Authorization Bearer token is required.' });
+      return;
+    }
+    const parsed = parseOAuthAccessToken(bearer);
+    if (!parsed) {
+      sendJson(res, 401, { ok: false, error: 'invalid_token', message: 'Access token is invalid.' });
+      return;
+    }
+    if (parsed.expired) {
+      sendJson(res, 401, { ok: false, error: 'token_expired', message: 'Access token has expired. Use refresh_token to obtain a new one.' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, profile: parsed.profile });
+    return;
+  }
+
+  // ─── OAuth 2.0 Token Revocation ───────────────────────────────────────
+  if (pathname === '/api/auth/oauth/revoke' && req.method === 'POST') {
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const tokenValue = String(body.token || '').trim();
+    if (tokenValue) revokeOAuthRefreshToken(tokenValue);
+    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -2445,6 +2780,34 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
     clearSession(res, req);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (pathname === '/api/ai/scan-qualification' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const fileName = String(body.fileName || '').trim().slice(0, 260);
+    const textSnippet = String(body.textSnippet || '').slice(0, 8000);
+    if (!fileName) {
+      sendJson(res, 400, { ok: false, message: 'File name is required.' });
+      return;
+    }
+
+    const classification = await classifyQualificationDocument(fileName, textSnippet);
+    sendJson(res, 200, {
+      ok: true,
+      classification,
+      scannedAt: new Date().toISOString()
+    });
     return;
   }
 
@@ -3095,14 +3458,18 @@ async function handleRequest(req, res) {
   serveStatic(req, res, pathname);
 }
 
+function createServer() {
+  return http.createServer(async (req, res) => {
+    await handleRequest(req, res);
+  });
+}
+
 if (process.env.VERCEL) {
   module.exports = async (req, res) => {
     await handleRequest(req, res);
   };
-} else {
-  const server = http.createServer(async (req, res) => {
-    await handleRequest(req, res);
-  });
+} else if (process.env.NODE_ENV !== 'test') {
+  const server = createServer();
 
   server.listen(PORT, HOST, () => {
     console.log(`GP Link server running on http://${HOST}:${PORT}`);
@@ -3112,3 +3479,5 @@ if (process.env.VERCEL) {
     }
   });
 }
+
+module.exports.createServer = createServer;
