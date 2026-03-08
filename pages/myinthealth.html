@@ -1600,12 +1600,7 @@
     });
 
     // ─── EVENT LISTENERS ────────────────────────────────────────
-    const mobileSupportBtn = document.getElementById("mobileSupportBtn");
-    if (mobileSupportBtn) mobileSupportBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      window.location.href = "/pages/messages.html";
-    });
+    // mobileSupportBtn click is handled by updates-sync.js (alert panel)
 
     if (supportSubmitBtnEl) {
       supportSubmitBtnEl.addEventListener("click", () => {

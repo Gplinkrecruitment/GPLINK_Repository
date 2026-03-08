@@ -714,6 +714,12 @@
       if (!password) {
         setError("signupPasswordError", "Password is required.");
         ok = false;
+      } else if (password.length < 12) {
+        setError("signupPasswordError", "Password must be at least 12 characters.");
+        ok = false;
+      } else if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+        setError("signupPasswordError", "Must include uppercase, lowercase, number, and special character.");
+        ok = false;
       }
       if (!confirmPassword) {
         setError("signupConfirmPasswordError", "Please confirm your password.");

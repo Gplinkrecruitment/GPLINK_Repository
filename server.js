@@ -221,12 +221,24 @@ function saveDbState() {
   fs.renameSync(tmpPath, DB_FILE_PATH);
 }
 
+const CSP_SUPABASE_ORIGIN = SUPABASE_URL ? new URL(SUPABASE_URL).origin : '';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://rqrqcfxalkvzwbedvsjs.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://rqrqcfxalkvzwbedvsjs.supabase.co; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}`,
+    "media-src 'self' blob:",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'"
+  ].join('; '),
   'X-Permitted-Cross-Domain-Policies': 'none'
 };
 
@@ -2369,6 +2381,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const grantType = String(body.grant_type || '');
+    const useSupabase = isSupabaseConfigured();
 
     // ── grant_type=signup ──
     if (grantType === 'signup') {
@@ -2389,15 +2402,52 @@ async function handleApi(req, res, pathname) {
         sendJson(res, 400, { ok: false, error: 'weak_password', message: 'Password must be at least 12 characters and include upper, lower, number, and symbol.' });
         return;
       }
+
+      if (useSupabase) {
+        // ── Supabase signup path (production) ──
+        const signupResult = await supabaseAuthRequest('signup', {
+          email,
+          password,
+          data: { firstName, lastName }
+        });
+        if (!signupResult.ok) {
+          const msg = (signupResult.data && (signupResult.data.msg || signupResult.data.message)) || 'Unable to create account.';
+          const isExists = signupResult.status === 422 || (msg && /already registered|already exists/i.test(msg));
+          if (isExists) {
+            sendJson(res, 409, { ok: false, error: 'account_exists', message: 'An account with this email already exists.' });
+          } else {
+            sendJson(res, signupResult.status || 400, { ok: false, error: 'signup_failed', message: msg });
+          }
+          return;
+        }
+
+        const signupUser = signupResult.data && signupResult.data.user ? signupResult.data.user : { email };
+        upsertLocalUserFromSupabaseUser(signupUser);
+
+        // Attempt immediate login to get a session
+        const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
+        if (!loginResult.ok) {
+          sendJson(res, 200, { ok: true, requiresConfirmation: true, message: 'Account created. If email confirmation is enabled, verify your inbox before signing in.' });
+          return;
+        }
+
+        const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : signupUser;
+        upsertLocalUserFromSupabaseUser(loginUser);
+        const profile = getSessionProfileFromSupabaseUser(loginUser, email);
+        const access = createOAuthAccessToken(profile);
+        const refreshToken = createOAuthRefreshToken(email);
+        setSession(res, profile);
+        sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
+        return;
+      }
+
+      // ── Local DB signup path (development / tests) ──
       if (dbState.users[email]) {
         sendJson(res, 409, { ok: false, error: 'account_exists', message: 'An account with this email already exists.' });
         return;
       }
-
       dbState.users[email] = {
-        firstName,
-        lastName,
-        email,
+        firstName, lastName, email,
         passwordHash: hashPassword(password),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -2408,14 +2458,7 @@ async function handleApi(req, res, pathname) {
       const access = createOAuthAccessToken(profile);
       const refreshToken = createOAuthRefreshToken(email);
       setSession(res, profile);
-      sendJson(res, 200, {
-        ok: true,
-        token_type: 'Bearer',
-        access_token: access.token,
-        expires_in: access.expiresIn,
-        refresh_token: refreshToken,
-        profile,
-      });
+      sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
       return;
     }
 
@@ -2429,6 +2472,24 @@ async function handleApi(req, res, pathname) {
         return;
       }
 
+      if (useSupabase) {
+        // ── Supabase login path (production) ──
+        const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
+        if (!loginResult.ok) {
+          sendJson(res, 401, { ok: false, error: 'invalid_credentials', message: 'Invalid email or password.' });
+          return;
+        }
+        const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
+        upsertLocalUserFromSupabaseUser(loginUser);
+        const profile = getSessionProfileFromSupabaseUser(loginUser, email);
+        const access = createOAuthAccessToken(profile);
+        const refreshToken = createOAuthRefreshToken(email);
+        setSession(res, profile);
+        sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
+        return;
+      }
+
+      // ── Local DB login path (development / tests) ──
       const user = dbState.users[email];
       if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
         sendJson(res, 401, { ok: false, error: 'invalid_credentials', message: 'Invalid email or password.' });
@@ -2439,14 +2500,7 @@ async function handleApi(req, res, pathname) {
       const access = createOAuthAccessToken(profile);
       const refreshToken = createOAuthRefreshToken(email);
       setSession(res, profile);
-      sendJson(res, 200, {
-        ok: true,
-        token_type: 'Bearer',
-        access_token: access.token,
-        expires_in: access.expiresIn,
-        refresh_token: refreshToken,
-        profile,
-      });
+      sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: refreshToken, profile });
       return;
     }
 
@@ -2468,14 +2522,7 @@ async function handleApi(req, res, pathname) {
       const access = createOAuthAccessToken(profile);
       const newRefreshToken = createOAuthRefreshToken(entry.email);
       setSession(res, profile);
-      sendJson(res, 200, {
-        ok: true,
-        token_type: 'Bearer',
-        access_token: access.token,
-        expires_in: access.expiresIn,
-        refresh_token: newRefreshToken,
-        profile,
-      });
+      sendJson(res, 200, { ok: true, token_type: 'Bearer', access_token: access.token, expires_in: access.expiresIn, refresh_token: newRefreshToken, profile });
       return;
     }
 
@@ -2679,8 +2726,8 @@ async function handleApi(req, res, pathname) {
     const method = body.codeMethod === 'sms' ? 'sms' : 'email';
     const code = String(body.code || '').trim();
 
-    if (!/^\d{6}$/.test(code)) {
-      sendJson(res, 400, { ok: false, message: 'Verification code must be 6 digits.' });
+    if (!/^\d{8}$/.test(code)) {
+      sendJson(res, 400, { ok: false, message: 'Verification code must be 8 digits.' });
       return;
     }
 
