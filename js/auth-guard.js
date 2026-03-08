@@ -26,13 +26,13 @@
     if (session && session.ok) {
       window.gpSessionProfile = session.profile || null;
 
-      // Check if onboarding is complete; if not, redirect to onboarding
-      // (skip this check if already on onboarding page to avoid redirect loops)
+      // Redirect to onboarding if not completed
+      // TODO: remove "true ||" once onboarding is finalized — currently always showing for testing
       if (!isOnboardingPage && !isSignInPage) {
         try {
           const obRaw = localStorage.getItem("gp_onboarding");
           const ob = obRaw ? JSON.parse(obRaw) : null;
-          if (!ob || !ob.completedAt) {
+          if (true || !ob || !ob.completedAt) {
             window.location.replace("/pages/onboarding.html");
             return;
           }

@@ -712,7 +712,8 @@
         return;
       }
       // If onboarding already completed, go to dashboard
-      if (state.completedAt) {
+      // TODO: re-enable once onboarding is finalized — currently always showing for testing
+      if (false && state.completedAt) {
         window.location.replace("/pages/index.html");
         return;
       }

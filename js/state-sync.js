@@ -14,7 +14,9 @@
     'gpLinkSupportCases',
     'gpLinkMessageDB',
     'gpLinkSupportDraft',
-    'gp_account_profile'
+    'gp_account_profile',
+    'gp_onboarding',
+    'gp_onboarding_complete'
   ];
   const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
   const AUTO_PUSH_DEBOUNCE_MS = 450;
