@@ -412,6 +412,8 @@
   }
 
   function installAlertTriggers() {
+    let suppressClickUntil = 0;
+
     function toggleFromTrigger(event, triggerEl) {
       if (event) {
         event.preventDefault();
@@ -427,7 +429,14 @@
       const el = document.getElementById(id);
       if (!el || el.__gpAlertTriggerBound) return;
       el.__gpAlertTriggerBound = true;
-      el.addEventListener("click", (event) => toggleFromTrigger(event, el), true);
+      el.addEventListener("click", (event) => {
+        if (Date.now() < suppressClickUntil) return;
+        toggleFromTrigger(event, el);
+      }, true);
+      el.addEventListener("touchend", (event) => {
+        suppressClickUntil = Date.now() + 550;
+        toggleFromTrigger(event, el);
+      }, { capture: true, passive: false });
     }
 
     bindTrigger("mobileNotifBtn");
@@ -449,7 +458,7 @@
       if (!root || !root.classList.contains("show")) return;
       if (event.target instanceof Node && root.contains(event.target)) return;
       closePanel();
-    }, true);
+    });
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closePanel();
