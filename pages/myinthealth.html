@@ -533,7 +533,7 @@
       backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border-top: 1px solid #e2e8f0;
       padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
-      display: none; grid-template-columns: repeat(4, 1fr); gap: 4px; z-index: 50;
+      display: none; grid-template-columns: repeat(5, 1fr); gap: 4px; z-index: 50;
     }
     .bottom-tab {
       text-decoration: none; border: 0; background: transparent; color: #94a3b8;
@@ -548,6 +548,13 @@
     .bottom-tab-label { font-size: 10px; font-weight: 600; line-height: 1.15; text-align: center; }
     .bottom-tab-active { color: var(--blue); background: rgba(37, 99, 235, 0.08); }
     .bottom-tab-icon { position: relative; display: inline-grid; place-items: center; }
+    .bottom-tab-scan .bottom-tab-icon {
+      width: 26px; height: 26px; border-radius: 999px;
+      background: linear-gradient(180deg,#3b82f6 0%,#1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 10px 20px -14px rgba(29,78,216,.95);
+    }
+    .bottom-tab-scan .bottom-tab-icon svg { width: 15px; height: 15px; }
     .bottom-tab-badge {
       position: absolute; top: -5px; right: -8px;
       width: 16px; height: 16px; border-radius: 50%;
@@ -784,6 +791,10 @@
     <button class="bottom-tab bottom-tab-active" id="mobileRegistrationBtn" type="button">
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
       <span class="bottom-tab-label">Registration</span>
+    </button>
+    <button class="bottom-tab bottom-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan qualification">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="bottom-tab-label">Scan</span>
     </button>
     <button class="bottom-tab" id="mobileSupportBtn" type="button">
       <span class="bottom-tab-icon">

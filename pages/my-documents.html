@@ -761,7 +761,7 @@
       background: rgba(255, 255, 255, 0.92);
       padding: 6px;
       display: none;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 6px;
       z-index: 50;
       box-shadow: 0 18px 30px -24px rgba(15, 23, 42, 0.32);
@@ -804,6 +804,13 @@
     .mobile-tab-active { background: rgba(37, 99, 235, 0.08); color: #2563eb; }
     .mobile-tab-active .mobile-tab-icon { color: #2563eb; }
     .mobile-tab-icon svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .mobile-tab-scan .mobile-tab-icon {
+      width: 26px; height: 26px; border-radius: 999px;
+      background: linear-gradient(180deg,#3b82f6 0%,#1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 10px 20px -14px rgba(29,78,216,.95);
+    }
+    .mobile-tab-scan .mobile-tab-icon svg { width: 15px; height: 15px; }
 
     .mobile-reg-backdrop {
       position: fixed;
@@ -962,6 +969,10 @@
     <button class="mobile-tab mobile-tab-active" id="mobileRegistrationBtn" type="button">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
       <span class="mobile-tab-label">Registration Process</span>
+    </button>
+    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan qualification">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="mobile-tab-label">Scan</span>
     </button>
     <button class="mobile-tab" id="mobileSupportBtn" type="button">
       <span class="mobile-icon-wrap">

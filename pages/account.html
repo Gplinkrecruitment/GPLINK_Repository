@@ -1039,7 +1039,7 @@
       width: min(420px, calc(100% - 20px));
       z-index: 50;
       display: none;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 6px;
       border: 1px solid rgba(255, 255, 255, 0.26);
       border-radius: 20px;
@@ -1073,6 +1073,15 @@
     }
 
     .mobile-tab-active .mobile-tab-icon { color: #7dd3fc; }
+    .mobile-tab-scan .mobile-tab-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: linear-gradient(180deg,#3b82f6 0%,#1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 10px 20px -14px rgba(29,78,216,.95);
+    }
+    .mobile-tab-scan .mobile-tab-icon svg { width: 15px; height: 15px; }
 
     .mobile-tab-icon {
       position: relative;
@@ -1540,6 +1549,10 @@
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
       <span class="mobile-tab-label">Registration Process</span>
     </a>
+    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan qualification">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="mobile-tab-label">Scan</span>
+    </button>
     <a class="mobile-tab" href="messages.html">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg><span class="mobile-tab-alert nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
       <span class="mobile-tab-label">Messages</span>
