@@ -2151,6 +2151,7 @@
     const uberHomePanelEl = document.getElementById("uberHomePanel");
     const uberTabBtns = [...document.querySelectorAll("[data-uber-tab]")];
     const uberTabTargetBtns = [...document.querySelectorAll("[data-uber-tab-target]")];
+    const uberTabHeadingEl = document.getElementById("uberTabHeading");
     const uberHomeNameEl = document.getElementById("uberHomeName");
     const uberHomeEmailEl = document.getElementById("uberHomeEmail");
     const uberHomeAvatarEl = document.getElementById("uberHomeAvatar");
@@ -2288,6 +2289,12 @@
     function setUberTab(tab) {
       const next = ["home", "personal", "security", "privacy"].includes(tab) ? tab : "home";
       activeUberTab = next;
+      const titleMap = {
+        home: "Home",
+        personal: "Personal info",
+        security: "Security",
+        privacy: "Privacy & data"
+      };
       uberTabBtns.forEach((btn) => {
         btn.classList.toggle("is-active", btn.getAttribute("data-uber-tab") === next);
       });
@@ -2300,6 +2307,10 @@
       if (uberHomePanelEl) uberHomePanelEl.classList.toggle("uber-hidden", next !== "home");
       if (heroCardEl) heroCardEl.classList.toggle("uber-hidden", next !== "personal");
       if (detailGridEl) detailGridEl.classList.toggle("uber-hidden", next === "home");
+      if (uberTabHeadingEl) {
+        uberTabHeadingEl.textContent = titleMap[next];
+        uberTabHeadingEl.classList.toggle("uber-hidden", next === "home");
+      }
       if (accountSignOutBtnEl && accountSignOutBtnEl.parentElement) {
         accountSignOutBtnEl.parentElement.classList.toggle("uber-hidden", next !== "security");
       }
