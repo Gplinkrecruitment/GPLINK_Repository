@@ -612,7 +612,8 @@
     btn.className = 'nav-action nav-item gp-qual-scan-desktop';
     btn.setAttribute('data-qual-scan-trigger', 'desktop');
     btn.setAttribute('aria-label', 'Scan qualification');
-    btn.innerHTML = scanIconSvg() + '<span>Scan</span>';
+    btn.innerHTML = '<svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg><span>Scan</span>';
+    btn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); openModal(); });
 
     var accountNode = navMenu.querySelector('.account-nav-wrap') || navMenu.querySelector('.account-pill');
     if (accountNode && accountNode.parentNode === navMenu) navMenu.insertBefore(btn, accountNode);
@@ -635,6 +636,7 @@
       btn.setAttribute('data-qual-scan-trigger', 'mobile');
       btn.setAttribute('aria-label', 'Scan qualification');
       btn.innerHTML = '<span class="' + iconCls + ' gp-qual-scan-mobile-icon">' + scanIconSvg() + '</span><span class="' + labelCls + '">Scan</span>';
+      btn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); openModal(); });
 
       var beforeIndex = Math.ceil(container.children.length / 2);
       var ref = container.children[beforeIndex] || null;
@@ -647,11 +649,26 @@
     });
   }
 
+  // Expose globally so buttons can use onclick fallback
+  window.gpOpenScanModal = openModal;
+
   /* ─── Install ─── */
   function install() {
     ensureStyles();
     buildDesktopNavButton();
     buildMobileNavButtons();
+
+    // Also bind onclick directly to all existing scan triggers as a robust fallback
+    var existingTriggers = document.querySelectorAll('[data-qual-scan-trigger]');
+    for (var i = 0; i < existingTriggers.length; i++) {
+      (function (el) {
+        el.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          openModal();
+        });
+      })(existingTriggers[i]);
+    }
 
     document.addEventListener('click', function (event) {
       var target = event.target instanceof Element ? event.target : null;

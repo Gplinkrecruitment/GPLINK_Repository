@@ -6,7 +6,7 @@
   <script src="../js/auth-guard.js" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
-  <script src="../js/qualification-scan.js?v=20260309d" defer></script>
+  <script src="../js/qualification-scan.js?v=20260309e" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -802,7 +802,7 @@
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
       <span class="bottom-tab-label">Registration</span>
     </button>
-    <button class="bottom-tab bottom-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan qualification">
+    <button class="bottom-tab bottom-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan qualification" onclick="if(window.gpOpenScanModal)window.gpOpenScanModal()">
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
       <span class="bottom-tab-label">Scan</span>
     </button>
