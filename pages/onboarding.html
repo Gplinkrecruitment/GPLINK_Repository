@@ -112,6 +112,10 @@
     [data-step="7"] .blob-2 { background: #6ee7b7; }
     [data-step="7"] .blob-3 { background: #93c5fd; top: 40px; }
 
+    [data-step="8"] .blob-1 { background: #6ee7b7; top: -80px; }
+    [data-step="8"] .blob-2 { background: #a5b4fc; }
+    [data-step="8"] .blob-3 { background: #fbbf24; top: 60px; }
+
     /* ── BACK BUTTON ──────────────────────────── */
     .back-btn {
       position: absolute;
@@ -330,11 +334,97 @@
     }
     .country-list li .country-flag { font-size: 20px; }
 
-    .other-country-input {
-      margin-top: 8px;
-      display: none;
+    /* ── QUAL DOC VERIFICATION CARDS ────────── */
+    .qual-doc-slot {
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 10px;
+      background: #fff;
+      transition: border-color 0.2s;
     }
-    .other-country-input.show { display: block; }
+    .qual-doc-slot.verified { border-color: var(--green); background: #f0fdf4; }
+    .qual-doc-slot.failed { border-color: var(--red); background: #fef2f2; }
+    .qual-doc-slot.scanning { border-color: var(--orange); background: #fffbeb; }
+    .qual-doc-slot-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .qual-doc-slot-label {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .qual-doc-slot-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .qual-doc-slot-badge.pending { background: #f1f5f9; color: var(--muted); }
+    .qual-doc-slot-badge.verified { background: #ecfdf5; color: var(--green); }
+    .qual-doc-slot-badge.failed { background: #fef2f2; color: var(--red); }
+    .qual-doc-slot-badge.scanning { background: #fef3c7; color: #d97706; }
+    .qual-doc-slot-badge.review { background: #dbeafe; color: var(--blue); }
+    .qual-doc-slot-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .qual-doc-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .qual-doc-btn:hover { border-color: var(--blue); background: rgba(37,99,235,0.04); }
+    .qual-doc-btn:active { transform: scale(0.97); }
+    .qual-doc-btn svg {
+      width: 18px; height: 18px;
+      stroke: var(--blue);
+      fill: none; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .qual-doc-slot-info {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .qual-doc-slot-info.error { color: var(--red); }
+    .qual-doc-slot-retry {
+      font-size: 11px;
+      color: var(--light);
+      margin-top: 4px;
+    }
+    .qual-doc-spinner {
+      width: 20px; height: 20px;
+      border: 2px solid #e2e8f0;
+      border-top-color: var(--orange);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .qual-doc-or {
+      text-align: center;
+      font-size: 12px;
+      color: var(--light);
+      margin: -2px 0 6px;
+      font-weight: 600;
+    }
 
     /* ── FILE UPLOAD ──────────────────────────── */
     .upload-zone {
@@ -854,73 +944,46 @@
                 <input type="text" class="country-search-input" id="countrySearch" placeholder="Search for your country..." autocomplete="off" />
                 <ul class="country-list" id="countryList"></ul>
               </div>
-              <input type="text" class="country-search-input other-country-input" id="otherCountryInput" placeholder="Enter your country..." />
               <div class="field-error" id="countryError">Please select your country of qualification.</div>
+              <div class="field-hint" id="countryHint" style="display:none;color:var(--red);font-size:13px;margin-top:8px;">We currently only accept GPs qualified in the United Kingdom, Ireland, or New Zealand.</div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- STEP 2: Specialist qualification upload -->
+      <!-- STEP 2: Verify qualification documents (country-specific) -->
       <div class="slide" data-slide="2">
-        <div class="slide-illustration">
-          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <!-- Certificate -->
-            <rect x="35" y="35" width="130" height="100" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
-            <rect x="35" y="35" width="130" height="24" rx="8" fill="#dbeafe"/>
-            <rect x="35" y="51" width="130" height="8" rx="0" fill="#dbeafe"/>
-            <!-- Certificate details -->
-            <rect x="55" y="70" width="90" height="4" rx="2" fill="#e2e8f0"/>
-            <rect x="65" y="80" width="70" height="4" rx="2" fill="#e2e8f0"/>
-            <rect x="55" y="90" width="90" height="4" rx="2" fill="#e2e8f0"/>
-            <!-- Seal -->
-            <circle cx="100" cy="112" r="12" fill="#fbbf24" opacity="0.3"/>
-            <circle cx="100" cy="112" r="8" fill="#fbbf24"/>
-            <path d="M96 112l3 3 5-6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-            <!-- Shield verify -->
-            <g transform="translate(140,90)">
+        <div class="slide-illustration" style="min-height:160px;padding:20px 0 0;">
+          <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
+            <!-- Shield with document -->
+            <rect x="45" y="20" width="110" height="90" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="45" y="20" width="110" height="22" rx="8" fill="#dbeafe"/>
+            <rect x="45" y="34" width="110" height="8" rx="0" fill="#dbeafe"/>
+            <rect x="60" y="55" width="80" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="65" y="65" width="60" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="60" y="75" width="70" height="4" rx="2" fill="#e2e8f0"/>
+            <circle cx="100" cy="96" r="8" fill="#fbbf24"/>
+            <path d="M97 96l2.5 2.5 5-5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>
+            <g transform="translate(130,75)">
               <path d="M15 2l12 4v10c0 8-5 14-12 17-7-3-12-9-12-17V6z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
               <path d="M10 14l4 4 8-8" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
             </g>
-            <!-- Stethoscope hint -->
-            <g transform="translate(20,145)">
-              <path d="M20 10c0-5 4-9 9-9s9 4 9 9v12c0 3-2 5-5 5h-8c-3 0-5-2-5-5z" fill="none" stroke="#93c5fd" stroke-width="2"/>
-              <circle cx="29" cy="32" r="4" fill="#3b82f6"/>
+            <!-- Camera icon -->
+            <g transform="translate(15,100)">
+              <rect x="2" y="8" width="30" height="22" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+              <path d="M10 8l2-4h10l2 4" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.5"/>
+              <circle cx="17" cy="20" r="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
             </g>
           </svg>
         </div>
         <div class="slide-content">
-          <h1>Verify your qualification</h1>
-          <p>Upload a clear copy of your specialist qualification so we can verify your details.</p>
+          <h1>Verify your qualifications</h1>
+          <p>Upload or photograph each required document. AI will verify them instantly.</p>
           <div class="form-area">
-            <div id="qualUploadArea">
-              <div class="upload-zone" id="qualUploadZone">
-                <input type="file" id="qualFileInput" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
-                <div class="upload-zone-icon">
-                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                </div>
-                <div class="upload-zone-text">Tap to upload or <span>browse files</span></div>
-                <div class="upload-zone-hint">PDF, JPG, PNG, DOC up to 10MB</div>
-              </div>
+            <div id="qualDocsContainer">
+              <!-- Populated dynamically by JS based on selected country -->
             </div>
-            <div id="qualUploadCard" style="display:none;">
-              <div class="upload-card" id="qualCard">
-                <div class="upload-card-icon pending" id="qualCardIcon">
-                  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                </div>
-                <div class="upload-card-body">
-                  <div class="upload-card-title" id="qualCardTitle">document.pdf</div>
-                  <div class="upload-card-status pending" id="qualCardStatus">Uploading...</div>
-                  <div class="upload-progress" id="qualProgress"><div class="upload-progress-bar" id="qualProgressBar"></div></div>
-                </div>
-                <div class="upload-card-action">
-                  <button type="button" id="qualReplaceBtn" title="Replace file">
-                    <svg viewBox="0 0 24 24"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div class="field-error" id="qualError">Please upload your specialist qualification.</div>
+            <div class="field-error" id="qualDocsError">Please verify all required documents.</div>
           </div>
         </div>
       </div>
@@ -1276,6 +1339,7 @@
     </div>
   </div>
 
-  <script src="../js/onboarding.js"></script>
+  <script src="../js/qualification-camera.js?v=20260310a"></script>
+  <script src="../js/onboarding.js?v=20260310a"></script>
 </body>
 </html>

@@ -3,18 +3,27 @@
 
   const TOTAL_STEPS = 8;
   const STORAGE_KEY = "gp_onboarding";
+  const MAX_RETRIES = 3;
+
   const COUNTRIES = [
     { code: "GB", name: "United Kingdom", flag: "\u{1F1EC}\u{1F1E7}" },
     { code: "IE", name: "Ireland", flag: "\u{1F1EE}\u{1F1EA}" },
     { code: "NZ", name: "New Zealand", flag: "\u{1F1F3}\u{1F1FF}" },
-    { code: "ZA", name: "South Africa", flag: "\u{1F1FF}\u{1F1E6}" },
-    { code: "CA", name: "Canada", flag: "\u{1F1E8}\u{1F1E6}" },
-    { code: "LK", name: "Sri Lanka", flag: "\u{1F1F1}\u{1F1F0}" },
-    { code: "IN", name: "India", flag: "\u{1F1EE}\u{1F1F3}" },
-    { code: "PK", name: "Pakistan", flag: "\u{1F1F5}\u{1F1F0}" },
-    { code: "NG", name: "Nigeria", flag: "\u{1F1F3}\u{1F1EC}" },
-    { code: "OTHER", name: "Other", flag: "\u{1F30D}" },
   ];
+
+  const COUNTRY_DOCS = {
+    GB: [
+      { key: "mrcgp_cert", label: "MRCGP Certificate", type: "MRCGP Certificate" },
+      { key: "cct_or_pmetb", label: "CCT or PMETB Certificate", type: "CCT or PMETB Certificate" },
+    ],
+    IE: [
+      { key: "micgp_cert", label: "MICGP Certificate", type: "MICGP Certificate" },
+      { key: "cscst_cert", label: "CSCST Certificate", type: "CSCST Certificate" },
+    ],
+    NZ: [
+      { key: "frnzcgp_cert", label: "FRNZCGP Certificate", type: "FRNZCGP Certificate" },
+    ],
+  };
 
   // ── State ──────────────────────────────────
   let state = loadState();
@@ -25,8 +34,8 @@
     return {
       currentStep: 0,
       country: "",
-      countryOther: "",
-      qualFile: null,        // { name, size, type, status, scanResult }
+      qualDocs: {},         // { [docKey]: { fileName, status, scanResult, retryCount, nameMatch } }
+      accountReviewFlag: false,
       targetDate: "",
       preferredCity: "",
       whoMoving: "",
@@ -50,7 +59,6 @@
     state.currentStep = currentStep;
     state.childrenCount = childrenCount;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
-    // async server save (fire and forget)
     fetch("/api/onboarding/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -73,7 +81,6 @@
   // ── Country selector ───────────────────────
   const countrySearch = document.getElementById("countrySearch");
   const countryList = document.getElementById("countryList");
-  const otherCountryInput = document.getElementById("otherCountryInput");
 
   function renderCountryList(filter) {
     const q = (filter || "").toLowerCase().trim();
@@ -95,45 +102,255 @@
     state.country = c.code;
     countrySearch.value = c.name;
     renderCountryList("");
-    if (c.code === "OTHER") {
-      otherCountryInput.classList.add("show");
-      otherCountryInput.focus();
-    } else {
-      otherCountryInput.classList.remove("show");
-      state.countryOther = "";
-    }
     hideError("countryError");
+    const hint = document.getElementById("countryHint");
+    if (hint) hint.style.display = "none";
+    // Reset qual docs when country changes
+    state.qualDocs = {};
+    state.accountReviewFlag = false;
     saveState();
   }
 
-  countrySearch.addEventListener("input", () => {
-    renderCountryList(countrySearch.value);
-  });
-  countrySearch.addEventListener("focus", () => {
-    renderCountryList(countrySearch.value);
-  });
-  otherCountryInput.addEventListener("input", () => {
-    state.countryOther = otherCountryInput.value.trim();
-    saveState();
-  });
+  countrySearch.addEventListener("input", () => renderCountryList(countrySearch.value));
+  countrySearch.addEventListener("focus", () => renderCountryList(countrySearch.value));
   renderCountryList("");
 
-  // restore country name in search box
   if (state.country) {
     const match = COUNTRIES.find((c) => c.code === state.country);
-    if (match) {
-      countrySearch.value = match.name;
-      if (match.code === "OTHER") {
-        otherCountryInput.classList.add("show");
-        otherCountryInput.value = state.countryOther || "";
-      }
-    }
+    if (match) countrySearch.value = match.name;
   }
 
-  // ── File upload helpers ────────────────────
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-  const ACCEPTED_DOC = ["application/pdf", "image/jpeg", "image/png", "image/jpg",
-    "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
+  // ── Qualification document verification (Step 2) ──
+  const qualDocsContainer = document.getElementById("qualDocsContainer");
+  let activeDocUploads = {}; // track which docs are currently being scanned
+
+  function getProfileName() {
+    // Try to get name from session profile
+    if (window.gpSessionProfile && window.gpSessionProfile.full_name) return window.gpSessionProfile.full_name;
+    if (window.gpSessionProfile && window.gpSessionProfile.name) return window.gpSessionProfile.name;
+    if (window.gpSessionProfile && window.gpSessionProfile.email) return window.gpSessionProfile.email.split("@")[0];
+    return "";
+  }
+
+  function renderQualDocSlots() {
+    if (!qualDocsContainer) return;
+    const docs = COUNTRY_DOCS[state.country] || [];
+    qualDocsContainer.innerHTML = "";
+
+    if (docs.length === 0) {
+      qualDocsContainer.innerHTML = '<p style="color:var(--muted);font-size:14px;">Select a country first.</p>';
+      return;
+    }
+
+    docs.forEach((doc, idx) => {
+      const docState = (state.qualDocs && state.qualDocs[doc.key]) || {};
+      const status = docState.status || "pending";
+      const retryCount = docState.retryCount || 0;
+
+      const slot = document.createElement("div");
+      slot.className = "qual-doc-slot" + (status === "verified" ? " verified" : status === "failed" ? " failed" : status === "scanning" ? " scanning" : "");
+      slot.id = "qualSlot_" + doc.key;
+
+      // Badge
+      let badgeClass = "pending", badgeText = "Required";
+      if (status === "verified") { badgeClass = "verified"; badgeText = "Verified"; }
+      else if (status === "failed") { badgeClass = "failed"; badgeText = "Failed"; }
+      else if (status === "scanning") { badgeClass = "scanning"; badgeText = "Scanning..."; }
+      else if (status === "manual_review") { badgeClass = "review"; badgeText = "Under Review"; }
+
+      let infoHtml = "";
+      if (status === "scanning") {
+        infoHtml = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> AI is verifying your document...</div>';
+      } else if (status === "verified") {
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; ' + (docState.fileName || "Document") + ' verified</div>';
+      } else if (status === "failed" && retryCount >= MAX_RETRIES) {
+        infoHtml = '<div class="qual-doc-slot-info error">Max attempts reached. Will be reviewed manually.</div>';
+      } else if (status === "failed") {
+        const issues = (docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues.join(", ") : "Verification failed";
+        infoHtml = '<div class="qual-doc-slot-info error">' + issues + '</div>';
+        infoHtml += '<div class="qual-doc-slot-retry">Attempt ' + retryCount + ' of ' + MAX_RETRIES + '</div>';
+      } else if (status === "manual_review") {
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Flagged for manual review</div>';
+      }
+
+      const showActions = status !== "verified" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES) && status !== "manual_review";
+
+      slot.innerHTML =
+        '<div class="qual-doc-slot-header">' +
+          '<span class="qual-doc-slot-label">' + doc.label + '</span>' +
+          '<span class="qual-doc-slot-badge ' + badgeClass + '">' + badgeText + '</span>' +
+        '</div>' +
+        (showActions ?
+          '<div class="qual-doc-slot-actions">' +
+            '<button class="qual-doc-btn" data-qual-upload="' + doc.key + '" type="button">' +
+              '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>' +
+              'Upload' +
+            '</button>' +
+            '<button class="qual-doc-btn" data-qual-camera="' + doc.key + '" type="button">' +
+              '<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>' +
+              'Camera' +
+            '</button>' +
+          '</div>' +
+          '<input type="file" id="qualFileInput_' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none;" />'
+        : '') +
+        infoHtml;
+
+      // "OR" label for CCT/PMETB
+      if (doc.key === "cct_or_pmetb") {
+        const orDiv = document.createElement("div");
+        orDiv.className = "qual-doc-or";
+        orDiv.textContent = "Upload either your CCT or PMETB certificate";
+        qualDocsContainer.appendChild(orDiv);
+      }
+
+      qualDocsContainer.appendChild(slot);
+    });
+
+    // Wire up events
+    qualDocsContainer.querySelectorAll("[data-qual-upload]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.qualUpload;
+        const inp = document.getElementById("qualFileInput_" + key);
+        if (inp) inp.click();
+      });
+    });
+
+    qualDocsContainer.querySelectorAll("[data-qual-camera]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.qualCamera;
+        const doc = (COUNTRY_DOCS[state.country] || []).find((d) => d.key === key);
+        if (!doc || !window.QualCamera) return;
+        window.QualCamera.open(doc.label, (blob, err) => {
+          if (err) { alert(err); return; }
+          if (blob) handleDocVerification(key, blob, doc.label + ".jpg");
+        });
+      });
+    });
+
+    qualDocsContainer.querySelectorAll("input[type='file']").forEach((inp) => {
+      inp.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const key = inp.id.replace("qualFileInput_", "");
+        handleDocVerification(key, file, file.name);
+      });
+    });
+  }
+
+  async function handleDocVerification(docKey, fileOrBlob, fileName) {
+    if (activeDocUploads[docKey]) return; // prevent double submit
+    activeDocUploads[docKey] = true;
+
+    const doc = (COUNTRY_DOCS[state.country] || []).find((d) => d.key === docKey);
+    if (!doc) { delete activeDocUploads[docKey]; return; }
+
+    // Initialize doc state
+    if (!state.qualDocs) state.qualDocs = {};
+    const prev = state.qualDocs[docKey] || {};
+    const retryCount = (prev.retryCount || 0) + (prev.status === "failed" ? 0 : 0);
+
+    state.qualDocs[docKey] = {
+      fileName: fileName,
+      status: "scanning",
+      scanResult: null,
+      retryCount: prev.retryCount || 0,
+      nameMatch: null,
+    };
+    saveState();
+    renderQualDocSlots();
+
+    try {
+      // Convert to base64
+      const base64 = await fileToBase64(fileOrBlob);
+      const mimeType = fileOrBlob.type || "image/jpeg";
+
+      const resp = await fetch("/api/ai/verify-qualification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType: mimeType,
+          documentType: doc.type,
+          expectedCountry: state.country,
+          profileName: getProfileName(),
+        }),
+      });
+
+      const data = await resp.json();
+
+      if (data.ok && data.verification) {
+        const v = data.verification;
+        if (v.verified && v.nameMatch !== "mismatch") {
+          state.qualDocs[docKey].status = "verified";
+          state.qualDocs[docKey].scanResult = v;
+          state.qualDocs[docKey].nameMatch = v.nameMatch;
+        } else if (v.nameMatch === "mismatch") {
+          state.qualDocs[docKey].status = "failed";
+          state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
+          state.qualDocs[docKey].scanResult = { ...v, issues: v.issues || ["Name on document doesn't match your profile."] };
+          state.accountReviewFlag = true;
+        } else {
+          state.qualDocs[docKey].status = "failed";
+          state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
+          state.qualDocs[docKey].scanResult = v;
+        }
+      } else if (data.queued) {
+        state.qualDocs[docKey].status = "manual_review";
+        state.qualDocs[docKey].scanResult = { issues: [data.message || "Queued for review"] };
+      } else {
+        state.qualDocs[docKey].status = "failed";
+        state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
+        state.qualDocs[docKey].scanResult = { issues: [data.message || "Verification failed"] };
+      }
+
+      // If max retries reached and still failed, flag for review
+      if (state.qualDocs[docKey].status === "failed" && state.qualDocs[docKey].retryCount >= MAX_RETRIES) {
+        state.accountReviewFlag = true;
+        state.qualDocs[docKey].status = "manual_review";
+      }
+    } catch (err) {
+      state.qualDocs[docKey].status = "failed";
+      state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
+      state.qualDocs[docKey].scanResult = { issues: ["Network error. Please try again."] };
+    }
+
+    delete activeDocUploads[docKey];
+    saveState();
+    renderQualDocSlots();
+  }
+
+  function fileToBase64(fileOrBlob) {
+    return new Promise((resolve, reject) => {
+      // If file is PDF, we need to tell user to use image
+      if (fileOrBlob.type === "application/pdf") {
+        reject(new Error("Please upload an image (JPG, PNG) or use the camera. PDF scanning is not yet supported."));
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        // Strip data URL prefix
+        const base64 = result.split(",")[1] || result;
+        resolve(base64);
+      };
+      reader.onerror = () => reject(new Error("Failed to read file."));
+      reader.readAsDataURL(fileOrBlob);
+    });
+  }
+
+  function allDocsComplete() {
+    const docs = COUNTRY_DOCS[state.country] || [];
+    if (docs.length === 0) return false;
+    return docs.every((doc) => {
+      const d = state.qualDocs && state.qualDocs[doc.key];
+      return d && (d.status === "verified" || d.status === "manual_review");
+    });
+  }
+
+  // ── File upload helpers (CV and ID) ─────────
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
   function isValidFile(file) {
     if (file.size > MAX_FILE_SIZE) return { ok: false, reason: "File must be under 10MB." };
@@ -157,155 +374,11 @@
     });
   }
 
-  function simulateAIScan() {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        // simulate AI verification result
-        const rand = Math.random();
-        if (rand < 0.7) resolve({ status: "verified", message: "Qualification verified" });
-        else if (rand < 0.9) resolve({ status: "manual_review", message: "Pending manual review" });
-        else resolve({ status: "needs_reupload", message: "Needs clearer copy" });
-      }, 2000);
-    });
-  }
-
-  async function handleQualUpload(file) {
-    const check = isValidFile(file);
-    if (!check.ok) {
-      showError("qualError", check.reason);
-      return;
-    }
-    hideError("qualError");
-
-    // show card, hide zone
-    document.getElementById("qualUploadZone").parentElement.style.display = "none";
-    const cardEl = document.getElementById("qualUploadCard");
-    cardEl.style.display = "block";
-
-    const card = document.getElementById("qualCard");
-    const icon = document.getElementById("qualCardIcon");
-    const title = document.getElementById("qualCardTitle");
-    const statusEl = document.getElementById("qualCardStatus");
-    const progress = document.getElementById("qualProgress");
-    const progressBar = document.getElementById("qualProgressBar");
-
-    title.textContent = file.name;
-    card.className = "upload-card";
-    icon.className = "upload-card-icon pending";
-    statusEl.textContent = "Uploading...";
-    statusEl.className = "upload-card-status pending";
-    progress.classList.add("show");
-    progressBar.style.width = "0%";
-
-    state.qualFile = { name: file.name, size: file.size, type: file.type, status: "uploading", scanResult: null };
-    saveState();
-
-    await simulateUpload(file, (pct) => {
-      progressBar.style.width = pct + "%";
-    });
-
-    // scanning phase
-    progress.classList.remove("show");
-    card.className = "upload-card scanning";
-    icon.className = "upload-card-icon scanning";
-    statusEl.textContent = "AI scanning...";
-    statusEl.className = "upload-card-status scanning";
-    state.qualFile.status = "scanning";
-    saveState();
-
-    // try real AI scan first, fall back to simulated
-    let result;
-    try {
-      const resp = await fetch("/api/ai/scan-qualification", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ fileName: file.name, textSnippet: "" }),
-      });
-      const data = await resp.json();
-      if (data.ok && data.classification) {
-        const conf = data.classification.confidence || 0;
-        if (conf >= 0.7) result = { status: "verified", message: "Qualification verified" };
-        else if (conf >= 0.4) result = { status: "manual_review", message: "Pending manual review" };
-        else result = { status: "needs_reupload", message: "Needs clearer copy" };
-      } else {
-        result = await simulateAIScan();
-      }
-    } catch (e) {
-      result = await simulateAIScan();
-    }
-
-    state.qualFile.status = result.status;
-    state.qualFile.scanResult = result;
-
-    if (result.status === "verified") {
-      card.className = "upload-card completed";
-      icon.className = "upload-card-icon completed";
-      statusEl.textContent = "Verified";
-      statusEl.className = "upload-card-status completed";
-    } else if (result.status === "manual_review") {
-      card.className = "upload-card";
-      icon.className = "upload-card-icon completed";
-      statusEl.textContent = "Pending manual review";
-      statusEl.className = "upload-card-status review";
-    } else {
-      card.className = "upload-card error";
-      icon.className = "upload-card-icon error";
-      statusEl.textContent = "Please upload a clearer copy";
-      statusEl.className = "upload-card-status error";
-    }
-    saveState();
-  }
-
-  // qual file input
-  const qualFileInput = document.getElementById("qualFileInput");
-  qualFileInput.addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (file) handleQualUpload(file);
-  });
-
-  // qual replace button
-  document.getElementById("qualReplaceBtn").addEventListener("click", () => {
-    qualFileInput.value = "";
-    qualFileInput.click();
-  });
-
-  // Restore qual upload state
-  if (state.qualFile && state.qualFile.status !== "uploading" && state.qualFile.status !== "scanning") {
-    restoreQualCard();
-  }
-
-  function restoreQualCard() {
-    if (!state.qualFile) return;
-    document.getElementById("qualUploadZone").parentElement.style.display = "none";
-    document.getElementById("qualUploadCard").style.display = "block";
-    const card = document.getElementById("qualCard");
-    const icon = document.getElementById("qualCardIcon");
-    const title = document.getElementById("qualCardTitle");
-    const statusEl = document.getElementById("qualCardStatus");
-    title.textContent = state.qualFile.name;
-    if (state.qualFile.status === "verified") {
-      card.className = "upload-card completed";
-      icon.className = "upload-card-icon completed";
-      statusEl.textContent = "Verified";
-      statusEl.className = "upload-card-status completed";
-    } else if (state.qualFile.status === "manual_review") {
-      card.className = "upload-card";
-      icon.className = "upload-card-icon completed";
-      statusEl.textContent = "Pending manual review";
-      statusEl.className = "upload-card-status review";
-    } else {
-      card.className = "upload-card error";
-      icon.className = "upload-card-icon error";
-      statusEl.textContent = "Please upload a clearer copy";
-      statusEl.className = "upload-card-status error";
-    }
-  }
-
   // ── CV and ID uploads (step 6) ─────────────
   function setupSimpleUpload(cardId, iconId, statusId, progressId, progressBarId, fileInputId, stateKey, label) {
     const card = document.getElementById(cardId);
     const fileInput = document.getElementById(fileInputId);
+    if (!card || !fileInput) return;
 
     card.addEventListener("click", (e) => {
       if (e.target.closest("button")) return;
@@ -364,42 +437,43 @@
   setupSimpleUpload("cvCard", "cvCardIcon", "cvCardStatus", "cvProgress", "cvProgressBar", "cvFileInput", "cvFile", "CV");
   setupSimpleUpload("idCard", "idCardIcon", "idCardStatus", "idProgress", "idProgressBar", "idFileInput", "idFile", "ID");
 
-  // doc qual replace on step 6
-  document.getElementById("docQualReplace").addEventListener("click", () => {
-    // create temp file input
-    const inp = document.createElement("input");
-    inp.type = "file";
-    inp.accept = ".pdf,.jpg,.jpeg,.png,.doc,.docx";
-    inp.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) handleQualUpload(file);
-      updateDocQualCard();
-    });
-    inp.click();
-  });
-
+  // ── Update doc qual card on step 6 ──────────
   function updateDocQualCard() {
     const icon = document.getElementById("docQualIcon");
     const status = document.getElementById("docQualStatus");
     const card = document.getElementById("docQualCard");
-    if (state.qualFile && (state.qualFile.status === "verified" || state.qualFile.status === "manual_review")) {
+    if (!icon || !status || !card) return;
+
+    const docs = COUNTRY_DOCS[state.country] || [];
+    const allVerified = docs.length > 0 && docs.every((d) => state.qualDocs[d.key] && state.qualDocs[d.key].status === "verified");
+    const anyDone = docs.some((d) => state.qualDocs[d.key] && (state.qualDocs[d.key].status === "verified" || state.qualDocs[d.key].status === "manual_review"));
+
+    if (allVerified) {
       card.className = "upload-card completed";
       icon.className = "upload-card-icon completed";
-      status.textContent = state.qualFile.status === "verified" ? "Verified" : "Pending review";
+      status.textContent = "All qualifications verified";
       status.className = "upload-card-status completed";
-    } else if (state.qualFile) {
-      card.className = "upload-card error";
-      icon.className = "upload-card-icon error";
-      status.textContent = "Needs re-upload";
-      status.className = "upload-card-status error";
+    } else if (anyDone) {
+      card.className = "upload-card";
+      icon.className = "upload-card-icon completed";
+      status.textContent = "Qualifications under review";
+      status.className = "upload-card-status review";
     } else {
       card.className = "upload-card";
       icon.className = "upload-card-icon pending";
-      status.textContent = "Not uploaded";
+      status.textContent = "Not yet verified";
       status.className = "upload-card-status pending";
     }
   }
-  updateDocQualCard();
+
+  // doc qual replace on step 6
+  const docQualReplace = document.getElementById("docQualReplace");
+  if (docQualReplace) {
+    docQualReplace.addEventListener("click", () => {
+      // Go back to step 2 to re-upload
+      goToStep(2);
+    });
+  }
 
   // ── Date picker ────────────────────────────
   const targetDateInput = document.getElementById("targetDate");
@@ -411,7 +485,7 @@
     state.targetDate = targetDateInput.value;
     const selected = new Date(targetDateInput.value);
     if (selected < minDate) {
-      showError("dateError", "Your target date must be at least 5 months from today to allow enough time for registration and relocation.");
+      showError("dateError", "Your target date must be at least 5 months from today.");
     } else {
       hideError("dateError");
     }
@@ -469,32 +543,34 @@
   // ── Error helpers ──────────────────────────
   function showError(id, msg) {
     const el = document.getElementById(id);
+    if (!el) return;
     if (msg) el.textContent = msg;
     el.classList.add("show");
   }
   function hideError(id) {
-    document.getElementById(id).classList.remove("show");
+    const el = document.getElementById(id);
+    if (el) el.classList.remove("show");
   }
 
   // ── Step validation ────────────────────────
   function validateStep(step) {
     switch (step) {
-      case 0: return true; // welcome
+      case 0: return true;
       case 1: // country
         if (!state.country) { showError("countryError"); return false; }
-        if (state.country === "OTHER" && !state.countryOther) { showError("countryError", "Please enter your country."); return false; }
+        if (!COUNTRY_DOCS[state.country]) {
+          const hint = document.getElementById("countryHint");
+          if (hint) hint.style.display = "block";
+          return false;
+        }
         hideError("countryError");
         return true;
-      case 2: // qualification
-        if (!state.qualFile || state.qualFile.status === "uploading" || state.qualFile.status === "scanning") {
-          showError("qualError");
+      case 2: // qualification docs
+        if (!allDocsComplete()) {
+          showError("qualDocsError", "Please verify all required documents before continuing.");
           return false;
         }
-        if (state.qualFile.status === "needs_reupload") {
-          showError("qualError", "Please upload a clearer copy of your qualification.");
-          return false;
-        }
-        hideError("qualError");
+        hideError("qualDocsError");
         return true;
       case 3: // date & city
         let ok = true;
@@ -525,7 +601,6 @@
   }
 
   // ── Skip logic ─────────────────────────────
-  // skippable: step 5 (special notes)
   function isSkippable(step) {
     return step === 5;
   }
@@ -533,16 +608,20 @@
   // ── Review builder ─────────────────────────
   function buildReview() {
     const list = document.getElementById("reviewList");
-    const countryName = state.country === "OTHER"
-      ? (state.countryOther || "Other")
-      : (COUNTRIES.find((c) => c.code === state.country) || {}).name || "Not set";
+    const countryName = (COUNTRIES.find((c) => c.code === state.country) || {}).name || "Not set";
 
-    const qualStatus = state.qualFile
-      ? (state.qualFile.status === "verified" ? "Verified" : state.qualFile.status === "manual_review" ? "Pending review" : "Needs re-upload")
-      : "Not uploaded";
-    const qualClass = state.qualFile
-      ? (state.qualFile.status === "verified" ? "status-verified" : state.qualFile.status === "manual_review" ? "status-pending" : "status-missing")
-      : "status-missing";
+    // Qual docs summary
+    const docs = COUNTRY_DOCS[state.country] || [];
+    const qualRows = docs.map((doc) => {
+      const d = state.qualDocs[doc.key];
+      let value = "Not uploaded", cls = "status-missing";
+      if (d) {
+        if (d.status === "verified") { value = "Verified"; cls = "status-verified"; }
+        else if (d.status === "manual_review") { value = "Under Review"; cls = "status-pending"; }
+        else { value = "Not verified"; cls = "status-missing"; }
+      }
+      return { label: doc.label, value, cls };
+    });
 
     const whoLabels = {
       just_me: "Just me",
@@ -554,17 +633,13 @@
 
     const rows = [
       { label: "Country", value: countryName },
-      { label: "Qualification", value: qualStatus, cls: qualClass },
+      ...qualRows,
       { label: "Target date", value: state.targetDate ? new Date(state.targetDate).toLocaleDateString("en-AU", { year: "numeric", month: "long", day: "numeric" }) : "Not set" },
       { label: "Preferred city", value: state.preferredCity || "Not set" },
       { label: "Who's moving", value: whoLabels[state.whoMoving] || "Not set" },
     ];
-    if (hasChildren) {
-      rows.push({ label: "Children", value: String(childrenCount) });
-    }
-    if (state.specialNotes) {
-      rows.push({ label: "Notes", value: state.specialNotes.slice(0, 120) + (state.specialNotes.length > 120 ? "..." : "") });
-    }
+    if (hasChildren) rows.push({ label: "Children", value: String(childrenCount) });
+    if (state.specialNotes) rows.push({ label: "Notes", value: state.specialNotes.slice(0, 120) + (state.specialNotes.length > 120 ? "..." : "") });
     rows.push({
       label: "CV",
       value: state.cvFile && state.cvFile.status === "uploaded" ? "Uploaded" : "Missing",
@@ -575,6 +650,10 @@
       value: state.idFile && state.idFile.status === "uploaded" ? "Uploaded" : "Missing",
       cls: state.idFile && state.idFile.status === "uploaded" ? "status-verified" : "status-missing",
     });
+
+    if (state.accountReviewFlag) {
+      rows.push({ label: "Account", value: "Under Review", cls: "status-pending" });
+    }
 
     list.innerHTML = rows.map((r) =>
       `<div class="review-row"><span class="review-label">${r.label}</span><span class="review-value ${r.cls || ""}">${r.value}</span></div>`
@@ -588,30 +667,22 @@
     const prev = currentStep;
     currentStep = step;
 
-    // update shell data-step for blob colors
     shell.dataset.step = step;
 
-    // slide transitions
     slides.forEach((s, i) => {
       s.classList.remove("active", "exit-left");
-      if (i === step) {
-        s.classList.add("active");
-      } else if (i === prev && step > prev) {
-        s.classList.add("exit-left");
-      }
+      if (i === step) s.classList.add("active");
+      else if (i === prev && step > prev) s.classList.add("exit-left");
     });
 
-    // progress dots
     dots.forEach((d, i) => {
       d.classList.remove("active", "done");
       if (i === step) d.classList.add("active");
       else if (i < step) d.classList.add("done");
     });
 
-    // back button
     backBtn.classList.toggle("visible", step > 0);
 
-    // skip button
     if (isSkippable(step)) {
       skipBtn.classList.remove("invisible");
       skipBtn.textContent = "SKIP";
@@ -619,7 +690,6 @@
       skipBtn.classList.add("invisible");
     }
 
-    // next button text
     if (step === 0) {
       nextBtn.textContent = "GET STARTED";
       nextBtn.classList.remove("submit");
@@ -631,13 +701,12 @@
       nextBtn.classList.remove("submit");
     }
 
-    // build review on last step
     if (step === TOTAL_STEPS - 1) {
       buildReview();
       updateDocQualCard();
     }
 
-    // update doc qual card when entering step 6
+    if (step === 2) renderQualDocSlots();
     if (step === 6) updateDocQualCard();
 
     saveState();
@@ -645,21 +714,12 @@
 
   nextBtn.addEventListener("click", () => {
     if (!validateStep(currentStep)) return;
-
-    if (currentStep === TOTAL_STEPS - 1) {
-      submitOnboarding();
-      return;
-    }
+    if (currentStep === TOTAL_STEPS - 1) { submitOnboarding(); return; }
     goToStep(currentStep + 1);
   });
 
-  skipBtn.addEventListener("click", () => {
-    goToStep(currentStep + 1);
-  });
-
-  backBtn.addEventListener("click", () => {
-    goToStep(currentStep - 1);
-  });
+  skipBtn.addEventListener("click", () => goToStep(currentStep + 1));
+  backBtn.addEventListener("click", () => goToStep(currentStep - 1));
 
   // ── Submit ─────────────────────────────────
   async function submitOnboarding() {
@@ -669,28 +729,28 @@
     state.completedAt = new Date().toISOString();
     saveState();
 
-    // also save to gp_selected_country for the main app
-    try { localStorage.setItem("gp_selected_country", JSON.stringify(state.country === "OTHER" ? state.countryOther : (COUNTRIES.find((c) => c.code === state.country) || {}).name || state.country)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem("gp_selected_country", JSON.stringify((COUNTRIES.find((c) => c.code === state.country) || {}).name || state.country)); } catch (e) { /* ignore */ }
+
+    // Set account review flag in localStorage for auth-guard
+    if (state.accountReviewFlag) {
+      try { localStorage.setItem("gp_account_under_review", "true"); } catch (e) { /* ignore */ }
+    }
 
     try {
-      const resp = await fetch("/api/onboarding/complete", {
+      await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify(state),
       });
-      await resp.json().catch(() => ({}));
-    } catch (e) {
-      // still continue even if server save fails
-    }
+    } catch (e) { /* continue */ }
 
-    // save to user state for the main app
     try {
       await fetch("/api/state", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ gp_onboarding_complete: true, gp_selected_country: state.country === "OTHER" ? state.countryOther : state.country }),
+        body: JSON.stringify({ gp_onboarding_complete: true, gp_selected_country: (COUNTRIES.find((c) => c.code === state.country) || {}).name || state.country }),
       });
     } catch (e) { /* ignore */ }
 
@@ -703,7 +763,6 @@
   });
 
   // ── Init ───────────────────────────────────
-  // Check auth first
   fetch("/api/auth/session", { credentials: "same-origin" })
     .then((r) => r.json())
     .then((data) => {
@@ -711,13 +770,11 @@
         window.location.replace("/pages/signin.html");
         return;
       }
-      // If onboarding already completed, go to dashboard
-      // TODO: re-enable once onboarding is finalized — currently always showing for testing
-      if (false && state.completedAt) {
-        window.location.replace("/pages/index.html");
-        return;
-      }
-      // restore step
+      // Store profile for name matching
+      if (data.profile) window.gpSessionProfile = data.profile;
+
+      // If onboarding already completed and navigated here directly, allow re-entry
+      // (removed auto-redirect to dashboard so users can redo onboarding via button)
       goToStep(currentStep);
     })
     .catch(() => {

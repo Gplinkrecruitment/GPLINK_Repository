@@ -13,7 +13,7 @@ const OTP_MAX_ATTEMPTS = Number(process.env.OTP_MAX_ATTEMPTS || 5);
 const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS || 10 * 60 * 1000);
 const RATE_MAX_SEND = Number(process.env.RATE_MAX_SEND || 5);
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 12 * 60 * 60 * 1000);
-const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 8 * 1024 * 1024);
+const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 12 * 1024 * 1024);
 const ADMIN_DASHBOARD_CACHE_TTL_MS = Number(process.env.ADMIN_DASHBOARD_CACHE_TTL_MS || 8000);
 const AUTH_RATE_WINDOW_MS = Number(process.env.AUTH_RATE_WINDOW_MS || 10 * 60 * 1000);
 const AUTH_RATE_MAX_ATTEMPTS = Number(process.env.AUTH_RATE_MAX_ATTEMPTS || 12);
@@ -48,6 +48,8 @@ const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim()
 const HERO_MOBILE_WEBM_URL = String(process.env.HERO_MOBILE_WEBM_URL || '').trim();
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini').trim();
+const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
+const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -223,12 +225,73 @@ function saveDbState() {
   fs.renameSync(tmpPath, DB_FILE_PATH);
 }
 
+let anthropicDailySpend = { date: '', totalCostUsd: 0, callCount: 0 };
+
+function checkAnthropicBudget() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (anthropicDailySpend.date !== today) {
+    anthropicDailySpend = { date: today, totalCostUsd: 0, callCount: 0 };
+  }
+  return anthropicDailySpend.totalCostUsd < ANTHROPIC_DAILY_LIMIT_USD;
+}
+
+function recordAnthropicSpend(inputTokens, outputTokens) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (anthropicDailySpend.date !== today) {
+    anthropicDailySpend = { date: today, totalCostUsd: 0, callCount: 0 };
+  }
+  // Claude Sonnet pricing: $3/M input, $15/M output; images ~$0.02 each
+  const cost = (inputTokens / 1000000) * 3 + (outputTokens / 1000000) * 15 + 0.02;
+  anthropicDailySpend.totalCostUsd += cost;
+  anthropicDailySpend.callCount++;
+}
+
+// Per-user rate limiting for AI verification: max 10 calls per user per day
+const aiVerifyUserCalls = new Map(); // email -> { date, count }
+const AI_VERIFY_MAX_PER_USER = 10;
+
+function checkUserAiLimit(email) {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = aiVerifyUserCalls.get(email);
+  if (!entry || entry.date !== today) {
+    aiVerifyUserCalls.set(email, { date: today, count: 0 });
+    return true;
+  }
+  return entry.count < AI_VERIFY_MAX_PER_USER;
+}
+
+function recordUserAiCall(email) {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = aiVerifyUserCalls.get(email);
+  if (!entry || entry.date !== today) {
+    aiVerifyUserCalls.set(email, { date: today, count: 1 });
+  } else {
+    entry.count++;
+  }
+}
+
+function matchNames(docName, profileName) {
+  const normalize = (n) => String(n || '').toLowerCase().trim().replace(/[^a-z\s]/g, '');
+  const docParts = normalize(docName).split(/\s+/).filter(Boolean);
+  const profileParts = normalize(profileName).split(/\s+/).filter(Boolean);
+  if (docParts.length === 0 || profileParts.length === 0) return 'unknown';
+  if (docParts.join(' ') === profileParts.join(' ')) return 'exact';
+  const docFirst = docParts[0], docLast = docParts[docParts.length - 1];
+  const profFirst = profileParts[0], profLast = profileParts[profileParts.length - 1];
+  if (docFirst === profFirst && docLast === profLast) return 'fuzzy';
+  const allProfileInDoc = profileParts.every(p => docParts.includes(p));
+  if (allProfileInDoc) return 'fuzzy';
+  const allDocInProfile = docParts.every(p => profileParts.includes(p));
+  if (allDocInProfile) return 'fuzzy';
+  return 'mismatch';
+}
+
 const CSP_SUPABASE_ORIGIN = SUPABASE_URL ? new URL(SUPABASE_URL).origin : '';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
   'Content-Security-Policy': [
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}`,
@@ -2938,6 +3001,9 @@ async function handleApi(req, res, pathname) {
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
         current.gp_onboarding = body;
         current.gp_onboarding_complete = true;
+        if (body.accountReviewFlag) {
+          current.account_status = 'under_review';
+        }
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
 
         // Also update user profile with onboarding data
@@ -2961,6 +3027,9 @@ async function handleApi(req, res, pathname) {
       if (!dbState.userState[email]) dbState.userState[email] = {};
       dbState.userState[email].gp_onboarding = body;
       dbState.userState[email].gp_onboarding_complete = true;
+      if (body.accountReviewFlag) {
+        dbState.userState[email].account_status = 'under_review';
+      }
       if (!dbState.userProfiles[email]) dbState.userProfiles[email] = {};
       if (body.country) dbState.userProfiles[email].qualification_country = body.country === 'OTHER' ? body.countryOther : body.country;
       if (body.preferredCity) dbState.userProfiles[email].preferred_city = body.preferredCity;
@@ -2971,6 +3040,175 @@ async function handleApi(req, res, pathname) {
       saveDbState(dbState);
     }
     sendJson(res, 200, { ok: true, message: 'Onboarding complete.' });
+    return;
+  }
+
+  if (pathname === '/api/ai/verify-qualification' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    if (!ANTHROPIC_API_KEY) {
+      sendJson(res, 503, { ok: false, message: 'AI verification service not configured.' });
+      return;
+    }
+
+    if (!checkAnthropicBudget()) {
+      sendJson(res, 200, { ok: false, queued: true, message: 'Verification capacity reached. Your documents will be reviewed within 24 hours.' });
+      return;
+    }
+
+    const verifyEmail = getSessionEmail(session);
+    if (verifyEmail && !checkUserAiLimit(verifyEmail)) {
+      sendJson(res, 429, { ok: false, message: 'You have reached the maximum number of verification attempts today. Please try again tomorrow.' });
+      return;
+    }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const { imageBase64, mimeType, documentType, expectedCountry, profileName } = body || {};
+    if (!imageBase64 || !documentType || !expectedCountry) {
+      sendJson(res, 400, { ok: false, message: 'Missing required fields: imageBase64, documentType, expectedCountry.' });
+      return;
+    }
+
+    const mediaType = (mimeType || 'image/jpeg').replace(/^image\/jpg$/, 'image/jpeg');
+    const validMediaTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!validMediaTypes.includes(mediaType)) {
+      sendJson(res, 400, { ok: false, message: 'Unsupported image type. Use JPEG, PNG, or WebP.' });
+      return;
+    }
+
+    const dateRules = {
+      GB: 'August 2007 or later',
+      IE: '2009 or later',
+      NZ: '2010 or later'
+    };
+    const dateRule = dateRules[expectedCountry] || 'any date';
+
+    const prompt = `You are verifying a GP qualification document for immigration to Australia.
+
+Expected document type: ${documentType}
+Expected country of qualification: ${expectedCountry}
+
+VERIFICATION RULES:
+1. Is this the correct document type? Check for the correct issuing body:
+   - MRCGP: "Royal College of General Practitioners"
+   - CCT: "General Medical Council" with "Certificate of Completion of Training"
+   - PMETB: "Postgraduate Medical Education and Training Board"
+   - MICGP: "Irish College of General Practitioners"
+   - CSCST: "Certificate of Satisfactory Completion of Specialist Training" from an Irish medical body
+   - FRNZCGP: "Royal New Zealand College of General Practitioners"
+
+2. Is the date on the document valid? Must be from ${dateRule}.
+
+3. What full name appears on the document?
+
+4. Is the document legible and appears authentic (not obviously edited)?
+
+Return ONLY valid JSON with no markdown formatting:
+{"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false,"issues":["list of issues if any"]}`;
+
+    try {
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+          max_tokens: 500,
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'base64', media_type: mediaType, data: imageBase64 }
+              },
+              { type: 'text', text: prompt }
+            ]
+          }]
+        })
+      });
+
+      if (!anthropicRes.ok) {
+        const errText = await anthropicRes.text().catch(() => '');
+        console.error('[AI Verify] Anthropic API error:', anthropicRes.status, errText);
+        sendJson(res, 502, { ok: false, message: 'AI service returned an error.' });
+        return;
+      }
+
+      const anthropicData = await anthropicRes.json();
+      const inputTokens = (anthropicData.usage && anthropicData.usage.input_tokens) || 0;
+      const outputTokens = (anthropicData.usage && anthropicData.usage.output_tokens) || 0;
+      recordAnthropicSpend(inputTokens, outputTokens);
+      if (verifyEmail) recordUserAiCall(verifyEmail);
+
+      const textContent = anthropicData.content && anthropicData.content[0] && anthropicData.content[0].text;
+      if (!textContent) {
+        sendJson(res, 502, { ok: false, message: 'AI returned empty response.' });
+        return;
+      }
+
+      let verification;
+      try {
+        const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+        verification = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
+      } catch (parseErr) {
+        console.error('[AI Verify] JSON parse failed:', textContent);
+        sendJson(res, 502, { ok: false, message: 'AI returned invalid response format.' });
+        return;
+      }
+
+      // Name matching
+      let nameMatch = 'unknown';
+      if (profileName && verification.nameFound) {
+        nameMatch = matchNames(verification.nameFound, profileName);
+      }
+      verification.nameMatch = nameMatch;
+      if (nameMatch === 'mismatch') {
+        verification.issues = verification.issues || [];
+        verification.issues.push('Name on document does not match profile name.');
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        verification,
+        spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount }
+      });
+    } catch (fetchErr) {
+      console.error('[AI Verify] Fetch error:', fetchErr.message || fetchErr);
+      sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
+    }
+    return;
+  }
+
+  if (pathname === '/api/account/status' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false }); return; }
+
+    let accountStatus = 'active';
+    if (isSupabaseDbConfigured()) {
+      try {
+        const remote = await getSupabaseUserStateByEmail(email);
+        if (remote && remote.state && remote.state.account_status) {
+          accountStatus = remote.state.account_status;
+        }
+      } catch (e) { /* ignore */ }
+    } else {
+      const dbState = loadDbState();
+      if (dbState.userState[email] && dbState.userState[email].account_status) {
+        accountStatus = dbState.userState[email].account_status;
+      }
+    }
+    sendJson(res, 200, { ok: true, accountStatus });
     return;
   }
 
