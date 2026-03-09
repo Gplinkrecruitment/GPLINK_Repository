@@ -3,6 +3,7 @@
 
   var MODAL_ID = 'gp-qual-scan-modal';
   var STYLE_ID = 'gp-qual-scan-style';
+  var modalOpenedAt = 0;
 
   var DOC_LABELS = {
     primary_medical_degree: 'Primary Medical Degree',
@@ -363,6 +364,7 @@
   function openModal() {
     var modal = ensureModal();
     resetModal();
+    modalOpenedAt = Date.now();
     modal.setAttribute('aria-hidden', 'false');
     // Trigger reflow before adding show class for animation
     void modal.offsetWidth;
@@ -754,7 +756,11 @@
       // Backdrop click to close
       var modal = document.getElementById(MODAL_ID);
       if (!modal || !modal.classList.contains('show')) return;
-      if (target === modal) closeModal();
+      if (target === modal) {
+        // Prevent immediate synthetic click after touch from closing right after open.
+        if (Date.now() - modalOpenedAt < 450) return;
+        closeModal();
+      }
     }, true);
 
     // File input change
