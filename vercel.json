@@ -8,20 +8,13 @@
         "includeFiles": [
           "pages/**",
           "js/**",
+          "media/**",
           "data/.gitkeep"
         ]
       }
     }
   ],
   "routes": [
-    {
-      "src": "/js/(.*)",
-      "dest": "/js/$1"
-    },
-    {
-      "src": "/media/(.*)",
-      "dest": "/media/$1"
-    },
     {
       "src": "/(.*)",
       "dest": "/server.js"
