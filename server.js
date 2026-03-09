@@ -879,7 +879,7 @@ function serveStatic(req, res, pathname) {
     const mime = MIME[ext] || 'application/octet-stream';
     const isMedia = pathname.startsWith('/media/');
     const isVideo = ext === '.mp4';
-    const cacheControl = ext === '.html'
+    const cacheControl = (ext === '.html' || ext === '.js')
       ? 'no-cache'
       : (isMedia ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
     const range = req.headers.range;
@@ -2679,21 +2679,34 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
-    if (!loginResult.ok) {
-      const msg = loginResult.data && loginResult.data.msg
-        ? loginResult.data.msg
-        : loginResult.data && loginResult.data.message
-          ? loginResult.data.message
-          : 'Invalid email or password.';
-      sendJson(res, loginResult.status === 400 || loginResult.status === 401 ? 401 : loginResult.status, { ok: false, message: msg });
+    if (isSupabaseConfigured()) {
+      const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
+      if (!loginResult.ok) {
+        const msg = loginResult.data && loginResult.data.msg
+          ? loginResult.data.msg
+          : loginResult.data && loginResult.data.message
+            ? loginResult.data.message
+            : 'Invalid email or password.';
+        sendJson(res, loginResult.status === 400 || loginResult.status === 401 ? 401 : loginResult.status, { ok: false, message: msg });
+        return;
+      }
+
+      const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
+      upsertLocalUserFromSupabaseUser(loginUser);
+      await ensureSupabaseUserProfile(loginUser);
+      setSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
+      sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
       return;
     }
 
-    const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
-    upsertLocalUserFromSupabaseUser(loginUser);
-    await ensureSupabaseUserProfile(loginUser);
-    setSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
+    // Local DB login path (development / tests)
+    const user = dbState.users[email];
+    if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+      sendJson(res, 401, { ok: false, message: 'Invalid email or password.' });
+      return;
+    }
+
+    setSession(res, getSessionProfileFromUser(email));
     sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
     return;
   }
@@ -2939,7 +2952,7 @@ async function handleApi(req, res, pathname) {
           await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
             method: 'PATCH',
             headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify(profileUpdate)
+            body: profileUpdate
           });
         }
       }
