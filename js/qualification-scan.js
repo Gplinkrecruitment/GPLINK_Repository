@@ -662,8 +662,14 @@
         e.stopPropagation();
         openModal();
       });
+      el.addEventListener('pointerup', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openModal();
+      });
       el.addEventListener('touchend', function (e) {
         e.preventDefault();
+        e.stopPropagation();
         openModal();
       }, { passive: false });
     }
@@ -674,7 +680,10 @@
     }
 
     document.addEventListener('click', function (event) {
-      var target = event.target instanceof Element ? event.target : null;
+      var rawTarget = event.target;
+      var target = rawTarget instanceof Element
+        ? rawTarget
+        : (rawTarget && rawTarget.nodeType === 3 && rawTarget.parentElement ? rawTarget.parentElement : null);
       if (!target) return;
 
       // Open scan modal
