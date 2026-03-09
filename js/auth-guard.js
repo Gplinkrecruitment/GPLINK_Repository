@@ -26,18 +26,7 @@
     if (session && session.ok) {
       window.gpSessionProfile = session.profile || null;
 
-      // Redirect to onboarding if not completed
-      // TODO: remove "true ||" once onboarding is finalized — currently always showing for testing
-      if (!isOnboardingPage && !isSignInPage) {
-        try {
-          const obRaw = localStorage.getItem("gp_onboarding");
-          const ob = obRaw ? JSON.parse(obRaw) : null;
-          if (true || !ob || !ob.completedAt) {
-            window.location.replace("/pages/onboarding.html");
-            return;
-          }
-        } catch (e) { /* if parse fails, continue normally */ }
-      }
+      // Onboarding redirect disabled — users can access it via dashboard button
 
       if (isSignInPage) {
         window.location.replace("/pages/index.html");
