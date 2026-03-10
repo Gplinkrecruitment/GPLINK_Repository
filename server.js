@@ -3230,6 +3230,40 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // Admin: set account status (for testing restricted mode)
+  if (pathname === '/api/account/set-status' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const body = await readBody(req);
+    const { email: targetEmail, status } = body;
+    if (!targetEmail || !status) {
+      sendJson(res, 400, { ok: false, message: 'email and status required' });
+      return;
+    }
+
+    if (isSupabaseDbConfigured()) {
+      try {
+        const remote = await getSupabaseUserStateByEmail(targetEmail);
+        if (remote && remote.userId) {
+          const newState = remote.state || {};
+          newState.account_status = status;
+          await upsertSupabaseUserState(remote.userId, newState, new Date().toISOString());
+        }
+      } catch (e) {
+        console.error('[SetStatus] Supabase error:', e.message);
+      }
+    } else {
+      const dbState = loadDbState();
+      if (!dbState.userState[targetEmail]) dbState.userState[targetEmail] = {};
+      dbState.userState[targetEmail].account_status = status;
+      saveDbState(dbState);
+    }
+
+    sendJson(res, 200, { ok: true, accountStatus: status });
+    return;
+  }
+
   if (pathname === '/api/ai/verify-identity' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
