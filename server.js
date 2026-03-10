@@ -3124,7 +3124,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-20241022',
+          model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
           max_tokens: 500,
           messages: [{
             role: 'user',
