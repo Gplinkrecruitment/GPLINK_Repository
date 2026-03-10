@@ -290,12 +290,14 @@
         } else if (v.nameMatch === "mismatch") {
           state.qualDocs[docKey].status = "failed";
           state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
-          state.qualDocs[docKey].scanResult = { ...v, issues: v.issues || ["Name on document doesn't match your profile."] };
+          var nameIssues = (v.issues && v.issues.length > 0) ? v.issues : ["Name on document doesn't match your profile."];
+          state.qualDocs[docKey].scanResult = { ...v, issues: nameIssues };
           state.accountReviewFlag = true;
         } else {
           state.qualDocs[docKey].status = "failed";
           state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
-          state.qualDocs[docKey].scanResult = v;
+          var failIssues = (v.issues && v.issues.length > 0) ? v.issues : ["Document could not be verified. Check it's the correct document type and clearly visible."];
+          state.qualDocs[docKey].scanResult = { ...v, issues: failIssues };
         }
       } else if (data.queued) {
         state.qualDocs[docKey].status = "manual_review";
@@ -316,7 +318,7 @@
     } catch (err) {
       console.error("[QualVerify] Error:", err);
       state.qualDocs[docKey].status = "failed";
-      state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
+      // Network/system errors don't count as verification retries
       state.qualDocs[docKey].scanResult = { issues: [err.message || "Network error. Please try again."] };
     }
 
