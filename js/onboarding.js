@@ -163,6 +163,7 @@
       let badgeClass = "pending", badgeText = "Required";
       if (status === "verified") { badgeClass = "verified"; badgeText = "Verified"; }
       else if (status === "verified_name_pending") { badgeClass = "verified"; badgeText = "Verified"; }
+      else if (status === "support_requested") { badgeClass = "review"; badgeText = "Support Contacted"; }
       else if (status === "failed") { badgeClass = "failed"; badgeText = "Failed"; }
       else if (status === "scanning") { badgeClass = "scanning"; badgeText = "Scanning..."; }
       else if (status === "manual_review") { badgeClass = "review"; badgeText = "Under Review"; }
@@ -180,12 +181,14 @@
         infoHtml = '<div class="qual-doc-slot-info error">' + issues + '</div>';
         infoHtml += '<div class="qual-doc-slot-retry">Attempt ' + retryCount + ' of ' + MAX_RETRIES + '</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
+      } else if (status === "support_requested") {
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Support team will verify manually via email</div>';
       } else if (status === "manual_review") {
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Flagged for manual review</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       }
 
-      const showActions = status !== "verified" && status !== "verified_name_pending" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES && !unlimitedRetries) && status !== "manual_review";
+      const showActions = status !== "verified" && status !== "verified_name_pending" && status !== "support_requested" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES && !unlimitedRetries) && status !== "manual_review";
 
       slot.innerHTML =
         '<div class="qual-doc-slot-header">' +
@@ -248,7 +251,7 @@
         if (!doc) return;
         var docState = (state.qualDocs && state.qualDocs[key]) || {};
         var issues = (docState.scanResult && docState.scanResult.issues) || [];
-        showSupportPopup(doc.label, doc.type, issues);
+        showSupportPopup(doc.label, doc.type, issues, key);
       });
     });
   }
@@ -342,7 +345,7 @@
   }
 
   // ── Support popup ──────────────────────────
-  function showSupportPopup(docLabel, docType, issues) {
+  function showSupportPopup(docLabel, docType, issues, docKey) {
     // Remove existing popup if any
     var existing = document.getElementById("qualSupportPopup");
     if (existing) existing.remove();
@@ -391,6 +394,15 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.ok) {
+          // Mark doc as support_requested so user can continue onboarding
+          if (docKey && state.qualDocs && state.qualDocs[docKey]) {
+            state.qualDocs[docKey].status = "support_requested";
+          }
+          state.accountReviewFlag = true;
+          try { localStorage.setItem("gp_account_under_review", "true"); } catch (e) {}
+          saveState();
+          renderQualDocSlots();
+
           card.innerHTML =
             '<div style="width:56px;height:56px;border-radius:50%;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">' +
               '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
@@ -563,7 +575,7 @@
     if (docs.length === 0) return false;
     return docs.every((doc) => {
       const d = state.qualDocs && state.qualDocs[doc.key];
-      return d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending");
+      return d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending" || d.status === "support_requested");
     });
   }
 
@@ -663,8 +675,10 @@
     if (!icon || !status || !card) return;
 
     const docs = COUNTRY_DOCS[state.country] || [];
-    const allVerified = docs.length > 0 && docs.every((d) => state.qualDocs[d.key] && (state.qualDocs[d.key].status === "verified" || state.qualDocs[d.key].status === "verified_name_pending"));
-    const anyDone = docs.some((d) => state.qualDocs[d.key] && (state.qualDocs[d.key].status === "verified" || state.qualDocs[d.key].status === "verified_name_pending" || state.qualDocs[d.key].status === "manual_review"));
+    const passStatuses = ["verified", "verified_name_pending", "support_requested"];
+    const doneStatuses = ["verified", "verified_name_pending", "manual_review", "support_requested"];
+    const allVerified = docs.length > 0 && docs.every((d) => state.qualDocs[d.key] && passStatuses.includes(state.qualDocs[d.key].status));
+    const anyDone = docs.some((d) => state.qualDocs[d.key] && doneStatuses.includes(state.qualDocs[d.key].status));
 
     if (allVerified) {
       card.className = "upload-card completed";

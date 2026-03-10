@@ -3271,6 +3271,7 @@ Return ONLY valid JSON with no markdown formatting:
         const nextState = {
           ...existingState,
           gpLinkSupportCases: JSON.stringify(cases),
+          account_status: 'under_review',
           updatedAt: now
         };
         await upsertSupabaseUserState(session.user_id || row?.user_id, nextState, now);
@@ -3282,6 +3283,7 @@ Return ONLY valid JSON with no markdown formatting:
       const cases = Array.isArray(parsedCases) ? parsedCases : [];
       cases.push(ticket);
       userState.gpLinkSupportCases = JSON.stringify(cases);
+      userState.account_status = 'under_review';
       userState.updatedAt = now;
       dbState.userState[email] = userState;
       saveDbState(dbState);
