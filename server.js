@@ -3231,12 +3231,19 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // Admin: set account status (for testing restricted mode)
-  if (pathname === '/api/account/set-status' && req.method === 'POST') {
+  if (pathname === '/api/account/set-status' && (req.method === 'POST' || req.method === 'GET')) {
     const session = requireSession(req, res);
     if (!session) return;
 
-    const body = await readBody(req);
-    const { email: targetEmail, status } = body;
+    let targetEmail, status;
+    if (req.method === 'GET') {
+      targetEmail = url.searchParams.get('email');
+      status = url.searchParams.get('status');
+    } else {
+      const body = await readBody(req);
+      targetEmail = body.email;
+      status = body.status;
+    }
     if (!targetEmail || !status) {
       sendJson(res, 400, { ok: false, message: 'email and status required' });
       return;
@@ -3260,7 +3267,13 @@ Return ONLY valid JSON with no markdown formatting:
       saveDbState(dbState);
     }
 
-    sendJson(res, 200, { ok: true, accountStatus: status });
+    if (req.method === 'GET') {
+      // Redirect to home page so user sees the result immediately
+      res.writeHead(302, { Location: '/pages/index.html' });
+      res.end();
+    } else {
+      sendJson(res, 200, { ok: true, accountStatus: status });
+    }
     return;
   }
 
