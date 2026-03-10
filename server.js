@@ -3212,6 +3212,15 @@ Return ONLY valid JSON with no markdown formatting:
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false }); return; }
 
+    // TEMP: Force under_review for smithmiller1234 for 5 min after deploy
+    if (!global._gpTestReviewStart) global._gpTestReviewStart = Date.now();
+    const testEmail = 'smithmiller1234@gmail.com';
+    const testWindow = 5 * 60 * 1000; // 5 minutes
+    if (email === testEmail && (Date.now() - global._gpTestReviewStart) < testWindow) {
+      sendJson(res, 200, { ok: true, accountStatus: 'under_review' });
+      return;
+    }
+
     let accountStatus = 'active';
     if (isSupabaseDbConfigured()) {
       try {
@@ -3249,26 +3258,41 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    if (isSupabaseDbConfigured()) {
-      try {
-        const remote = await getSupabaseUserStateByEmail(targetEmail);
-        if (remote && remote.userId) {
-          const newState = remote.state || {};
-          newState.account_status = status;
-          await upsertSupabaseUserState(remote.userId, newState, new Date().toISOString());
+    async function setAccountStatus(email, newStatus) {
+      if (isSupabaseDbConfigured()) {
+        try {
+          const remote = await getSupabaseUserStateByEmail(email);
+          if (remote && remote.userId) {
+            const newState = remote.state || {};
+            newState.account_status = newStatus;
+            await upsertSupabaseUserState(remote.userId, newState, new Date().toISOString());
+          }
+        } catch (e) {
+          console.error('[SetStatus] Supabase error:', e.message);
         }
-      } catch (e) {
-        console.error('[SetStatus] Supabase error:', e.message);
+      } else {
+        const dbState = loadDbState();
+        if (!dbState.userState[email]) dbState.userState[email] = {};
+        dbState.userState[email].account_status = newStatus;
+        saveDbState(dbState);
       }
-    } else {
-      const dbState = loadDbState();
-      if (!dbState.userState[targetEmail]) dbState.userState[targetEmail] = {};
-      dbState.userState[targetEmail].account_status = status;
-      saveDbState(dbState);
+    }
+
+    await setAccountStatus(targetEmail, status);
+
+    // If setting to under_review, auto-revert to active after 5 minutes
+    if (status === 'under_review') {
+      setTimeout(async () => {
+        try {
+          await setAccountStatus(targetEmail, 'active');
+          console.log('[SetStatus] Auto-reverted ' + targetEmail + ' to active after 5 minutes');
+        } catch (e) {
+          console.error('[SetStatus] Auto-revert error:', e.message);
+        }
+      }, 5 * 60 * 1000);
     }
 
     if (req.method === 'GET') {
-      // Redirect to home page so user sees the result immediately
       res.writeHead(302, { Location: '/pages/index.html' });
       res.end();
     } else {
