@@ -105,8 +105,8 @@
     if (!video || !video.videoWidth) return;
 
     var canvas = document.createElement("canvas");
-    // Resize to max 1600px to keep payload manageable
-    var maxDim = 1600;
+    // Resize to max 1200px to stay under Vercel 4.5MB body limit
+    var maxDim = 1200;
     var w = video.videoWidth;
     var h = video.videoHeight;
     if (w > maxDim || h > maxDim) {

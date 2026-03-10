@@ -263,7 +263,8 @@
     try {
       // Convert to base64
       const base64 = await fileToBase64(fileOrBlob);
-      const mimeType = fileOrBlob.type || "image/jpeg";
+      // After resizing, image is always JPEG
+      const mimeType = "image/jpeg";
 
       const resp = await fetch("/api/ai/verify-qualification", {
         method: "POST",
@@ -313,9 +314,10 @@
         state.qualDocs[docKey].status = "manual_review";
       }
     } catch (err) {
+      console.error("[QualVerify] Error:", err);
       state.qualDocs[docKey].status = "failed";
       state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
-      state.qualDocs[docKey].scanResult = { issues: ["Network error. Please try again."] };
+      state.qualDocs[docKey].scanResult = { issues: [err.message || "Network error. Please try again."] };
     }
 
     delete activeDocUploads[docKey];
@@ -325,21 +327,46 @@
 
   function fileToBase64(fileOrBlob) {
     return new Promise((resolve, reject) => {
-      // If file is PDF, we need to tell user to use image
+      // If file is PDF, tell user to use image
       if (fileOrBlob.type === "application/pdf") {
         reject(new Error("Please upload an image (JPG, PNG) or use the camera. PDF scanning is not yet supported."));
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result;
-        // Strip data URL prefix
-        const base64 = result.split(",")[1] || result;
-        resolve(base64);
-      };
-      reader.onerror = () => reject(new Error("Failed to read file."));
-      reader.readAsDataURL(fileOrBlob);
+      // Resize image to keep under Vercel 4.5MB body limit
+      var isImage = /^image\//i.test(fileOrBlob.type);
+      if (isImage) {
+        var img = new Image();
+        var url = URL.createObjectURL(fileOrBlob);
+        img.onload = function () {
+          URL.revokeObjectURL(url);
+          var maxDim = 1200;
+          var w = img.width, h = img.height;
+          if (w > maxDim || h > maxDim) {
+            var scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+          var canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          var dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+          resolve(dataUrl.split(",")[1]);
+        };
+        img.onerror = function () {
+          URL.revokeObjectURL(url);
+          reject(new Error("Failed to load image."));
+        };
+        img.src = url;
+      } else {
+        var reader = new FileReader();
+        reader.onload = function () {
+          resolve(reader.result.split(",")[1] || reader.result);
+        };
+        reader.onerror = function () { reject(new Error("Failed to read file.")); };
+        reader.readAsDataURL(fileOrBlob);
+      }
     });
   }
 

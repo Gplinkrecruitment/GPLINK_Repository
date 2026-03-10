@@ -30,14 +30,39 @@
 
   function fileToBase64(file) {
     return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        var result = reader.result;
-        var base64 = result.split(",")[1] || result;
-        resolve(base64);
-      };
-      reader.onerror = function () { reject(new Error("Failed to read file.")); };
-      reader.readAsDataURL(file);
+      var isImage = /^image\//i.test(file.type);
+      if (isImage) {
+        var img = new Image();
+        var url = URL.createObjectURL(file);
+        img.onload = function () {
+          URL.revokeObjectURL(url);
+          var maxDim = 1200;
+          var w = img.width, h = img.height;
+          if (w > maxDim || h > maxDim) {
+            var scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+          var canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          var dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+          resolve(dataUrl.split(",")[1]);
+        };
+        img.onerror = function () {
+          URL.revokeObjectURL(url);
+          reject(new Error("Failed to load image."));
+        };
+        img.src = url;
+      } else {
+        var reader = new FileReader();
+        reader.onload = function () {
+          resolve(reader.result.split(",")[1] || reader.result);
+        };
+        reader.onerror = function () { reject(new Error("Failed to read file.")); };
+        reader.readAsDataURL(file);
+      }
     });
   }
 
