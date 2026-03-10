@@ -3212,15 +3212,6 @@ Return ONLY valid JSON with no markdown formatting:
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false }); return; }
 
-    // TEMP: Force under_review for smithmiller1234 for 5 min after deploy
-    if (!global._gpTestReviewStart) global._gpTestReviewStart = Date.now();
-    const testEmail = 'smithmiller1234@gmail.com';
-    const testWindow = 5 * 60 * 1000; // 5 minutes
-    if (email === testEmail && (Date.now() - global._gpTestReviewStart) < testWindow) {
-      sendJson(res, 200, { ok: true, accountStatus: 'under_review' });
-      return;
-    }
-
     let accountStatus = 'active';
     if (isSupabaseDbConfigured()) {
       try {
