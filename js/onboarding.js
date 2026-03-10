@@ -604,108 +604,118 @@
     });
   }
 
-  // ── CV and ID uploads (step 6) ─────────────
-  function setupSimpleUpload(cardId, iconId, statusId, progressId, progressBarId, fileInputId, stateKey, label) {
-    const card = document.getElementById(cardId);
-    const fileInput = document.getElementById(fileInputId);
-    if (!card || !fileInput) return;
+  // ── Identity verification (step 6) ─────────
+  let idVerifyInProgress = false;
 
-    card.addEventListener("click", (e) => {
-      if (e.target.closest("button")) return;
-      fileInput.click();
-    });
-    card.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
-    });
+  function getQualDocName() {
+    // Get the name found on any verified qualification document
+    if (!state.qualDocs) return "";
+    const docs = COUNTRY_DOCS[state.country] || [];
+    for (const doc of docs) {
+      const d = state.qualDocs[doc.key];
+      if (d && d.scanResult && d.scanResult.nameFound) return d.scanResult.nameFound;
+    }
+    return "";
+  }
 
-    fileInput.addEventListener("change", async (e) => {
+  function renderIdVerifyStatus() {
+    const statusEl = document.getElementById("idVerifyStatus");
+    const actionsEl = document.getElementById("idVerifyActions");
+    if (!statusEl || !actionsEl) return;
+
+    const idState = state.idVerification || {};
+    const status = idState.status || "pending";
+
+    if (status === "scanning") {
+      statusEl.innerHTML = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Verifying your identity...</div>';
+      actionsEl.style.display = "none";
+    } else if (status === "verified") {
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity verified — document has been deleted</div>';
+      actionsEl.style.display = "none";
+    } else if (status === "failed") {
+      const issues = (idState.issues && idState.issues.length) ? idState.issues.join(", ") : "Verification failed";
+      statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues + '</div>';
+      actionsEl.style.display = "";
+    } else if (status === "support_requested") {
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--blue);">Support team will verify manually via email</div>';
+      actionsEl.style.display = "none";
+    } else {
+      statusEl.innerHTML = "";
+      actionsEl.style.display = "";
+    }
+  }
+
+  async function handleIdVerification(fileOrBlob, fileName) {
+    if (idVerifyInProgress) return;
+    idVerifyInProgress = true;
+
+    state.idVerification = { status: "scanning", fileName: fileName };
+    saveState();
+    renderIdVerifyStatus();
+    hideError("docsError");
+
+    try {
+      const base64 = await fileToBase64(fileOrBlob);
+      const qualName = getQualDocName();
+
+      const resp = await fetch("/api/ai/verify-identity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType: "image/jpeg",
+          qualificationName: qualName,
+          profileName: getProfileName(),
+        }),
+      });
+
+      const data = await resp.json();
+
+      if (data.ok && data.verification && data.verification.verified) {
+        state.idVerification = { status: "verified", fileName: fileName, nameFound: data.verification.nameFound };
+      } else {
+        const issues = (data.verification && data.verification.issues && data.verification.issues.length)
+          ? data.verification.issues
+          : [data.message || "Could not verify identity. Please try again with a clear photo of your passport or driver's licence."];
+        state.idVerification = { status: "failed", fileName: fileName, issues: issues };
+      }
+    } catch (err) {
+      state.idVerification = { status: "failed", fileName: fileName, issues: [err.message || "Network error. Please try again."] };
+    }
+
+    idVerifyInProgress = false;
+    saveState();
+    renderIdVerifyStatus();
+  }
+
+  // Wire up ID verification buttons
+  const idVerifyUploadBtn = document.getElementById("idVerifyUploadBtn");
+  const idVerifyCameraBtn = document.getElementById("idVerifyCameraBtn");
+  const idVerifyFileInput = document.getElementById("idVerifyFileInput");
+
+  if (idVerifyUploadBtn && idVerifyFileInput) {
+    idVerifyUploadBtn.addEventListener("click", () => idVerifyFileInput.click());
+    idVerifyFileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const check = isValidFile(file);
-      if (!check.ok) { showError("docsError", check.reason); return; }
-      hideError("docsError");
-
-      const icon = document.getElementById(iconId);
-      const statusEl = document.getElementById(statusId);
-      const progress = document.getElementById(progressId);
-      const progressBar = document.getElementById(progressBarId);
-
-      card.className = "upload-card";
-      icon.className = "upload-card-icon pending";
-      statusEl.textContent = "Uploading...";
-      statusEl.className = "upload-card-status pending";
-      progress.classList.add("show");
-      progressBar.style.width = "0%";
-
-      state[stateKey] = { name: file.name, size: file.size, type: file.type, status: "uploading" };
-      saveState();
-
-      await simulateUpload(file, (pct) => { progressBar.style.width = pct + "%"; });
-
-      progress.classList.remove("show");
-      card.className = "upload-card completed";
-      icon.className = "upload-card-icon completed";
-      icon.querySelector("svg").innerHTML = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>';
-      statusEl.textContent = file.name;
-      statusEl.className = "upload-card-status completed";
-      state[stateKey].status = "uploaded";
-      saveState();
-    });
-
-    // restore
-    if (state[stateKey] && state[stateKey].status === "uploaded") {
-      const icon = document.getElementById(iconId);
-      const statusEl = document.getElementById(statusId);
-      card.className = "upload-card completed";
-      icon.className = "upload-card-icon completed";
-      icon.querySelector("svg").innerHTML = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>';
-      statusEl.textContent = state[stateKey].name;
-      statusEl.className = "upload-card-status completed";
-    }
-  }
-
-  setupSimpleUpload("cvCard", "cvCardIcon", "cvCardStatus", "cvProgress", "cvProgressBar", "cvFileInput", "cvFile", "CV");
-  setupSimpleUpload("idCard", "idCardIcon", "idCardStatus", "idProgress", "idProgressBar", "idFileInput", "idFile", "ID");
-
-  // ── Update doc qual card on step 6 ──────────
-  function updateDocQualCard() {
-    const icon = document.getElementById("docQualIcon");
-    const status = document.getElementById("docQualStatus");
-    const card = document.getElementById("docQualCard");
-    if (!icon || !status || !card) return;
-
-    const docs = COUNTRY_DOCS[state.country] || [];
-    const passStatuses = ["verified", "verified_name_pending", "support_requested"];
-    const doneStatuses = ["verified", "verified_name_pending", "manual_review", "support_requested"];
-    const allVerified = docs.length > 0 && docs.every((d) => state.qualDocs[d.key] && passStatuses.includes(state.qualDocs[d.key].status));
-    const anyDone = docs.some((d) => state.qualDocs[d.key] && doneStatuses.includes(state.qualDocs[d.key].status));
-
-    if (allVerified) {
-      card.className = "upload-card completed";
-      icon.className = "upload-card-icon completed";
-      status.textContent = "All qualifications verified";
-      status.className = "upload-card-status completed";
-    } else if (anyDone) {
-      card.className = "upload-card";
-      icon.className = "upload-card-icon completed";
-      status.textContent = "Qualifications under review";
-      status.className = "upload-card-status review";
-    } else {
-      card.className = "upload-card";
-      icon.className = "upload-card-icon pending";
-      status.textContent = "Not yet verified";
-      status.className = "upload-card-status pending";
-    }
-  }
-
-  // doc qual replace on step 6
-  const docQualReplace = document.getElementById("docQualReplace");
-  if (docQualReplace) {
-    docQualReplace.addEventListener("click", () => {
-      // Go back to step 2 to re-upload
-      goToStep(2);
+      if (file.size > MAX_FILE_SIZE) { showError("docsError", "File must be under 10MB."); return; }
+      handleIdVerification(file, file.name);
     });
   }
+
+  if (idVerifyCameraBtn) {
+    idVerifyCameraBtn.addEventListener("click", () => {
+      if (!window.QualCamera) return;
+      window.QualCamera.open("Passport or Driver's Licence", (blob, err) => {
+        if (err) { alert(err); return; }
+        if (blob) handleIdVerification(blob, "ID_capture.jpg");
+      });
+    });
+  }
+
+  // Restore state on load
+  renderIdVerifyStatus();
 
   // ── Date picker ────────────────────────────
   const targetDateInput = document.getElementById("targetDate");
@@ -820,13 +830,14 @@
         hideError("whoError");
         return true;
       case 5: return true; // special notes (optional)
-      case 6: // documents
-        if (!state.cvFile || state.cvFile.status !== "uploaded" || !state.idFile || state.idFile.status !== "uploaded") {
-          showError("docsError");
-          return false;
+      case 6: // identity check
+        const idStatus = state.idVerification && state.idVerification.status;
+        if (idStatus === "verified" || idStatus === "support_requested") {
+          hideError("docsError");
+          return true;
         }
-        hideError("docsError");
-        return true;
+        showError("docsError", "Please upload your passport or driver's licence.");
+        return false;
       case 7: return true; // review
       default: return true;
     }
@@ -872,15 +883,11 @@
     ];
     if (hasChildren) rows.push({ label: "Children", value: String(childrenCount) });
     if (state.specialNotes) rows.push({ label: "Notes", value: state.specialNotes.slice(0, 120) + (state.specialNotes.length > 120 ? "..." : "") });
+    const idStatus = state.idVerification && state.idVerification.status;
     rows.push({
-      label: "CV",
-      value: state.cvFile && state.cvFile.status === "uploaded" ? "Uploaded" : "Missing",
-      cls: state.cvFile && state.cvFile.status === "uploaded" ? "status-verified" : "status-missing",
-    });
-    rows.push({
-      label: "ID document",
-      value: state.idFile && state.idFile.status === "uploaded" ? "Uploaded" : "Missing",
-      cls: state.idFile && state.idFile.status === "uploaded" ? "status-verified" : "status-missing",
+      label: "Identity check",
+      value: idStatus === "verified" ? "Verified" : idStatus === "support_requested" ? "Support contacted" : "Not verified",
+      cls: idStatus === "verified" ? "status-verified" : idStatus === "support_requested" ? "status-pending" : "status-missing",
     });
 
     if (state.accountReviewFlag) {
@@ -935,11 +942,10 @@
 
     if (step === TOTAL_STEPS - 1) {
       buildReview();
-      updateDocQualCard();
     }
 
     if (step === 2) renderQualDocSlots();
-    if (step === 6) updateDocQualCard();
+    if (step === 6) renderIdVerifyStatus();
 
     saveState();
   }

@@ -3221,6 +3221,147 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  if (pathname === '/api/ai/verify-identity' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    if (!ANTHROPIC_API_KEY) {
+      sendJson(res, 503, { ok: false, message: 'AI verification service not configured.' });
+      return;
+    }
+
+    if (!checkAnthropicBudget()) {
+      sendJson(res, 200, { ok: false, message: 'Verification capacity reached. Please try again later.' });
+      return;
+    }
+
+    const verifyEmail = getSessionEmail(session);
+    if (verifyEmail && !checkUserAiLimit(verifyEmail)) {
+      sendJson(res, 429, { ok: false, message: 'Maximum verification attempts reached today. Please try again tomorrow.' });
+      return;
+    }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const { imageBase64, mimeType, qualificationName, profileName } = body || {};
+    if (!imageBase64) {
+      sendJson(res, 400, { ok: false, message: 'Missing image data.' });
+      return;
+    }
+
+    const mediaType = (mimeType || 'image/jpeg').replace(/^image\/jpg$/, 'image/jpeg');
+    const validMediaTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!validMediaTypes.includes(mediaType)) {
+      sendJson(res, 400, { ok: false, message: 'Unsupported image type.' });
+      return;
+    }
+
+    const idPrompt = `You are verifying an identity document (passport or driver's licence) for a GP registration platform.
+
+VERIFICATION RULES:
+1. Is this a valid identity document? It must be a passport OR a driver's licence. Reject other document types.
+2. What full name appears on the document?
+3. Is the document legible and appears authentic?
+
+Return ONLY valid JSON with no markdown formatting:
+{"verified":true/false,"documentType":"passport or drivers_licence or other","nameFound":"full name on document","legible":true/false,"issues":["list of issues if any"]}`;
+
+    try {
+      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+          max_tokens: 400,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+              { type: 'text', text: idPrompt }
+            ]
+          }]
+        })
+      });
+
+      if (!anthropicRes.ok) {
+        const errText = await anthropicRes.text().catch(() => '');
+        console.error('[ID Verify] Anthropic API error:', anthropicRes.status, errText);
+        let errMsg = 'AI service returned an error.';
+        try { const ej = JSON.parse(errText); if (ej.error && ej.error.message) errMsg = ej.error.message; } catch (e) {}
+        sendJson(res, 502, { ok: false, message: errMsg });
+        return;
+      }
+
+      const anthropicData = await anthropicRes.json();
+      const inputTokens = (anthropicData.usage && anthropicData.usage.input_tokens) || 0;
+      const outputTokens = (anthropicData.usage && anthropicData.usage.output_tokens) || 0;
+      recordAnthropicSpend(inputTokens, outputTokens);
+      if (verifyEmail) recordUserAiCall(verifyEmail);
+
+      const textContent = anthropicData.content && anthropicData.content[0] && anthropicData.content[0].text;
+      if (!textContent) {
+        sendJson(res, 502, { ok: false, message: 'AI returned empty response.' });
+        return;
+      }
+
+      let verification;
+      try {
+        const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+        verification = JSON.parse(jsonMatch ? jsonMatch[0] : textContent);
+      } catch (parseErr) {
+        console.error('[ID Verify] JSON parse failed:', textContent);
+        sendJson(res, 502, { ok: false, message: 'AI returned invalid response.' });
+        return;
+      }
+
+      // Check document type is passport or licence
+      const docType = String(verification.documentType || '').toLowerCase();
+      if (docType !== 'passport' && docType !== 'drivers_licence' && docType !== "driver's licence" && docType !== 'drivers licence') {
+        verification.verified = false;
+        verification.issues = verification.issues || [];
+        verification.issues.push('Please upload a passport or driver\'s licence. This appears to be: ' + (verification.documentType || 'unknown'));
+      }
+
+      // Name matching against qualification documents
+      if (verification.verified && verification.nameFound) {
+        const idName = verification.nameFound;
+        let nameOk = false;
+
+        // Check against qualification name
+        if (qualificationName) {
+          nameOk = matchNames(idName, qualificationName) !== 'mismatch';
+        }
+        // Also check against profile name
+        if (!nameOk && profileName) {
+          nameOk = matchNames(idName, profileName) !== 'mismatch';
+        }
+
+        if (!nameOk) {
+          verification.verified = false;
+          verification.issues = verification.issues || [];
+          verification.issues.push('Name on ID does not match your qualification documents. Please upload an ID with the same name as your qualifications.');
+          verification.nameMatch = 'mismatch';
+        } else {
+          verification.nameMatch = 'match';
+        }
+      }
+
+      sendJson(res, 200, { ok: true, verification });
+    } catch (fetchErr) {
+      console.error('[ID Verify] Fetch error:', fetchErr.message || fetchErr);
+      sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
+    }
+    return;
+  }
+
   if (pathname === '/api/support/qualification-help' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;

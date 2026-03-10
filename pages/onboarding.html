@@ -426,6 +426,30 @@
       background: #3b82f6;
       color: #fff;
     }
+    .id-check-info {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: rgba(59,130,246,0.08);
+      border: 1px solid rgba(59,130,246,0.2);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #64748b;
+    }
+    .id-check-info svg {
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .id-check-info strong {
+      color: #334155;
+    }
+    .id-verify-status {
+      min-height: 0;
+      margin-bottom: 4px;
+    }
     .qual-doc-spinner {
       width: 20px; height: 20px;
       border: 2px solid #e2e8f0;
@@ -1208,88 +1232,56 @@
         </div>
       </div>
 
-      <!-- STEP 6: Supporting documents -->
+      <!-- STEP 6: Quick Identity Check -->
       <div class="slide" data-slide="6">
         <div class="slide-illustration">
           <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <!-- Stack of documents -->
-            <rect x="50" y="50" width="100" height="120" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
-            <rect x="55" y="45" width="100" height="120" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
-            <rect x="60" y="40" width="100" height="120" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
-            <!-- CV header -->
-            <rect x="60" y="40" width="100" height="24" rx="8" fill="#dbeafe"/>
-            <rect x="60" y="56" width="100" height="8" rx="0" fill="#dbeafe"/>
-            <!-- CV content -->
-            <circle cx="82" cy="78" r="10" fill="#f1f5f9"/>
-            <rect x="98" y="72" width="50" height="4" rx="2" fill="#e2e8f0"/>
-            <rect x="98" y="80" width="35" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="70" y="96" width="78" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="70" y="105" width="65" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="70" y="114" width="72" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="70" y="123" width="55" height="3" rx="1.5" fill="#e2e8f0"/>
-            <!-- ID card -->
-            <g transform="translate(20,120)">
-              <rect x="0" y="0" width="50" height="35" rx="5" fill="#fef3c7" stroke="#fbbf24" stroke-width="1.5"/>
-              <circle cx="16" cy="13" r="7" fill="#fde68a"/>
-              <rect x="28" y="8" width="16" height="3" rx="1.5" fill="#f59e0b"/>
-              <rect x="28" y="14" width="12" height="3" rx="1.5" fill="#f59e0b"/>
-              <rect x="5" y="26" width="40" height="3" rx="1.5" fill="#f59e0b"/>
-            </g>
-            <!-- Shield -->
-            <g transform="translate(145,110)">
-              <path d="M15 2l12 4v10c0 8-5 14-12 17-7-3-12-9-12-17V6z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
-              <path d="M10 14l4 4 8-8" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- ID Card -->
+            <rect x="35" y="55" width="130" height="90" rx="12" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="35" y="55" width="130" height="28" rx="12" fill="#dbeafe"/>
+            <rect x="35" y="75" width="130" height="8" fill="#dbeafe"/>
+            <!-- Photo area -->
+            <rect x="48" y="92" width="36" height="42" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1.5"/>
+            <circle cx="66" cy="105" r="9" fill="#cbd5e1"/>
+            <path d="M52 130c0-8 6-14 14-14s14 6 14 14" fill="#cbd5e1"/>
+            <!-- Text lines -->
+            <rect x="94" y="94" width="56" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="94" y="104" width="42" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="94" y="113" width="50" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="94" y="122" width="30" height="3" rx="1.5" fill="#e2e8f0"/>
+            <!-- Shield check -->
+            <g transform="translate(130,30)">
+              <path d="M20 2l16 5v13c0 10-6 18-16 22-10-4-16-12-16-22V7z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+              <path d="M13 18l5 5 10-10" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
             </g>
           </svg>
         </div>
         <div class="slide-content">
-          <h1>Supporting documents</h1>
-          <p>Upload your CV and ID to complete your profile. Your qualification is already uploaded.</p>
+          <h1>Quick identity check</h1>
+          <p>Upload your <strong>passport</strong> or <strong>driver's licence</strong> so we can confirm your identity matches your qualification documents.</p>
           <div class="form-area">
-            <!-- Qualification (already uploaded) -->
-            <div class="upload-card" id="docQualCard">
-              <div class="upload-card-icon" id="docQualIcon">
-                <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              </div>
-              <div class="upload-card-body">
-                <div class="upload-card-title">Specialist Qualification</div>
-                <div class="upload-card-status" id="docQualStatus">Not uploaded</div>
-              </div>
-              <div class="upload-card-action">
-                <button type="button" id="docQualReplace" title="Replace">
-                  <svg viewBox="0 0 24 24"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            <div class="id-check-info">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <span>Your identity document will be <strong>deleted immediately</strong> after verification is completed. We only check the name matches your qualifications.</span>
+            </div>
+
+            <!-- ID verification area -->
+            <div id="idVerifyArea">
+              <div class="id-verify-status" id="idVerifyStatus"></div>
+              <div class="qual-doc-slot-actions" id="idVerifyActions">
+                <button class="qual-doc-btn" id="idVerifyUploadBtn" type="button">
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Upload
+                </button>
+                <button class="qual-doc-btn" id="idVerifyCameraBtn" type="button">
+                  <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  Camera
                 </button>
               </div>
+              <input type="file" id="idVerifyFileInput" accept=".jpg,.jpeg,.png,.webp" style="display:none;" />
             </div>
-            <!-- CV upload -->
-            <div id="cvUploadArea">
-              <div class="upload-card" id="cvCard" style="cursor:pointer;" tabindex="0">
-                <div class="upload-card-icon pending" id="cvCardIcon">
-                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                </div>
-                <div class="upload-card-body">
-                  <div class="upload-card-title">Up-to-date CV</div>
-                  <div class="upload-card-status pending" id="cvCardStatus">Tap to upload</div>
-                  <div class="upload-progress" id="cvProgress"><div class="upload-progress-bar" id="cvProgressBar"></div></div>
-                </div>
-                <input type="file" id="cvFileInput" accept=".pdf,.doc,.docx" style="display:none;" />
-              </div>
-            </div>
-            <!-- ID upload -->
-            <div id="idUploadArea">
-              <div class="upload-card" id="idCard" style="cursor:pointer;" tabindex="0">
-                <div class="upload-card-icon pending" id="idCardIcon">
-                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                </div>
-                <div class="upload-card-body">
-                  <div class="upload-card-title">ID Document</div>
-                  <div class="upload-card-status pending" id="idCardStatus">Passport, licence, or national ID</div>
-                  <div class="upload-progress" id="idProgress"><div class="upload-progress-bar" id="idProgressBar"></div></div>
-                </div>
-                <input type="file" id="idFileInput" accept=".pdf,.jpg,.jpeg,.png" style="display:none;" />
-              </div>
-            </div>
-            <div class="field-error" id="docsError">Please upload your CV and ID document.</div>
+
+            <div class="field-error" id="docsError">Please upload your passport or driver's licence.</div>
           </div>
         </div>
       </div>
@@ -1358,6 +1350,6 @@
   </div>
 
   <script src="../js/qualification-camera.js?v=20260311a"></script>
-  <script src="../js/onboarding.js?v=20260311b"></script>
+  <script src="../js/onboarding.js?v=20260311c"></script>
 </body>
 </html>
