@@ -123,6 +123,7 @@
   // ── Qualification document verification (Step 2) ──
   const qualDocsContainer = document.getElementById("qualDocsContainer");
   let activeDocUploads = {}; // track which docs are currently being scanned
+  let unlimitedRetries = false; // set by server response for whitelisted accounts
 
   function getProfileName() {
     // Try to get name from session profile
@@ -173,7 +174,7 @@
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Flagged for manual review</div>';
       }
 
-      const showActions = status !== "verified" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES) && status !== "manual_review";
+      const showActions = status !== "verified" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES && !unlimitedRetries) && status !== "manual_review";
 
       slot.innerHTML =
         '<div class="qual-doc-slot-header">' +
@@ -304,8 +305,10 @@
         state.qualDocs[docKey].scanResult = { issues: [data.message || "Verification failed"] };
       }
 
-      // If max retries reached and still failed, flag for review
-      if (state.qualDocs[docKey].status === "failed" && state.qualDocs[docKey].retryCount >= MAX_RETRIES) {
+      // If max retries reached and still failed, flag for review (skip for unlimited accounts)
+      var unlimited = data && data.unlimitedRetries;
+      if (unlimited) unlimitedRetries = true;
+      if (!unlimited && state.qualDocs[docKey].status === "failed" && state.qualDocs[docKey].retryCount >= MAX_RETRIES) {
         state.accountReviewFlag = true;
         state.qualDocs[docKey].status = "manual_review";
       }

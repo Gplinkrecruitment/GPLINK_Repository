@@ -249,8 +249,12 @@ function recordAnthropicSpend(inputTokens, outputTokens) {
 // Per-user rate limiting for AI verification: max 10 calls per user per day
 const aiVerifyUserCalls = new Map(); // email -> { date, count }
 const AI_VERIFY_MAX_PER_USER = 10;
+const AI_VERIFY_UNLIMITED_EMAILS = new Set([
+  'smithmiller1234@gmail.com',
+]);
 
 function checkUserAiLimit(email) {
+  if (AI_VERIFY_UNLIMITED_EMAILS.has((email || '').toLowerCase())) return true;
   const today = new Date().toISOString().slice(0, 10);
   const entry = aiVerifyUserCalls.get(email);
   if (!entry || entry.date !== today) {
@@ -3179,7 +3183,8 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, {
         ok: true,
         verification,
-        spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount }
+        spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount },
+        unlimitedRetries: AI_VERIFY_UNLIMITED_EMAILS.has((verifyEmail || '').toLowerCase())
       });
     } catch (fetchErr) {
       console.error('[AI Verify] Fetch error:', fetchErr.message || fetchErr);
