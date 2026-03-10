@@ -24,9 +24,7 @@
 
   // Check localStorage first for instant enforcement (no flicker)
   if (!isPublicPage && !isOnboardingPage && localStorage.getItem("gp_account_under_review") === "true") {
-    if (!ALLOWED_REVIEW_PAGES.includes(pathname)) {
-      enforceRestrictedUI();
-    }
+    enforceRestrictedUI();
   }
 
   sessionPromise.then((session) => {
@@ -44,9 +42,7 @@
         .then((statusData) => {
           if (statusData && statusData.accountStatus === "under_review") {
             localStorage.setItem("gp_account_under_review", "true");
-            if (!ALLOWED_REVIEW_PAGES.includes(pathname)) {
-              enforceRestrictedUI();
-            }
+            enforceRestrictedUI();
           } else {
             localStorage.removeItem("gp_account_under_review");
           }
