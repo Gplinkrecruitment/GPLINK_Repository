@@ -107,9 +107,12 @@
       // Blur all siblings after the task list
       var sibling = taskList.nextElementSibling;
       while (sibling) {
-        sibling.style.filter = "blur(6px)";
-        sibling.style.pointerEvents = "none";
-        sibling.style.userSelect = "none";
+        // Keep the help card visible
+        if (!sibling.classList.contains("help-card")) {
+          sibling.style.filter = "blur(6px)";
+          sibling.style.pointerEvents = "none";
+          sibling.style.userSelect = "none";
+        }
         sibling = sibling.nextElementSibling;
       }
       // Also blur the task list items themselves (they link to other pages)
