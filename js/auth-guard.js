@@ -156,6 +156,24 @@
         regDropdown.style.filter = "blur(6px)";
         regDropdown.style.pointerEvents = "none";
       }
+
+      // Blur mobile registration sheet content
+      var mobileRegTable = document.getElementById("mobileRegTable");
+      if (mobileRegTable) {
+        mobileRegTable.style.filter = "blur(6px)";
+        mobileRegTable.style.pointerEvents = "none";
+      }
+
+      // Intercept "View all" link to show popup instead of opening reg sheet
+      var viewAllLink = document.getElementById("viewScheduleLink");
+      if (viewAllLink && !viewAllLink.dataset.gpReviewBlocked) {
+        viewAllLink.dataset.gpReviewBlocked = "1";
+        viewAllLink.addEventListener("click", showReviewPopup, true);
+        viewAllLink.addEventListener("touchend", function (e) {
+          e.preventDefault();
+          showReviewPopup(e);
+        }, true);
+      }
     }
 
     // Intercept all nav links and buttons that go to restricted pages
