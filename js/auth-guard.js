@@ -66,26 +66,33 @@
     if (restrictionInjected) return;
     restrictionInjected = true;
 
-    // Inject animation styles
+    // Inject styles
     var styleEl = document.createElement("style");
     styleEl.textContent =
       "@keyframes gpPopupFadeIn{from{opacity:0}to{opacity:1}}" +
       "@keyframes gpPopupScaleIn{from{opacity:0;transform:scale(0.85) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}" +
       "#gpReviewPopup.open{display:flex!important;animation:gpPopupFadeIn 0.25s ease-out}" +
       "#gpReviewPopup.open .gp-popup-card{animation:gpPopupScaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1)}" +
-      /* Block all text selection and copy on restricted content */
-      ".gp-no-copy{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;}";
+      /* Global copy/select block */
+      "body.gp-restricted{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;}" +
+      "body.gp-restricted *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;}";
     document.head.appendChild(styleEl);
+
+    // Add restricted class to body — blocks all selection/copy globally
+    document.body.classList.add("gp-restricted");
 
     // Block copy/cut/selectall at document level
     function blockCopy(e) { e.preventDefault(); }
     document.addEventListener("copy", blockCopy, true);
     document.addEventListener("cut", blockCopy, true);
+    document.addEventListener("selectstart", blockCopy, true);
 
-    // Create review popup modal
-    var popupId = "gpReviewPopup";
+    // Also block context menu (long-press copy on mobile)
+    document.addEventListener("contextmenu", function (e) { e.preventDefault(); }, true);
+
+    // Create review popup modal — NO backdrop dismiss, only OK button closes it
     var popup = document.createElement("div");
-    popup.id = popupId;
+    popup.id = "gpReviewPopup";
     popup.style.cssText = "position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);padding:20px;";
     popup.innerHTML =
       '<div class="gp-popup-card" style="background:#fff;border-radius:20px;padding:32px 24px;max-width:340px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.15);">' +
@@ -94,7 +101,7 @@
         '</div>' +
         '<h3 style="font-size:18px;font-weight:800;color:#0f172a;margin:0 0 10px;">Account Under Review</h3>' +
         '<p style="font-size:14px;color:#64748b;line-height:1.5;margin:0 0 20px;">Your account is currently undergoing manual verification. Our team will contact you via email to verify your qualifications and resume full access.</p>' +
-        '<button class="gp-popup-ok-btn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#0f172a;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;">OK</button>' +
+        '<button class="gp-popup-ok-btn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#0f172a;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;">OK</button>' +
       '</div>';
     document.body.appendChild(popup);
 
@@ -103,28 +110,25 @@
       popup.style.display = "none";
     }
 
-    // Use multiple event types for reliable mobile taps
+    // Only the OK button closes the popup — no backdrop dismiss
     var okBtn = popup.querySelector(".gp-popup-ok-btn");
-    okBtn.addEventListener("click", closePopup);
+    okBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      closePopup();
+    });
     okBtn.addEventListener("touchend", function (e) {
       e.preventDefault();
+      e.stopPropagation();
       closePopup();
     });
 
-    popup.addEventListener("click", function (e) {
-      if (e.target === popup) closePopup();
-    });
-    popup.addEventListener("touchend", function (e) {
-      if (e.target === popup) {
-        e.preventDefault();
-        closePopup();
-      }
-    });
+    // Prevent any touch/click on the backdrop from propagating but do NOT close
+    popup.addEventListener("click", function (e) { e.stopPropagation(); });
+    popup.addEventListener("touchend", function (e) { e.stopPropagation(); });
 
     function showReviewPopup(e) {
       if (e) { e.preventDefault(); e.stopPropagation(); }
       popup.style.display = "flex";
-      // Trigger reflow then add class for animation
       popup.offsetHeight;
       popup.classList.add("open");
     }
@@ -138,45 +142,61 @@
         if (!sibling.classList.contains("help-card")) {
           sibling.style.filter = "blur(6px)";
           sibling.style.pointerEvents = "none";
-          sibling.classList.add("gp-no-copy");
         }
         sibling = sibling.nextElementSibling;
       }
       taskList.querySelectorAll("a.task-item").forEach(function (a) {
         a.style.filter = "blur(4px)";
         a.style.pointerEvents = "none";
-        a.classList.add("gp-no-copy");
       });
+
+      // Also blur the registration dropdown content on desktop
+      var regDropdown = document.getElementById("registrationDropdown");
+      if (regDropdown) {
+        regDropdown.style.filter = "blur(6px)";
+        regDropdown.style.pointerEvents = "none";
+      }
     }
 
     // Intercept all nav links and buttons that go to restricted pages
     function interceptNav() {
+      // Desktop + mobile nav links
       document.querySelectorAll("a.bottom-tab, a.mobile-tab, .sidebar a, nav a").forEach(function (a) {
+        if (a.dataset.gpReviewBlocked) return;
         var href = a.getAttribute("href") || "";
         var target = href.replace(/^\.?\/?/, "/").replace(/^([^/])/, "/pages/$1");
         var isAllowed = ALLOWED_REVIEW_PAGES.includes(target) || target === pathname;
         if (!isAllowed) {
           a.style.opacity = "0.4";
-          a.style.pointerEvents = "none";
+          a.dataset.gpReviewBlocked = "1";
           a.addEventListener("click", showReviewPopup, true);
-          a.style.pointerEvents = "auto";
-        }
-      });
-
-      document.querySelectorAll("button.bottom-tab, button.mobile-tab").forEach(function (btn) {
-        var label = (btn.textContent || "").trim().toLowerCase();
-        if (label !== "account" && label !== "home") {
-          btn.style.opacity = "0.4";
-          btn.addEventListener("click", showReviewPopup, true);
-          btn.addEventListener("touchend", function (e) {
+          a.addEventListener("touchend", function (e) {
             e.preventDefault();
             showReviewPopup(e);
           }, true);
         }
       });
 
+      // Desktop + mobile nav buttons (Registration, Messages, Scan)
+      document.querySelectorAll("button.bottom-tab, button.mobile-tab, button.nav-action, button.nav-item").forEach(function (btn) {
+        if (btn.dataset.gpReviewBlocked) return;
+        var label = (btn.textContent || "").trim().toLowerCase();
+        // Allow Home and Account tabs only
+        if (label.indexOf("account") > -1 || label.indexOf("home") > -1) return;
+        btn.style.opacity = "0.4";
+        btn.dataset.gpReviewBlocked = "1";
+        btn.addEventListener("click", showReviewPopup, true);
+        btn.addEventListener("touchend", function (e) {
+          e.preventDefault();
+          showReviewPopup(e);
+        }, true);
+      });
+
+      // Lock scan trigger
       document.querySelectorAll("[data-qual-scan-trigger]").forEach(function (el) {
+        if (el.dataset.gpReviewBlocked) return;
         el.style.opacity = "0.4";
+        el.dataset.gpReviewBlocked = "1";
         el.addEventListener("click", showReviewPopup, true);
         el.addEventListener("touchend", function (e) {
           e.preventDefault();
@@ -184,6 +204,7 @@
         }, true);
       });
 
+      // Block ALL links on the page that go to non-allowed pages
       document.querySelectorAll("a[href]").forEach(function (a) {
         if (a.dataset.gpReviewBlocked) return;
         var href = a.getAttribute("href") || "";
@@ -192,9 +213,14 @@
         if (!ALLOWED_REVIEW_PAGES.includes(target)) {
           a.dataset.gpReviewBlocked = "1";
           a.addEventListener("click", showReviewPopup, true);
+          a.addEventListener("touchend", function (e) {
+            e.preventDefault();
+            showReviewPopup(e);
+          }, true);
         }
       });
 
+      // Blur dashboard content on home page
       if (pathname === "/pages/index.html") {
         blurDashboardContent();
       }
