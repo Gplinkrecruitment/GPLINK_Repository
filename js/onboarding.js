@@ -174,12 +174,15 @@
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; ' + (docState.fileName || "Document") + ' verified</div>';
       } else if (status === "failed" && retryCount >= MAX_RETRIES) {
         infoHtml = '<div class="qual-doc-slot-info error">Max attempts reached. Will be reviewed manually.</div>';
+        infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "failed") {
         const issues = (docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues.join(", ") : "Verification failed";
         infoHtml = '<div class="qual-doc-slot-info error">' + issues + '</div>';
         infoHtml += '<div class="qual-doc-slot-retry">Attempt ' + retryCount + ' of ' + MAX_RETRIES + '</div>';
+        infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "manual_review") {
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Flagged for manual review</div>';
+        infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       }
 
       const showActions = status !== "verified" && status !== "verified_name_pending" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES && !unlimitedRetries) && status !== "manual_review";
@@ -234,6 +237,18 @@
         if (!file) return;
         const key = inp.id.replace("qualFileInput_", "");
         handleDocVerification(key, file, file.name);
+      });
+    });
+
+    // Contact Support buttons
+    qualDocsContainer.querySelectorAll("[data-support-doc]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.supportDoc;
+        const doc = (COUNTRY_DOCS[state.country] || []).find((d) => d.key === key);
+        if (!doc) return;
+        var docState = (state.qualDocs && state.qualDocs[key]) || {};
+        var issues = (docState.scanResult && docState.scanResult.issues) || [];
+        showSupportPopup(doc.label, doc.type, issues);
       });
     });
   }
@@ -323,6 +338,80 @@
       }
     }).catch(function (err) {
       console.error("[Onboarding] Failed to auto-update account name:", err);
+    });
+  }
+
+  // ── Support popup ──────────────────────────
+  function showSupportPopup(docLabel, docType, issues) {
+    // Remove existing popup if any
+    var existing = document.getElementById("qualSupportPopup");
+    if (existing) existing.remove();
+
+    var overlay = document.createElement("div");
+    overlay.id = "qualSupportPopup";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:20px;";
+
+    var card = document.createElement("div");
+    card.style.cssText = "background:#1e1e2e;border-radius:16px;padding:28px 24px;max-width:380px;width:100%;text-align:center;font-family:'Inter',sans-serif;";
+
+    card.innerHTML =
+      '<div style="width:56px;height:56px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">' +
+        '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+      '</div>' +
+      '<h3 style="color:#fff;font-size:18px;font-weight:700;margin:0 0 8px;">Manual Verification Required</h3>' +
+      '<p style="color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 20px;">' +
+        'Due to discrepancies in your qualifications, our team will email you to manually verify your qualifications and resume onboarding.' +
+      '</p>' +
+      '<button id="qualSupportSendBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#3b82f6;color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;font-family:inherit;">Send Support Request</button>' +
+      '<button id="qualSupportCloseBtn" type="button" style="width:100%;padding:12px;border:none;border-radius:12px;background:transparent;color:#64748b;font-size:14px;cursor:pointer;font-family:inherit;">Close</button>';
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    // Close
+    document.getElementById("qualSupportCloseBtn").addEventListener("click", function () { overlay.remove(); });
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) overlay.remove(); });
+
+    // Send
+    document.getElementById("qualSupportSendBtn").addEventListener("click", function () {
+      var btn = this;
+      btn.textContent = "Sending...";
+      btn.disabled = true;
+
+      fetch("/api/support/qualification-help", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          documentType: docType,
+          issues: issues,
+          country: state.country
+        }),
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          card.innerHTML =
+            '<div style="width:56px;height:56px;border-radius:50%;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">' +
+              '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+            '</div>' +
+            '<h3 style="color:#fff;font-size:18px;font-weight:700;margin:0 0 8px;">Request Sent</h3>' +
+            '<p style="color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 20px;">' +
+              'Our team has received your request and will email you to manually verify your qualifications. You can continue with the rest of the onboarding in the meantime.' +
+            '</p>' +
+            '<button id="qualSupportDoneBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#3b82f6;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">OK</button>';
+          document.getElementById("qualSupportDoneBtn").addEventListener("click", function () { overlay.remove(); });
+        } else {
+          btn.textContent = "Send Support Request";
+          btn.disabled = false;
+          alert(data.message || "Failed to send. Please try again.");
+        }
+      })
+      .catch(function () {
+        btn.textContent = "Send Support Request";
+        btn.disabled = false;
+        alert("Network error. Please try again.");
+      });
     });
   }
 

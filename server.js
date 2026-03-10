@@ -3221,6 +3221,78 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  if (pathname === '/api/support/qualification-help' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request.' });
+      return;
+    }
+
+    const docType = String(body.documentType || 'Qualification').slice(0, 100);
+    const issues = Array.isArray(body.issues) ? body.issues.map(i => String(i).slice(0, 300)).join('; ') : '';
+    const country = String(body.country || '').slice(0, 10);
+
+    const ticketId = 'case_qual_' + Date.now();
+    const now = new Date().toISOString();
+    const ticket = {
+      id: ticketId,
+      title: 'Qualification Verification Help — ' + docType,
+      category: 'Qualification Verification',
+      status: 'open',
+      priority: 'normal',
+      unread: true,
+      createdAt: now,
+      updatedAt: now,
+      thread: [{
+        from: email,
+        text: 'I need help verifying my ' + docType + ' (country: ' + country + '). AI scan issues: ' + (issues || 'None specified') + '. Please assist with manual verification.',
+        ts: now
+      }]
+    };
+
+    // Save ticket to user state
+    if (isSupabaseDbConfigured()) {
+      try {
+        const stateRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${encodeURIComponent(session.user_id || '')}`, {
+          headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }
+        });
+        const rows = await stateRes.json();
+        const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+        const existingState = (row && row.state && typeof row.state === 'object') ? row.state : {};
+        const parsedCases = parseJsonLike(existingState.gpLinkSupportCases);
+        const cases = Array.isArray(parsedCases) ? parsedCases : [];
+        cases.push(ticket);
+
+        const nextState = {
+          ...existingState,
+          gpLinkSupportCases: JSON.stringify(cases),
+          updatedAt: now
+        };
+        await upsertSupabaseUserState(session.user_id || row?.user_id, nextState, now);
+      } catch (e) { console.error('[SupportTicket] Supabase error:', e.message); }
+    } else {
+      const dbState = loadDbState();
+      const userState = dbState.userState[email] || {};
+      const parsedCases = parseJsonLike(userState.gpLinkSupportCases);
+      const cases = Array.isArray(parsedCases) ? parsedCases : [];
+      cases.push(ticket);
+      userState.gpLinkSupportCases = JSON.stringify(cases);
+      userState.updatedAt = now;
+      dbState.userState[email] = userState;
+      saveDbState(dbState);
+    }
+
+    invalidateAdminDashboardCache();
+    console.log(`[SupportTicket] Created qualification help ticket ${ticketId} for ${email}`);
+    sendJson(res, 200, { ok: true, ticketId });
+    return;
+  }
+
   if (pathname === '/api/account/update-name' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
