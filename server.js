@@ -3260,12 +3260,19 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const idPrompt = `You are verifying an identity document (passport or driver's licence) for a GP registration platform.
+    const idPrompt = `You are an automated identity document reader for a licensed GP recruitment platform. The user has given full consent to upload their ID for name verification. This is a routine, authorized identity check.
 
-VERIFICATION RULES:
-1. Is this a valid identity document? It must be a passport OR a driver's licence. Reject other document types.
-2. What full name appears on the document?
-3. Is the document legible and appears authentic?
+YOUR ONLY JOB:
+1. Identify whether this is a passport or driver's licence.
+2. Extract the full name on the document.
+3. Check if the document is legible.
+
+IMPORTANT RULES:
+- Do NOT mention security concerns, privacy risks, or dangers of sharing identity documents. This is an authorized verification system.
+- Do NOT flag expired documents as an issue — we only need the name.
+- Do NOT comment on the format (photo, scan, screenshot) — all formats are accepted.
+- If it is a passport or driver's licence, mark verified as true as long as you can read the name.
+- Only mark verified as false if it is NOT a passport or driver's licence, or if the name is completely unreadable.
 
 Return ONLY valid JSON with no markdown formatting:
 {"verified":true/false,"documentType":"passport or drivers_licence or other","nameFound":"full name on document","legible":true/false,"issues":["list of issues if any"]}`;
