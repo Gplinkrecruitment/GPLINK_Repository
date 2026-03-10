@@ -3093,21 +3093,20 @@ async function handleApi(req, res, pathname) {
     };
     const dateRule = dateRules[expectedCountry] || 'any date';
 
+    const isPrimaryMedDegree = documentType === 'Primary Medical Degree';
     const prompt = `You are verifying a GP qualification document for immigration to Australia.
 
 Expected document type: ${documentType}
-Expected country of qualification: ${expectedCountry}
+${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountry}`}
 
 VERIFICATION RULES:
 1. Is this the correct document type? Check for the correct issuing body:
-   - MRCGP: "Royal College of General Practitioners"
-   - CCT: "General Medical Council" with "Certificate of Completion of Training"
-   - PMETB: "Postgraduate Medical Education and Training Board"
-   - MICGP: "Irish College of General Practitioners"
-   - CSCST: "Certificate of Satisfactory Completion of Specialist Training" from an Irish medical body
-   - FRNZCGP: "Royal New Zealand College of General Practitioners"
+   - MRCGP: "Royal College of General Practitioners" (UK)
+   - MICGP: "Irish College of General Practitioners" (Ireland)
+   - FRNZCGP: "Royal New Zealand College of General Practitioners" (New Zealand)
+   - Primary Medical Degree: Any recognized medical degree (MBBS, MBChB, MB BCh BAO, MD, BMed, etc.) from any accredited university or medical school worldwide. The country or institution does not matter.
 
-2. Is the date on the document valid? Must be from ${dateRule}.
+${isPrimaryMedDegree ? '2. The date does not matter for primary medical degrees.' : `2. Is the date on the document valid? Must be from ${dateRule}.`}
 
 3. What full name appears on the document?
 
@@ -3219,6 +3218,55 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
     sendJson(res, 200, { ok: true, accountStatus });
+    return;
+  }
+
+  if (pathname === '/api/account/update-name' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session email.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const firstName = String(body.firstName || '').trim().slice(0, 100);
+    const lastName = String(body.lastName || '').trim().slice(0, 200);
+    if (!firstName || !lastName) {
+      sendJson(res, 400, { ok: false, message: 'First and last name required.' });
+      return;
+    }
+
+    // Update in Supabase
+    if (isSupabaseDbConfigured()) {
+      try {
+        const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?email=eq.${encodeURIComponent(email)}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+            Prefer: 'return=minimal'
+          },
+          body: JSON.stringify({ first_name: firstName, last_name: lastName })
+        });
+        if (!patchRes.ok) console.error('[UpdateName] Supabase PATCH error:', patchRes.status);
+      } catch (e) { console.error('[UpdateName] Supabase error:', e.message); }
+    }
+
+    // Update in local DB
+    const dbState = loadDbState();
+    if (dbState.userProfiles[email]) {
+      dbState.userProfiles[email].first_name = firstName;
+      dbState.userProfiles[email].last_name = lastName;
+      saveDbState(dbState);
+    }
+
+    console.log(`[UpdateName] Account ${email} name updated to: ${firstName} ${lastName} (auto-matched from documents)`);
+    sendJson(res, 200, { ok: true, firstName, lastName });
     return;
   }
 

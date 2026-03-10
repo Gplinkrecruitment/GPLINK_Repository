@@ -5,6 +5,12 @@
   const STORAGE_KEY = "gp_onboarding";
   const MAX_RETRIES = 3;
 
+  // Allow clearing onboarding state via ?reset=1 query param
+  if (new URLSearchParams(window.location.search).get("reset") === "1") {
+    localStorage.removeItem(STORAGE_KEY);
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+
   const COUNTRIES = [
     { code: "GB", name: "United Kingdom", flag: "\u{1F1EC}\u{1F1E7}" },
     { code: "IE", name: "Ireland", flag: "\u{1F1EE}\u{1F1EA}" },
@@ -14,14 +20,15 @@
   const COUNTRY_DOCS = {
     GB: [
       { key: "mrcgp_cert", label: "MRCGP Certificate", type: "MRCGP Certificate" },
-      { key: "cct_or_pmetb", label: "CCT or PMETB Certificate", type: "CCT or PMETB Certificate" },
+      { key: "primary_med_degree", label: "Primary Medical Degree", type: "Primary Medical Degree" },
     ],
     IE: [
       { key: "micgp_cert", label: "MICGP Certificate", type: "MICGP Certificate" },
-      { key: "cscst_cert", label: "CSCST Certificate", type: "CSCST Certificate" },
+      { key: "primary_med_degree", label: "Primary Medical Degree", type: "Primary Medical Degree" },
     ],
     NZ: [
       { key: "frnzcgp_cert", label: "FRNZCGP Certificate", type: "FRNZCGP Certificate" },
+      { key: "primary_med_degree", label: "Primary Medical Degree", type: "Primary Medical Degree" },
     ],
   };
 
@@ -155,6 +162,7 @@
       // Badge
       let badgeClass = "pending", badgeText = "Required";
       if (status === "verified") { badgeClass = "verified"; badgeText = "Verified"; }
+      else if (status === "verified_name_pending") { badgeClass = "verified"; badgeText = "Verified"; }
       else if (status === "failed") { badgeClass = "failed"; badgeText = "Failed"; }
       else if (status === "scanning") { badgeClass = "scanning"; badgeText = "Scanning..."; }
       else if (status === "manual_review") { badgeClass = "review"; badgeText = "Under Review"; }
@@ -162,7 +170,7 @@
       let infoHtml = "";
       if (status === "scanning") {
         infoHtml = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> AI is verifying your document...</div>';
-      } else if (status === "verified") {
+      } else if (status === "verified" || status === "verified_name_pending") {
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; ' + (docState.fileName || "Document") + ' verified</div>';
       } else if (status === "failed" && retryCount >= MAX_RETRIES) {
         infoHtml = '<div class="qual-doc-slot-info error">Max attempts reached. Will be reviewed manually.</div>';
@@ -174,7 +182,7 @@
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Flagged for manual review</div>';
       }
 
-      const showActions = status !== "verified" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES && !unlimitedRetries) && status !== "manual_review";
+      const showActions = status !== "verified" && status !== "verified_name_pending" && status !== "scanning" && !(status === "failed" && retryCount >= MAX_RETRIES && !unlimitedRetries) && status !== "manual_review";
 
       slot.innerHTML =
         '<div class="qual-doc-slot-header">' +
@@ -195,14 +203,6 @@
           '<input type="file" id="qualFileInput_' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none;" />'
         : '') +
         infoHtml;
-
-      // "OR" label for CCT/PMETB
-      if (doc.key === "cct_or_pmetb") {
-        const orDiv = document.createElement("div");
-        orDiv.className = "qual-doc-or";
-        orDiv.textContent = "Upload either your CCT or PMETB certificate";
-        qualDocsContainer.appendChild(orDiv);
-      }
 
       qualDocsContainer.appendChild(slot);
     });
@@ -235,6 +235,94 @@
         const key = inp.id.replace("qualFileInput_", "");
         handleDocVerification(key, file, file.name);
       });
+    });
+  }
+
+  // Fuzzy name comparison (client-side mirror of server logic)
+  function namesMatch(name1, name2) {
+    var normalize = function (n) { return String(n || "").toLowerCase().trim().replace(/[^a-z\s]/g, ""); };
+    var parts1 = normalize(name1).split(/\s+/).filter(Boolean);
+    var parts2 = normalize(name2).split(/\s+/).filter(Boolean);
+    if (parts1.length === 0 || parts2.length === 0) return false;
+    if (parts1.join(" ") === parts2.join(" ")) return true;
+    // First+last match
+    if (parts1[0] === parts2[0] && parts1[parts1.length - 1] === parts2[parts2.length - 1]) return true;
+    // Subset match
+    if (parts2.every(function (p) { return parts1.includes(p); })) return true;
+    if (parts1.every(function (p) { return parts2.includes(p); })) return true;
+    return false;
+  }
+
+  // After a doc is verified, check if both specialist + medical degree names match each other.
+  // If both match each other but not the account, auto-update account name to medical degree name.
+  function crossDocNameCheck(serverData) {
+    var docs = COUNTRY_DOCS[state.country] || [];
+    var specialistKey = docs.find(function (d) { return d.key !== "primary_med_degree"; });
+    var medDegreeKey = docs.find(function (d) { return d.key === "primary_med_degree"; });
+    if (!specialistKey || !medDegreeKey) return;
+
+    var specDoc = state.qualDocs[specialistKey.key];
+    var medDoc = state.qualDocs[medDegreeKey.key];
+    if (!specDoc || !medDoc) return;
+
+    // Both need to be verified or verified_name_pending
+    var specOk = specDoc.status === "verified" || specDoc.status === "verified_name_pending";
+    var medOk = medDoc.status === "verified" || medDoc.status === "verified_name_pending";
+    if (!specOk || !medOk) return;
+
+    var specName = specDoc.scanResult && specDoc.scanResult.nameFound;
+    var medName = medDoc.scanResult && medDoc.scanResult.nameFound;
+    if (!specName || !medName) return;
+
+    var profileName = getProfileName();
+    var docsMatchEachOther = namesMatch(specName, medName);
+
+    if (docsMatchEachOther) {
+      var matchesAccount = namesMatch(medName, profileName);
+      // Both docs verified — mark both as verified
+      specDoc.status = "verified";
+      medDoc.status = "verified";
+
+      if (!matchesAccount) {
+        // Names on docs match each other but not the account — auto-update account name
+        autoUpdateAccountName(medName);
+      }
+    } else {
+      // Documents have different names — flag for manual review
+      specDoc.status = "failed";
+      medDoc.status = "failed";
+      var msg = "Names on your specialist qualification and medical degree do not match each other.";
+      specDoc.scanResult.issues = (specDoc.scanResult.issues || []).concat([msg]);
+      medDoc.scanResult.issues = (medDoc.scanResult.issues || []).concat([msg]);
+      state.accountReviewFlag = true;
+    }
+  }
+
+  function autoUpdateAccountName(docName) {
+    // Parse the name from the medical degree — use it to update the account
+    var parts = String(docName || "").trim().split(/\s+/);
+    if (parts.length < 2) return;
+    var firstName = parts[0];
+    var lastName = parts.slice(1).join(" ");
+
+    fetch("/api/account/update-name", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ firstName: firstName, lastName: lastName }),
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.ok) {
+        console.log("[Onboarding] Account name auto-updated to match documents:", firstName, lastName);
+        // Update session profile so subsequent checks use new name
+        if (window.gpSessionProfile) {
+          window.gpSessionProfile.first_name = firstName;
+          window.gpSessionProfile.last_name = lastName;
+          window.gpSessionProfile.full_name = firstName + " " + lastName;
+          window.gpSessionProfile.name = firstName + " " + lastName;
+        }
+      }
+    }).catch(function (err) {
+      console.error("[Onboarding] Failed to auto-update account name:", err);
     });
   }
 
@@ -287,6 +375,12 @@
           state.qualDocs[docKey].status = "verified";
           state.qualDocs[docKey].scanResult = v;
           state.qualDocs[docKey].nameMatch = v.nameMatch;
+        } else if (v.verified && v.nameMatch === "mismatch") {
+          // Document itself is valid but name doesn't match account — check cross-doc matching
+          state.qualDocs[docKey].scanResult = v;
+          state.qualDocs[docKey].nameMatch = v.nameMatch;
+          // We'll resolve this after checking both docs below
+          state.qualDocs[docKey].status = "verified_name_pending";
         } else if (v.nameMatch === "mismatch") {
           state.qualDocs[docKey].status = "failed";
           state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
@@ -299,6 +393,9 @@
           var failIssues = (v.issues && v.issues.length > 0) ? v.issues : ["Document could not be verified. Check it's the correct document type and clearly visible."];
           state.qualDocs[docKey].scanResult = { ...v, issues: failIssues };
         }
+
+        // Cross-document name matching: check if both docs have names that match each other
+        crossDocNameCheck(data);
       } else if (data.queued) {
         state.qualDocs[docKey].status = "manual_review";
         state.qualDocs[docKey].scanResult = { issues: [data.message || "Queued for review"] };
@@ -377,7 +474,7 @@
     if (docs.length === 0) return false;
     return docs.every((doc) => {
       const d = state.qualDocs && state.qualDocs[doc.key];
-      return d && (d.status === "verified" || d.status === "manual_review");
+      return d && (d.status === "verified" || d.status === "manual_review" || d.status === "verified_name_pending");
     });
   }
 
@@ -477,8 +574,8 @@
     if (!icon || !status || !card) return;
 
     const docs = COUNTRY_DOCS[state.country] || [];
-    const allVerified = docs.length > 0 && docs.every((d) => state.qualDocs[d.key] && state.qualDocs[d.key].status === "verified");
-    const anyDone = docs.some((d) => state.qualDocs[d.key] && (state.qualDocs[d.key].status === "verified" || state.qualDocs[d.key].status === "manual_review"));
+    const allVerified = docs.length > 0 && docs.every((d) => state.qualDocs[d.key] && (state.qualDocs[d.key].status === "verified" || state.qualDocs[d.key].status === "verified_name_pending"));
+    const anyDone = docs.some((d) => state.qualDocs[d.key] && (state.qualDocs[d.key].status === "verified" || state.qualDocs[d.key].status === "verified_name_pending" || state.qualDocs[d.key].status === "manual_review"));
 
     if (allVerified) {
       card.className = "upload-card completed";
