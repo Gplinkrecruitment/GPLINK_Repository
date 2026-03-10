@@ -3125,7 +3125,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+          model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-20241022',
           max_tokens: 500,
           messages: [{
             role: 'user',
@@ -3143,7 +3143,12 @@ Return ONLY valid JSON with no markdown formatting:
       if (!anthropicRes.ok) {
         const errText = await anthropicRes.text().catch(() => '');
         console.error('[AI Verify] Anthropic API error:', anthropicRes.status, errText);
-        sendJson(res, 502, { ok: false, message: 'AI service returned an error.' });
+        let errMsg = 'AI service returned an error.';
+        try {
+          const errJson = JSON.parse(errText);
+          if (errJson.error && errJson.error.message) errMsg = errJson.error.message;
+        } catch (e) {}
+        sendJson(res, 502, { ok: false, message: errMsg, statusCode: anthropicRes.status });
         return;
       }
 
