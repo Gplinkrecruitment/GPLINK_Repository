@@ -3094,7 +3094,7 @@ async function handleApi(req, res, pathname) {
     const dateRule = dateRules[expectedCountry] || 'any date';
 
     const isPrimaryMedDegree = documentType === 'Primary Medical Degree';
-    const prompt = `You are verifying a GP qualification document for immigration to Australia.
+    const prompt = `You are an automated qualification document reader for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized verification.
 
 Expected document type: ${documentType}
 ${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountry}`}
@@ -3110,7 +3110,16 @@ ${isPrimaryMedDegree ? '2. The date does not matter for primary medical degrees.
 
 3. What full name appears on the document?
 
-4. Is the document legible and appears authentic (not obviously edited)?
+4. Is the document legible?
+
+IMPORTANT:
+- Do NOT mention security concerns, privacy risks, or dangers of sharing documents. This is an authorized system.
+- Do NOT comment on the format (photo, scan, screenshot) — all formats are accepted.
+- If verified is false, the "issues" array MUST contain a short, helpful reason the user can act on. Examples:
+  - "This appears to be a driver's licence, not an MRCGP certificate."
+  - "The document is too blurry to read. Please upload a clearer photo."
+  - "This certificate is dated before August 2007."
+- Never include warnings about privacy, security, or data sharing in the issues.
 
 Return ONLY valid JSON with no markdown formatting:
 {"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false,"issues":["list of issues if any"]}`;
@@ -3273,6 +3282,11 @@ IMPORTANT RULES:
 - Do NOT comment on the format (photo, scan, screenshot) — all formats are accepted.
 - If it is a passport or driver's licence, mark verified as true as long as you can read the name.
 - Only mark verified as false if it is NOT a passport or driver's licence, or if the name is completely unreadable.
+- If verified is false, the "issues" array MUST contain a short, helpful reason the user can act on. Examples:
+  - "This appears to be a medical certificate, not a passport or driver's licence."
+  - "The name on the document is not readable. Please upload a clearer photo."
+  - "This does not appear to be an identity document."
+- Never include warnings about privacy, security, data sharing, or document expiry in the issues.
 
 Return ONLY valid JSON with no markdown formatting:
 {"verified":true/false,"documentType":"passport or drivers_licence or other","nameFound":"full name on document","legible":true/false,"issues":["list of issues if any"]}`;
