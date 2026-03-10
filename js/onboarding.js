@@ -1,9 +1,9 @@
 (function () {
   "use strict";
 
-  const TOTAL_STEPS = 8;
+  const TOTAL_STEPS = 5;
   const STORAGE_KEY = "gp_onboarding";
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5;
 
   // Allow clearing onboarding state via ?reset=1 query param
   if (new URLSearchParams(window.location.search).get("reset") === "1") {
@@ -34,11 +34,26 @@
 
   // ── State ──────────────────────────────────
   let state = loadState();
+
+  // Migrate old 8-step state to new 5-step layout
+  if (state._version !== 2) {
+    var stepMap = { 0: 0, 1: 0, 2: 1, 3: 3, 4: 3, 5: 3, 6: 2, 7: 4 };
+    if (state.currentStep !== undefined && stepMap[state.currentStep] !== undefined) {
+      state.currentStep = stepMap[state.currentStep];
+    }
+    delete state.specialNotes;
+    delete state.cvFile;
+    delete state.idFile;
+    state._version = 2;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
   let currentStep = state.currentStep || 0;
   let childrenCount = state.childrenCount || 1;
 
   function defaultState() {
     return {
+      _version: 2,
       currentStep: 0,
       country: "",
       qualDocs: {},         // { [docKey]: { fileName, status, scanResult, retryCount, nameMatch } }
@@ -47,9 +62,7 @@
       preferredCity: "",
       whoMoving: "",
       childrenCount: 1,
-      specialNotes: "",
-      cvFile: null,
-      idFile: null,
+      idVerification: null,
       completedAt: null,
     };
   }
@@ -180,6 +193,11 @@
         const issues = (docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues.join(", ") : "Verification failed";
         infoHtml = '<div class="qual-doc-slot-info error">' + issues + '</div>';
         infoHtml += '<div class="qual-doc-slot-retry">Attempt ' + retryCount + ' of ' + MAX_RETRIES + '</div>';
+        // Actionable tips based on retry count
+        var tips = ["Try removing any frame or cover", "Ensure there is no glare on the document", "Hold camera steady and use good lighting", "Try uploading a flat scan or screenshot instead"];
+        if (retryCount > 0 && retryCount <= tips.length) {
+          infoHtml += '<div class="qual-doc-slot-retry" style="color:var(--blue);">Tip: ' + tips[retryCount - 1] + '</div>';
+        }
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "support_requested") {
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Support team will verify manually via email</div>';
@@ -774,14 +792,6 @@
   });
   updateWhoUI();
 
-  // ── Special notes ──────────────────────────
-  const notesEl = document.getElementById("specialNotes");
-  if (state.specialNotes) notesEl.value = state.specialNotes;
-  notesEl.addEventListener("input", () => {
-    state.specialNotes = notesEl.value;
-    saveState();
-  });
-
   // ── Error helpers ──────────────────────────
   function showError(id, msg) {
     const el = document.getElementById(id);
@@ -797,8 +807,7 @@
   // ── Step validation ────────────────────────
   function validateStep(step) {
     switch (step) {
-      case 0: return true;
-      case 1: // country
+      case 0: // country
         if (!state.country) { showError("countryError"); return false; }
         if (!COUNTRY_DOCS[state.country]) {
           const hint = document.getElementById("countryHint");
@@ -807,14 +816,22 @@
         }
         hideError("countryError");
         return true;
-      case 2: // qualification docs
+      case 1: // qualification docs
         if (!allDocsComplete()) {
           showError("qualDocsError", "Please verify all required documents before continuing.");
           return false;
         }
         hideError("qualDocsError");
         return true;
-      case 3: // date & city
+      case 2: // identity check
+        const idStatus = state.idVerification && state.idVerification.status;
+        if (idStatus === "verified" || idStatus === "support_requested") {
+          hideError("docsError");
+          return true;
+        }
+        showError("docsError", "Please upload your passport or driver's licence.");
+        return false;
+      case 3: // relocation details (date + city + who)
         let ok = true;
         if (!state.targetDate) { showError("dateError", "Please select a target date."); ok = false; }
         else {
@@ -824,28 +841,17 @@
         }
         if (!state.preferredCity) { showError("cityError"); ok = false; }
         else hideError("cityError");
+        if (!state.whoMoving) { showError("whoError"); ok = false; }
+        else hideError("whoError");
         return ok;
-      case 4: // who
-        if (!state.whoMoving) { showError("whoError"); return false; }
-        hideError("whoError");
-        return true;
-      case 5: return true; // special notes (optional)
-      case 6: // identity check
-        const idStatus = state.idVerification && state.idVerification.status;
-        if (idStatus === "verified" || idStatus === "support_requested") {
-          hideError("docsError");
-          return true;
-        }
-        showError("docsError", "Please upload your passport or driver's licence.");
-        return false;
-      case 7: return true; // review
+      case 4: return true; // review
       default: return true;
     }
   }
 
   // ── Skip logic ─────────────────────────────
   function isSkippable(step) {
-    return step === 5;
+    return false;
   }
 
   // ── Review builder ─────────────────────────
@@ -882,7 +888,6 @@
       { label: "Who's moving", value: whoLabels[state.whoMoving] || "Not set" },
     ];
     if (hasChildren) rows.push({ label: "Children", value: String(childrenCount) });
-    if (state.specialNotes) rows.push({ label: "Notes", value: state.specialNotes.slice(0, 120) + (state.specialNotes.length > 120 ? "..." : "") });
     const idStatus = state.idVerification && state.idVerification.status;
     rows.push({
       label: "Identity check",
@@ -929,10 +934,7 @@
       skipBtn.classList.add("invisible");
     }
 
-    if (step === 0) {
-      nextBtn.textContent = "GET STARTED";
-      nextBtn.classList.remove("submit");
-    } else if (step === TOTAL_STEPS - 1) {
+    if (step === TOTAL_STEPS - 1) {
       nextBtn.textContent = "SUBMIT";
       nextBtn.classList.add("submit");
     } else {
@@ -944,8 +946,8 @@
       buildReview();
     }
 
-    if (step === 2) renderQualDocSlots();
-    if (step === 6) renderIdVerifyStatus();
+    if (step === 1) renderQualDocSlots();
+    if (step === 2) renderIdVerifyStatus();
 
     saveState();
   }

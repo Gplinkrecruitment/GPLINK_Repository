@@ -79,42 +79,26 @@
       top: 60px; left: 40%;
     }
 
-    /* per-step blob color variations */
-    [data-step="0"] .blob-1 { background: #93c5fd; }
-    [data-step="0"] .blob-2 { background: #a5b4fc; }
-    [data-step="0"] .blob-3 { background: #6ee7b7; }
+    /* per-step blob color variations (5 steps: 0-4) */
+    [data-step="0"] .blob-1 { background: #6ee7b7; top: -60px; left: -20px; }
+    [data-step="0"] .blob-2 { background: #93c5fd; }
+    [data-step="0"] .blob-3 { background: #fbbf24; }
 
-    [data-step="1"] .blob-1 { background: #6ee7b7; top: -60px; left: -20px; }
-    [data-step="1"] .blob-2 { background: #93c5fd; }
-    [data-step="1"] .blob-3 { background: #fbbf24; }
+    [data-step="1"] .blob-1 { background: #a5b4fc; }
+    [data-step="1"] .blob-2 { background: #f9a8d4; }
+    [data-step="1"] .blob-3 { background: #93c5fd; top: 80px; }
 
-    [data-step="2"] .blob-1 { background: #a5b4fc; }
-    [data-step="2"] .blob-2 { background: #f9a8d4; }
-    [data-step="2"] .blob-3 { background: #93c5fd; top: 80px; }
+    [data-step="2"] .blob-1 { background: #93c5fd; }
+    [data-step="2"] .blob-2 { background: #6ee7b7; }
+    [data-step="2"] .blob-3 { background: #fbbf24; }
 
     [data-step="3"] .blob-1 { background: #fbbf24; }
     [data-step="3"] .blob-2 { background: #6ee7b7; }
     [data-step="3"] .blob-3 { background: #a5b4fc; }
 
-    [data-step="4"] .blob-1 { background: #f9a8d4; }
-    [data-step="4"] .blob-2 { background: #93c5fd; }
-    [data-step="4"] .blob-3 { background: #fbbf24; }
-
-    [data-step="5"] .blob-1 { background: #6ee7b7; }
-    [data-step="5"] .blob-2 { background: #a5b4fc; }
-    [data-step="5"] .blob-3 { background: #93c5fd; }
-
-    [data-step="6"] .blob-1 { background: #93c5fd; }
-    [data-step="6"] .blob-2 { background: #6ee7b7; }
-    [data-step="6"] .blob-3 { background: #fbbf24; }
-
-    [data-step="7"] .blob-1 { background: #a5b4fc; top: -100px; }
-    [data-step="7"] .blob-2 { background: #6ee7b7; }
-    [data-step="7"] .blob-3 { background: #93c5fd; top: 40px; }
-
-    [data-step="8"] .blob-1 { background: #6ee7b7; top: -80px; }
-    [data-step="8"] .blob-2 { background: #a5b4fc; }
-    [data-step="8"] .blob-3 { background: #fbbf24; top: 60px; }
+    [data-step="4"] .blob-1 { background: #a5b4fc; top: -100px; }
+    [data-step="4"] .blob-2 { background: #6ee7b7; }
+    [data-step="4"] .blob-3 { background: #93c5fd; top: 40px; }
 
     /* ── BACK BUTTON ──────────────────────────── */
     .back-btn {
@@ -907,43 +891,8 @@
     <!-- slides viewport -->
     <div class="slides-viewport">
 
-      <!-- STEP 0: Welcome -->
+      <!-- STEP 0: Country of qualification -->
       <div class="slide active" data-slide="0">
-        <div class="slide-illustration">
-          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <!-- Globe with Australia -->
-            <circle cx="100" cy="90" r="60" fill="#dbeafe" stroke="#93c5fd" stroke-width="2"/>
-            <ellipse cx="100" cy="90" rx="60" ry="20" fill="none" stroke="#bfdbfe" stroke-width="1" stroke-dasharray="4 3"/>
-            <ellipse cx="100" cy="90" rx="20" ry="60" fill="none" stroke="#bfdbfe" stroke-width="1" stroke-dasharray="4 3"/>
-            <!-- Simplified Australia shape -->
-            <path d="M108 85c3-1 8 0 12 3s6 7 5 10-3 5-7 5-6 2-9 1-5-3-6-6 1-6 2-8c1-1 2-4 3-5z" fill="#3b82f6" opacity="0.7"/>
-            <!-- Location pin -->
-            <g transform="translate(112,72)">
-              <path d="M0-18c-7 0-12 5-12 12 0 9 12 22 12 22s12-13 12-22c0-7-5-12-12-12z" fill="#ef4444"/>
-              <circle cx="0" cy="-6" r="4" fill="#fff"/>
-            </g>
-            <!-- Doctor figure -->
-            <g transform="translate(55,130)">
-              <circle cx="15" cy="8" r="10" fill="#fbbf24"/>
-              <rect x="5" y="18" width="20" height="24" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
-              <path d="M10 22v8M20 22v8" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
-              <circle cx="15" cy="26" r="2" fill="#3b82f6"/>
-            </g>
-            <!-- Plane trail -->
-            <path d="M30 60 Q60 30 100 50 T170 40" fill="none" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="4 3"/>
-            <g transform="translate(168,36) rotate(15)">
-              <path d="M0 0l-6-3v2l-8 1 8 1v2z" fill="#3b82f6"/>
-            </g>
-          </svg>
-        </div>
-        <div class="slide-content">
-          <h1>Start your move to Australia</h1>
-          <p>We'll quickly verify your details and tailor your relocation journey. It only takes a few minutes.</p>
-        </div>
-      </div>
-
-      <!-- STEP 1: Country of qualification -->
-      <div class="slide" data-slide="1">
         <div class="slide-illustration">
           <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
             <!-- Globe network -->
@@ -979,6 +928,7 @@
         <div class="slide-content">
           <h1>Where are you qualified?</h1>
           <p>Tell us where you're currently qualified so we can tailor your registration journey.</p>
+          <p style="font-size:13px;color:var(--light);margin-top:-14px;">This takes about 3 minutes to complete. Your progress is saved automatically.</p>
           <div class="form-area">
             <div>
               <label class="field-label" for="countrySearch">Country of qualification</label>
@@ -993,8 +943,8 @@
         </div>
       </div>
 
-      <!-- STEP 2: Verify qualification documents (country-specific) -->
-      <div class="slide" data-slide="2">
+      <!-- STEP 1: Verify qualification documents -->
+      <div class="slide" data-slide="1">
         <div class="slide-illustration" style="min-height:160px;padding:20px 0 0;">
           <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
             <!-- Shield with document -->
@@ -1030,210 +980,8 @@
         </div>
       </div>
 
-      <!-- STEP 3: Relocation timeline & city -->
-      <div class="slide" data-slide="3">
-        <div class="slide-illustration">
-          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <!-- Calendar -->
-            <rect x="30" y="45" width="90" height="80" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
-            <rect x="30" y="45" width="90" height="22" rx="8" fill="#3b82f6"/>
-            <rect x="30" y="59" width="90" height="8" rx="0" fill="#3b82f6"/>
-            <line x1="50" y1="40" x2="50" y2="50" stroke="#93c5fd" stroke-width="3" stroke-linecap="round"/>
-            <line x1="100" y1="40" x2="100" y2="50" stroke="#93c5fd" stroke-width="3" stroke-linecap="round"/>
-            <!-- Calendar grid -->
-            <g fill="#e2e8f0">
-              <rect x="38" y="74" width="10" height="10" rx="2"/>
-              <rect x="53" y="74" width="10" height="10" rx="2"/>
-              <rect x="68" y="74" width="10" height="10" rx="2"/>
-              <rect x="83" y="74" width="10" height="10" rx="2"/>
-              <rect x="98" y="74" width="10" height="10" rx="2"/>
-              <rect x="38" y="90" width="10" height="10" rx="2"/>
-              <rect x="53" y="90" width="10" height="10" rx="2"/>
-            </g>
-            <rect x="68" y="90" width="10" height="10" rx="3" fill="#3b82f6"/>
-            <g fill="#e2e8f0">
-              <rect x="83" y="90" width="10" height="10" rx="2"/>
-              <rect x="98" y="90" width="10" height="10" rx="2"/>
-              <rect x="38" y="106" width="10" height="10" rx="2"/>
-              <rect x="53" y="106" width="10" height="10" rx="2"/>
-              <rect x="68" y="106" width="10" height="10" rx="2"/>
-            </g>
-            <!-- Australia map silhouette -->
-            <g transform="translate(125,50)">
-              <path d="M10 20c-3 1-6 8-4 14s8 14 16 16 18-1 22-6 6-12 3-18-8-10-14-11-10 0-14 2-5 2-9 3z" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
-              <!-- City dots -->
-              <circle cx="38" cy="28" r="3" fill="#3b82f6"/>
-              <circle cx="32" cy="36" r="3" fill="#60a5fa"/>
-              <circle cx="22" cy="38" r="3" fill="#93c5fd"/>
-              <circle cx="8" cy="30" r="2.5" fill="#93c5fd"/>
-            </g>
-            <!-- Arrow -->
-            <path d="M110 100 Q135 80 148 70" fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4 3"/>
-          </svg>
-        </div>
-        <div class="slide-content">
-          <h1>When and where?</h1>
-          <p>Tell us your target arrival date and preferred city in Australia.</p>
-          <div class="form-area">
-            <div>
-              <label class="field-label" for="targetDate">Target date to arrive in Australia</label>
-              <input type="date" id="targetDate" />
-              <div class="field-hint">Must be at least 5 months from today to allow for registration and relocation.</div>
-              <div class="field-error" id="dateError">Please select a valid date.</div>
-            </div>
-            <div>
-              <label class="field-label" for="preferredCity">Preferred city</label>
-              <select id="preferredCity">
-                <option value="" disabled selected>Choose a city</option>
-                <option value="Sydney">Sydney</option>
-                <option value="Brisbane">Brisbane</option>
-                <option value="Melbourne">Melbourne</option>
-                <option value="Adelaide">Adelaide</option>
-                <option value="Perth">Perth</option>
-                <option value="Darwin">Darwin</option>
-                <option value="Canberra">Canberra</option>
-              </select>
-              <div class="field-error" id="cityError">Please select a preferred city.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 4: Who is moving -->
-      <div class="slide" data-slide="4">
-        <div class="slide-illustration">
-          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <!-- Family scene -->
-            <!-- Doctor (main) -->
-            <g transform="translate(70,50)">
-              <circle cx="15" cy="12" r="14" fill="#fbbf24"/>
-              <rect x="2" y="26" width="26" height="32" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
-              <circle cx="15" cy="36" r="3" fill="#3b82f6"/>
-              <path d="M8 30v10M22 30v10" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
-            </g>
-            <!-- Partner -->
-            <g transform="translate(115,55)">
-              <circle cx="12" cy="10" r="12" fill="#f9a8d4"/>
-              <rect x="1" y="22" width="22" height="28" rx="7" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
-            </g>
-            <!-- Child 1 -->
-            <g transform="translate(45,80)">
-              <circle cx="9" cy="7" r="9" fill="#93c5fd"/>
-              <rect x="1" y="16" width="16" height="20" rx="5" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
-            </g>
-            <!-- Heart -->
-            <g transform="translate(96,38)">
-              <path d="M5 0C2.5-2 0 0 0 2.5S2.5 7 5 9c2.5-2 5-4.5 5-6.5S7.5-2 5 0z" fill="#f43f5e" opacity="0.7"/>
-            </g>
-            <!-- Plane + trail -->
-            <path d="M20 140 Q80 100 160 130" fill="none" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="4 3"/>
-            <g transform="translate(158,127) rotate(-15)">
-              <path d="M0 0l-6-3v2l-8 1 8 1v2z" fill="#3b82f6"/>
-            </g>
-            <!-- Suitcases -->
-            <g transform="translate(60,140)">
-              <rect x="0" y="5" width="18" height="22" rx="3" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
-              <line x1="4" y1="0" x2="14" y2="0" stroke="#93c5fd" stroke-width="2" stroke-linecap="round"/>
-              <line x1="4" y1="0" x2="4" y2="5" stroke="#93c5fd" stroke-width="1.5"/>
-              <line x1="14" y1="0" x2="14" y2="5" stroke="#93c5fd" stroke-width="1.5"/>
-            </g>
-            <g transform="translate(82,145)">
-              <rect x="0" y="5" width="14" height="17" rx="3" fill="#ede9fe" stroke="#a5b4fc" stroke-width="1.5"/>
-              <line x1="3" y1="0" x2="11" y2="0" stroke="#a5b4fc" stroke-width="2" stroke-linecap="round"/>
-              <line x1="3" y1="0" x2="3" y2="5" stroke="#a5b4fc" stroke-width="1.5"/>
-              <line x1="11" y1="0" x2="11" y2="5" stroke="#a5b4fc" stroke-width="1.5"/>
-            </g>
-          </svg>
-        </div>
-        <div class="slide-content">
-          <h1>Who's relocating?</h1>
-          <p>Let us know who's making the move so we can support your whole family.</p>
-          <div class="form-area">
-            <div class="option-grid" id="whoMovingGrid">
-              <div class="option-card" data-value="just_me">
-                <div class="option-card-icon">
-                  <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                </div>
-                <div class="option-card-label">Just me</div>
-              </div>
-              <div class="option-card" data-value="me_partner">
-                <div class="option-card-icon">
-                  <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                </div>
-                <div class="option-card-label">Me & partner</div>
-              </div>
-              <div class="option-card" data-value="me_children">
-                <div class="option-card-icon">
-                  <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><circle cx="19" cy="11" r="3"/></svg>
-                </div>
-                <div class="option-card-label">Me & children</div>
-              </div>
-              <div class="option-card" data-value="me_partner_children">
-                <div class="option-card-icon">
-                  <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="20" cy="14" r="2.5"/></svg>
-                </div>
-                <div class="option-card-label">Family</div>
-              </div>
-            </div>
-            <div class="field-error" id="whoError">Please select who is relocating.</div>
-            <div class="children-count-wrap" id="childrenCountWrap">
-              <label class="field-label">How many children?</label>
-              <div class="stepper-input">
-                <button type="button" class="stepper-btn" id="childMinus">&minus;</button>
-                <span class="stepper-value" id="childCount">1</span>
-                <button type="button" class="stepper-btn" id="childPlus">+</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 5: Special considerations -->
-      <div class="slide" data-slide="5">
-        <div class="slide-illustration">
-          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <!-- Notepad -->
-            <rect x="40" y="30" width="120" height="140" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
-            <rect x="40" y="30" width="120" height="28" rx="10" fill="#ede9fe"/>
-            <rect x="40" y="50" width="120" height="8" rx="0" fill="#ede9fe"/>
-            <!-- Lines -->
-            <rect x="55" y="70" width="90" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="55" y="82" width="70" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="55" y="94" width="85" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="55" y="106" width="60" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="55" y="118" width="80" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="55" y="130" width="50" height="3" rx="1.5" fill="#e2e8f0"/>
-            <!-- Pencil -->
-            <g transform="translate(140,100) rotate(30)">
-              <rect x="-3" y="-30" width="6" height="40" rx="1" fill="#fbbf24"/>
-              <polygon points="0,12 -3,10 3,10" fill="#f97316"/>
-              <rect x="-3" y="-30" width="6" height="6" rx="1" fill="#f9a8d4"/>
-            </g>
-            <!-- Checkmarks -->
-            <g transform="translate(45,70)">
-              <circle cx="0" cy="1.5" r="4" fill="#ecfdf5"/>
-              <path d="M-2 1.5l1.5 1.5 3-3" stroke="#10b981" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-            </g>
-            <g transform="translate(45,94)">
-              <circle cx="0" cy="1.5" r="4" fill="#ecfdf5"/>
-              <path d="M-2 1.5l1.5 1.5 3-3" stroke="#10b981" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-            </g>
-          </svg>
-        </div>
-        <div class="slide-content">
-          <h1>Anything else?</h1>
-          <p>Tell us anything important that may affect your move or practice preference.</p>
-          <div class="form-area">
-            <div>
-              <label class="field-label" for="specialNotes">Special considerations (optional)</label>
-              <textarea id="specialNotes" placeholder="For example: schooling preferences, partner employment needs, visa timing, preferred climate, family considerations, location restrictions..."></textarea>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 6: Quick Identity Check -->
-      <div class="slide" data-slide="6">
+      <!-- STEP 2: Quick Identity Check -->
+      <div class="slide" data-slide="2">
         <div class="slide-illustration">
           <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
             <!-- ID Card -->
@@ -1258,7 +1006,7 @@
         </div>
         <div class="slide-content">
           <h1>Quick identity check</h1>
-          <p>Upload your <strong>passport</strong> or <strong>driver's licence</strong> so we can confirm your identity matches your qualification documents.</p>
+          <p>Upload your <strong>passport</strong> or <strong>driver's licence</strong> to confirm the person behind the qualifications is really you.</p>
           <div class="form-area">
             <div class="id-check-info">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -1286,8 +1034,117 @@
         </div>
       </div>
 
-      <!-- STEP 7: Review & Submit -->
-      <div class="slide" data-slide="7">
+      <!-- STEP 3: Relocation details (merged date/city/who) -->
+      <div class="slide" data-slide="3">
+        <div class="slide-illustration" style="min-height:160px;padding:10px 0 0;">
+          <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
+            <!-- Calendar -->
+            <rect x="15" y="20" width="75" height="65" rx="7" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+            <rect x="15" y="20" width="75" height="18" rx="7" fill="#3b82f6"/>
+            <rect x="15" y="32" width="75" height="6" rx="0" fill="#3b82f6"/>
+            <g fill="#e2e8f0">
+              <rect x="22" y="45" width="8" height="8" rx="2"/>
+              <rect x="34" y="45" width="8" height="8" rx="2"/>
+              <rect x="46" y="45" width="8" height="8" rx="2"/>
+              <rect x="58" y="45" width="8" height="8" rx="2"/>
+              <rect x="70" y="45" width="8" height="8" rx="2"/>
+              <rect x="22" y="58" width="8" height="8" rx="2"/>
+              <rect x="34" y="58" width="8" height="8" rx="2"/>
+            </g>
+            <rect x="46" y="58" width="8" height="8" rx="2" fill="#3b82f6"/>
+            <g fill="#e2e8f0">
+              <rect x="58" y="58" width="8" height="8" rx="2"/>
+              <rect x="70" y="58" width="8" height="8" rx="2"/>
+              <rect x="22" y="71" width="8" height="8" rx="2"/>
+            </g>
+            <!-- Australia silhouette -->
+            <g transform="translate(105,15)">
+              <path d="M10 20c-3 1-6 8-4 14s8 14 16 16 18-1 22-6 6-12 3-18-8-10-14-11-10 0-14 2-5 2-9 3z" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+              <circle cx="38" cy="28" r="3" fill="#3b82f6"/>
+              <circle cx="32" cy="36" r="2.5" fill="#60a5fa"/>
+              <circle cx="22" cy="38" r="2.5" fill="#93c5fd"/>
+            </g>
+            <!-- People icons -->
+            <g transform="translate(110,80)">
+              <circle cx="15" cy="8" r="10" fill="#fbbf24"/>
+              <rect x="5" y="18" width="20" height="20" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+            </g>
+            <g transform="translate(145,85)">
+              <circle cx="10" cy="6" r="8" fill="#f9a8d4"/>
+              <rect x="2" y="14" width="16" height="16" rx="5" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+            </g>
+            <!-- Arrow -->
+            <path d="M85 70 Q100 55 112 45" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="4 3"/>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Relocation details</h1>
+          <p>When are you arriving, where would you like to live, and who's coming along?</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" for="targetDate">Target arrival date</label>
+              <input type="date" id="targetDate" />
+              <div class="field-hint">Must be at least 5 months from today.</div>
+              <div class="field-error" id="dateError">Please select a valid date.</div>
+            </div>
+            <div>
+              <label class="field-label" for="preferredCity">Preferred city</label>
+              <select id="preferredCity">
+                <option value="" disabled selected>Choose a city</option>
+                <option value="Sydney">Sydney</option>
+                <option value="Brisbane">Brisbane</option>
+                <option value="Melbourne">Melbourne</option>
+                <option value="Adelaide">Adelaide</option>
+                <option value="Perth">Perth</option>
+                <option value="Darwin">Darwin</option>
+                <option value="Canberra">Canberra</option>
+              </select>
+              <div class="field-error" id="cityError">Please select a preferred city.</div>
+            </div>
+            <div>
+              <label class="field-label">Who's relocating?</label>
+              <div class="option-grid" id="whoMovingGrid">
+                <div class="option-card" data-value="just_me">
+                  <div class="option-card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  </div>
+                  <div class="option-card-label">Just me</div>
+                </div>
+                <div class="option-card" data-value="me_partner">
+                  <div class="option-card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  </div>
+                  <div class="option-card-label">Me & partner</div>
+                </div>
+                <div class="option-card" data-value="me_children">
+                  <div class="option-card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><circle cx="19" cy="11" r="3"/></svg>
+                  </div>
+                  <div class="option-card-label">Me & children</div>
+                </div>
+                <div class="option-card" data-value="me_partner_children">
+                  <div class="option-card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="20" cy="14" r="2.5"/></svg>
+                  </div>
+                  <div class="option-card-label">Family</div>
+                </div>
+              </div>
+              <div class="field-error" id="whoError">Please select who is relocating.</div>
+              <div class="children-count-wrap" id="childrenCountWrap">
+                <label class="field-label">How many children?</label>
+                <div class="stepper-input">
+                  <button type="button" class="stepper-btn" id="childMinus">&minus;</button>
+                  <span class="stepper-value" id="childCount">1</span>
+                  <button type="button" class="stepper-btn" id="childPlus">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4: Review & Submit -->
+      <div class="slide" data-slide="4">
         <div class="slide-illustration" style="min-height:140px; padding: 20px 0 0;">
           <svg viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg">
             <!-- Clipboard -->
@@ -1338,9 +1195,6 @@
         <div class="progress-dot"></div>
         <div class="progress-dot"></div>
         <div class="progress-dot"></div>
-        <div class="progress-dot"></div>
-        <div class="progress-dot"></div>
-        <div class="progress-dot"></div>
       </div>
       <div class="btn-row">
         <button class="btn-skip invisible" id="skipBtn">SKIP</button>
@@ -1350,6 +1204,6 @@
   </div>
 
   <script src="../js/qualification-camera.js?v=20260311a"></script>
-  <script src="../js/onboarding.js?v=20260311c"></script>
+  <script src="../js/onboarding.js?v=20260311d"></script>
 </body>
 </html>
