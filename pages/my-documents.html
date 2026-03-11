@@ -1152,7 +1152,7 @@
     const PREPARED_DOC_STATUS = ["pending", "requested", "uploaded", "under_review", "approved", "rejected", "accepted", "action_required"];
     const INSTITUTION_STATUS = ["pending", "requested", "under_review", "approved", "accepted", "rejected", "action_required"];
 
-    /* ── Country-aware document definitions ── */
+    /* -- Country-aware document definitions -- */
 
     const COUNTRY_DOCS = {
       uk: {
@@ -1388,11 +1388,11 @@
     };
 
     const SUPERVISED_PRACTICE_DOCS = [
-      { key: "sppa_00", label: "Supervised Practice Plan – SPPA-00" },
-      { key: "section_g", label: "Supervised Practice Plan – Section G" },
+      { key: "sppa_00", label: "Supervised Practice Plan - SPPA-00" },
+      { key: "section_g", label: "Supervised Practice Plan - Section G" },
       { key: "position_description", label: "Position description" },
       { key: "offer_contract", label: "Letter of offer / employment contract" },
-      { key: "supervisor_cv", label: "Supervisor’s CV" }
+      { key: "supervisor_cv", label: "Supervisor's CV" }
     ];
 
     const progressGridEl = document.getElementById("progressGrid");
@@ -1593,7 +1593,7 @@
       return "Pending";
     }
 
-    /* ── Help popover ── */
+    /* -- Help popover -- */
     const helpBackdrop = document.getElementById("helpBackdrop");
     const helpPopover = document.getElementById("helpPopover");
     const helpPopoverTitle = document.getElementById("helpPopoverTitle");
@@ -1626,7 +1626,7 @@
     helpPopoverClose.addEventListener("click", closeHelpPopover);
     helpBackdrop.addEventListener("click", closeHelpPopover);
 
-    /* ── Render ── */
+    /* -- Render -- */
 
     function renderProgress(country, state) {
       progressGridEl.innerHTML = "";
@@ -1664,7 +1664,7 @@
             ? "supervised_docs"
             : "supervised_docs";
 
-      /* ─ Section 3: Supervised Practice Documents ─ */
+      /* - Section 3: Supervised Practice Documents - */
       const expandRow = document.createElement("div");
       expandRow.className = "progress-item expand timeline-item";
       expandRow.style.order = "3";
@@ -1678,7 +1678,7 @@
             <div>
               <div class="timeline-title">
                 <h4>Supervised Practice Documents</h4>
-                ${currentStepKey === "supervised_docs" ? ‘<span class="timeline-current">Current</span>’ : ""}
+                ${currentStepKey === "supervised_docs" ? '<span class="timeline-current">Current</span>' : ""}
               </div>
               <p>Download GP Link-prepared files for your AHPRA registration upload.</p>
             </div>
@@ -1691,7 +1691,7 @@
         </details>
       `;
       progressGridEl.appendChild(expandRow);
-      const supervisedDetails = expandRow.querySelector("details.expand-tab[data-expand-key=’supervised_docs’]");
+      const supervisedDetails = expandRow.querySelector("details.expand-tab[data-expand-key='supervised_docs']");
       if (supervisedDetails) supervisedDetails.open = !!expandState.supervised_docs;
 
       const listEl = expandRow.querySelector("#supervisedDownloadList");
@@ -1705,12 +1705,12 @@
             <div class="download-label">${doc.label}</div>
             <div class="download-note">${isReady ? "Ready to download" : "Preparing \u2013 this file will appear once GP Link uploads it to your account."}</div>
           </div>
-          ${isReady ? ‘<a class="btn btn-soft" href="’ + (file.url || "#") + ‘" ‘ + (file.url ? "download" : "") + ‘ ‘ + (file.url ? "" : "aria-disabled=’true’") + ‘>’ + (file.fileName ? "Download " + file.fileName : "Download") + "</a>" : ‘<button class="btn btn-neutral" type="button" disabled>Not ready</button>’}
+          ${isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '" ' + (file.url ? "download" : "") + ' ' + (file.url ? "" : "aria-disabled='true'") + '>' + (file.fileName ? "Download " + file.fileName : "Download") + "</a>" : '<button class="btn btn-neutral" type="button" disabled>Not ready</button>'}
         `;
         listEl.appendChild(item);
       });
 
-      /* ─ Section 2: Prepared by You ─ */
+      /* - Section 2: Prepared by You - */
       const preparedStatuses = preparedDocs.map((doc) => (state.docs[doc.key] && state.docs[doc.key].status) || "pending");
       const preparedAllAccepted = preparedStatuses.every((s) => s === "accepted" || s === "approved");
       const preparedSummaryClass = preparedAllAccepted ? "done" : "";
@@ -1728,7 +1728,7 @@
             <div>
               <div class="timeline-title">
                 <h4>Prepared by You</h4>
-                ${currentStepKey === "prepared_by_you" ? ‘<span class="timeline-current">Current</span>’ : ""}
+                ${currentStepKey === "prepared_by_you" ? '<span class="timeline-current">Current</span>' : ""}
               </div>
               <p>Upload your required certified documents for review and safekeeping in one place.</p>
             </div>
@@ -1741,7 +1741,7 @@
         </details>
       `;
       progressGridEl.appendChild(preparedRow);
-      const preparedDetails = preparedRow.querySelector("details.expand-tab[data-expand-key=’prepared_by_you’]");
+      const preparedDetails = preparedRow.querySelector("details.expand-tab[data-expand-key='prepared_by_you']");
       if (preparedDetails) preparedDetails.open = !!expandState.prepared_by_you;
 
       const preparedListEl = preparedRow.querySelector("#preparedByYouList");
@@ -1749,7 +1749,7 @@
         const itemState = state.docs[doc.key] || { uploaded: false, fileName: "", status: "pending" };
         const sClass = statusClass(itemState.status);
         const sLabel = statusLabel(itemState.status);
-        const helpBtn = doc.help ? ‘<button class="help-icon-btn" type="button" data-help-idx="p’ + idx + ‘" title="How to get this document" aria-label="Help: ‘ + doc.title + ‘">?</button>’ : "";
+        const helpBtn = doc.help ? '<button class="help-icon-btn" type="button" data-help-idx="p' + idx + '" title="How to get this document" aria-label="Help: ' + doc.title + '">?</button>' : "";
         const item = document.createElement("div");
         item.className = "download-item";
         item.innerHTML = `
@@ -1769,7 +1769,7 @@
         preparedListEl.appendChild(item);
       });
 
-      /* ─ Section 1: Sent directly to Ahpra / external authority ─ */
+      /* - Section 1: Sent directly to Ahpra / external authority - */
       const institutionRow = document.createElement("div");
       institutionRow.className = "progress-item expand timeline-item";
       institutionRow.style.order = "1";
@@ -1783,7 +1783,7 @@
             <div>
               <div class="timeline-title">
                 <h4>Sent directly to Ahpra / external authority</h4>
-                ${currentStepKey === "sent_to_ahpra" ? ‘<span class="timeline-current">Current</span>’ : ""}
+                ${currentStepKey === "sent_to_ahpra" ? '<span class="timeline-current">Current</span>' : ""}
               </div>
               <p>These must be sent directly from the institution or authority.</p>
             </div>
@@ -1796,7 +1796,7 @@
         </details>
       `;
       progressGridEl.appendChild(institutionRow);
-      const institutionDetails = institutionRow.querySelector("details.expand-tab[data-expand-key=’sent_to_ahpra’]");
+      const institutionDetails = institutionRow.querySelector("details.expand-tab[data-expand-key='sent_to_ahpra']");
       if (institutionDetails) institutionDetails.open = !!expandState.sent_to_ahpra;
 
       const institutionListEl = institutionRow.querySelector("#institutionToAhpraList");
@@ -1806,7 +1806,7 @@
         row.className = "download-item institution-item";
         const instSClass = itemState.status === "pending" ? "pending" : statusClass(itemState.status);
         const instSLabel = itemState.status === "pending" ? "Pending" : statusLabel(itemState.status);
-        const helpBtn = item.help ? ‘<button class="help-icon-btn" type="button" data-help-idx="i’ + idx + ‘" title="How to get this document" aria-label="Help: ‘ + item.title + ‘">?</button>’ : "";
+        const helpBtn = item.help ? '<button class="help-icon-btn" type="button" data-help-idx="i' + idx + '" title="How to get this document" aria-label="Help: ' + item.title + '">?</button>' : "";
         row.innerHTML = `
           <div style="display:grid; gap:6px;">
             <div class="doc-title-row">
@@ -1814,7 +1814,7 @@
               ${helpBtn}
             </div>
             <div class="doc-actions">
-              ${itemState.status === "pending" ? ‘<button class="btn btn-soft" type="button" data-inst-mark="’ + item.key + ‘">’ + (item.actionLabel || "Mark Requested") + "</button>" : ""}
+              ${itemState.status === "pending" ? '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + "</button>" : ""}
             </div>
           </div>
           <span class="pill ${instSClass}">${instSLabel}</span>
@@ -1822,7 +1822,7 @@
         institutionListEl.appendChild(row);
       });
 
-      /* ─ Accordion & open state ─ */
+      /* - Accordion & open state - */
       const timelineDetails = [...progressGridEl.querySelectorAll("details.expand-tab[data-expand-key]")];
       let anyOpen = false;
       timelineDetails.forEach((detail) => {
@@ -1833,7 +1833,7 @@
       });
 
       if (!anyOpen) {
-        const currentRow = progressGridEl.querySelector(‘.timeline-item[data-step-key="’ + currentStepKey + ‘"] details.expand-tab[data-expand-key]’);
+        const currentRow = progressGridEl.querySelector('.timeline-item[data-step-key="' + currentStepKey + '"] details.expand-tab[data-expand-key]');
         if (currentRow) {
           currentRow.open = true;
           const parentRow = currentRow.closest(".timeline-item");
@@ -1873,7 +1873,7 @@
       progressGridEl.addEventListener("change", (event) => {
         const input = event.target;
         if (!(input instanceof HTMLInputElement)) return;
-        if (!input.matches("input[type=’file’][data-prepared-doc]")) return;
+        if (!input.matches("input[type='file'][data-prepared-doc]")) return;
         const key = input.getAttribute("data-prepared-doc");
         const file = input.files && input.files[0];
         if (!key || !file) return;
@@ -1886,7 +1886,7 @@
           const keywords = title.replace(/[^a-z0-9]+/g, " ").split(" ").filter((w) => w.length > 3);
           const matchCount = keywords.filter((kw) => fn.includes(kw)).length;
           if (keywords.length > 0 && matchCount === 0) {
-            if (!confirm("The file \"" + file.name + "\" doesn’t appear to match \"" + docDef.title + "\". Upload anyway?")) {
+            if (!confirm("The file \"" + file.name + "\" doesn't appear to match \"" + docDef.title + "\". Upload anyway?")) {
               input.value = "";
               return;
             }
