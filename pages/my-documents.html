@@ -55,6 +55,65 @@
       padding: 0 16px 120px;
     }
 
+    /* ─── MOBILE APP HEADER ─── */
+    .app-header {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 0 14px;
+    }
+
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+
+    .header-avatar {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0;
+      border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+
+    .header-text h1 {
+      margin: 0;
+      font-size: 20px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
+    }
+
+    .header-text p {
+      font-size: 13px; color: var(--muted);
+      font-weight: 500; margin: 1px 0 0;
+    }
+
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease;
+      color: #475569; text-decoration: none;
+    }
+
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.5);
+    }
+
     .topbar {
       margin-top: 18px;
       padding: 14px 16px;
@@ -304,18 +363,6 @@
 
     .heading h2 { margin: 0; font-size: 22px; letter-spacing: -0.02em; font-weight: 800; color: var(--text); }
     .heading p { margin: 4px 0 0; color: var(--muted); font-size: 14px; font-weight: 500; }
-    .heading-callout {
-      margin: 10px 0 0;
-      border: 1px solid #bfdbfe;
-      background: #eff6ff;
-      color: #1e40af;
-      border-radius: 14px;
-      padding: 12px 14px;
-      font-size: 13px;
-      font-weight: 600;
-      line-height: 1.5;
-      max-width: 760px;
-    }
 
     .chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
@@ -580,34 +627,6 @@
       flex-wrap: wrap;
     }
 
-    .upload-box {
-      margin-top: 4px;
-      border: 1px solid #bbf7d0;
-      background: #f0fdf4;
-      border-radius: 12px;
-      padding: 10px;
-      display: grid;
-      gap: 8px;
-    }
-
-    .upload-box input[type="file"] {
-      width: 100%;
-      border: 1px solid #bbf7d0;
-      border-radius: 10px;
-      background: #ffffff;
-      padding: 8px 10px;
-      font: inherit;
-      font-size: 12px;
-      color: #065f46;
-    }
-
-    .upload-copy {
-      margin: 0;
-      font-size: 11px;
-      color: #166534;
-      font-weight: 600;
-      line-height: 1.4;
-    }
 
     .pill {
       border-radius: 999px;
@@ -627,32 +646,6 @@
     .pill.pending { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
     .pill.rejected { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
 
-    .guidance-top {
-      border: 1px solid #dce8f8;
-      border-radius: var(--radius-md);
-      background: linear-gradient(180deg, #f9fcff 0%, #f2f8ff 100%);
-      padding: 11px;
-      display: grid;
-      gap: 8px;
-    }
-
-    .label {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      background: #eaf3ff;
-      color: #1d4ed8;
-      border: 1px solid #c6dafb;
-      font-size: 11px;
-      letter-spacing: .05em;
-      text-transform: uppercase;
-      font-weight: 700;
-      padding: 4px 8px;
-      width: fit-content;
-    }
-
-    .line { margin: 0; font-size: 13px; line-height: 1.45; color: #334155; font-weight: 620; }
-    .line span { color: #0f172a; font-weight: 560; }
 
 
     .notice {
@@ -669,29 +662,61 @@
 
     .footer-note { margin: 10px 0 0; text-align: center; font-size: 12px; color: #94a3b8; font-weight: 700; }
 
-    .help-icon-btn {
+    .show-me-how {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      width: 20px;
-      height: 20px;
-      border-radius: 999px;
+      gap: 4px;
+      border: 0;
+      background: transparent;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+      font-family: inherit;
+      transition: color .15s ease;
+    }
+    .show-me-how:hover { color: var(--blue2); }
+    .show-me-how svg {
+      width: 14px; height: 14px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .upload-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
       border: 1px solid #bfdbfe;
       background: #eff6ff;
       color: #1d4ed8;
-      font-size: 11px;
-      font-weight: 800;
-      line-height: 1;
-      cursor: pointer;
-      flex: 0 0 auto;
-      transition: all .15s ease;
-      padding: 0;
       font-family: inherit;
+      transition: all .15s ease;
+      position: relative;
+      overflow: hidden;
     }
-    .help-icon-btn:hover {
-      background: #dbeafe;
-      border-color: #93c5fd;
-      transform: scale(1.08);
+    .upload-btn:hover { background: #dbeafe; border-color: #93c5fd; }
+    .upload-btn svg {
+      width: 14px; height: 14px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .upload-btn input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      font-size: 0;
+    }
+    .upload-btn.has-file {
+      background: #ecfdf5;
+      border-color: #bbf7d0;
+      color: #166534;
     }
 
     .help-popover-backdrop {
@@ -770,11 +795,6 @@
     .help-popover .help-close-btn {
       margin-top: 16px;
       width: 100%;
-    }
-    .doc-title-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
     }
 
     .modal {
@@ -966,13 +986,13 @@
       body { padding: 12px 10px 22px; }
       .heading h2 { font-size: 20px; }
       .main { padding: 10px; }
-      .btn { width: 100%; min-height: 44px; }
     }
 
     @media (max-width: 767px) {
       .nav-menu { display: none; }
-      .topbar-row { grid-template-columns: auto; justify-content: flex-start; }
-      .brand-logo { position: static; transform: none; }
+      .topbar { display: none; }
+      .app-header { display: flex; }
+      .heading { display: none; }
     }
 
     @media (max-width: 560px) {
@@ -990,6 +1010,25 @@
 </head>
 <body>
   <div class="shell">
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar" id="headerAvatarMobile">GP</div>
+        <div class="header-text">
+          <h1 id="headerNameMobile">My Documents</h1>
+          <p id="headerSubtitleMobile">Expedited Specialist Pathway</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Notifications">
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+        <a class="header-icon-btn" href="account.html" aria-label="Account">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+        </a>
+      </div>
+    </header>
+
     <header class="topbar">
       <div class="topbar-row">
         <a class="brand-logo" href="index.html" aria-label="GP Link Home">
@@ -1029,11 +1068,8 @@
     <main class="main">
       <section class="heading">
         <div>
-          <h2>Your Document Progress</h2>
-          <p>Track the files needed before the Specialist Registration step.</p>
-          <div class="heading-callout" id="headingCallout">
-            We've tailored this checklist based on the specialist registration country you selected during onboarding.
-          </div>
+          <h2>My Documents</h2>
+          <p>Some documents you will prepare, and some we will prepare for you.</p>
         </div>
       </section>
 
@@ -1691,44 +1727,47 @@
 
       /* ── Panel 1: Direct to AHPRA ── */
       var panel1 = docTabPanels.direct_to_ahpra;
-      panel1.innerHTML = '<div class="doc-panel-header"><p>These must be sent directly from the institution or authority.</p><span class="pill ' + (institutionRequestedCount === institutionDocs.length ? "done" : "") + '">' + institutionRequestedCount + '/' + institutionDocs.length + ' requested</span></div><div class="doc-card-grid" id="ahpraCardGrid"></div>';
+      panel1.innerHTML = '<div class="doc-panel-header"><p>' + institutionRequestedCount + ' of ' + institutionDocs.length + ' requested</p></div><div class="doc-card-grid" id="ahpraCardGrid"></div>';
       var ahpraGrid = panel1.querySelector("#ahpraCardGrid");
       institutionDocs.forEach(function(item, idx) {
         var itemState = state.docs[item.key] || { uploaded: false, fileName: "", status: "pending" };
         var instSClass = itemState.status === "pending" ? "pending" : statusClass(itemState.status);
         var instSLabel = itemState.status === "pending" ? "Pending" : statusLabel(itemState.status);
-        var helpBtn = item.help ? '<button class="help-icon-btn" type="button" data-help-idx="i' + idx + '" title="How to get this document" aria-label="Help: ' + item.title + '">?</button>' : "";
+        var helpLink = item.help ? '<button class="show-me-how" type="button" data-help-idx="i' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon blue"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M9 15l2 2 4-4"></path></svg></div><span class="pill ' + instSClass + '">' + instSLabel + '</span></div><div class="doc-card-title">' + item.title + ' ' + helpBtn + '</div><div class="doc-card-desc">' + (itemState.status === "pending" ? "Not yet requested" : (itemState.status === "requested" ? "Request sent" : statusLabel(itemState.status))) + '</div><div class="doc-card-actions">' + (itemState.status === "pending" ? '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + '</button>' : '') + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon blue"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M9 15l2 2 4-4"></path></svg></div><span class="pill ' + instSClass + '">' + instSLabel + '</span></div><div class="doc-card-title">' + item.title + '</div>' + helpLink + '<div class="doc-card-actions">' + (itemState.status === "pending" ? '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + '</button>' : '') + '</div>';
         ahpraGrid.appendChild(card);
       });
 
       /* ── Panel 2: You Prepare ── */
       var panel2 = docTabPanels.you_prepare;
-      panel2.innerHTML = '<div class="doc-panel-header"><p>Upload your required certified documents for review.</p><span class="pill ' + (preparedUploadedCount === preparedDocs.length ? "done" : "") + '">' + preparedUploadedCount + '/' + preparedDocs.length + ' uploaded</span></div><div class="doc-card-grid" id="youPrepareCardGrid"></div>';
+      panel2.innerHTML = '<div class="doc-panel-header"><p>' + preparedUploadedCount + ' of ' + preparedDocs.length + ' uploaded</p></div><div class="doc-card-grid" id="youPrepareCardGrid"></div>';
       var youGrid = panel2.querySelector("#youPrepareCardGrid");
       preparedDocs.forEach(function(doc, idx) {
         var itemState = state.docs[doc.key] || { uploaded: false, fileName: "", status: "pending" };
         var sClass = statusClass(itemState.status);
         var sLabel = statusLabel(itemState.status);
-        var helpBtn = doc.help ? '<button class="help-icon-btn" type="button" data-help-idx="p' + idx + '" title="How to get this document" aria-label="Help: ' + doc.title + '">?</button>' : "";
+        var helpLink = doc.help ? '<button class="show-me-how" type="button" data-help-idx="p' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
+        var uploadHtml = itemState.uploaded
+          ? '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>'
+          : '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon purple"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></div><span class="pill ' + sClass + '">' + sLabel + '</span></div><div class="doc-card-title">' + doc.title + ' ' + helpBtn + '</div><div class="doc-card-desc">' + (itemState.uploaded ? "Uploaded: " + itemState.fileName : "Not uploaded yet") + '</div><div class="upload-box"><input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /><p class="upload-copy">We will review this document to make sure it is correct.</p></div>';
+        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon purple"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></div><span class="pill ' + sClass + '">' + sLabel + '</span></div><div class="doc-card-title">' + doc.title + '</div>' + helpLink + '<div class="doc-card-actions">' + uploadHtml + '</div>';
         youGrid.appendChild(card);
       });
 
       /* ── Panel 3: GP LINK Prepares ── */
       var panel3 = docTabPanels.gplink_prepares;
-      panel3.innerHTML = '<div class="doc-panel-header"><p>Download GP Link-prepared files for your AHPRA registration upload.</p><span class="pill ' + (readyCount === SUPERVISED_PRACTICE_DOCS.length ? "done" : "") + '">' + readyCount + '/' + SUPERVISED_PRACTICE_DOCS.length + ' ready</span></div><div class="doc-card-grid" id="gplinkCardGrid"></div>';
+      panel3.innerHTML = '<div class="doc-panel-header"><p>' + readyCount + ' of ' + SUPERVISED_PRACTICE_DOCS.length + ' ready</p></div><div class="doc-card-grid" id="gplinkCardGrid"></div>';
       var gplinkGrid = panel3.querySelector("#gplinkCardGrid");
       SUPERVISED_PRACTICE_DOCS.forEach(function(doc) {
         var file = prepared.docs[doc.key] || { url: "", fileName: "", ready: false };
         var isReady = !!file.url || file.ready;
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon green"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-title">' + doc.label + '</div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "This file will appear once GP Link uploads it to your account.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>' + (file.fileName ? "Download " + file.fileName : "Download") + '</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready</button>') + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon green"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-title">' + doc.label + '</div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
         gplinkGrid.appendChild(card);
       });
     }
@@ -1777,7 +1816,7 @@
         var target = event.target;
         if (!(target instanceof HTMLElement)) return;
 
-        /* Help icon click */
+        /* Show me how click */
         var helpBtn = target.closest("[data-help-idx]");
         if (helpBtn) {
           var idx = helpBtn.getAttribute("data-help-idx");
@@ -1789,7 +1828,8 @@
         }
 
         /* Mark Requested */
-        var key = target.getAttribute("data-inst-mark");
+        var markBtn = target.closest("[data-inst-mark]");
+        var key = markBtn ? markBtn.getAttribute("data-inst-mark") : null;
         if (!key) return;
         if (!state.docs[key]) state.docs[key] = { uploaded: false, fileName: "", status: "pending" };
         state.docs[key].uploaded = true;
@@ -2043,6 +2083,43 @@
 
     try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule error:", e); docTabPanels.direct_to_ahpra.innerHTML = '<div style="padding:12px;color:#b91c1c;font-size:13px;">Error loading documents: ' + e.message + '</div>'; }
     renderRegistrationRows();
+
+    /* -- Mobile header: Dr {firstName} + pathway -- */
+    var headerNameMobileEl = document.getElementById("headerNameMobile");
+    var headerAvatarMobileEl = document.getElementById("headerAvatarMobile");
+    var headerSubtitleMobileEl = document.getElementById("headerSubtitleMobile");
+
+    function applyMobileHeader(profile) {
+      var firstName = "";
+      if (profile && typeof profile.firstName === "string") firstName = profile.firstName.trim();
+      if (headerNameMobileEl && firstName) {
+        headerNameMobileEl.textContent = "Dr " + firstName;
+      }
+      if (headerAvatarMobileEl && firstName) {
+        headerAvatarMobileEl.textContent = firstName.charAt(0).toUpperCase();
+      }
+      /* Pathway subtitle - default to Expedited Specialist, future-proof via localStorage */
+      var pathway = "Expedited Specialist Pathway";
+      try {
+        var stored = localStorage.getItem("gp_registration_pathway");
+        if (stored) {
+          var parsed = JSON.parse(stored);
+          if (typeof parsed === "string" && parsed.trim()) pathway = parsed.trim();
+        }
+      } catch (e) { /* use default */ }
+      if (headerSubtitleMobileEl) headerSubtitleMobileEl.textContent = pathway;
+    }
+
+    /* Try immediate profile if available */
+    if (window.gpSessionProfile) {
+      applyMobileHeader(window.gpSessionProfile);
+    }
+    /* Also wait for async session */
+    if (window.gpSessionPromise && typeof window.gpSessionPromise.then === "function") {
+      window.gpSessionPromise.then(function(session) {
+        if (session && session.profile) applyMobileHeader(session.profile);
+      });
+    }
 
     window.gpLinkSetPreparedDocs = function (updates) {
       const country = getCountry();
