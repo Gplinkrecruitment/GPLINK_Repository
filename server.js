@@ -4115,6 +4115,60 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // TEMP: Seed onboarding data for a test user
+  if (pathname === '/api/admin/seed-onboarding' && req.method === 'POST') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const targetEmail = (body && body.email || '').trim().toLowerCase();
+    const country = body && body.country || 'GB';
+    if (!targetEmail) { sendJson(res, 400, { ok: false, message: 'email required' }); return; }
+
+    const COUNTRY_NAMES = { GB: 'United Kingdom', IE: 'Ireland', NZ: 'New Zealand' };
+    const countryName = COUNTRY_NAMES[country] || country;
+
+    if (isSupabaseDbConfigured()) {
+      const userId = await getSupabaseUserIdByEmail(targetEmail);
+      if (!userId) { sendJson(res, 404, { ok: false, message: 'User not found' }); return; }
+      const remote = await getSupabaseUserStateByEmail(targetEmail);
+      const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
+      current.gp_onboarding_complete = true;
+      current.gp_selected_country = countryName;
+      current.gp_onboarding = {
+        country: country,
+        completedAt: new Date().toISOString(),
+        step: 5,
+        preferredCity: 'Melbourne',
+        targetDate: '2026-09',
+        whoMoving: 'Just me',
+        childrenCount: '0',
+        accountReviewFlag: false
+      };
+      // Clear old docs state so it re-initialises with the correct country
+      delete current.gp_documents_prep;
+      await upsertSupabaseUserState(userId, current, new Date().toISOString());
+
+      // Update profile
+      await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: {
+          qualification_country: country,
+          preferred_city: 'Melbourne',
+          target_arrival_date: '2026-09',
+          who_moving: 'Just me',
+          children_count: '0',
+          onboarding_completed_at: new Date().toISOString()
+        }
+      });
+      sendJson(res, 200, { ok: true, message: `Onboarding seeded for ${targetEmail} with country ${countryName}` });
+    } else {
+      sendJson(res, 503, { ok: false, message: 'Requires Supabase' });
+    }
+    return;
+  }
+
   const adminTicketMatch = pathname.match(/^\/api\/admin\/tickets\/([^/]+)$/);
   if (adminTicketMatch && req.method === 'PUT') {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
