@@ -134,15 +134,28 @@ const AMC_STAGE_META = [
   { key: 'qualifications_verified', label: 'Qualifications verified' }
 ];
 
-const GP_DOCUMENT_META = [
-  { key: 'primary_medical_degree', label: 'Primary medical degree', source: 'prepared_by_you' },
-  { key: 'mrcgp_certified', label: 'MRCGP certificate', source: 'prepared_by_you' },
-  { key: 'cct_certified', label: 'CCT certificate', source: 'prepared_by_you' },
-  { key: 'cv_signed_dated', label: 'Signed CV', source: 'prepared_by_you' },
-  { key: 'certificate_good_standing', label: 'Certificate of good standing', source: 'institution_docs' },
-  { key: 'confirmation_training', label: 'Confirmation of training', source: 'institution_docs' },
-  { key: 'criminal_history', label: 'Criminal history check', source: 'institution_docs' }
-];
+const GP_DOCUMENT_META = {
+  shared: [
+    { key: 'primary_medical_degree', label: 'Primary medical degree', source: 'prepared_by_you' },
+    { key: 'cv_signed_dated', label: 'Signed CV', source: 'prepared_by_you' },
+    { key: 'certificate_good_standing', label: 'Certificate of good standing', source: 'institution_docs' },
+    { key: 'criminal_history', label: 'Criminal history check', source: 'institution_docs' }
+  ],
+  uk: [
+    { key: 'mrcgp_certified', label: 'MRCGP certificate', source: 'prepared_by_you' },
+    { key: 'cct_certified', label: 'CCT certificate', source: 'prepared_by_you' },
+    { key: 'confirmation_training', label: 'Confirmation of training', source: 'institution_docs' }
+  ],
+  ie: [
+    { key: 'micgp_certified', label: 'MICGP certificate', source: 'prepared_by_you' },
+    { key: 'cscst_certified', label: 'CSCST certificate', source: 'prepared_by_you' },
+    { key: 'icgp_confirmation_letter', label: 'ICGP confirmation letter', source: 'prepared_by_you' }
+  ],
+  nz: [
+    { key: 'frnzcgp_certified', label: 'FRNZCGP certificate', source: 'prepared_by_you' },
+    { key: 'rnzcgp_confirmation_letter', label: 'RNZCGP confirmation letter', source: 'prepared_by_you' }
+  ]
+};
 
 const GP_LINK_DOCUMENT_META = [
   { key: 'sppa_00', label: 'SPPA-00', source: 'gplink_pack' },
@@ -1210,6 +1223,13 @@ function toStatusLabel(value, uploaded) {
   return uploaded ? 'under_review' : 'pending';
 }
 
+function getDocMetaForCountry(countryCode) {
+  const code = (typeof countryCode === 'string' ? countryCode : 'uk').toLowerCase();
+  const shared = GP_DOCUMENT_META.shared || [];
+  const countrySpecific = GP_DOCUMENT_META[code] || GP_DOCUMENT_META.uk || [];
+  return [...shared, ...countrySpecific];
+}
+
 function getCandidateDocuments(userStateObj) {
   const docsState = userStateObj.gp_documents_prep && typeof userStateObj.gp_documents_prep === 'object'
     ? userStateObj.gp_documents_prep
@@ -1220,7 +1240,10 @@ function getCandidateDocuments(userStateObj) {
   const docs = docsState.docs && typeof docsState.docs === 'object' ? docsState.docs : {};
   const preparedDocs = preparedDocsState.docs && typeof preparedDocsState.docs === 'object' ? preparedDocsState.docs : {};
 
-  const fromState = GP_DOCUMENT_META.map((meta) => {
+  const docCountry = docsState.country || 'uk';
+  const docMeta = getDocMetaForCountry(docCountry);
+
+  const fromState = docMeta.map((meta) => {
     const source = docs[meta.key] && typeof docs[meta.key] === 'object' ? docs[meta.key] : {};
     const uploaded = source.uploaded === true;
     const status = toStatusLabel(source.status, uploaded);

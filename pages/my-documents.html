@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>My Documents - GP Link</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Your Document Progress - GP Link</title>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
@@ -696,6 +696,114 @@
 
     .footer-note { margin: 10px 0 0; text-align: center; font-size: 12px; color: #94a3b8; font-weight: 700; }
 
+    .help-icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      border: 1px solid #c6dafb;
+      background: #eaf3ff;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+      cursor: pointer;
+      flex: 0 0 auto;
+      transition: background .15s ease, border-color .15s ease, transform .15s ease;
+      padding: 0;
+      font-family: inherit;
+    }
+    .help-icon-btn:hover {
+      background: #dbeafe;
+      border-color: #93c5fd;
+      transform: scale(1.1);
+    }
+
+    .help-popover-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(240, 244, 250, 0.34);
+      backdrop-filter: blur(0px) saturate(1.02);
+      -webkit-backdrop-filter: blur(0px) saturate(1.02);
+      z-index: 90;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
+    }
+    .help-popover-backdrop.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      backdrop-filter: blur(16px) saturate(1.05);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+    }
+
+    .help-popover {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.92);
+      width: min(480px, calc(100vw - 28px));
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(191, 220, 255, 0.75);
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 26px 56px -24px rgba(15, 23, 42, 0.35);
+      padding: 18px;
+      z-index: 91;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: transform .28s cubic-bezier(.22,.9,.18,1.02), opacity .28s ease;
+    }
+    .help-popover.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .help-popover h4 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      font-weight: 740;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+    }
+    .help-popover ol {
+      margin: 0;
+      padding-left: 20px;
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      color: #334155;
+      font-weight: 560;
+      line-height: 1.5;
+    }
+    .help-popover .help-reminder {
+      margin-top: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--amber-line);
+      background: var(--amber-bg);
+      color: #92400e;
+      padding: 9px 11px;
+      font-size: 12px;
+      font-weight: 620;
+      line-height: 1.45;
+    }
+    .help-popover .help-close-btn {
+      margin-top: 14px;
+      width: 100%;
+    }
+    .doc-title-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
     .modal {
       position: fixed;
       inset: 0;
@@ -955,17 +1063,18 @@
     <main class="main">
       <section class="heading">
         <div>
-          <h2>My Documents</h2>
-          <div class="heading-callout">
-            Prepare your specialist registration documents all in one place. Please update and upload required documents here so our team can review before you upload into your final AHPRA Specialist Registration application. This will help prevent any issues and delays.
+          <h2>Your Document Progress</h2>
+          <p>Track the files needed before the Specialist Registration step.</p>
+          <div class="heading-callout" id="headingCallout">
+            We've tailored this checklist based on the specialist registration country you selected during onboarding.
           </div>
         </div>
       </section>
 
       <section class="layout">
         <article class="card">
-          <h3>Your Document Progress</h3>
-          <p class="sub">Track the files needed before the Specialist Registration step.</p>
+          <h3 id="docCardTitle">Document Checklist</h3>
+          <p class="sub" id="docCardSub"></p>
           <div class="progress-grid" id="progressGrid"></div>
         </article>
       </section>
@@ -1011,6 +1120,14 @@
     <div class="mobile-reg-table" id="mobileRegTable"></div>
   </aside>
 
+  <div class="help-popover-backdrop" id="helpBackdrop"></div>
+  <div class="help-popover" id="helpPopover" role="dialog" aria-modal="true">
+    <h4 id="helpPopoverTitle"></h4>
+    <ol id="helpPopoverSteps"></ol>
+    <div class="help-reminder" id="helpPopoverReminder" hidden></div>
+    <button class="btn btn-soft help-close-btn" id="helpPopoverClose" type="button">Got it</button>
+  </div>
+
   <div class="modal" id="supportModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
       <h4 id="supportTitle">Contact support</h4>
@@ -1031,31 +1148,243 @@
     const PREPARED_DOCS_KEY = "gp_prepared_docs";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
-    const PREPARED_DOC_STATUS = ["pending", "under_review", "accepted", "rejected"];
-    const INSTITUTION_STATUS = ["pending", "under_review", "approved", "accepted", "rejected"];
+    const PREPARED_DOC_STATUS = ["pending", "requested", "uploaded", "under_review", "approved", "rejected", "accepted", "action_required"];
+    const INSTITUTION_STATUS = ["pending", "requested", "under_review", "approved", "accepted", "rejected", "action_required"];
 
-    const UK_DOCS = [
-      {
-        key: "primary_medical_degree",
-        title: "Certified copy of Primary Medical Degree (MBBS/MBChB)",
-        hint: "Upload a certified copy for GP Link review and secure storage."
+    /* ── Country-aware document definitions ── */
+
+    const COUNTRY_DOCS = {
+      uk: {
+        label: "United Kingdom",
+        institution: [
+          {
+            key: "certificate_good_standing",
+            title: "Certificate of Good Standing",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Certificate of Good Standing",
+              steps: [
+                "Log in to your GMC Online account",
+                "In the left hand menu choose \"My registration\"",
+                "Then open \"My CCPS requests\"",
+                "Request the certificate to be sent directly to Ahpra"
+              ],
+              reminder: "Reminder: this must be sent directly by the issuing authority to Ahpra."
+            }
+          },
+          {
+            key: "confirmation_training",
+            title: "Confirmation of Training",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Confirmation of Training",
+              steps: [
+                "Email portfolio@gmc-uk.org",
+                "State that you require confirmation of your specialist / GP training posts",
+                "GMC will review the request and send you an application form to complete",
+                "Complete the form and return it as instructed"
+              ],
+              reminder: "Reminder: request that the confirmation is sent by the GMC directly to Ahpra."
+            }
+          },
+          {
+            key: "criminal_history",
+            title: "Criminal History Check",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Criminal History Check",
+              steps: [
+                "Complete your international criminal history check through the approved provider"
+              ]
+            }
+          }
+        ],
+        prepared: [
+          {
+            key: "primary_medical_degree",
+            title: "Certified copy of Primary Medical Degree (MBBS/MBChB)",
+            help: {
+              title: "Primary Medical Degree",
+              steps: ["Upload a certified copy of your primary medical degree"]
+            }
+          },
+          {
+            key: "mrcgp_certified",
+            title: "Certified copy of MRCGP",
+            help: {
+              title: "MRCGP",
+              steps: ["Upload a certified copy of your MRCGP certificate"]
+            }
+          },
+          {
+            key: "cct_certified",
+            title: "Certified copy of CCT (General Practice) issued by the General Medical Council or PMETB",
+            help: {
+              title: "CCT",
+              steps: ["Upload a certified copy of your CCT certificate issued by the GMC or PMETB"]
+            }
+          },
+          {
+            key: "cv_signed_dated",
+            title: "CV (Signed and dated)",
+            help: {
+              title: "CV",
+              steps: ["Upload your signed and dated CV"]
+            }
+          }
+        ]
       },
-      {
-        key: "mrcgp_certified",
-        title: "Certified copy of MRCGP (issued from August 2007 onward)",
-        hint: "Upload a certified copy for GP Link review and secure storage."
+      ie: {
+        label: "Ireland",
+        institution: [
+          {
+            key: "certificate_good_standing",
+            title: "Certificate of Good Standing / Registration Status",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Certificate of Good Standing / Registration Status",
+              steps: [
+                "Request a current certificate of good standing / registration status from your Irish regulator",
+                "Ensure it is sent in the required format for Ahpra"
+              ],
+              reminder: "Reminder: this must be sent directly where required."
+            }
+          },
+          {
+            key: "criminal_history",
+            title: "Criminal History Check",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Criminal History Check",
+              steps: [
+                "Complete your criminal history check through the approved provider"
+              ]
+            }
+          }
+        ],
+        prepared: [
+          {
+            key: "primary_medical_degree",
+            title: "Certified copy of Primary Medical Degree",
+            help: {
+              title: "Primary Medical Degree",
+              steps: ["Upload a certified copy of your primary medical degree"]
+            }
+          },
+          {
+            key: "micgp_certified",
+            title: "Certified copy of MICGP",
+            help: {
+              title: "MICGP",
+              steps: [
+                "Upload a certified copy of your MICGP certificate",
+                "If you do not have a copy, request a re-issue from ICGP Membership Services"
+              ]
+            }
+          },
+          {
+            key: "cscst_certified",
+            title: "Certified copy of CSCST",
+            help: {
+              title: "CSCST",
+              steps: [
+                "Upload a certified copy of your CSCST",
+                "If needed, request a re-issue from ICGP Membership Services"
+              ]
+            }
+          },
+          {
+            key: "icgp_confirmation_letter",
+            title: "Certified copy of ICGP Confirmation Letter",
+            help: {
+              title: "ICGP Confirmation Letter",
+              steps: [
+                "Contact ICGP Membership Services",
+                "Request a confirmation / verification letter confirming your qualification was awarded under the ICGP curriculum after completion of the approved GP training pathway",
+                "If needed, request verification of training through ICGP"
+              ],
+              reminder: "This is the key supporting letter for Irish GPs."
+            }
+          },
+          {
+            key: "cv_signed_dated",
+            title: "CV (Signed and dated)",
+            help: {
+              title: "CV",
+              steps: ["Upload your signed and dated CV"]
+            }
+          }
+        ]
       },
-      {
-        key: "cct_certified",
-        title: "Certified copy of CCT (General Practice) issued by the General Medical Council or PMETB",
-        hint: "Upload a certified copy for GP Link review and secure storage."
-      },
-      {
-        key: "cv_signed_dated",
-        title: "CV (Signed and dated)",
-        hint: "Upload your signed and dated CV for GP Link review and secure storage."
+      nz: {
+        label: "New Zealand",
+        institution: [
+          {
+            key: "certificate_good_standing",
+            title: "Certificate of Good Standing / Registration Status",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Certificate of Good Standing / Registration Status",
+              steps: [
+                "Request your current certificate of good standing / registration status from the relevant New Zealand authority",
+                "Ensure it is provided in a format acceptable for Ahpra"
+              ]
+            }
+          },
+          {
+            key: "criminal_history",
+            title: "Criminal History Check",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Criminal History Check",
+              steps: [
+                "Complete your criminal history check through the approved provider"
+              ]
+            }
+          }
+        ],
+        prepared: [
+          {
+            key: "primary_medical_degree",
+            title: "Certified copy of Primary Medical Degree",
+            help: {
+              title: "Primary Medical Degree",
+              steps: ["Upload a certified copy of your primary medical degree"]
+            }
+          },
+          {
+            key: "frnzcgp_certified",
+            title: "Certified copy of FRNZCGP",
+            help: {
+              title: "FRNZCGP",
+              steps: [
+                "Upload a certified copy of your FRNZCGP certificate",
+                "If needed, contact RNZCGP for replacement or confirmation"
+              ]
+            }
+          },
+          {
+            key: "rnzcgp_confirmation_letter",
+            title: "Certified copy of RNZCGP Confirmation Letter",
+            help: {
+              title: "RNZCGP Confirmation Letter",
+              steps: [
+                "Contact RNZCGP",
+                "Request a confirmation letter stating that your fellowship was awarded under the RNZCGP curriculum following satisfactory completion of GPEP"
+              ]
+            }
+          },
+          {
+            key: "cv_signed_dated",
+            title: "CV (Signed and dated)",
+            help: {
+              title: "CV",
+              steps: ["Upload your signed and dated CV"]
+            }
+          }
+        ]
       }
-    ];
+    };
 
     const SUPERVISED_PRACTICE_DOCS = [
       { key: "sppa_00", label: "Supervised Practice Plan – SPPA-00" },
@@ -1065,49 +1394,13 @@
       { key: "supervisor_cv", label: "Supervisor’s CV" }
     ];
 
-    const INSTITUITION_TO_AHPRA_ITEMS = [
-      {
-        key: "certificate_good_standing",
-        title: "Certificate of good standing",
-        steps: [
-          "Log into your GMC Online account",
-          "From the left hand menu choose ‘My registration’",
-          "Then ‘My CCPS requests’"
-        ],
-        note: "",
-        reminder: "Reminder: The COGS must be sent directly by the issuing authority to COGS@ahpra.gov.au",
-        cogsUrl: "https://www.gmc-uk.org/online",
-        cogsButtonLabel: "Retrieve COGS",
-        actionLabel: "Mark Requested"
-      },
-      {
-        key: "confirmation_training",
-        title: "Confirmation of Training",
-        steps: [
-          "E-mail portfolio@gmc-uk.org stating that you require confirmation of your specialist/GP training posts.",
-          "They will check your request within 5 working days and send an application form to complete and return via email."
-        ],
-        note: "",
-        reminder: "Reminder: Request that the Confirmation of Training is sent by GMC directly to AHPRA at registration18@ahpra.gov.au",
-        gmcEmail: "portfolio@gmc-uk.org",
-        gmcSubject: "Confirmation of training posts",
-        gmcBody: "Dear GMC, I am requiring confirmation of my training posts. I request that confirmation be sent to registration18@ahpra.gov.au directly",
-        actionLabel: "Mark Requested"
-      },
-      {
-        key: "criminal_history",
-        title: "Criminal History",
-        note: "Complete criminal history check through fit2work.",
-        fit2workUrl: "https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D",
-        actionLabel: "Mark Requested"
-      }
-    ];
-
     const progressGridEl = document.getElementById("progressGrid");
+    const docCardTitleEl = document.getElementById("docCardTitle");
+    const docCardSubEl = document.getElementById("docCardSub");
     const expandState = {
       supervised_docs: false,
       prepared_by_you: false,
-      gmc_to_ahpra: false
+      sent_to_ahpra: false
     };
 
     function captureExpandState() {
@@ -1170,21 +1463,36 @@
     }
 
     function getCountry() {
-      const country = localStorage.getItem(COUNTRY_KEY);
-      if (country === "uk" || country === "ie" || country === "nz") return country;
+      const raw = localStorage.getItem(COUNTRY_KEY);
+      if (!raw) return "uk";
+      let val = raw;
+      try { val = JSON.parse(raw); } catch (e) { /* use raw */ }
+      if (typeof val !== "string") return "uk";
+      const lower = val.toLowerCase().trim();
+      if (lower === "uk" || lower === "gb" || lower === "united kingdom") return "uk";
+      if (lower === "ie" || lower === "ireland") return "ie";
+      if (lower === "nz" || lower === "new zealand") return "nz";
       return "uk";
     }
 
+    function getCountryConfig(country) {
+      return COUNTRY_DOCS[country] || COUNTRY_DOCS.uk;
+    }
+
+    function formatCountry(country) {
+      const cfg = getCountryConfig(country);
+      return cfg.label;
+    }
+
     function defaultDocsState(country) {
+      const cfg = getCountryConfig(country);
       const docs = {};
-      if (country === "uk") {
-        UK_DOCS.forEach((doc) => {
-          docs[doc.key] = { uploaded: false, fileName: "", status: "pending" };
-        });
-        INSTITUITION_TO_AHPRA_ITEMS.forEach((item) => {
-          docs[item.key] = { uploaded: false, fileName: "", status: "pending" };
-        });
-      }
+      cfg.prepared.forEach((doc) => {
+        docs[doc.key] = { uploaded: false, fileName: "", status: "pending" };
+      });
+      cfg.institution.forEach((item) => {
+        docs[item.key] = { uploaded: false, fileName: "", status: "pending" };
+      });
       return { country, docs, updatedAt: new Date().toISOString() };
     }
 
@@ -1195,36 +1503,32 @@
         queueBatchedSave(DOC_KEY, JSON.stringify(fresh), true);
         return fresh;
       }
-      if (country === "uk") {
-        let migrated = false;
-        [...UK_DOCS.map((d) => d.key), ...INSTITUITION_TO_AHPRA_ITEMS.map((i) => i.key)].forEach((key) => {
-          const current = parsed.docs[key] || {};
-          const isPreparedByYouDoc = UK_DOCS.some((doc) => doc.key === key);
-          const allowedStatuses = isPreparedByYouDoc ? PREPARED_DOC_STATUS : INSTITUTION_STATUS;
-          if (typeof current.uploaded !== "boolean") {
-            current.uploaded = false;
-            migrated = true;
-          }
-          if (typeof current.fileName !== "string") {
-            current.fileName = "";
-            migrated = true;
-          }
-          if (isPreparedByYouDoc && current.status === "approved") {
-            current.status = "accepted";
-            migrated = true;
-          }
-          if (!allowedStatuses.includes(current.status)) {
-            current.status = current.uploaded ? "under_review" : "pending";
-            migrated = true;
-          }
-          parsed.docs[key] = current;
-        });
-        UK_DOCS.forEach((doc) => {
-          const current = parsed.docs[doc.key] || {};
-          parsed.docs[doc.key] = current;
-        });
-        if (migrated) saveDocsState(parsed, true);
-      }
+      const cfg = getCountryConfig(country);
+      let migrated = false;
+      const allKeys = [...cfg.prepared.map((d) => d.key), ...cfg.institution.map((i) => i.key)];
+      allKeys.forEach((key) => {
+        const current = parsed.docs[key] || {};
+        const isPrepared = cfg.prepared.some((doc) => doc.key === key);
+        const allowedStatuses = isPrepared ? PREPARED_DOC_STATUS : INSTITUTION_STATUS;
+        if (typeof current.uploaded !== "boolean") {
+          current.uploaded = false;
+          migrated = true;
+        }
+        if (typeof current.fileName !== "string") {
+          current.fileName = "";
+          migrated = true;
+        }
+        if (isPrepared && current.status === "approved") {
+          current.status = "accepted";
+          migrated = true;
+        }
+        if (!allowedStatuses.includes(current.status)) {
+          current.status = current.uploaded ? "under_review" : "pending";
+          migrated = true;
+        }
+        parsed.docs[key] = current;
+      });
+      if (migrated) saveDocsState(parsed, true);
       return parsed;
     }
 
@@ -1235,11 +1539,9 @@
 
     function defaultPreparedDocs(country) {
       const docs = {};
-      if (country === "uk") {
-        SUPERVISED_PRACTICE_DOCS.forEach((doc) => {
-          docs[doc.key] = { url: "", fileName: "", ready: false };
-        });
-      }
+      SUPERVISED_PRACTICE_DOCS.forEach((doc) => {
+        docs[doc.key] = { url: "", fileName: "", ready: false };
+      });
       return { country, docs, updatedAt: new Date().toISOString() };
     }
 
@@ -1269,59 +1571,99 @@
       return state;
     }
 
-    function formatCountry(country) {
-      if (country === "uk") return "United Kingdom";
-      if (country === "ie") return "Ireland";
-      if (country === "nz") return "New Zealand";
-      return "Unknown";
+    function statusClass(status) {
+      if (status === "accepted" || status === "approved") return "done";
+      if (status === "rejected") return "rejected";
+      if (status === "under_review") return "review";
+      if (status === "uploaded") return "review";
+      if (status === "requested") return "review";
+      if (status === "action_required") return "rejected";
+      return "pending";
     }
 
-    function countUploaded(state, docs) {
-      let count = 0;
-      docs.forEach((doc) => {
-        if (state.docs[doc.key] && state.docs[doc.key].uploaded) count += 1;
-      });
-      return count;
+    function statusLabel(status) {
+      if (status === "accepted") return "Accepted";
+      if (status === "approved") return "Approved";
+      if (status === "rejected") return "Rejected";
+      if (status === "under_review") return "Under review";
+      if (status === "uploaded") return "Uploaded";
+      if (status === "requested") return "Requested";
+      if (status === "action_required") return "Action required";
+      return "Pending";
     }
+
+    /* ── Help popover ── */
+    const helpBackdrop = document.getElementById("helpBackdrop");
+    const helpPopover = document.getElementById("helpPopover");
+    const helpPopoverTitle = document.getElementById("helpPopoverTitle");
+    const helpPopoverSteps = document.getElementById("helpPopoverSteps");
+    const helpPopoverReminder = document.getElementById("helpPopoverReminder");
+    const helpPopoverClose = document.getElementById("helpPopoverClose");
+
+    function openHelpPopover(helpData) {
+      helpPopoverTitle.textContent = helpData.title || "How to get this document";
+      helpPopoverSteps.innerHTML = "";
+      (helpData.steps || []).forEach((step) => {
+        const li = document.createElement("li");
+        li.textContent = step;
+        helpPopoverSteps.appendChild(li);
+      });
+      if (helpData.reminder) {
+        helpPopoverReminder.textContent = helpData.reminder;
+        helpPopoverReminder.hidden = false;
+      } else {
+        helpPopoverReminder.hidden = true;
+      }
+      helpBackdrop.classList.add("show");
+      helpPopover.classList.add("show");
+    }
+
+    function closeHelpPopover() {
+      helpBackdrop.classList.remove("show");
+      helpPopover.classList.remove("show");
+    }
+    helpPopoverClose.addEventListener("click", closeHelpPopover);
+    helpBackdrop.addEventListener("click", closeHelpPopover);
+
+    /* ── Render ── */
 
     function renderProgress(country, state) {
       progressGridEl.innerHTML = "";
       progressGridEl.classList.add("timeline-progress");
 
-      if (country !== "uk") {
-        const item = document.createElement("div");
-        item.className = "progress-item";
-        item.innerHTML = `<div><h4>Country flow not yet enabled</h4><p>UK document flow is active first. ${formatCountry(country)} will be added next.</p></div><span class="pill">Pending</span>`;
-        progressGridEl.appendChild(item);
-        return;
-      }
+      const cfg = getCountryConfig(country);
+      docCardSubEl.textContent = formatCountry(country) + " checklist";
 
-      const uploaded = countUploaded(state, UK_DOCS);
+      const institutionDocs = cfg.institution;
+      const preparedDocs = cfg.prepared;
+
+      const institutionRequestedCount = institutionDocs.filter((item) => {
+        const current = state.docs[item.key];
+        return !!(current && (current.uploaded || current.status === "requested" || current.status === "under_review" || current.status === "approved" || current.status === "accepted"));
+      }).length;
+      const preparedUploadedCount = preparedDocs.filter((doc) => {
+        const current = state.docs[doc.key];
+        return !!(current && current.uploaded);
+      }).length;
+
       const prepared = loadPreparedDocs(country);
       const readyCount = SUPERVISED_PRACTICE_DOCS.filter((doc) => {
         const file = prepared.docs[doc.key];
         return file && (file.ready || !!file.url);
       }).length;
-      const institutionRequestedCount = INSTITUITION_TO_AHPRA_ITEMS.filter((item) => {
-        const current = state.docs[item.key];
-        return !!(current && current.uploaded);
-      }).length;
-      const preparedUploadedCount = UK_DOCS.filter((doc) => {
-        const current = state.docs[doc.key];
-        return !!(current && current.uploaded);
-      }).length;
 
-      const institutionComplete = institutionRequestedCount === INSTITUITION_TO_AHPRA_ITEMS.length;
-      const preparedComplete = preparedUploadedCount === UK_DOCS.length;
+      const institutionComplete = institutionRequestedCount === institutionDocs.length;
+      const preparedComplete = preparedUploadedCount === preparedDocs.length;
       const supervisedComplete = readyCount === SUPERVISED_PRACTICE_DOCS.length;
       const currentStepKey = !institutionComplete
-        ? "gmc_to_ahpra"
+        ? "sent_to_ahpra"
         : !preparedComplete
           ? "prepared_by_you"
           : !supervisedComplete
             ? "supervised_docs"
             : "supervised_docs";
 
+      /* ─ Section 3: Supervised Practice Documents ─ */
       const expandRow = document.createElement("div");
       expandRow.className = "progress-item expand timeline-item";
       expandRow.style.order = "3";
@@ -1335,20 +1677,20 @@
             <div>
               <div class="timeline-title">
                 <h4>Supervised Practice Documents</h4>
-                ${currentStepKey === "supervised_docs" ? `<span class="timeline-current">Current</span>` : ""}
+                ${currentStepKey === "supervised_docs" ? ‘<span class="timeline-current">Current</span>’ : ""}
               </div>
               <p>Download GP Link-prepared files for your AHPRA registration upload.</p>
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
               <span class="pill ${readyCount === SUPERVISED_PRACTICE_DOCS.length ? "done" : ""}">${readyCount}/${SUPERVISED_PRACTICE_DOCS.length} Ready</span>
-              <span class="expand-icon">›</span>
+              <span class="expand-icon">\u203A</span>
             </div>
           </summary>
           <div class="download-list" id="supervisedDownloadList"></div>
         </details>
       `;
       progressGridEl.appendChild(expandRow);
-      const supervisedDetails = expandRow.querySelector("details.expand-tab[data-expand-key='supervised_docs']");
+      const supervisedDetails = expandRow.querySelector("details.expand-tab[data-expand-key=’supervised_docs’]");
       if (supervisedDetails) supervisedDetails.open = !!expandState.supervised_docs;
 
       const listEl = expandRow.querySelector("#supervisedDownloadList");
@@ -1360,19 +1702,18 @@
         item.innerHTML = `
           <div>
             <div class="download-label">${doc.label}</div>
-            <div class="download-note">${isReady ? "Ready to download" : "Preparing - this file will appear once GP Link uploads it to your account."}</div>
+            <div class="download-note">${isReady ? "Ready to download" : "Preparing \u2013 this file will appear once GP Link uploads it to your account."}</div>
           </div>
-          ${isReady ? `<a class="btn btn-soft" href="${file.url || "#"}" ${file.url ? "download" : ""} ${file.url ? "" : "aria-disabled='true'"}>${file.fileName ? "Download " + file.fileName : "Download"}</a>` : `<button class="btn btn-neutral" type="button" disabled>Not ready</button>`}
+          ${isReady ? ‘<a class="btn btn-soft" href="’ + (file.url || "#") + ‘" ‘ + (file.url ? "download" : "") + ‘ ‘ + (file.url ? "" : "aria-disabled=’true’") + ‘>’ + (file.fileName ? "Download " + file.fileName : "Download") + "</a>" : ‘<button class="btn btn-neutral" type="button" disabled>Not ready</button>’}
         `;
         listEl.appendChild(item);
       });
 
-      const preparedStatuses = UK_DOCS.map((doc) => (state.docs[doc.key] && state.docs[doc.key].status) || "pending");
-      const preparedAllAccepted = preparedStatuses.every((s) => s === "accepted");
-      const preparedSummaryClass = preparedAllAccepted
-        ? "done"
-        : "";
-      const preparedSummaryLabel = `${preparedUploadedCount}/${UK_DOCS.length} Prepared`;
+      /* ─ Section 2: Prepared by You ─ */
+      const preparedStatuses = preparedDocs.map((doc) => (state.docs[doc.key] && state.docs[doc.key].status) || "pending");
+      const preparedAllAccepted = preparedStatuses.every((s) => s === "accepted" || s === "approved");
+      const preparedSummaryClass = preparedAllAccepted ? "done" : "";
+      const preparedSummaryLabel = preparedUploadedCount + "/" + preparedDocs.length + " uploaded";
       const preparedRow = document.createElement("div");
       preparedRow.className = "progress-item expand timeline-item";
       preparedRow.style.order = "2";
@@ -1386,114 +1727,101 @@
             <div>
               <div class="timeline-title">
                 <h4>Prepared by You</h4>
-                ${currentStepKey === "prepared_by_you" ? `<span class="timeline-current">Current</span>` : ""}
+                ${currentStepKey === "prepared_by_you" ? ‘<span class="timeline-current">Current</span>’ : ""}
               </div>
               <p>Upload your required certified documents for review and safekeeping in one place.</p>
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
               <span class="pill ${preparedSummaryClass}">${preparedSummaryLabel}</span>
-              <span class="expand-icon">›</span>
+              <span class="expand-icon">\u203A</span>
             </div>
           </summary>
           <div class="download-list" id="preparedByYouList"></div>
         </details>
       `;
       progressGridEl.appendChild(preparedRow);
-      const preparedDetails = preparedRow.querySelector("details.expand-tab[data-expand-key='prepared_by_you']");
+      const preparedDetails = preparedRow.querySelector("details.expand-tab[data-expand-key=’prepared_by_you’]");
       if (preparedDetails) preparedDetails.open = !!expandState.prepared_by_you;
 
       const preparedListEl = preparedRow.querySelector("#preparedByYouList");
-      UK_DOCS.forEach((doc) => {
+      preparedDocs.forEach((doc, idx) => {
         const itemState = state.docs[doc.key] || { uploaded: false, fileName: "", status: "pending" };
-        const statusClass = itemState.status === "accepted"
-          ? "done"
-          : itemState.status === "rejected"
-            ? "rejected"
-            : itemState.status === "under_review"
-              ? "review"
-              : "pending";
-        const statusLabel = itemState.status === "accepted"
-          ? "Accepted"
-          : itemState.status === "rejected"
-            ? "Rejected"
-            : itemState.status === "under_review"
-              ? "Under review"
-              : "Pending";
+        const sClass = statusClass(itemState.status);
+        const sLabel = statusLabel(itemState.status);
+        const helpBtn = doc.help ? ‘<button class="help-icon-btn" type="button" data-help-idx="p’ + idx + ‘" title="How to get this document" aria-label="Help: ‘ + doc.title + ‘">?</button>’ : "";
         const item = document.createElement("div");
         item.className = "download-item";
         item.innerHTML = `
           <div>
-            <div class="download-label">${doc.title}</div>
-            <div class="download-note">${itemState.uploaded ? `Uploaded: ${itemState.fileName}` : "Not uploaded yet"}</div>
+            <div class="doc-title-row">
+              <span class="download-label">${doc.title}</span>
+              ${helpBtn}
+            </div>
+            <div class="download-note">${itemState.uploaded ? "Uploaded: " + itemState.fileName : "Not uploaded yet"}</div>
             <div class="upload-box">
               <input type="file" data-prepared-doc="${doc.key}" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
               <p class="upload-copy">We will review this document to make sure it is correct.</p>
             </div>
           </div>
-          <span class="pill ${statusClass}">${statusLabel}</span>
+          <span class="pill ${sClass}">${sLabel}</span>
         `;
         preparedListEl.appendChild(item);
       });
 
+      /* ─ Section 1: Sent directly to Ahpra / external authority ─ */
       const institutionRow = document.createElement("div");
       institutionRow.className = "progress-item expand timeline-item";
       institutionRow.style.order = "1";
-      institutionRow.dataset.stepKey = "gmc_to_ahpra";
-      if (currentStepKey === "gmc_to_ahpra") institutionRow.classList.add("is-current");
+      institutionRow.dataset.stepKey = "sent_to_ahpra";
+      if (currentStepKey === "sent_to_ahpra") institutionRow.classList.add("is-current");
+      if (institutionComplete) institutionRow.classList.add("is-done");
       institutionRow.innerHTML = `
         <span class="timeline-node">1</span>
-        <details class="expand-tab" data-expand-key="gmc_to_ahpra">
+        <details class="expand-tab" data-expand-key="sent_to_ahpra">
           <summary>
             <div>
               <div class="timeline-title">
-                <h4>GMC directly to AHPRA</h4>
-                ${currentStepKey === "gmc_to_ahpra" ? `<span class="timeline-current">Current</span>` : ""}
+                <h4>Sent directly to Ahpra / external authority</h4>
+                ${currentStepKey === "sent_to_ahpra" ? ‘<span class="timeline-current">Current</span>’ : ""}
               </div>
-              <p>These must be sent directly from the institution/authority to AHPRA.</p>
+              <p>These must be sent directly from the institution or authority.</p>
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
-              <span class="pill ${institutionRequestedCount === INSTITUITION_TO_AHPRA_ITEMS.length ? "done" : ""}">${institutionRequestedCount}/${INSTITUITION_TO_AHPRA_ITEMS.length} requested</span>
-              <span class="expand-icon">›</span>
+              <span class="pill ${institutionComplete ? "done" : ""}">${institutionRequestedCount}/${institutionDocs.length} requested</span>
+              <span class="expand-icon">\u203A</span>
             </div>
           </summary>
           <div class="download-list" id="institutionToAhpraList"></div>
         </details>
       `;
       progressGridEl.appendChild(institutionRow);
-      const institutionDetails = institutionRow.querySelector("details.expand-tab[data-expand-key='gmc_to_ahpra']");
-      if (institutionDetails) institutionDetails.open = !!expandState.gmc_to_ahpra;
+      const institutionDetails = institutionRow.querySelector("details.expand-tab[data-expand-key=’sent_to_ahpra’]");
+      if (institutionDetails) institutionDetails.open = !!expandState.sent_to_ahpra;
 
       const institutionListEl = institutionRow.querySelector("#institutionToAhpraList");
-      INSTITUITION_TO_AHPRA_ITEMS.forEach((item) => {
+      institutionDocs.forEach((item, idx) => {
         const itemState = state.docs[item.key] || { uploaded: false, fileName: "", status: "pending" };
         const row = document.createElement("div");
         row.className = "download-item institution-item";
-        const gmcMailto = item.gmcEmail
-          ? `mailto:${item.gmcEmail}?subject=${encodeURIComponent(item.gmcSubject || "")}&body=${encodeURIComponent(item.gmcBody || "")}`
-          : "";
-        const stepsMarkup = Array.isArray(item.steps) && item.steps.length
-          ? `<ol class="download-note" style="margin:0; padding-left:18px; display:grid; gap:2px;">${item.steps.map((step) => `<li>${step}</li>`).join("")}</ol>`
-          : "";
-        const instStatusClass = itemState.status === "pending" ? "pending" : "review";
-        const instStatusLabel = itemState.status === "pending" ? "Pending" : "Requested";
+        const instSClass = itemState.status === "pending" ? "pending" : statusClass(itemState.status);
+        const instSLabel = itemState.status === "pending" ? "Pending" : statusLabel(itemState.status);
+        const helpBtn = item.help ? ‘<button class="help-icon-btn" type="button" data-help-idx="i’ + idx + ‘" title="How to get this document" aria-label="Help: ‘ + item.title + ‘">?</button>’ : "";
         row.innerHTML = `
           <div style="display:grid; gap:6px;">
-            <div class="download-label">${item.title}</div>
-            ${stepsMarkup}
-            ${item.note ? `<div class="download-note">${item.note}</div>` : ""}
-            <div class="doc-actions">
-              ${item.cogsUrl ? `<a class="btn btn-primary" href="${item.cogsUrl}" target="_blank" rel="noopener noreferrer">${item.cogsButtonLabel || "Retrieve COGS"}</a>` : ""}
-              ${item.gmcEmail ? `<a class="btn btn-primary" href="${gmcMailto}" data-mailto="${gmcMailto}" data-mailto-email="${item.gmcEmail}" data-mailto-subject="${item.gmcSubject || ""}" data-mailto-body="${item.gmcBody || ""}">Retrieve Confirmation of Training</a>` : ""}
-              ${item.fit2workUrl ? `<a class="btn btn-primary" href="${item.fit2workUrl}" target="_blank" rel="noopener noreferrer">Fit2Work</a>` : ""}
-              ${itemState.status === "pending" ? `<button class="btn btn-soft" type="button" data-inst-mark="${item.key}">${item.actionLabel}</button>` : ""}
+            <div class="doc-title-row">
+              <span class="download-label">${item.title}</span>
+              ${helpBtn}
             </div>
-            ${item.reminder ? `<div class="download-note" style="color:#92400e; font-weight:650;">${item.reminder}</div>` : ""}
+            <div class="doc-actions">
+              ${itemState.status === "pending" ? ‘<button class="btn btn-soft" type="button" data-inst-mark="’ + item.key + ‘">’ + (item.actionLabel || "Mark Requested") + "</button>" : ""}
+            </div>
           </div>
-          <span class="pill ${instStatusClass}">${instStatusLabel}</span>
+          <span class="pill ${instSClass}">${instSLabel}</span>
         `;
         institutionListEl.appendChild(row);
       });
 
+      /* ─ Accordion & open state ─ */
       const timelineDetails = [...progressGridEl.querySelectorAll("details.expand-tab[data-expand-key]")];
       let anyOpen = false;
       timelineDetails.forEach((detail) => {
@@ -1504,7 +1832,7 @@
       });
 
       if (!anyOpen) {
-        const currentRow = progressGridEl.querySelector(`.timeline-item[data-step-key="${currentStepKey}"] details.expand-tab[data-expand-key]`);
+        const currentRow = progressGridEl.querySelector(‘.timeline-item[data-step-key="’ + currentStepKey + ‘"] details.expand-tab[data-expand-key]’);
         if (currentRow) {
           currentRow.open = true;
           const parentRow = currentRow.closest(".timeline-item");
@@ -1539,13 +1867,31 @@
       let state = loadDocsState(country);
       renderAll(country, state);
 
+      const cfg = getCountryConfig(country);
+
       progressGridEl.addEventListener("change", (event) => {
         const input = event.target;
         if (!(input instanceof HTMLInputElement)) return;
-        if (!input.matches("input[type='file'][data-prepared-doc]")) return;
+        if (!input.matches("input[type=’file’][data-prepared-doc]")) return;
         const key = input.getAttribute("data-prepared-doc");
         const file = input.files && input.files[0];
-        if (!key || !file || country !== "uk") return;
+        if (!key || !file) return;
+
+        /* Light filename mismatch warning */
+        const docDef = cfg.prepared.find((d) => d.key === key);
+        if (docDef && file.name) {
+          const fn = file.name.toLowerCase();
+          const title = docDef.title.toLowerCase();
+          const keywords = title.replace(/[^a-z0-9]+/g, " ").split(" ").filter((w) => w.length > 3);
+          const matchCount = keywords.filter((kw) => fn.includes(kw)).length;
+          if (keywords.length > 0 && matchCount === 0) {
+            if (!confirm("The file \"" + file.name + "\" doesn’t appear to match \"" + docDef.title + "\". Upload anyway?")) {
+              input.value = "";
+              return;
+            }
+          }
+        }
+
         state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review" };
         saveDocsState(state);
         renderAll(country, state);
@@ -1554,25 +1900,37 @@
       progressGridEl.addEventListener("click", (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
+
+        /* Help icon click */
+        const helpBtn = target.closest("[data-help-idx]");
+        if (helpBtn) {
+          const idx = helpBtn.getAttribute("data-help-idx");
+          const type = idx.charAt(0);
+          const num = parseInt(idx.substring(1), 10);
+          const doc = type === "i" ? cfg.institution[num] : cfg.prepared[num];
+          if (doc && doc.help) openHelpPopover(doc.help);
+          return;
+        }
+
+        /* Mailto links */
         const mailtoLink = target.closest("[data-mailto]");
         if (mailtoLink instanceof HTMLAnchorElement) {
           event.preventDefault();
           const href = mailtoLink.getAttribute("data-mailto");
-          if (href) {
-            window.location.href = href;
-          }
+          if (href) window.location.href = href;
           return;
         }
+
+        /* Mark Requested */
         const key = target.getAttribute("data-inst-mark");
-        if (!key || country !== "uk") return;
+        if (!key) return;
         if (!state.docs[key]) state.docs[key] = { uploaded: false, fileName: "", status: "pending" };
         state.docs[key].uploaded = true;
-        state.docs[key].status = "under_review";
-        expandState.gmc_to_ahpra = true;
+        state.docs[key].status = "requested";
+        expandState.sent_to_ahpra = true;
         saveDocsState(state);
         renderAll(country, state);
       });
-
     }
 
     const supportModalEl = document.getElementById("supportModal");
@@ -1830,8 +2188,9 @@
 
     window.gpLinkSetPreparedByYouStatus = function (updates) {
       const country = getCountry();
+      const cfg = getCountryConfig(country);
       const state = loadDocsState(country);
-      UK_DOCS.forEach((doc) => {
+      cfg.prepared.forEach((doc) => {
         const incoming = updates && updates[doc.key] ? updates[doc.key] : null;
         if (!incoming) return;
         const nextStatus = incoming.status;
@@ -1850,12 +2209,13 @@
 
     window.gpLinkSetInstitutionToAhpraStatus = function (updates) {
       const country = getCountry();
+      const cfg = getCountryConfig(country);
       const state = loadDocsState(country);
-      INSTITUITION_TO_AHPRA_ITEMS.forEach((item) => {
+      cfg.institution.forEach((item) => {
         const incoming = updates && updates[item.key] ? updates[item.key] : null;
         if (!incoming) return;
         const nextStatus = incoming.status;
-        if (nextStatus !== "pending" && nextStatus !== "under_review" && nextStatus !== "approved") return;
+        if (!INSTITUTION_STATUS.includes(nextStatus)) return;
         const existing = state.docs[item.key] || { uploaded: false, fileName: "", status: "pending" };
         state.docs[item.key] = {
           uploaded: nextStatus === "pending" ? false : true,
