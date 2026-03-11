@@ -364,19 +364,6 @@
     .heading h2 { margin: 0; font-size: 22px; letter-spacing: -0.02em; font-weight: 800; color: var(--text); }
     .heading p { margin: 4px 0 0; color: var(--muted); font-size: 14px; font-weight: 500; }
 
-    .chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-
-    .chip {
-      border: 1px solid #d7e3f6;
-      background: rgba(255, 255, 255, 0.85);
-      border-radius: 999px;
-      padding: 7px 12px;
-      font-size: 12px;
-      font-weight: 620;
-      color: #334155;
-      white-space: nowrap;
-    }
-
     .btn {
       display: inline-flex;
       align-items: center;
@@ -442,25 +429,7 @@
       background: #e2e8f0;
     }
 
-    .layout {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-      align-items: start;
-    }
 
-    .card {
-      background: var(--panel);
-      border: 1px solid #e8edf5;
-      border-radius: 20px;
-      box-shadow: var(--shadow-soft);
-      padding: 20px;
-    }
-
-    .card h3 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
-    .sub { margin: 6px 0 14px; font-size: 13px; color: var(--muted); font-weight: 560; }
-
-    .progress-grid { display: grid; gap: 10px; }
 
     /* ─── DOC TAB BAR (matches account.html) ─── */
     .doc-tabs {
@@ -581,28 +550,10 @@
 
     .doc-card-top {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       gap: 10px;
     }
-
-    .doc-card-icon {
-      width: 40px; height: 40px;
-      border-radius: 10px;
-      display: grid; place-items: center;
-      flex: 0 0 auto;
-    }
-
-    .doc-card-icon svg {
-      width: 20px; height: 20px;
-      stroke: currentColor; fill: none;
-      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    .doc-card-icon.blue { background: #eff6ff; color: var(--blue); }
-    .doc-card-icon.green { background: #ecfdf5; color: #16a34a; }
-    .doc-card-icon.purple { background: #f5f3ff; color: #7c3aed; }
-    .doc-card-icon.amber { background: #fffbeb; color: #d97706; }
 
     .doc-card-title {
       font-size: 14px;
@@ -647,20 +598,6 @@
     .pill.rejected { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
 
 
-
-    .notice {
-      margin-top: 10px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--amber-line);
-      background: var(--amber-bg);
-      color: #9a5b0f;
-      padding: 10px;
-      font-size: 12px;
-      line-height: 1.5;
-      font-weight: 550;
-    }
-
-    .footer-note { margin: 10px 0 0; text-align: center; font-size: 12px; color: #94a3b8; font-weight: 700; }
 
     .show-me-how {
       display: inline-flex;
@@ -977,7 +914,6 @@
     .mobile-reg-table .reg-btn { grid-column: 1 / -1; width: 100%; text-align: center; margin-top: 2px; }
 
     @media (max-width: 980px) {
-      .layout { grid-template-columns: 1fr; }
       body { padding-bottom: 96px; }
       .mobile-nav { display: grid; }
     }
@@ -998,11 +934,7 @@
     @media (max-width: 560px) {
       .shell { border-radius: 0; padding: 0 10px 100px; }
       .topbar { padding: 12px; margin-top: 12px; }
-      .card { padding: 10px; }
-      .heading-callout { padding: 10px; }
       .doc-card { padding: 14px; }
-      .doc-card-actions { width: 100%; }
-      .doc-card-actions .btn { width: 100%; justify-content: center; }
       .pill { white-space: normal; }
       .doc-tab { font-size: 12px; padding: 9px 6px; }
     }
@@ -1015,17 +947,14 @@
         <div class="header-avatar" id="headerAvatarMobile">GP</div>
         <div class="header-text">
           <h1 id="headerNameMobile">My Documents</h1>
-          <p id="headerSubtitleMobile">Expedited Specialist Pathway</p>
+          <p id="headerSubtitleMobile">To Australia Via Expedited Specialist Pathway</p>
         </div>
       </div>
       <div class="header-actions">
-        <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Notifications">
+        <button class="header-icon-btn" id="mobileHeaderChatBtn" type="button" aria-label="Messages">
           <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
-          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
         </button>
-        <a class="header-icon-btn" href="account.html" aria-label="Account">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-        </a>
       </div>
     </header>
 
@@ -1073,25 +1002,18 @@
         </div>
       </section>
 
-      <section class="layout">
-        <article class="card">
-          <h3 id="docCardTitle">Document Checklist</h3>
-          <p class="sub" id="docCardSub"></p>
+      <nav class="doc-tabs" role="tablist" aria-label="Document sections">
+        <div class="doc-tab-slider" id="docTabSlider"></div>
+        <button class="doc-tab is-active" data-doc-tab="direct_to_ahpra" role="tab" type="button">Direct to AHPRA</button>
+        <button class="doc-tab" data-doc-tab="you_prepare" role="tab" type="button">You Prepare</button>
+        <button class="doc-tab" data-doc-tab="gplink_prepares" role="tab" type="button">We Prepare</button>
+      </nav>
 
-          <nav class="doc-tabs" role="tablist" aria-label="Document sections">
-            <div class="doc-tab-slider" id="docTabSlider"></div>
-            <button class="doc-tab is-active" data-doc-tab="direct_to_ahpra" role="tab" type="button">Direct to AHPRA</button>
-            <button class="doc-tab" data-doc-tab="you_prepare" role="tab" type="button">You Prepare</button>
-            <button class="doc-tab" data-doc-tab="gplink_prepares" role="tab" type="button">GP LINK Prepares</button>
-          </nav>
-
-          <div class="doc-panels-wrap">
-            <div class="doc-panel is-active" id="panel-direct_to_ahpra" role="tabpanel"></div>
-            <div class="doc-panel" id="panel-you_prepare" role="tabpanel"></div>
-            <div class="doc-panel" id="panel-gplink_prepares" role="tabpanel"></div>
-          </div>
-        </article>
-      </section>
+      <div class="doc-panels-wrap">
+        <div class="doc-panel is-active" id="panel-direct_to_ahpra" role="tabpanel"></div>
+        <div class="doc-panel" id="panel-you_prepare" role="tabpanel"></div>
+        <div class="doc-panel" id="panel-gplink_prepares" role="tabpanel"></div>
+      </div>
 
     </main>
   </div>
@@ -1101,7 +1023,7 @@
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
       <span class="mobile-tab-label">Home Dashboard</span>
     </a>
-    <button class="mobile-tab mobile-tab-active" id="mobileRegistrationBtn" type="button">
+    <button class="mobile-tab" id="mobileRegistrationBtn" type="button">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
       <span class="mobile-tab-label">Registration Process</span>
     </button>
@@ -1109,15 +1031,10 @@
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
       <span class="mobile-tab-label">Scan</span>
     </button>
-    <button class="mobile-tab" id="mobileSupportBtn" type="button">
-      <span class="mobile-icon-wrap">
-        <span class="mobile-tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
-        </span>
-        <span class="mobile-tab-alert nav-alert" data-inbox-alert hidden aria-hidden="true">!</span>
-      </span>
-      <span class="mobile-tab-label">Messages</span>
-    </button>
+    <a class="mobile-tab mobile-tab-active" href="my-documents.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+      <span class="mobile-tab-label">Documents</span>
+    </a>
     <a class="mobile-tab" href="account.html">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
       <span class="mobile-tab-label">Account</span>
@@ -1409,8 +1326,6 @@
       { key: "supervisor_cv", label: "Supervisor's CV" }
     ];
 
-    const docCardTitleEl = document.getElementById("docCardTitle");
-    const docCardSubEl = document.getElementById("docCardSub");
 
     /* -- Doc tab bar -- */
     const docTabSliderEl = document.getElementById("docTabSlider");
@@ -1706,7 +1621,6 @@
 
     function renderProgress(country, state) {
       const cfg = getCountryConfig(country);
-      docCardSubEl.textContent = formatCountry(country) + " checklist";
 
       const institutionDocs = cfg.institution;
       const preparedDocs = cfg.prepared;
@@ -1736,7 +1650,7 @@
         var helpLink = item.help ? '<button class="show-me-how" type="button" data-help-idx="i' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon blue"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M9 15l2 2 4-4"></path></svg></div><span class="pill ' + instSClass + '">' + instSLabel + '</span></div><div class="doc-card-title">' + item.title + '</div>' + helpLink + '<div class="doc-card-actions">' + (itemState.status === "pending" ? '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + '</button>' : '') + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + item.title + '</span><span class="pill ' + instSClass + '">' + instSLabel + '</span></div>' + helpLink + '<div class="doc-card-actions">' + (itemState.status === "pending" ? '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + '</button>' : '') + '</div>';
         ahpraGrid.appendChild(card);
       });
 
@@ -1754,7 +1668,7 @@
           : '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon purple"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></div><span class="pill ' + sClass + '">' + sLabel + '</span></div><div class="doc-card-title">' + doc.title + '</div>' + helpLink + '<div class="doc-card-actions">' + uploadHtml + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + '<div class="doc-card-actions">' + uploadHtml + '</div>';
         youGrid.appendChild(card);
       });
 
@@ -1767,7 +1681,7 @@
         var isReady = !!file.url || file.ready;
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><div class="doc-card-icon green"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></div><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-title">' + doc.label + '</div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.label + '</span><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
         gplinkGrid.appendChild(card);
       });
     }
@@ -2098,7 +2012,7 @@
       if (headerAvatarMobileEl && firstName) {
         headerAvatarMobileEl.textContent = firstName.charAt(0).toUpperCase();
       }
-      /* Pathway subtitle - default to Expedited Specialist, future-proof via localStorage */
+      /* Pathway subtitle - default to Expedited Specialist Pathway, future-proof via localStorage */
       var pathway = "Expedited Specialist Pathway";
       try {
         var stored = localStorage.getItem("gp_registration_pathway");
@@ -2107,7 +2021,7 @@
           if (typeof parsed === "string" && parsed.trim()) pathway = parsed.trim();
         }
       } catch (e) { /* use default */ }
-      if (headerSubtitleMobileEl) headerSubtitleMobileEl.textContent = pathway;
+      if (headerSubtitleMobileEl) headerSubtitleMobileEl.textContent = "To Australia Via " + pathway;
     }
 
     /* Try immediate profile if available */
