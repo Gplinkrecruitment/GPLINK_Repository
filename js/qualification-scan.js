@@ -196,6 +196,7 @@
   }
 
   window.gpOpenScanModal = openModal;
+  window.gpFileToBase64 = fileToBase64;
 
   /* ── File selection ── */
   function pickFile(file) {

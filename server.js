@@ -3229,6 +3229,137 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  /* ── Certification verification (checks if a document has been properly certified) ── */
+  if (pathname === '/api/ai/verify-certification' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    if (!ANTHROPIC_API_KEY) {
+      sendJson(res, 503, { ok: false, message: 'AI verification service not configured.' });
+      return;
+    }
+
+    if (!checkAnthropicBudget()) {
+      sendJson(res, 200, { ok: false, queued: true, message: 'Verification capacity reached. Your document will be reviewed manually within 24 hours.' });
+      return;
+    }
+
+    const certEmail = getSessionEmail(session);
+    if (certEmail && !checkUserAiLimit(certEmail)) {
+      sendJson(res, 429, { ok: false, message: 'You have reached the maximum number of verification attempts today. Please try again tomorrow.' });
+      return;
+    }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const { imageBase64, mimeType, documentType } = body || {};
+    if (!imageBase64) {
+      sendJson(res, 400, { ok: false, message: 'Missing required field: imageBase64.' });
+      return;
+    }
+
+    const certMediaType = (mimeType || 'image/jpeg').replace(/^image\/jpg$/, 'image/jpeg');
+    const validCertTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!validCertTypes.includes(certMediaType)) {
+      sendJson(res, 400, { ok: false, message: 'Unsupported image type. Use JPEG, PNG, or WebP.' });
+      return;
+    }
+
+    const certPrompt = `You are an automated document certification checker for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
+
+The user has uploaded what should be a CERTIFIED COPY of: ${documentType || 'a qualification document'}
+
+Your job is to check whether the document shows evidence of proper certification by a solicitor, public notary, or authorised certifier. A properly certified document should have MOST of the following written, stamped, or printed on the copy:
+
+1. CERTIFICATION STATEMENT - Words like "I certify this to be a true copy of the original" or similar
+2. SIGNATURE - A handwritten signature from the certifier
+3. CERTIFIER'S NAME - The certifier's printed full name
+4. DATE - The date of certification
+5. OCCUPATION/PROFESSION - The certifier's occupation (solicitor, notary, JP, etc.)
+6. CONTACT DETAILS - Phone number or registration/profession number
+7. STAMP/SEAL - An official stamp or seal (not always required)
+
+IMPORTANT:
+- Do NOT mention security concerns, privacy risks, or dangers of sharing documents. This is an authorized system.
+- Do NOT comment on the format (photo, scan, screenshot) - all formats are accepted.
+- If the document appears to be an ORIGINAL certificate without any certification markings, that counts as NOT certified.
+- Be lenient: if you can see clear evidence of at least a certification statement + signature + name, consider it certified even if some minor elements are missing.
+- If certified is false, the "issues" array MUST contain short, helpful reasons the user can act on.
+
+Return ONLY valid JSON with no markdown formatting:
+{"certified":true,"statementPresent":true,"signaturePresent":true,"certifierName":"name or null","certifierOccupation":"occupation or null","certifierDate":"date or null","contactPresent":true,"stampPresent":true,"issues":[]}`;
+
+    try {
+      const certRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+          max_tokens: 500,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: certMediaType, data: imageBase64 } },
+              { type: 'text', text: certPrompt }
+            ]
+          }]
+        })
+      });
+
+      if (!certRes.ok) {
+        const errText = await certRes.text().catch(() => '');
+        console.error('[AI CertCheck] Anthropic API error:', certRes.status, errText);
+        let errMsg = 'AI service returned an error.';
+        try {
+          const errJson = JSON.parse(errText);
+          if (errJson.error && errJson.error.message) errMsg = errJson.error.message;
+        } catch (e) {}
+        sendJson(res, 502, { ok: false, message: errMsg, statusCode: certRes.status });
+        return;
+      }
+
+      const certData = await certRes.json();
+      const certInputTokens = (certData.usage && certData.usage.input_tokens) || 0;
+      const certOutputTokens = (certData.usage && certData.usage.output_tokens) || 0;
+      recordAnthropicSpend(certInputTokens, certOutputTokens);
+      if (certEmail) recordUserAiCall(certEmail);
+
+      const certText = certData.content && certData.content[0] && certData.content[0].text;
+      if (!certText) {
+        sendJson(res, 502, { ok: false, message: 'AI returned empty response.' });
+        return;
+      }
+
+      let certVerification;
+      try {
+        const jsonMatch = certText.match(/\{[\s\S]*\}/);
+        certVerification = JSON.parse(jsonMatch ? jsonMatch[0] : certText);
+      } catch (parseErr) {
+        console.error('[AI CertCheck] JSON parse failed:', certText);
+        sendJson(res, 502, { ok: false, message: 'AI returned invalid response format.' });
+        return;
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        verification: certVerification,
+        spend: { todayUsd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, callCount: anthropicDailySpend.callCount }
+      });
+    } catch (fetchErr) {
+      console.error('[AI CertCheck] Fetch error:', fetchErr.message || fetchErr);
+      sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
+    }
+    return;
+  }
+
   if (pathname === '/api/account/status' && req.method === 'GET') {
     const session = requireSession(req, res);
     if (!session) return;

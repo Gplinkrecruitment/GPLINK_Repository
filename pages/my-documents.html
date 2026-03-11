@@ -6,8 +6,8 @@
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
-  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260310a" defer></script>
+  <script src="../js/qualification-camera.js?v=20260312a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260312a" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -655,6 +655,56 @@
       border-color: #bbf7d0;
       color: #166534;
     }
+
+    .doc-action-row {
+      display: flex;
+      gap: 8px;
+    }
+    .doc-action-row .upload-btn {
+      flex: 1;
+    }
+    .cert-camera-btn {
+      display: inline-flex !important;
+    }
+
+    .cert-badge {
+      font-size: 11.5px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .cert-badge svg {
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .cert-badge.done { color: #16a34a; }
+    .cert-badge.attention { color: #d97706; }
+
+    .cert-scanning {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #6366f1;
+      padding: 8px 0;
+    }
+    .cert-scan-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #e2e8f0;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: certSpin .7s linear infinite;
+    }
+    @keyframes certSpin { to { transform: rotate(360deg); } }
 
     .help-popover-backdrop {
       position: fixed;
@@ -1670,23 +1720,27 @@
     }
 
     function statusClass(status) {
-      if (status === "accepted" || status === "approved") return "done";
+      if (status === "accepted" || status === "approved" || status === "certified") return "done";
       if (status === "rejected") return "rejected";
       if (status === "under_review") return "review";
       if (status === "uploaded") return "review";
       if (status === "requested") return "review";
-      if (status === "action_required") return "rejected";
+      if (status === "scanning") return "review";
+      if (status === "action_required" || status === "cert_attention") return "rejected";
       return "pending";
     }
 
     function statusLabel(status) {
       if (status === "accepted") return "Accepted";
       if (status === "approved") return "Approved";
+      if (status === "certified") return "Certified";
       if (status === "rejected") return "Rejected";
       if (status === "under_review") return "Under review";
       if (status === "uploaded") return "Uploaded";
       if (status === "requested") return "Requested";
+      if (status === "scanning") return "Scanning...";
       if (status === "action_required") return "Action required";
+      if (status === "cert_attention") return "Needs attention";
       return "Pending";
     }
 
@@ -1806,12 +1860,29 @@
         var sClass = statusClass(itemState.status);
         var sLabel = statusLabel(itemState.status);
         var helpLink = doc.help ? '<button class="show-me-how" type="button" data-help-idx="p' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
-        var uploadHtml = itemState.uploaded
-          ? '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>'
-          : '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
+        var needsCert = doc.help && doc.help.certNote;
+        var certBadge = "";
+        if (itemState.certificationStatus === "certified") {
+          certBadge = '<div class="cert-badge done"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg> Certification verified</div>';
+        } else if (itemState.certificationStatus === "needs_attention") {
+          certBadge = '<div class="cert-badge attention">' + (itemState.certificationIssues && itemState.certificationIssues[0] ? itemState.certificationIssues[0] : "Certification needs attention") + '</div>';
+        }
+        var uploadHtml;
+        if (itemState.status === "scanning") {
+          uploadHtml = '<div class="cert-scanning"><div class="cert-scan-spinner"></div> Verifying certification...</div>';
+        } else if (itemState.uploaded) {
+          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
+        } else if (needsCert) {
+          uploadHtml = '<div class="doc-action-row">' +
+            '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>' +
+            '<button class="upload-btn cert-camera-btn" type="button" data-cert-camera="' + doc.key + '"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>Take Photo</button>' +
+            '</div>';
+        } else {
+          uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
+        }
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + '<div class="doc-card-actions">' + uploadHtml + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + certBadge + '<div class="doc-card-actions">' + uploadHtml + '</div>';
         youGrid.appendChild(card);
       });
 
@@ -1841,6 +1912,60 @@
       const cfg = getCountryConfig(country);
       var panelsWrap = document.querySelector(".doc-panels-wrap");
 
+      function runCertificationCheck(file, key, docTitle, state, country) {
+        var isImage = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type);
+        if (!isImage) {
+          state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review", certificationStatus: "unknown" };
+          saveDocsState(state);
+          renderAll(country, state);
+          return;
+        }
+        state.docs[key] = { uploaded: true, fileName: file.name, status: "scanning" };
+        saveDocsState(state);
+        renderAll(country, state);
+
+        window.gpFileToBase64(file).then(function(base64) {
+          return fetch("/api/ai/verify-certification", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageBase64: base64,
+              mimeType: file.type || "image/jpeg",
+              documentType: docTitle || "qualification document"
+            })
+          });
+        }).then(function(res) {
+          return res.json();
+        }).then(function(data) {
+          if (data.ok && data.verification) {
+            var v = data.verification;
+            var isCertified = !!v.certified;
+            state.docs[key] = {
+              uploaded: true,
+              fileName: file.name,
+              status: isCertified ? "certified" : "cert_attention",
+              certificationStatus: isCertified ? "certified" : "needs_attention",
+              certifierName: v.certifierName || null,
+              certifierOccupation: v.certifierOccupation || null,
+              certifierDate: v.certifierDate || null,
+              signaturePresent: !!v.signaturePresent,
+              stampPresent: !!v.stampPresent,
+              certificationIssues: v.issues || [],
+              certificationCheckedAt: new Date().toISOString()
+            };
+          } else {
+            state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review", certificationStatus: "unknown" };
+          }
+          saveDocsState(state);
+          renderAll(country, state);
+        }).catch(function() {
+          state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review", certificationStatus: "unknown" };
+          saveDocsState(state);
+          renderAll(country, state);
+        });
+      }
+
       panelsWrap.addEventListener("change", function(event) {
         var input = event.target;
         if (!(input instanceof HTMLInputElement)) return;
@@ -1864,9 +1989,14 @@
           }
         }
 
-        state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review" };
-        saveDocsState(state);
-        renderAll(country, state);
+        var needsCert = docDef && docDef.help && docDef.help.certNote;
+        if (needsCert) {
+          runCertificationCheck(file, key, docDef.title, state, country);
+        } else {
+          state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review" };
+          saveDocsState(state);
+          renderAll(country, state);
+        }
       });
 
       panelsWrap.addEventListener("click", function(event) {
@@ -1881,6 +2011,25 @@
           var num = parseInt(idx.substring(1), 10);
           var doc = type === "i" ? cfg.institution[num] : cfg.prepared[num];
           if (doc && doc.help) openHelpPopover(doc.help);
+          return;
+        }
+
+        /* Take Photo (camera) for certified docs */
+        var camBtn = target.closest("[data-cert-camera]");
+        if (camBtn) {
+          var camKey = camBtn.getAttribute("data-cert-camera");
+          var camDoc = cfg.prepared.find(function(d) { return d.key === camKey; });
+          if (camDoc && window.QualCamera) {
+            window.QualCamera.open(camDoc.title, function(blob, err) {
+              if (err) { alert(err); return; }
+              if (blob) {
+                var capturedFile = new File([blob], "certified-photo.jpg", { type: "image/jpeg" });
+                runCertificationCheck(capturedFile, camKey, camDoc.title, state, country);
+              }
+            });
+          } else if (!window.QualCamera) {
+            alert("Camera is not available on this device. Please use Upload instead.");
+          }
           return;
         }
 
