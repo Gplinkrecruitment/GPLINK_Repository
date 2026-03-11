@@ -1141,6 +1141,7 @@
   </div>
 
   <script>
+  try {
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const COUNTRY_KEY = "gp_selected_country";
@@ -1683,7 +1684,7 @@
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
               <span class="pill ${readyCount === SUPERVISED_PRACTICE_DOCS.length ? "done" : ""}">${readyCount}/${SUPERVISED_PRACTICE_DOCS.length} Ready</span>
-              <span class="expand-icon">\u203A</span>
+              <span class="expand-icon">›</span>
             </div>
           </summary>
           <div class="download-list" id="supervisedDownloadList"></div>
@@ -1733,7 +1734,7 @@
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
               <span class="pill ${preparedSummaryClass}">${preparedSummaryLabel}</span>
-              <span class="expand-icon">\u203A</span>
+              <span class="expand-icon">›</span>
             </div>
           </summary>
           <div class="download-list" id="preparedByYouList"></div>
@@ -1788,7 +1789,7 @@
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
               <span class="pill ${institutionComplete ? "done" : ""}">${institutionRequestedCount}/${institutionDocs.length} requested</span>
-              <span class="expand-icon">\u203A</span>
+              <span class="expand-icon">›</span>
             </div>
           </summary>
           <div class="download-list" id="institutionToAhpraList"></div>
@@ -2175,7 +2176,7 @@
       if (activeNavItem) moveNavGlass(activeNavItem, false);
     });
 
-    bootDocumentModule();
+    try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule error:", e); progressGridEl.innerHTML = '<div style="padding:12px;color:#b91c1c;font-size:13px;">Error loading documents: ' + e.message + '</div>'; }
     renderRegistrationRows();
 
     window.gpLinkSetPreparedDocs = function (updates) {
@@ -2230,9 +2231,14 @@
 
     // Re-render after state-sync hydrates the current user's data
     window.addEventListener("gp-state-hydrated", function () {
-      bootDocumentModule();
+      try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule hydration error:", e); progressGridEl.innerHTML = '<div style="padding:12px;color:#b91c1c;font-size:13px;">Error loading documents: ' + e.message + '</div>'; }
       renderRegistrationRows();
     }, { once: true });
+  } catch(globalErr) {
+    console.error("Documents page script error:", globalErr);
+    var pgEl = document.getElementById("progressGrid");
+    if (pgEl) pgEl.innerHTML = '<div style="padding:14px;color:#b91c1c;font-size:13px;font-weight:600;">Something went wrong loading the document checklist. Error: ' + globalErr.message + '</div>';
+  }
   </script>
   <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
     <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
