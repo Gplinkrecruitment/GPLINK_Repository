@@ -3983,6 +3983,31 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // TEMP: Auto-seed onboarding for test user smithmiller1234
+    if (isSupabaseDbConfigured() && email === 'smithmiller1234@gmail.com') {
+      const seedCheck = await getSupabaseUserStateByEmail(email);
+      const seedState = seedCheck && seedCheck.state && typeof seedCheck.state === 'object' ? seedCheck.state : {};
+      if (!seedState.gp_onboarding_complete) {
+        const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+        if (userId) {
+          seedState.gp_onboarding_complete = true;
+          seedState.gp_selected_country = 'United Kingdom';
+          seedState.gp_onboarding = {
+            country: 'GB', completedAt: new Date().toISOString(), step: 5,
+            preferredCity: 'Melbourne', targetDate: '2026-09', whoMoving: 'Just me',
+            childrenCount: '0', accountReviewFlag: false
+          };
+          delete seedState.gp_documents_prep;
+          await upsertSupabaseUserState(userId, seedState, new Date().toISOString());
+          await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { qualification_country: 'GB', preferred_city: 'Melbourne', target_arrival_date: '2026-09', who_moving: 'Just me', children_count: '0', onboarding_completed_at: new Date().toISOString() }
+          });
+          console.log('[SEED] Auto-seeded onboarding for smithmiller1234@gmail.com');
+        }
+      }
+    }
+
     if (isSupabaseDbConfigured()) {
       const remoteState = await getSupabaseUserStateByEmail(email);
       if (remoteState) {
