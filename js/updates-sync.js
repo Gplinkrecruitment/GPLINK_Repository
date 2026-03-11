@@ -342,6 +342,7 @@
         <button type="button" data-alert-close aria-label="Close alerts">&times;</button>
       </div>
       <div class="list" id="${PANEL_ID}-list"></div>
+      <a href="/pages/support.html" class="see-all" style="display:block;text-align:center;padding:12px;font-size:13px;font-weight:700;color:#2563eb;text-decoration:none;border-top:1px solid #e8edf5;">See all</a>
     `;
     document.body.appendChild(root);
     return root;
@@ -451,8 +452,9 @@
     bindTrigger("mobileNotifBtn");
     bindTrigger("topSupportBtn");
     bindTrigger("mobileSupportBtn");
+    bindTrigger("mobileHeaderChatBtn");
 
-    document.querySelectorAll('[aria-label="Notifications"], [data-alert-trigger]').forEach((el) => {
+    document.querySelectorAll('[aria-label="Notifications"], [aria-label="Messages"], [data-alert-trigger]').forEach((el) => {
       bindTriggerEl(el);
     });
 

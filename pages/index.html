@@ -825,17 +825,14 @@
         <div class="header-avatar" id="headerAvatarMobile">GP</div>
         <div class="header-text">
           <h1 id="intro-title-mobile">Welcome back</h1>
-          <p>GP Registration Portal</p>
+          <p id="headerSubtitleMobile">To Australia Via Expedited Specialist Pathway</p>
         </div>
       </div>
       <div class="header-actions">
-        <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Notifications">
+        <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Messages">
           <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
-          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
         </button>
-        <a class="header-icon-btn" href="account.html" aria-label="Account">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-        </a>
       </div>
     </header>
 
@@ -1028,13 +1025,10 @@
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
       <span class="bottom-tab-label">Scan</span>
     </button>
-    <button class="bottom-tab" id="mobileSupportBtn" type="button">
-      <span class="bottom-tab-icon">
-        <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
-        <span class="bottom-tab-badge" data-inbox-alert hidden aria-hidden="true">!</span>
-      </span>
-      <span class="bottom-tab-label">Messages</span>
-    </button>
+    <a class="bottom-tab" href="my-documents.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+      <span class="bottom-tab-label">Documents</span>
+    </a>
     <a class="bottom-tab" href="account.html">
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
       <span class="bottom-tab-label">Account</span>
@@ -1107,6 +1101,7 @@
     const mobileRegTable = document.getElementById("mobileRegTable");
     const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
     let sessionLastName = "";
+    let sessionFirstName = "";
 
     const openSupportModal = () => {
       supportModalEl.classList.add("show");
@@ -1137,35 +1132,51 @@
     let hoveredNavItem = null;
     let navGlassInitialized = false;
 
-    async function loadSessionLastName() {
+    async function loadSessionProfile() {
       try {
-        if (window.gpSessionProfile && typeof window.gpSessionProfile.lastName === "string") {
-          return window.gpSessionProfile.lastName.trim();
-        }
-        if (window.gpSessionPromise && typeof window.gpSessionPromise.then === "function") {
+        var profile = null;
+        if (window.gpSessionProfile) {
+          profile = window.gpSessionProfile;
+        } else if (window.gpSessionPromise && typeof window.gpSessionPromise.then === "function") {
           const session = await window.gpSessionPromise;
-          const profile = session && session.profile && typeof session.profile === "object" ? session.profile : null;
-          if (profile && typeof profile.lastName === "string") return profile.lastName.trim();
-          return "";
+          profile = session && session.profile && typeof session.profile === "object" ? session.profile : null;
+        } else {
+          const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+          if (response.ok) {
+            const data = await response.json();
+            profile = data && data.profile ? data.profile : null;
+          }
         }
-        const response = await fetch("/api/auth/session", { credentials: "same-origin" });
-        if (!response.ok) return "";
-        const data = await response.json();
-        if (!data || !data.profile || typeof data.profile.lastName !== "string") return "";
-        return data.profile.lastName.trim();
+        return {
+          firstName: profile && typeof profile.firstName === "string" ? profile.firstName.trim() : "",
+          lastName: profile && typeof profile.lastName === "string" ? profile.lastName.trim() : ""
+        };
       } catch (err) {
-        return "";
+        return { firstName: "", lastName: "" };
       }
     }
 
     function applyIntroTitle() {
-      const desktopTitle = document.getElementById("intro-title-mobile");
-      if (desktopTitle) {
-        desktopTitle.textContent = sessionLastName ? `Hi, Dr ${sessionLastName}` : "Welcome back";
+      const titleEl = document.getElementById("intro-title-mobile");
+      if (titleEl) {
+        titleEl.textContent = sessionFirstName ? `Dr ${sessionFirstName}` : "Welcome back";
       }
       const avatarEl = document.getElementById("headerAvatarMobile");
-      if (avatarEl && sessionLastName) {
-        avatarEl.textContent = sessionLastName.charAt(0).toUpperCase();
+      if (avatarEl && sessionFirstName) {
+        avatarEl.textContent = sessionFirstName.charAt(0).toUpperCase();
+      }
+      /* Pathway subtitle */
+      var subtitleEl = document.getElementById("headerSubtitleMobile");
+      if (subtitleEl) {
+        var pathway = "Expedited Specialist Pathway";
+        try {
+          var stored = localStorage.getItem("gp_registration_pathway");
+          if (stored) {
+            var parsed = JSON.parse(stored);
+            if (typeof parsed === "string" && parsed.trim()) pathway = parsed.trim();
+          }
+        } catch (e) { /* use default */ }
+        subtitleEl.textContent = "To Australia Via " + pathway;
       }
     }
 
@@ -1713,8 +1724,9 @@
       }
     });
 
-    loadSessionLastName().then((lastName) => {
-      sessionLastName = lastName;
+    loadSessionProfile().then((p) => {
+      sessionFirstName = p.firstName;
+      sessionLastName = p.lastName;
       applyIntroTitle();
     });
     renderDashboard();
