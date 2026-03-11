@@ -1096,9 +1096,9 @@
             help: {
               title: "Certificate of Good Standing",
               steps: [
-                "Log in to your GMC Online account",
-                "In the left hand menu choose \"My registration\"",
-                "Then open \"My CCPS requests\"",
+                'Log in to your <a href="https://webcache.gmc-uk.org/gmclrmp_enu/start.swe?SWECmd=Start&SWEHo=webcache.gmc-uk.org" target="_blank" rel="noopener">GMC Online account</a>',
+                'In the left hand menu choose "My registration"',
+                'Then open "My CCPS requests"',
                 "Request the certificate to be sent directly to Ahpra"
               ],
               reminder: "Reminder: this must be sent directly by the issuing authority to Ahpra."
@@ -1111,7 +1111,7 @@
             help: {
               title: "Confirmation of Training",
               steps: [
-                "Email portfolio@gmc-uk.org",
+                '<a href="mailto:portfolio@gmc-uk.org?subject=Request%20for%20Confirmation%20of%20Training&body=Dear%20GMC%20Portfolio%20Team%2C%0A%0AI%20am%20writing%20to%20request%20confirmation%20of%20my%20specialist%20%2F%20GP%20training%20posts.%20I%20require%20this%20documentation%20for%20my%20application%20to%20the%20Australian%20Health%20Practitioner%20Regulation%20Agency%20(Ahpra).%0A%0APlease%20advise%20on%20the%20next%20steps%20and%20any%20forms%20I%20need%20to%20complete.%0A%0AKind%20regards">Email portfolio@gmc-uk.org</a>',
                 "State that you require confirmation of your specialist / GP training posts",
                 "GMC will review the request and send you an application form to complete",
                 "Complete the form and return it as instructed"
@@ -1126,7 +1126,7 @@
             help: {
               title: "Criminal History Check",
               steps: [
-                "Complete your international criminal history check through the approved provider"
+                'Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D" target="_blank" rel="noopener">Fit2Work</a>'
               ]
             }
           }
@@ -1597,7 +1597,7 @@
       helpPopoverSteps.innerHTML = "";
       (helpData.steps || []).forEach((step) => {
         const li = document.createElement("li");
-        li.textContent = step;
+        li.innerHTML = step;
         helpPopoverSteps.appendChild(li);
       });
       if (helpData.reminder) {
