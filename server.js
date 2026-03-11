@@ -3156,7 +3156,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+          model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
           max_tokens: 500,
           messages: [{
             role: 'user',
@@ -3302,7 +3302,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+          model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
           max_tokens: 500,
           messages: [{
             role: 'user',
@@ -3516,7 +3516,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+          model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
           max_tokens: 400,
           messages: [{
             role: 'user',
