@@ -734,6 +734,97 @@
       width: 100%;
     }
 
+    .cert-note {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.6;
+      font-weight: 500;
+    }
+    .cert-note p {
+      margin: 0 0 10px;
+    }
+    .cert-note .cert-quote {
+      font-style: italic;
+      color: #6366f1;
+      font-weight: 600;
+      margin: 8px 0;
+    }
+    .cert-note ul {
+      margin: 6px 0 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 3px;
+    }
+    .cert-note ul li {
+      font-size: 12.5px;
+    }
+
+    .cert-illustration {
+      margin-top: 16px;
+      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      padding: 16px 18px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .cert-doc-mock {
+      flex-shrink: 0;
+      width: 110px;
+      border-radius: 8px;
+      background: #a7f3d0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .cert-doc-mock .doc-header {
+      font-size: 10px;
+      font-weight: 800;
+      color: #064e3b;
+      letter-spacing: -0.02em;
+    }
+    .cert-doc-mock .doc-accent {
+      height: 4px;
+      width: 36px;
+      border-radius: 2px;
+      background: #34d399;
+    }
+    .cert-doc-mock .doc-line {
+      height: 3px;
+      border-radius: 1.5px;
+      background: rgba(6, 78, 59, 0.18);
+    }
+    .cert-doc-mock .doc-line.short { width: 60%; }
+    .cert-doc-mock .doc-line.med { width: 80%; }
+    .cert-annotation {
+      flex: 1;
+      min-width: 0;
+    }
+    .cert-annotation .ann-quote {
+      font-size: 11px;
+      font-style: italic;
+      color: #475569;
+      font-weight: 500;
+      line-height: 1.5;
+      margin: 0 0 10px;
+    }
+    .cert-annotation .ann-details {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 500;
+      line-height: 1.55;
+    }
+    .cert-annotation .ann-sig {
+      margin: 8px 0 6px;
+      font-family: 'Georgia', serif;
+      font-size: 18px;
+      font-style: italic;
+      color: #334155;
+    }
+
     .modal {
       position: fixed;
       inset: 0;
@@ -1055,6 +1146,7 @@
   <div class="help-popover" id="helpPopover" role="dialog" aria-modal="true">
     <h4 id="helpPopoverTitle"></h4>
     <ol id="helpPopoverSteps"></ol>
+    <div class="cert-note" id="helpCertNote" hidden></div>
     <div class="help-reminder" id="helpPopoverReminder" hidden></div>
     <button class="btn btn-soft help-close-btn" id="helpPopoverClose" type="button">Got it</button>
   </div>
@@ -1137,7 +1229,8 @@
             title: "Certified copy of Primary Medical Degree (MBBS/MBChB)",
             help: {
               title: "Primary Medical Degree",
-              steps: ["Upload a certified copy of your primary medical degree"]
+              steps: ["Upload a certified copy of your primary medical degree"],
+              certNote: true
             }
           },
           {
@@ -1145,7 +1238,8 @@
             title: "Certified copy of MRCGP",
             help: {
               title: "MRCGP",
-              steps: ["Upload a certified copy of your MRCGP certificate"]
+              steps: ["Upload a certified copy of your MRCGP certificate"],
+              certNote: true
             }
           },
           {
@@ -1153,7 +1247,8 @@
             title: "Certified copy of CCT (General Practice) issued by the General Medical Council or PMETB",
             help: {
               title: "CCT",
-              steps: ["Upload a certified copy of your CCT certificate issued by the GMC or PMETB"]
+              steps: ["Upload a certified copy of your CCT certificate issued by the GMC or PMETB"],
+              certNote: true
             }
           },
           {
@@ -1200,7 +1295,8 @@
             title: "Certified copy of Primary Medical Degree",
             help: {
               title: "Primary Medical Degree",
-              steps: ["Upload a certified copy of your primary medical degree"]
+              steps: ["Upload a certified copy of your primary medical degree"],
+              certNote: true
             }
           },
           {
@@ -1211,7 +1307,8 @@
               steps: [
                 "Upload a certified copy of your MICGP certificate",
                 "If you do not have a copy, request a re-issue from ICGP Membership Services"
-              ]
+              ],
+              certNote: true
             }
           },
           {
@@ -1222,7 +1319,8 @@
               steps: [
                 "Upload a certified copy of your CSCST",
                 "If needed, request a re-issue from ICGP Membership Services"
-              ]
+              ],
+              certNote: true
             }
           },
           {
@@ -1235,6 +1333,7 @@
                 "Request a confirmation / verification letter confirming your qualification was awarded under the ICGP curriculum after completion of the approved GP training pathway",
                 "If needed, request verification of training through ICGP"
               ],
+              certNote: true,
               reminder: "This is the key supporting letter for Irish GPs."
             }
           },
@@ -1281,7 +1380,8 @@
             title: "Certified copy of Primary Medical Degree",
             help: {
               title: "Primary Medical Degree",
-              steps: ["Upload a certified copy of your primary medical degree"]
+              steps: ["Upload a certified copy of your primary medical degree"],
+              certNote: true
             }
           },
           {
@@ -1292,7 +1392,8 @@
               steps: [
                 "Upload a certified copy of your FRNZCGP certificate",
                 "If needed, contact RNZCGP for replacement or confirmation"
-              ]
+              ],
+              certNote: true
             }
           },
           {
@@ -1303,7 +1404,8 @@
               steps: [
                 "Contact RNZCGP",
                 "Request a confirmation letter stating that your fellowship was awarded under the RNZCGP curriculum following satisfactory completion of GPEP"
-              ]
+              ],
+              certNote: true
             }
           },
           {
@@ -1590,7 +1692,38 @@
     const helpPopoverTitle = document.getElementById("helpPopoverTitle");
     const helpPopoverSteps = document.getElementById("helpPopoverSteps");
     const helpPopoverReminder = document.getElementById("helpPopoverReminder");
+    const helpCertNote = document.getElementById("helpCertNote");
     const helpPopoverClose = document.getElementById("helpPopoverClose");
+
+    var CERT_NOTE_HTML = '<p>Before uploading, each required document must be certified as a true copy of the original by a solicitor or public notary.</p>' +
+      '<p>On the copy of the document, the certifier must write or stamp:</p>' +
+      '<p class="cert-quote">"I have sighted the original document and certify this to be a true copy of the original."</p>' +
+      '<p>They must also include:</p>' +
+      '<ul>' +
+        '<li>Their signature</li>' +
+        '<li>Their full name</li>' +
+        '<li>Their occupation or profession</li>' +
+        '<li>Their profession or registration number (if applicable)</li>' +
+        '<li>Their phone number</li>' +
+        '<li>The date</li>' +
+        '<li>Their stamp or seal (if relevant)</li>' +
+      '</ul>' +
+      '<div class="cert-illustration">' +
+        '<div class="cert-doc-mock">' +
+          '<div class="doc-header">Certificate</div>' +
+          '<div class="doc-accent"></div>' +
+          '<div class="doc-line"></div>' +
+          '<div class="doc-line short"></div>' +
+          '<div class="doc-line med"></div>' +
+          '<div class="doc-line"></div>' +
+          '<div class="doc-line short"></div>' +
+        '</div>' +
+        '<div class="cert-annotation">' +
+          '<div class="ann-quote"><em>I have sighted the original document and certify this to be a true copy of the original.</em></div>' +
+          '<div class="ann-sig">J. Smith</div>' +
+          '<div class="ann-details">Name, date, contact phone number, occupation or profession and profession number (if applicable).</div>' +
+        '</div>' +
+      '</div>';
 
     function openHelpPopover(helpData) {
       helpPopoverTitle.textContent = helpData.title || "How to get this document";
@@ -1600,6 +1733,12 @@
         li.innerHTML = step;
         helpPopoverSteps.appendChild(li);
       });
+      if (helpData.certNote) {
+        helpCertNote.innerHTML = CERT_NOTE_HTML;
+        helpCertNote.hidden = false;
+      } else {
+        helpCertNote.hidden = true;
+      }
       if (helpData.reminder) {
         helpPopoverReminder.textContent = helpData.reminder;
         helpPopoverReminder.hidden = false;
