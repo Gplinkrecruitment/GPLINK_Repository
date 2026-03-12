@@ -656,15 +656,15 @@
       color: #166534;
     }
 
-    .doc-action-row {
-      display: flex;
-      gap: 8px;
+    .cert-scan-btn svg {
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
-    .doc-action-row .upload-btn {
-      flex: 1;
-    }
-    .cert-camera-btn {
-      display: inline-flex !important;
+    .mobile-only { display: inline-flex; }
+    .desktop-only { display: none; }
+    @media (min-width: 640px) {
+      .mobile-only { display: none; }
+      .desktop-only { display: inline-flex; }
     }
 
     .cert-badge {
@@ -1873,10 +1873,9 @@
         } else if (itemState.uploaded) {
           uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
         } else if (needsCert) {
-          uploadHtml = '<div class="doc-action-row">' +
-            '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>' +
-            '<button class="upload-btn cert-camera-btn" type="button" data-cert-camera="' + doc.key + '"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>Take Photo</button>' +
-            '</div>';
+          uploadHtml =
+            '<button class="upload-btn cert-scan-btn mobile-only" type="button" data-cert-scan="' + doc.key + '"><svg viewBox="0 0 24 24"><path d="M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5"></path><path d="M16 8l-4 4-4-4"></path></svg>Scan Document</button>' +
+            '<label class="upload-btn desktop-only"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
         } else {
           uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
         }
@@ -2014,21 +2013,44 @@
           return;
         }
 
-        /* Take Photo (camera) for certified docs */
-        var camBtn = target.closest("[data-cert-camera]");
-        if (camBtn) {
-          var camKey = camBtn.getAttribute("data-cert-camera");
-          var camDoc = cfg.prepared.find(function(d) { return d.key === camKey; });
-          if (camDoc && window.QualCamera) {
-            window.QualCamera.open(camDoc.title, function(blob, err) {
-              if (err) { alert(err); return; }
-              if (blob) {
-                var capturedFile = new File([blob], "certified-photo.jpg", { type: "image/jpeg" });
-                runCertificationCheck(capturedFile, camKey, camDoc.title, state, country);
+        /* Scan Document (mobile) for certified docs */
+        var scanBtn = target.closest("[data-cert-scan]");
+        if (scanBtn) {
+          var scanKey = scanBtn.getAttribute("data-cert-scan");
+          var scanDoc = cfg.prepared.find(function(d) { return d.key === scanKey; });
+          if (scanDoc && window.gpOpenCertScan) {
+            window.gpOpenCertScan(scanKey, scanDoc.title, function(result) {
+              if (result.certified) {
+                var v = result.verification;
+                state.docs[scanKey] = {
+                  uploaded: true,
+                  fileName: result.fileName,
+                  status: "certified",
+                  certificationStatus: "certified",
+                  certifierName: v.certifierName || null,
+                  certifierOccupation: v.certifierOccupation || null,
+                  certifierDate: v.certifierDate || null,
+                  signaturePresent: !!v.signaturePresent,
+                  stampPresent: !!v.stampPresent,
+                  certificationIssues: [],
+                  certificationCheckedAt: new Date().toISOString()
+                };
+              } else if (result.pdfFallback) {
+                state.docs[scanKey] = { uploaded: true, fileName: result.fileName, status: "under_review", certificationStatus: "unknown" };
+              } else {
+                var issues = result.verification && result.verification.issues ? result.verification.issues : [];
+                state.docs[scanKey] = {
+                  uploaded: true,
+                  fileName: result.fileName,
+                  status: "cert_attention",
+                  certificationStatus: "needs_attention",
+                  certificationIssues: issues,
+                  certificationCheckedAt: new Date().toISOString()
+                };
               }
+              saveDocsState(state);
+              renderAll(country, state);
             });
-          } else if (!window.QualCamera) {
-            alert("Camera is not available on this device. Please use Upload instead.");
           }
           return;
         }

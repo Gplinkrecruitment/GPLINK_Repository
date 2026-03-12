@@ -19,6 +19,7 @@
   /* ── State ── */
   var selectedFile = null;
   var isOpen = false;
+  var certContext = null; // { key, title, callback } when in certification scan mode
 
   /* ── Helpers ── */
   function formatSize(b) {
@@ -175,6 +176,8 @@
     if (card) card.classList.remove("show");
     var btn = document.getElementById("gpScanSubmit");
     if (btn) btn.disabled = true;
+    var hdr = getModal().querySelector(".scan-hdr h3");
+    if (hdr) hdr.textContent = certContext ? certContext.title : "Scan Document";
     showStep("pick");
   }
 
@@ -195,8 +198,17 @@
     if (modal) modal.classList.remove("open");
   }
 
-  window.gpOpenScanModal = openModal;
+  window.gpOpenScanModal = function() {
+    certContext = null;
+    openModal();
+  };
   window.gpFileToBase64 = fileToBase64;
+
+  /** Open scan modal in certification mode for a specific document */
+  window.gpOpenCertScan = function(docKey, docTitle, onComplete) {
+    certContext = { key: docKey, title: docTitle, callback: onComplete };
+    openModal();
+  };
 
   /* ── File selection ── */
   function pickFile(file) {
@@ -228,13 +240,87 @@
 
     showStep("scanning");
     var phaseEl = document.getElementById("gpScanPhase");
-    if (phaseEl) phaseEl.textContent = "Analyzing...";
+    if (phaseEl) phaseEl.textContent = certContext ? "Verifying certification..." : "Analyzing...";
 
     // Check if it's an image we can send to AI vision
     var isImage = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type);
 
+    /* ── Certification scan mode ── */
+    if (certContext && isImage) {
+      var ctx = certContext;
+      fileToBase64(file).then(function (base64) {
+        return fetch("/api/ai/verify-certification", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageBase64: base64,
+            mimeType: file.type || "image/jpeg",
+            documentType: ctx.title || "qualification document"
+          })
+        });
+      }).then(function (res) {
+        return res.json();
+      }).then(function (data) {
+        if (data.ok && data.verification) {
+          var v = data.verification;
+          var isCertified = !!v.certified;
+          var resultEl = document.getElementById("gpScanResult");
+          if (resultEl) {
+            if (isCertified) {
+              resultEl.innerHTML =
+                '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
+                '<h4>Scan Successful</h4>' +
+                '<p>Certification verified for <strong>' + ctx.title + '</strong></p>' +
+                '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
+            } else {
+              var issuesList = (v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."];
+              resultEl.innerHTML =
+                '<div class="err"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
+                '<h4>Scan Failed</h4>' +
+                '<p style="color:#dc2626;font-size:13px;line-height:1.5;">' + issuesList.join("<br>") + '</p>' +
+                '<p style="font-size:12px;color:#64748b;margin-top:8px;">Please adjust accordingly and try again.</p>' +
+                '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
+                '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
+            }
+          }
+          if (ctx.callback) {
+            ctx.callback({
+              fileName: file.name,
+              certified: isCertified,
+              verification: v
+            });
+          }
+          showStep("result");
+        } else {
+          throw new Error(data.message || "Could not verify this document.");
+        }
+      }).catch(function (err) {
+        showScanError(err.message);
+      });
+      return;
+    }
+
+    /* ── Certification mode but PDF (no vision) ── */
+    if (certContext && !isImage) {
+      var ctx2 = certContext;
+      if (ctx2.callback) {
+        ctx2.callback({ fileName: file.name, certified: false, verification: null, pdfFallback: true });
+      }
+      var resultEl2 = document.getElementById("gpScanResult");
+      if (resultEl2) {
+        resultEl2.innerHTML =
+          '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
+          '<h4>Document Uploaded</h4>' +
+          '<p>PDF uploaded for <strong>' + ctx2.title + '</strong>. Certification will be verified manually.</p>' +
+          '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
+      }
+      showStep("result");
+      return;
+    }
+
     if (isImage) {
-      // Use the Claude AI verification endpoint
+      // Use the Claude AI verification endpoint (standard qualification scan)
       fileToBase64(file).then(function (base64) {
         var profileName = "";
         if (window.gpSessionProfile) {
@@ -390,7 +476,8 @@
         // Open camera via QualCamera module
         if (window.QualCamera) {
           closeModal();
-          window.QualCamera.open("Scan Document", function (blob, err) {
+          var camLabel = certContext ? certContext.title : "Scan Document";
+          window.QualCamera.open(camLabel, function (blob, err) {
             if (err) { alert(err); return; }
             if (blob) {
               // Create a File-like object from the blob
@@ -412,6 +499,7 @@
       }
       if (name === "remove") { clearFile(); return; }
       if (name === "submit") { submitScan(); return; }
+      if (name === "certdone") { closeModal(); certContext = null; return; }
       if (name === "viewdocs") { closeModal(); window.location.href = "/pages/my-documents.html"; return; }
       if (name === "another") { resetModal(); return; }
       return;
