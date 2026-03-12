@@ -914,7 +914,7 @@
     const AMC_KEY = "gp_amc_progress";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
-    const MYINTEALTH_URL = "https://login.myintealth.app/myintealthid.onmicrosoft.com/B2C_1A_id-signup_signin_claim_sf_applicant/samlp/sso/login";
+    const MYINTEALTH_URL = "https://applicant.myintealth.app/s/";
     const ONBOARDING_DOWNLOAD_KEYS = ["onboarding_specialist_qualification", "onboarding_primary_med_degree"];
 
     // Internal stages (keep waiting_verification in completed state for backward compat only)
@@ -1161,6 +1161,29 @@
       toastEl.classList.add("show");
       clearTimeout(showToast._t);
       showToast._t = setTimeout(() => toastEl.classList.remove("show"), 1400);
+    }
+
+    function openMyIntealthExternal() {
+      const popup = window.open(MYINTEALTH_URL, "_blank", "noopener,noreferrer");
+      if (popup) {
+        try { popup.opener = null; } catch (e) {}
+        return;
+      }
+
+      const link = document.createElement("a");
+      link.href = MYINTEALTH_URL;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer external";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          window.location.assign(MYINTEALTH_URL);
+        }
+      }, 500);
     }
 
     let lastFocusedElement = null;
@@ -1487,7 +1510,7 @@
           }
         }
         openBtn.addEventListener("click", () => {
-          if (meta.ctaType === "open") window.location.assign(MYINTEALTH_URL);
+          if (meta.ctaType === "open") openMyIntealthExternal();
           else if (meta.ctaType === "support") openModal(supportModalEl, openBtn);
           else if (meta.ctaType === "amc") {
             const target = "/pages/amc.html";
