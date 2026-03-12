@@ -6,8 +6,8 @@
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
-  <script src="../js/qualification-camera.js?v=20260312a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260312a" defer></script>
+  <script src="../js/qualification-camera.js?v=20260312b" defer></script>
+  <script src="../js/qualification-scan.js?v=20260312b" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -660,11 +660,11 @@
       stroke-linecap: round;
       stroke-linejoin: round;
     }
-    .mobile-only { display: inline-flex; }
-    .desktop-only { display: none; }
+    .mobile-only { display: inline-flex !important; }
+    .desktop-only { display: none !important; }
     @media (min-width: 640px) {
-      .mobile-only { display: none; }
-      .desktop-only { display: inline-flex; }
+      .mobile-only { display: none !important; }
+      .desktop-only { display: inline-flex !important; }
     }
 
     .cert-badge {
