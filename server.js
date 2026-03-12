@@ -579,13 +579,18 @@ function readJsonBody(req) {
 }
 
 const QUAL_SCAN_OPTIONS = [
-  { key: 'primary_medical_degree', label: 'Primary medical degree', patterns: [/primary medical degree/i, /\bmbbs\b/i, /\bmbchb\b/i, /\bmd\b/i, /medical degree/i] },
+  { key: 'primary_medical_degree', label: 'Primary medical degree', patterns: [/primary medical degree/i, /\bmbbs\b/i, /\bmbchb\b/i, /\bmb bch bao\b/i, /\bmd\b/i, /\bbmed\b/i, /medical degree/i] },
   { key: 'mrcgp_certified', label: 'MRCGP certificate', patterns: [/\bmrcgp\b/i, /member of the royal college of general practitioners/i] },
   { key: 'cct_certified', label: 'CCT certificate', patterns: [/\bcct\b/i, /certificate of completion of training/i, /\bpmetb\b/i] },
+  { key: 'micgp_certified', label: 'MICGP certificate', patterns: [/\bmicgp\b/i, /member.*irish college of general practitioners/i] },
+  { key: 'cscst_certified', label: 'CSCST certificate', patterns: [/\bcscst\b/i, /certificate of satisfactory completion of specialist training/i] },
+  { key: 'icgp_confirmation_letter', label: 'ICGP Confirmation Letter', patterns: [/\bicgp\b.*confirm/i, /irish college.*confirm/i] },
+  { key: 'frnzcgp_certified', label: 'FRNZCGP certificate', patterns: [/\bfrnzcgp\b/i, /fellow.*royal new zealand college/i] },
+  { key: 'rnzcgp_confirmation_letter', label: 'RNZCGP Confirmation Letter', patterns: [/\brnzcgp\b.*confirm/i, /new zealand college.*confirm/i] },
   { key: 'cv_signed_dated', label: 'Signed CV', patterns: [/\bcurriculum vitae\b/i, /\bcv\b/i, /resume/i, /signed and dated/i] },
-  { key: 'certificate_good_standing', label: 'Certificate of good standing', patterns: [/good standing/i, /certificate of standing/i] },
+  { key: 'certificate_good_standing', label: 'Certificate of good standing', patterns: [/good standing/i, /certificate of standing/i, /registration status/i] },
   { key: 'confirmation_training', label: 'Confirmation of training', patterns: [/confirmation of training/i, /training completion/i, /specialist training/i] },
-  { key: 'criminal_history', label: 'Criminal history check', patterns: [/criminal history/i, /police clearance/i, /background check/i, /dbs check/i] }
+  { key: 'criminal_history', label: 'Criminal history check', patterns: [/criminal history/i, /police clearance/i, /background check/i, /dbs check/i, /fit2work/i] }
 ];
 
 function heuristicQualificationClassification(fileName, snippet) {
@@ -622,7 +627,7 @@ function heuristicQualificationClassification(fileName, snippet) {
 async function classifyQualificationWithAI(fileName, textSnippet) {
   const prompt = [
     'Classify this doctor qualification document into exactly one key.',
-    'Valid keys: primary_medical_degree, mrcgp_certified, cct_certified, cv_signed_dated, certificate_good_standing, confirmation_training, criminal_history.',
+    'Valid keys: primary_medical_degree, mrcgp_certified, cct_certified, micgp_certified, cscst_certified, icgp_confirmation_letter, frnzcgp_certified, rnzcgp_confirmation_letter, cv_signed_dated, certificate_good_standing, confirmation_training, criminal_history.',
     'Return strict JSON with: key, confidence (0..1), reason.',
     `file_name: ${String(fileName || '').slice(0, 260)}`,
     `text_snippet: ${String(textSnippet || '').slice(0, 7000)}`
@@ -3124,10 +3129,22 @@ ${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountr
 
 VERIFICATION RULES:
 1. Is this the correct document type? Check for the correct issuing body:
+   UK documents:
    - MRCGP: "Royal College of General Practitioners" (UK)
+   - CCT (Certificate of Completion of Training): Issued by the "General Medical Council" or "PMETB" (UK)
+   - Confirmation of Training: Letter from GMC confirming specialist/GP training posts
+   Ireland documents:
    - MICGP: "Irish College of General Practitioners" (Ireland)
+   - CSCST (Certificate of Satisfactory Completion of Specialist Training): Issued by Irish medical authorities
+   - ICGP Confirmation Letter: Letter from ICGP confirming qualification under ICGP curriculum
+   New Zealand documents:
    - FRNZCGP: "Royal New Zealand College of General Practitioners" (New Zealand)
+   - RNZCGP Confirmation Letter: Letter from RNZCGP confirming fellowship under RNZCGP curriculum after GPEP
+   All countries:
    - Primary Medical Degree: Any recognized medical degree (MBBS, MBChB, MB BCh BAO, MD, BMed, etc.) from any accredited university or medical school worldwide. The country or institution does not matter.
+   - Certificate of Good Standing / Registration Status: Issued by the relevant medical regulatory body (GMC, IMC, MCNZ, etc.)
+   - Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
+   - CV (Signed and dated): The doctor's curriculum vitae, must be signed and dated
 
 ${isPrimaryMedDegree ? '2. The date does not matter for primary medical degrees.' : `2. Is the date on the document valid? Must be from ${dateRule}.`}
 
