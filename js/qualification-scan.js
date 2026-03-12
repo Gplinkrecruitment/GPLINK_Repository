@@ -144,7 +144,7 @@
                 '<small>PDF, JPG, PNG</small>' +
               '</button>' +
             '</div>' +
-            '<input id="gpScanFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style="display:none"/>' +
+            '<input id="gpScanFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif" style="display:none"/>' +
             '<div class="scan-file" id="gpScanFileCard">' +
               '<span class="scan-file-name" id="gpScanFileName"></span>' +
               '<span class="scan-file-size" id="gpScanFileSize"></span>' +

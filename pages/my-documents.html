@@ -1919,13 +1919,13 @@
         if (itemState.status === "scanning") {
           uploadHtml = '<div class="cert-scanning"><div class="cert-scan-spinner"></div> Verifying certification...</div>';
         } else if (itemState.uploaded) {
-          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
+          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif" /></label>';
         } else if (needsCert) {
           uploadHtml =
             '<button class="upload-btn cert-scan-btn mobile-only" type="button" data-cert-scan="' + doc.key + '"><svg viewBox="0 0 24 24"><path d="M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5"></path><path d="M16 8l-4 4-4-4"></path></svg>Scan Document</button>' +
-            '<label class="upload-btn desktop-only"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
+            '<label class="upload-btn desktop-only"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif" /></label>';
         } else {
-          uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" /></label>';
+          uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif" /></label>';
         }
         var card = document.createElement("div");
         card.className = "doc-card";
@@ -2065,6 +2065,15 @@
         var key = input.getAttribute("data-prepared-doc");
         var file = input.files && input.files[0];
         if (!key || !file) return;
+
+        /* Block video/audio files */
+        var blockedTypes = /^(video|audio)\//i;
+        var blockedExts = /\.(mov|mp4|mp3|avi|wmv|mkv|flv|wav|aac|ogg|m4a|m4v|webm)$/i;
+        if (blockedTypes.test(file.type) || blockedExts.test(file.name)) {
+          input.value = "";
+          showCertResultPopup(false, "File Not Accepted", "Video and audio files are not accepted. Please upload a document or image file.");
+          return;
+        }
 
         var docDef = cfg.prepared.find(function(d) { return d.key === key; });
         var needsCert = docDef && docDef.help && docDef.help.certNote;

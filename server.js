@@ -287,6 +287,22 @@ function recordUserAiCall(email) {
   }
 }
 
+/** Strip SQL injection patterns and dangerous characters from user-provided strings */
+function sanitizeUserString(str, maxLen) {
+  if (typeof str !== 'string') return '';
+  let s = str.trim();
+  if (maxLen) s = s.slice(0, maxLen);
+  // Remove null bytes
+  s = s.replace(/\0/g, '');
+  // Strip SQL keywords/patterns that should never appear in filenames or user text
+  s = s.replace(/(\b(DROP|DELETE|INSERT|UPDATE|ALTER|EXEC|EXECUTE|UNION|SELECT)\b\s+(TABLE|FROM|INTO|SET|ALL|DATABASE))/gi, '');
+  s = s.replace(/;\s*--/g, '');
+  s = s.replace(/--/g, '');
+  s = s.replace(/\/\*[\s\S]*?\*\//g, '');
+  s = s.replace(/[';]/g, '');
+  return s;
+}
+
 function matchNames(docName, profileName) {
   const normalize = (n) => String(n || '').toLowerCase().trim().replace(/[^a-z\s]/g, '');
   const docParts = normalize(docName).split(/\s+/).filter(Boolean);
@@ -1044,18 +1060,18 @@ function serveStatic(req, res, pathname) {
 function sanitizeProfileInput(body) {
   const profile = body && typeof body === 'object' ? body : {};
   const clean = {
-    firstName: typeof profile.firstName === 'string' ? profile.firstName.trim().slice(0, 80) : '',
-    lastName: typeof profile.lastName === 'string' ? profile.lastName.trim().slice(0, 80) : '',
+    firstName: sanitizeUserString(profile.firstName, 80),
+    lastName: sanitizeUserString(profile.lastName, 80),
     email: typeof profile.email === 'string' ? profile.email.trim().toLowerCase().slice(0, 120) : '',
-    phone: typeof profile.phone === 'string' ? profile.phone.trim().slice(0, 40) : '',
-    registrationNumber: typeof profile.registrationNumber === 'string' ? profile.registrationNumber.trim().slice(0, 40) : '',
-    gmcNumber: typeof profile.gmcNumber === 'string' ? profile.gmcNumber.trim().slice(0, 30) : '',
-    specialistCountry: typeof profile.specialistCountry === 'string' ? profile.specialistCountry.trim().slice(0, 30) : '',
-    profilePhotoName: typeof profile.profilePhotoName === 'string' ? profile.profilePhotoName.trim().slice(0, 180) : '',
+    phone: sanitizeUserString(profile.phone, 40),
+    registrationNumber: sanitizeUserString(profile.registrationNumber, 40),
+    gmcNumber: sanitizeUserString(profile.gmcNumber, 30),
+    specialistCountry: sanitizeUserString(profile.specialistCountry, 30),
+    profilePhotoName: sanitizeUserString(profile.profilePhotoName, 180),
     profilePhotoDataUrl: typeof profile.profilePhotoDataUrl === 'string' ? profile.profilePhotoDataUrl.slice(0, 4 * 1024 * 1024) : '',
-    idCopyName: typeof profile.idCopyName === 'string' ? profile.idCopyName.trim().slice(0, 180) : '',
+    idCopyName: sanitizeUserString(profile.idCopyName, 180),
     idCopyDataUrl: typeof profile.idCopyDataUrl === 'string' ? profile.idCopyDataUrl.slice(0, 4 * 1024 * 1024) : '',
-    cvFileName: typeof profile.cvFileName === 'string' ? profile.cvFileName.trim().slice(0, 180) : '',
+    cvFileName: sanitizeUserString(profile.cvFileName, 180),
     updatedAt: new Date().toISOString()
   };
 
@@ -3101,7 +3117,9 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const { imageBase64, mimeType, documentType, expectedCountry, profileName } = body || {};
+    const { imageBase64, mimeType, expectedCountry } = body || {};
+    const documentType = sanitizeUserString(body.documentType, 200);
+    const profileName = sanitizeUserString(body.profileName, 200);
     if (!imageBase64 || !documentType || !expectedCountry) {
       sendJson(res, 400, { ok: false, message: 'Missing required fields: imageBase64, documentType, expectedCountry.' });
       return;
@@ -3273,7 +3291,8 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const { imageBase64, mimeType, documentType } = body || {};
+    const { imageBase64, mimeType } = body || {};
+    const documentType = sanitizeUserString(body.documentType, 200);
     if (!imageBase64) {
       sendJson(res, 400, { ok: false, message: 'Missing required field: imageBase64.' });
       return;
@@ -3751,8 +3770,8 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const fileName = String(body.fileName || '').trim().slice(0, 260);
-    const textSnippet = String(body.textSnippet || '').slice(0, 8000);
+    const fileName = sanitizeUserString(body.fileName, 260);
+    const textSnippet = sanitizeUserString(body.textSnippet, 8000);
     if (!fileName) {
       sendJson(res, 400, { ok: false, message: 'File name is required.' });
       return;
