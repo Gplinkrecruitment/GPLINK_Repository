@@ -834,9 +834,30 @@
   <!-- SUPPORT MODAL -->
   <div class="modal" id="supportModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
-      <h4 id="supportTitle">Contact support</h4>
-      <p>Share what screen you are on and the issue you hit. GP Link will follow up with next actions.</p>
-      <textarea id="supportMessage" placeholder="Describe your issue..."></textarea>
+      <h4 id="supportTitle">New support case</h4>
+      <p>Create a support case from your current step. GP Link will follow up with next actions.</p>
+      <div style="display:grid; gap:10px;">
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          What is this about?
+          <select id="supportCategory" class="input">
+            <option value="AMC">AMC</option>
+            <option value="EPIC">EPIC</option>
+            <option value="Documents">Documents</option>
+            <option value="AHPRA">AHPRA</option>
+            <option value="Provider">Provider</option>
+            <option value="Contract">Contract</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          Brief summary
+          <input id="supportSummary" class="input" type="text" maxlength="120" placeholder="Short summary of your issue" />
+        </label>
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          Describe the issue
+          <textarea id="supportMessage" placeholder="What happened and what do you need help with?"></textarea>
+        </label>
+      </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn-modern btn-primary" id="supportSubmitBtn" type="button">Submit request</button>
         <button class="btn-modern btn-outline" data-close="supportModal" type="button">Close</button>
@@ -1068,6 +1089,8 @@
     // ─── DOM REFS ────────────────────────────────────────────────
     const toastEl = document.getElementById("toast");
     const supportModalEl = document.getElementById("supportModal");
+    const supportCategoryEl = document.getElementById("supportCategory");
+    const supportSummaryEl = document.getElementById("supportSummary");
     const supportMessageEl = document.getElementById("supportMessage");
     const supportSubmitBtnEl = document.getElementById("supportSubmitBtn");
     const tutorialVideoEl = document.getElementById("tutorialVideo");
@@ -1131,13 +1154,37 @@
       lastFocusedElement = null;
     }
 
-    function createSupportTicket(message) {
+    function getCurrentSupportContext() {
+      const key = currentTabKey || activeTabStage(loadProgress());
+      const effectiveKey = key === "waiting_verification" && loadProgress().completed.qualifications_verified ? "qualifications_verified" : key;
+      const meta = stageMeta[effectiveKey] || stageMeta[key] || stageMeta.create_portfolio;
+      return {
+        category: "AMC",
+        stepKey: key || "create_portfolio",
+        summary: meta && meta.full ? meta.full : "AMC support request"
+      };
+    }
+
+    function openSupportCaseModal(triggerEl) {
+      const context = getCurrentSupportContext();
+      if (supportCategoryEl) supportCategoryEl.value = context.category;
+      if (supportSummaryEl) supportSummaryEl.value = context.summary;
+      if (supportMessageEl) {
+        supportMessageEl.value = "";
+        supportMessageEl.placeholder = `What happened during "${context.summary}" and what do you need help with?`;
+      }
+      openModal(supportModalEl, triggerEl);
+    }
+
+    function createSupportTicket(category, title, message) {
       const key = "gpLinkSupportCases";
       let tickets = [];
       try { const raw = localStorage.getItem(key); tickets = raw ? JSON.parse(raw) : []; if (!Array.isArray(tickets)) tickets = []; } catch (e) { tickets = []; }
       const text = String(message || "").trim() || "Help requested from AMC registration page.";
+      const summary = String(title || "").trim() || "AMC support request";
+      const ticketCategory = String(category || "AMC").trim() || "AMC";
       tickets.unshift({
-        id: `case_${Date.now()}`, category: "AMC", title: "AMC support request",
+        id: `case_${Date.now()}`, category: ticketCategory, title: summary,
         detail: text, status: "open", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         thread: [{ from: "me", text, ts: new Date().toISOString() }], unread: true
       });
@@ -1408,7 +1455,7 @@
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.location.assign(AMC_URL);
           else if (meta.ctaType === "open_signup") window.location.assign(AMC_SIGNUP_URL);
-          else if (meta.ctaType === "support") openModal(supportModalEl, openBtn);
+          else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
           else if (meta.ctaType === "ahpra") window.location.href = "/pages/ahpra.html";
         });
       }
@@ -1607,7 +1654,13 @@
 
     if (supportSubmitBtnEl) {
       supportSubmitBtnEl.addEventListener("click", () => {
-        createSupportTicket(supportMessageEl ? supportMessageEl.value : "");
+        createSupportTicket(
+          supportCategoryEl ? supportCategoryEl.value : "AMC",
+          supportSummaryEl ? supportSummaryEl.value : "AMC support request",
+          supportMessageEl ? supportMessageEl.value : ""
+        );
+        if (supportCategoryEl) supportCategoryEl.value = "AMC";
+        if (supportSummaryEl) supportSummaryEl.value = "";
         if (supportMessageEl) supportMessageEl.value = "";
         closeModal(supportModalEl);
         showToast("Support request submitted");
