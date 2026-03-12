@@ -706,6 +706,54 @@
     }
     @keyframes certSpin { to { transform: rotate(360deg); } }
 
+    .cert-result-popup {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      transition: opacity .25s ease;
+    }
+    .cert-result-popup.show { opacity: 1; }
+    .cert-result-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 28px 24px;
+      width: min(380px, calc(100vw - 40px));
+      text-align: center;
+      box-shadow: 0 20px 60px -20px rgba(15, 23, 42, 0.3);
+      transform: scale(0.95);
+      transition: transform .25s cubic-bezier(.22,.9,.18,1.02);
+    }
+    .cert-result-popup.show .cert-result-card { transform: scale(1); }
+    .cert-result-icon svg {
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .cert-result-popup.success .cert-result-icon { color: #16a34a; }
+    .cert-result-popup.fail .cert-result-icon { color: #dc2626; }
+    .cert-result-card h4 {
+      margin: 12px 0 6px;
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .cert-result-card p {
+      margin: 0 0 16px;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.55;
+    }
+    .cert-result-ok {
+      width: 100%;
+    }
+
     .help-popover-backdrop {
       position: fixed;
       inset: 0;
@@ -1911,6 +1959,37 @@
       const cfg = getCountryConfig(country);
       var panelsWrap = document.querySelector(".doc-panels-wrap");
 
+      function showCertResultPopup(success, title, message) {
+        var existing = document.getElementById("certResultPopup");
+        if (existing) existing.remove();
+        var popup = document.createElement("div");
+        popup.id = "certResultPopup";
+        popup.className = "cert-result-popup " + (success ? "success" : "fail");
+        popup.innerHTML =
+          '<div class="cert-result-card">' +
+            '<div class="cert-result-icon">' +
+              (success
+                ? '<svg viewBox="0 0 24 24" width="48" height="48"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                : '<svg viewBox="0 0 24 24" width="48" height="48"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>') +
+            '</div>' +
+            '<h4>' + title + '</h4>' +
+            '<p>' + message + '</p>' +
+            '<button class="btn btn-soft cert-result-ok" type="button">OK</button>' +
+          '</div>';
+        document.body.appendChild(popup);
+        requestAnimationFrame(function() { popup.classList.add("show"); });
+        popup.querySelector(".cert-result-ok").addEventListener("click", function() {
+          popup.classList.remove("show");
+          setTimeout(function() { popup.remove(); }, 250);
+        });
+        popup.addEventListener("click", function(e) {
+          if (e.target === popup) {
+            popup.classList.remove("show");
+            setTimeout(function() { popup.remove(); }, 250);
+          }
+        });
+      }
+
       function runCertificationCheck(file, key, docTitle, state, country) {
         var isImage = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type);
         if (!isImage) {
@@ -1940,28 +2019,41 @@
           if (data.ok && data.verification) {
             var v = data.verification;
             var isCertified = !!v.certified;
-            state.docs[key] = {
-              uploaded: true,
-              fileName: file.name,
-              status: isCertified ? "certified" : "cert_attention",
-              certificationStatus: isCertified ? "certified" : "needs_attention",
-              certifierName: v.certifierName || null,
-              certifierOccupation: v.certifierOccupation || null,
-              certifierDate: v.certifierDate || null,
-              signaturePresent: !!v.signaturePresent,
-              stampPresent: !!v.stampPresent,
-              certificationIssues: v.issues || [],
-              certificationCheckedAt: new Date().toISOString()
-            };
+            if (isCertified) {
+              state.docs[key] = {
+                uploaded: true,
+                fileName: file.name,
+                status: "certified",
+                certificationStatus: "certified",
+                certifierName: v.certifierName || null,
+                certifierOccupation: v.certifierOccupation || null,
+                certifierDate: v.certifierDate || null,
+                signaturePresent: !!v.signaturePresent,
+                stampPresent: !!v.stampPresent,
+                certificationIssues: [],
+                certificationCheckedAt: new Date().toISOString()
+              };
+              saveDocsState(state);
+              renderAll(country, state);
+              showCertResultPopup(true, "Scan Successful", "Certification verified for <strong>" + docTitle + "</strong>");
+            } else {
+              var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
+              delete state.docs[key];
+              saveDocsState(state);
+              renderAll(country, state);
+              showCertResultPopup(false, "Scan Failed", issues.join("<br>") + '<br><span style="color:#64748b;font-size:12px;">Please adjust accordingly and try again.</span>');
+            }
           } else {
-            state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review", certificationStatus: "unknown" };
+            delete state.docs[key];
+            saveDocsState(state);
+            renderAll(country, state);
+            showCertResultPopup(false, "Scan Failed", data.message || "Could not verify this document. Please try again.");
           }
-          saveDocsState(state);
-          renderAll(country, state);
         }).catch(function() {
-          state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review", certificationStatus: "unknown" };
+          delete state.docs[key];
           saveDocsState(state);
           renderAll(country, state);
+          showCertResultPopup(false, "Scan Failed", "Could not connect to verification service. Please try again.");
         });
       }
 
@@ -2038,15 +2130,8 @@
               } else if (result.pdfFallback) {
                 state.docs[scanKey] = { uploaded: true, fileName: result.fileName, status: "under_review", certificationStatus: "unknown" };
               } else {
-                var issues = result.verification && result.verification.issues ? result.verification.issues : [];
-                state.docs[scanKey] = {
-                  uploaded: true,
-                  fileName: result.fileName,
-                  status: "cert_attention",
-                  certificationStatus: "needs_attention",
-                  certificationIssues: issues,
-                  certificationCheckedAt: new Date().toISOString()
-                };
+                /* Failed — do not attach */
+                delete state.docs[scanKey];
               }
               saveDocsState(state);
               renderAll(country, state);
