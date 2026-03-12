@@ -223,11 +223,17 @@
     .step-info-value {
       font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
     }
+    .step-info-action-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
     .step-info-download {
-      display: inline-flex;
+      display: flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
-      margin-top: 12px;
+      width: fit-content;
       padding: 10px 14px;
       border-radius: 12px;
       border: 1px solid #cbd5e1;
@@ -257,6 +263,29 @@
       stroke-width: 2;
       stroke-linecap: round;
       stroke-linejoin: round;
+    }
+    .step-info-download.cta-pulse-dark {
+      position: relative;
+      overflow: visible;
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+      box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.45);
+    }
+    .step-info-download.cta-pulse-dark::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 14px;
+      border: 2px solid rgba(15, 23, 42, 0.55);
+      animation: ctaPulseRing 1.5s ease-out infinite;
+      pointer-events: none;
+    }
+    @media (min-width: 768px) {
+      .step-info-action-stack .step-info-download {
+        margin-left: auto;
+        margin-right: auto;
+      }
     }
 
     .step-actions {
@@ -1006,6 +1035,7 @@
       return {
         stage: "create_account",
         completed: { create_account: false, upload_qualifications: false, waiting_verification: false, account_establishment: false, verification_issued: false },
+        downloadedOnboardingDocs: false,
         updatedAt: new Date().toISOString()
       };
     }
@@ -1015,6 +1045,7 @@
       if (!STAGES.includes(v.stage)) return false;
       if (!v.completed || typeof v.completed !== "object") return false;
       for (const k of STAGES) { if (typeof v.completed[k] !== "boolean") return false; }
+      if (typeof v.downloadedOnboardingDocs !== "boolean") return false;
       return typeof v.updatedAt === "string";
     }
 
@@ -1033,6 +1064,7 @@
       if (base.completed.upload_qualifications && (base.completed.waiting_verification || base.completed.verification_issued)) {
         base.completed.verification_issued = true;
       }
+      if (typeof v.downloadedOnboardingDocs === "boolean") base.downloadedOnboardingDocs = v.downloadedOnboardingDocs;
       if (typeof v.updatedAt === "string") base.updatedAt = v.updatedAt;
       return base;
     }
@@ -1386,8 +1418,9 @@
 
       // Info grid
       const doNow = meta.doNow;
+      const shouldPulseDownload = key === "upload_qualifications" && !progress.downloadedOnboardingDocs;
       const actionValueHtml = key === "upload_qualifications"
-        ? `${doNow}<button class="step-info-download" id="downloadMyDocumentsBtn" type="button"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download my documents</button>`
+        ? `<div class="step-info-action-stack"><div>${doNow}</div><button class="step-info-download ${shouldPulseDownload ? "cta-pulse-dark" : ""}" id="downloadMyDocumentsBtn" type="button"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download my documents</button></div>`
         : doNow;
 
       document.getElementById("stepInfoGrid").innerHTML = `
@@ -1438,7 +1471,7 @@
 
       const downloadBtn = document.getElementById("downloadMyDocumentsBtn");
       if (downloadBtn) {
-        downloadBtn.addEventListener("click", () => handleDownloadMyDocuments(downloadBtn));
+        downloadBtn.addEventListener("click", () => handleDownloadMyDocuments(downloadBtn, progress));
       }
 
       // Wire buttons
@@ -1538,7 +1571,7 @@
       return `/api/onboarding-documents/download?country=${encodeURIComponent(country)}&key=${encodeURIComponent(key)}`;
     }
 
-    async function handleDownloadMyDocuments(buttonEl) {
+    async function handleDownloadMyDocuments(buttonEl, progress) {
       const country = getOnboardingCountry();
       if (!country) {
         showToast("Finish onboarding first to access your saved documents.");
@@ -1577,6 +1610,12 @@
             link.remove();
           }, index * 220);
         });
+
+        if (progress && !progress.downloadedOnboardingDocs) {
+          progress.downloadedOnboardingDocs = true;
+          saveProgress(progress, true);
+          renderStepContent(progress);
+        }
 
         showToast(keysToDownload.length === 2 ? "Your onboarding documents are downloading." : "Your saved onboarding document is downloading.");
       } catch (err) {
