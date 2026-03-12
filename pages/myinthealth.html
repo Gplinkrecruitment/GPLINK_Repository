@@ -888,16 +888,15 @@
     const MYINTEALTH_URL = "https://login.myintealth.app/myintealthid.onmicrosoft.com/B2C_1A_id-signup_signin_claim_sf_applicant/samlp/sso/login";
     const ONBOARDING_DOWNLOAD_KEYS = ["onboarding_specialist_qualification", "onboarding_primary_med_degree"];
 
-    // Internal stages (keep verification_issued for backward compat)
-    const STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification", "verification_issued"];
+    // Internal stages (keep waiting_verification in completed state for backward compat only)
+    const STAGES = ["create_account", "account_establishment", "upload_qualifications", "verification_issued"];
 
-    // Visible tabs (4 steps only)
-    const TAB_STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification"];
+    // Visible tabs (3 steps only)
+    const TAB_STAGES = ["create_account", "account_establishment", "upload_qualifications"];
     const TAB_LABELS = {
       create_account: "Account",
       account_establishment: "Establishment",
-      upload_qualifications: "Qualifications",
-      waiting_verification: "Verification"
+      upload_qualifications: "Qualifications"
     };
 
     const stageMeta = {
@@ -930,25 +929,14 @@
         doNow: "Upload your specialist qualification and ensure AMC is nominated.",
         time: "10-20 minutes",
         support: "We check your submission is correct and chase delays.",
-        next: "EPIC will then verify your uploaded credentials.",
+        next: "Once complete, you will move straight to the AMC Portfolio.",
         cta: "Open MyIntealth",
         ctaType: "open"
       },
-      waiting_verification: {
-        label: "Verification",
-        full: "Awaiting EPIC Verification",
-        short: "EPIC is reviewing and verifying your uploaded credentials.",
-        doNow: "Nothing required right now. EPIC is verifying your documents.",
-        time: "1-3 weeks typically",
-        support: "We monitor weekly and will escalate if it's delayed.",
-        next: "Once verified, you can proceed to the AMC Portfolio.",
-        cta: "Contact Support",
-        ctaType: "support"
-      },
       verification_issued: {
         label: "Complete",
-        full: "Verification Issued",
-        short: "Your EPIC verification is complete. You can move to the AMC Portfolio.",
+        full: "MyIntealth Complete",
+        short: "Your MyIntealth qualification step is complete. You can move to the AMC Portfolio.",
         doNow: "Proceed to your AMC Portfolio and continue your registration.",
         time: "5 minutes",
         support: "We continue tracking your AMC stage and can help if issues appear.",
@@ -962,7 +950,6 @@
       create_account: "account",
       account_establishment: "establish",
       upload_qualifications: "upload",
-      waiting_verification: "verify",
       verification_issued: "complete"
     };
     const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([k, v]) => [v, k]));
@@ -1034,10 +1021,17 @@
     function migrateProgress(v) {
       if (!v || typeof v !== "object" || !v.completed || typeof v.completed !== "object") return null;
       const base = defaultProgress();
-      if (typeof v.stage === "string" && STAGES.includes(v.stage)) base.stage = v.stage;
+      if (typeof v.stage === "string") {
+        if (v.stage === "waiting_verification") base.stage = "upload_qualifications";
+        else if (STAGES.includes(v.stage)) base.stage = v.stage;
+      }
       for (const k of STAGES) { if (typeof v.completed[k] === "boolean") base.completed[k] = v.completed[k]; }
+      if (typeof v.completed.waiting_verification === "boolean") base.completed.waiting_verification = v.completed.waiting_verification;
       if (base.completed.upload_qualifications || base.completed.waiting_verification || base.completed.verification_issued) {
         base.completed.account_establishment = true;
+      }
+      if (base.completed.upload_qualifications && (base.completed.waiting_verification || base.completed.verification_issued)) {
+        base.completed.verification_issued = true;
       }
       if (typeof v.updatedAt === "string") base.updatedAt = v.updatedAt;
       return base;
@@ -1049,7 +1043,9 @@
     }
 
     function expectedStageFromCompleted(completed) {
-      for (const k of STAGES) { if (!completed[k]) return k; }
+      if (!completed.create_account) return "create_account";
+      if (!completed.account_establishment) return "account_establishment";
+      if (!completed.upload_qualifications) return "upload_qualifications";
       return "verification_issued";
     }
 
@@ -1084,15 +1080,16 @@
       return "current";
     }
 
-    // Get the active tab stage (maps verification_issued back to waiting_verification for display)
+    // Get the active tab stage (maps the hidden completion state back to Qualifications for display)
     function activeTabStage(progress) {
-      if (progress.stage === "verification_issued") return "waiting_verification";
+      if (progress.stage === "verification_issued") return "upload_qualifications";
       return progress.stage;
     }
 
     function stageFromRoute(pathname) {
       const parts = String(pathname || "").split("/").filter(Boolean);
       if (parts.length < 3 || parts[0] !== "registration" || (parts[1] !== "myintealth" && parts[1] !== "myinthealth")) return null;
+      if (parts[2] === "verify") return "upload_qualifications";
       const routeStage = routeStageMap[parts[2]];
       return STAGES.includes(routeStage) ? routeStage : null;
     }
@@ -1100,7 +1097,7 @@
     function pickTabFromRoute(progress) {
       const routeStage = stageFromRoute(window.location.pathname);
       if (!routeStage) return null;
-      const viewStage = routeStage === "verification_issued" ? "waiting_verification" : routeStage;
+      const viewStage = routeStage === "verification_issued" ? "upload_qualifications" : routeStage;
       if (!TAB_STAGES.includes(viewStage)) return null;
       return stageStatus(progress, viewStage) === "locked" ? null : viewStage;
     }
@@ -1198,15 +1195,14 @@
       if (progress.stage !== key) return;
       progress.completed[key] = true;
 
-      // When completing waiting_verification, also complete verification_issued and redirect
-      if (key === "waiting_verification") {
+      if (key === "upload_qualifications") {
+        progress.completed.waiting_verification = true;
         progress.completed.verification_issued = true;
         progress.stage = "verification_issued";
         saveProgress(progress, true);
         syncRouteForStage(progress.stage);
         currentTabKey = activeTabStage(progress);
-        renderPage(progress);
-        showToast("Verification marked complete");
+        window.location.assign("/pages/amc.html");
         return;
       }
 
@@ -1238,7 +1234,10 @@
       const previous = TAB_STAGES[tabIdx - 1];
       progress.completed[key] = false;
       progress.completed[previous] = false;
-      if (key === "waiting_verification") progress.completed.verification_issued = false;
+      if (key === "upload_qualifications") {
+        progress.completed.waiting_verification = false;
+        progress.completed.verification_issued = false;
+      }
       progress.stage = previous;
       saveProgress(progress, true);
       syncRouteForStage(previous);
@@ -1344,26 +1343,23 @@
     // ─── RENDER: STEP CONTENT ───────────────────────────────────
     function renderStepContent(progress) {
       const key = currentTabKey;
-      const effectiveKey = (key === "waiting_verification" && progress.completed.verification_issued) ? "verification_issued" : key;
+      const effectiveKey = (key === "upload_qualifications" && progress.completed.verification_issued) ? "verification_issued" : key;
       const meta = stageMeta[effectiveKey];
       if (!meta) return;
       const status = stageStatus(progress, key);
       const isDone = status === "done";
       const isCurrent = status === "current";
-      const isWaiting = key === "waiting_verification" && isCurrent;
       const isAction = key === "upload_qualifications" && isCurrent;
       const allDone = STAGES.every(k => progress.completed[k]);
 
       // Card accent
       const card = document.getElementById("stepContent");
       card.className = "step-content";
-      if (isWaiting) card.classList.add("waiting-state");
-      else if (isDone || allDone) card.classList.add("done-state");
+      if (isDone || allDone) card.classList.add("done-state");
 
       // Badge
       const badge = document.getElementById("stepBadge");
       if (isDone) { badge.className = "step-content-badge done"; badge.textContent = "Complete"; }
-      else if (isWaiting) { badge.className = "step-content-badge waiting"; badge.textContent = "Waiting on EPIC"; }
       else { badge.className = "step-content-badge"; badge.textContent = "What to do now"; }
 
       // Title & sub
@@ -1384,10 +1380,6 @@
         warning.classList.remove("hidden");
         document.getElementById("stepWarningTitle").textContent = "Documents need uploading";
         document.getElementById("stepWarningText").textContent = "You need to upload your specialist qualification to EPIC via MyIntealth. Make sure to nominate AMC as the recipient.";
-      } else if (isWaiting) {
-        warning.classList.remove("hidden");
-        document.getElementById("stepWarningTitle").textContent = "No action needed";
-        document.getElementById("stepWarningText").textContent = "EPIC is currently reviewing your credentials. This typically takes 1-3 weeks.";
       } else {
         warning.classList.add("hidden");
       }
@@ -1426,11 +1418,10 @@
       // Previous button
       const tabIdx = TAB_STAGES.indexOf(key);
       const hasPrev = tabIdx > 0;
-      const hasNext = tabIdx < TAB_STAGES.length - 1 && stageStatus(progress, TAB_STAGES[tabIdx + 1]) !== "locked";
 
       if (effectiveKey === "verification_issued") {
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-      } else if (isCurrent && !isWaiting) {
+      } else if (isCurrent) {
         html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 

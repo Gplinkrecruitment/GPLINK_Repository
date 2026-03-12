@@ -87,6 +87,14 @@
     }).catch(() => {});
   }
 
+  function triggerButtonHaptic(duration) {
+    try {
+      if (navigator && typeof navigator.vibrate === "function") {
+        navigator.vibrate(duration || 12);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
   // ── DOM refs ───────────────────────────────
   const shell = document.getElementById("shell");
   const slides = document.querySelectorAll(".slide");
@@ -985,13 +993,17 @@
   }
 
   nextBtn.addEventListener("click", () => {
+    triggerButtonHaptic(14);
     if (!validateStep(currentStep)) return;
     if (currentStep === TOTAL_STEPS - 1) { submitOnboarding(); return; }
     goToStep(currentStep + 1);
   });
 
   skipBtn.addEventListener("click", () => goToStep(currentStep + 1));
-  backBtn.addEventListener("click", () => goToStep(currentStep - 1));
+  backBtn.addEventListener("click", () => {
+    triggerButtonHaptic(10);
+    goToStep(currentStep - 1);
+  });
 
   // ── Submit ─────────────────────────────────
   async function submitOnboarding() {
