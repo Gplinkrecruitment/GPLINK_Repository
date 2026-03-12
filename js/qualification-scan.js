@@ -72,6 +72,11 @@
     });
   }
 
+  function base64ToDataUrl(base64, mimeType) {
+    if (typeof base64 !== "string" || !base64) return "";
+    return "data:" + (mimeType || "application/octet-stream") + ";base64," + base64;
+  }
+
   /* ── Styles ── */
   function injectStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -253,7 +258,9 @@
     /* ── Certification scan mode ── */
     if (certContext && isImage) {
       var ctx = certContext;
+      var imageBase64 = "";
       fileToBase64(file).then(function (base64) {
+        imageBase64 = base64;
         return fetch("/api/ai/verify-certification", {
           method: "POST",
           credentials: "same-origin",
@@ -267,11 +274,11 @@
       }).then(function (res) {
         return res.json();
       }).then(function (data) {
-        if (data.ok && data.verification) {
-          var v = data.verification;
-          var isCertified = !!v.certified;
-          var resultEl = document.getElementById("gpScanResult");
-          if (resultEl) {
+          if (data.ok && data.verification) {
+            var v = data.verification;
+            var isCertified = !!v.certified;
+            var resultEl = document.getElementById("gpScanResult");
+            if (resultEl) {
             if (isCertified) {
               resultEl.innerHTML =
                 '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
@@ -289,14 +296,17 @@
                 '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
             }
           }
-          if (ctx.callback) {
-            ctx.callback({
-              fileName: file.name,
-              certified: isCertified,
-              verification: v
-            });
-          }
-          showStep("result");
+            if (ctx.callback) {
+              ctx.callback({
+                fileName: file.name,
+                certified: isCertified,
+                verification: v,
+                mimeType: file.type || "image/jpeg",
+                fileSize: Number(file.size || 0),
+                fileDataUrl: base64ToDataUrl(imageBase64, file.type || "image/jpeg")
+              });
+            }
+            showStep("result");
         } else {
           throw new Error(data.message || "Could not verify this document.");
         }
@@ -306,21 +316,96 @@
       return;
     }
 
-    /* ── Certification mode but PDF (no vision) ── */
+    /* ── Certification mode but non-image (PDF etc.) — use Claude AI to classify ── */
     if (certContext && !isImage) {
       var ctx2 = certContext;
-      if (ctx2.callback) {
-        ctx2.callback({ fileName: file.name, certified: false, verification: null, pdfFallback: true });
-      }
       var resultEl2 = document.getElementById("gpScanResult");
-      if (resultEl2) {
-        resultEl2.innerHTML =
-          '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
-          '<h4>Document Uploaded</h4>' +
-          '<p>PDF uploaded for <strong>' + ctx2.title + '</strong>. Certification will be verified manually.</p>' +
-          '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
-      }
+      var docBase64 = "";
+      var docDataUrl = "";
       showStep("result");
+      if (resultEl2) {
+        resultEl2.innerHTML = '<div class="cert-scanning" style="padding:32px 0;text-align:center;"><div class="cert-scan-spinner"></div> Verifying document...</div>';
+      }
+      fileToBase64(file).then(function(base64) {
+        docBase64 = base64;
+        docDataUrl = base64ToDataUrl(base64, file.type || "application/pdf");
+        return fetch("/api/ai/classify-document", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileBase64: base64, mimeType: file.type || "application/pdf", expectedKey: ctx2.key, expectedLabel: ctx2.title })
+        });
+      }).then(function(res) { return res.json(); }).then(function(data) {
+        if (data.ok && data.classification && data.classification.matches) {
+          var certifyIssue = "Claude identified this as " + ctx2.title + ", but could not verify the certification from this file. Upload a clear image showing the certification statement, signature, occupation and date.";
+          if (data.classification && data.classification.reason) {
+            certifyIssue += " " + data.classification.reason;
+          }
+          if (ctx2.callback) ctx2.callback({
+            fileName: file.name,
+            certified: false,
+            verification: { issues: [certifyIssue] },
+            mimeType: file.type || "application/pdf",
+            fileSize: Number(file.size || 0),
+            fileDataUrl: docDataUrl
+          });
+          if (resultEl2) {
+            resultEl2.innerHTML =
+              '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
+              '<h4>Scan Failed</h4>' +
+              '<p>' + certifyIssue + '</p>' +
+              '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
+              '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
+          }
+        } else {
+          var reason = "This file does not appear to be the correct document.";
+          if (data.classification && data.classification.identifiedAs) {
+            reason = "This appears to be <strong>" + data.classification.identifiedAs + "</strong>, not <strong>" + ctx2.title + "</strong>.";
+          }
+          var reasonPlain = "This file does not appear to be the correct document.";
+          if (data.classification && data.classification.identifiedAs) {
+            reasonPlain = "This appears to be " + data.classification.identifiedAs + ", not " + ctx2.title + ".";
+          }
+          if (data.classification && data.classification.reason) {
+            reasonPlain += " " + data.classification.reason;
+          }
+          if (ctx2.callback) ctx2.callback({
+            fileName: file.name,
+            certified: false,
+            verification: { issues: [reasonPlain] },
+            mimeType: file.type || "application/pdf",
+            fileSize: Number(file.size || 0),
+            fileDataUrl: docDataUrl
+          });
+          if (resultEl2) {
+            resultEl2.innerHTML =
+              '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
+              '<h4>Wrong Document</h4>' +
+              '<p>' + reason + '</p>' +
+              (data.classification && data.classification.reason ? '<p style="color:#64748b;font-size:13px;">' + data.classification.reason + '</p>' : '') +
+              '<p style="color:#64748b;font-size:13px;">Please upload the correct document and try again.</p>' +
+              '<button class="scan-submit" data-scan-action="certdone" type="button">OK</button>';
+          }
+        }
+      }).catch(function(err) {
+        var failureMessage = err && err.message ? err.message : "Could not verify this document.";
+        if (ctx2.callback) ctx2.callback({
+          fileName: file.name,
+          certified: false,
+          verification: { issues: [failureMessage] },
+          mimeType: file.type || "application/pdf",
+          fileSize: Number(file.size || 0),
+          fileDataUrl: docDataUrl
+        });
+        if (resultEl2) {
+          resultEl2.innerHTML =
+            '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
+            '<h4>Scan Failed</h4>' +
+            '<p>' + failureMessage + '</p>' +
+            '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
+            '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
+        }
+      });
       return;
     }
 

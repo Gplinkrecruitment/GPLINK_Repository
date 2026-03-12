@@ -6,8 +6,8 @@
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
-  <script src="../js/qualification-camera.js?v=20260312b" defer></script>
-  <script src="../js/qualification-scan.js?v=20260312b" defer></script>
+  <script src="../js/qualification-camera.js?v=20260312g" defer></script>
+  <script src="../js/qualification-scan.js?v=20260312g" defer></script>
   <script src="../js/account-dropdown.js" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1274,7 +1274,7 @@
     const PREPARED_DOCS_KEY = "gp_prepared_docs";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
-    const PREPARED_DOC_STATUS = ["pending", "requested", "uploaded", "under_review", "approved", "rejected", "accepted", "action_required"];
+    const PREPARED_DOC_STATUS = ["pending", "requested", "uploaded", "under_review", "approved", "rejected", "accepted", "action_required", "certified"];
     const INSTITUTION_STATUS = ["pending", "requested", "under_review", "approved", "accepted", "rejected", "action_required"];
 
     /* -- Country-aware document definitions -- */
@@ -1689,7 +1689,7 @@
       cfg.institution.forEach((item) => {
         docs[item.key] = { uploaded: false, fileName: "", status: "pending" };
       });
-      return { country, docs, updatedAt: new Date().toISOString() };
+      return { country, docs, certFailCounts: {}, updatedAt: new Date().toISOString() };
     }
 
     function loadDocsState(country) {
@@ -1701,19 +1701,23 @@
       }
       const cfg = getCountryConfig(country);
       let migrated = false;
+      if (!parsed.certFailCounts || typeof parsed.certFailCounts !== "object" || Array.isArray(parsed.certFailCounts)) {
+        parsed.certFailCounts = {};
+        migrated = true;
+      }
       const allKeys = [...cfg.prepared.map((d) => d.key), ...cfg.institution.map((i) => i.key)];
       allKeys.forEach((key) => {
-        const current = parsed.docs[key] || {};
+        const original = parsed.docs[key] || {};
+        const current = normalizeStoredDoc(original);
         const isPrepared = cfg.prepared.some((doc) => doc.key === key);
         const allowedStatuses = isPrepared ? PREPARED_DOC_STATUS : INSTITUTION_STATUS;
-        if (typeof current.uploaded !== "boolean") {
-          current.uploaded = false;
-          migrated = true;
-        }
-        if (typeof current.fileName !== "string") {
-          current.fileName = "";
-          migrated = true;
-        }
+        if (typeof original.uploaded !== "boolean") migrated = true;
+        if (typeof original.fileName !== "string") migrated = true;
+        if (typeof original.mimeType !== "string") migrated = true;
+        if (!Number.isFinite(original.fileSize)) migrated = true;
+        if (typeof original.downloadUrl !== "string") migrated = true;
+        if (typeof original.storagePath !== "string") migrated = true;
+        if (typeof original.storageBucket !== "string") migrated = true;
         if (isPrepared && current.status === "approved") {
           current.status = "accepted";
           migrated = true;
@@ -1730,7 +1734,114 @@
 
     function saveDocsState(state, force = false) {
       state.updatedAt = new Date().toISOString();
-      queueBatchedSave(DOC_KEY, JSON.stringify(state), force);
+      queueBatchedSave(DOC_KEY, JSON.stringify(serializeDocsState(state)), force);
+    }
+
+    function syncTrackedState() {
+      if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === "function") {
+        window.gpLinkStateSync.push().catch(function() {});
+      }
+    }
+
+    function persistDocsState(state, force) {
+      saveDocsState(state, !!force);
+      if (force) syncTrackedState();
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function() {
+          resolve(typeof reader.result === "string" ? reader.result : "");
+        };
+        reader.onerror = function() {
+          reject(new Error("file_read_failed"));
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function normalizeStoredDoc(doc) {
+      var next = doc && typeof doc === "object" ? { ...doc } : {};
+      if (typeof next.uploaded !== "boolean") next.uploaded = false;
+      if (typeof next.fileName !== "string") next.fileName = "";
+      if (typeof next.mimeType !== "string") next.mimeType = "";
+      if (!Number.isFinite(next.fileSize)) next.fileSize = 0;
+      if (typeof next.downloadUrl !== "string") next.downloadUrl = "";
+      if (typeof next.storagePath !== "string") next.storagePath = "";
+      if (typeof next.storageBucket !== "string") next.storageBucket = "";
+      return next;
+    }
+
+    function applyStoredFile(docState, payload) {
+      var next = normalizeStoredDoc(docState);
+      next.fileName = typeof payload.fileName === "string" ? payload.fileName : next.fileName;
+      next.mimeType = typeof payload.mimeType === "string" ? payload.mimeType : next.mimeType;
+      next.fileSize = Number.isFinite(payload.fileSize) ? payload.fileSize : next.fileSize;
+      next.downloadUrl = typeof payload.downloadUrl === "string" ? payload.downloadUrl : next.downloadUrl;
+      next.storagePath = typeof payload.storagePath === "string" ? payload.storagePath : next.storagePath;
+      next.storageBucket = typeof payload.storageBucket === "string" ? payload.storageBucket : next.storageBucket;
+      return next;
+    }
+
+    function serializeDocsState(state) {
+      var snapshot = state && typeof state === "object" ? { ...state, docs: {} } : { docs: {} };
+      var docs = state && state.docs && typeof state.docs === "object" ? state.docs : {};
+      Object.keys(docs).forEach(function(key) {
+        var current = docs[key] && typeof docs[key] === "object" ? { ...docs[key] } : docs[key];
+        if (current && typeof current === "object") {
+          delete current.downloadUrl;
+          delete current.storagePath;
+          delete current.storageBucket;
+        }
+        snapshot.docs[key] = current;
+      });
+      return snapshot;
+    }
+
+    async function fetchPreparedDocumentFiles(country) {
+      const response = await fetch("/api/prepared-documents?country=" + encodeURIComponent(country), {
+        credentials: "same-origin"
+      });
+      const data = await response.json().catch(function() { return {}; });
+      if (!response.ok || !data.ok) throw new Error(data.message || "prepared_documents_load_failed");
+      return data.docs && typeof data.docs === "object" ? data.docs : {};
+    }
+
+    async function savePreparedDocumentFile(country, key, payload) {
+      const response = await fetch("/api/prepared-documents", {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          country: country,
+          key: key,
+          fileName: payload.fileName,
+          mimeType: payload.mimeType,
+          fileSize: payload.fileSize,
+          fileDataUrl: payload.fileDataUrl
+        })
+      });
+      const data = await response.json().catch(function() { return {}; });
+      if (!response.ok || !data.ok || !data.document) throw new Error(data.message || "prepared_document_save_failed");
+      return data.document;
+    }
+
+    function deletePreparedDocumentFile(country, key) {
+      return fetch("/api/prepared-documents", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ country: country, key: key })
+      }).catch(function() {});
+    }
+
+    function mergePreparedDocumentFiles(state, files) {
+      if (!state || !state.docs || !files || typeof files !== "object") return;
+      Object.keys(files).forEach(function(key) {
+        if (!state.docs[key]) return;
+        state.docs[key] = applyStoredFile(state.docs[key], files[key]);
+      });
     }
 
     function defaultPreparedDocs(country) {
@@ -1904,7 +2015,7 @@
       panel2.innerHTML = '<div class="doc-panel-header"><p>' + preparedUploadedCount + ' of ' + preparedDocs.length + ' uploaded</p></div><div class="doc-card-grid" id="youPrepareCardGrid"></div>';
       var youGrid = panel2.querySelector("#youPrepareCardGrid");
       preparedDocs.forEach(function(doc, idx) {
-        var itemState = state.docs[doc.key] || { uploaded: false, fileName: "", status: "pending" };
+        var itemState = normalizeStoredDoc(state.docs[doc.key] || { uploaded: false, fileName: "", status: "pending" });
         var sClass = statusClass(itemState.status);
         var sLabel = statusLabel(itemState.status);
         var helpLink = doc.help ? '<button class="show-me-how" type="button" data-help-idx="p' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
@@ -1919,7 +2030,8 @@
         if (itemState.status === "scanning") {
           uploadHtml = '<div class="cert-scanning"><div class="cert-scan-spinner"></div> Verifying certification...</div>';
         } else if (itemState.uploaded) {
-          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif" /></label>';
+          var reAccept = '.pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif';
+          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept="' + reAccept + '" /></label>' + (itemState.downloadUrl ? '<a class="btn btn-soft" href="' + itemState.downloadUrl + '" download="' + itemState.fileName + '">Download</a>' : '');
         } else if (needsCert) {
           uploadHtml =
             '<button class="upload-btn cert-scan-btn mobile-only" type="button" data-cert-scan="' + doc.key + '"><svg viewBox="0 0 24 24"><path d="M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5"></path><path d="M16 8l-4 4-4-4"></path></svg>Scan Document</button>' +
@@ -1955,11 +2067,16 @@
       const country = getCountry();
       let state = loadDocsState(country);
       renderAll(country, state);
+      fetchPreparedDocumentFiles(country).then(function(files) {
+        mergePreparedDocumentFiles(state, files);
+        renderAll(country, state);
+      }).catch(function() {});
 
       const cfg = getCountryConfig(country);
       var panelsWrap = document.querySelector(".doc-panels-wrap");
 
-      function showCertResultPopup(success, title, message) {
+      function showCertResultPopup(success, title, message, options) {
+        var opts = options && typeof options === "object" ? options : {};
         var existing = document.getElementById("certResultPopup");
         if (existing) existing.remove();
         var popup = document.createElement("div");
@@ -1974,7 +2091,10 @@
             '</div>' +
             '<h4>' + title + '</h4>' +
             '<p>' + message + '</p>' +
-            '<button class="btn btn-soft cert-result-ok" type="button">OK</button>' +
+            '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' +
+              (opts.showSupport ? '<button class="btn btn-neutral cert-result-support" type="button">Contact support</button>' : '') +
+              '<button class="btn btn-soft cert-result-ok" type="button">OK</button>' +
+            '</div>' +
           '</div>';
         document.body.appendChild(popup);
         requestAnimationFrame(function() { popup.classList.add("show"); });
@@ -1982,6 +2102,14 @@
           popup.classList.remove("show");
           setTimeout(function() { popup.remove(); }, 250);
         });
+        var supportBtn = popup.querySelector(".cert-result-support");
+        if (supportBtn) {
+          supportBtn.addEventListener("click", function() {
+            popup.classList.remove("show");
+            setTimeout(function() { popup.remove(); }, 250);
+            openSupportModal();
+          });
+        }
         popup.addEventListener("click", function(e) {
           if (e.target === popup) {
             popup.classList.remove("show");
@@ -1990,71 +2118,150 @@
         });
       }
 
+      var CERT_SUPPORT_THRESHOLD = 3;
+
+      function getCertFailCounts() {
+        if (!state.certFailCounts || typeof state.certFailCounts !== "object" || Array.isArray(state.certFailCounts)) {
+          state.certFailCounts = {};
+        }
+        return state.certFailCounts;
+      }
+
+      function getCertFailCount(key) {
+        return Number(getCertFailCounts()[key] || 0);
+      }
+
+      function incCertFailCount(key) {
+        var counts = getCertFailCounts();
+        counts[key] = getCertFailCount(key) + 1;
+        return counts[key];
+      }
+
+      function resetCertFailCount(key) {
+        var counts = getCertFailCounts();
+        if (counts[key]) delete counts[key];
+      }
+
+      function handleCertFailure(key, state, country, title, msg) {
+        var fails = incCertFailCount(key);
+        var showSupport = fails >= CERT_SUPPORT_THRESHOLD;
+        var extra = showSupport
+          ? '<br><span style="color:#64748b;font-size:12px;">If you still need help after 3 failed attempts, contact support.</span>'
+          : '<br><span style="color:#64748b;font-size:12px;">You have ' + (CERT_SUPPORT_THRESHOLD - fails) + ' attempt' + ((CERT_SUPPORT_THRESHOLD - fails) === 1 ? '' : 's') + ' remaining before support is recommended.</span>';
+        delete state.docs[key];
+        deletePreparedDocumentFile(country, key);
+        persistDocsState(state, true);
+        renderAll(country, state);
+        showCertResultPopup(false, "Scan Failed", msg + extra, { showSupport: showSupport });
+      }
+
       function runCertificationCheck(file, key, docTitle, state, country) {
         var isImage = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type);
-        if (!isImage) {
-          state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review", certificationStatus: "unknown" };
-          saveDocsState(state);
-          renderAll(country, state);
-          showCertResultPopup(true, "Document Uploaded", "PDF uploaded for <strong>" + docTitle + "</strong>. Certification will be verified manually.");
-          return;
-        }
-        state.docs[key] = { uploaded: true, fileName: file.name, status: "scanning" };
-        saveDocsState(state);
-        renderAll(country, state);
-
-        window.gpFileToBase64(file).then(function(base64) {
-          return fetch("/api/ai/verify-certification", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              imageBase64: base64,
-              mimeType: file.type || "image/jpeg",
-              documentType: docTitle || "qualification document"
-            })
-          });
-        }).then(function(res) {
-          return res.json();
-        }).then(function(data) {
-          if (data.ok && data.verification) {
-            var v = data.verification;
-            var isCertified = !!v.certified;
-            if (isCertified) {
-              state.docs[key] = {
-                uploaded: true,
-                fileName: file.name,
-                status: "certified",
-                certificationStatus: "certified",
-                certifierName: v.certifierName || null,
-                certifierOccupation: v.certifierOccupation || null,
-                certifierDate: v.certifierDate || null,
-                signaturePresent: !!v.signaturePresent,
-                stampPresent: !!v.stampPresent,
-                certificationIssues: [],
-                certificationCheckedAt: new Date().toISOString()
-              };
-              saveDocsState(state);
-              renderAll(country, state);
-              showCertResultPopup(true, "Scan Successful", "Certification verified for <strong>" + docTitle + "</strong>");
-            } else {
-              var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
-              delete state.docs[key];
-              saveDocsState(state);
-              renderAll(country, state);
-              showCertResultPopup(false, "Scan Failed", issues.join("<br>") + '<br><span style="color:#64748b;font-size:12px;">Please adjust accordingly and try again.</span>');
-            }
-          } else {
-            delete state.docs[key];
-            saveDocsState(state);
+        readFileAsDataUrl(file).then(function(fileDataUrl) {
+          var storedFile = {
+            fileName: file.name,
+            mimeType: file.type || (isImage ? "image/jpeg" : "application/pdf"),
+            fileSize: Number(file.size || 0),
+            fileDataUrl: fileDataUrl
+          };
+          if (!isImage) {
+            state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
+            persistDocsState(state, true);
             renderAll(country, state);
-            showCertResultPopup(false, "Scan Failed", data.message || "Could not verify this document. Please try again.");
+            window.gpFileToBase64(file).then(function(base64) {
+              return fetch("/api/ai/classify-document", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileBase64: base64, mimeType: file.type || "application/pdf", expectedKey: key, expectedLabel: docTitle })
+              });
+            }).then(function(res) { return res.json(); }).then(function(data) {
+              if (data.ok && data.classification && data.classification.matches) {
+                var certifyReason = "Claude identified this as <strong>" + docTitle + "</strong>, but could not verify the certification from this file. Upload a clear image that shows the certification statement, signature, occupation and date.";
+                if (data.classification && data.classification.reason) {
+                  certifyReason += '<br><span style="color:#64748b;font-size:12px;">' + data.classification.reason + '</span>';
+                }
+                state.docs[key] = { uploaded: false, fileName: file.name };
+                handleCertFailure(key, state, country, docTitle, certifyReason);
+              } else {
+                var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
+                if (data.classification && data.classification.identifiedAs) {
+                  reason = "This appears to be <strong>" + data.classification.identifiedAs + "</strong>, not <strong>" + docTitle + "</strong>.";
+                }
+                if (data.classification && data.classification.reason) {
+                  reason += '<br><span style="color:#64748b;font-size:12px;">' + data.classification.reason + '</span>';
+                }
+                state.docs[key] = { uploaded: false, fileName: file.name };
+                handleCertFailure(key, state, country, docTitle, reason);
+              }
+            }).catch(function() {
+              state.docs[key] = { uploaded: false, fileName: file.name };
+              handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.");
+            });
+            return;
           }
-        }).catch(function() {
-          delete state.docs[key];
-          saveDocsState(state);
+
+          state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
+          persistDocsState(state, true);
           renderAll(country, state);
-          showCertResultPopup(false, "Scan Failed", "Could not connect to verification service. Please try again.");
+
+          window.gpFileToBase64(file).then(function(base64) {
+            return fetch("/api/ai/verify-certification", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                imageBase64: base64,
+                mimeType: file.type || "image/jpeg",
+                documentType: docTitle || "qualification document"
+              })
+            });
+          }).then(function(res) {
+            return res.json();
+          }).then(function(data) {
+            if (data.ok && data.verification) {
+              var v = data.verification;
+              var isCertified = !!v.certified;
+              if (isCertified) {
+                savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
+                  resetCertFailCount(key);
+                  state.docs[key] = applyStoredFile({
+                    uploaded: true,
+                    fileName: file.name,
+                    status: "certified",
+                    certificationStatus: "certified",
+                    certifierName: v.certifierName || null,
+                    certifierOccupation: v.certifierOccupation || null,
+                    certifierDate: v.certifierDate || null,
+                    signaturePresent: !!v.signaturePresent,
+                    stampPresent: !!v.stampPresent,
+                    certificationIssues: [],
+                    certificationCheckedAt: new Date().toISOString()
+                  }, savedFile);
+                  persistDocsState(state, true);
+                  renderAll(country, state);
+                  showCertResultPopup(true, "Scan Successful", "Certification verified for <strong>" + docTitle + "</strong>");
+                }).catch(function() {
+                  delete state.docs[key];
+                  persistDocsState(state, true);
+                  renderAll(country, state);
+                  showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
+                });
+              } else {
+                var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
+                state.docs[key] = { uploaded: false, fileName: file.name };
+                handleCertFailure(key, state, country, docTitle, issues.join("<br>"));
+              }
+            } else {
+              state.docs[key] = { uploaded: false, fileName: file.name };
+              handleCertFailure(key, state, country, docTitle, data.message || "Could not verify this document. Please try again.");
+            }
+          }).catch(function() {
+            state.docs[key] = { uploaded: false, fileName: file.name };
+            handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.");
+          });
+        }).catch(function() {
+          showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
         });
       }
 
@@ -2095,9 +2302,27 @@
         if (needsCert) {
           runCertificationCheck(file, key, docDef.title, state, country);
         } else {
-          state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review" };
-          saveDocsState(state);
-          renderAll(country, state);
+          readFileAsDataUrl(file).then(function(fileDataUrl) {
+            var storedFile = {
+              fileName: file.name,
+              mimeType: file.type || "application/octet-stream",
+              fileSize: Number(file.size || 0),
+              fileDataUrl: fileDataUrl
+            };
+            savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
+              state.docs[key] = applyStoredFile({
+                uploaded: true,
+                fileName: file.name,
+                status: "under_review"
+              }, savedFile);
+              persistDocsState(state, true);
+              renderAll(country, state);
+            }).catch(function() {
+              showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
+            });
+          }).catch(function() {
+            showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
+          });
         }
       });
 
@@ -2123,29 +2348,43 @@
           var scanDoc = cfg.prepared.find(function(d) { return d.key === scanKey; });
           if (scanDoc && window.gpOpenCertScan) {
             window.gpOpenCertScan(scanKey, scanDoc.title, function(result) {
+              var storedFile = {
+                fileName: result.fileName,
+                mimeType: typeof result.mimeType === "string" ? result.mimeType : (result.certified ? "image/jpeg" : "application/pdf"),
+                fileSize: Number(result.fileSize || 0),
+                fileDataUrl: typeof result.fileDataUrl === "string" ? result.fileDataUrl : ""
+              };
               if (result.certified) {
                 var v = result.verification;
-                state.docs[scanKey] = {
-                  uploaded: true,
-                  fileName: result.fileName,
-                  status: "certified",
-                  certificationStatus: "certified",
-                  certifierName: v.certifierName || null,
-                  certifierOccupation: v.certifierOccupation || null,
-                  certifierDate: v.certifierDate || null,
-                  signaturePresent: !!v.signaturePresent,
-                  stampPresent: !!v.stampPresent,
-                  certificationIssues: [],
-                  certificationCheckedAt: new Date().toISOString()
-                };
-              } else if (result.pdfFallback) {
-                state.docs[scanKey] = { uploaded: true, fileName: result.fileName, status: "under_review", certificationStatus: "unknown" };
+                savePreparedDocumentFile(country, scanKey, storedFile).then(function(savedFile) {
+                  resetCertFailCount(scanKey);
+                  state.docs[scanKey] = applyStoredFile({
+                    uploaded: true,
+                    fileName: result.fileName,
+                    status: "certified",
+                    certificationStatus: "certified",
+                    certifierName: v.certifierName || null,
+                    certifierOccupation: v.certifierOccupation || null,
+                    certifierDate: v.certifierDate || null,
+                    signaturePresent: !!v.signaturePresent,
+                    stampPresent: !!v.stampPresent,
+                    certificationIssues: [],
+                    certificationCheckedAt: new Date().toISOString()
+                  }, savedFile);
+                  persistDocsState(state, true);
+                  renderAll(country, state);
+                  showCertResultPopup(true, "Scan Successful", "Certification verified for <strong>" + scanDoc.title + "</strong>");
+                }).catch(function() {
+                  showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
+                });
               } else {
                 /* Failed — do not attach */
-                delete state.docs[scanKey];
+                var issues = result.verification && Array.isArray(result.verification.issues) && result.verification.issues.length
+                  ? result.verification.issues.join("<br>")
+                  : "The document does not appear to be properly certified.";
+                state.docs[scanKey] = { uploaded: false, fileName: result.fileName || "" };
+                handleCertFailure(scanKey, state, country, scanDoc.title, issues);
               }
-              saveDocsState(state);
-              renderAll(country, state);
             });
           }
           return;
@@ -2158,7 +2397,7 @@
         if (!state.docs[key]) state.docs[key] = { uploaded: false, fileName: "", status: "pending" };
         state.docs[key].uploaded = true;
         state.docs[key].status = "requested";
-        saveDocsState(state);
+        persistDocsState(state, true);
         renderAll(country, state);
       });
     }
@@ -2430,10 +2669,15 @@
         state.docs[doc.key] = {
           uploaded: nextStatus === "pending" ? false : true,
           fileName: typeof incoming.fileName === "string" ? incoming.fileName : existing.fileName,
-          status: nextStatus
+          status: nextStatus,
+          mimeType: typeof incoming.mimeType === "string" ? incoming.mimeType : existing.mimeType,
+          fileSize: Number.isFinite(incoming.fileSize) ? incoming.fileSize : existing.fileSize,
+          downloadUrl: typeof incoming.downloadUrl === "string" ? incoming.downloadUrl : existing.downloadUrl,
+          storagePath: typeof incoming.storagePath === "string" ? incoming.storagePath : existing.storagePath,
+          storageBucket: typeof incoming.storageBucket === "string" ? incoming.storageBucket : existing.storageBucket
         };
       });
-      saveDocsState(state);
+      persistDocsState(state, true);
       renderAll(country, state);
       return state;
     };
@@ -2451,10 +2695,15 @@
         state.docs[item.key] = {
           uploaded: nextStatus === "pending" ? false : true,
           fileName: typeof incoming.fileName === "string" ? incoming.fileName : existing.fileName,
-          status: nextStatus
+          status: nextStatus,
+          mimeType: typeof incoming.mimeType === "string" ? incoming.mimeType : existing.mimeType,
+          fileSize: Number.isFinite(incoming.fileSize) ? incoming.fileSize : existing.fileSize,
+          downloadUrl: typeof incoming.downloadUrl === "string" ? incoming.downloadUrl : existing.downloadUrl,
+          storagePath: typeof incoming.storagePath === "string" ? incoming.storagePath : existing.storagePath,
+          storageBucket: typeof incoming.storageBucket === "string" ? incoming.storageBucket : existing.storageBucket
         };
       });
-      saveDocsState(state);
+      persistDocsState(state, true);
       renderAll(country, state);
       return state;
     };

@@ -42,6 +42,7 @@ const DB_FILE_PATH = process.env.DB_FILE_PATH || DEFAULT_DB_FILE_PATH;
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim();
 const SUPABASE_PUBLISHABLE_KEY = String(process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_DOCUMENT_BUCKET = String(process.env.SUPABASE_DOCUMENT_BUCKET || 'gp-link-documents').trim() || 'gp-link-documents';
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
@@ -165,6 +166,246 @@ const GP_LINK_DOCUMENT_META = [
   { key: 'supervisor_cv', label: 'Supervisor CV', source: 'gplink_pack' }
 ];
 
+const PREPARED_DOCUMENT_MAX_DATA_URL_LENGTH = 8 * 1024 * 1024;
+const PREPARED_DOCUMENT_KEYS = new Set(
+  Object.values(GP_DOCUMENT_META)
+    .flatMap((items) => Array.isArray(items) ? items : [])
+    .filter((item) => item && item.source === 'prepared_by_you')
+    .map((item) => item.key)
+);
+
+function normalizeDocumentCountry(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'uk' || raw === 'gb' || raw === 'united kingdom') return 'uk';
+  if (raw === 'ie' || raw === 'ireland') return 'ie';
+  if (raw === 'nz' || raw === 'new zealand') return 'nz';
+  return '';
+}
+
+function sanitizePreparedDocumentPayload(body) {
+  const input = body && typeof body === 'object' ? body : {};
+  const country = normalizeDocumentCountry(input.country);
+  const key = sanitizeUserString(input.key, 120);
+  const fileName = sanitizeUserString(input.fileName, 240);
+  const mimeType = sanitizeUserString(input.mimeType, 160);
+  const fileSize = Math.max(0, Math.min(Number(input.fileSize || 0), 25 * 1024 * 1024));
+  const fileDataUrl = typeof input.fileDataUrl === 'string' ? input.fileDataUrl.trim() : '';
+  if (!country || !key || !PREPARED_DOCUMENT_KEYS.has(key)) return null;
+  if (!fileName || !mimeType || !fileDataUrl) return null;
+  if (!fileDataUrl.startsWith('data:') || fileDataUrl.indexOf(';base64,') === -1) return null;
+  if (fileDataUrl.length > PREPARED_DOCUMENT_MAX_DATA_URL_LENGTH) return null;
+  return {
+    country,
+    key,
+    fileName,
+    mimeType,
+    fileSize,
+    fileDataUrl,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function sanitizeStoragePathSegment(value, maxLen = 120) {
+  return String(value || '')
+    .trim()
+    .slice(0, maxLen)
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'file';
+}
+
+function encodeSupabaseObjectPath(objectPath) {
+  return String(objectPath || '')
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+function parseDataUrlPayload(dataUrl) {
+  const raw = String(dataUrl || '').trim();
+  const match = raw.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  try {
+    return {
+      mimeType: match[1] || 'application/octet-stream',
+      buffer: Buffer.from(match[2], 'base64')
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+function buildPreparedDocumentStoragePath(userId, country, key) {
+  return [
+    'users',
+    sanitizeStoragePathSegment(userId, 80),
+    'prepared-documents',
+    sanitizeStoragePathSegment(country, 20),
+    sanitizeStoragePathSegment(key, 120),
+    'current'
+  ].join('/');
+}
+
+async function supabaseStorageUploadObject(bucket, objectPath, dataUrl, mimeType) {
+  if (!isSupabaseDbConfigured()) return false;
+  const parsed = parseDataUrlPayload(dataUrl);
+  if (!parsed) return false;
+
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': mimeType || parsed.mimeType || 'application/octet-stream',
+      'x-upsert': 'true'
+    },
+    body: parsed.buffer
+  }).catch(() => null);
+
+  return !!(response && response.ok);
+}
+
+async function supabaseStorageDeleteObject(bucket, objectPath) {
+  if (!isSupabaseDbConfigured()) return false;
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
+    method: 'DELETE',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+    }
+  }).catch(() => null);
+  return !!(response && response.ok);
+}
+
+async function supabaseStorageCreateSignedUrl(bucket, objectPath, fileName) {
+  if (!isSupabaseDbConfigured()) return '';
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      expiresIn: 60 * 60,
+      download: fileName || undefined
+    })
+  }).catch(() => null);
+  if (!response || !response.ok) return '';
+  const payload = await response.json().catch(() => null);
+  const signedPath = payload && typeof payload.signedURL === 'string'
+    ? payload.signedURL
+    : (payload && typeof payload.signedUrl === 'string' ? payload.signedUrl : '');
+  if (!signedPath) return '';
+  return signedPath.startsWith('http') ? signedPath : `${SUPABASE_URL}/storage/v1${signedPath}`;
+}
+
+function mapPreparedDocumentRow(row, signedUrl = '') {
+  if (!row || typeof row !== 'object') return null;
+  return {
+    fileName: typeof row.file_name === 'string' ? row.file_name : '',
+    mimeType: typeof row.mime_type === 'string' ? row.mime_type : '',
+    fileSize: Math.max(0, Number(row.file_size || 0)),
+    storageBucket: typeof row.storage_bucket === 'string' ? row.storage_bucket : SUPABASE_DOCUMENT_BUCKET,
+    storagePath: typeof row.storage_path === 'string' && row.storage_path
+      ? row.storage_path
+      : (typeof row.file_url === 'string' ? row.file_url : ''),
+    downloadUrl: signedUrl,
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null
+  };
+}
+
+function buildPreparedDocumentDownloadUrl(country, key) {
+  return `/api/prepared-documents/download?country=${encodeURIComponent(country)}&key=${encodeURIComponent(key)}`;
+}
+
+async function listPreparedDocumentRows(userId, country) {
+  const normalizedCountry = normalizeDocumentCountry(country);
+  if (!normalizedCountry || !userId || !isSupabaseDbConfigured()) return [];
+  const result = await supabaseDbRequest(
+    'user_documents',
+    `select=*&user_id=eq.${encodeURIComponent(userId)}&country_code=eq.${encodeURIComponent(normalizedCountry)}`
+  );
+  if (!result.ok || !Array.isArray(result.data)) return [];
+  return result.data.filter((row) => row && PREPARED_DOCUMENT_KEYS.has(String(row.document_key || '')));
+}
+
+async function getPreparedDocumentRow(userId, country, key) {
+  const normalizedCountry = normalizeDocumentCountry(country);
+  const normalizedKey = sanitizeUserString(key, 120);
+  if (!normalizedCountry || !normalizedKey || !userId || !isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest(
+    'user_documents',
+    `select=*&user_id=eq.${encodeURIComponent(userId)}&country_code=eq.${encodeURIComponent(normalizedCountry)}&document_key=eq.${encodeURIComponent(normalizedKey)}&limit=1`
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+async function getPreparedDocumentsForUser(userId, _email, country) {
+  const normalizedCountry = normalizeDocumentCountry(country);
+  if (!normalizedCountry || !isSupabaseDbConfigured()) return { country: normalizedCountry, docs: {}, updatedAt: null };
+  const rows = await listPreparedDocumentRows(userId, normalizedCountry);
+  const docs = {};
+  let updatedAt = null;
+  for (const row of rows) {
+    docs[row.document_key] = mapPreparedDocumentRow(row, buildPreparedDocumentDownloadUrl(normalizedCountry, row.document_key));
+    if (row.updated_at && (!updatedAt || row.updated_at > updatedAt)) updatedAt = row.updated_at;
+  }
+  return {
+    country: normalizedCountry,
+    docs,
+    updatedAt
+  };
+}
+
+async function savePreparedDocumentForUser(userId, _email, payload) {
+  if (!payload || !userId || !isSupabaseDbConfigured()) return null;
+  const storagePath = buildPreparedDocumentStoragePath(userId, payload.country, payload.key);
+  const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, payload.fileDataUrl, payload.mimeType);
+  if (!uploaded) return null;
+
+  const result = await supabaseDbRequest(
+    'user_documents',
+    'on_conflict=user_id,document_key,country_code',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [{
+        user_id: userId,
+        country_code: payload.country,
+        document_key: payload.key,
+        status: 'uploaded',
+        file_name: payload.fileName,
+        file_url: storagePath,
+        updated_at: payload.updatedAt
+      }]
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  const row = result.data[0];
+  return mapPreparedDocumentRow(row, buildPreparedDocumentDownloadUrl(payload.country, payload.key));
+}
+
+async function deletePreparedDocumentForUser(userId, _email, country, key) {
+  const normalizedCountry = normalizeDocumentCountry(country);
+  const normalizedKey = sanitizeUserString(key, 120);
+  if (!normalizedCountry || !PREPARED_DOCUMENT_KEYS.has(normalizedKey) || !userId || !isSupabaseDbConfigured()) return false;
+  const existing = await getPreparedDocumentRow(userId, normalizedCountry, normalizedKey);
+  if (!existing) return true;
+  const mapped = mapPreparedDocumentRow(existing);
+  const deletedObject = mapped && mapped.storagePath
+    ? await supabaseStorageDeleteObject(mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET, mapped.storagePath)
+    : true;
+  const deletedRow = await supabaseDbRequest(
+    'user_documents',
+    `user_id=eq.${encodeURIComponent(userId)}&country_code=eq.${encodeURIComponent(normalizedCountry)}&document_key=eq.${encodeURIComponent(normalizedKey)}`,
+    { method: 'DELETE' }
+  );
+  return deletedObject && deletedRow.ok;
+}
+
 function now() {
   return Date.now();
 }
@@ -285,6 +526,18 @@ function recordUserAiCall(email) {
   } else {
     entry.count++;
   }
+}
+
+/** Detect actual MIME type from base64 magic bytes (browser file.type can be wrong) */
+function detectMimeFromBase64(base64, fallback) {
+  if (typeof base64 !== 'string' || base64.length < 8) return fallback || 'image/jpeg';
+  const h = base64.slice(0, 16).toUpperCase();
+  if (h.startsWith('/9J/') || h.startsWith('/9J')) return 'image/jpeg';
+  if (h.startsWith('IVBOR')) return 'image/png';
+  if (h.startsWith('UESDB')) return 'image/webp'; // RIFF header
+  if (h.startsWith('R0LGOD')) return 'image/gif';
+  if (h.startsWith('UKLGR')) return 'image/webp';
+  return fallback || 'image/jpeg';
 }
 
 /** Strip SQL injection patterns and dangerous characters from user-provided strings */
@@ -3125,7 +3378,7 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const mediaType = (mimeType || 'image/jpeg').replace(/^image\/jpg$/, 'image/jpeg');
+    const mediaType = detectMimeFromBase64(imageBase64, mimeType || 'image/jpeg');
     const validMediaTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!validMediaTypes.includes(mediaType)) {
       sendJson(res, 400, { ok: false, message: 'Unsupported image type. Use JPEG, PNG, or WebP.' });
@@ -3298,7 +3551,7 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const certMediaType = (mimeType || 'image/jpeg').replace(/^image\/jpg$/, 'image/jpeg');
+    const certMediaType = detectMimeFromBase64(imageBase64, mimeType || 'image/jpeg');
     const validCertTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!validCertTypes.includes(certMediaType)) {
       sendJson(res, 400, { ok: false, message: 'Unsupported image type. Use JPEG, PNG, or WebP.' });
@@ -3391,6 +3644,144 @@ Return ONLY valid JSON with no markdown formatting:
       });
     } catch (fetchErr) {
       console.error('[AI CertCheck] Fetch error:', fetchErr.message || fetchErr);
+      sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
+    }
+    return;
+  }
+
+  /* ── AI Document Classification (Claude Vision — images + PDFs) ── */
+  if (pathname === '/api/ai/classify-document' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    if (!ANTHROPIC_API_KEY) {
+      sendJson(res, 503, { ok: false, message: 'AI verification service not configured.' });
+      return;
+    }
+
+    if (!checkAnthropicBudget()) {
+      sendJson(res, 200, { ok: false, message: 'Verification capacity reached. Please try again later.' });
+      return;
+    }
+
+    const classifyEmail = getSessionEmail(session);
+    if (classifyEmail && !checkUserAiLimit(classifyEmail)) {
+      sendJson(res, 429, { ok: false, message: 'You have reached the maximum number of verification attempts today. Please try again tomorrow.' });
+      return;
+    }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const { fileBase64, mimeType } = body || {};
+    const expectedKey = sanitizeUserString(body.expectedKey, 100);
+    const expectedLabel = sanitizeUserString(body.expectedLabel, 200);
+    if (!fileBase64 || !expectedKey || !expectedLabel) {
+      sendJson(res, 400, { ok: false, message: 'Missing required fields.' });
+      return;
+    }
+
+    /* Build the content block — image or document (PDF) */
+    const isPdf = /pdf/i.test(mimeType || '');
+    let contentBlock;
+    if (isPdf) {
+      contentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } };
+    } else {
+      const detectedMime = detectMimeFromBase64(fileBase64, mimeType || 'image/jpeg');
+      const validImg = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      if (!validImg.includes(detectedMime)) {
+        sendJson(res, 400, { ok: false, message: 'Unsupported file type for AI classification.' });
+        return;
+      }
+      contentBlock = { type: 'image', source: { type: 'base64', media_type: detectedMime, data: fileBase64 } };
+    }
+
+    const classifyPrompt = `You are an automated document classifier for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
+
+The user is trying to upload a document for: ${expectedLabel}
+
+Your job is to determine whether this document is actually a "${expectedLabel}" or something else entirely.
+
+Valid document types and what they look like:
+- Primary Medical Degree: MBBS, MBChB, MB BCh BAO, MD, BMed certificate from a university/medical school
+- MRCGP: Certificate from Royal College of General Practitioners (UK)
+- CCT: Certificate of Completion of Training from GMC or PMETB (UK)
+- MICGP: Certificate from Irish College of General Practitioners
+- CSCST: Certificate of Satisfactory Completion of Specialist Training (Ireland)
+- ICGP Confirmation Letter: Letter from ICGP confirming qualification
+- FRNZCGP: Fellowship certificate from Royal New Zealand College of General Practitioners
+- RNZCGP Confirmation Letter: Letter from RNZCGP confirming fellowship
+- Certificate of Good Standing: Registration status document from a medical regulatory body (GMC, IMC, MCNZ, etc.)
+- Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
+- CV (Signed and dated): A doctor's curriculum vitae / resume
+- Confirmation of Training: Letter from GMC or equivalent confirming training posts
+
+IMPORTANT:
+- Do NOT mention security concerns, privacy risks, or dangers of sharing documents.
+- Focus ONLY on whether the document matches what the user claims it is.
+- If it is clearly a different type of document, identify what it actually appears to be.
+
+Return ONLY valid JSON with no markdown formatting:
+{"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation"}`;
+
+    try {
+      const classifyRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+          max_tokens: 300,
+          messages: [{
+            role: 'user',
+            content: [
+              contentBlock,
+              { type: 'text', text: classifyPrompt }
+            ]
+          }]
+        })
+      });
+
+      if (!classifyRes.ok) {
+        const errText = await classifyRes.text().catch(() => '');
+        console.error('[AI Classify] Anthropic API error:', classifyRes.status, errText);
+        let errMsg = 'AI service returned an error.';
+        try { const ej = JSON.parse(errText); if (ej.error && ej.error.message) errMsg = ej.error.message; } catch (e) {}
+        sendJson(res, 502, { ok: false, message: errMsg });
+        return;
+      }
+
+      const classifyData = await classifyRes.json();
+      const cInputTokens = (classifyData.usage && classifyData.usage.input_tokens) || 0;
+      const cOutputTokens = (classifyData.usage && classifyData.usage.output_tokens) || 0;
+      recordAnthropicSpend(cInputTokens, cOutputTokens);
+      if (classifyEmail) recordUserAiCall(classifyEmail);
+
+      const classifyText = classifyData.content && classifyData.content[0] && classifyData.content[0].text;
+      if (!classifyText) {
+        sendJson(res, 502, { ok: false, message: 'AI returned empty response.' });
+        return;
+      }
+
+      let classifyResult;
+      try {
+        const jm = classifyText.match(/\{[\s\S]*\}/);
+        classifyResult = JSON.parse(jm ? jm[0] : classifyText);
+      } catch (parseErr) {
+        console.error('[AI Classify] JSON parse failed:', classifyText);
+        sendJson(res, 502, { ok: false, message: 'AI returned invalid response format.' });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, classification: classifyResult });
+    } catch (fetchErr) {
+      console.error('[AI Classify] Fetch error:', fetchErr.message || fetchErr);
       sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
     }
     return;
@@ -4136,6 +4527,194 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  if (pathname === '/api/prepared-documents' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Prepared document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    let country = '';
+    try {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      country = normalizeDocumentCountry(requestUrl.searchParams.get('country') || '');
+    } catch (err) {
+      country = '';
+    }
+    if (!country) {
+      sendJson(res, 400, { ok: false, message: 'Country is required.' });
+      return;
+    }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (isSupabaseDbConfigured() && !userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document fetch.' });
+      return;
+    }
+
+    const docs = await getPreparedDocumentsForUser(userId, email, country);
+    sendJson(res, 200, { ok: true, country, docs: docs.docs, updatedAt: docs.updatedAt || null });
+    return;
+  }
+
+  if (pathname === '/api/prepared-documents/download' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Prepared document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    let country = '';
+    let key = '';
+    try {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      country = normalizeDocumentCountry(requestUrl.searchParams.get('country') || '');
+      key = sanitizeUserString(requestUrl.searchParams.get('key') || '', 120);
+    } catch (err) {
+      country = '';
+      key = '';
+    }
+    if (!country || !PREPARED_DOCUMENT_KEYS.has(key)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid download request.' });
+      return;
+    }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document download.' });
+      return;
+    }
+
+    const existing = await getPreparedDocumentRow(userId, country, key);
+    const mapped = mapPreparedDocumentRow(existing);
+    if (!mapped || !mapped.storagePath) {
+      sendJson(res, 404, { ok: false, message: 'Document not found.' });
+      return;
+    }
+
+    const signedUrl = await supabaseStorageCreateSignedUrl(
+      mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET,
+      mapped.storagePath,
+      mapped.fileName || ''
+    );
+    if (!signedUrl) {
+      sendJson(res, 502, { ok: false, message: 'Failed to create document download URL.' });
+      return;
+    }
+
+    res.writeHead(302, {
+      Location: signedUrl,
+      'Cache-Control': 'no-store',
+      ...SECURITY_HEADERS
+    });
+    res.end();
+    return;
+  }
+
+  if (pathname === '/api/prepared-documents' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Prepared document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const payload = sanitizePreparedDocumentPayload(body);
+    if (!payload) {
+      sendJson(res, 400, { ok: false, message: 'Invalid prepared document payload.' });
+      return;
+    }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (isSupabaseDbConfigured() && !userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document save.' });
+      return;
+    }
+
+    const saved = await savePreparedDocumentForUser(userId, email, payload);
+    if (!saved) {
+      sendJson(res, 502, { ok: false, message: 'Failed to persist prepared document.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      document: {
+        ...saved
+      }
+    });
+    return;
+  }
+
+  if (pathname === '/api/prepared-documents' && req.method === 'DELETE') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Prepared document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const country = normalizeDocumentCountry(body && body.country);
+    const key = sanitizeUserString(body && body.key, 120);
+    if (!country || !PREPARED_DOCUMENT_KEYS.has(key)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid document delete request.' });
+      return;
+    }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (isSupabaseDbConfigured() && !userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document delete.' });
+      return;
+    }
+
+    const removed = await deletePreparedDocumentForUser(userId, email, country, key);
+    if (!removed) {
+      sendJson(res, 502, { ok: false, message: 'Failed to delete prepared document.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (pathname === '/api/state' && req.method === 'GET') {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'State API requires Supabase database configuration.' });
@@ -4148,31 +4727,6 @@ Return ONLY valid JSON with no markdown formatting:
     if (!email) {
       sendJson(res, 400, { ok: false, message: 'Session missing email.' });
       return;
-    }
-
-    // TEMP: Auto-seed onboarding for test user smithmiller1234
-    if (isSupabaseDbConfigured() && email === 'smithmiller1234@gmail.com') {
-      const seedCheck = await getSupabaseUserStateByEmail(email);
-      const seedState = seedCheck && seedCheck.state && typeof seedCheck.state === 'object' ? seedCheck.state : {};
-      if (true) { // Force re-seed to NZ
-        const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
-        if (userId) {
-          seedState.gp_onboarding_complete = true;
-          seedState.gp_selected_country = 'New Zealand';
-          seedState.gp_onboarding = {
-            country: 'NZ', completedAt: new Date().toISOString(), step: 5,
-            preferredCity: 'Melbourne', targetDate: '2026-09', whoMoving: 'Just me',
-            childrenCount: '0', accountReviewFlag: false
-          };
-          delete seedState.gp_documents_prep;
-          await upsertSupabaseUserState(userId, seedState, new Date().toISOString());
-          await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
-            method: 'PATCH', headers: { Prefer: 'return=minimal' },
-            body: { qualification_country: 'NZ', preferred_city: 'Melbourne', target_arrival_date: '2026-09', who_moving: 'Just me', children_count: '0', onboarding_completed_at: new Date().toISOString() }
-          });
-          console.log('[SEED] Auto-seeded onboarding for smithmiller1234@gmail.com');
-        }
-      }
     }
 
     if (isSupabaseDbConfigured()) {
