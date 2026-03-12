@@ -480,6 +480,7 @@
     try {
       const base64 = await fileToBase64(fileOrBlob);
       const mimeType = fileOrBlob.type || "application/octet-stream";
+      const fileDataUrl = "data:" + mimeType + ";base64," + base64;
 
       const resp = await fetch("/api/ai/verify-qualification", {
         method: "POST",
@@ -498,16 +499,19 @@
 
       if (data.ok && data.verification) {
         const v = data.verification;
+        let shouldPersistDocument = false;
         if (v.verified && v.nameMatch !== "mismatch") {
           state.qualDocs[docKey].status = "verified";
           state.qualDocs[docKey].scanResult = v;
           state.qualDocs[docKey].nameMatch = v.nameMatch;
+          shouldPersistDocument = true;
         } else if (v.verified && v.nameMatch === "mismatch") {
           // Document itself is valid but name doesn't match account — check cross-doc matching
           state.qualDocs[docKey].scanResult = v;
           state.qualDocs[docKey].nameMatch = v.nameMatch;
           // We'll resolve this after checking both docs below
           state.qualDocs[docKey].status = "verified_name_pending";
+          shouldPersistDocument = true;
         } else if (v.nameMatch === "mismatch") {
           state.qualDocs[docKey].status = "failed";
           state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
@@ -523,6 +527,13 @@
 
         // Cross-document name matching: check if both docs have names that match each other
         crossDocNameCheck(data);
+
+        if (shouldPersistDocument) {
+          const savedDoc = await saveOnboardingDocumentFile(docKey, fileName, mimeType, fileDataUrl);
+          if (savedDoc) {
+            state.qualDocs[docKey].storedAt = savedDoc.updatedAt || new Date().toISOString();
+          }
+        }
       } else if (data.queued) {
         state.qualDocs[docKey].status = "manual_review";
         state.qualDocs[docKey].scanResult = { issues: [data.message || "Queued for review"] };
@@ -565,6 +576,35 @@
       reader.onerror = function () { reject(new Error("Failed to read file.")); };
       reader.readAsDataURL(fileOrBlob);
     });
+  }
+
+  function getOnboardingDocumentStorageKey(docKey) {
+    if (docKey === "primary_med_degree") return "onboarding_primary_med_degree";
+    return "onboarding_specialist_qualification";
+  }
+
+  async function saveOnboardingDocumentFile(docKey, fileName, mimeType, fileDataUrl) {
+    if (!state.country || !fileName || !mimeType || !fileDataUrl) return null;
+
+    const response = await fetch("/api/onboarding-documents", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        country: state.country,
+        key: getOnboardingDocumentStorageKey(docKey),
+        fileName: fileName,
+        mimeType: mimeType,
+        fileSize: 0,
+        fileDataUrl: fileDataUrl,
+      }),
+    });
+
+    const data = await response.json().catch(function () { return null; });
+    if (!response.ok || !data || !data.ok || !data.document) {
+      throw new Error((data && data.message) || "Failed to store onboarding document.");
+    }
+    return data.document;
   }
 
   function allDocsComplete() {

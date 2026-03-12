@@ -100,35 +100,31 @@
     [data-step="4"] .blob-2 { background: #6ee7b7; }
     [data-step="4"] .blob-3 { background: #93c5fd; top: 40px; }
 
-    /* ── BACK BUTTON ──────────────────────────── */
+    /* ── PREVIOUS BUTTON ──────────────────────── */
     .back-btn {
-      position: absolute;
-      top: 16px; left: 16px;
-      z-index: 10;
-      width: 40px; height: 40px;
-      border-radius: 50%;
-      border: none;
-      background: rgba(255,255,255,0.75);
-      backdrop-filter: blur(12px);
+      border: 1.5px solid var(--text);
+      background: transparent;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 14px 24px;
+      border-radius: 14px;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: transform 0.15s ease, opacity 0.3s ease;
+      transition: transform 0.15s ease, opacity 0.15s ease, background 0.2s ease;
+      min-width: 120px;
+      text-align: center;
       opacity: 0;
+      visibility: hidden;
       pointer-events: none;
     }
     .back-btn.visible {
       opacity: 1;
+      visibility: visible;
       pointer-events: auto;
     }
+    .back-btn:hover { background: rgba(15, 23, 42, 0.05); }
     .back-btn:active { transform: scale(0.92); }
-    .back-btn svg {
-      width: 20px; height: 20px;
-      stroke: var(--text);
-      fill: none; stroke-width: 2;
-      stroke-linecap: round; stroke-linejoin: round;
-    }
 
     /* ── SLIDE AREA ───────────────────────────── */
     .slides-viewport {
@@ -736,21 +732,12 @@
       align-items: center;
       justify-content: space-between;
       width: 100%;
+      gap: 12px;
     }
 
     .btn-skip {
-      border: none;
-      background: none;
-      font-family: inherit;
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--muted);
-      cursor: pointer;
-      padding: 10px 16px;
-      border-radius: 12px;
-      transition: color 0.15s, background 0.15s;
+      display: none;
     }
-    .btn-skip:hover { color: var(--text); background: rgba(0,0,0,0.04); }
     .btn-skip.invisible { visibility: hidden; }
 
     .btn-next {
@@ -882,11 +869,6 @@
       <div class="blob blob-2"></div>
       <div class="blob blob-3"></div>
     </div>
-
-    <!-- back button -->
-    <button class="back-btn" id="backBtn" aria-label="Go back">
-      <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
-    </button>
 
     <!-- slides viewport -->
     <div class="slides-viewport">
@@ -1197,6 +1179,7 @@
         <div class="progress-dot"></div>
       </div>
       <div class="btn-row">
+        <button class="back-btn" id="backBtn" aria-label="Go to previous step">Previous</button>
         <button class="btn-skip invisible" id="skipBtn">SKIP</button>
         <button class="btn-next" id="nextBtn">NEXT</button>
       </div>
@@ -1204,6 +1187,6 @@
   </div>
 
   <script src="../js/qualification-camera.js?v=20260311a"></script>
-  <script src="../js/onboarding.js?v=20260311d"></script>
+  <script src="../js/onboarding.js?v=20260313a"></script>
 </body>
 </html>

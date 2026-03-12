@@ -223,6 +223,41 @@
     .step-info-value {
       font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
     }
+    .step-info-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #0f172a;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform .15s ease, background .15s ease, border-color .15s ease;
+    }
+    .step-info-download:hover {
+      transform: translateY(-1px);
+      background: #f8fafc;
+      border-color: #94a3b8;
+    }
+    .step-info-download:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .step-info-download svg {
+      width: 15px;
+      height: 15px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
 
     .step-actions {
       display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
@@ -851,6 +886,7 @@
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const MYINTEALTH_URL = "https://login.myintealth.app/myintealthid.onmicrosoft.com/B2C_1A_id-signup_signin_claim_sf_applicant/samlp/sso/login";
+    const ONBOARDING_DOWNLOAD_KEYS = ["onboarding_specialist_qualification", "onboarding_primary_med_degree"];
 
     // Internal stages (keep verification_issued for backward compat)
     const STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification", "verification_issued"];
@@ -1358,11 +1394,14 @@
 
       // Info grid
       const doNow = meta.doNow;
+      const actionValueHtml = key === "upload_qualifications"
+        ? `${doNow}<button class="step-info-download" id="downloadMyDocumentsBtn" type="button"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download my documents</button>`
+        : doNow;
 
       document.getElementById("stepInfoGrid").innerHTML = `
         <div class="step-info-item">
           <div class="step-info-label">Your Action</div>
-          <div class="step-info-value">${doNow}</div>
+          <div class="step-info-value">${actionValueHtml}</div>
         </div>
         <div class="step-info-item">
           <div class="step-info-label">Estimated Time</div>
@@ -1405,6 +1444,11 @@
       }
       actionsEl.innerHTML = html;
       navActionsEl.innerHTML = navHtml;
+
+      const downloadBtn = document.getElementById("downloadMyDocumentsBtn");
+      if (downloadBtn) {
+        downloadBtn.addEventListener("click", () => handleDownloadMyDocuments(downloadBtn));
+      }
 
       // Wire buttons
       const openBtn = document.getElementById("actionOpenBtn");
@@ -1492,6 +1536,66 @@
       const raw = localStorage.getItem(key);
       if (!raw) return null;
       try { return JSON.parse(raw); } catch (e) { return null; }
+    }
+
+    function getOnboardingCountry() {
+      const onboarding = parseStorage("gp_onboarding");
+      return onboarding && typeof onboarding.country === "string" ? onboarding.country : "";
+    }
+
+    function buildOnboardingDownloadUrl(country, key) {
+      return `/api/onboarding-documents/download?country=${encodeURIComponent(country)}&key=${encodeURIComponent(key)}`;
+    }
+
+    async function handleDownloadMyDocuments(buttonEl) {
+      const country = getOnboardingCountry();
+      if (!country) {
+        showToast("Finish onboarding first to access your saved documents.");
+        return;
+      }
+
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.dataset.originalText = buttonEl.textContent;
+        buttonEl.innerHTML = '<span class="spin-icon"></span> Preparing downloads...';
+      }
+
+      try {
+        const response = await fetch(`/api/onboarding-documents?country=${encodeURIComponent(country)}`, {
+          credentials: "same-origin"
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data || !data.ok) {
+          throw new Error((data && data.message) || "Could not load your onboarding documents.");
+        }
+
+        const docs = data.docs && typeof data.docs === "object" ? data.docs : {};
+        const keysToDownload = ONBOARDING_DOWNLOAD_KEYS.filter((key) => docs[key] && docs[key].downloadUrl);
+        if (!keysToDownload.length) {
+          throw new Error("Your onboarding documents are not available yet.");
+        }
+
+        keysToDownload.forEach((key, index) => {
+          window.setTimeout(() => {
+            const link = document.createElement("a");
+            link.href = buildOnboardingDownloadUrl(country, key);
+            link.rel = "noopener";
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          }, index * 220);
+        });
+
+        showToast(keysToDownload.length === 2 ? "Your onboarding documents are downloading." : "Your saved onboarding document is downloading.");
+      } catch (err) {
+        showToast(err && err.message ? err.message : "Unable to download your onboarding documents.");
+      } finally {
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          buttonEl.textContent = buttonEl.dataset.originalText || "Download my documents";
+        }
+      }
     }
 
     function getRegistrationRows() {

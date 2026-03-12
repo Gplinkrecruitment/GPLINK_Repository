@@ -174,6 +174,10 @@ const PREPARED_DOCUMENT_KEYS = new Set(
     .filter((item) => item && item.source === 'prepared_by_you')
     .map((item) => item.key)
 );
+const ONBOARDING_DOCUMENT_KEYS = new Set([
+  'onboarding_specialist_qualification',
+  'onboarding_primary_med_degree'
+]);
 
 function normalizeDocumentCountry(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -184,7 +188,7 @@ function normalizeDocumentCountry(value) {
   return '';
 }
 
-function sanitizePreparedDocumentPayload(body) {
+function sanitizeStoredDocumentPayload(body, allowedKeys) {
   const input = body && typeof body === 'object' ? body : {};
   const country = normalizeDocumentCountry(input.country);
   const key = sanitizeUserString(input.key, 120);
@@ -192,7 +196,7 @@ function sanitizePreparedDocumentPayload(body) {
   const mimeType = sanitizeUserString(input.mimeType, 160);
   const fileSize = Math.max(0, Math.min(Number(input.fileSize || 0), 25 * 1024 * 1024));
   const fileDataUrl = typeof input.fileDataUrl === 'string' ? input.fileDataUrl.trim() : '';
-  if (!country || !key || !PREPARED_DOCUMENT_KEYS.has(key)) return null;
+  if (!country || !key || !(allowedKeys instanceof Set) || !allowedKeys.has(key)) return null;
   if (!fileName || !mimeType || !fileDataUrl) return null;
   if (!fileDataUrl.startsWith('data:') || fileDataUrl.indexOf(';base64,') === -1) return null;
   if (fileDataUrl.length > PREPARED_DOCUMENT_MAX_DATA_URL_LENGTH) return null;
@@ -205,6 +209,14 @@ function sanitizePreparedDocumentPayload(body) {
     fileDataUrl,
     updatedAt: new Date().toISOString()
   };
+}
+
+function sanitizePreparedDocumentPayload(body) {
+  return sanitizeStoredDocumentPayload(body, PREPARED_DOCUMENT_KEYS);
+}
+
+function sanitizeOnboardingDocumentPayload(body) {
+  return sanitizeStoredDocumentPayload(body, ONBOARDING_DOCUMENT_KEYS);
 }
 
 function sanitizeStoragePathSegment(value, maxLen = 120) {
@@ -242,6 +254,17 @@ function buildPreparedDocumentStoragePath(userId, country, key) {
     'users',
     sanitizeStoragePathSegment(userId, 80),
     'prepared-documents',
+    sanitizeStoragePathSegment(country, 20),
+    sanitizeStoragePathSegment(key, 120),
+    'current'
+  ].join('/');
+}
+
+function buildOnboardingDocumentStoragePath(userId, country, key) {
+  return [
+    'users',
+    sanitizeStoragePathSegment(userId, 80),
+    'onboarding-documents',
     sanitizeStoragePathSegment(country, 20),
     sanitizeStoragePathSegment(key, 120),
     'current'
@@ -319,6 +342,10 @@ function mapPreparedDocumentRow(row, signedUrl = '') {
 
 function buildPreparedDocumentDownloadUrl(country, key) {
   return `/api/prepared-documents/download?country=${encodeURIComponent(country)}&key=${encodeURIComponent(key)}`;
+}
+
+function buildOnboardingDocumentDownloadUrl(country, key) {
+  return `/api/onboarding-documents/download?country=${encodeURIComponent(country)}&key=${encodeURIComponent(key)}`;
 }
 
 async function listPreparedDocumentRows(userId, country) {
@@ -405,6 +432,74 @@ async function deletePreparedDocumentForUser(userId, _email, country, key) {
     { method: 'DELETE' }
   );
   return deletedObject && deletedRow.ok;
+}
+
+async function listOnboardingDocumentRows(userId, country) {
+  const normalizedCountry = normalizeDocumentCountry(country);
+  if (!normalizedCountry || !userId || !isSupabaseDbConfigured()) return [];
+  const result = await supabaseDbRequest(
+    'user_documents',
+    `select=*&user_id=eq.${encodeURIComponent(userId)}&country_code=eq.${encodeURIComponent(normalizedCountry)}`
+  );
+  if (!result.ok || !Array.isArray(result.data)) return [];
+  return result.data.filter((row) => row && ONBOARDING_DOCUMENT_KEYS.has(String(row.document_key || '')));
+}
+
+async function getOnboardingDocumentRow(userId, country, key) {
+  const normalizedCountry = normalizeDocumentCountry(country);
+  const normalizedKey = sanitizeUserString(key, 120);
+  if (!normalizedCountry || !normalizedKey || !userId || !isSupabaseDbConfigured()) return null;
+  const result = await supabaseDbRequest(
+    'user_documents',
+    `select=*&user_id=eq.${encodeURIComponent(userId)}&country_code=eq.${encodeURIComponent(normalizedCountry)}&document_key=eq.${encodeURIComponent(normalizedKey)}&limit=1`
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+async function getOnboardingDocumentsForUser(userId, _email, country) {
+  const normalizedCountry = normalizeDocumentCountry(country);
+  if (!normalizedCountry || !isSupabaseDbConfigured()) return { country: normalizedCountry, docs: {}, updatedAt: null };
+  const rows = await listOnboardingDocumentRows(userId, normalizedCountry);
+  const docs = {};
+  let updatedAt = null;
+  for (const row of rows) {
+    docs[row.document_key] = mapPreparedDocumentRow(row, buildOnboardingDocumentDownloadUrl(normalizedCountry, row.document_key));
+    if (row.updated_at && (!updatedAt || row.updated_at > updatedAt)) updatedAt = row.updated_at;
+  }
+  return {
+    country: normalizedCountry,
+    docs,
+    updatedAt
+  };
+}
+
+async function saveOnboardingDocumentForUser(userId, _email, payload) {
+  if (!payload || !userId || !isSupabaseDbConfigured()) return null;
+  const storagePath = buildOnboardingDocumentStoragePath(userId, payload.country, payload.key);
+  const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, payload.fileDataUrl, payload.mimeType);
+  if (!uploaded) return null;
+
+  const result = await supabaseDbRequest(
+    'user_documents',
+    'on_conflict=user_id,document_key,country_code',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [{
+        user_id: userId,
+        country_code: payload.country,
+        document_key: payload.key,
+        status: 'uploaded',
+        file_name: payload.fileName,
+        file_url: storagePath,
+        updated_at: payload.updatedAt
+      }]
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  const row = result.data[0];
+  return mapPreparedDocumentRow(row, buildOnboardingDocumentDownloadUrl(payload.country, payload.key));
 }
 
 function now() {
@@ -4667,6 +4762,42 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  if (pathname === '/api/onboarding-documents' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Onboarding document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    let country = '';
+    try {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      country = normalizeDocumentCountry(requestUrl.searchParams.get('country') || '');
+    } catch (err) {
+      country = '';
+    }
+    if (!country) {
+      sendJson(res, 400, { ok: false, message: 'Country is required.' });
+      return;
+    }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (isSupabaseDbConfigured() && !userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document fetch.' });
+      return;
+    }
+
+    const docs = await getOnboardingDocumentsForUser(userId, email, country);
+    sendJson(res, 200, { ok: true, country, docs: docs.docs, updatedAt: docs.updatedAt || null });
+    return;
+  }
+
   if (pathname === '/api/prepared-documents/download' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Prepared document storage requires Supabase configuration.' });
@@ -4702,6 +4833,66 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const existing = await getPreparedDocumentRow(userId, country, key);
+    const mapped = mapPreparedDocumentRow(existing);
+    if (!mapped || !mapped.storagePath) {
+      sendJson(res, 404, { ok: false, message: 'Document not found.' });
+      return;
+    }
+
+    const signedUrl = await supabaseStorageCreateSignedUrl(
+      mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET,
+      mapped.storagePath,
+      mapped.fileName || ''
+    );
+    if (!signedUrl) {
+      sendJson(res, 502, { ok: false, message: 'Failed to create document download URL.' });
+      return;
+    }
+
+    res.writeHead(302, {
+      Location: signedUrl,
+      'Cache-Control': 'no-store',
+      ...SECURITY_HEADERS
+    });
+    res.end();
+    return;
+  }
+
+  if (pathname === '/api/onboarding-documents/download' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Onboarding document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    let country = '';
+    let key = '';
+    try {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      country = normalizeDocumentCountry(requestUrl.searchParams.get('country') || '');
+      key = sanitizeUserString(requestUrl.searchParams.get('key') || '', 120);
+    } catch (err) {
+      country = '';
+      key = '';
+    }
+    if (!country || !ONBOARDING_DOCUMENT_KEYS.has(key)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid download request.' });
+      return;
+    }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document download.' });
+      return;
+    }
+
+    const existing = await getOnboardingDocumentRow(userId, country, key);
     const mapped = mapPreparedDocumentRow(existing);
     if (!mapped || !mapped.storagePath) {
       sendJson(res, 404, { ok: false, message: 'Document not found.' });
@@ -4763,6 +4954,54 @@ Return ONLY valid JSON with no markdown formatting:
     const saved = await savePreparedDocumentForUser(userId, email, payload);
     if (!saved) {
       sendJson(res, 502, { ok: false, message: 'Failed to persist prepared document.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      document: {
+        ...saved
+      }
+    });
+    return;
+  }
+
+  if (pathname === '/api/onboarding-documents' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Onboarding document storage requires Supabase configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const payload = sanitizeOnboardingDocumentPayload(body);
+    if (!payload) {
+      sendJson(res, 400, { ok: false, message: 'Invalid onboarding document payload.' });
+      return;
+    }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (isSupabaseDbConfigured() && !userId) {
+      sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document save.' });
+      return;
+    }
+
+    const saved = await saveOnboardingDocumentForUser(userId, email, payload);
+    if (!saved) {
+      sendJson(res, 502, { ok: false, message: 'Failed to persist onboarding document.' });
       return;
     }
 
