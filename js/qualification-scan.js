@@ -37,39 +37,12 @@
 
   function fileToBase64(file) {
     return new Promise(function (resolve, reject) {
-      var isImage = /^image\//i.test(file.type);
-      if (isImage) {
-        var img = new Image();
-        var url = URL.createObjectURL(file);
-        img.onload = function () {
-          URL.revokeObjectURL(url);
-          var maxDim = 1200;
-          var w = img.width, h = img.height;
-          if (w > maxDim || h > maxDim) {
-            var scale = maxDim / Math.max(w, h);
-            w = Math.round(w * scale);
-            h = Math.round(h * scale);
-          }
-          var canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-          var dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-          resolve(dataUrl.split(",")[1]);
-        };
-        img.onerror = function () {
-          URL.revokeObjectURL(url);
-          reject(new Error("Failed to load image."));
-        };
-        img.src = url;
-      } else {
-        var reader = new FileReader();
-        reader.onload = function () {
-          resolve(reader.result.split(",")[1] || reader.result);
-        };
-        reader.onerror = function () { reject(new Error("Failed to read file.")); };
-        reader.readAsDataURL(file);
-      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(reader.result.split(",")[1] || reader.result);
+      };
+      reader.onerror = function () { reject(new Error("Failed to read file.")); };
+      reader.readAsDataURL(file);
     });
   }
 
@@ -156,7 +129,7 @@
               '<button class="scan-action-btn" data-scan-action="browse" type="button">' +
                 '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>' +
                 '<span>Upload File</span>' +
-                '<small>PDF, JPG, PNG</small>' +
+                '<small>PDF or image</small>' +
               '</button>' +
             '</div>' +
             '<input id="gpScanFile" type="file" accept="' + AI_SCAN_ACCEPT + '" style="display:none"/>' +
@@ -281,7 +254,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             imageBase64: base64,
-            mimeType: "image/jpeg",
+            mimeType: file.type || "application/octet-stream",
             documentType: ctx.title || "qualification document"
           })
         });
@@ -315,9 +288,9 @@
                 fileName: file.name,
                 certified: isCertified,
                 verification: v,
-                mimeType: "image/jpeg",
+                mimeType: file.type || "application/octet-stream",
                 fileSize: Number(file.size || 0),
-                fileDataUrl: base64ToDataUrl(imageBase64, "image/jpeg")
+                fileDataUrl: base64ToDataUrl(imageBase64, file.type || "application/octet-stream")
               });
             }
             showStep("result");
@@ -347,7 +320,7 @@
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? "image/jpeg" : (file.type || "application/pdf"), expectedKey: ctx2.key, expectedLabel: ctx2.title })
+          body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? (file.type || "application/octet-stream") : (file.type || "application/pdf"), expectedKey: ctx2.key, expectedLabel: ctx2.title })
         });
       }).then(function(res) { return res.json(); }).then(function(data) {
         if (data.ok && data.classification && data.classification.matches) {
@@ -437,7 +410,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             imageBase64: base64,
-            mimeType: "image/jpeg",
+            mimeType: file.type || "application/octet-stream",
             documentType: "Unknown - identify this document",
             expectedCountry: "any",
             profileName: profileName
@@ -582,7 +555,11 @@
           closeModal();
           var camLabel = certContext ? certContext.title : "Scan Document";
           window.QualCamera.open(camLabel, function (blob, err) {
-            if (err) { alert(err); return; }
+            if (err) {
+              openModal();
+              showScanError(err);
+              return;
+            }
             if (blob) {
               // Create a File-like object from the blob
               var capturedFile = new File([blob], "camera-scan.jpg", { type: "image/jpeg" });
@@ -592,7 +569,7 @@
             }
           });
         } else {
-          alert("Camera is not available. Please use Upload instead.");
+          showScanError("Camera is not available. Please use Upload instead.");
         }
         return;
       }

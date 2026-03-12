@@ -1419,7 +1419,7 @@
           }
         }
         openBtn.addEventListener("click", () => {
-          if (meta.ctaType === "open") window.open(MYINTEALTH_URL, "_blank", "noopener,noreferrer");
+          if (meta.ctaType === "open") window.location.assign(MYINTEALTH_URL);
           else if (meta.ctaType === "support") openModal(supportModalEl, openBtn);
           else if (meta.ctaType === "amc") {
             const target = "/pages/amc.html";

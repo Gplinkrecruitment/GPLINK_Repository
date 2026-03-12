@@ -1291,7 +1291,7 @@
             help: {
               title: "Certificate of Good Standing",
               steps: [
-                'Log in to your <a href="https://extgenmedcouncil.b2clogin.com/extgenmedcouncil.onmicrosoft.com/b2c_1a_usersigninormigrategmconline/oauth2/v2.0/authorize?client_id=1304d06d-0b67-4d06-9abd-e03aaef62a88&redirect_uri=https%3A%2F%2Fwww.gmc-uk.org%2Fqitm%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639088171193672580.ZjQwODcyZDgtNTAxOC00YmM2LWE4ZGUtM2I2NWUxNjE0MTVhNzJmY2YzMmQtNTg5Zi00NWRhLTgzYWEtNGMwYWZmMTFjZjg0&client_info=1&x-client-brkrver=IDWeb.1.24.0.0&state=CfDJ8CCFNphTI2xLiogAzC0YsAyIgiiJHlbcbo8KWD0yCcvLYHNZ1xxff35Gjym3wF68p0qnWcVa14sNBtztLdjKu9LyjSCebUIDBFdIvp2xvEUn086Tmqz1yP1ib7R7GaecxE6Aqb9w32l4XIh2x-7FLDYD92INc-Py--FWGS6YBTk1W1cUGoSi79jwFYlY7Ikf-chZf7yqV-3iVm-m_ZXnD-0rwEyDlyUHXfgM5eLMvcXvP_zNSmyKOLvzfe3bHddEmWStUY2QOXtCHxHYqD8womPvW29r7VGUM81fT1hbaj3xUprxuVhINsQTRA9_eIT8me26YGF4Io1VXbZEk4ObR8fDjVhTB38PUd8HiyHdALY2xv5qz5arVs3nzap_Ttoorg&x-client-SKU=ID_NETSTANDARD2_0&x-client-ver=6.17.0.0" target="_blank" rel="noopener">GMC Online account</a>',
+                'Log in to your <a href="https://extgenmedcouncil.b2clogin.com/extgenmedcouncil.onmicrosoft.com/b2c_1a_usersigninormigrategmconline/oauth2/v2.0/authorize?client_id=1304d06d-0b67-4d06-9abd-e03aaef62a88&redirect_uri=https%3A%2F%2Fwww.gmc-uk.org%2Fqitm%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639088171193672580.ZjQwODcyZDgtNTAxOC00YmM2LWE4ZGUtM2I2NWUxNjE0MTVhNzJmY2YzMmQtNTg5Zi00NWRhLTgzYWEtNGMwYWZmMTFjZjg0&client_info=1&x-client-brkrver=IDWeb.1.24.0.0&state=CfDJ8CCFNphTI2xLiogAzC0YsAyIgiiJHlbcbo8KWD0yCcvLYHNZ1xxff35Gjym3wF68p0qnWcVa14sNBtztLdjKu9LyjSCebUIDBFdIvp2xvEUn086Tmqz1yP1ib7R7GaecxE6Aqb9w32l4XIh2x-7FLDYD92INc-Py--FWGS6YBTk1W1cUGoSi79jwFYlY7Ikf-chZf7yqV-3iVm-m_ZXnD-0rwEyDlyUHXfgM5eLMvcXvP_zNSmyKOLvzfe3bHddEmWStUY2QOXtCHxHYqD8womPvW29r7VGUM81fT1hbaj3xUprxuVhINsQTRA9_eIT8me26YGF4Io1VXbZEk4ObR8fDjVhTB38PUd8HiyHdALY2xv5qz5arVs3nzap_Ttoorg&x-client-SKU=ID_NETSTANDARD2_0&x-client-ver=6.17.0.0">GMC Online account</a>',
                 'In the left hand menu choose "My registration"',
                 'Then open "My CCPS requests"',
                 "Request the certificate to be sent directly to Ahpra"
@@ -1321,7 +1321,7 @@
             help: {
               title: "Criminal History Check",
               steps: [
-                'Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D" target="_blank" rel="noopener">Fit2Work</a>'
+                'Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D">Fit2Work</a>'
               ]
             }
           }
@@ -2201,7 +2201,7 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 fileBase64: base64,
-                mimeType: /^image\//i.test(file.type || "") ? "image/jpeg" : (file.type || "application/pdf"),
+                mimeType: /^image\//i.test(file.type || "") ? (file.type || "application/octet-stream") : (file.type || "application/pdf"),
                 expectedKey: key,
                 expectedLabel: docTitle
               })
@@ -2269,7 +2269,7 @@
                 method: "POST",
                 credentials: "same-origin",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? "image/jpeg" : (file.type || "application/pdf"), expectedKey: key, expectedLabel: docTitle })
+                body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? (file.type || "application/octet-stream") : (file.type || "application/pdf"), expectedKey: key, expectedLabel: docTitle })
               });
             }).then(function(res) { return res.json(); }).then(function(data) {
               if (data.ok && data.classification && data.classification.matches) {
@@ -2308,7 +2308,7 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 imageBase64: base64,
-                mimeType: "image/jpeg",
+                mimeType: file.type || "application/octet-stream",
                 documentType: docTitle || "qualification document"
               })
             });

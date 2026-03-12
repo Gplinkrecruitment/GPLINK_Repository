@@ -1406,8 +1406,8 @@
           }
         }
         openBtn.addEventListener("click", () => {
-          if (meta.ctaType === "open") window.open(AMC_URL, "_blank", "noopener,noreferrer");
-          else if (meta.ctaType === "open_signup") window.open(AMC_SIGNUP_URL, "_blank", "noopener,noreferrer");
+          if (meta.ctaType === "open") window.location.assign(AMC_URL);
+          else if (meta.ctaType === "open_signup") window.location.assign(AMC_SIGNUP_URL);
           else if (meta.ctaType === "support") openModal(supportModalEl, openBtn);
           else if (meta.ctaType === "ahpra") window.location.href = "/pages/ahpra.html";
         });

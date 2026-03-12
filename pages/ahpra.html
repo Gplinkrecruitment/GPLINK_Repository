@@ -1347,8 +1347,17 @@
     }
 
     function tryDownloadRows(rows) {
-      rows.forEach((item, index) => {
-        setTimeout(() => window.open(item.downloadUrl, "_blank", "noopener,noreferrer"), index * 180);
+      const readyRows = Array.isArray(rows)
+        ? rows.filter((item) => item && item.downloadUrl)
+        : [];
+      if (!readyRows.length) return;
+      if (readyRows.length === 1) {
+        window.location.assign(readyRows[0].downloadUrl);
+        return;
+      }
+      downloadRowsAsZip(readyRows).catch(() => {
+        showToast("Could not bundle every document. Opening the first file instead.");
+        window.location.assign(readyRows[0].downloadUrl);
       });
     }
 
@@ -1863,7 +1872,7 @@
           }
         }
         openBtn.addEventListener("click", () => {
-          if (meta.ctaType === "open") window.open(AHPRA_URL, "_blank", "noopener,noreferrer");
+          if (meta.ctaType === "open") window.location.assign(AHPRA_URL);
           else if (meta.ctaType === "download_docs") {
             const snapshot = getDocSnapshot();
             renderDownloadPackModal(snapshot);

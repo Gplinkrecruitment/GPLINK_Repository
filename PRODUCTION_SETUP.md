@@ -36,6 +36,7 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `SUPABASE_URL=<your-supabase-url>`
 - `SUPABASE_PUBLISHABLE_KEY=<your-supabase-publishable-key>`
 - `SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>` (server-side only)
+- `SUPABASE_SCAN_NORMALIZER_FUNCTION=normalize-scan-image` (recommended; used for App Store-safe image normalization before AI scans)
 - `ADMIN_EMAILS=<comma-separated-admin-emails>` (required for admin access)
 - `ADMIN_ALLOWED_HOSTS=admin.mygplink.com.au` (required in production; restricts `/pages/admin*.html` and `/api/admin/*`)
 - `ADMIN_COOKIE_NAME=gp_admin_session` (optional override)
@@ -86,5 +87,6 @@ After pulling latest code, run:
 
 1. `supabase link --project-ref <your-project-ref>`
 2. `supabase db push`
+3. `supabase functions deploy normalize-scan-image`
 
-This applies required schema, including `public.runtime_kv`.
+This applies required schema, including `public.runtime_kv`, and deploys the Supabase Edge Function used to normalize uploaded images before AI scanning.

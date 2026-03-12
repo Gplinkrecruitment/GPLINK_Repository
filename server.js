@@ -43,6 +43,7 @@ const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim();
 const SUPABASE_PUBLISHABLE_KEY = String(process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const SUPABASE_DOCUMENT_BUCKET = String(process.env.SUPABASE_DOCUMENT_BUCKET || 'gp-link-documents').trim() || 'gp-link-documents';
+const SUPABASE_SCAN_NORMALIZER_FUNCTION = String(process.env.SUPABASE_SCAN_NORMALIZER_FUNCTION || 'normalize-scan-image').trim() || 'normalize-scan-image';
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
@@ -538,6 +539,106 @@ function detectMimeFromBase64(base64, fallback) {
   if (h.startsWith('R0LGOD')) return 'image/gif';
   if (h.startsWith('UKLGR')) return 'image/webp';
   return fallback || 'image/jpeg';
+}
+
+function stripBase64DataUrlPrefix(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^data:[^;]+;base64,(.+)$/);
+  return match ? match[1] : raw;
+}
+
+function normalizeImageMimeType(value) {
+  return String(value || '').trim().toLowerCase().replace(/^image\/jpg$/, 'image/jpeg');
+}
+
+function isClaudeSafeImageMimeType(value) {
+  const mimeType = normalizeImageMimeType(value);
+  return mimeType === 'image/jpeg' || mimeType === 'image/png' || mimeType === 'image/webp' || mimeType === 'image/gif';
+}
+
+async function invokeSupabaseEdgeFunction(functionName, payload) {
+  if (!isSupabaseDbConfigured()) {
+    return { ok: false, message: 'Supabase configuration is required for image normalization.' };
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/${encodeURIComponent(functionName)}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload || {})
+  }).catch((err) => {
+    console.error('[Supabase Function] Request failed:', err && err.message ? err.message : err);
+    return null;
+  });
+
+  if (!response) {
+    return { ok: false, message: 'Failed to reach Supabase image normalization service.' };
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      message: data && typeof data.message === 'string'
+        ? data.message
+        : `Supabase image normalization failed with status ${response.status}.`
+    };
+  }
+
+  return { ok: true, data };
+}
+
+async function normalizeImageForAi(base64, mimeType) {
+  const rawBase64 = stripBase64DataUrlPrefix(base64);
+  if (!rawBase64) {
+    return { ok: false, message: 'Missing image data.' };
+  }
+
+  const fallbackMimeType = normalizeImageMimeType(mimeType || 'image/jpeg');
+  const detectedMimeType = normalizeImageMimeType(detectMimeFromBase64(rawBase64, fallbackMimeType));
+  if (isClaudeSafeImageMimeType(detectedMimeType)) {
+    return {
+      ok: true,
+      base64: rawBase64,
+      mediaType: detectedMimeType,
+      normalized: false
+    };
+  }
+
+  if (!fallbackMimeType.startsWith('image/')) {
+    return { ok: false, message: 'Unsupported image type.' };
+  }
+
+  const result = await invokeSupabaseEdgeFunction(SUPABASE_SCAN_NORMALIZER_FUNCTION, {
+    imageBase64: rawBase64,
+    mimeType: fallbackMimeType,
+    quality: 82
+  });
+  if (!result.ok || !result.data || typeof result.data.normalizedBase64 !== 'string') {
+    return {
+      ok: false,
+      message: result.message || 'Failed to normalize image for AI scan.'
+    };
+  }
+
+  const normalizedBase64 = stripBase64DataUrlPrefix(result.data.normalizedBase64);
+  const normalizedMimeType = normalizeImageMimeType(
+    detectMimeFromBase64(normalizedBase64, result.data.mimeType || 'image/jpeg')
+  );
+  if (!isClaudeSafeImageMimeType(normalizedMimeType)) {
+    return { ok: false, message: 'Image normalization produced an unsupported format.' };
+  }
+
+  return {
+    ok: true,
+    base64: normalizedBase64,
+    mediaType: normalizedMimeType,
+    normalized: true
+  };
 }
 
 /** Strip SQL injection patterns and dangerous characters from user-provided strings */
@@ -3378,12 +3479,13 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const mediaType = detectMimeFromBase64(imageBase64, mimeType || 'image/jpeg');
-    const validMediaTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!validMediaTypes.includes(mediaType)) {
-      sendJson(res, 400, { ok: false, message: 'Unsupported image type. Use JPEG, PNG, or WebP.' });
+    const normalizedImage = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
+    if (!normalizedImage.ok) {
+      sendJson(res, 400, { ok: false, message: normalizedImage.message || 'Unsupported image type.' });
       return;
     }
+    const mediaType = normalizedImage.mediaType;
+    const aiImageBase64 = normalizedImage.base64;
 
     const dateRules = {
       GB: 'August 2007 or later',
@@ -3451,7 +3553,7 @@ Return ONLY valid JSON with no markdown formatting:
             content: [
               {
                 type: 'image',
-                source: { type: 'base64', media_type: mediaType, data: imageBase64 }
+                source: { type: 'base64', media_type: mediaType, data: aiImageBase64 }
               },
               { type: 'text', text: prompt }
             ]
@@ -3551,12 +3653,13 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const certMediaType = detectMimeFromBase64(imageBase64, mimeType || 'image/jpeg');
-    const validCertTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!validCertTypes.includes(certMediaType)) {
-      sendJson(res, 400, { ok: false, message: 'Unsupported image type. Use JPEG, PNG, or WebP.' });
+    const normalizedImage = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
+    if (!normalizedImage.ok) {
+      sendJson(res, 400, { ok: false, message: normalizedImage.message || 'Unsupported image type.' });
       return;
     }
+    const certMediaType = normalizedImage.mediaType;
+    const aiImageBase64 = normalizedImage.base64;
 
     const certPrompt = `You are an automated document certification checker for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
 
@@ -3596,7 +3699,7 @@ Return ONLY valid JSON with no markdown formatting:
           messages: [{
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: certMediaType, data: imageBase64 } },
+              { type: 'image', source: { type: 'base64', media_type: certMediaType, data: aiImageBase64 } },
               { type: 'text', text: certPrompt }
             ]
           }]
@@ -3690,13 +3793,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (isPdf) {
       contentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } };
     } else {
-      const detectedMime = detectMimeFromBase64(fileBase64, mimeType || 'image/jpeg');
-      const validImg = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-      if (!validImg.includes(detectedMime)) {
-        sendJson(res, 400, { ok: false, message: 'Unsupported file type for AI classification.' });
+      const normalizedImage = await normalizeImageForAi(fileBase64, mimeType || 'image/jpeg');
+      if (!normalizedImage.ok) {
+        sendJson(res, 400, { ok: false, message: normalizedImage.message || 'Unsupported file type for AI classification.' });
         return;
       }
-      contentBlock = { type: 'image', source: { type: 'base64', media_type: detectedMime, data: fileBase64 } };
+      contentBlock = { type: 'image', source: { type: 'base64', media_type: normalizedImage.mediaType, data: normalizedImage.base64 } };
     }
 
     const classifyPrompt = `You are an automated document classifier for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
@@ -3906,12 +4008,13 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const mediaType = (mimeType || 'image/jpeg').replace(/^image\/jpg$/, 'image/jpeg');
-    const validMediaTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!validMediaTypes.includes(mediaType)) {
-      sendJson(res, 400, { ok: false, message: 'Unsupported image type.' });
+    const normalizedImage = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
+    if (!normalizedImage.ok) {
+      sendJson(res, 400, { ok: false, message: normalizedImage.message || 'Unsupported image type.' });
       return;
     }
+    const mediaType = normalizedImage.mediaType;
+    const aiImageBase64 = normalizedImage.base64;
 
     const idPrompt = `You are an automated identity document reader for a licensed GP recruitment platform. The user has given full consent to upload their ID for name verification. This is a routine, authorized identity check.
 
@@ -3949,7 +4052,7 @@ Return ONLY valid JSON with no markdown formatting:
           messages: [{
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: aiImageBase64 } },
               { type: 'text', text: idPrompt }
             ]
           }]

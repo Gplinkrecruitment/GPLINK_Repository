@@ -224,7 +224,7 @@
               'Camera' +
             '</button>' +
           '</div>' +
-          '<input type="file" id="qualFileInput_' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none;" />'
+          '<input type="file" id="qualFileInput_' + doc.key + '" accept="image/*" style="display:none;" />'
         : '') +
         infoHtml;
 
@@ -246,7 +246,10 @@
         const doc = (COUNTRY_DOCS[state.country] || []).find((d) => d.key === key);
         if (!doc || !window.QualCamera) return;
         window.QualCamera.open(doc.label, (blob, err) => {
-          if (err) { alert(err); return; }
+          if (err) {
+            showError("qualDocsError", err);
+            return;
+          }
           if (blob) handleDocVerification(key, blob, doc.label + ".jpg");
         });
       });
@@ -434,13 +437,13 @@
         } else {
           btn.textContent = "Send Support Request";
           btn.disabled = false;
-          alert(data.message || "Failed to send. Please try again.");
+          showError("qualDocsError", data.message || "Failed to send. Please try again.");
         }
       })
       .catch(function () {
         btn.textContent = "Send Support Request";
         btn.disabled = false;
-        alert("Network error. Please try again.");
+        showError("qualDocsError", "Network error. Please try again.");
       });
     });
   }
@@ -468,10 +471,8 @@
     renderQualDocSlots();
 
     try {
-      // Convert to base64
       const base64 = await fileToBase64(fileOrBlob);
-      // After resizing, image is always JPEG
-      const mimeType = "image/jpeg";
+      const mimeType = fileOrBlob.type || "application/octet-stream";
 
       const resp = await fetch("/api/ai/verify-qualification", {
         method: "POST",
@@ -545,46 +546,17 @@
 
   function fileToBase64(fileOrBlob) {
     return new Promise((resolve, reject) => {
-      // If file is PDF, tell user to use image
       if (fileOrBlob.type === "application/pdf") {
-        reject(new Error("Please upload an image (JPG, PNG) or use the camera. PDF scanning is not yet supported."));
+        reject(new Error("Please upload an image or use the camera. PDF scanning is not yet supported."));
         return;
       }
 
-      // Resize image to keep under Vercel 4.5MB body limit
-      var isImage = /^image\//i.test(fileOrBlob.type);
-      if (isImage) {
-        var img = new Image();
-        var url = URL.createObjectURL(fileOrBlob);
-        img.onload = function () {
-          URL.revokeObjectURL(url);
-          var maxDim = 1200;
-          var w = img.width, h = img.height;
-          if (w > maxDim || h > maxDim) {
-            var scale = maxDim / Math.max(w, h);
-            w = Math.round(w * scale);
-            h = Math.round(h * scale);
-          }
-          var canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-          var dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-          resolve(dataUrl.split(",")[1]);
-        };
-        img.onerror = function () {
-          URL.revokeObjectURL(url);
-          reject(new Error("Failed to load image."));
-        };
-        img.src = url;
-      } else {
-        var reader = new FileReader();
-        reader.onload = function () {
-          resolve(reader.result.split(",")[1] || reader.result);
-        };
-        reader.onerror = function () { reject(new Error("Failed to read file.")); };
-        reader.readAsDataURL(fileOrBlob);
-      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(reader.result.split(",")[1] || reader.result);
+      };
+      reader.onerror = function () { reject(new Error("Failed to read file.")); };
+      reader.readAsDataURL(fileOrBlob);
     });
   }
 
@@ -682,7 +654,7 @@
         credentials: "same-origin",
         body: JSON.stringify({
           imageBase64: base64,
-          mimeType: "image/jpeg",
+          mimeType: fileOrBlob.type || "application/octet-stream",
           qualificationName: qualName,
           profileName: getProfileName(),
         }),
@@ -726,7 +698,10 @@
     idVerifyCameraBtn.addEventListener("click", () => {
       if (!window.QualCamera) return;
       window.QualCamera.open("Passport or Driver's Licence", (blob, err) => {
-        if (err) { alert(err); return; }
+        if (err) {
+          showError("docsError", err);
+          return;
+        }
         if (blob) handleIdVerification(blob, "ID_capture.jpg");
       });
     });
