@@ -2315,25 +2315,44 @@
       });
     }
 
-    const initialProgress = loadProgress();
+    function redirectToPrerequisiteStep() {
+      const epic = parseStorage(EPIC_KEY);
+      const amc = parseStorage(AMC_KEY);
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      if (!epicDone) {
+        window.location.replace("/pages/myinthealth.html");
+        return true;
+      }
+      if (!amcDone) {
+        window.location.replace("/pages/amc.html");
+        return true;
+      }
+      return false;
+    }
 
-    const routeTab = pickTabFromRoute(initialProgress);
-    currentTabKey = routeTab || activeTabStage(initialProgress);
-    if (!routeTab) syncRouteForStage(initialProgress.stage, true);
-    renderPage(initialProgress);
+    if (!redirectToPrerequisiteStep()) {
+      const initialProgress = loadProgress();
 
-    window.addEventListener("popstate", () => {
-      const progress = loadProgress();
-      const tabFromRoute = pickTabFromRoute(progress);
-      currentTabKey = tabFromRoute || activeTabStage(progress);
-      renderPage(progress);
-    });
-    // Re-render after state-sync hydrates the current user's data
-    window.addEventListener("gp-state-hydrated", function () {
-      const progress = loadProgress();
-      currentTabKey = activeTabStage(progress);
-      renderPage(progress);
-    }, { once: true });
+      const routeTab = pickTabFromRoute(initialProgress);
+      currentTabKey = routeTab || activeTabStage(initialProgress);
+      if (!routeTab) syncRouteForStage(initialProgress.stage, true);
+      renderPage(initialProgress);
+
+      window.addEventListener("popstate", () => {
+        const progress = loadProgress();
+        const tabFromRoute = pickTabFromRoute(progress);
+        currentTabKey = tabFromRoute || activeTabStage(progress);
+        renderPage(progress);
+      });
+      // Re-render after state-sync hydrates the current user's data
+      window.addEventListener("gp-state-hydrated", function () {
+        if (redirectToPrerequisiteStep()) return;
+        const progress = loadProgress();
+        currentTabKey = activeTabStage(progress);
+        renderPage(progress);
+      }, { once: true });
+    }
   </script>
 </body>
 </html>
