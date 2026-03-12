@@ -1274,6 +1274,7 @@
     const PREPARED_DOCS_KEY = "gp_prepared_docs";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
+    const AI_SCAN_ACCEPT = "image/*,.pdf";
     const PREPARED_DOC_STATUS = ["pending", "requested", "uploaded", "under_review", "approved", "rejected", "accepted", "action_required", "certified"];
     const INSTITUTION_STATUS = ["pending", "requested", "under_review", "approved", "accepted", "rejected", "action_required"];
 
@@ -1761,6 +1762,15 @@
       });
     }
 
+    function isAiScannableFile(file) {
+      if (!file) return false;
+      var type = String(file.type || "").toLowerCase();
+      var name = String(file.name || "").toLowerCase();
+      if (type === "application/pdf" || /\.pdf$/i.test(name)) return true;
+      if (/^image\//i.test(type)) return true;
+      return /\.(jpg|jpeg|png|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(name);
+    }
+
     function normalizeStoredDoc(doc) {
       var next = doc && typeof doc === "object" ? { ...doc } : {};
       if (typeof next.uploaded !== "boolean") next.uploaded = false;
@@ -2028,16 +2038,15 @@
         }
         var uploadHtml;
         if (itemState.status === "scanning") {
-          uploadHtml = '<div class="cert-scanning"><div class="cert-scan-spinner"></div> Verifying certification...</div>';
+          uploadHtml = '<div class="cert-scanning"><div class="cert-scan-spinner"></div> ' + (needsCert ? 'Verifying certification...' : 'Checking document...') + '</div>';
         } else if (itemState.uploaded) {
-          var reAccept = '.pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif';
-          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept="' + reAccept + '" /></label>' + (itemState.downloadUrl ? '<a class="btn btn-soft" href="' + itemState.downloadUrl + '" download="' + itemState.fileName + '">Download</a>' : '');
+          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>' + (itemState.downloadUrl ? '<a class="btn btn-soft" href="' + itemState.downloadUrl + '" download="' + itemState.fileName + '">Download</a>' : '');
         } else if (needsCert) {
           uploadHtml =
             '<button class="upload-btn cert-scan-btn mobile-only" type="button" data-cert-scan="' + doc.key + '"><svg viewBox="0 0 24 24"><path d="M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5"></path><path d="M16 8l-4 4-4-4"></path></svg>Scan Document</button>' +
-            '<label class="upload-btn desktop-only"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif" /></label>';
+            '<label class="upload-btn desktop-only"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
         } else {
-          uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif" /></label>';
+          uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
         }
         var card = document.createElement("div");
         card.className = "doc-card";
@@ -2155,8 +2164,95 @@
         showCertResultPopup(false, "Scan Failed", msg + extra, { showSupport: showSupport });
       }
 
+      function buildClassificationFailureMessage(docTitle, data) {
+        var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
+        if (data && data.classification && data.classification.identifiedAs) {
+          reason = "This appears to be <strong>" + data.classification.identifiedAs + "</strong>, not <strong>" + docTitle + "</strong>.";
+        }
+        if (data && data.classification && data.classification.reason) {
+          reason += '<br><span style="color:#64748b;font-size:12px;">' + data.classification.reason + '</span>';
+        }
+        return reason;
+      }
+
+      function handlePreparedDocClassificationFailure(key, state, country, fileName, docTitle, message, title) {
+        delete state.docs[key];
+        deletePreparedDocumentFile(country, key);
+        persistDocsState(state, true);
+        renderAll(country, state);
+        showCertResultPopup(false, title || "Wrong Document", message || ("This file does not appear to be the correct document for <strong>" + docTitle + "</strong>."));
+      }
+
+      function runPreparedDocumentClassificationCheck(file, key, docTitle, state, country) {
+        readFileAsDataUrl(file).then(function(fileDataUrl) {
+          var storedFile = {
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            fileSize: Number(file.size || 0),
+            fileDataUrl: fileDataUrl
+          };
+          state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
+          persistDocsState(state, true);
+          renderAll(country, state);
+          window.gpFileToBase64(file).then(function(base64) {
+            return fetch("/api/ai/classify-document", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fileBase64: base64,
+                mimeType: /^image\//i.test(file.type || "") ? "image/jpeg" : (file.type || "application/pdf"),
+                expectedKey: key,
+                expectedLabel: docTitle
+              })
+            });
+          }).then(function(res) {
+            return res.json();
+          }).then(function(data) {
+            if (data.ok && data.classification && data.classification.matches) {
+              savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
+                state.docs[key] = applyStoredFile({
+                  uploaded: true,
+                  fileName: file.name,
+                  status: "under_review",
+                  aiVerified: true,
+                  aiVerifiedAt: new Date().toISOString()
+                }, savedFile);
+                persistDocsState(state, true);
+                renderAll(country, state);
+                showCertResultPopup(true, "Document Uploaded", "<strong>" + docTitle + "</strong> passed AI document checks and has been uploaded.");
+              }).catch(function() {
+                delete state.docs[key];
+                persistDocsState(state, true);
+                renderAll(country, state);
+                showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
+              });
+              return;
+            }
+            if (!data.ok || !data.classification) {
+              handlePreparedDocClassificationFailure(
+                key,
+                state,
+                country,
+                file.name,
+                docTitle,
+                (data && data.message) ? data.message : "Could not verify this document. Please try again.",
+                "Scan Failed"
+              );
+              return;
+            }
+            handlePreparedDocClassificationFailure(key, state, country, file.name, docTitle, buildClassificationFailureMessage(docTitle, data));
+          }).catch(function(err) {
+            var message = err && err.message ? err.message : "Could not verify this document. Please try again.";
+            handlePreparedDocClassificationFailure(key, state, country, file.name, docTitle, message, "Scan Failed");
+          });
+        }).catch(function() {
+          showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
+        });
+      }
+
       function runCertificationCheck(file, key, docTitle, state, country) {
-        var isImage = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type);
+        var isImage = /^image\//i.test(file.type);
         readFileAsDataUrl(file).then(function(fileDataUrl) {
           var storedFile = {
             fileName: file.name,
@@ -2173,7 +2269,7 @@
                 method: "POST",
                 credentials: "same-origin",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fileBase64: base64, mimeType: file.type || "application/pdf", expectedKey: key, expectedLabel: docTitle })
+                body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? "image/jpeg" : (file.type || "application/pdf"), expectedKey: key, expectedLabel: docTitle })
               });
             }).then(function(res) { return res.json(); }).then(function(data) {
               if (data.ok && data.classification && data.classification.matches) {
@@ -2212,7 +2308,7 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 imageBase64: base64,
-                mimeType: file.type || "image/jpeg",
+                mimeType: "image/jpeg",
                 documentType: docTitle || "qualification document"
               })
             });
@@ -2272,6 +2368,7 @@
         var key = input.getAttribute("data-prepared-doc");
         var file = input.files && input.files[0];
         if (!key || !file) return;
+        input.value = "";
 
         /* Block video/audio files */
         var blockedTypes = /^(video|audio)\//i;
@@ -2281,48 +2378,18 @@
           showCertResultPopup(false, "File Not Accepted", "Video and audio files are not accepted. Please upload a document or image file.");
           return;
         }
+        if (!isAiScannableFile(file)) {
+          showCertResultPopup(false, "File Not Accepted", "Please upload a PDF or image file so Claude can scan it.");
+          return;
+        }
 
         var docDef = cfg.prepared.find(function(d) { return d.key === key; });
         var needsCert = docDef && docDef.help && docDef.help.certNote;
 
-        /* Skip filename mismatch for certNote docs — AI handles verification */
-        if (!needsCert && docDef && file.name) {
-          var fn = file.name.toLowerCase();
-          var title = docDef.title.toLowerCase();
-          var keywords = title.replace(/[^a-z0-9]+/g, " ").split(" ").filter(function(w) { return w.length > 3; });
-          var matchCount = keywords.filter(function(kw) { return fn.includes(kw); }).length;
-          if (keywords.length > 0 && matchCount === 0) {
-            if (!confirm("The file \"" + file.name + "\" doesn't appear to match \"" + docDef.title + "\". Upload anyway?")) {
-              input.value = "";
-              return;
-            }
-          }
-        }
-
         if (needsCert) {
           runCertificationCheck(file, key, docDef.title, state, country);
         } else {
-          readFileAsDataUrl(file).then(function(fileDataUrl) {
-            var storedFile = {
-              fileName: file.name,
-              mimeType: file.type || "application/octet-stream",
-              fileSize: Number(file.size || 0),
-              fileDataUrl: fileDataUrl
-            };
-            savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
-              state.docs[key] = applyStoredFile({
-                uploaded: true,
-                fileName: file.name,
-                status: "under_review"
-              }, savedFile);
-              persistDocsState(state, true);
-              renderAll(country, state);
-            }).catch(function() {
-              showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
-            });
-          }).catch(function() {
-            showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
-          });
+          runPreparedDocumentClassificationCheck(file, key, docDef.title, state, country);
         }
       });
 

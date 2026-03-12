@@ -5,6 +5,7 @@
   /* ── Constants ── */
   var MODAL_ID = "gpScanModal";
   var STYLE_ID = "gpScanStyle";
+  var AI_SCAN_ACCEPT = "image/*,.pdf";
 
   var DOC_LABELS = {
     primary_medical_degree: "Primary Medical Degree",
@@ -75,6 +76,15 @@
   function base64ToDataUrl(base64, mimeType) {
     if (typeof base64 !== "string" || !base64) return "";
     return "data:" + (mimeType || "application/octet-stream") + ";base64," + base64;
+  }
+
+  function isAiScannableFile(file) {
+    if (!file) return false;
+    var type = String(file.type || "").toLowerCase();
+    var name = String(file.name || "").toLowerCase();
+    if (type === "application/pdf" || /\.pdf$/i.test(name)) return true;
+    if (/^image\//i.test(type)) return true;
+    return /\.(jpg|jpeg|png|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(name);
   }
 
   /* ── Styles ── */
@@ -149,7 +159,7 @@
                 '<small>PDF, JPG, PNG</small>' +
               '</button>' +
             '</div>' +
-            '<input id="gpScanFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.odt,.ods,.odp,.csv,.heic,.heif" style="display:none"/>' +
+            '<input id="gpScanFile" type="file" accept="' + AI_SCAN_ACCEPT + '" style="display:none"/>' +
             '<div class="scan-file" id="gpScanFileCard">' +
               '<span class="scan-file-name" id="gpScanFileName"></span>' +
               '<span class="scan-file-size" id="gpScanFileSize"></span>' +
@@ -222,6 +232,10 @@
 
   /* ── File selection ── */
   function pickFile(file) {
+    if (!isAiScannableFile(file)) {
+      showScanError("Please upload a PDF or image file so Claude can scan it.");
+      return;
+    }
     selectedFile = file;
     var card = document.getElementById("gpScanFileCard");
     var nameEl = document.getElementById("gpScanFileName");
@@ -253,7 +267,7 @@
     if (phaseEl) phaseEl.textContent = certContext ? "Verifying certification..." : "Analyzing...";
 
     // Check if it's an image we can send to AI vision
-    var isImage = /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type);
+    var isImage = /^image\//i.test(file.type);
 
     /* ── Certification scan mode ── */
     if (certContext && isImage) {
@@ -267,7 +281,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             imageBase64: base64,
-            mimeType: file.type || "image/jpeg",
+            mimeType: "image/jpeg",
             documentType: ctx.title || "qualification document"
           })
         });
@@ -301,9 +315,9 @@
                 fileName: file.name,
                 certified: isCertified,
                 verification: v,
-                mimeType: file.type || "image/jpeg",
+                mimeType: "image/jpeg",
                 fileSize: Number(file.size || 0),
-                fileDataUrl: base64ToDataUrl(imageBase64, file.type || "image/jpeg")
+                fileDataUrl: base64ToDataUrl(imageBase64, "image/jpeg")
               });
             }
             showStep("result");
@@ -333,7 +347,7 @@
           method: "POST",
           credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileBase64: base64, mimeType: file.type || "application/pdf", expectedKey: ctx2.key, expectedLabel: ctx2.title })
+          body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? "image/jpeg" : (file.type || "application/pdf"), expectedKey: ctx2.key, expectedLabel: ctx2.title })
         });
       }).then(function(res) { return res.json(); }).then(function(data) {
         if (data.ok && data.classification && data.classification.matches) {
@@ -423,7 +437,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             imageBase64: base64,
-            mimeType: file.type || "image/jpeg",
+            mimeType: "image/jpeg",
             documentType: "Unknown - identify this document",
             expectedCountry: "any",
             profileName: profileName

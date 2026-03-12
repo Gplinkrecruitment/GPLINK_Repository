@@ -3716,13 +3716,14 @@ Valid document types and what they look like:
 - RNZCGP Confirmation Letter: Letter from RNZCGP confirming fellowship
 - Certificate of Good Standing: Registration status document from a medical regulatory body (GMC, IMC, MCNZ, etc.)
 - Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
-- CV (Signed and dated): A doctor's curriculum vitae / resume
+- CV (Signed and dated): A doctor's curriculum vitae / resume that is visibly signed and dated
 - Confirmation of Training: Letter from GMC or equivalent confirming training posts
 
 IMPORTANT:
 - Do NOT mention security concerns, privacy risks, or dangers of sharing documents.
 - Focus ONLY on whether the document matches what the user claims it is.
 - If it is clearly a different type of document, identify what it actually appears to be.
+- If the expected document is "CV (Signed and dated)", return "matches": true only when the file is clearly a CV/resume and it appears signed and dated. If it is a CV missing a visible signature or date, return "matches": false and explain that it appears to be an unsigned or undated CV.
 
 Return ONLY valid JSON with no markdown formatting:
 {"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation"}`;
