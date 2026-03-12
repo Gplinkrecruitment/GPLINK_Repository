@@ -1996,6 +1996,7 @@
           state.docs[key] = { uploaded: true, fileName: file.name, status: "under_review", certificationStatus: "unknown" };
           saveDocsState(state);
           renderAll(country, state);
+          showCertResultPopup(true, "Document Uploaded", "PDF uploaded for <strong>" + docTitle + "</strong>. Certification will be verified manually.");
           return;
         }
         state.docs[key] = { uploaded: true, fileName: file.name, status: "scanning" };
@@ -2065,9 +2066,11 @@
         var file = input.files && input.files[0];
         if (!key || !file) return;
 
-        /* Light filename mismatch warning */
         var docDef = cfg.prepared.find(function(d) { return d.key === key; });
-        if (docDef && file.name) {
+        var needsCert = docDef && docDef.help && docDef.help.certNote;
+
+        /* Skip filename mismatch for certNote docs — AI handles verification */
+        if (!needsCert && docDef && file.name) {
           var fn = file.name.toLowerCase();
           var title = docDef.title.toLowerCase();
           var keywords = title.replace(/[^a-z0-9]+/g, " ").split(" ").filter(function(w) { return w.length > 3; });
@@ -2080,7 +2083,6 @@
           }
         }
 
-        var needsCert = docDef && docDef.help && docDef.help.certNote;
         if (needsCert) {
           runCertificationCheck(file, key, docDef.title, state, country);
         } else {
