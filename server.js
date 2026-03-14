@@ -1606,6 +1606,17 @@ function requireAdminSession(req, res) {
   return { session, email };
 }
 
+function requireIntegrationAdminSession(req, res) {
+  const session = requireSession(req, res);
+  if (!session) return null;
+  const email = getSessionEmail(session);
+  if (!isAdminEmail(email)) {
+    sendJson(res, 403, { ok: false, message: 'Admin access required.' });
+    return null;
+  }
+  return { session, email };
+}
+
 function hasOwn(obj, key) {
   return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
 }
@@ -4032,6 +4043,158 @@ async function handleApi(req, res, pathname) {
       connected: !!(connection && connection.refreshToken),
       lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
       roles: rows.map(mapCareerRoleRowToClient)
+    });
+    return;
+  }
+
+  if (pathname === '/api/integrations/zoho-recruit/status' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit integration requires Supabase database configuration.' });
+      return;
+    }
+    const adminCtx = requireIntegrationAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const [connection, roles] = await Promise.all([
+      getZohoRecruitConnection(),
+      listCareerRoleRows(false)
+    ]);
+    sendJson(res, 200, {
+      ok: true,
+      configured: isZohoRecruitConfigured(),
+      redirectUri: ZOHO_RECRUIT_REDIRECT_URI,
+      accountsServer: getZohoRecruitAccountsServer(),
+      scopes: getZohoRecruitScopes(),
+      connected: !!(connection && connection.refreshToken),
+      connection,
+      roleCount: roles.length
+    });
+    return;
+  }
+
+  if (pathname === '/api/integrations/zoho-recruit/connect' && req.method === 'GET') {
+    const adminCtx = requireIntegrationAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isZohoRecruitConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit environment variables are incomplete.' });
+      return;
+    }
+
+    const oauthState = await createZohoOauthState(adminCtx.email);
+    const authUrl = new URL(`${getZohoRecruitAccountsServer()}/oauth/v2/auth`);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('client_id', ZOHO_RECRUIT_CLIENT_ID);
+    authUrl.searchParams.set('scope', getZohoRecruitScopes().join(','));
+    authUrl.searchParams.set('redirect_uri', ZOHO_RECRUIT_REDIRECT_URI);
+    authUrl.searchParams.set('access_type', 'offline');
+    authUrl.searchParams.set('prompt', 'consent');
+    authUrl.searchParams.set('state', oauthState);
+    res.writeHead(302, { Location: authUrl.toString() });
+    res.end();
+    return;
+  }
+
+  if (pathname === '/api/integrations/zoho-recruit/callback' && req.method === 'GET') {
+    if (!isZohoRecruitConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit environment variables are incomplete.' });
+      return;
+    }
+
+    const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const state = String(reqUrl.searchParams.get('state') || '').trim();
+    const code = String(reqUrl.searchParams.get('code') || '').trim();
+    const authError = String(reqUrl.searchParams.get('error') || '').trim();
+    const authErrorDescription = String(reqUrl.searchParams.get('error_description') || '').trim();
+    const callbackAccountsServer = normalizeUrlBase(
+      reqUrl.searchParams.get('accounts-server') || reqUrl.searchParams.get('accounts_server') || '',
+      getZohoRecruitAccountsServer()
+    );
+
+    if (authError) {
+      res.writeHead(302, {
+        Location: `/pages/account.html?zohoRecruit=error&message=${encodeURIComponent(authErrorDescription || authError)}`
+      });
+      res.end();
+      return;
+    }
+    if (!state || !code) {
+      sendJson(res, 400, { ok: false, message: 'Missing Zoho Recruit callback parameters.' });
+      return;
+    }
+
+    const statePayload = await consumeZohoOauthState(state);
+    if (!statePayload || !statePayload.email || !isAdminEmail(statePayload.email)) {
+      sendJson(res, 403, { ok: false, message: 'Invalid Zoho Recruit OAuth state.' });
+      return;
+    }
+
+    const exchanged = await exchangeZohoRecruitAuthorizationCode(code, callbackAccountsServer);
+    if (!exchanged.ok) {
+      const errorMessage = getZohoErrorMessage(exchanged.data, 'Failed to connect Zoho Recruit.');
+      res.writeHead(302, {
+        Location: `/pages/account.html?zohoRecruit=error&message=${encodeURIComponent(errorMessage)}`
+      });
+      res.end();
+      return;
+    }
+
+    const callbackSession = getSession(req);
+    const callbackUserId = callbackSession && getSessionEmail(callbackSession) === statePayload.email
+      ? (getSessionSupabaseUserId(callbackSession) || '')
+      : '';
+    const connectedAt = new Date().toISOString();
+    await upsertZohoRecruitConnection({
+      status: 'connected',
+      accountsServer: callbackAccountsServer,
+      apiDomain: normalizeUrlBase(exchanged.data && exchanged.data.api_domain, ''),
+      refreshToken: exchanged.data && exchanged.data.refresh_token ? String(exchanged.data.refresh_token) : '',
+      scopes: String(exchanged.data && exchanged.data.scope ? exchanged.data.scope : ZOHO_RECRUIT_SCOPES)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      connectedByUserId: callbackUserId,
+      connectedEmail: statePayload.email,
+      tokenLastRefreshedAt: connectedAt,
+      connectedAt,
+      lastSyncStatus: 'pending',
+      lastSyncError: '',
+      metadata: {
+        apiDomain: normalizeUrlBase(exchanged.data && exchanged.data.api_domain, ''),
+        location: String(exchanged.data && exchanged.data.location ? exchanged.data.location : '').trim()
+      }
+    });
+
+    const syncResult = await syncZohoRecruitRoles();
+    if (!syncResult.ok) {
+      res.writeHead(302, {
+        Location: `/pages/account.html?zohoRecruit=connected&sync=error&message=${encodeURIComponent(syncResult.message || 'Sync failed')}`
+      });
+      res.end();
+      return;
+    }
+
+    res.writeHead(302, {
+      Location: `/pages/account.html?zohoRecruit=connected&sync=success&roles=${encodeURIComponent(String(syncResult.syncedRoleCount || 0))}`
+    });
+    res.end();
+    return;
+  }
+
+  if (pathname === '/api/integrations/zoho-recruit/sync' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit sync requires Supabase database configuration.' });
+      return;
+    }
+    const adminCtx = requireIntegrationAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const syncResult = await syncZohoRecruitRoles();
+    sendJson(res, syncResult.ok ? 200 : (syncResult.status || 502), {
+      ok: !!syncResult.ok,
+      syncedAt: syncResult.syncedAt || null,
+      syncedRoleCount: syncResult.syncedRoleCount || 0,
+      message: syncResult.message || '',
+      connection: syncResult.connected || null
     });
     return;
   }
