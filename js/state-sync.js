@@ -15,6 +15,7 @@
     'gpLinkMessageDB',
     'gpLinkSupportDraft',
     'gp_account_profile',
+    'gp_career_state',
     'gp_onboarding',
     'gp_onboarding_complete'
   ];

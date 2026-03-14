@@ -743,6 +743,99 @@
       line-height: 1.5;
     }
 
+    .saved-jobs-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .saved-job-row {
+      border: 1px solid #e8edf5;
+      border-radius: 14px;
+      background: #fff;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .saved-job-head {
+      display: grid;
+      gap: 4px;
+    }
+
+    .saved-job-head h4 {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.03em;
+    }
+
+    .saved-job-location {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .saved-job-copy {
+      display: grid;
+      gap: 8px;
+    }
+
+    .saved-job-copy p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-weight: 500;
+    }
+
+    .saved-job-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .saved-job-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+
+    .saved-job-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .saved-job-empty {
+      border: 1px dashed #cbd5e1;
+      border-radius: 14px;
+      background: #f8fafc;
+      padding: 20px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .saved-job-empty h4 {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.03em;
+    }
+
+    .saved-job-empty p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
     /* ─── MOBILE NAV ─── */
     .mobile-nav {
       position: fixed;
@@ -981,12 +1074,33 @@
             <span class="home-action-desc">View all uploaded documents and scans.</span>
           </a>
 
+          <a class="home-action-card" href="career.html" style="text-decoration:none;color:inherit;">
+            <div class="home-action-icon blue">
+              <svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
+            </div>
+            <span class="home-action-title">Career</span>
+            <span class="home-action-desc">Browse roles, review applications and check your placement status.</span>
+          </a>
+
           <div class="home-suggestion">
             <h3>Complete your account check-up</h3>
             <p>Review personal details, security settings and documents to keep your account current and speed up employer applications.</p>
             <button type="button" class="btn primary" data-tab-target="personal" style="width:fit-content;">Begin check-up</button>
           </div>
         </div>
+
+        <section class="section-card" style="margin-top:12px;">
+          <div class="section-header">
+            <div class="section-header-left">
+              <h3 class="section-title">Saved Jobs</h3>
+              <p class="section-subtitle">Roles you bookmarked from Career will appear here.</p>
+            </div>
+            <div class="section-icon blue">
+              <svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
+            </div>
+          </div>
+          <div class="saved-jobs-list" id="savedJobsList"></div>
+        </section>
       </div>
 
       <!-- PERSONAL -->
@@ -1264,6 +1378,7 @@
     const saveBtnEl = document.getElementById("saveBtn");
     const resetBtnEl = document.getElementById("resetBtn");
     const saveStateTextEl = document.getElementById("saveStateText");
+    const savedJobsListEl = document.getElementById("savedJobsList");
     const passwordStateTextEl = document.getElementById("passwordStateText");
     const passwordActionStatusEl = document.getElementById("passwordActionStatus");
     const currentPasswordEl = document.getElementById("currentPassword");
@@ -1318,6 +1433,8 @@
         updated: document.getElementById("cvUpdated")
       }
     };
+
+    const CAREER_STATE_KEY = "gp_career_state";
 
     /* ─── TAB SWITCHING WITH ANIMATION ─── */
     let activeTab = "home";
@@ -1430,6 +1547,15 @@
       return d.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     }
 
+    function escapeHtml(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     function buildAvatarPlaceholder(first, last) {
       var a = String(first || "").trim().charAt(0).toUpperCase();
       var b = String(last || "").trim().charAt(0).toUpperCase();
@@ -1490,6 +1616,57 @@
         updatedAt: null,
         url: fallbackDataUrl || ""
       };
+    }
+
+    function loadCareerState() {
+      var parsed = parseStorage(CAREER_STATE_KEY);
+      return parsed && typeof parsed === "object" ? parsed : { savedJobs: [] };
+    }
+
+    function saveCareerState(nextState) {
+      var payload = nextState && typeof nextState === "object" ? nextState : { savedJobs: [] };
+      payload.updatedAt = new Date().toISOString();
+      localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(payload));
+      window.dispatchEvent(new Event("gp-career-updated"));
+    }
+
+    function renderSavedJobs() {
+      if (!savedJobsListEl) return;
+      var careerState = loadCareerState();
+      var savedJobs = Array.isArray(careerState.savedJobs) ? careerState.savedJobs : [];
+
+      if (!savedJobs.length) {
+        savedJobsListEl.innerHTML = '' +
+          '<div class="saved-job-empty">' +
+            '<h4>No saved jobs yet</h4>' +
+            '<p>Save roles from the Career page and they will appear here for quick access.</p>' +
+            '<div><a class="btn primary" href="career.html#browse" style="text-decoration:none;display:inline-flex;">Open Career</a></div>' +
+          '</div>';
+        return;
+      }
+
+      savedJobsListEl.innerHTML = savedJobs.map(function(job) {
+        var tags = Array.isArray(job.tags) ? job.tags.slice(0, 2) : [];
+        return '' +
+          '<article class="saved-job-row">' +
+            '<div class="saved-job-copy">' +
+              '<div class="saved-job-head">' +
+                '<h4>' + escapeHtml(job.practiceName) + '</h4>' +
+                '<span class="saved-job-location">' + escapeHtml(job.location) + '</span>' +
+              '</div>' +
+              '<p>' + escapeHtml(job.summary) + '</p>' +
+              '<div class="saved-job-badges">' +
+                '<span class="saved-job-badge">' + escapeHtml(job.billing) + '</span>' +
+                '<span class="saved-job-badge">' + escapeHtml(job.earnings) + '</span>' +
+                tags.map(function(tag) { return '<span class="saved-job-badge">' + escapeHtml(tag) + '</span>'; }).join('') +
+              '</div>' +
+            '</div>' +
+            '<div class="saved-job-actions">' +
+              '<a class="btn" href="career.html?role=' + encodeURIComponent(job.id) + '#browse" style="text-decoration:none;display:inline-flex;">View in Career</a>' +
+              '<button class="btn" type="button" data-remove-saved-job="' + escapeHtml(job.id) + '">Remove</button>' +
+            '</div>' +
+          '</article>';
+      }).join("");
     }
 
     function normalizeProfile(payload) {
@@ -1864,6 +2041,20 @@
       });
     }
 
+    if (savedJobsListEl) {
+      savedJobsListEl.addEventListener("click", function(event) {
+        var removeBtn = event.target.closest("[data-remove-saved-job]");
+        if (!removeBtn) return;
+        var jobId = removeBtn.getAttribute("data-remove-saved-job");
+        var careerState = loadCareerState();
+        careerState.savedJobs = Array.isArray(careerState.savedJobs)
+          ? careerState.savedJobs.filter(function(job) { return !job || job.id !== jobId; })
+          : [];
+        saveCareerState(careerState);
+        renderSavedJobs();
+      });
+    }
+
     Object.entries(uploadUi).forEach(function(entry) {
       var type = entry[0], ui = entry[1];
       if (!ui.input || !ui.action) return;
@@ -1894,8 +2085,15 @@
         applyProfileToForm({});
         setSaveState("Couldn't load profile. Check connection.", "error");
       }
+      renderSavedJobs();
       positionSlider(false);
     })();
+
+    window.addEventListener("gp-state-hydrated", renderSavedJobs, { once: true });
+    window.addEventListener("gp-career-updated", renderSavedJobs);
+    window.addEventListener("storage", function(event) {
+      if (event.key === CAREER_STATE_KEY) renderSavedJobs();
+    });
   </script>
 </body>
 </html>

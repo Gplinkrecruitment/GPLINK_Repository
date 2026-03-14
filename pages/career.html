@@ -5,127 +5,46 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Career - GP Link</title>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/state-sync.js?v=20260315a" defer></script>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260310a" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #ebeae4;
-      --bg-wash: rgba(255, 255, 255, 0.7);
+      --bg: #f0f4fa;
       --panel: #ffffff;
-      --panel-soft: #f4f3ee;
-      --panel-muted: #ecebe5;
+      --panel-soft: #f4f5f7;
+      --panel-muted: #eceef1;
+      --text: #0f172a;
+      --muted: #64748b;
       --ink: #111111;
-      --ink-soft: #2c2b28;
-      --muted: #6f6d67;
-      --muted-strong: #50504c;
-      --line: #dfded7;
-      --line-strong: #c9c8c0;
-      --shadow-lg: 0 24px 48px -30px rgba(17, 17, 17, 0.3);
-      --shadow-md: 0 14px 30px -24px rgba(17, 17, 17, 0.22);
-      --shadow-sm: 0 10px 18px -18px rgba(17, 17, 17, 0.2);
-      --success: #18603b;
-      --success-soft: #e7f4eb;
-      --warning: #8b5e1b;
-      --warning-soft: #f8efe0;
-      --radius-xl: 30px;
-      --radius-lg: 24px;
-      --radius-md: 18px;
-      --radius-sm: 14px;
+      --charcoal: #1f2937;
+      --line: #e8edf5;
+      --line-strong: #d5dce6;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --success: #166534;
+      --success-soft: #ecfdf5;
+      --warning: #92400e;
+      --warning-soft: #fff7ed;
+      --shadow-soft: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --shadow-card: 0 18px 40px -28px rgba(15, 23, 42, 0.28);
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
     }
 
     * { box-sizing: border-box; }
-
-    html, body {
-      margin: 0;
-      min-height: 100%;
-      font-family: "Manrope", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        radial-gradient(90% 46% at 50% 0%, rgba(255, 255, 255, 0.72), transparent 78%),
-        radial-gradient(70% 34% at 100% 100%, rgba(17, 17, 17, 0.04), transparent 78%),
-        var(--bg);
-      color: var(--ink);
-    }
-
+    html, body { margin: 0; min-height: 100%; }
     body {
-      display: flex;
-      justify-content: center;
-      padding: 18px 14px 112px;
-    }
-
-    .page-frame {
-      width: min(100%, 1100px);
-      display: grid;
-      justify-items: center;
-      gap: 18px;
-    }
-
-    .desktop-topbar {
-      display: none;
-      width: min(100%, 960px);
-      padding: 12px 16px;
-      border-radius: 26px;
-      background: rgba(255, 255, 255, 0.92);
-      border: 1px solid rgba(17, 17, 17, 0.08);
-      box-shadow: var(--shadow-md);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-    }
-
-    .desktop-topbar-inner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-    }
-
-    .desktop-brand {
-      display: inline-flex;
-      align-items: center;
-      text-decoration: none;
-      flex-shrink: 0;
-    }
-
-    .desktop-brand img {
-      display: block;
-      width: 164px;
-      height: auto;
-    }
-
-    .desktop-nav {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      flex: 1;
-      flex-wrap: wrap;
-    }
-
-    .desktop-nav-link {
-      text-decoration: none;
-      color: var(--muted-strong);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 11px 16px;
-      border-radius: 18px;
-      font-size: 13px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
-    }
-
-    .desktop-nav-link:hover {
-      background: rgba(17, 17, 17, 0.06);
-      color: var(--ink);
-      transform: translateY(-1px);
-    }
-
-    .desktop-nav-link.active {
-      background: var(--ink);
-      color: #ffffff;
-      box-shadow: 0 16px 24px -22px rgba(17, 17, 17, 0.72);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 0;
     }
 
     button,
@@ -133,119 +52,86 @@
       font: inherit;
     }
 
-    .career-shell {
-      width: min(100%, 430px);
-      min-height: calc(100dvh - 36px);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(244, 243, 238, 0.92));
-      border: 1px solid rgba(255, 255, 255, 0.6);
-      border-radius: 36px;
-      box-shadow: 0 32px 80px -46px rgba(17, 17, 17, 0.38);
-      padding: 18px 16px 108px;
-      position: relative;
-      overflow: hidden;
-      isolation: isolate;
+    .shell {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 120px;
     }
 
-    .career-shell::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 28%),
-        radial-gradient(70% 40% at 50% 0%, rgba(255, 255, 255, 0.45), transparent 70%);
-      pointer-events: none;
-      z-index: -1;
-    }
-
-    .screen-top {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 18px;
-    }
-
-    .title-block {
-      display: grid;
-      gap: 8px;
-    }
-
-    .eyebrow {
-      display: inline-flex;
+    .app-header {
+      display: none;
       align-items: center;
-      gap: 8px;
-      width: fit-content;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.72);
-      border: 1px solid rgba(17, 17, 17, 0.08);
-      box-shadow: var(--shadow-sm);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--muted-strong);
+      justify-content: space-between;
+      padding: 18px 0 14px;
     }
 
-    .eyebrow-dot {
-      width: 8px;
-      height: 8px;
+    .header-greeting {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-avatar {
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
-      background: var(--ink);
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 32px;
-      line-height: 0.98;
-      letter-spacing: -0.05em;
+      background: linear-gradient(135deg, #111111, #374151);
+      color: #fff;
+      display: grid;
+      place-items: center;
       font-weight: 800;
+      font-size: 18px;
+      border: 2px solid #fff;
+      box-shadow: 0 8px 18px -14px rgba(17, 24, 39, 0.7);
     }
 
-    .page-subtitle {
+    .header-text h1 {
       margin: 0;
-      max-width: 28ch;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .header-text p {
+      margin: 2px 0 0;
       font-size: 13px;
-      line-height: 1.5;
       color: var(--muted);
-      font-weight: 700;
+      font-weight: 600;
     }
 
     .header-actions {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       align-items: center;
     }
 
-    .icon-pill {
-      width: 46px;
-      height: 46px;
-      border: 0;
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.82);
-      box-shadow: var(--shadow-sm);
-      color: var(--ink);
+    .header-icon-btn {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
       display: grid;
       place-items: center;
       cursor: pointer;
-      transition: transform 0.18s ease, box-shadow 0.18s ease;
+      position: relative;
+      transition: all .15s ease;
+      color: #475569;
+      text-decoration: none;
     }
 
-    .icon-pill:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-md);
+    .header-icon-btn:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
     }
 
-    .icon-pill svg,
+    .header-icon-btn svg,
     .nav-icon,
-    .section-link svg,
-    .chip-icon,
-    .bookmark-btn svg,
     .search-icon,
     .status-icon,
-    .timeline-dot svg,
-    .lock-icon,
-    .hero-meta svg {
+    .detail-icon,
+    .modal-close svg {
       width: 18px;
       height: 18px;
       stroke: currentColor;
@@ -255,174 +141,406 @@
       stroke-linejoin: round;
     }
 
-    .mode-switch {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      padding: 6px;
-      background: rgba(17, 17, 17, 0.06);
-      border-radius: 18px;
-      border: 1px solid rgba(17, 17, 17, 0.08);
-      margin-bottom: 18px;
+    .header-badge,
+    .nav-alert,
+    .mobile-tab-alert {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #fff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 2;
     }
 
-    .mode-chip {
-      border: 0;
+    .header-badge {
+      top: -4px;
+      right: -4px;
+      width: 18px;
+      height: 18px;
+      border: 2px solid #f0f4fa;
+    }
+
+    .topbar {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background: #fff;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      min-height: 56px;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+
+    .brand-logo img {
+      display: block;
+      width: 178px;
+      height: auto;
+    }
+
+    .nav-menu {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 4px;
       border-radius: 14px;
-      padding: 13px 12px;
+    }
+
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
+
+    .nav-link,
+    .account-pill {
+      text-decoration: none;
+      border: 0;
       background: transparent;
-      color: var(--muted-strong);
+      color: #111827;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      line-height: 1.15;
+      min-width: 92px;
+      border-radius: 12px;
+      font-family: "Inter", "Segoe UI", sans-serif;
+    }
+
+    .nav-link.active,
+    .account-pill.active {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .nav-icon-wrap,
+    .mobile-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-alert {
+      top: -8px;
+      right: -8px;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 96px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
+    }
+
+    .main {
+      padding: 14px 0 0;
+      display: grid;
+      gap: 12px;
+    }
+
+    .page-hero,
+    .search-panel,
+    .role-card,
+    .application-card,
+    .hero-card,
+    .details-card,
+    .summary-card,
+    .timeline-card,
+    .updates-card,
+    .next-step-card,
+    .opportunity-card,
+    .empty-state,
+    .summary-strip {
+      background: var(--panel);
+      border: 1px solid rgba(17, 17, 17, 0.06);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .page-hero {
+      padding: 22px;
+      background:
+        radial-gradient(circle at top right, rgba(15, 23, 42, 0.06), transparent 40%),
+        linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .hero-copy {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .hero-eyebrow {
+      width: fit-content;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: rgba(17, 17, 17, 0.06);
+      color: #334155;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .page-hero h1 {
+      margin: 0;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 34px;
+      line-height: .95;
+      letter-spacing: -0.05em;
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    .page-subtitle {
+      margin: 0;
+      max-width: 56ch;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .hero-stats {
+      display: grid;
+      gap: 10px;
+      min-width: 200px;
+    }
+
+    .hero-stat {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: #111111;
+      color: #fff;
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .hero-stat.secondary {
+      background: #f8fafc;
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+
+    .hero-stat-value {
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .hero-stat-label {
       font-size: 12px;
+      font-weight: 700;
+      color: inherit;
+      opacity: 0.85;
+    }
+
+    .view-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 6px;
+      background: rgba(17, 17, 17, 0.05);
+      border-radius: 16px;
+      border: 1px solid rgba(17, 17, 17, 0.06);
+    }
+
+    .view-tab {
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      color: #475569;
+      padding: 13px 12px;
+      font-size: 13px;
       font-weight: 800;
       letter-spacing: -0.02em;
       cursor: pointer;
-      transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-align: center;
+      transition: background .16s ease, color .16s ease, transform .16s ease;
     }
 
-    .mode-chip.active {
-      background: var(--ink);
-      color: #ffffff;
-      box-shadow: 0 10px 18px -18px rgba(17, 17, 17, 0.56);
+    .view-tab-label {
+      display: inline-block;
+      min-width: 0;
+      white-space: normal;
+      line-height: 1.15;
     }
 
-    .mode-chip:active {
+    .view-tab.active {
+      background: #111111;
+      color: #fff;
+      box-shadow: 0 10px 18px -18px rgba(17, 17, 17, 0.72);
+    }
+
+    .view-tab:active {
       transform: scale(0.98);
     }
 
-    .state-pane {
-      display: none;
-      gap: 16px;
-      animation: paneIn 0.22s ease;
+    .view-count {
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
     }
 
-    .state-pane.active {
+    .view-tab:not(.active) .view-count {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    .view-panel {
+      display: none;
+      gap: 12px;
+    }
+
+    .view-panel.is-active {
       display: grid;
     }
 
-    @keyframes paneIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .search-card,
-    .section-card,
-    .role-card,
-    .application-card,
-    .details-card,
-    .summary-card,
-    .updates-card,
-    .next-step-card,
-    .opportunity-card {
-      background: var(--panel);
-      border: 1px solid rgba(17, 17, 17, 0.07);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .search-card {
-      padding: 10px;
+    .search-panel {
+      padding: 12px;
+      display: grid;
+      gap: 12px;
     }
 
     .search-bar {
       display: grid;
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
       align-items: center;
-      gap: 12px;
-      padding: 14px 14px 14px 12px;
-      border-radius: 20px;
-      background: var(--panel-soft);
-      border: 1px solid rgba(17, 17, 17, 0.06);
-    }
-
-    .search-track {
-      position: relative;
-      display: grid;
-      justify-items: center;
-      gap: 6px;
-      width: 14px;
-    }
-
-    .search-track::before {
-      content: "";
-      position: absolute;
-      top: 7px;
-      bottom: 7px;
-      left: calc(50% - 1px);
-      width: 2px;
-      border-radius: 999px;
-      background: linear-gradient(180deg, #111111, rgba(17, 17, 17, 0.15));
-    }
-
-    .search-track .circle,
-    .search-track .square {
-      position: relative;
-      z-index: 1;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #111111;
-    }
-
-    .search-track .square {
-      border-radius: 3px;
-      background: #8b8a85;
+      padding: 10px;
+      border-radius: 18px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
     }
 
     .search-input-wrap {
       display: grid;
-      gap: 3px;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: center;
+      padding: 0 6px;
     }
 
-    .search-label {
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--muted);
+    .search-input-wrap .search-icon {
+      color: #475569;
     }
 
     .search-input {
-      width: 100%;
       border: 0;
       background: transparent;
-      color: var(--ink);
       font-size: 14px;
+      color: var(--text);
       font-weight: 700;
-      letter-spacing: -0.02em;
       outline: none;
       padding: 0;
     }
 
     .search-input::placeholder {
-      color: #7f7d77;
+      color: #94a3b8;
     }
 
-    .search-action {
-      width: 42px;
-      height: 42px;
+    .search-btn,
+    .btn-primary,
+    .btn-secondary,
+    .ghost-btn {
       border: 0;
-      border-radius: 15px;
-      background: var(--ink);
-      color: #ffffff;
-      display: grid;
-      place-items: center;
-      box-shadow: 0 10px 18px -16px rgba(17, 17, 17, 0.54);
       cursor: pointer;
+      transition: transform .16s ease, background .16s ease, border-color .16s ease, color .16s ease;
+    }
+
+    .search-btn,
+    .btn-primary {
+      background: #111111;
+      color: #fff;
+      border-radius: 14px;
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      box-shadow: 0 14px 20px -18px rgba(17, 17, 17, 0.8);
+    }
+
+    .btn-secondary,
+    .ghost-btn {
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--line-strong);
+      border-radius: 14px;
+      padding: 11px 14px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .search-btn:active,
+    .btn-primary:active,
+    .btn-secondary:active,
+    .ghost-btn:active {
+      transform: scale(0.98);
     }
 
     .filter-row {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       overflow-x: auto;
       padding-bottom: 2px;
       scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
     }
 
     .filter-row::-webkit-scrollbar {
@@ -430,23 +548,23 @@
     }
 
     .filter-chip {
-      border: 1px solid rgba(17, 17, 17, 0.09);
+      border: 1px solid rgba(15, 23, 42, 0.08);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.72);
-      color: var(--ink-soft);
-      padding: 11px 14px;
+      background: #fff;
+      color: #334155;
+      padding: 10px 14px;
       white-space: nowrap;
       font-size: 12px;
       font-weight: 800;
       letter-spacing: -0.02em;
       cursor: pointer;
-      transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+      transition: background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease;
     }
 
     .filter-chip.active {
-      background: var(--ink);
-      color: #ffffff;
-      border-color: var(--ink);
+      background: #111111;
+      color: #fff;
+      border-color: #111111;
     }
 
     .filter-chip:active {
@@ -458,27 +576,32 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-top: 4px;
     }
 
     .section-title {
       margin: 0;
-      font-size: 18px;
-      font-weight: 800;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 20px;
       letter-spacing: -0.04em;
+      font-weight: 800;
     }
 
     .section-link {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      text-decoration: none;
-      color: var(--muted-strong);
-      font-size: 12px;
-      font-weight: 800;
     }
 
-    .card-stack {
+    .role-grid,
+    .application-grid,
+    .opportunity-grid {
       display: grid;
       gap: 12px;
     }
@@ -486,80 +609,97 @@
     .role-card {
       padding: 18px;
       display: grid;
-      gap: 16px;
+      gap: 14px;
     }
 
-    .role-top {
+    .card-head {
       display: flex;
-      justify-content: space-between;
       align-items: flex-start;
+      justify-content: space-between;
       gap: 12px;
     }
 
-    .role-meta {
-      display: grid;
-      gap: 5px;
-      min-width: 0;
-    }
-
-    .match-chip {
+    .role-kicker,
+    .status-pill,
+    .badge,
+    .badge-soft,
+    .badge-warn,
+    .badge-dark {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       width: fit-content;
-      padding: 6px 10px;
+      padding: 7px 10px;
       border-radius: 999px;
-      background: var(--panel-soft);
-      color: var(--muted-strong);
       font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.04em;
       text-transform: uppercase;
+      white-space: nowrap;
     }
 
-    .role-name {
-      margin: 0;
-      font-size: 20px;
-      line-height: 1.08;
-      letter-spacing: -0.05em;
+    .role-kicker {
+      background: #f8fafc;
+      color: #334155;
+      border: 1px solid #e2e8f0;
+    }
+
+    .role-title {
+      margin: 6px 0 4px;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 24px;
+      line-height: 1.02;
+      letter-spacing: -0.04em;
       font-weight: 800;
       color: var(--ink);
     }
 
-    .role-location {
-      display: flex;
+    .role-location,
+    .card-footnote,
+    .application-sub,
+    .timeline-sub,
+    .detail-subcopy {
+      display: inline-flex;
       align-items: center;
       gap: 6px;
-      font-size: 13px;
       color: var(--muted);
+      font-size: 13px;
       font-weight: 700;
     }
 
-    .bookmark-btn {
+    .save-btn {
       width: 42px;
       height: 42px;
-      border: 1px solid rgba(17, 17, 17, 0.08);
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.84);
-      color: var(--ink);
+      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      color: #0f172a;
       display: grid;
       place-items: center;
       cursor: pointer;
-      transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
       flex-shrink: 0;
+      transition: transform .16s ease, background .16s ease, color .16s ease, border-color .16s ease;
     }
 
-    .bookmark-btn.saved {
-      background: var(--ink);
-      color: #ffffff;
+    .save-btn.saved {
+      background: #111111;
+      color: #fff;
+      border-color: #111111;
     }
 
-    .bookmark-btn:active {
+    .save-btn:active {
       transform: scale(0.96);
     }
 
-    .role-summary {
+    .role-summary,
+    .next-step-copy,
+    .modal-summary,
+    .detail-value,
+    .updates-list li {
       margin: 0;
-      color: var(--muted-strong);
+      color: #334155;
       font-size: 14px;
-      line-height: 1.52;
+      line-height: 1.55;
       font-weight: 700;
     }
 
@@ -570,134 +710,61 @@
     }
 
     .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 8px 10px;
-      border-radius: 999px;
-      background: var(--panel-soft);
-      color: var(--ink-soft);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: -0.01em;
-      border: 1px solid rgba(17, 17, 17, 0.05);
+      background: #f8fafc;
+      color: #334155;
+      border: 1px solid #e2e8f0;
     }
 
-    .badge.dark {
-      background: var(--ink);
-      color: #ffffff;
-      border-color: var(--ink);
-    }
-
-    .badge.soft {
+    .badge-soft {
       background: var(--success-soft);
       color: var(--success);
-      border-color: rgba(24, 96, 59, 0.12);
+      border: 1px solid rgba(22, 101, 52, 0.1);
     }
 
-    .badge.warn {
+    .badge-warn {
       background: var(--warning-soft);
       color: var(--warning);
-      border-color: rgba(139, 94, 27, 0.14);
+      border: 1px solid rgba(146, 64, 14, 0.1);
     }
 
-    .role-footer {
+    .badge-dark {
+      background: #111111;
+      color: #fff;
+      border: 1px solid #111111;
+    }
+
+    .role-footer,
+    .application-footer,
+    .saved-job-footer {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-    }
-
-    .role-footnote {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-
-    .primary-cta,
-    .secondary-cta {
-      border: 0;
-      border-radius: 999px;
-      padding: 12px 16px;
-      font-size: 13px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      cursor: pointer;
-      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
-    }
-
-    .primary-cta {
-      background: var(--ink);
-      color: #ffffff;
-      box-shadow: 0 14px 24px -20px rgba(17, 17, 17, 0.6);
-    }
-
-    .secondary-cta {
-      background: var(--panel-soft);
-      color: var(--ink);
-      border: 1px solid rgba(17, 17, 17, 0.08);
-    }
-
-    .primary-cta:active,
-    .secondary-cta:active {
-      transform: scale(0.98);
-    }
-
-    .applications-grid {
-      display: grid;
-      gap: 12px;
+      gap: 10px;
+      flex-wrap: wrap;
     }
 
     .application-card {
-      padding: 16px;
+      padding: 18px;
       display: grid;
-      gap: 10px;
-    }
-
-    .application-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
+      gap: 14px;
     }
 
     .application-title {
       margin: 0;
-      font-size: 15px;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 18px;
+      font-weight: 800;
       letter-spacing: -0.03em;
-      font-weight: 800;
-    }
-
-    .application-sub {
-      margin: 4px 0 0;
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 700;
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      white-space: nowrap;
     }
 
     .status-pill.review {
-      background: var(--panel-soft);
-      color: var(--ink-soft);
+      background: #eff6ff;
+      color: #1d4ed8;
     }
 
     .status-pill.interview {
-      background: rgba(17, 17, 17, 0.08);
-      color: var(--ink);
+      background: rgba(15, 23, 42, 0.08);
+      color: #0f172a;
     }
 
     .status-pill.offer {
@@ -709,44 +776,80 @@
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(17, 17, 17, 0.07);
+      padding-top: 12px;
+      border-top: 1px solid rgba(15, 23, 42, 0.08);
     }
 
-    .meta-pill {
+    .meta-card {
       display: grid;
-      gap: 3px;
+      gap: 4px;
+      min-width: 0;
     }
 
     .meta-label {
       font-size: 10px;
-      text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: var(--muted);
+      text-transform: uppercase;
       font-weight: 800;
+      color: var(--muted);
     }
 
     .meta-value {
       font-size: 12px;
-      color: var(--ink-soft);
       font-weight: 800;
+      color: #0f172a;
+    }
+
+    .summary-strip {
+      padding: 16px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .summary-strip-copy {
+      display: grid;
+      gap: 4px;
+    }
+
+    .summary-strip-title {
+      margin: 0;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .summary-strip-text {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
     }
 
     .hero-card {
-      background: linear-gradient(180deg, #121212 0%, #1d1d1b 100%);
-      color: #ffffff;
-      border-radius: var(--radius-xl);
-      padding: 22px;
-      box-shadow: 0 26px 44px -26px rgba(17, 17, 17, 0.5);
+      padding: 24px;
+      background: linear-gradient(180deg, #111111 0%, #1f2937 100%);
+      color: #fff;
+      border-radius: 24px;
+      box-shadow: var(--shadow-card);
       display: grid;
-      gap: 16px;
+      gap: 18px;
     }
 
-    .hero-head {
+    .hero-card .badge-soft {
+      background: rgba(255, 255, 255, 0.14);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .hero-top {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
       gap: 12px;
+      align-items: flex-start;
     }
 
     .hero-label {
@@ -754,10 +857,10 @@
       align-items: center;
       gap: 6px;
       width: fit-content;
-      padding: 8px 12px;
+      padding: 7px 10px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.78);
+      color: rgba(255, 255, 255, 0.8);
       font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.12em;
@@ -766,16 +869,17 @@
 
     .hero-title {
       margin: 10px 0 4px;
-      font-size: 27px;
-      line-height: 1.02;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 30px;
+      line-height: 1;
       letter-spacing: -0.05em;
       font-weight: 800;
     }
 
     .hero-role {
       margin: 0;
-      font-size: 14px;
       color: rgba(255, 255, 255, 0.74);
+      font-size: 15px;
       font-weight: 700;
     }
 
@@ -783,9 +887,6 @@
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      color: rgba(255, 255, 255, 0.72);
-      font-size: 13px;
-      font-weight: 700;
     }
 
     .hero-meta span {
@@ -795,15 +896,18 @@
       padding: 8px 10px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 13px;
+      font-weight: 700;
     }
 
     .hero-note {
-      display: grid;
-      gap: 8px;
       padding: 16px;
-      border-radius: 22px;
+      border-radius: 18px;
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.08);
+      display: grid;
+      gap: 6px;
     }
 
     .hero-note-label {
@@ -811,18 +915,24 @@
       font-weight: 800;
       letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.6);
+      color: rgba(255, 255, 255, 0.64);
     }
 
     .hero-note-text {
       margin: 0;
       font-size: 15px;
-      line-height: 1.45;
+      line-height: 1.5;
       font-weight: 700;
+    }
+
+    .secured-grid {
+      display: grid;
+      gap: 12px;
     }
 
     .details-card,
     .summary-card,
+    .timeline-card,
     .updates-card,
     .next-step-card,
     .opportunity-card {
@@ -833,9 +943,10 @@
 
     .card-title {
       margin: 0;
-      font-size: 17px;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 19px;
       font-weight: 800;
-      letter-spacing: -0.04em;
+      letter-spacing: -0.03em;
     }
 
     .detail-grid {
@@ -847,7 +958,7 @@
       display: grid;
       gap: 4px;
       padding-bottom: 12px;
-      border-bottom: 1px solid rgba(17, 17, 17, 0.07);
+      border-bottom: 1px solid rgba(15, 23, 42, 0.08);
     }
 
     .detail-row:last-child {
@@ -863,45 +974,24 @@
       color: var(--muted);
     }
 
-    .detail-value {
-      font-size: 14px;
-      line-height: 1.45;
-      color: var(--ink-soft);
-      font-weight: 800;
-    }
-
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 10px;
     }
 
     .summary-tile {
       padding: 14px;
-      border-radius: 20px;
-      background: var(--panel-soft);
+      border-radius: 16px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
       display: grid;
       gap: 5px;
-      min-height: 92px;
-    }
-
-    .summary-tile .detail-value {
-      font-size: 15px;
-    }
-
-    .timeline-card {
-      padding: 18px;
-      border-radius: var(--radius-lg);
-      background: var(--panel);
-      border: 1px solid rgba(17, 17, 17, 0.07);
-      box-shadow: var(--shadow-sm);
-      display: grid;
-      gap: 16px;
     }
 
     .timeline {
       display: grid;
-      gap: 16px;
+      gap: 14px;
       position: relative;
       margin-left: 4px;
     }
@@ -913,7 +1003,7 @@
       bottom: 10px;
       left: 11px;
       width: 2px;
-      background: linear-gradient(180deg, rgba(17, 17, 17, 0.18), rgba(17, 17, 17, 0.08));
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.18), rgba(15, 23, 42, 0.08));
     }
 
     .timeline-item {
@@ -927,37 +1017,27 @@
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      background: var(--ink);
-      color: #ffffff;
+      background: #111111;
+      color: #fff;
       display: grid;
       place-items: center;
-      margin-top: 1px;
       position: relative;
       z-index: 1;
-      box-shadow: 0 10px 20px -16px rgba(17, 17, 17, 0.6);
+      box-shadow: 0 10px 20px -16px rgba(15, 23, 42, 0.6);
     }
 
     .timeline-copy {
       display: grid;
-      gap: 3px;
-      padding-top: 1px;
+      gap: 4px;
     }
 
     .timeline-title {
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 800;
-      letter-spacing: -0.03em;
-      color: var(--ink);
+      letter-spacing: -0.02em;
     }
 
-    .timeline-sub {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 700;
-    }
-
-    .updates-list,
-    .note-list {
+    .updates-list {
       display: grid;
       gap: 10px;
       margin: 0;
@@ -965,26 +1045,20 @@
       list-style: none;
     }
 
-    .updates-list li,
-    .note-list li {
+    .updates-list li {
       display: grid;
       grid-template-columns: 18px 1fr;
       gap: 10px;
       align-items: start;
-      font-size: 13px;
-      line-height: 1.5;
-      color: var(--ink-soft);
-      font-weight: 700;
     }
 
-    .updates-list li::before,
-    .note-list li::before {
+    .updates-list li::before {
       content: "";
       width: 9px;
       height: 9px;
       border-radius: 50%;
       margin-top: 6px;
-      background: var(--ink);
+      background: #111111;
     }
 
     .next-step-card {
@@ -1004,649 +1078,1361 @@
       width: 42px;
       height: 42px;
       border-radius: 16px;
-      background: var(--ink);
-      color: #ffffff;
+      background: #111111;
+      color: #fff;
       display: grid;
       place-items: center;
       flex-shrink: 0;
     }
 
-    .next-step-copy {
+    .empty-state {
+      padding: 26px 22px;
+      display: none;
+      gap: 8px;
+      text-align: center;
+    }
+
+    .empty-state.is-visible {
+      display: grid;
+    }
+
+    .empty-state-title {
       margin: 0;
-      color: var(--muted-strong);
-      font-size: 14px;
-      line-height: 1.55;
-      font-weight: 700;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
     }
 
-    .opportunity-card {
-      background: rgba(255, 255, 255, 0.72);
+    .empty-state-copy {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 600;
     }
 
-    .collapsed-row {
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.56);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 80;
+    }
+
+    .modal.is-open {
+      display: flex;
+    }
+
+    .modal-card {
+      width: min(560px, 100%);
+      max-height: calc(100dvh - 32px);
+      overflow: auto;
+      background: #fff;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      box-shadow: 0 28px 56px -28px rgba(15, 23, 42, 0.45);
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+      position: relative;
+    }
+
+    .modal-close {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: #334155;
+      display: grid;
+      place-items: center;
+      position: sticky;
+      top: 0;
+      margin-left: auto;
+    }
+
+    .modal-title {
+      margin: 0;
+      font-family: "Manrope", "Inter", sans-serif;
+      font-size: 28px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+    }
+
+    .modal-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .modal-summary {
+      color: #334155;
+    }
+
+    .modal-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .modal-detail-card {
+      padding: 14px;
+      border-radius: 16px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      display: grid;
+      gap: 5px;
+    }
+
+    .modal-detail-card .detail-value {
+      font-size: 13px;
+    }
+
+    .modal-actions {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 10px;
+      flex-wrap: wrap;
     }
 
-    .collapsed-copy {
-      display: grid;
-      gap: 4px;
-    }
-
-    .collapsed-kicker {
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--muted);
-    }
-
-    .collapsed-title {
-      margin: 0;
-      font-size: 15px;
-      line-height: 1.25;
-      letter-spacing: -0.03em;
-      font-weight: 800;
-    }
-
-    .collapsed-sub {
-      margin: 0;
+    .toast {
+      position: fixed;
+      right: 12px;
+      bottom: 92px;
+      z-index: 95;
+      border-radius: 10px;
+      background: #111827;
+      color: #fff;
+      padding: 10px 14px;
       font-size: 12px;
-      color: var(--muted);
       font-weight: 700;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity .2s ease, transform .2s ease;
+      pointer-events: none;
     }
 
-    .bottom-nav {
-      position: absolute;
-      left: 16px;
-      right: 16px;
-      bottom: 16px;
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 8px;
-      padding: 10px;
-      border-radius: 26px;
-      background: rgba(255, 255, 255, 0.94);
-      border: 1px solid rgba(17, 17, 17, 0.08);
-      box-shadow: var(--shadow-lg);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
     }
 
-    .nav-item {
+    .mobile-nav {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 0;
+      width: 100%;
+      max-width: 560px;
+      z-index: 50;
+      display: none;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 4px;
+      border-top: 1px solid #e2e8f0;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
+      overflow: visible;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+
+    .mobile-tab {
       text-decoration: none;
-      color: var(--muted);
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      color: #94a3b8;
+      min-height: 46px;
+      padding: 6px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .mobile-tab-active {
+      background: rgba(20, 91, 196, 0.11);
+      color: #145bc4;
+    }
+
+    .mobile-tab-icon {
+      position: relative;
       display: grid;
-      justify-items: center;
-      gap: 6px;
-      padding: 9px 6px 8px;
-      border-radius: 18px;
-      transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
+      place-items: center;
+      color: #64748b;
     }
 
-    .nav-item.active {
-      background: var(--ink);
-      color: #ffffff;
-      box-shadow: 0 10px 18px -18px rgba(17, 17, 17, 0.72);
+    .mobile-tab-active .mobile-tab-icon {
+      color: #145bc4;
     }
 
-    .nav-item:active {
-      transform: scale(0.98);
+    .mobile-tab-icon svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
-    @media (min-width: 780px) {
+    .mobile-tab-scan .mobile-tab-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      animation: scanHaloPulse 2.8s ease-in-out infinite;
+    }
+
+    .mobile-tab-scan .mobile-tab-icon svg {
+      width: 19px;
+      height: 19px;
+    }
+
+    .mobile-tab-alert {
+      top: -3px;
+      right: -6px;
+    }
+
+    .mobile-tab-label {
+      display: none;
+    }
+
+    @keyframes scanHaloPulse {
+      0%, 100% { box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7); }
+      50% { box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78); }
+    }
+
+    @media (min-width: 960px) {
+      .role-grid,
+      .application-grid,
+      .opportunity-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .secured-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .hero-card,
+      .next-step-card,
+      .opportunity-card {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 767px) {
       body {
-        padding: 28px;
+        padding-bottom: 96px;
       }
 
-      .desktop-topbar {
-        display: block;
+      .shell {
+        padding: 0 12px 108px;
       }
 
-      .career-shell {
-        min-height: 840px;
-        padding-bottom: 28px;
+      .app-header {
+        display: flex;
       }
 
-      .bottom-nav {
+      .topbar {
         display: none;
       }
 
-      .summary-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+      .mobile-nav {
+        display: grid;
+      }
+
+      .page-hero {
+        padding: 18px;
+        display: grid;
+      }
+
+      .page-hero h1 {
+        font-size: 30px;
+      }
+
+      .hero-stats {
+        min-width: 0;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .view-tabs {
+        gap: 6px;
+      }
+
+      .view-tab {
+        min-height: 58px;
+        padding: 10px 7px;
+        font-size: 10.5px;
+        gap: 4px;
+        flex-direction: column;
+      }
+
+      .view-tab-label {
+        line-height: 1.12;
+      }
+
+      .search-panel {
+        padding: 10px;
+      }
+
+      .search-bar {
+        grid-template-columns: 1fr;
+      }
+
+      .search-btn {
+        width: 100%;
+      }
+
+      .section-title {
+        font-size: 18px;
+      }
+
+      .role-card,
+      .application-card,
+      .details-card,
+      .summary-card,
+      .timeline-card,
+      .updates-card,
+      .next-step-card,
+      .opportunity-card {
+        padding: 16px;
+      }
+
+      .role-title {
+        font-size: 21px;
+      }
+
+      .role-location,
+      .card-footnote,
+      .application-sub,
+      .timeline-sub,
+      .detail-subcopy,
+      .role-summary,
+      .next-step-copy,
+      .modal-summary,
+      .detail-value,
+      .updates-list li {
+        font-size: 12.5px;
+      }
+
+      .save-btn {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+      }
+
+      .role-footer,
+      .application-footer,
+      .saved-job-footer,
+      .modal-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .application-top,
+      .hero-top,
+      .summary-strip,
+      .next-step-head {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      .application-meta,
+      .summary-grid,
+      .modal-detail-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-title {
+        font-size: 26px;
+      }
+
+      .hero-meta span {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .modal {
+        padding: 10px;
+      }
+
+      .modal-card {
+        padding: 16px;
       }
     }
   </style>
 </head>
 <body>
-  <div class="page-frame">
-    <header class="desktop-topbar">
-      <div class="desktop-topbar-inner">
-        <a class="desktop-brand" href="/pages/index.html" aria-label="GP Link Home">
+  <div class="shell">
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar">GP</div>
+        <div class="header-text">
+          <h1>Career</h1>
+          <p>Roles, applications and placement progress</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a class="header-icon-btn" href="messages.html" aria-label="Messages">
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg>
+        </a>
+      </div>
+    </header>
+
+    <header class="topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
           <img src="../media/images/gp-link-logo.png" alt="GP Link" />
         </a>
-        <nav class="desktop-nav" aria-label="Main navigation">
-          <a class="desktop-nav-link" href="/pages/index.html">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item" href="index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg>
             <span>Home</span>
           </a>
-          <a class="desktop-nav-link" href="/pages/myinthealth.html">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+          <a class="nav-link nav-item" href="myinthealth.html" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
             <span>Registration</span>
           </a>
-          <a class="desktop-nav-link active" href="/pages/career.html" aria-current="page">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+          <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+            <span>My Documents</span>
+          </a>
+          <a class="nav-link nav-item active" href="career.html" data-nav="career" aria-current="page">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
             <span>Career</span>
           </a>
-          <a class="desktop-nav-link" href="/pages/messages.html">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 5h16v11H7l-3 3z"/></svg>
-            <span>Updates</span>
+          <a class="nav-link nav-item" href="messages.html" data-nav="messages">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span>Messages</span>
           </a>
-          <a class="desktop-nav-link" href="/pages/account.html">
-            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+          <a class="account-pill nav-item" href="account.html" data-nav="account">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg>
             <span>Account</span>
           </a>
         </nav>
       </div>
     </header>
 
-    <main class="career-shell" data-mode="browse">
-    <header class="screen-top">
-      <div class="title-block">
-        <div class="eyebrow"><span class="eyebrow-dot"></span> Career flow</div>
-        <div>
-          <h1>Career</h1>
-          <p class="page-subtitle" id="pageSubtitle">Explore roles matched to your relocation goals and track your applications.</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="icon-pill" type="button" aria-label="Notifications">
-          <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        </button>
-      </div>
-    </header>
-
-    <div class="mode-switch" role="tablist" aria-label="Career page state">
-      <button class="mode-chip active" type="button" data-mode-toggle="browse" aria-selected="true">Browsing mode</button>
-      <button class="mode-chip" type="button" data-mode-toggle="secured" aria-selected="false">Secured placement</button>
-    </div>
-
-    <section class="state-pane active" data-mode-pane="browse" aria-label="Career browsing mode">
-      <div class="search-card">
-        <div class="search-bar">
-          <div class="search-track" aria-hidden="true">
-            <span class="circle"></span>
-            <span class="square"></span>
+    <main class="main">
+      <section class="page-hero">
+        <div class="hero-copy">
+          <span class="hero-eyebrow">Premium GP placements</span>
+          <div>
+            <h1>Career</h1>
+            <p class="page-subtitle" id="pageSubtitle">Explore roles matched to your relocation goals and track your applications.</p>
           </div>
-          <label class="search-input-wrap">
-            <span class="search-label">Role search</span>
-            <input class="search-input" type="search" placeholder="Search by city, practice, billing model or keyword" />
-          </label>
-          <button class="search-action" type="button" aria-label="Search roles">
-            <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </div>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <span class="hero-stat-value" id="savedJobsCount">0</span>
+            <span class="hero-stat-label">Saved jobs</span>
+          </div>
+          <div class="hero-stat secondary">
+            <span class="hero-stat-value" id="applicationsCountDisplay">0</span>
+            <span class="hero-stat-label">Active applications</span>
+          </div>
+        </div>
+      </section>
+
+      <nav class="view-tabs" aria-label="Career sections">
+        <button class="view-tab active" type="button" data-view="browse"><span class="view-tab-label">Browsing Mode</span></button>
+        <button class="view-tab" type="button" data-view="applications"><span class="view-tab-label">Your Applications</span> <span class="view-count" id="applicationsCountBadge">0</span></button>
+        <button class="view-tab" type="button" data-view="secured"><span class="view-tab-label">Secured Placement</span></button>
+      </nav>
+
+      <section class="view-panel is-active" data-view-panel="browse">
+        <section class="search-panel">
+          <div class="search-bar">
+            <label class="search-input-wrap" for="careerSearchInput">
+              <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+              <input class="search-input" id="careerSearchInput" type="search" placeholder="Search by city, practice, billing model or keyword" />
+            </label>
+            <button class="search-btn" id="careerSearchBtn" type="button">Search</button>
+          </div>
+          <div class="filter-row" id="careerFilterRow" aria-label="Quick filters"></div>
+        </section>
+
+        <div class="section-head">
+          <h2 class="section-title">Recommended for you</h2>
+          <button class="section-link" id="clearFiltersBtn" type="button">See all
+            <svg class="detail-icon" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></svg>
           </button>
         </div>
-      </div>
 
-      <div class="filter-row" aria-label="Career quick filters">
-        <button class="filter-chip active" type="button">Sydney</button>
-        <button class="filter-chip" type="button">Melbourne</button>
-        <button class="filter-chip" type="button">Brisbane</button>
-        <button class="filter-chip" type="button">Perth</button>
-        <button class="filter-chip" type="button">Adelaide</button>
-        <button class="filter-chip" type="button">Private Billing</button>
-        <button class="filter-chip" type="button">Mixed Billing</button>
-        <button class="filter-chip" type="button">DPA</button>
-        <button class="filter-chip" type="button">Metro</button>
-        <button class="filter-chip" type="button">Regional</button>
-        <button class="filter-chip" type="button">High Earning</button>
-        <button class="filter-chip" type="button">Family Friendly</button>
-      </div>
+        <div class="role-grid" id="recommendedRoles"></div>
+        <div class="empty-state" id="rolesEmptyState">
+          <h3 class="empty-state-title">No roles match your current filters</h3>
+          <p class="empty-state-copy">Clear the search or choose a different city or billing filter to see more opportunities.</p>
+        </div>
+      </section>
 
-      <div class="section-head">
-        <h2 class="section-title">Recommended for you</h2>
-        <a class="section-link" href="#" aria-label="See all roles">See all
-          <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
-        </a>
-      </div>
+      <section class="view-panel" data-view-panel="applications">
+        <section class="summary-strip">
+          <div class="summary-strip-copy">
+            <h2 class="summary-strip-title">Your applications</h2>
+            <p class="summary-strip-text">Track applied roles, interviews and offers without leaving the app.</p>
+          </div>
+          <button class="btn-secondary" id="browseRolesBtn" type="button">Browse roles</button>
+        </section>
 
-      <div class="card-stack">
-        <article class="role-card">
-          <div class="role-top">
-            <div class="role-meta">
-              <span class="match-chip">Match 96%</span>
-              <h3 class="role-name">Harbourline Medical</h3>
-              <div class="role-location">
-                <svg class="chip-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
-                Bondi Junction, Sydney NSW
+        <div class="application-grid" id="applicationsGrid"></div>
+        <div class="empty-state" id="applicationsEmptyState">
+          <h3 class="empty-state-title">No active applications yet</h3>
+          <p class="empty-state-copy">Open a role, review the details and apply to create your first tracked application.</p>
+        </div>
+      </section>
+
+      <section class="view-panel" data-view-panel="secured">
+        <div class="secured-grid">
+          <article class="hero-card">
+            <div class="hero-top">
+              <div>
+                <span class="hero-label">Your secured placement</span>
+                <h2 class="hero-title" id="securedPracticeName">Murrumbidgee Medical Centre</h2>
+                <p class="hero-role" id="securedRoleTitle">General Practitioner</p>
+              </div>
+              <span class="badge-soft">Secured</span>
+            </div>
+            <div class="hero-meta">
+              <span><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span id="securedLocation">Wagga Wagga, NSW</span></span>
+              <span><svg class="detail-icon" viewBox="0 0 24 24"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="3"></rect><path d="M3 10h18"></path></svg><span id="securedStartDate">Proposed start 18 Aug 2026</span></span>
+            </div>
+            <div class="hero-note">
+              <span class="hero-note-label">Next major milestone</span>
+              <p class="hero-note-text">Specialist registration outcome</p>
+            </div>
+          </article>
+
+          <article class="details-card">
+            <h2 class="card-title">Practice details</h2>
+            <div class="detail-grid" id="practiceDetailsGrid"></div>
+          </article>
+
+          <article class="summary-card">
+            <h2 class="card-title">Offer summary</h2>
+            <div class="summary-grid" id="offerSummaryGrid"></div>
+          </article>
+
+          <article class="timeline-card">
+            <h2 class="card-title">Placement timeline</h2>
+            <div class="timeline" id="placementTimeline"></div>
+          </article>
+
+          <article class="updates-card">
+            <h2 class="card-title">GP Link updates</h2>
+            <ul class="updates-list" id="securedUpdatesList"></ul>
+          </article>
+
+          <article class="next-step-card">
+            <div class="next-step-head">
+              <div class="lock-wrap">
+                <svg class="detail-icon" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>
+              </div>
+              <div>
+                <h2 class="card-title">Next stage locked</h2>
+                <p class="page-subtitle" style="max-width:none; margin-top:4px;">Visa &amp; Relocation will open once specialist registration has been granted.</p>
               </div>
             </div>
-            <button class="bookmark-btn saved" type="button" aria-label="Saved role">
-              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></svg>
-            </button>
-          </div>
-          <p class="role-summary">Private billing coastal clinic with structured onboarding, relocation support and an experienced international GP team.</p>
-          <div class="badge-row">
-            <span class="badge">Private Billing</span>
-            <span class="badge">Metro</span>
-            <span class="badge dark">Est. $420k+</span>
-            <span class="badge soft">Visa pathway aligned</span>
-          </div>
-          <div class="role-footer">
-            <span class="role-footnote">Fast-track interview available</span>
-            <button class="primary-cta" type="button">View role</button>
-          </div>
-        </article>
+            <p class="next-step-copy">Your placement is reserved. GP Link will unlock the next workflow as soon as specialist registration is confirmed.</p>
+          </article>
 
-        <article class="role-card">
-          <div class="role-top">
-            <div class="role-meta">
-              <span class="match-chip">Match 92%</span>
-              <h3 class="role-name">Westgate Family Practice</h3>
-              <div class="role-location">
-                <svg class="chip-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
-                Werribee, Melbourne VIC
-              </div>
+          <article class="opportunity-card">
+            <div class="section-head">
+              <h2 class="card-title">Other opportunities</h2>
+              <button class="section-link" id="openBrowseFromSecuredBtn" type="button">Back to browsing
+                <svg class="detail-icon" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></svg>
+              </button>
             </div>
-            <button class="bookmark-btn" type="button" aria-label="Save role">
-              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></svg>
-            </button>
-          </div>
-          <p class="role-summary">High-volume mixed billing clinic with strong mentorship, school-friendly rostering and established registrar support.</p>
-          <div class="badge-row">
-            <span class="badge">Mixed Billing</span>
-            <span class="badge warn">DPA</span>
-            <span class="badge dark">Est. $360k+</span>
-            <span class="badge soft">Family friendly</span>
-          </div>
-          <div class="role-footer">
-            <span class="role-footnote">Housing short-list prepared</span>
-            <button class="primary-cta" type="button">View role</button>
-          </div>
-        </article>
-
-        <article class="role-card">
-          <div class="role-top">
-            <div class="role-meta">
-              <span class="match-chip">Match 89%</span>
-              <h3 class="role-name">Riverbend Health Hub</h3>
-              <div class="role-location">
-                <svg class="chip-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
-                Toowoomba, Queensland
-              </div>
-            </div>
-            <button class="bookmark-btn" type="button" aria-label="Save role">
-              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></svg>
-            </button>
-          </div>
-          <p class="role-summary">Regional lifestyle role with substantial billings, partner employment assistance and protected supervision time on commencement.</p>
-          <div class="badge-row">
-            <span class="badge">Mixed Billing</span>
-            <span class="badge warn">DPA / MMM 2</span>
-            <span class="badge dark">Est. $390k+</span>
-            <span class="badge soft">Relocation covered</span>
-          </div>
-          <div class="role-footer">
-            <span class="role-footnote">Regional retention incentives</span>
-            <button class="primary-cta" type="button">View role</button>
-          </div>
-        </article>
-
-        <article class="role-card">
-          <div class="role-top">
-            <div class="role-meta">
-              <span class="match-chip">Match 87%</span>
-              <h3 class="role-name">Northshore Clinic Group</h3>
-              <div class="role-location">
-                <svg class="chip-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
-                Nedlands, Perth WA
-              </div>
-            </div>
-            <button class="bookmark-btn" type="button" aria-label="Save role">
-              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></svg>
-            </button>
-          </div>
-          <p class="role-summary">Premium suburban group with private billing focus, executive practice management and high continuity patient demand.</p>
-          <div class="badge-row">
-            <span class="badge">Private Billing</span>
-            <span class="badge">Metro</span>
-            <span class="badge dark">Est. $450k+</span>
-            <span class="badge soft">High earning</span>
-          </div>
-          <div class="role-footer">
-            <span class="role-footnote">Executive onboarding support</span>
-            <button class="primary-cta" type="button">View role</button>
-          </div>
-        </article>
-      </div>
-
-      <div class="section-head">
-        <h2 class="section-title">Your applications</h2>
-        <a class="section-link" href="#" aria-label="Open application activity">Activity
-          <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
-        </a>
-      </div>
-
-      <div class="applications-grid">
-        <article class="application-card">
-          <div class="application-top">
-            <div>
-              <h3 class="application-title">Harbourline Medical</h3>
-              <p class="application-sub">Bondi Junction, Sydney NSW</p>
-            </div>
-            <span class="status-pill review">
-              <svg class="status-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-              Under Review
-            </span>
-          </div>
-          <div class="application-meta">
-            <div class="meta-pill">
-              <span class="meta-label">Applied</span>
-              <span class="meta-value">2 days ago</span>
-            </div>
-            <div class="meta-pill">
-              <span class="meta-label">Billing</span>
-              <span class="meta-value">Private</span>
-            </div>
-            <div class="meta-pill">
-              <span class="meta-label">Next step</span>
-              <span class="meta-value">CV review</span>
-            </div>
-          </div>
-        </article>
-
-        <article class="application-card">
-          <div class="application-top">
-            <div>
-              <h3 class="application-title">Westgate Family Practice</h3>
-              <p class="application-sub">Werribee, Melbourne VIC</p>
-            </div>
-            <span class="status-pill interview">
-              <svg class="status-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M8 2v4"/><path d="M16 2v4"/><path d="M3 10h18"/></svg>
-              Interview Scheduled
-            </span>
-          </div>
-          <div class="application-meta">
-            <div class="meta-pill">
-              <span class="meta-label">Interview</span>
-              <span class="meta-value">Tue 10:30am</span>
-            </div>
-            <div class="meta-pill">
-              <span class="meta-label">Format</span>
-              <span class="meta-value">Video call</span>
-            </div>
-            <div class="meta-pill">
-              <span class="meta-label">Lead</span>
-              <span class="meta-value">Clinic owner</span>
-            </div>
-          </div>
-        </article>
-
-        <article class="application-card">
-          <div class="application-top">
-            <div>
-              <h3 class="application-title">Riverbend Health Hub</h3>
-              <p class="application-sub">Toowoomba, Queensland</p>
-            </div>
-            <span class="status-pill offer">
-              <svg class="status-icon" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h11"/><path d="M4 17h9"/><path d="m16 16 2 2 4-4"/></svg>
-              Offer Pending
-            </span>
-          </div>
-          <div class="application-meta">
-            <div class="meta-pill">
-              <span class="meta-label">Status</span>
-              <span class="meta-value">Verbal positive</span>
-            </div>
-            <div class="meta-pill">
-              <span class="meta-label">Package</span>
-              <span class="meta-value">$390k+</span>
-            </div>
-            <div class="meta-pill">
-              <span class="meta-label">Awaiting</span>
-              <span class="meta-value">Written offer</span>
-            </div>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <section class="state-pane" data-mode-pane="secured" aria-label="Career secured placement mode">
-      <article class="hero-card">
-        <div class="hero-head">
-          <div>
-            <span class="hero-label">Your secured placement</span>
-            <h2 class="hero-title">Murrumbidgee Medical Centre</h2>
-            <p class="hero-role">General Practitioner</p>
-          </div>
-          <span class="badge soft">Secured</span>
+            <div class="opportunity-grid" id="otherOpportunitiesGrid"></div>
+          </article>
         </div>
-        <div class="hero-meta">
-          <span>
-            <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
-            Wagga Wagga, NSW
-          </span>
-          <span>
-            <svg viewBox="0 0 24 24"><path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M3 10h18"/></svg>
-            Proposed start 18 Aug 2026
-          </span>
-        </div>
-        <div class="hero-note">
-          <span class="hero-note-label">Next major milestone</span>
-          <p class="hero-note-text">Specialist registration outcome</p>
-        </div>
-      </article>
-
-      <article class="details-card">
-        <h2 class="card-title">Practice details</h2>
-        <div class="detail-grid">
-          <div class="detail-row">
-            <span class="detail-label">Practice name</span>
-            <span class="detail-value">Murrumbidgee Medical Centre</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Location</span>
-            <span class="detail-value">Turvey Park, Wagga Wagga, NSW</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Practice type</span>
-            <span class="detail-value">Community medical centre with chronic disease and family medicine focus</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Billing model</span>
-            <span class="detail-value">Mixed billing with established private fee uplift</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Support / supervision</span>
-            <span class="detail-value">Partner GP oversight, relocation coordinator, roster flexibility during school terms and onboarding support in first 90 days</span>
-          </div>
-        </div>
-      </article>
-
-      <article class="summary-card">
-        <h2 class="card-title">Offer summary</h2>
-        <div class="summary-grid">
-          <div class="summary-tile">
-            <span class="detail-label">Estimated income</span>
-            <span class="detail-value">$385k-$420k package</span>
-          </div>
-          <div class="summary-tile">
-            <span class="detail-label">Relocation support</span>
-            <span class="detail-value">Flights, temporary housing and settlement support</span>
-          </div>
-          <div class="summary-tile">
-            <span class="detail-label">Contract status</span>
-            <span class="detail-value">Contract issued and under final review</span>
-          </div>
-          <div class="summary-tile">
-            <span class="detail-label">Employment type</span>
-            <span class="detail-value">Full-time permanent GP placement</span>
-          </div>
-          <div class="summary-tile">
-            <span class="detail-label">Key notes</span>
-            <span class="detail-value">Commencement reserved pending specialist registration outcome</span>
-          </div>
-        </div>
-      </article>
-
-      <article class="timeline-card">
-        <h2 class="card-title">Placement timeline</h2>
-        <div class="timeline">
-          <div class="timeline-item">
-            <div class="timeline-dot">
-              <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
-            </div>
-            <div class="timeline-copy">
-              <span class="timeline-title">Interview completed</span>
-              <span class="timeline-sub">Clinic leadership panel confirmed fit and start window.</span>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot">
-              <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
-            </div>
-            <div class="timeline-copy">
-              <span class="timeline-title">Offer issued</span>
-              <span class="timeline-sub">Role package and conditions shared with you and GP Link.</span>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot">
-              <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
-            </div>
-            <div class="timeline-copy">
-              <span class="timeline-title">Contract sent</span>
-              <span class="timeline-sub">Agreement circulated pending registration timing confirmation.</span>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot">
-              <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
-            </div>
-            <div class="timeline-copy">
-              <span class="timeline-title">Placement secured</span>
-              <span class="timeline-sub">Role is reserved while registration and relocation remain in motion.</span>
-            </div>
-          </div>
-        </div>
-      </article>
-
-      <article class="updates-card">
-        <h2 class="card-title">GP Link updates</h2>
-        <ul class="updates-list">
-          <li>We are coordinating with the medical centre regarding commencement timing.</li>
-          <li>Your placement is being held pending specialist registration outcome.</li>
-        </ul>
-      </article>
-
-      <article class="next-step-card">
-        <div class="next-step-head">
-          <div class="lock-wrap">
-            <svg class="lock-icon" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 1 1 8 0v3"/></svg>
-          </div>
-          <div>
-            <h2 class="card-title">Next stage locked</h2>
-            <p class="page-subtitle" style="max-width:none; margin-top:4px;">Visa &amp; Relocation opens once specialist registration has been granted.</p>
-          </div>
-        </div>
-        <p class="next-step-copy">Your secured role is preserved. The relocation workflow will unlock the moment registration status moves from pending to granted.</p>
-      </article>
-
-      <div class="section-head">
-        <h2 class="section-title">Other opportunities</h2>
-        <a class="section-link" href="#" aria-label="Review other opportunities">Reduced
-          <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
-        </a>
-      </div>
-
-      <article class="opportunity-card">
-        <div class="collapsed-row">
-          <div class="collapsed-copy">
-            <span class="collapsed-kicker">Held in reserve</span>
-            <h3 class="collapsed-title">Northshore Clinic Group</h3>
-            <p class="collapsed-sub">Perth WA · Private billing · Remains available only if your secured placement changes.</p>
-          </div>
-          <button class="secondary-cta" type="button">View</button>
-        </div>
-      </article>
-    </section>
-
-    <nav class="bottom-nav" aria-label="Primary">
-      <a class="nav-item" href="/pages/index.html">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
-        <span>Home</span>
-      </a>
-      <a class="nav-item" href="/pages/myinthealth.html">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
-        <span>Registration</span>
-      </a>
-      <a class="nav-item active" href="/pages/career.html" aria-current="page">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
-        <span>Career</span>
-      </a>
-      <a class="nav-item" href="/pages/messages.html">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 5h16v11H7l-3 3z"/></svg>
-        <span>Updates</span>
-      </a>
-      <a class="nav-item" href="/pages/account.html">
-        <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-        <span>Account</span>
-      </a>
-    </nav>
+      </section>
     </main>
   </div>
 
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
+      <span class="mobile-tab-label">Home</span>
+    </a>
+    <a class="mobile-tab" href="myinthealth.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
+      <span class="mobile-tab-label">Registration</span>
+    </a>
+    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="mobile-tab-label">Scan</span>
+    </button>
+    <a class="mobile-tab mobile-tab-active" href="career.html" aria-current="page">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
+      <span class="mobile-tab-label">Career</span>
+    </a>
+    <a class="mobile-tab" href="my-documents.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg></span>
+      <span class="mobile-tab-label">Documents</span>
+    </a>
+    <a class="mobile-tab" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
+      <span class="mobile-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <div class="modal" id="roleModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="roleModalTitle">
+      <button class="modal-close" id="roleModalCloseBtn" type="button" aria-label="Close role details">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+      <span class="role-kicker" id="roleModalMatch">Match 90%</span>
+      <div>
+        <h2 class="modal-title" id="roleModalTitle">Role title</h2>
+        <p class="role-location" id="roleModalLocation"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>Location</span></p>
+      </div>
+      <p class="modal-summary" id="roleModalSummary"></p>
+      <div class="badge-row" id="roleModalBadges"></div>
+      <div class="modal-detail-grid" id="roleModalDetails"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="roleModalSaveBtn" type="button">Save job</button>
+        <button class="btn-primary" id="roleModalApplyBtn" type="button">Apply now</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="careerToast"></div>
+
   <script>
-    (function () {
-      const shell = document.querySelector(".career-shell");
-      const subtitle = document.getElementById("pageSubtitle");
-      const modeButtons = [...document.querySelectorAll("[data-mode-toggle]")];
-      const panes = [...document.querySelectorAll("[data-mode-pane]")];
-      const filterChips = [...document.querySelectorAll(".filter-chip")];
-      const bookmarkButtons = [...document.querySelectorAll(".bookmark-btn")];
+    const CAREER_STATE_KEY = "gp_career_state";
+    const FILTERS = [
+      "Sydney",
+      "Melbourne",
+      "Brisbane",
+      "Perth",
+      "Adelaide",
+      "Private Billing",
+      "Mixed Billing",
+      "DPA",
+      "Metro",
+      "Regional",
+      "High Earning",
+      "Family Friendly"
+    ];
 
-      const subtitles = {
-        browse: "Explore roles matched to your relocation goals and track your applications.",
-        secured: "Your placement has been secured. View your role details and track what comes next."
+    const ROLE_DATA = [
+      {
+        id: "harbourline-medical",
+        match: "Match 96%",
+        practiceName: "Harbourline Medical",
+        location: "Bondi Junction, Sydney NSW",
+        summary: "Private billing coastal clinic with structured onboarding, relocation support and an experienced international GP team.",
+        billing: "Private Billing",
+        geography: "Metro",
+        earnings: "Est. $420k+",
+        tags: ["Visa pathway aligned", "Fast-track interview"],
+        filterTokens: ["Sydney", "Private Billing", "Metro", "High Earning"],
+        support: "Structured onboarding with an existing IMG-friendly team.",
+        practiceType: "Coastal family practice",
+        roleType: "General Practitioner",
+        earningNote: "Strong private billing book from commencement.",
+        footnote: "Fast-track interview available"
+      },
+      {
+        id: "westgate-family-practice",
+        match: "Match 92%",
+        practiceName: "Westgate Family Practice",
+        location: "Werribee, Melbourne VIC",
+        summary: "High-volume mixed billing clinic with strong mentorship, school-friendly rostering and established registrar support.",
+        billing: "Mixed Billing",
+        geography: "Metro",
+        earnings: "Est. $360k+",
+        tags: ["DPA", "Family friendly"],
+        filterTokens: ["Melbourne", "Mixed Billing", "DPA", "Metro", "Family Friendly"],
+        support: "Flexible rostering and school-term-aware practice management.",
+        practiceType: "Large suburban medical centre",
+        roleType: "General Practitioner",
+        earningNote: "Stable patient demand with family-friendly sessions.",
+        footnote: "Housing short-list prepared"
+      },
+      {
+        id: "riverbend-health-hub",
+        match: "Match 89%",
+        practiceName: "Riverbend Health Hub",
+        location: "Toowoomba, Queensland",
+        summary: "Regional lifestyle role with substantial billings, partner employment assistance and protected supervision time on commencement.",
+        billing: "Mixed Billing",
+        geography: "Regional",
+        earnings: "Est. $390k+",
+        tags: ["DPA / MMM 2", "Relocation covered"],
+        filterTokens: ["Brisbane", "Mixed Billing", "DPA", "Regional", "High Earning", "Family Friendly"],
+        support: "Partner employment support and settlement assistance included.",
+        practiceType: "Regional community health hub",
+        roleType: "General Practitioner",
+        earningNote: "Regional incentives and strong billings from established demand.",
+        footnote: "Regional retention incentives"
+      },
+      {
+        id: "northshore-clinic-group",
+        match: "Match 87%",
+        practiceName: "Northshore Clinic Group",
+        location: "Nedlands, Perth WA",
+        summary: "Premium suburban group with private billing focus, executive practice management and high continuity patient demand.",
+        billing: "Private Billing",
+        geography: "Metro",
+        earnings: "Est. $450k+",
+        tags: ["High earning", "Executive onboarding"],
+        filterTokens: ["Perth", "Private Billing", "Metro", "High Earning"],
+        support: "Executive onboarding and premium practice operations support.",
+        practiceType: "Premium suburban clinic group",
+        roleType: "General Practitioner",
+        earningNote: "Private fee uplift and continuity-heavy patient panel.",
+        footnote: "Executive onboarding support"
+      }
+    ];
+
+    const SECURED_PLACEMENT = {
+      practiceName: "Murrumbidgee Medical Centre",
+      roleTitle: "General Practitioner",
+      location: "Wagga Wagga, NSW",
+      startDate: "Proposed start 18 Aug 2026",
+      practiceDetails: [
+        { label: "Practice name", value: "Murrumbidgee Medical Centre" },
+        { label: "Location", value: "Turvey Park, Wagga Wagga, NSW" },
+        { label: "Practice type", value: "Community medical centre with chronic disease and family medicine focus" },
+        { label: "Billing model", value: "Mixed billing with established private fee uplift" },
+        { label: "Support / supervision", value: "Partner GP oversight, relocation coordinator, roster flexibility during school terms and onboarding support in the first 90 days" }
+      ],
+      offerSummary: [
+        { label: "Estimated income", value: "$385k-$420k package" },
+        { label: "Relocation support", value: "Flights, temporary housing and settlement support" },
+        { label: "Contract status", value: "Contract issued and under final review" },
+        { label: "Employment type", value: "Full-time permanent GP placement" },
+        { label: "Key notes", value: "Commencement reserved pending specialist registration outcome" }
+      ],
+      timeline: [
+        { title: "Interview completed", sub: "Clinic leadership panel confirmed fit and start window." },
+        { title: "Offer issued", sub: "Role package and conditions shared with you and GP Link." },
+        { title: "Contract sent", sub: "Agreement circulated pending registration timing confirmation." },
+        { title: "Placement secured", sub: "Role is reserved while registration and relocation remain in motion." }
+      ],
+      updates: [
+        "We are coordinating with the medical centre regarding commencement timing.",
+        "Your placement is being held pending specialist registration outcome."
+      ],
+      otherOpportunityIds: ["northshore-clinic-group"]
+    };
+
+    function createSavedSnapshot(role) {
+      return {
+        id: role.id,
+        practiceName: role.practiceName,
+        location: role.location,
+        billing: role.billing,
+        earnings: role.earnings,
+        tags: role.tags.slice(0, 2),
+        summary: role.summary
       };
+    }
 
-      function setMode(mode) {
-        shell.dataset.mode = mode;
-        if (subtitle) subtitle.textContent = subtitles[mode] || subtitles.browse;
-        modeButtons.forEach((button) => {
-          const active = button.dataset.modeToggle === mode;
-          button.classList.toggle("active", active);
-          button.setAttribute("aria-selected", active ? "true" : "false");
+    function createDefaultApplication(roleId, status, meta) {
+      const role = ROLE_DATA.find((item) => item.id === roleId);
+      return {
+        roleId: role.id,
+        practiceName: role.practiceName,
+        location: role.location,
+        status: status.label,
+        tone: status.tone,
+        meta: meta
+      };
+    }
+
+    function getDefaultCareerState() {
+      return {
+        updatedAt: "2026-03-15T00:00:00.000Z",
+        activeView: "browse",
+        activeFilter: "",
+        searchTerm: "",
+        savedJobs: [createSavedSnapshot(ROLE_DATA[0])],
+        applications: [
+          createDefaultApplication(ROLE_DATA[0].id, { label: "Under Review", tone: "review" }, [
+            { label: "Applied", value: "2 days ago" },
+            { label: "Billing", value: "Private" },
+            { label: "Next step", value: "CV review" }
+          ]),
+          createDefaultApplication(ROLE_DATA[1].id, { label: "Interview Scheduled", tone: "interview" }, [
+            { label: "Interview", value: "Tue 10:30am" },
+            { label: "Format", value: "Video call" },
+            { label: "Lead", value: "Clinic owner" }
+          ]),
+          createDefaultApplication(ROLE_DATA[2].id, { label: "Offer Pending", tone: "offer" }, [
+            { label: "Status", value: "Verbal positive" },
+            { label: "Package", value: "$390k+" },
+            { label: "Awaiting", value: "Written offer" }
+          ])
+        ]
+      };
+    }
+
+    function parseStorage(key) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function clone(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function normalizeCareerState(raw) {
+      const fallback = getDefaultCareerState();
+      const source = raw && typeof raw === "object" ? raw : {};
+      return {
+        updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : fallback.updatedAt,
+        activeView: ["browse", "applications", "secured"].includes(source.activeView) ? source.activeView : fallback.activeView,
+        activeFilter: typeof source.activeFilter === "string" ? source.activeFilter : fallback.activeFilter,
+        searchTerm: typeof source.searchTerm === "string" ? source.searchTerm : fallback.searchTerm,
+        savedJobs: Array.isArray(source.savedJobs) ? source.savedJobs : fallback.savedJobs,
+        applications: Array.isArray(source.applications) ? source.applications : fallback.applications
+      };
+    }
+
+    function replaceCareerUrlState(view, roleId) {
+      const nextView = ["browse", "applications", "secured"].includes(view) ? view : "browse";
+      const url = new URL(window.location.href);
+      if (roleId) {
+        url.searchParams.set("role", roleId);
+      } else {
+        url.searchParams.delete("role");
+      }
+      url.hash = "#" + nextView;
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+
+    let careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY));
+    let currentRoleId = null;
+
+    const subtitleMap = {
+      browse: "Explore roles matched to your relocation goals and track your applications.",
+      applications: "Review your active applications, interviews and offer progress in one place.",
+      secured: "Your placement has been secured. View your role details and track what comes next."
+    };
+
+    const navGlassEl = document.getElementById("navGlass");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+
+    const subtitleEl = document.getElementById("pageSubtitle");
+    const filterRowEl = document.getElementById("careerFilterRow");
+    const recommendedRolesEl = document.getElementById("recommendedRoles");
+    const rolesEmptyStateEl = document.getElementById("rolesEmptyState");
+    const applicationsGridEl = document.getElementById("applicationsGrid");
+    const applicationsEmptyStateEl = document.getElementById("applicationsEmptyState");
+    const applicationsCountBadgeEl = document.getElementById("applicationsCountBadge");
+    const applicationsCountDisplayEl = document.getElementById("applicationsCountDisplay");
+    const savedJobsCountEl = document.getElementById("savedJobsCount");
+    const viewTabs = [...document.querySelectorAll("[data-view]")];
+    const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
+    const searchInputEl = document.getElementById("careerSearchInput");
+    const searchBtnEl = document.getElementById("careerSearchBtn");
+    const clearFiltersBtnEl = document.getElementById("clearFiltersBtn");
+    const browseRolesBtnEl = document.getElementById("browseRolesBtn");
+    const openBrowseFromSecuredBtnEl = document.getElementById("openBrowseFromSecuredBtn");
+    const roleModalEl = document.getElementById("roleModal");
+    const roleModalCloseBtnEl = document.getElementById("roleModalCloseBtn");
+    const roleModalMatchEl = document.getElementById("roleModalMatch");
+    const roleModalTitleEl = document.getElementById("roleModalTitle");
+    const roleModalLocationEl = document.getElementById("roleModalLocation");
+    const roleModalSummaryEl = document.getElementById("roleModalSummary");
+    const roleModalBadgesEl = document.getElementById("roleModalBadges");
+    const roleModalDetailsEl = document.getElementById("roleModalDetails");
+    const roleModalSaveBtnEl = document.getElementById("roleModalSaveBtn");
+    const roleModalApplyBtnEl = document.getElementById("roleModalApplyBtn");
+    const otherOpportunitiesGridEl = document.getElementById("otherOpportunitiesGrid");
+    const practiceDetailsGridEl = document.getElementById("practiceDetailsGrid");
+    const offerSummaryGridEl = document.getElementById("offerSummaryGrid");
+    const placementTimelineEl = document.getElementById("placementTimeline");
+    const securedUpdatesListEl = document.getElementById("securedUpdatesList");
+    const toastEl = document.getElementById("careerToast");
+
+    function persistCareerState() {
+      careerState.updatedAt = new Date().toISOString();
+      localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(careerState));
+      window.dispatchEvent(new Event("gp-career-updated"));
+    }
+
+    function showToast(message) {
+      if (!toastEl) return;
+      toastEl.textContent = message;
+      toastEl.classList.add("show");
+      window.clearTimeout(showToast._timer);
+      showToast._timer = window.setTimeout(() => toastEl.classList.remove("show"), 2200);
+    }
+
+    function syncInboxIndicators() {
+      const messageDb = parseStorage("gpLinkMessageDB");
+      const supportCases = parseStorage("gpLinkSupportCases");
+      const hasUnreadUpdates = !!(messageDb && Array.isArray(messageDb.updates) && messageDb.updates.some((item) => item && item.unread === true));
+      const hasUnreadCases = Array.isArray(supportCases) && supportCases.some((item) => item && item.unread === true);
+      const visible = !!(hasUnreadUpdates || hasUnreadCases);
+      document.querySelectorAll("[data-inbox-alert]").forEach((el) => {
+        el.hidden = !visible;
+      });
+    }
+
+    function moveNavGlass(target) {
+      if (!navGlassEl || !target) return;
+      const rect = target.getBoundingClientRect();
+      const parentRect = target.parentElement.getBoundingClientRect();
+      navGlassEl.style.left = (rect.left - parentRect.left) + "px";
+      navGlassEl.style.top = (rect.top - parentRect.top) + "px";
+      navGlassEl.style.width = rect.width + "px";
+      navGlassEl.style.height = rect.height + "px";
+    }
+
+    function findRole(roleId) {
+      return ROLE_DATA.find((role) => role.id === roleId) || null;
+    }
+
+    function isSaved(roleId) {
+      return careerState.savedJobs.some((job) => job && job.id === roleId);
+    }
+
+    function isApplied(roleId) {
+      return careerState.applications.some((job) => job && job.roleId === roleId);
+    }
+
+    function toggleSavedJob(roleId) {
+      const role = findRole(roleId);
+      if (!role) return;
+      const currentlySaved = isSaved(roleId);
+      if (currentlySaved) {
+        careerState.savedJobs = careerState.savedJobs.filter((job) => job && job.id !== roleId);
+        showToast("Removed from saved jobs");
+      } else {
+        careerState.savedJobs = [createSavedSnapshot(role), ...careerState.savedJobs.filter((job) => job && job.id !== roleId)];
+        showToast("Saved to your account");
+      }
+      persistCareerState();
+      renderPage();
+      if (currentRoleId === roleId) renderRoleModal(roleId);
+    }
+
+    function applyForRole(roleId) {
+      const role = findRole(roleId);
+      if (!role) return;
+      if (isApplied(roleId)) {
+        setView("applications");
+        closeRoleModal();
+        showToast("Application already tracked");
+        return;
+      }
+      careerState.applications = [
+        {
+          roleId: role.id,
+          practiceName: role.practiceName,
+          location: role.location,
+          status: "Under Review",
+          tone: "review",
+          meta: [
+            { label: "Applied", value: "Just now" },
+            { label: "Billing", value: role.billing.replace(" Billing", "") },
+            { label: "Next step", value: "GP Link screening" }
+          ]
+        },
+        ...careerState.applications
+      ];
+      careerState.activeView = "applications";
+      persistCareerState();
+      closeRoleModal();
+      renderPage();
+      showToast("Application added to your tracker");
+    }
+
+    function getFilteredRoles() {
+      const searchTerm = careerState.searchTerm.trim().toLowerCase();
+      const filter = careerState.activeFilter;
+      return ROLE_DATA.filter((role) => {
+        const matchesFilter = !filter || role.filterTokens.includes(filter);
+        if (!matchesFilter) return false;
+        if (!searchTerm) return true;
+        const haystack = [
+          role.practiceName,
+          role.location,
+          role.summary,
+          role.billing,
+          role.geography,
+          role.earnings,
+          role.tags.join(" "),
+          role.support,
+          role.practiceType
+        ].join(" ").toLowerCase();
+        return haystack.includes(searchTerm);
+      });
+    }
+
+    function renderFilters() {
+      if (!filterRowEl) return;
+      filterRowEl.innerHTML = "";
+      FILTERS.forEach((filter) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "filter-chip" + (careerState.activeFilter === filter ? " active" : "");
+        button.textContent = filter;
+        button.addEventListener("click", () => {
+          careerState.activeFilter = careerState.activeFilter === filter ? "" : filter;
+          persistCareerState();
+          renderRoles();
+          renderFilters();
         });
-        panes.forEach((pane) => {
-          pane.classList.toggle("active", pane.dataset.modePane === mode);
-        });
+        filterRowEl.appendChild(button);
+      });
+    }
+
+    function renderRoles() {
+      const roles = getFilteredRoles();
+      recommendedRolesEl.innerHTML = "";
+      rolesEmptyStateEl.classList.toggle("is-visible", roles.length === 0);
+      roles.forEach((role) => {
+        const card = document.createElement("article");
+        card.className = "role-card";
+        card.innerHTML = `
+          <div class="card-head">
+            <div>
+              <span class="role-kicker">${role.match}</span>
+              <h3 class="role-title">${role.practiceName}</h3>
+              <p class="role-location"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span></p>
+            </div>
+            <button class="save-btn${isSaved(role.id) ? " saved" : ""}" type="button" data-save-role="${role.id}" aria-label="${isSaved(role.id) ? "Remove saved job" : "Save job"}">
+              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
+            </button>
+          </div>
+          <p class="role-summary">${role.summary}</p>
+          <div class="badge-row">
+            <span class="badge">${role.billing}</span>
+            <span class="badge">${role.geography}</span>
+            <span class="badge-dark">${role.earnings}</span>
+            ${role.tags.map((tag, index) => `<span class="${index === 0 && tag.includes("DPA") ? "badge-warn" : "badge-soft"}">${tag}</span>`).join("")}
+          </div>
+          <div class="role-footer">
+            <span class="card-footnote">${role.footnote}</span>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="ghost-btn" type="button" data-save-role="${role.id}">${isSaved(role.id) ? "Saved" : "Save"}</button>
+              <button class="btn-primary" type="button" data-open-role="${role.id}">View role</button>
+            </div>
+          </div>
+        `;
+        recommendedRolesEl.appendChild(card);
+      });
+    }
+
+    function renderApplications() {
+      applicationsGridEl.innerHTML = "";
+      const hasApplications = careerState.applications.length > 0;
+      applicationsEmptyStateEl.classList.toggle("is-visible", !hasApplications);
+      careerState.applications.forEach((application) => {
+        const role = findRole(application.roleId);
+        const card = document.createElement("article");
+        card.className = "application-card";
+        card.innerHTML = `
+          <div class="card-head">
+            <div>
+              <h3 class="application-title">${application.practiceName}</h3>
+              <p class="application-sub"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${application.location}</span></p>
+            </div>
+            <span class="status-pill ${application.tone}">${application.status}</span>
+          </div>
+          <div class="application-meta">
+            ${application.meta.map((item) => `
+              <div class="meta-card">
+                <span class="meta-label">${item.label}</span>
+                <span class="meta-value">${item.value}</span>
+              </div>
+            `).join("")}
+          </div>
+          <div class="application-footer">
+            <span class="card-footnote">${role ? role.footnote : "Application in progress"}</span>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="ghost-btn" type="button" data-save-role="${application.roleId}">${isSaved(application.roleId) ? "Saved" : "Save job"}</button>
+              <button class="btn-primary" type="button" data-open-role="${application.roleId}">Open role</button>
+            </div>
+          </div>
+        `;
+        applicationsGridEl.appendChild(card);
+      });
+      applicationsCountBadgeEl.textContent = String(careerState.applications.length);
+      applicationsCountDisplayEl.textContent = String(careerState.applications.length);
+    }
+
+    function renderSecuredPlacement() {
+      document.getElementById("securedPracticeName").textContent = SECURED_PLACEMENT.practiceName;
+      document.getElementById("securedRoleTitle").textContent = SECURED_PLACEMENT.roleTitle;
+      document.getElementById("securedLocation").textContent = SECURED_PLACEMENT.location;
+      document.getElementById("securedStartDate").textContent = SECURED_PLACEMENT.startDate;
+
+      practiceDetailsGridEl.innerHTML = SECURED_PLACEMENT.practiceDetails.map((item) => `
+        <div class="detail-row">
+          <span class="detail-label">${item.label}</span>
+          <span class="detail-value">${item.value}</span>
+        </div>
+      `).join("");
+
+      offerSummaryGridEl.innerHTML = SECURED_PLACEMENT.offerSummary.map((item) => `
+        <div class="summary-tile">
+          <span class="detail-label">${item.label}</span>
+          <span class="detail-value">${item.value}</span>
+        </div>
+      `).join("");
+
+      placementTimelineEl.innerHTML = SECURED_PLACEMENT.timeline.map((item) => `
+        <div class="timeline-item">
+          <div class="timeline-dot"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg></div>
+          <div class="timeline-copy">
+            <span class="timeline-title">${item.title}</span>
+            <span class="timeline-sub">${item.sub}</span>
+          </div>
+        </div>
+      `).join("");
+
+      securedUpdatesListEl.innerHTML = SECURED_PLACEMENT.updates.map((item) => `<li>${item}</li>`).join("");
+
+      otherOpportunitiesGridEl.innerHTML = SECURED_PLACEMENT.otherOpportunityIds.map((id) => {
+        const role = findRole(id);
+        if (!role) return "";
+        return `
+          <article class="role-card">
+            <div class="card-head">
+              <div>
+                <span class="role-kicker">Held in reserve</span>
+                <h3 class="application-title">${role.practiceName}</h3>
+                <p class="application-sub"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span></p>
+              </div>
+            </div>
+            <p class="role-summary">${role.summary}</p>
+            <div class="badge-row">
+              <span class="badge">${role.billing}</span>
+              <span class="badge">${role.geography}</span>
+              <span class="badge-dark">${role.earnings}</span>
+            </div>
+            <div class="role-footer">
+              <span class="card-footnote">${role.footnote}</span>
+              <button class="btn-primary" type="button" data-open-role="${role.id}">View role</button>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function renderRoleModal(roleId) {
+      const role = findRole(roleId);
+      if (!role) return;
+      currentRoleId = roleId;
+      roleModalMatchEl.textContent = role.match;
+      roleModalTitleEl.textContent = role.practiceName;
+      roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span>`;
+      roleModalSummaryEl.textContent = role.summary;
+      roleModalBadgesEl.innerHTML = `
+        <span class="badge">${role.billing}</span>
+        <span class="badge">${role.geography}</span>
+        <span class="badge-dark">${role.earnings}</span>
+        ${role.tags.map((tag, index) => `<span class="${index === 0 && tag.includes("DPA") ? "badge-warn" : "badge-soft"}">${tag}</span>`).join("")}
+      `;
+      roleModalDetailsEl.innerHTML = `
+        <div class="modal-detail-card">
+          <span class="detail-label">Role</span>
+          <span class="detail-value">${role.roleType}</span>
+        </div>
+        <div class="modal-detail-card">
+          <span class="detail-label">Practice type</span>
+          <span class="detail-value">${role.practiceType}</span>
+        </div>
+        <div class="modal-detail-card">
+          <span class="detail-label">Support</span>
+          <span class="detail-value">${role.support}</span>
+        </div>
+        <div class="modal-detail-card">
+          <span class="detail-label">Earnings note</span>
+          <span class="detail-value">${role.earningNote}</span>
+        </div>
+      `;
+      roleModalSaveBtnEl.textContent = isSaved(roleId) ? "Remove saved job" : "Save job";
+      roleModalApplyBtnEl.textContent = isApplied(roleId) ? "Open application" : "Apply now";
+      roleModalEl.classList.add("is-open");
+      roleModalEl.setAttribute("aria-hidden", "false");
+      replaceCareerUrlState(careerState.activeView, roleId);
+    }
+
+    function closeRoleModal() {
+      roleModalEl.classList.remove("is-open");
+      roleModalEl.setAttribute("aria-hidden", "true");
+      replaceCareerUrlState(careerState.activeView, null);
+      currentRoleId = null;
+    }
+
+    function setView(view) {
+      const nextView = ["browse", "applications", "secured"].includes(view) ? view : "browse";
+      careerState.activeView = nextView;
+      subtitleEl.textContent = subtitleMap[nextView];
+      viewTabs.forEach((button) => {
+        button.classList.toggle("active", button.dataset.view === nextView);
+      });
+      viewPanels.forEach((panel) => {
+        panel.classList.toggle("is-active", panel.dataset.viewPanel === nextView);
+      });
+      replaceCareerUrlState(nextView, currentRoleId);
+      persistCareerState();
+    }
+
+    function renderPage() {
+      renderFilters();
+      renderRoles();
+      renderApplications();
+      renderSecuredPlacement();
+      savedJobsCountEl.textContent = String(careerState.savedJobs.length);
+      applicationsCountBadgeEl.textContent = String(careerState.applications.length);
+      applicationsCountDisplayEl.textContent = String(careerState.applications.length);
+      subtitleEl.textContent = subtitleMap[careerState.activeView];
+      viewTabs.forEach((button) => {
+        button.classList.toggle("active", button.dataset.view === careerState.activeView);
+      });
+      viewPanels.forEach((panel) => {
+        panel.classList.toggle("is-active", panel.dataset.viewPanel === careerState.activeView);
+      });
+      searchInputEl.value = careerState.searchTerm;
+    }
+
+    searchBtnEl.addEventListener("click", () => {
+      careerState.searchTerm = searchInputEl.value.trim();
+      persistCareerState();
+      renderRoles();
+    });
+
+    searchInputEl.addEventListener("input", () => {
+      careerState.searchTerm = searchInputEl.value.trim();
+      renderRoles();
+    });
+
+    searchInputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        careerState.searchTerm = searchInputEl.value.trim();
+        persistCareerState();
+        renderRoles();
+      }
+    });
+
+    clearFiltersBtnEl.addEventListener("click", () => {
+      careerState.activeFilter = "";
+      careerState.searchTerm = "";
+      persistCareerState();
+      renderPage();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    browseRolesBtnEl.addEventListener("click", () => setView("browse"));
+    openBrowseFromSecuredBtnEl.addEventListener("click", () => setView("browse"));
+
+    viewTabs.forEach((button) => {
+      button.addEventListener("click", () => setView(button.dataset.view));
+    });
+
+    document.addEventListener("click", (event) => {
+      const saveBtn = event.target.closest("[data-save-role]");
+      if (saveBtn) {
+        toggleSavedJob(saveBtn.getAttribute("data-save-role"));
+        return;
       }
 
-      modeButtons.forEach((button) => {
-        button.addEventListener("click", () => setMode(button.dataset.modeToggle));
-      });
+      const openBtn = event.target.closest("[data-open-role]");
+      if (openBtn) {
+        renderRoleModal(openBtn.getAttribute("data-open-role"));
+      }
+    });
 
-      filterChips.forEach((chip) => {
-        chip.addEventListener("click", () => {
-          filterChips.forEach((item) => item.classList.remove("active"));
-          chip.classList.add("active");
-        });
-      });
+    roleModalCloseBtnEl.addEventListener("click", closeRoleModal);
+    roleModalEl.addEventListener("click", (event) => {
+      if (event.target === roleModalEl) closeRoleModal();
+    });
 
-      bookmarkButtons.forEach((button) => {
-        button.addEventListener("click", () => {
-          const saved = button.classList.toggle("saved");
-          button.setAttribute("aria-label", saved ? "Saved role" : "Save role");
-        });
-      });
+    roleModalSaveBtnEl.addEventListener("click", () => {
+      if (!currentRoleId) return;
+      toggleSavedJob(currentRoleId);
+    });
 
-      setMode("browse");
+    roleModalApplyBtnEl.addEventListener("click", () => {
+      if (!currentRoleId) return;
+      applyForRole(currentRoleId);
+    });
+
+    window.addEventListener("hashchange", () => {
+      const hashView = window.location.hash.replace("#", "");
+      if (["browse", "applications", "secured"].includes(hashView) && hashView !== careerState.activeView) {
+        careerState.activeView = hashView;
+        renderPage();
+      }
+    });
+
+    window.addEventListener("gp-state-hydrated", () => {
+      careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY));
+      const hashView = window.location.hash.replace("#", "");
+      if (["browse", "applications", "secured"].includes(hashView)) {
+        careerState.activeView = hashView;
+      }
+      renderPage();
+      const requestedRoleId = new URL(window.location.href).searchParams.get("role");
+      if (requestedRoleId && findRole(requestedRoleId)) {
+        renderRoleModal(requestedRoleId);
+      }
+      syncInboxIndicators();
+    });
+
+    window.addEventListener("storage", (event) => {
+      if (event.key === CAREER_STATE_KEY) {
+        careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY));
+        renderPage();
+      }
+      if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases") {
+        syncInboxIndicators();
+      }
+    });
+
+    navItems.forEach((item) => {
+      item.addEventListener("mouseenter", () => moveNavGlass(item));
+      item.addEventListener("focus", () => moveNavGlass(item));
+    });
+
+    document.querySelector(".nav-menu").addEventListener("mouseleave", () => moveNavGlass(activeNavItem));
+    window.addEventListener("resize", () => moveNavGlass(activeNavItem));
+
+    (function init() {
+      const hadStoredCareerState = !!localStorage.getItem(CAREER_STATE_KEY);
+      const hashView = window.location.hash.replace("#", "");
+      if (["browse", "applications", "secured"].includes(hashView)) {
+        careerState.activeView = hashView;
+      }
+      moveNavGlass(activeNavItem);
+      if (!hadStoredCareerState) {
+        persistCareerState();
+      }
+      renderPage();
+      const requestedRoleId = new URL(window.location.href).searchParams.get("role");
+      if (requestedRoleId && findRole(requestedRoleId)) {
+        renderRoleModal(requestedRoleId);
+      }
+      syncInboxIndicators();
     })();
   </script>
 </body>
