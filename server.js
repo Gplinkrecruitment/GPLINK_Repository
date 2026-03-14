@@ -48,7 +48,7 @@ const ZOHO_RECRUIT_CLIENT_ID = String(process.env.ZOHO_RECRUIT_CLIENT_ID || '').
 const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET || '').trim();
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
-const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRECRUIT.modules.jobopening.READ').trim() || 'ZohoRECRUIT.modules.jobopening.READ';
+const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRecruit.modules.jobopenings.READ').trim() || 'ZohoRecruit.modules.jobopenings.READ';
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
@@ -2581,6 +2581,33 @@ function getZohoRecruitScopes() {
     .filter(Boolean);
 }
 
+function getZohoRecruitCandidateBases(connection, apiDomain = '') {
+  const candidates = [];
+  const apiBase = normalizeUrlBase(apiDomain, '');
+  if (apiBase) candidates.push(apiBase);
+
+  const accountsBase = normalizeUrlBase(connection && connection.accountsServer, '');
+  if (accountsBase) {
+    try {
+      const host = new URL(accountsBase).hostname;
+      if (host.startsWith('accounts.')) {
+        candidates.push(`https://${host.replace(/^accounts\./, 'recruit.')}`);
+      }
+    } catch (err) {}
+  }
+
+  if (apiBase) {
+    try {
+      const host = new URL(apiBase).hostname;
+      if (host.startsWith('www.zohoapis.')) {
+        candidates.push(`https://recruit.${host.replace(/^www\.zohoapis\./, 'zoho.')}`);
+      }
+    } catch (err) {}
+  }
+
+  return candidates.filter(Boolean).filter((value, index, all) => all.indexOf(value) === index);
+}
+
 function getZohoOauthStateKey(state) {
   return `zoho_recruit_oauth:${String(state || '').trim()}`;
 }
@@ -2782,6 +2809,27 @@ async function zohoRecruitApiGet(apiDomain, resourcePath, accessToken, queryPara
   } catch (err) {
     return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API.' } };
   }
+}
+
+async function fetchZohoRecruitJobOpenings(connection, accessToken, apiDomain, queryParams = {}) {
+  const bases = getZohoRecruitCandidateBases(connection, apiDomain);
+  const resourcePaths = ['JobOpenings', 'jobopenings', 'Job_Openings'];
+  let lastFailure = { ok: false, status: 502, data: { message: 'Failed to fetch Zoho Recruit job openings.' } };
+
+  for (const base of bases) {
+    for (const resourcePath of resourcePaths) {
+      const result = await zohoRecruitApiGet(base, resourcePath, accessToken, queryParams);
+      if (result.ok) return result;
+      lastFailure = result;
+      const errorText = getZohoErrorMessage(result.data, '').toLowerCase();
+      const missingModule = errorText.includes('invalid module') || errorText.includes('module') || errorText.includes('not supported');
+      if (!missingModule) {
+        return result;
+      }
+    }
+  }
+
+  return lastFailure;
 }
 
 function buildCareerRoleRecordFromZoho(record, syncedAt) {
@@ -2989,7 +3037,7 @@ async function syncZohoRecruitRoles() {
   const seenIds = new Set();
 
   for (let page = 1; page <= ZOHO_RECRUIT_SYNC_MAX_PAGES; page += 1) {
-    const result = await zohoRecruitApiGet(apiDomain, 'Job_Openings', accessToken, {
+    const result = await fetchZohoRecruitJobOpenings(connection, accessToken, apiDomain, {
       page,
       per_page: ZOHO_RECRUIT_SYNC_PAGE_SIZE
     });
@@ -4191,7 +4239,7 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
-  if (pathname === '/api/integrations/zoho-recruit/sync' && req.method === 'POST') {
+  if (pathname === '/api/integrations/zoho-recruit/sync' && (req.method === 'POST' || req.method === 'GET')) {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Zoho Recruit sync requires Supabase database configuration.' });
       return;
@@ -4342,7 +4390,7 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
-  if (pathname === '/api/admin/integrations/zoho-recruit/sync' && req.method === 'POST') {
+  if (pathname === '/api/admin/integrations/zoho-recruit/sync' && (req.method === 'POST' || req.method === 'GET')) {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Zoho Recruit sync requires Supabase database configuration.' });
       return;
