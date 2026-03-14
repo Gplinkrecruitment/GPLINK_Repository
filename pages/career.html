@@ -2607,10 +2607,11 @@
       const saveEnabled = options.saveEnabled !== false;
       const primaryLabel = options.primaryLabel || "View role";
       const saveLabel = isSaved(role.id) ? "Saved" : "Save";
+      const billingLabel = role && role.billing ? role.billing : "Billing to be confirmed";
       return `
         <article class="role-card">
           <div class="card-top-row">
-            <span class="billing-pill">${escapeHtml(role.billing || "Role")}</span>
+            <span class="billing-pill">${escapeHtml(billingLabel)}</span>
             ${saveEnabled ? `
               <button class="save-btn${isSaved(role.id) ? " saved" : ""}" type="button" data-save-role="${role.id}" aria-label="${isSaved(role.id) ? "Remove saved job" : "Save job"}">
                 <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
@@ -2820,10 +2821,11 @@
       applicationsEmptyStateEl.classList.toggle("is-visible", !hasApplications);
       applicationsGridEl.innerHTML = careerState.applications.map((application) => {
         const role = findRole(application.roleId);
+        const billingLabel = role && role.billing ? role.billing : "Billing to be confirmed";
         return `
           <article class="application-card">
             <div class="application-top">
-              <span class="billing-pill">${escapeHtml((role && role.billing) || "Application")}</span>
+              <span class="billing-pill">${escapeHtml(billingLabel)}</span>
               <span class="status-pill ${application.tone}">${escapeHtml(application.status)}</span>
             </div>
             <div class="privacy-stack">

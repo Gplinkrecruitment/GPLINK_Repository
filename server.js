@@ -2607,6 +2607,15 @@ function sanitizeCareerBenefit(value) {
   return `${text.slice(0, 107).trim()}...`;
 }
 
+function normalizeCareerBillingLabel(value) {
+  const raw = stripHtml(String(value || '')).replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  if (/bulk/i.test(raw)) return 'Bulk Billing';
+  if (/mixed/i.test(raw)) return 'Mixed Billing';
+  if (/private/i.test(raw)) return 'Private Billing';
+  return raw;
+}
+
 function sanitizeHttpUrl(value) {
   const raw = sanitizeZohoText(value);
   if (!raw) return '';
@@ -2693,9 +2702,12 @@ function normalizeCareerTypeLabel(value) {
 
 function buildAnonymousCareerHeadline(context = {}) {
   const geo = context.regional ? 'Regional' : (context.metro ? 'Metro' : 'Australian');
-  const billing = context.privateBilling
-    ? 'private billing'
-    : (context.mixedBilling ? 'mixed billing' : 'GP');
+  const billingLabel = normalizeCareerBillingLabel(context.billingLabel || '');
+  const billing = billingLabel
+    ? billingLabel.toLowerCase()
+    : (context.privateBilling
+      ? 'private billing'
+      : (context.mixedBilling ? 'mixed billing' : 'GP'));
   const typeLabel = normalizeCareerTypeLabel(context.practiceType);
   const phrase = `${geo} ${billing} ${typeLabel}`
     .replace(/\bGP GP\b/ig, 'GP')
@@ -2742,6 +2754,7 @@ function extractCareerBenefits(record, context = {}) {
   if (context.earningsText && /\$|k|bonus/i.test(context.earningsText)) {
     benefits.push('Strong earning profile');
   }
+  if (normalizeCareerBillingLabel(context.billingLabel) === 'Bulk Billing') benefits.push('Bulk billing patient base');
   if (context.privateBilling) benefits.push('Private billing opportunity');
   if (context.mixedBilling) benefits.push('Mixed billing patient base');
   if (context.dpa) benefits.push('DPA-aligned pathway');
@@ -2795,6 +2808,7 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
   const record = getCareerRoleRawPayload(row);
   const websiteUrl = extractCareerWebsiteUrl(record);
   const suburb = deriveCareerSuburb(record, row && row.location_label, row && row.location_city);
+  const billingLabel = normalizeCareerBillingLabel(row && row.billing_model);
   const identifierValues = [
     row && row.practice_name,
     row && row.location_label,
@@ -2804,6 +2818,7 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
     websiteUrl
   ];
   const sourceBenefits = extractCareerBenefits(record, {
+    billingLabel,
     earningsText: row && row.earnings_text,
     privateBilling: !!(row && row.private_billing),
     mixedBilling: !!(row && row.mixed_billing),
@@ -2814,6 +2829,7 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
     supportText: row && row.support_summary
   }).map((item) => redactCareerIdentifiers(item, identifierValues));
   const headline = buildAnonymousCareerHeadline({
+    billingLabel,
     regional: !!(row && row.regional),
     metro: !!(row && row.metro),
     privateBilling: !!(row && row.private_billing),
@@ -2830,6 +2846,7 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
     sourceBenefits,
     publicHeadline: headline,
     publicIntro: buildCareerFallbackIntro({
+      billingLabel,
       regional: !!(row && row.regional),
       metro: !!(row && row.metro),
       privateBilling: !!(row && row.private_billing),
@@ -2848,7 +2865,10 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
     mapQuery: buildLocationLabel([suburb, row && row.location_state, row && row.location_country]),
     aiStatus: websiteUrl && OPENAI_API_KEY ? 'pending' : 'fallback',
     aiError: '',
-    aiEnrichedAt: null
+    aiEnrichedAt: null,
+    websiteBillingLabel: billingLabel,
+    websiteBillingCheckedAt: null,
+    websiteBillingStatus: billingLabel ? 'provided' : (websiteUrl && OPENAI_API_KEY ? 'pending' : 'unavailable')
   };
 }
 
@@ -2953,6 +2973,7 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
     'benefits: array of 3 to 4 short benefit strings',
     'support: one short sentence about onboarding/support',
     'location_summary: one short generic sentence about the setting without naming the suburb/city/state',
+    'billing_model: exactly one of "Bulk Billing", "Private Billing", "Mixed Billing", or "" if unclear',
     `role_title: ${sanitizeZohoText(row && row.title)}`,
     `billing_model: ${sanitizeZohoText(row && row.billing_model)}`,
     `employment_type: ${sanitizeZohoText(row && row.employment_type)}`,
@@ -3015,6 +3036,7 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
   const intro = redactCareerIdentifiers(String(parsed.intro || '').trim(), identifierValues);
   const support = redactCareerIdentifiers(String(parsed.support || '').trim(), identifierValues);
   const locationSummary = redactCareerIdentifiers(String(parsed.location_summary || '').trim(), identifierValues);
+  const billingModel = normalizeCareerBillingLabel(String(parsed.billing_model || '').trim());
   const benefits = Array.isArray(parsed.benefits)
     ? parsed.benefits.map((item) => redactCareerIdentifiers(sanitizeCareerBenefit(item), identifierValues)).filter(Boolean)
     : [];
@@ -3024,7 +3046,10 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
     publicIntro: intro || gpLinkMeta.publicIntro,
     publicBenefits: benefits.slice(0, 4).length ? benefits.slice(0, 4) : gpLinkMeta.publicBenefits,
     publicSupport: support || gpLinkMeta.publicSupport,
-    locationSummary: locationSummary || gpLinkMeta.locationSummary
+    locationSummary: locationSummary || gpLinkMeta.locationSummary,
+    websiteBillingLabel: billingModel || gpLinkMeta.websiteBillingLabel || '',
+    websiteBillingCheckedAt: new Date().toISOString(),
+    websiteBillingStatus: billingModel ? 'success' : 'unclear'
   };
 }
 
@@ -3448,13 +3473,14 @@ async function getCareerRoleRow(provider, providerRoleId) {
   return result.data[0];
 }
 
-async function updateCareerRoleRow(row, gpLinkMetaPatch = {}) {
+async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
   if (!row || !row.provider || !row.provider_role_id) return row;
   const nextMeta = {
     ...getCareerRoleGpLinkMeta(row),
     ...gpLinkMetaPatch
   };
   const body = {
+    ...rowPatch,
     summary: nextMeta.publicIntro || row.summary,
     support_summary: nextMeta.publicSupport || row.support_summary,
     source_payload: buildCareerRoleSourceBundle(getCareerRoleRawPayload(row), nextMeta)
@@ -3472,19 +3498,76 @@ async function updateCareerRoleRow(row, gpLinkMetaPatch = {}) {
   return result.data[0];
 }
 
-function shouldRefreshCareerAiProfile(meta) {
+function shouldRefreshCareerAiProfile(row, meta) {
   if (!meta || typeof meta !== 'object') return false;
   if (!meta.websiteUrl || !OPENAI_API_KEY) return false;
+  if (!normalizeCareerBillingLabel(row && row.billing_model) && meta.websiteBillingStatus !== 'success') return true;
   if (meta.aiStatus !== 'success' || !meta.aiEnrichedAt) return true;
   const enrichedAt = Date.parse(meta.aiEnrichedAt);
   if (!Number.isFinite(enrichedAt)) return true;
   return (Date.now() - enrichedAt) > (14 * 24 * 60 * 60 * 1000);
 }
 
+function shouldRefreshCareerWebsiteBilling(row, meta) {
+  if (!meta || typeof meta !== 'object') return false;
+  if (!meta.websiteUrl || !OPENAI_API_KEY) return false;
+  if (normalizeCareerBillingLabel(row && row.billing_model)) return false;
+  if (!meta.websiteBillingCheckedAt) return true;
+  const checkedAt = Date.parse(meta.websiteBillingCheckedAt);
+  if (!Number.isFinite(checkedAt)) return true;
+  return (Date.now() - checkedAt) > (14 * 24 * 60 * 60 * 1000);
+}
+
+async function ensureCareerRoleWebsiteBilling(row) {
+  if (!row) return null;
+  const currentMeta = getCareerRoleGpLinkMeta(row);
+  if (!shouldRefreshCareerWebsiteBilling(row, currentMeta)) return row;
+
+  const website = await fetchCareerWebsiteProfile(currentMeta.websiteUrl);
+  const checkedAt = new Date().toISOString();
+  if (!website.ok || !website.text) {
+    return updateCareerRoleRow(row, {
+      ...currentMeta,
+      websiteBillingCheckedAt: checkedAt,
+      websiteBillingStatus: 'error',
+      websiteBillingLabel: currentMeta.websiteBillingLabel || '',
+      aiError: currentMeta.aiError || website.message || ''
+    });
+  }
+
+  try {
+    const aiProfile = await createCareerRoleAiProfile(row, currentMeta, website.text);
+    const normalizedBilling = normalizeCareerBillingLabel(aiProfile && aiProfile.websiteBillingLabel);
+    return updateCareerRoleRow(
+      row,
+      {
+        ...currentMeta,
+        ...aiProfile,
+        websiteBillingCheckedAt: checkedAt,
+        websiteBillingStatus: normalizedBilling ? 'success' : 'unclear',
+        websiteBillingLabel: normalizedBilling || ''
+      },
+      normalizedBilling ? {
+        billing_model: normalizedBilling,
+        private_billing: normalizedBilling === 'Private Billing',
+        mixed_billing: normalizedBilling === 'Mixed Billing'
+      } : {}
+    );
+  } catch (err) {
+    return updateCareerRoleRow(row, {
+      ...currentMeta,
+      websiteBillingCheckedAt: checkedAt,
+      websiteBillingStatus: 'error',
+      websiteBillingLabel: currentMeta.websiteBillingLabel || '',
+      aiError: String(err && err.message ? err.message : 'Career billing enrichment failed.').slice(0, 240)
+    });
+  }
+}
+
 async function ensureCareerRoleAiProfile(row) {
   if (!row) return null;
   const currentMeta = getCareerRoleGpLinkMeta(row);
-  if (!shouldRefreshCareerAiProfile(currentMeta)) return row;
+  if (!shouldRefreshCareerAiProfile(row, currentMeta)) return row;
 
   const website = await fetchCareerWebsiteProfile(currentMeta.websiteUrl);
   if (!website.ok || !website.text) {
@@ -3521,13 +3604,20 @@ function mapCareerRoleRowToClient(row) {
     !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
     !row || row.location_label ? '' : row.location_country
   ]);
+  const rawBilling = row && row.billing_model ? String(row.billing_model).trim() : '';
+  const billingLabel = normalizeCareerBillingLabel(rawBilling)
+    || (row && row.private_billing ? 'Private Billing' : '')
+    || (row && row.mixed_billing ? 'Mixed Billing' : '')
+    || (gpLinkMeta && normalizeCareerBillingLabel(gpLinkMeta.websiteBillingLabel))
+    || 'Billing to be confirmed';
   const tags = Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [];
   const filterTokens = [
     row && row.location_city,
     row && row.location_state,
-    row && row.billing_model,
+    billingLabel,
     row && row.private_billing ? 'Private Billing' : '',
     row && row.mixed_billing ? 'Mixed Billing' : '',
+    /bulk/i.test(rawBilling) ? 'Bulk Billing' : '',
     row && row.dpa ? 'DPA' : '',
     row && row.metro ? 'Metro' : '',
     row && row.regional ? 'Regional' : '',
@@ -3542,7 +3632,7 @@ function mapCareerRoleRowToClient(row) {
     practiceName: gpLinkMeta.publicHeadline || 'Confidential GP practice',
     location: location || 'Australia',
     summary: gpLinkMeta.publicIntro || (row && row.summary ? String(row.summary) : 'Live role available through GP Link.'),
-    billing: row && row.billing_model ? String(row.billing_model) : 'Practice details',
+    billing: billingLabel,
     geography: row && row.regional ? 'Regional' : (row && row.metro ? 'Metro' : 'Australia'),
     earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
     tags: tags.slice(0, 4),
@@ -3660,6 +3750,17 @@ async function syncZohoRecruitRoles() {
         lastSyncError: 'Failed to store synced Zoho Recruit roles in Supabase.'
       });
       return { ok: false, status: 502, message: 'Failed to store synced Zoho Recruit roles.' };
+    }
+  }
+
+  const missingBillingRows = rows
+    .filter((row) => !normalizeCareerBillingLabel(row && row.billing_model))
+    .slice(0, 8);
+  for (const row of missingBillingRows) {
+    try {
+      await ensureCareerRoleWebsiteBilling(row);
+    } catch (err) {
+      // Billing enrichment is best-effort and should not fail the core sync.
     }
   }
 
@@ -4747,10 +4848,11 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const enrichedRow = await ensureCareerRoleAiProfile(existingRow);
+    const billingReadyRow = await ensureCareerRoleWebsiteBilling(existingRow);
+    const enrichedRow = await ensureCareerRoleAiProfile(billingReadyRow || existingRow);
     sendJson(res, 200, {
       ok: true,
-      role: mapCareerRoleDetailToClient(enrichedRow || existingRow)
+      role: mapCareerRoleDetailToClient(enrichedRow || billingReadyRow || existingRow)
     });
     return;
   }
