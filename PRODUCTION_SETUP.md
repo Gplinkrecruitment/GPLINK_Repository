@@ -42,6 +42,7 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `ZOHO_RECRUIT_ACCOUNTS_SERVER=https://accounts.zoho.com` (or your Zoho data-center accounts server)
 - `ZOHO_RECRUIT_REDIRECT_URI=https://app.mygplink.com.au/api/integrations/zoho-recruit/callback`
 - `ZOHO_RECRUIT_SCOPES=ZohoRECRUIT.modules.jobopening.READ`
+- `ZOHO_RECRUIT_SYNC_CRON_SECRET=<strong-random-secret>` (recommended if using scheduled sync)
 - `ADMIN_EMAILS=<comma-separated-admin-emails>` (required for admin access)
 - `ADMIN_ALLOWED_HOSTS=admin.mygplink.com.au` (required in production; restricts `/pages/admin*.html` and `/api/admin/*`)
 - `ADMIN_COOKIE_NAME=gp_admin_session` (optional override)
@@ -106,3 +107,13 @@ This applies required schema, including `public.runtime_kv`, and deploys the Sup
 5. After consent, GP Link stores the refresh token in Supabase table `public.integration_connections`.
 6. GP Link syncs Zoho `JobOpenings` into `public.career_roles`.
 7. Candidate-facing Career UI reads from GP Link `/api/career/roles`, not from Zoho directly.
+
+## 12. Scheduled Zoho sync
+- Secure endpoint: `GET /api/integrations/zoho-recruit/cron-sync`
+- Authenticate with header:
+  - `Authorization: Bearer <ZOHO_RECRUIT_SYNC_CRON_SECRET>`
+- This endpoint skips if a successful sync already ran in the last ~45 seconds and uses a short lock to reduce overlapping runs.
+- Vercel Hobby does not support per-minute cron schedules. Use one of:
+  - Vercel Pro cron with `* * * * *`
+  - an external scheduler such as cron-job.org or Upstash QStash calling the secure endpoint every minute
+- Recommended cadence in production is usually every 5-15 minutes unless job openings change extremely frequently.

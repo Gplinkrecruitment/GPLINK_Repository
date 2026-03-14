@@ -719,6 +719,13 @@
       font-weight: 700;
     }
 
+    .role-summary {
+      display: -webkit-box;
+      -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
     .badge-row {
       display: flex;
       flex-wrap: wrap;
@@ -753,6 +760,57 @@
       justify-content: space-between;
       gap: 10px;
       flex-wrap: wrap;
+    }
+
+    .benefit-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .benefit-tile {
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(248, 250, 252, 0.58);
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .benefit-label {
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .benefit-copy {
+      margin: 0;
+      color: #0f172a;
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 800;
+    }
+
+    .role-benefits-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .role-benefit-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.04);
+      border: 1px solid rgba(203, 213, 225, 0.5);
+      color: #334155;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
     }
 
     .application-card {
@@ -1205,6 +1263,23 @@
       color: #334155;
     }
 
+    .modal-section,
+    .modal-map-card {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(248, 250, 252, 0.54);
+      border: 1px solid rgba(226, 232, 240, 0.55);
+    }
+
+    .modal-section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
     .modal-detail-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1224,6 +1299,22 @@
 
     .modal-detail-card .detail-value {
       font-size: 13px;
+    }
+
+    .map-embed-wrap {
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(203, 213, 225, 0.55);
+      background: #dbeafe;
+      min-height: 240px;
+    }
+
+    .map-embed {
+      width: 100%;
+      min-height: 240px;
+      border: 0;
+      display: block;
+      background: #dbeafe;
     }
 
     .modal-actions {
@@ -1486,7 +1577,8 @@
 
       .application-meta,
       .summary-grid,
-      .modal-detail-grid {
+      .modal-detail-grid,
+      .benefit-grid {
         grid-template-columns: 1fr;
       }
 
@@ -1732,7 +1824,26 @@
       </div>
       <p class="modal-summary" id="roleModalSummary"></p>
       <div class="badge-row" id="roleModalBadges"></div>
+      <div class="modal-section">
+        <div class="modal-section-head">
+          <span class="detail-label">Why GPs consider this role</span>
+          <span class="detail-subcopy" id="roleModalAiStatus">Building profile</span>
+        </div>
+        <div class="benefit-grid" id="roleModalBenefits"></div>
+      </div>
       <div class="modal-detail-grid" id="roleModalDetails"></div>
+      <div class="modal-map-card" id="roleModalMapCard">
+        <div class="modal-section-head">
+          <div>
+            <span class="detail-label">Area map</span>
+            <p class="detail-subcopy" id="roleModalMapHint">Explore the suburb surrounding this confidential practice profile.</p>
+          </div>
+          <button class="ghost-btn" id="roleModalMapToggleBtn" type="button">Show suburb map</button>
+        </div>
+        <div class="map-embed-wrap" id="roleModalMapWrap" hidden>
+          <iframe class="map-embed" id="roleModalMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role suburb map"></iframe>
+        </div>
+      </div>
       <div class="modal-actions">
         <button class="btn-secondary" id="roleModalSaveBtn" type="button">Save job</button>
         <button class="btn-primary" id="roleModalApplyBtn" type="button">Apply now</button>
@@ -1763,70 +1874,90 @@
       {
         id: "harbourline-medical",
         match: "Match 96%",
-        practiceName: "Harbourline Medical",
+        practiceName: "Confidential coastal private clinic",
         location: "Bondi Junction, Sydney NSW",
         summary: "Private billing coastal clinic with structured onboarding, relocation support and an experienced international GP team.",
         billing: "Private Billing",
         geography: "Metro",
         earnings: "Est. $420k+",
         tags: ["Visa pathway aligned", "Fast-track interview"],
+        benefits: ["Private billing opportunity", "Structured onboarding", "Relocation support"],
         filterTokens: ["Sydney", "Private Billing", "Metro", "High Earning"],
         support: "Structured onboarding with an existing IMG-friendly team.",
         practiceType: "Coastal family practice",
         roleType: "General Practitioner",
         earningNote: "Strong private billing book from commencement.",
-        footnote: "Fast-track interview available"
+        footnote: "Fast-track interview available",
+        locationSummary: "Coastal metro catchment with strong patient continuity.",
+        mapQuery: "Bondi Junction, Sydney NSW, Australia",
+        mapLabel: "Bondi Junction",
+        aiStatus: "fallback"
       },
       {
         id: "westgate-family-practice",
         match: "Match 92%",
-        practiceName: "Westgate Family Practice",
+        practiceName: "Confidential suburban mixed-billing clinic",
         location: "Werribee, Melbourne VIC",
         summary: "High-volume mixed billing clinic with strong mentorship, school-friendly rostering and established registrar support.",
         billing: "Mixed Billing",
         geography: "Metro",
         earnings: "Est. $360k+",
         tags: ["DPA", "Family friendly"],
+        benefits: ["DPA-aligned pathway", "Family-friendly rostering", "Strong mentorship"],
         filterTokens: ["Melbourne", "Mixed Billing", "DPA", "Metro", "Family Friendly"],
         support: "Flexible rostering and school-term-aware practice management.",
         practiceType: "Large suburban medical centre",
         roleType: "General Practitioner",
         earningNote: "Stable patient demand with family-friendly sessions.",
-        footnote: "Housing short-list prepared"
+        footnote: "Housing short-list prepared",
+        locationSummary: "Established metro catchment with family-focused demand.",
+        mapQuery: "Werribee, Melbourne VIC, Australia",
+        mapLabel: "Werribee",
+        aiStatus: "fallback"
       },
       {
         id: "riverbend-health-hub",
         match: "Match 89%",
-        practiceName: "Riverbend Health Hub",
+        practiceName: "Confidential regional community practice",
         location: "Toowoomba, Queensland",
         summary: "Regional lifestyle role with substantial billings, partner employment assistance and protected supervision time on commencement.",
         billing: "Mixed Billing",
         geography: "Regional",
         earnings: "Est. $390k+",
         tags: ["DPA / MMM 2", "Relocation covered"],
+        benefits: ["Regional incentives", "Partner employment support", "Protected supervision time"],
         filterTokens: ["Brisbane", "Mixed Billing", "DPA", "Regional", "High Earning", "Family Friendly"],
         support: "Partner employment support and settlement assistance included.",
         practiceType: "Regional community health hub",
         roleType: "General Practitioner",
         earningNote: "Regional incentives and strong billings from established demand.",
-        footnote: "Regional retention incentives"
+        footnote: "Regional retention incentives",
+        locationSummary: "Regional lifestyle setting with established community demand.",
+        mapQuery: "Toowoomba, Queensland, Australia",
+        mapLabel: "Toowoomba",
+        aiStatus: "fallback"
       },
       {
         id: "northshore-clinic-group",
         match: "Match 87%",
-        practiceName: "Northshore Clinic Group",
+        practiceName: "Confidential premium suburban clinic",
         location: "Nedlands, Perth WA",
         summary: "Premium suburban group with private billing focus, executive practice management and high continuity patient demand.",
         billing: "Private Billing",
         geography: "Metro",
         earnings: "Est. $450k+",
         tags: ["High earning", "Executive onboarding"],
+        benefits: ["High billing potential", "Executive onboarding", "Premium patient continuity"],
         filterTokens: ["Perth", "Private Billing", "Metro", "High Earning"],
         support: "Executive onboarding and premium practice operations support.",
         practiceType: "Premium suburban clinic group",
         roleType: "General Practitioner",
         earningNote: "Private fee uplift and continuity-heavy patient panel.",
-        footnote: "Executive onboarding support"
+        footnote: "Executive onboarding support",
+        locationSummary: "Premium metro catchment with continuity-heavy patient demand.",
+        mapQuery: "Nedlands, Perth WA, Australia",
+        mapLabel: "Nedlands",
+        aiStatus: "fallback"
       }
     ];
 
@@ -1864,6 +1995,16 @@
 
     let roleData = clone(FALLBACK_ROLE_DATA);
     let careerDataSource = "fallback";
+    const roleDetailCache = new Map();
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
 
     function createSavedSnapshot(role) {
       return {
@@ -1872,7 +2013,7 @@
         location: role.location,
         billing: role.billing,
         earnings: role.earnings,
-        tags: role.tags.slice(0, 2),
+        tags: (role.benefits && role.benefits.length ? role.benefits : role.tags).slice(0, 2),
         summary: role.summary
       };
     }
@@ -1945,6 +2086,7 @@
     function normalizeCareerState(raw, context = {}) {
       const roles = Array.isArray(context.roles) && context.roles.length ? context.roles : roleData;
       const roleIds = new Set(roles.map((role) => role && role.id).filter(Boolean));
+      const roleMap = new Map(roles.filter((role) => role && role.id).map((role) => [role.id, role]));
       const fallback = getDefaultCareerState({ dataSource: context.dataSource || careerDataSource, roles });
       const source = raw && typeof raw === "object" ? raw : {};
       return {
@@ -1953,10 +2095,17 @@
         activeFilter: typeof source.activeFilter === "string" ? source.activeFilter : fallback.activeFilter,
         searchTerm: typeof source.searchTerm === "string" ? source.searchTerm : fallback.searchTerm,
         savedJobs: Array.isArray(source.savedJobs)
-          ? source.savedJobs.filter((job) => job && roleIds.has(job.id))
+          ? source.savedJobs
+              .filter((job) => job && roleIds.has(job.id))
+              .map((job) => createSavedSnapshot(roleMap.get(job.id) || job))
           : fallback.savedJobs,
         applications: Array.isArray(source.applications)
-          ? source.applications.filter((job) => job && roleIds.has(job.roleId))
+          ? source.applications
+              .filter((job) => job && roleIds.has(job.roleId))
+              .map((job) => {
+                const liveRole = roleMap.get(job.roleId);
+                return liveRole ? { ...job, practiceName: liveRole.practiceName, location: liveRole.location } : job;
+              })
           : fallback.applications
       };
     }
@@ -2008,7 +2157,14 @@
     const roleModalLocationEl = document.getElementById("roleModalLocation");
     const roleModalSummaryEl = document.getElementById("roleModalSummary");
     const roleModalBadgesEl = document.getElementById("roleModalBadges");
+    const roleModalBenefitsEl = document.getElementById("roleModalBenefits");
+    const roleModalAiStatusEl = document.getElementById("roleModalAiStatus");
     const roleModalDetailsEl = document.getElementById("roleModalDetails");
+    const roleModalMapCardEl = document.getElementById("roleModalMapCard");
+    const roleModalMapHintEl = document.getElementById("roleModalMapHint");
+    const roleModalMapToggleBtnEl = document.getElementById("roleModalMapToggleBtn");
+    const roleModalMapWrapEl = document.getElementById("roleModalMapWrap");
+    const roleModalMapFrameEl = document.getElementById("roleModalMapFrame");
     const roleModalSaveBtnEl = document.getElementById("roleModalSaveBtn");
     const roleModalApplyBtnEl = document.getElementById("roleModalApplyBtn");
     const otherOpportunitiesGridEl = document.getElementById("otherOpportunitiesGrid");
@@ -2017,6 +2173,7 @@
     const placementTimelineEl = document.getElementById("placementTimeline");
     const securedUpdatesListEl = document.getElementById("securedUpdatesList");
     const toastEl = document.getElementById("careerToast");
+    let roleModalMapVisible = false;
 
     function persistCareerState() {
       careerState.updatedAt = new Date().toISOString();
@@ -2055,6 +2212,91 @@
 
     function findRole(roleId) {
       return roleData.find((role) => role.id === roleId) || null;
+    }
+
+    function updateRoleInData(nextRole) {
+      if (!nextRole || !nextRole.id) return;
+      roleData = roleData.map((role) => role && role.id === nextRole.id ? { ...role, ...nextRole } : role);
+      roleDetailCache.set(nextRole.id, { ...(roleDetailCache.get(nextRole.id) || {}), ...nextRole });
+    }
+
+    function buildBenefitTilesHtml(benefits) {
+      const items = Array.isArray(benefits) ? benefits.filter(Boolean) : [];
+      if (!items.length) {
+        return '<div class="modal-detail-card"><span class="detail-value">Benefits will appear here once GP Link finalises the public profile.</span></div>';
+      }
+      return items.map((benefit, index) => `
+        <div class="benefit-tile">
+          <span class="benefit-label">Benefit ${index + 1}</span>
+          <p class="benefit-copy">${escapeHtml(benefit)}</p>
+        </div>
+      `).join("");
+    }
+
+    function buildRoleDetailCardsHtml(role) {
+      const cards = Array.isArray(role && role.detailCards) && role.detailCards.length
+        ? role.detailCards
+        : [
+            { label: "Role", value: role && role.roleType ? role.roleType : "General Practitioner" },
+            { label: "Practice profile", value: role && role.practiceType ? role.practiceType : "Confidential GP practice" },
+            { label: "Support", value: role && role.support ? role.support : "GP Link will coordinate further practice details." },
+            { label: "Location profile", value: role && role.locationSummary ? role.locationSummary : "Australian community setting" },
+            { label: "Earnings note", value: role && role.earningNote ? role.earningNote : "Compensation details provided on request." },
+            { label: "Employment type", value: role && role.footnote ? role.footnote : "Live opening via Zoho Recruit" }
+          ];
+      return cards.map((item) => `
+        <div class="modal-detail-card">
+          <span class="detail-label">${escapeHtml(item.label)}</span>
+          <span class="detail-value">${escapeHtml(item.value)}</span>
+        </div>
+      `).join("");
+    }
+
+    function resetRoleMap(role) {
+      roleModalMapVisible = false;
+      const hasMap = !!(role && role.mapQuery);
+      roleModalMapCardEl.hidden = !hasMap;
+      roleModalMapWrapEl.hidden = true;
+      roleModalMapFrameEl.removeAttribute("src");
+      roleModalMapHintEl.textContent = hasMap
+        ? `Explore the suburb surrounding ${role.mapLabel || "this confidential practice profile"}.`
+        : "Area mapping will appear when suburb data is available.";
+      roleModalMapToggleBtnEl.textContent = "Show suburb map";
+      roleModalMapToggleBtnEl.disabled = !hasMap;
+    }
+
+    function toggleRoleMap(role) {
+      if (!role || !role.mapQuery) return;
+      roleModalMapVisible = !roleModalMapVisible;
+      roleModalMapWrapEl.hidden = !roleModalMapVisible;
+      roleModalMapToggleBtnEl.textContent = roleModalMapVisible ? "Hide suburb map" : "Show suburb map";
+      if (roleModalMapVisible && !roleModalMapFrameEl.getAttribute("src")) {
+        roleModalMapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(role.mapQuery) + "&z=13&output=embed");
+      }
+    }
+
+    function setRoleModalLoading(role) {
+      roleModalBenefitsEl.innerHTML = buildBenefitTilesHtml(role && role.benefits);
+      roleModalDetailsEl.innerHTML = buildRoleDetailCardsHtml(role);
+    }
+
+    async function loadRoleDetail(roleId) {
+      if (!roleId) return null;
+      if (!String(roleId).includes(":")) {
+        return findRole(roleId);
+      }
+      if (roleDetailCache.has(roleId)) {
+        return roleDetailCache.get(roleId);
+      }
+      const response = await fetch("/api/career/role?id=" + encodeURIComponent(roleId), { credentials: "same-origin" });
+      if (!response.ok) throw new Error("career_role_detail_failed");
+      const payload = await response.json().catch(() => null);
+      if (!payload || payload.ok !== true || !payload.role) throw new Error("career_role_detail_invalid");
+      roleDetailCache.set(roleId, payload.role);
+      updateRoleInData(payload.role);
+      persistCareerState();
+      renderPage();
+      return payload.role;
     }
 
     function isSaved(roleId) {
@@ -2142,6 +2384,7 @@
         if (!payload || payload.ok !== true) return;
         const remoteRoles = Array.isArray(payload.roles) ? payload.roles.filter((role) => role && role.id) : [];
         if (payload.source === "supabase" || payload.source === "supabase-empty") {
+          roleDetailCache.clear();
           roleData = remoteRoles;
           careerDataSource = "api";
           careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
@@ -2187,18 +2430,21 @@
         card.innerHTML = `
           <div class="card-head">
             <div>
-              <h3 class="role-title">${role.practiceName}</h3>
-              <p class="role-location"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span></p>
+              <h3 class="role-title">${escapeHtml(role.practiceName)}</h3>
+              <p class="role-location"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(role.location)}</span></p>
             </div>
             <button class="save-btn${isSaved(role.id) ? " saved" : ""}" type="button" data-save-role="${role.id}" aria-label="${isSaved(role.id) ? "Remove saved job" : "Save job"}">
               <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
             </button>
           </div>
-          <p class="role-summary">${role.summary}</p>
+          <p class="role-summary">${escapeHtml(role.summary)}</p>
           <div class="badge-row">
-            <span class="badge">${role.billing}</span>
-            <span class="badge">${role.geography}</span>
-            <span class="badge-dark">${role.earnings}</span>
+            <span class="badge">${escapeHtml(role.billing)}</span>
+            <span class="badge">${escapeHtml(role.geography)}</span>
+            <span class="badge-dark">${escapeHtml(role.earnings)}</span>
+          </div>
+          <div class="role-benefits-preview">
+            ${(Array.isArray(role.benefits) ? role.benefits.slice(0, 2) : []).map((benefit) => `<span class="role-benefit-chip">${escapeHtml(benefit)}</span>`).join("")}
           </div>
           <div class="role-footer">
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;">
@@ -2222,16 +2468,16 @@
         card.innerHTML = `
           <div class="card-head">
             <div>
-              <h3 class="application-title">${application.practiceName}</h3>
-              <p class="application-sub"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${application.location}</span></p>
+              <h3 class="application-title">${escapeHtml(application.practiceName)}</h3>
+              <p class="application-sub"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(application.location)}</span></p>
             </div>
-            <span class="status-pill ${application.tone}">${application.status}</span>
+            <span class="status-pill ${application.tone}">${escapeHtml(application.status)}</span>
           </div>
           <div class="application-meta">
             ${application.meta.map((item) => `
               <div class="meta-card">
-                <span class="meta-label">${item.label}</span>
-                <span class="meta-value">${item.value}</span>
+                <span class="meta-label">${escapeHtml(item.label)}</span>
+                <span class="meta-value">${escapeHtml(item.value)}</span>
               </div>
             `).join("")}
           </div>
@@ -2287,15 +2533,15 @@
           <article class="role-card">
             <div class="card-head">
               <div>
-                <h3 class="application-title">${role.practiceName}</h3>
-                <p class="application-sub"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span></p>
+                <h3 class="application-title">${escapeHtml(role.practiceName)}</h3>
+                <p class="application-sub"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(role.location)}</span></p>
               </div>
             </div>
-            <p class="role-summary">${role.summary}</p>
+            <p class="role-summary">${escapeHtml(role.summary)}</p>
             <div class="badge-row">
-              <span class="badge">${role.billing}</span>
-              <span class="badge">${role.geography}</span>
-              <span class="badge-dark">${role.earnings}</span>
+              <span class="badge">${escapeHtml(role.billing)}</span>
+              <span class="badge">${escapeHtml(role.geography)}</span>
+              <span class="badge-dark">${escapeHtml(role.earnings)}</span>
             </div>
             <div class="role-footer">
               <button class="btn-primary" type="button" data-open-role="${role.id}" style="margin-left:auto;">View role</button>
@@ -2305,47 +2551,58 @@
       }).join("");
     }
 
-    function renderRoleModal(roleId) {
+    async function renderRoleModal(roleId) {
       const role = findRole(roleId);
       if (!role) return;
       currentRoleId = roleId;
       roleModalTitleEl.textContent = role.practiceName;
-      roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span>`;
+      roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(role.location)}</span>`;
       roleModalSummaryEl.textContent = role.summary;
       roleModalBadgesEl.innerHTML = `
-        <span class="badge">${role.billing}</span>
-        <span class="badge">${role.geography}</span>
-        <span class="badge-dark">${role.earnings}</span>
+        <span class="badge">${escapeHtml(role.billing)}</span>
+        <span class="badge">${escapeHtml(role.geography)}</span>
+        <span class="badge-dark">${escapeHtml(role.earnings)}</span>
       `;
-      roleModalDetailsEl.innerHTML = `
-        <div class="modal-detail-card">
-          <span class="detail-label">Role</span>
-          <span class="detail-value">${role.roleType}</span>
-        </div>
-        <div class="modal-detail-card">
-          <span class="detail-label">Practice type</span>
-          <span class="detail-value">${role.practiceType}</span>
-        </div>
-        <div class="modal-detail-card">
-          <span class="detail-label">Support</span>
-          <span class="detail-value">${role.support}</span>
-        </div>
-        <div class="modal-detail-card">
-          <span class="detail-label">Earnings note</span>
-          <span class="detail-value">${role.earningNote}</span>
-        </div>
-      `;
+      roleModalAiStatusEl.textContent = role.aiStatus === "success" ? "AI enriched" : (role.aiStatus === "fallback" ? "Profile ready" : "Building profile");
+      roleModalBenefitsEl.innerHTML = buildBenefitTilesHtml(role.benefits);
+      setRoleModalLoading(role);
+      resetRoleMap(role);
       roleModalSaveBtnEl.textContent = isSaved(roleId) ? "Remove saved job" : "Save job";
       roleModalApplyBtnEl.textContent = isApplied(roleId) ? "Open application" : "Apply now";
       roleModalEl.classList.add("is-open");
       roleModalEl.setAttribute("aria-hidden", "false");
       replaceCareerUrlState(careerState.activeView, roleId);
+
+      try {
+        const detailRole = await loadRoleDetail(roleId);
+        if (!detailRole || currentRoleId !== roleId) return;
+        roleModalTitleEl.textContent = detailRole.practiceName;
+        roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(detailRole.location)}</span>`;
+        roleModalSummaryEl.textContent = detailRole.summary;
+        roleModalBadgesEl.innerHTML = `
+          <span class="badge">${escapeHtml(detailRole.billing)}</span>
+          <span class="badge">${escapeHtml(detailRole.geography)}</span>
+          <span class="badge-dark">${escapeHtml(detailRole.earnings)}</span>
+        `;
+        roleModalAiStatusEl.textContent = detailRole.aiStatus === "success" ? "AI enriched" : "Profile ready";
+        roleModalBenefitsEl.innerHTML = buildBenefitTilesHtml(detailRole.benefits);
+        roleModalDetailsEl.innerHTML = buildRoleDetailCardsHtml(detailRole);
+        resetRoleMap(detailRole);
+      } catch (err) {
+        if (currentRoleId !== roleId) return;
+        roleModalAiStatusEl.textContent = "Profile ready";
+        roleModalBenefitsEl.innerHTML = buildBenefitTilesHtml(role.benefits);
+        roleModalDetailsEl.innerHTML = buildRoleDetailCardsHtml(role);
+      }
     }
 
     function closeRoleModal() {
       roleModalEl.classList.remove("is-open");
       roleModalEl.setAttribute("aria-hidden", "true");
       replaceCareerUrlState(careerState.activeView, null);
+      roleModalMapVisible = false;
+      roleModalMapWrapEl.hidden = true;
+      roleModalMapFrameEl.removeAttribute("src");
       currentRoleId = null;
     }
 
@@ -2437,6 +2694,11 @@
     roleModalSaveBtnEl.addEventListener("click", () => {
       if (!currentRoleId) return;
       toggleSavedJob(currentRoleId);
+    });
+
+    roleModalMapToggleBtnEl.addEventListener("click", () => {
+      if (!currentRoleId) return;
+      toggleRoleMap(roleDetailCache.get(currentRoleId) || findRole(currentRoleId));
     });
 
     roleModalApplyBtnEl.addEventListener("click", () => {

@@ -51,6 +51,8 @@ const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI |
 const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRECRUIT.modules.jobopening.READ').trim() || 'ZohoRECRUIT.modules.jobopening.READ';
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
+const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
+const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
@@ -1617,6 +1619,36 @@ function requireIntegrationAdminSession(req, res) {
   return { session, email };
 }
 
+function timingSafeEqualStrings(left, right) {
+  const a = Buffer.from(String(left || ''));
+  const b = Buffer.from(String(right || ''));
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(a, b);
+  } catch (err) {
+    return false;
+  }
+}
+
+function getBearerToken(req) {
+  const header = String(req.headers.authorization || '').trim();
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : '';
+}
+
+function requireZohoRecruitCronAuth(req, res) {
+  if (!ZOHO_RECRUIT_SYNC_CRON_SECRET) {
+    sendJson(res, 503, { ok: false, message: 'Zoho Recruit cron secret is not configured.' });
+    return false;
+  }
+  const token = getBearerToken(req);
+  if (!token || !timingSafeEqualStrings(token, ZOHO_RECRUIT_SYNC_CRON_SECRET)) {
+    sendJson(res, 401, { ok: false, message: 'Invalid cron authorization.' });
+    return false;
+  }
+  return true;
+}
+
 function hasOwn(obj, key) {
   return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
 }
@@ -2561,6 +2593,441 @@ function makeCareerRoleId(provider, providerRoleId) {
   return `${String(provider || 'zoho_recruit').trim()}:${String(providerRoleId || '').trim()}`;
 }
 
+function splitDelimitedText(value) {
+  return stripHtml(String(value || ''))
+    .split(/\n|;|\||•|·/g)
+    .map((item) => item.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function sanitizeCareerBenefit(value) {
+  const text = stripHtml(String(value || '')).replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= 110) return text;
+  return `${text.slice(0, 107).trim()}...`;
+}
+
+function sanitizeHttpUrl(value) {
+  const raw = sanitizeZohoText(value);
+  if (!raw) return '';
+  const prefixed = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(prefixed);
+    if (!/^https?:$/i.test(parsed.protocol)) return '';
+    return parsed.toString();
+  } catch (err) {
+    return '';
+  }
+}
+
+function extractCareerWebsiteUrl(record) {
+  return sanitizeHttpUrl(getZohoField(record, [
+    'Practice_Website',
+    'Practice_Website_URL',
+    'Company_Website',
+    'Website',
+    'Practice_URL',
+    'Client_Website',
+    'Clinic_Website'
+  ]));
+}
+
+function deriveCareerSuburb(record, areaLabel, city) {
+  const direct = getZohoField(record, [
+    'Suburb',
+    'Practice_Suburb',
+    'Location_Suburb',
+    'Clinic_Suburb',
+    'Town'
+  ]);
+  if (direct) return direct;
+  const area = String(areaLabel || '').trim();
+  if (area.includes(',')) {
+    return area.split(',')[0].trim();
+  }
+  return city || '';
+}
+
+function sanitizeIdentifierValue(value) {
+  return String(value || '')
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .replace(/[/?#].*$/, '')
+    .replace(/\.[a-z]{2,}$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function redactCareerIdentifiers(text, identifiers = []) {
+  let output = String(text || '');
+  identifiers
+    .map(sanitizeIdentifierValue)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .forEach((identifier) => {
+      if (identifier.length < 3) return;
+      output = output.replace(new RegExp(escapeRegex(identifier), 'ig'), 'this practice');
+    });
+  return output
+    .replace(/\s+/g, ' ')
+    .replace(/\bthis practice(?:\s+this practice)+/gi, 'this practice')
+    .trim();
+}
+
+function normalizeCareerTypeLabel(value) {
+  const raw = stripHtml(String(value || ''))
+    .replace(/\bmedical centre\b/ig, 'clinic')
+    .replace(/\bmedical center\b/ig, 'clinic')
+    .replace(/\bgeneral practice\b/ig, 'GP practice')
+    .replace(/\bclinic group\b/ig, 'clinic network')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return 'GP practice';
+  return raw.length <= 48 ? raw : `${raw.slice(0, 45).trim()}...`;
+}
+
+function buildAnonymousCareerHeadline(context = {}) {
+  const geo = context.regional ? 'Regional' : (context.metro ? 'Metro' : 'Australian');
+  const billing = context.privateBilling
+    ? 'private billing'
+    : (context.mixedBilling ? 'mixed billing' : 'GP');
+  const typeLabel = normalizeCareerTypeLabel(context.practiceType);
+  const phrase = `${geo} ${billing} ${typeLabel}`
+    .replace(/\bGP GP\b/ig, 'GP')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+}
+
+function buildCareerLocationSummary(context = {}) {
+  if (context.regional) return 'Regional community setting';
+  if (context.metro) return 'Metro catchment with established demand';
+  return 'Australian community setting';
+}
+
+function extractCareerBenefits(record, context = {}) {
+  const benefits = [];
+  const directKeys = [
+    'Benefit_1',
+    'Benefit_2',
+    'Benefit_3',
+    'Benefit1',
+    'Benefit2',
+    'Benefit3',
+    'Benefits',
+    'Key_Benefits',
+    'Role_Benefits',
+    'Candidate_Benefits',
+    'Sign_On_Bonus',
+    'Sign_On_Bonus_Offered',
+    'Relocation_Support',
+    'Visa_Support',
+    'Visa_PR_Sponsorship',
+    'Flexible_Roster',
+    'Family_Support'
+  ];
+
+  directKeys.forEach((key) => {
+    splitDelimitedText(getZohoField(record, [key])).forEach((item) => {
+      const normalized = sanitizeCareerBenefit(item);
+      if (normalized) benefits.push(normalized);
+    });
+  });
+
+  if (context.earningsText && /\$|k|bonus/i.test(context.earningsText)) {
+    benefits.push('Strong earning profile');
+  }
+  if (context.privateBilling) benefits.push('Private billing opportunity');
+  if (context.mixedBilling) benefits.push('Mixed billing patient base');
+  if (context.dpa) benefits.push('DPA-aligned pathway');
+  if (context.mmmText) benefits.push(`MMM access: ${String(context.mmmText).replace(/^MMM\s*/i, '').trim() || context.mmmText}`);
+  if (context.visaPathwayAligned) benefits.push('Visa and PR pathway support');
+  if (context.familyFriendly) benefits.push('Family-friendly practice support');
+  if (context.supportText) benefits.push(sanitizeCareerBenefit(context.supportText));
+
+  return benefits
+    .map(sanitizeCareerBenefit)
+    .filter(Boolean)
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .slice(0, 6);
+}
+
+function buildCareerPublicSupport(context = {}) {
+  if (context.supportText) {
+    return sanitizeCareerBenefit(context.supportText);
+  }
+  if (context.visaPathwayAligned && context.familyFriendly) {
+    return 'Relocation, visa and family-settlement support can be discussed with GP Link.';
+  }
+  if (context.visaPathwayAligned) {
+    return 'Visa pathway support can be coordinated with GP Link.';
+  }
+  return 'GP Link will coordinate further practice details once mutual fit is confirmed.';
+}
+
+function buildCareerFallbackIntro(context = {}) {
+  const headline = buildAnonymousCareerHeadline(context).toLowerCase();
+  const benefits = Array.isArray(context.sourceBenefits) ? context.sourceBenefits.slice(0, 2) : [];
+  const benefitText = benefits.length
+    ? benefits.join(' and ').replace(/\.$/, '')
+    : (context.earningsText ? 'a strong earning profile and structured onboarding' : 'structured onboarding and a stable patient base');
+  return `This confidential ${headline} offers ${benefitText}. GP Link will share full practice identity after there is mutual interest.`;
+}
+
+function getCareerRoleSourcePayload(row) {
+  return row && row.source_payload && typeof row.source_payload === 'object'
+    ? row.source_payload
+    : {};
+}
+
+function getCareerRoleRawPayload(row) {
+  const payload = getCareerRoleSourcePayload(row);
+  if (payload.zoho && typeof payload.zoho === 'object') return payload.zoho;
+  return payload;
+}
+
+function buildCareerRoleGpLinkMetaFromRow(row) {
+  const record = getCareerRoleRawPayload(row);
+  const websiteUrl = extractCareerWebsiteUrl(record);
+  const suburb = deriveCareerSuburb(record, row && row.location_label, row && row.location_city);
+  const identifierValues = [
+    row && row.practice_name,
+    row && row.location_label,
+    row && row.location_city,
+    row && row.location_state,
+    suburb,
+    websiteUrl
+  ];
+  const sourceBenefits = extractCareerBenefits(record, {
+    earningsText: row && row.earnings_text,
+    privateBilling: !!(row && row.private_billing),
+    mixedBilling: !!(row && row.mixed_billing),
+    dpa: !!(row && row.dpa),
+    mmmText: row && row.mmm,
+    visaPathwayAligned: !!(row && row.visa_pathway_aligned),
+    familyFriendly: !!(row && row.family_friendly),
+    supportText: row && row.support_summary
+  }).map((item) => redactCareerIdentifiers(item, identifierValues));
+  const headline = buildAnonymousCareerHeadline({
+    regional: !!(row && row.regional),
+    metro: !!(row && row.metro),
+    privateBilling: !!(row && row.private_billing),
+    mixedBilling: !!(row && row.mixed_billing),
+    practiceType: row && row.practice_type
+  });
+  const locationSummary = buildCareerLocationSummary({
+    regional: !!(row && row.regional),
+    metro: !!(row && row.metro)
+  });
+  return {
+    websiteUrl,
+    suburb,
+    sourceBenefits,
+    publicHeadline: headline,
+    publicIntro: buildCareerFallbackIntro({
+      regional: !!(row && row.regional),
+      metro: !!(row && row.metro),
+      privateBilling: !!(row && row.private_billing),
+      mixedBilling: !!(row && row.mixed_billing),
+      practiceType: row && row.practice_type,
+      sourceBenefits,
+      earningsText: row && row.earnings_text
+    }),
+    publicBenefits: sourceBenefits.slice(0, 4),
+    publicSupport: redactCareerIdentifiers(row && row.support_summary ? String(row.support_summary) : buildCareerPublicSupport({
+      supportText: row && row.support_summary,
+      visaPathwayAligned: !!(row && row.visa_pathway_aligned),
+      familyFriendly: !!(row && row.family_friendly)
+    }), identifierValues),
+    locationSummary,
+    mapQuery: buildLocationLabel([suburb, row && row.location_state, row && row.location_country]),
+    aiStatus: websiteUrl && OPENAI_API_KEY ? 'pending' : 'fallback',
+    aiError: '',
+    aiEnrichedAt: null
+  };
+}
+
+function getCareerRoleGpLinkMeta(row) {
+  const payload = getCareerRoleSourcePayload(row);
+  const stored = payload.gpLink && typeof payload.gpLink === 'object' ? payload.gpLink : {};
+  const derived = buildCareerRoleGpLinkMetaFromRow(row);
+  return {
+    ...derived,
+    ...stored,
+    sourceBenefits: Array.isArray(stored.sourceBenefits) && stored.sourceBenefits.length ? stored.sourceBenefits : derived.sourceBenefits,
+    publicBenefits: Array.isArray(stored.publicBenefits) && stored.publicBenefits.length ? stored.publicBenefits : derived.publicBenefits
+  };
+}
+
+function buildCareerRoleSourceBundle(record, gpLinkMeta) {
+  return {
+    zoho: record && typeof record === 'object' ? record : {},
+    gpLink: gpLinkMeta && typeof gpLinkMeta === 'object' ? gpLinkMeta : {}
+  };
+}
+
+function extractWebsiteText(html) {
+  const source = String(html || '');
+  if (!source) return '';
+  const withoutNoise = source
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
+  const chunks = [];
+  const titleMatch = withoutNoise.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (titleMatch && titleMatch[1]) chunks.push(stripHtml(titleMatch[1]));
+  const descriptionMatch = withoutNoise.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+  if (descriptionMatch && descriptionMatch[1]) chunks.push(stripHtml(descriptionMatch[1]));
+  const tagRegex = /<(h1|h2|h3|p|li)[^>]*>([\s\S]*?)<\/\1>/gi;
+  let match;
+  while ((match = tagRegex.exec(withoutNoise))) {
+    const text = stripHtml(match[2]);
+    if (text && text.length > 20) chunks.push(text);
+    if (chunks.length >= 80) break;
+  }
+  return chunks
+    .map((item) => item.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .filter((item, index, all) => all.indexOf(item) === index)
+    .join('\n')
+    .slice(0, 9000);
+}
+
+async function fetchCareerWebsiteProfile(websiteUrl) {
+  const target = sanitizeHttpUrl(websiteUrl);
+  if (!target) {
+    return { ok: false, message: 'Practice website unavailable.', text: '' };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(target, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; GP Link Career Enrichment/1.0; +https://app.mygplink.com.au)',
+        Accept: 'text/html,application/xhtml+xml'
+      }
+    });
+    const html = await response.text();
+    const text = extractWebsiteText(html);
+    if (!response.ok || !text) {
+      return { ok: false, message: 'Practice website content could not be read.', text: '' };
+    }
+    return { ok: true, text };
+  } catch (err) {
+    return { ok: false, message: 'Practice website could not be fetched.', text: '' };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
+  if (!OPENAI_API_KEY) throw new Error('Career AI service not configured.');
+
+  const rawRecord = getCareerRoleRawPayload(row);
+  const practiceName = row && row.practice_name ? String(row.practice_name) : '';
+  const locationTokens = [
+    row && row.location_label,
+    row && row.location_city,
+    row && row.location_state,
+    gpLinkMeta && gpLinkMeta.suburb
+  ].filter(Boolean);
+
+  const prompt = [
+    'You are writing a premium candidate-facing practice profile for overseas General Practitioners relocating to Australia.',
+    'CRITICAL PRIVACY RULES:',
+    '- Never reveal the practice name, website URL, suburb, city, state, street address, phone number, clinician names, or any identifying details.',
+    '- Refer to the employer only as "this practice" or with a generic descriptor.',
+    '- Do not use the raw practice name anywhere.',
+    '- Do not mention the website or source material.',
+    'Return strict JSON with keys:',
+    'headline: short anonymous title, 4-8 words',
+    'intro: 1-2 sentences, max 240 chars, persuasive and high-trust',
+    'benefits: array of 3 to 4 short benefit strings',
+    'support: one short sentence about onboarding/support',
+    'location_summary: one short generic sentence about the setting without naming the suburb/city/state',
+    `role_title: ${sanitizeZohoText(row && row.title)}`,
+    `billing_model: ${sanitizeZohoText(row && row.billing_model)}`,
+    `employment_type: ${sanitizeZohoText(row && row.employment_type)}`,
+    `practice_type: ${sanitizeZohoText(row && row.practice_type)}`,
+    `geography: ${row && row.regional ? 'regional' : (row && row.metro ? 'metro' : 'australia')}`,
+    `earnings_text: ${sanitizeZohoText(row && row.earnings_text)}`,
+    `source_benefits: ${JSON.stringify((gpLinkMeta && gpLinkMeta.sourceBenefits) || [])}`,
+    `support_summary: ${sanitizeZohoText(row && row.support_summary)}`,
+    `website_excerpt: ${String(websiteText || '').slice(0, 8000)}`,
+    `raw_practice_name_for_redaction_only: ${practiceName}`,
+    `raw_location_tokens_for_redaction_only: ${JSON.stringify(locationTokens)}`,
+    `raw_website_for_redaction_only: ${sanitizeZohoText(gpLinkMeta && gpLinkMeta.websiteUrl)}`,
+    'Return JSON only.'
+  ].join('\n');
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: OPENAI_CAREER_MODEL,
+      input: prompt,
+      max_output_tokens: 500,
+      temperature: 0.4
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('Career AI request failed');
+  }
+
+  const payload = await response.json();
+  const text = payload && typeof payload.output_text === 'string' ? payload.output_text : '';
+  if (!text) throw new Error('Career AI returned empty output');
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    const objectMatch = text.match(/\{[\s\S]*\}/);
+    if (objectMatch) parsed = JSON.parse(objectMatch[0]);
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Career AI returned invalid JSON');
+  }
+
+  const identifierValues = [
+    practiceName,
+    gpLinkMeta && gpLinkMeta.websiteUrl,
+    row && row.location_label,
+    row && row.location_city,
+    row && row.location_state,
+    gpLinkMeta && gpLinkMeta.suburb,
+    rawRecord && rawRecord.Practice_Website
+  ];
+
+  const headline = redactCareerIdentifiers(String(parsed.headline || '').trim(), identifierValues);
+  const intro = redactCareerIdentifiers(String(parsed.intro || '').trim(), identifierValues);
+  const support = redactCareerIdentifiers(String(parsed.support || '').trim(), identifierValues);
+  const locationSummary = redactCareerIdentifiers(String(parsed.location_summary || '').trim(), identifierValues);
+  const benefits = Array.isArray(parsed.benefits)
+    ? parsed.benefits.map((item) => redactCareerIdentifiers(sanitizeCareerBenefit(item), identifierValues)).filter(Boolean)
+    : [];
+
+  return {
+    publicHeadline: headline || gpLinkMeta.publicHeadline,
+    publicIntro: intro || gpLinkMeta.publicIntro,
+    publicBenefits: benefits.slice(0, 4).length ? benefits.slice(0, 4) : gpLinkMeta.publicBenefits,
+    publicSupport: support || gpLinkMeta.publicSupport,
+    locationSummary: locationSummary || gpLinkMeta.locationSummary
+  };
+}
+
 function isZohoRecruitConfigured() {
   return !!(
     isSupabaseDbConfigured() &&
@@ -2881,8 +3348,7 @@ function buildCareerRoleRecordFromZoho(record, syncedAt) {
 
   const isActive = !/closed|filled|inactive|archived|cancelled|hold/i.test(statusText);
   const publishedAt = getZohoField(record, ['Date_Opened', 'Created_Time', 'Modified_Time']) || null;
-
-  return {
+  const baseRow = {
     provider: 'zoho_recruit',
     provider_role_id: providerRoleId,
     title,
@@ -2907,10 +3373,17 @@ function buildCareerRoleRecordFromZoho(record, syncedAt) {
     metro,
     regional,
     is_active: isActive,
-    source_payload: record,
     published_at: publishedAt || null,
     synced_at: syncedAt,
     updated_at: syncedAt
+  };
+  const gpLinkMeta = buildCareerRoleGpLinkMetaFromRow(baseRow);
+
+  return {
+    ...baseRow,
+    summary: gpLinkMeta.publicIntro || summary,
+    support_summary: gpLinkMeta.publicSupport || supportText,
+    source_payload: buildCareerRoleSourceBundle(record, gpLinkMeta)
   };
 }
 
@@ -2966,7 +3439,83 @@ async function listCareerRoleRows(activeOnly = true) {
   return result.data;
 }
 
+async function getCareerRoleRow(provider, providerRoleId) {
+  const result = await supabaseDbRequest(
+    'career_roles',
+    `select=*&provider=eq.${encodeURIComponent(provider)}&provider_role_id=eq.${encodeURIComponent(providerRoleId)}&limit=1`
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+async function updateCareerRoleRow(row, gpLinkMetaPatch = {}) {
+  if (!row || !row.provider || !row.provider_role_id) return row;
+  const nextMeta = {
+    ...getCareerRoleGpLinkMeta(row),
+    ...gpLinkMetaPatch
+  };
+  const body = {
+    summary: nextMeta.publicIntro || row.summary,
+    support_summary: nextMeta.publicSupport || row.support_summary,
+    source_payload: buildCareerRoleSourceBundle(getCareerRoleRawPayload(row), nextMeta)
+  };
+  const result = await supabaseDbRequest(
+    'career_roles',
+    `provider=eq.${encodeURIComponent(row.provider)}&provider_role_id=eq.${encodeURIComponent(row.provider_role_id)}`,
+    {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return row;
+  return result.data[0];
+}
+
+function shouldRefreshCareerAiProfile(meta) {
+  if (!meta || typeof meta !== 'object') return false;
+  if (!meta.websiteUrl || !OPENAI_API_KEY) return false;
+  if (meta.aiStatus !== 'success' || !meta.aiEnrichedAt) return true;
+  const enrichedAt = Date.parse(meta.aiEnrichedAt);
+  if (!Number.isFinite(enrichedAt)) return true;
+  return (Date.now() - enrichedAt) > (14 * 24 * 60 * 60 * 1000);
+}
+
+async function ensureCareerRoleAiProfile(row) {
+  if (!row) return null;
+  const currentMeta = getCareerRoleGpLinkMeta(row);
+  if (!shouldRefreshCareerAiProfile(currentMeta)) return row;
+
+  const website = await fetchCareerWebsiteProfile(currentMeta.websiteUrl);
+  if (!website.ok || !website.text) {
+    return updateCareerRoleRow(row, {
+      ...currentMeta,
+      aiStatus: 'fallback',
+      aiError: website.message || '',
+      aiEnrichedAt: currentMeta.aiEnrichedAt || null
+    });
+  }
+
+  try {
+    const aiProfile = await createCareerRoleAiProfile(row, currentMeta, website.text);
+    return updateCareerRoleRow(row, {
+      ...currentMeta,
+      ...aiProfile,
+      aiStatus: 'success',
+      aiError: '',
+      aiEnrichedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    return updateCareerRoleRow(row, {
+      ...currentMeta,
+      aiStatus: 'error',
+      aiError: String(err && err.message ? err.message : 'Career AI enrichment failed.').slice(0, 240)
+    });
+  }
+}
+
 function mapCareerRoleRowToClient(row) {
+  const gpLinkMeta = getCareerRoleGpLinkMeta(row);
   const location = buildLocationLabel([
     row && row.location_label,
     !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
@@ -2990,20 +3539,53 @@ function mapCareerRoleRowToClient(row) {
     id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
     sourceId: row && row.provider_role_id ? String(row.provider_role_id) : '',
     match: 'Live opening',
-    practiceName: row && row.practice_name ? String(row.practice_name) : 'Medical practice role',
+    practiceName: gpLinkMeta.publicHeadline || 'Confidential GP practice',
     location: location || 'Australia',
-    summary: row && row.summary ? String(row.summary) : 'Live role available through GP Link.',
+    summary: gpLinkMeta.publicIntro || (row && row.summary ? String(row.summary) : 'Live role available through GP Link.'),
     billing: row && row.billing_model ? String(row.billing_model) : 'Practice details',
     geography: row && row.regional ? 'Regional' : (row && row.metro ? 'Metro' : 'Australia'),
     earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
     tags: tags.slice(0, 4),
+    benefits: Array.isArray(gpLinkMeta.publicBenefits) ? gpLinkMeta.publicBenefits.slice(0, 4) : [],
     filterTokens,
-    support: row && row.support_summary ? String(row.support_summary) : 'GP Link will coordinate further role details.',
+    support: gpLinkMeta.publicSupport || (row && row.support_summary ? String(row.support_summary) : 'GP Link will coordinate further role details.'),
     practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
     roleType: row && row.title ? String(row.title) : 'General Practitioner',
     earningNote: row && row.earnings_text ? String(row.earnings_text) : 'Compensation details provided on request.',
-    footnote: row && row.employment_type ? String(row.employment_type) : 'Live opening via Zoho Recruit'
+    footnote: row && row.employment_type ? String(row.employment_type) : 'Live opening via Zoho Recruit',
+    locationSummary: gpLinkMeta.locationSummary || '',
+    mapQuery: gpLinkMeta.mapQuery || '',
+    mapLabel: gpLinkMeta.suburb || row.location_city || row.location_label || '',
+    aiStatus: gpLinkMeta.aiStatus || 'fallback'
   };
+}
+
+function mapCareerRoleDetailToClient(row) {
+  const base = mapCareerRoleRowToClient(row);
+  return {
+    ...base,
+    sourceWebsiteAvailable: !!(getCareerRoleGpLinkMeta(row).websiteUrl),
+    mapAvailable: !!(getCareerRoleGpLinkMeta(row).mapQuery),
+    detailCards: [
+      { label: 'Role', value: base.roleType },
+      { label: 'Practice profile', value: base.practiceType },
+      { label: 'Support', value: base.support },
+      { label: 'Location profile', value: base.locationSummary || 'Australian community setting' },
+      { label: 'Earnings note', value: base.earningNote },
+      { label: 'Employment type', value: base.footnote }
+    ]
+  };
+}
+
+function parseCareerRolePublicId(publicId) {
+  const value = String(publicId || '').trim();
+  if (!value) return null;
+  const separatorIndex = value.indexOf(':');
+  if (separatorIndex <= 0) return null;
+  const provider = value.slice(0, separatorIndex).trim();
+  const providerRoleId = value.slice(separatorIndex + 1).trim();
+  if (!provider || !providerRoleId) return null;
+  return { provider, providerRoleId };
 }
 
 async function syncZohoRecruitRoles() {
@@ -3108,6 +3690,41 @@ async function syncZohoRecruitRoles() {
     syncedAt,
     syncedRoleCount: rows.length
   };
+}
+
+async function runZohoRecruitScheduledSync() {
+  const connection = await getZohoRecruitConnection();
+  const recentSyncAt = connection && connection.lastSyncAt ? Date.parse(connection.lastSyncAt) : NaN;
+  if (Number.isFinite(recentSyncAt) && (Date.now() - recentSyncAt) < 45000) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'recent_sync',
+      syncedAt: connection.lastSyncAt,
+      syncedRoleCount: connection && connection.metadata && Number(connection.metadata.syncedRoleCount || 0) || 0,
+      connected: connection
+    };
+  }
+
+  const lockKey = 'zoho_recruit_sync_lock';
+  const existingLock = await getRuntimeKv(lockKey);
+  if (existingLock && existingLock.value && existingLock.value.startedAt) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'sync_in_progress',
+      syncedAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
+      syncedRoleCount: connection && connection.metadata && Number(connection.metadata.syncedRoleCount || 0) || 0,
+      connected: connection
+    };
+  }
+
+  await setRuntimeKv(lockKey, { startedAt: new Date().toISOString() }, Date.now() + 55 * 1000);
+  try {
+    return await syncZohoRecruitRoles();
+  } finally {
+    await deleteRuntimeKv(lockKey);
+  }
 }
 
 async function getRuntimeKv(key) {
@@ -4109,6 +4726,35 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === '/api/career/role' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Career role details require Supabase database configuration.' });
+      return;
+    }
+
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const parsedId = parseCareerRolePublicId(requestUrl.searchParams.get('id') || '');
+    if (!parsedId) {
+      sendJson(res, 400, { ok: false, message: 'Missing or invalid role id.' });
+      return;
+    }
+
+    const existingRow = await getCareerRoleRow(parsedId.provider, parsedId.providerRoleId);
+    if (!existingRow) {
+      sendJson(res, 404, { ok: false, message: 'Career role not found.' });
+      return;
+    }
+
+    const enrichedRow = await ensureCareerRoleAiProfile(existingRow);
+    sendJson(res, 200, {
+      ok: true,
+      role: mapCareerRoleDetailToClient(enrichedRow || existingRow)
+    });
+    return;
+  }
+
   if (pathname === '/api/integrations/zoho-recruit/status' && req.method === 'GET') {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Zoho Recruit integration requires Supabase database configuration.' });
@@ -4253,6 +4899,26 @@ async function handleApi(req, res, pathname) {
     const syncResult = await syncZohoRecruitRoles();
     sendJson(res, syncResult.ok ? 200 : (syncResult.status || 502), {
       ok: !!syncResult.ok,
+      syncedAt: syncResult.syncedAt || null,
+      syncedRoleCount: syncResult.syncedRoleCount || 0,
+      message: syncResult.message || '',
+      connection: syncResult.connected || null
+    });
+    return;
+  }
+
+  if (pathname === '/api/integrations/zoho-recruit/cron-sync' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit sync requires Supabase database configuration.' });
+      return;
+    }
+    if (!requireZohoRecruitCronAuth(req, res)) return;
+
+    const syncResult = await runZohoRecruitScheduledSync();
+    sendJson(res, syncResult.ok ? 200 : (syncResult.status || 502), {
+      ok: !!syncResult.ok,
+      skipped: !!syncResult.skipped,
+      reason: syncResult.reason || '',
       syncedAt: syncResult.syncedAt || null,
       syncedRoleCount: syncResult.syncedRoleCount || 0,
       message: syncResult.message || '',
