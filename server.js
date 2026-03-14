@@ -44,6 +44,13 @@ const SUPABASE_PUBLISHABLE_KEY = String(process.env.SUPABASE_PUBLISHABLE_KEY || 
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const SUPABASE_DOCUMENT_BUCKET = String(process.env.SUPABASE_DOCUMENT_BUCKET || 'gp-link-documents').trim() || 'gp-link-documents';
 const SUPABASE_SCAN_NORMALIZER_FUNCTION = String(process.env.SUPABASE_SCAN_NORMALIZER_FUNCTION || 'normalize-scan-image').trim() || 'normalize-scan-image';
+const ZOHO_RECRUIT_CLIENT_ID = String(process.env.ZOHO_RECRUIT_CLIENT_ID || '').trim();
+const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET || '').trim();
+const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
+const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
+const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRECRUIT.modules.jobopening.READ').trim() || 'ZohoRECRUIT.modules.jobopening.READ';
+const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
+const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
@@ -118,6 +125,7 @@ const USER_STATE_KEYS = [
   'gpLinkMessageDB',
   'gpLinkSupportDraft',
   'gp_account_profile',
+  'gp_career_state',
   'gp_onboarding_complete',
   'gp_onboarding'
 ];
@@ -2472,6 +2480,563 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
   }
 }
 
+function normalizeUrlBase(value, fallback = '') {
+  const input = String(value || '').trim();
+  if (!input) return fallback;
+  try {
+    const parsed = new URL(input);
+    return parsed.origin + parsed.pathname.replace(/\/+$/, '');
+  } catch (err) {
+    return fallback;
+  }
+}
+
+function sanitizeZohoText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (Array.isArray(value)) {
+    return value.map(sanitizeZohoText).filter(Boolean).join(', ');
+  }
+  if (value && typeof value === 'object') {
+    if (typeof value.display_value === 'string') return value.display_value.trim();
+    if (typeof value.name === 'string') return value.name.trim();
+    if (typeof value.value === 'string') return value.value.trim();
+    if (typeof value.actual_value === 'string') return value.actual_value.trim();
+  }
+  return '';
+}
+
+function stripHtml(value) {
+  return String(value || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sanitizeZohoSummary(value) {
+  return stripHtml(sanitizeZohoText(value)).slice(0, 420);
+}
+
+function getZohoField(record, candidates) {
+  if (!record || typeof record !== 'object') return '';
+  for (const candidate of candidates) {
+    const key = String(candidate || '').trim();
+    if (!key) continue;
+    const value = sanitizeZohoText(record[key]);
+    if (value) return value;
+  }
+  return '';
+}
+
+function parseBooleanish(value) {
+  const normalized = sanitizeZohoText(value).toLowerCase();
+  if (!normalized) return false;
+  return ['true', 'yes', 'y', '1', 'active', 'aligned', 'available'].includes(normalized);
+}
+
+function buildLocationLabel(parts) {
+  return parts
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .filter((part, index, all) => all.indexOf(part) === index)
+    .join(', ');
+}
+
+function makeCareerRoleId(provider, providerRoleId) {
+  return `${String(provider || 'zoho_recruit').trim()}:${String(providerRoleId || '').trim()}`;
+}
+
+function isZohoRecruitConfigured() {
+  return !!(
+    isSupabaseDbConfigured() &&
+    ZOHO_RECRUIT_CLIENT_ID &&
+    ZOHO_RECRUIT_CLIENT_SECRET &&
+    ZOHO_RECRUIT_REDIRECT_URI
+  );
+}
+
+function getZohoRecruitAccountsServer() {
+  return normalizeUrlBase(ZOHO_RECRUIT_ACCOUNTS_SERVER, 'https://accounts.zoho.com');
+}
+
+function getZohoRecruitScopes() {
+  return String(ZOHO_RECRUIT_SCOPES || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getZohoOauthStateKey(state) {
+  return `zoho_recruit_oauth:${String(state || '').trim()}`;
+}
+
+async function createZohoOauthState(adminEmail) {
+  const state = crypto.randomBytes(24).toString('hex');
+  const expiresAt = Date.now() + (10 * 60 * 1000);
+  await setRuntimeKv(getZohoOauthStateKey(state), {
+    email: String(adminEmail || '').trim().toLowerCase(),
+    createdAt: new Date().toISOString()
+  }, expiresAt);
+  return state;
+}
+
+async function consumeZohoOauthState(state) {
+  const key = getZohoOauthStateKey(state);
+  const existing = await getRuntimeKv(key);
+  if (!existing || !existing.value || typeof existing.value !== 'object') return null;
+  await deleteRuntimeKv(key);
+  return existing.value;
+}
+
+async function zohoFormRequest(accountsServer, params) {
+  const base = normalizeUrlBase(accountsServer, getZohoRecruitAccountsServer());
+  const body = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    body.set(key, String(value));
+  });
+
+  try {
+    const response = await fetch(`${base}/oauth/v2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try { data = JSON.parse(text); } catch (err) { data = { raw: text }; }
+    }
+    return { ok: response.ok, status: response.status, data };
+  } catch (err) {
+    return { ok: false, status: 502, data: { error: 'network_error', message: 'Failed to reach Zoho OAuth service.' } };
+  }
+}
+
+function getZohoErrorMessage(payload, fallback) {
+  if (!payload || typeof payload !== 'object') return fallback;
+  return String(
+    payload.error_description ||
+    payload.error ||
+    payload.message ||
+    fallback
+  ).trim();
+}
+
+function mapZohoConnectionRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  return {
+    provider: typeof row.provider === 'string' ? row.provider : 'zoho_recruit',
+    status: typeof row.status === 'string' ? row.status : 'disconnected',
+    accountsServer: typeof row.accounts_server === 'string' ? row.accounts_server : getZohoRecruitAccountsServer(),
+    apiDomain: typeof row.api_domain === 'string' ? row.api_domain : '',
+    refreshToken: typeof row.refresh_token === 'string' ? row.refresh_token : '',
+    scopes: Array.isArray(row.scopes) ? row.scopes.filter((item) => typeof item === 'string') : [],
+    connectedByUserId: typeof row.connected_by_user_id === 'string' ? row.connected_by_user_id : '',
+    connectedEmail: typeof row.connected_email === 'string' ? row.connected_email : '',
+    tokenLastRefreshedAt: typeof row.token_last_refreshed_at === 'string' ? row.token_last_refreshed_at : null,
+    lastSyncAt: typeof row.last_sync_at === 'string' ? row.last_sync_at : null,
+    lastSyncStatus: typeof row.last_sync_status === 'string' ? row.last_sync_status : 'idle',
+    lastSyncError: typeof row.last_sync_error === 'string' ? row.last_sync_error : '',
+    connectedAt: typeof row.connected_at === 'string' ? row.connected_at : null,
+    metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null
+  };
+}
+
+async function getZohoRecruitConnection() {
+  const result = await supabaseDbRequest(
+    'integration_connections',
+    'select=*&provider=eq.zoho_recruit&limit=1'
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return mapZohoConnectionRow(result.data[0]);
+}
+
+async function upsertZohoRecruitConnection(patch = {}) {
+  const existing = await getZohoRecruitConnection();
+  const payload = {
+    provider: 'zoho_recruit',
+    status: typeof patch.status === 'string' ? patch.status : (existing && existing.status) || 'connected',
+    accounts_server: normalizeUrlBase(
+      patch.accountsServer !== undefined ? patch.accountsServer : (existing && existing.accountsServer),
+      getZohoRecruitAccountsServer()
+    ),
+    api_domain: normalizeUrlBase(
+      patch.apiDomain !== undefined ? patch.apiDomain : (existing && existing.apiDomain),
+      ''
+    ),
+    refresh_token: patch.refreshToken !== undefined ? String(patch.refreshToken || '') : ((existing && existing.refreshToken) || ''),
+    scopes: Array.isArray(patch.scopes) ? patch.scopes : ((existing && existing.scopes) || getZohoRecruitScopes()),
+    connected_by_user_id: patch.connectedByUserId !== undefined ? String(patch.connectedByUserId || '') : ((existing && existing.connectedByUserId) || ''),
+    connected_email: patch.connectedEmail !== undefined ? String(patch.connectedEmail || '').trim().toLowerCase() : ((existing && existing.connectedEmail) || ''),
+    token_last_refreshed_at: patch.tokenLastRefreshedAt !== undefined ? patch.tokenLastRefreshedAt : ((existing && existing.tokenLastRefreshedAt) || null),
+    last_sync_at: patch.lastSyncAt !== undefined ? patch.lastSyncAt : ((existing && existing.lastSyncAt) || null),
+    last_sync_status: patch.lastSyncStatus !== undefined ? String(patch.lastSyncStatus || '') : ((existing && existing.lastSyncStatus) || 'idle'),
+    last_sync_error: patch.lastSyncError !== undefined ? String(patch.lastSyncError || '') : ((existing && existing.lastSyncError) || ''),
+    connected_at: patch.connectedAt !== undefined ? patch.connectedAt : ((existing && existing.connectedAt) || new Date().toISOString()),
+    metadata: patch.metadata && typeof patch.metadata === 'object'
+      ? patch.metadata
+      : ((existing && existing.metadata) || {}),
+    updated_at: new Date().toISOString()
+  };
+
+  const result = await supabaseDbRequest(
+    'integration_connections',
+    'on_conflict=provider',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [payload]
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return mapZohoConnectionRow(result.data[0]);
+}
+
+async function exchangeZohoRecruitAuthorizationCode(code, accountsServer) {
+  return zohoFormRequest(accountsServer, {
+    grant_type: 'authorization_code',
+    client_id: ZOHO_RECRUIT_CLIENT_ID,
+    client_secret: ZOHO_RECRUIT_CLIENT_SECRET,
+    redirect_uri: ZOHO_RECRUIT_REDIRECT_URI,
+    code: String(code || '').trim()
+  });
+}
+
+async function refreshZohoRecruitAccessToken(connection) {
+  const refreshToken = connection && connection.refreshToken ? String(connection.refreshToken).trim() : '';
+  if (!refreshToken) {
+    return { ok: false, status: 400, data: { message: 'Zoho Recruit is not connected.' } };
+  }
+  const accountsServer = normalizeUrlBase(
+    (connection && connection.accountsServer) || getZohoRecruitAccountsServer(),
+    getZohoRecruitAccountsServer()
+  );
+  const refreshed = await zohoFormRequest(accountsServer, {
+    grant_type: 'refresh_token',
+    client_id: ZOHO_RECRUIT_CLIENT_ID,
+    client_secret: ZOHO_RECRUIT_CLIENT_SECRET,
+    refresh_token: refreshToken
+  });
+  if (!refreshed.ok) return refreshed;
+  await upsertZohoRecruitConnection({
+    accountsServer,
+    apiDomain: normalizeUrlBase(refreshed.data && refreshed.data.api_domain, ''),
+    tokenLastRefreshedAt: new Date().toISOString(),
+    status: 'connected',
+    lastSyncError: ''
+  });
+  return refreshed;
+}
+
+async function zohoRecruitApiGet(apiDomain, resourcePath, accessToken, queryParams = {}) {
+  const base = normalizeUrlBase(apiDomain, '');
+  if (!base) {
+    return { ok: false, status: 400, data: { message: 'Zoho Recruit API domain is missing.' } };
+  }
+  const url = new URL(`${base}/recruit/v2/${String(resourcePath || '').replace(/^\/+/, '')}`);
+  Object.entries(queryParams || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`
+      }
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try { data = JSON.parse(text); } catch (err) { data = { raw: text }; }
+    }
+    return { ok: response.ok, status: response.status, data };
+  } catch (err) {
+    return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API.' } };
+  }
+}
+
+function buildCareerRoleRecordFromZoho(record, syncedAt) {
+  if (!record || typeof record !== 'object') return null;
+  const providerRoleId = sanitizeZohoText(record.id);
+  if (!providerRoleId) return null;
+
+  const title = getZohoField(record, ['Posting_Title', 'Job_Opening_Name', 'Role_Title', 'Job_Title', 'Title']) || 'General Practitioner';
+  const practiceName = getZohoField(record, ['Client_Name', 'Account_Name', 'Practice_Name', 'Organisation_Name', 'Company', 'Job_Opening_Name']) || title;
+  const city = getZohoField(record, ['City', 'Work_City', 'Location_City', 'Job_City']);
+  const state = getZohoField(record, ['State', 'Region', 'Province', 'Work_State', 'Location_State']);
+  const country = getZohoField(record, ['Country', 'Work_Country', 'Location_Country']) || 'Australia';
+  const areaLabel = getZohoField(record, ['Location', 'Job_Location', 'Work_Location', 'Suburb']);
+  const locationLabel = areaLabel || buildLocationLabel([city, state].filter(Boolean));
+  const billingModel = getZohoField(record, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']);
+  const dpaText = getZohoField(record, ['DPA', 'DPA_Status', 'Distribution_Priority_Area']);
+  const mmmText = getZohoField(record, ['MMM', 'MMM_Rating', 'MMM_Status', 'MMM_Category']);
+  const earningsText = getZohoField(record, ['Salary_Range', 'Salary', 'Annual_Salary', 'Package', 'Estimated_Earnings', 'Compensation']);
+  const summary = sanitizeZohoSummary(
+    getZohoField(record, ['Job_Description', 'Description', 'Job_Summary', 'Summary', 'About_the_Role', 'Notes'])
+  ) || `${title} opportunity in ${locationLabel || country}.`;
+  const employmentType = getZohoField(record, ['Employment_Type', 'Role_Type', 'Job_Type', 'Type']);
+  const practiceType = getZohoField(record, ['Practice_Type', 'Organisation_Type', 'Clinic_Type', 'Client_Type']);
+  const supportText = getZohoField(record, ['Support', 'Supervision', 'Relocation_Support', 'Onboarding_Support']);
+  const statusText = getZohoField(record, ['Job_Opening_Status', 'Status', 'Open_Closed']);
+  const visaText = getZohoField(record, ['Visa_Pathway_Aligned', 'Visa_Support', 'Visa_Pathway']);
+  const familyText = getZohoField(record, ['Family_Friendly', 'Family_Support']);
+  const geographyText = getZohoField(record, ['Metro_or_Regional', 'Region_Type', 'Location_Type']);
+
+  const privateBilling = /private/i.test(billingModel);
+  const mixedBilling = /mixed/i.test(billingModel);
+  const dpa = parseBooleanish(dpaText) || /dpa/i.test(dpaText);
+  const familyFriendly = parseBooleanish(familyText) || /family/i.test(familyText);
+  const visaPathwayAligned = parseBooleanish(visaText) || /visa/i.test(visaText);
+  const metro = /metro|city|suburban/i.test(geographyText);
+  const regional = /regional|rural/i.test(geographyText) || (!metro && (/mmm/i.test(mmmText) || dpa));
+  const tags = [
+    billingModel,
+    dpa ? 'DPA' : '',
+    mmmText ? `MMM ${mmmText.replace(/^MMM\s*/i, '').trim()}` : '',
+    visaPathwayAligned ? 'Visa pathway aligned' : '',
+    familyFriendly ? 'Family friendly' : '',
+    regional ? 'Regional' : (metro ? 'Metro' : ''),
+    supportText
+  ].map((value) => String(value || '').trim()).filter(Boolean).filter((value, index, all) => all.indexOf(value) === index);
+
+  const isActive = !/closed|filled|inactive|archived|cancelled|hold/i.test(statusText);
+  const publishedAt = getZohoField(record, ['Date_Opened', 'Created_Time', 'Modified_Time']) || null;
+
+  return {
+    provider: 'zoho_recruit',
+    provider_role_id: providerRoleId,
+    title,
+    practice_name: practiceName,
+    location_city: city,
+    location_state: state,
+    location_country: country,
+    location_label: locationLabel || buildLocationLabel([city, state, country]),
+    billing_model: billingModel,
+    dpa,
+    mmm: mmmText,
+    earnings_text: earningsText,
+    summary,
+    employment_type: employmentType,
+    practice_type: practiceType,
+    support_summary: supportText,
+    tags,
+    visa_pathway_aligned: visaPathwayAligned,
+    family_friendly: familyFriendly,
+    private_billing: privateBilling,
+    mixed_billing: mixedBilling,
+    metro,
+    regional,
+    is_active: isActive,
+    source_payload: record,
+    published_at: publishedAt || null,
+    synced_at: syncedAt,
+    updated_at: syncedAt
+  };
+}
+
+function buildPostgrestTextList(values) {
+  return `(${values.map((value) => `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')})`;
+}
+
+async function upsertCareerRoleBatch(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return true;
+  const result = await supabaseDbRequest(
+    'career_roles',
+    'on_conflict=provider,provider_role_id',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: rows
+    }
+  );
+  return result.ok;
+}
+
+async function markCareerRolesInactive(provider, inactiveIds) {
+  const ids = Array.isArray(inactiveIds) ? inactiveIds.filter(Boolean) : [];
+  if (ids.length === 0) return true;
+  for (let index = 0; index < ids.length; index += 50) {
+    const chunk = ids.slice(index, index + 50);
+    const result = await supabaseDbRequest(
+      'career_roles',
+      `provider=eq.${encodeURIComponent(provider)}&provider_role_id=in.${buildPostgrestTextList(chunk)}`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: {
+          is_active: false,
+          updated_at: new Date().toISOString()
+        }
+      }
+    );
+    if (!result.ok) return false;
+  }
+  return true;
+}
+
+async function listCareerRoleRows(activeOnly = true) {
+  const filters = [
+    'select=*',
+    'provider=eq.zoho_recruit'
+  ];
+  if (activeOnly) filters.push('is_active=eq.true');
+  filters.push('order=updated_at.desc');
+  const result = await supabaseDbRequest('career_roles', filters.join('&'));
+  if (!result.ok || !Array.isArray(result.data)) return [];
+  return result.data;
+}
+
+function mapCareerRoleRowToClient(row) {
+  const location = buildLocationLabel([
+    row && row.location_label,
+    !row || row.location_label ? '' : buildLocationLabel([row.location_city, row.location_state]),
+    !row || row.location_label ? '' : row.location_country
+  ]);
+  const tags = Array.isArray(row && row.tags) ? row.tags.filter((item) => typeof item === 'string' && item.trim()) : [];
+  const filterTokens = [
+    row && row.location_city,
+    row && row.location_state,
+    row && row.billing_model,
+    row && row.private_billing ? 'Private Billing' : '',
+    row && row.mixed_billing ? 'Mixed Billing' : '',
+    row && row.dpa ? 'DPA' : '',
+    row && row.metro ? 'Metro' : '',
+    row && row.regional ? 'Regional' : '',
+    row && row.family_friendly ? 'Family Friendly' : '',
+    row && row.earnings_text && /\$|k/i.test(row.earnings_text) ? 'High Earning' : ''
+  ].map((value) => String(value || '').trim()).filter(Boolean).filter((value, index, all) => all.indexOf(value) === index);
+
+  return {
+    id: makeCareerRoleId(row && row.provider, row && row.provider_role_id),
+    sourceId: row && row.provider_role_id ? String(row.provider_role_id) : '',
+    match: 'Live opening',
+    practiceName: row && row.practice_name ? String(row.practice_name) : 'Medical practice role',
+    location: location || 'Australia',
+    summary: row && row.summary ? String(row.summary) : 'Live role available through GP Link.',
+    billing: row && row.billing_model ? String(row.billing_model) : 'Practice details',
+    geography: row && row.regional ? 'Regional' : (row && row.metro ? 'Metro' : 'Australia'),
+    earnings: row && row.earnings_text ? String(row.earnings_text) : 'Package on request',
+    tags: tags.slice(0, 4),
+    filterTokens,
+    support: row && row.support_summary ? String(row.support_summary) : 'GP Link will coordinate further role details.',
+    practiceType: row && row.practice_type ? String(row.practice_type) : 'Medical practice',
+    roleType: row && row.title ? String(row.title) : 'General Practitioner',
+    earningNote: row && row.earnings_text ? String(row.earnings_text) : 'Compensation details provided on request.',
+    footnote: row && row.employment_type ? String(row.employment_type) : 'Live opening via Zoho Recruit'
+  };
+}
+
+async function syncZohoRecruitRoles() {
+  if (!isZohoRecruitConfigured()) {
+    return { ok: false, status: 503, message: 'Zoho Recruit integration is not configured.' };
+  }
+  const connection = await getZohoRecruitConnection();
+  if (!connection || !connection.refreshToken) {
+    return { ok: false, status: 400, message: 'Zoho Recruit is not connected.' };
+  }
+
+  const refreshed = await refreshZohoRecruitAccessToken(connection);
+  if (!refreshed.ok) {
+    const errorMessage = getZohoErrorMessage(refreshed.data, 'Failed to refresh Zoho Recruit access token.');
+    await upsertZohoRecruitConnection({
+      status: 'error',
+      lastSyncStatus: 'error',
+      lastSyncError: errorMessage
+    });
+    return { ok: false, status: refreshed.status || 502, message: errorMessage };
+  }
+
+  const accessToken = String(refreshed.data && refreshed.data.access_token ? refreshed.data.access_token : '').trim();
+  const apiDomain = normalizeUrlBase(
+    refreshed.data && refreshed.data.api_domain,
+    (await getZohoRecruitConnection() || {}).apiDomain || ''
+  );
+  if (!accessToken || !apiDomain) {
+    return { ok: false, status: 502, message: 'Zoho Recruit token refresh response was incomplete.' };
+  }
+
+  const syncedAt = new Date().toISOString();
+  const rows = [];
+  const seenIds = new Set();
+
+  for (let page = 1; page <= ZOHO_RECRUIT_SYNC_MAX_PAGES; page += 1) {
+    const result = await zohoRecruitApiGet(apiDomain, 'JobOpenings', accessToken, {
+      page,
+      per_page: ZOHO_RECRUIT_SYNC_PAGE_SIZE
+    });
+    if (!result.ok) {
+      const errorMessage = getZohoErrorMessage(result.data, 'Failed to fetch Zoho Recruit job openings.');
+      await upsertZohoRecruitConnection({
+        apiDomain,
+        status: 'error',
+        lastSyncStatus: 'error',
+        lastSyncError: errorMessage
+      });
+      return { ok: false, status: result.status || 502, message: errorMessage };
+    }
+
+    const records = Array.isArray(result.data && result.data.data) ? result.data.data : [];
+    records.forEach((record) => {
+      const mapped = buildCareerRoleRecordFromZoho(record, syncedAt);
+      if (!mapped) return;
+      rows.push(mapped);
+      seenIds.add(mapped.provider_role_id);
+    });
+
+    const moreRecords = !!(result.data && result.data.info && result.data.info.more_records);
+    if (!moreRecords || records.length === 0) break;
+  }
+
+  for (let index = 0; index < rows.length; index += 100) {
+    const chunk = rows.slice(index, index + 100);
+    const ok = await upsertCareerRoleBatch(chunk);
+    if (!ok) {
+      await upsertZohoRecruitConnection({
+        apiDomain,
+        status: 'error',
+        lastSyncStatus: 'error',
+        lastSyncError: 'Failed to store synced Zoho Recruit roles in Supabase.'
+      });
+      return { ok: false, status: 502, message: 'Failed to store synced Zoho Recruit roles.' };
+    }
+  }
+
+  const existing = await listCareerRoleRows(false);
+  const inactiveIds = existing
+    .map((row) => row && typeof row.provider_role_id === 'string' ? row.provider_role_id : '')
+    .filter((id) => id && !seenIds.has(id));
+  if (!(await markCareerRolesInactive('zoho_recruit', inactiveIds))) {
+    return { ok: false, status: 502, message: 'Failed to retire inactive Zoho Recruit roles.' };
+  }
+
+  const connected = await upsertZohoRecruitConnection({
+    apiDomain,
+    status: 'connected',
+    lastSyncAt: syncedAt,
+    lastSyncStatus: 'success',
+    lastSyncError: '',
+    metadata: {
+      syncedRoleCount: rows.length,
+      lastSyncAt: syncedAt
+    }
+  });
+
+  return {
+    ok: true,
+    status: 200,
+    connected,
+    syncedAt,
+    syncedRoleCount: rows.length
+  };
+}
+
 async function getRuntimeKv(key) {
   if (!isSupabaseDbConfigured()) return null;
   const result = await supabaseDbRequest(
@@ -3446,6 +4011,179 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
     clearSession(res, req);
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (pathname === '/api/career/roles' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Career roles require Supabase database configuration.' });
+      return;
+    }
+
+    const [rows, connection] = await Promise.all([
+      listCareerRoleRows(true),
+      getZohoRecruitConnection()
+    ]);
+    sendJson(res, 200, {
+      ok: true,
+      source: rows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
+      connected: !!(connection && connection.refreshToken),
+      lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
+      roles: rows.map(mapCareerRoleRowToClient)
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/integrations/zoho-recruit/status' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit integration requires Supabase database configuration.' });
+      return;
+    }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const [connection, roles] = await Promise.all([
+      getZohoRecruitConnection(),
+      listCareerRoleRows(false)
+    ]);
+    sendJson(res, 200, {
+      ok: true,
+      configured: isZohoRecruitConfigured(),
+      redirectUri: ZOHO_RECRUIT_REDIRECT_URI,
+      accountsServer: getZohoRecruitAccountsServer(),
+      scopes: getZohoRecruitScopes(),
+      connected: !!(connection && connection.refreshToken),
+      connection,
+      roleCount: roles.length
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/integrations/zoho-recruit/connect' && req.method === 'GET') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isZohoRecruitConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit environment variables are incomplete.' });
+      return;
+    }
+
+    const oauthState = await createZohoOauthState(adminCtx.email);
+    const authUrl = new URL(`${getZohoRecruitAccountsServer()}/oauth/v2/auth`);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('client_id', ZOHO_RECRUIT_CLIENT_ID);
+    authUrl.searchParams.set('scope', getZohoRecruitScopes().join(','));
+    authUrl.searchParams.set('redirect_uri', ZOHO_RECRUIT_REDIRECT_URI);
+    authUrl.searchParams.set('access_type', 'offline');
+    authUrl.searchParams.set('prompt', 'consent');
+    authUrl.searchParams.set('state', oauthState);
+    res.writeHead(302, { Location: authUrl.toString() });
+    res.end();
+    return;
+  }
+
+  if (pathname === '/api/admin/integrations/zoho-recruit/callback' && req.method === 'GET') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isZohoRecruitConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit environment variables are incomplete.' });
+      return;
+    }
+
+    const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const state = String(reqUrl.searchParams.get('state') || '').trim();
+    const code = String(reqUrl.searchParams.get('code') || '').trim();
+    const authError = String(reqUrl.searchParams.get('error') || '').trim();
+    const authErrorDescription = String(reqUrl.searchParams.get('error_description') || '').trim();
+    const callbackAccountsServer = normalizeUrlBase(
+      reqUrl.searchParams.get('accounts-server') || reqUrl.searchParams.get('accounts_server') || '',
+      getZohoRecruitAccountsServer()
+    );
+
+    if (authError) {
+      res.writeHead(302, {
+        Location: `/pages/admin.html?zohoRecruit=error&message=${encodeURIComponent(authErrorDescription || authError)}`
+      });
+      res.end();
+      return;
+    }
+    if (!state || !code) {
+      sendJson(res, 400, { ok: false, message: 'Missing Zoho Recruit callback parameters.' });
+      return;
+    }
+
+    const statePayload = await consumeZohoOauthState(state);
+    if (!statePayload || statePayload.email !== adminCtx.email) {
+      sendJson(res, 403, { ok: false, message: 'Invalid Zoho Recruit OAuth state.' });
+      return;
+    }
+
+    const exchanged = await exchangeZohoRecruitAuthorizationCode(code, callbackAccountsServer);
+    if (!exchanged.ok) {
+      const errorMessage = getZohoErrorMessage(exchanged.data, 'Failed to connect Zoho Recruit.');
+      res.writeHead(302, {
+        Location: `/pages/admin.html?zohoRecruit=error&message=${encodeURIComponent(errorMessage)}`
+      });
+      res.end();
+      return;
+    }
+
+    const adminUserId = getSessionSupabaseUserId(adminCtx.session) || '';
+    const connectedAt = new Date().toISOString();
+    await upsertZohoRecruitConnection({
+      status: 'connected',
+      accountsServer: callbackAccountsServer,
+      apiDomain: normalizeUrlBase(exchanged.data && exchanged.data.api_domain, ''),
+      refreshToken: exchanged.data && exchanged.data.refresh_token ? String(exchanged.data.refresh_token) : '',
+      scopes: String(exchanged.data && exchanged.data.scope ? exchanged.data.scope : ZOHO_RECRUIT_SCOPES)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      connectedByUserId: adminUserId,
+      connectedEmail: adminCtx.email,
+      tokenLastRefreshedAt: connectedAt,
+      connectedAt,
+      lastSyncStatus: 'pending',
+      lastSyncError: '',
+      metadata: {
+        apiDomain: normalizeUrlBase(exchanged.data && exchanged.data.api_domain, ''),
+        location: String(exchanged.data && exchanged.data.location ? exchanged.data.location : '').trim()
+      }
+    });
+
+    const syncResult = await syncZohoRecruitRoles();
+    if (!syncResult.ok) {
+      res.writeHead(302, {
+        Location: `/pages/admin.html?zohoRecruit=connected&sync=error&message=${encodeURIComponent(syncResult.message || 'Sync failed')}`
+      });
+      res.end();
+      return;
+    }
+
+    res.writeHead(302, {
+      Location: `/pages/admin.html?zohoRecruit=connected&sync=success&roles=${encodeURIComponent(String(syncResult.syncedRoleCount || 0))}`
+    });
+    res.end();
+    return;
+  }
+
+  if (pathname === '/api/admin/integrations/zoho-recruit/sync' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit sync requires Supabase database configuration.' });
+      return;
+    }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const syncResult = await syncZohoRecruitRoles();
+    sendJson(res, syncResult.ok ? 200 : (syncResult.status || 502), {
+      ok: !!syncResult.ok,
+      syncedAt: syncResult.syncedAt || null,
+      syncedRoleCount: syncResult.syncedRoleCount || 0,
+      message: syncResult.message || '',
+      connection: syncResult.connected || null
+    });
     return;
   }
 

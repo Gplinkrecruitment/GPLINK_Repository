@@ -37,6 +37,11 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `SUPABASE_PUBLISHABLE_KEY=<your-supabase-publishable-key>`
 - `SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>` (server-side only)
 - `SUPABASE_SCAN_NORMALIZER_FUNCTION=normalize-scan-image` (recommended; used for App Store-safe image normalization before AI scans)
+- `ZOHO_RECRUIT_CLIENT_ID=<your-zoho-client-id>` (server-side only)
+- `ZOHO_RECRUIT_CLIENT_SECRET=<your-zoho-client-secret>` (server-side only)
+- `ZOHO_RECRUIT_ACCOUNTS_SERVER=https://accounts.zoho.com` (or your Zoho data-center accounts server)
+- `ZOHO_RECRUIT_REDIRECT_URI=https://admin.mygplink.com.au/api/admin/integrations/zoho-recruit/callback`
+- `ZOHO_RECRUIT_SCOPES=ZohoRECRUIT.modules.jobopening.READ`
 - `ADMIN_EMAILS=<comma-separated-admin-emails>` (required for admin access)
 - `ADMIN_ALLOWED_HOSTS=admin.mygplink.com.au` (required in production; restricts `/pages/admin*.html` and `/api/admin/*`)
 - `ADMIN_COOKIE_NAME=gp_admin_session` (optional override)
@@ -90,3 +95,14 @@ After pulling latest code, run:
 3. `supabase functions deploy normalize-scan-image`
 
 This applies required schema, including `public.runtime_kv`, and deploys the Supabase Edge Function used to normalize uploaded images before AI scanning.
+
+## 11. Connect Zoho Recruit
+1. In Zoho API Console, create a server-based OAuth client.
+2. Set the redirect URI to your admin surface callback:
+   - `https://admin.mygplink.com.au/api/admin/integrations/zoho-recruit/callback`
+3. Add the Zoho env vars above to Vercel.
+4. Sign in to the admin surface and open:
+   - `GET /api/admin/integrations/zoho-recruit/connect`
+5. After consent, GP Link stores the refresh token in Supabase table `public.integration_connections`.
+6. GP Link syncs Zoho `JobOpenings` into `public.career_roles`.
+7. Candidate-facing Career UI reads from GP Link `/api/career/roles`, not from Zoho directly.
