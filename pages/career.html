@@ -1,0 +1,1653 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Career - GP Link</title>
+  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #ebeae4;
+      --bg-wash: rgba(255, 255, 255, 0.7);
+      --panel: #ffffff;
+      --panel-soft: #f4f3ee;
+      --panel-muted: #ecebe5;
+      --ink: #111111;
+      --ink-soft: #2c2b28;
+      --muted: #6f6d67;
+      --muted-strong: #50504c;
+      --line: #dfded7;
+      --line-strong: #c9c8c0;
+      --shadow-lg: 0 24px 48px -30px rgba(17, 17, 17, 0.3);
+      --shadow-md: 0 14px 30px -24px rgba(17, 17, 17, 0.22);
+      --shadow-sm: 0 10px 18px -18px rgba(17, 17, 17, 0.2);
+      --success: #18603b;
+      --success-soft: #e7f4eb;
+      --warning: #8b5e1b;
+      --warning-soft: #f8efe0;
+      --radius-xl: 30px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: "Manrope", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(90% 46% at 50% 0%, rgba(255, 255, 255, 0.72), transparent 78%),
+        radial-gradient(70% 34% at 100% 100%, rgba(17, 17, 17, 0.04), transparent 78%),
+        var(--bg);
+      color: var(--ink);
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 18px 14px 112px;
+    }
+
+    .page-frame {
+      width: min(100%, 1100px);
+      display: grid;
+      justify-items: center;
+      gap: 18px;
+    }
+
+    .desktop-topbar {
+      display: none;
+      width: min(100%, 960px);
+      padding: 12px 16px;
+      border-radius: 26px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(17, 17, 17, 0.08);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .desktop-topbar-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .desktop-brand {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    .desktop-brand img {
+      display: block;
+      width: 164px;
+      height: auto;
+    }
+
+    .desktop-nav {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      flex: 1;
+      flex-wrap: wrap;
+    }
+
+    .desktop-nav-link {
+      text-decoration: none;
+      color: var(--muted-strong);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 11px 16px;
+      border-radius: 18px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .desktop-nav-link:hover {
+      background: rgba(17, 17, 17, 0.06);
+      color: var(--ink);
+      transform: translateY(-1px);
+    }
+
+    .desktop-nav-link.active {
+      background: var(--ink);
+      color: #ffffff;
+      box-shadow: 0 16px 24px -22px rgba(17, 17, 17, 0.72);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .career-shell {
+      width: min(100%, 430px);
+      min-height: calc(100dvh - 36px);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(244, 243, 238, 0.92));
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      border-radius: 36px;
+      box-shadow: 0 32px 80px -46px rgba(17, 17, 17, 0.38);
+      padding: 18px 16px 108px;
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .career-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 28%),
+        radial-gradient(70% 40% at 50% 0%, rgba(255, 255, 255, 0.45), transparent 70%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .screen-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .title-block {
+      display: grid;
+      gap: 8px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: fit-content;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(17, 17, 17, 0.08);
+      box-shadow: var(--shadow-sm);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted-strong);
+    }
+
+    .eyebrow-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ink);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 32px;
+      line-height: 0.98;
+      letter-spacing: -0.05em;
+      font-weight: 800;
+    }
+
+    .page-subtitle {
+      margin: 0;
+      max-width: 28ch;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .icon-pill {
+      width: 46px;
+      height: 46px;
+      border: 0;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.82);
+      box-shadow: var(--shadow-sm);
+      color: var(--ink);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .icon-pill:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .icon-pill svg,
+    .nav-icon,
+    .section-link svg,
+    .chip-icon,
+    .bookmark-btn svg,
+    .search-icon,
+    .status-icon,
+    .timeline-dot svg,
+    .lock-icon,
+    .hero-meta svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mode-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 6px;
+      background: rgba(17, 17, 17, 0.06);
+      border-radius: 18px;
+      border: 1px solid rgba(17, 17, 17, 0.08);
+      margin-bottom: 18px;
+    }
+
+    .mode-chip {
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 12px;
+      background: transparent;
+      color: var(--muted-strong);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      cursor: pointer;
+      transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+    }
+
+    .mode-chip.active {
+      background: var(--ink);
+      color: #ffffff;
+      box-shadow: 0 10px 18px -18px rgba(17, 17, 17, 0.56);
+    }
+
+    .mode-chip:active {
+      transform: scale(0.98);
+    }
+
+    .state-pane {
+      display: none;
+      gap: 16px;
+      animation: paneIn 0.22s ease;
+    }
+
+    .state-pane.active {
+      display: grid;
+    }
+
+    @keyframes paneIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .search-card,
+    .section-card,
+    .role-card,
+    .application-card,
+    .details-card,
+    .summary-card,
+    .updates-card,
+    .next-step-card,
+    .opportunity-card {
+      background: var(--panel);
+      border: 1px solid rgba(17, 17, 17, 0.07);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .search-card {
+      padding: 10px;
+    }
+
+    .search-bar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 14px 14px 12px;
+      border-radius: 20px;
+      background: var(--panel-soft);
+      border: 1px solid rgba(17, 17, 17, 0.06);
+    }
+
+    .search-track {
+      position: relative;
+      display: grid;
+      justify-items: center;
+      gap: 6px;
+      width: 14px;
+    }
+
+    .search-track::before {
+      content: "";
+      position: absolute;
+      top: 7px;
+      bottom: 7px;
+      left: calc(50% - 1px);
+      width: 2px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #111111, rgba(17, 17, 17, 0.15));
+    }
+
+    .search-track .circle,
+    .search-track .square {
+      position: relative;
+      z-index: 1;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #111111;
+    }
+
+    .search-track .square {
+      border-radius: 3px;
+      background: #8b8a85;
+    }
+
+    .search-input-wrap {
+      display: grid;
+      gap: 3px;
+    }
+
+    .search-label {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .search-input {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      outline: none;
+      padding: 0;
+    }
+
+    .search-input::placeholder {
+      color: #7f7d77;
+    }
+
+    .search-action {
+      width: 42px;
+      height: 42px;
+      border: 0;
+      border-radius: 15px;
+      background: var(--ink);
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 10px 18px -16px rgba(17, 17, 17, 0.54);
+      cursor: pointer;
+    }
+
+    .filter-row {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .filter-row::-webkit-scrollbar {
+      display: none;
+    }
+
+    .filter-chip {
+      border: 1px solid rgba(17, 17, 17, 0.09);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink-soft);
+      padding: 11px 14px;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      cursor: pointer;
+      transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+    }
+
+    .filter-chip.active {
+      background: var(--ink);
+      color: #ffffff;
+      border-color: var(--ink);
+    }
+
+    .filter-chip:active {
+      transform: scale(0.98);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .section-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .section-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      color: var(--muted-strong);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .card-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .role-card {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .role-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .role-meta {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .match-chip {
+      width: fit-content;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--panel-soft);
+      color: var(--muted-strong);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .role-name {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.08;
+      letter-spacing: -0.05em;
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    .role-location {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .bookmark-btn {
+      width: 42px;
+      height: 42px;
+      border: 1px solid rgba(17, 17, 17, 0.08);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+      flex-shrink: 0;
+    }
+
+    .bookmark-btn.saved {
+      background: var(--ink);
+      color: #ffffff;
+    }
+
+    .bookmark-btn:active {
+      transform: scale(0.96);
+    }
+
+    .role-summary {
+      margin: 0;
+      color: var(--muted-strong);
+      font-size: 14px;
+      line-height: 1.52;
+      font-weight: 700;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: var(--panel-soft);
+      color: var(--ink-soft);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      border: 1px solid rgba(17, 17, 17, 0.05);
+    }
+
+    .badge.dark {
+      background: var(--ink);
+      color: #ffffff;
+      border-color: var(--ink);
+    }
+
+    .badge.soft {
+      background: var(--success-soft);
+      color: var(--success);
+      border-color: rgba(24, 96, 59, 0.12);
+    }
+
+    .badge.warn {
+      background: var(--warning-soft);
+      color: var(--warning);
+      border-color: rgba(139, 94, 27, 0.14);
+    }
+
+    .role-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .role-footnote {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .primary-cta,
+    .secondary-cta {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      cursor: pointer;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+    }
+
+    .primary-cta {
+      background: var(--ink);
+      color: #ffffff;
+      box-shadow: 0 14px 24px -20px rgba(17, 17, 17, 0.6);
+    }
+
+    .secondary-cta {
+      background: var(--panel-soft);
+      color: var(--ink);
+      border: 1px solid rgba(17, 17, 17, 0.08);
+    }
+
+    .primary-cta:active,
+    .secondary-cta:active {
+      transform: scale(0.98);
+    }
+
+    .applications-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .application-card {
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .application-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .application-title {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: -0.03em;
+      font-weight: 800;
+    }
+
+    .application-sub {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .status-pill.review {
+      background: var(--panel-soft);
+      color: var(--ink-soft);
+    }
+
+    .status-pill.interview {
+      background: rgba(17, 17, 17, 0.08);
+      color: var(--ink);
+    }
+
+    .status-pill.offer {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .application-meta {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(17, 17, 17, 0.07);
+    }
+
+    .meta-pill {
+      display: grid;
+      gap: 3px;
+    }
+
+    .meta-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .meta-value {
+      font-size: 12px;
+      color: var(--ink-soft);
+      font-weight: 800;
+    }
+
+    .hero-card {
+      background: linear-gradient(180deg, #121212 0%, #1d1d1b 100%);
+      color: #ffffff;
+      border-radius: var(--radius-xl);
+      padding: 22px;
+      box-shadow: 0 26px 44px -26px rgba(17, 17, 17, 0.5);
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .hero-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.78);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .hero-title {
+      margin: 10px 0 4px;
+      font-size: 27px;
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+      font-weight: 800;
+    }
+
+    .hero-role {
+      margin: 0;
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.74);
+      font-weight: 700;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .hero-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .hero-note {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .hero-note-label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .hero-note-text {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.45;
+      font-weight: 700;
+    }
+
+    .details-card,
+    .summary-card,
+    .updates-card,
+    .next-step-card,
+    .opportunity-card {
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .card-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .detail-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .detail-row {
+      display: grid;
+      gap: 4px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(17, 17, 17, 0.07);
+    }
+
+    .detail-row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .detail-label {
+      font-size: 10px;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .detail-value {
+      font-size: 14px;
+      line-height: 1.45;
+      color: var(--ink-soft);
+      font-weight: 800;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .summary-tile {
+      padding: 14px;
+      border-radius: 20px;
+      background: var(--panel-soft);
+      display: grid;
+      gap: 5px;
+      min-height: 92px;
+    }
+
+    .summary-tile .detail-value {
+      font-size: 15px;
+    }
+
+    .timeline-card {
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      background: var(--panel);
+      border: 1px solid rgba(17, 17, 17, 0.07);
+      box-shadow: var(--shadow-sm);
+      display: grid;
+      gap: 16px;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 16px;
+      position: relative;
+      margin-left: 4px;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      top: 10px;
+      bottom: 10px;
+      left: 11px;
+      width: 2px;
+      background: linear-gradient(180deg, rgba(17, 17, 17, 0.18), rgba(17, 17, 17, 0.08));
+    }
+
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .timeline-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--ink);
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      margin-top: 1px;
+      position: relative;
+      z-index: 1;
+      box-shadow: 0 10px 20px -16px rgba(17, 17, 17, 0.6);
+    }
+
+    .timeline-copy {
+      display: grid;
+      gap: 3px;
+      padding-top: 1px;
+    }
+
+    .timeline-title {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--ink);
+    }
+
+    .timeline-sub {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .updates-list,
+    .note-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .updates-list li,
+    .note-list li {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 10px;
+      align-items: start;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--ink-soft);
+      font-weight: 700;
+    }
+
+    .updates-list li::before,
+    .note-list li::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      margin-top: 6px;
+      background: var(--ink);
+    }
+
+    .next-step-card {
+      background: linear-gradient(180deg, rgba(17, 17, 17, 0.03), rgba(17, 17, 17, 0.01));
+      border-style: dashed;
+      border-width: 1.5px;
+      border-color: rgba(17, 17, 17, 0.12);
+    }
+
+    .next-step-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .lock-wrap {
+      width: 42px;
+      height: 42px;
+      border-radius: 16px;
+      background: var(--ink);
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+
+    .next-step-copy {
+      margin: 0;
+      color: var(--muted-strong);
+      font-size: 14px;
+      line-height: 1.55;
+      font-weight: 700;
+    }
+
+    .opportunity-card {
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .collapsed-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .collapsed-copy {
+      display: grid;
+      gap: 4px;
+    }
+
+    .collapsed-kicker {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+    }
+
+    .collapsed-title {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.25;
+      letter-spacing: -0.03em;
+      font-weight: 800;
+    }
+
+    .collapsed-sub {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .bottom-nav {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      padding: 10px;
+      border-radius: 26px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(17, 17, 17, 0.08);
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .nav-item {
+      text-decoration: none;
+      color: var(--muted);
+      display: grid;
+      justify-items: center;
+      gap: 6px;
+      padding: 9px 6px 8px;
+      border-radius: 18px;
+      transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .nav-item.active {
+      background: var(--ink);
+      color: #ffffff;
+      box-shadow: 0 10px 18px -18px rgba(17, 17, 17, 0.72);
+    }
+
+    .nav-item:active {
+      transform: scale(0.98);
+    }
+
+    @media (min-width: 780px) {
+      body {
+        padding: 28px;
+      }
+
+      .desktop-topbar {
+        display: block;
+      }
+
+      .career-shell {
+        min-height: 840px;
+        padding-bottom: 28px;
+      }
+
+      .bottom-nav {
+        display: none;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-frame">
+    <header class="desktop-topbar">
+      <div class="desktop-topbar-inner">
+        <a class="desktop-brand" href="/pages/index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="desktop-nav" aria-label="Main navigation">
+          <a class="desktop-nav-link" href="/pages/index.html">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+            <span>Home</span>
+          </a>
+          <a class="desktop-nav-link" href="/pages/myinthealth.html">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+            <span>Registration</span>
+          </a>
+          <a class="desktop-nav-link active" href="/pages/career.html" aria-current="page">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+            <span>Career</span>
+          </a>
+          <a class="desktop-nav-link" href="/pages/messages.html">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 5h16v11H7l-3 3z"/></svg>
+            <span>Updates</span>
+          </a>
+          <a class="desktop-nav-link" href="/pages/account.html">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            <span>Account</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="career-shell" data-mode="browse">
+    <header class="screen-top">
+      <div class="title-block">
+        <div class="eyebrow"><span class="eyebrow-dot"></span> Career flow</div>
+        <div>
+          <h1>Career</h1>
+          <p class="page-subtitle" id="pageSubtitle">Explore roles matched to your relocation goals and track your applications.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-pill" type="button" aria-label="Notifications">
+          <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="mode-switch" role="tablist" aria-label="Career page state">
+      <button class="mode-chip active" type="button" data-mode-toggle="browse" aria-selected="true">Browsing mode</button>
+      <button class="mode-chip" type="button" data-mode-toggle="secured" aria-selected="false">Secured placement</button>
+    </div>
+
+    <section class="state-pane active" data-mode-pane="browse" aria-label="Career browsing mode">
+      <div class="search-card">
+        <div class="search-bar">
+          <div class="search-track" aria-hidden="true">
+            <span class="circle"></span>
+            <span class="square"></span>
+          </div>
+          <label class="search-input-wrap">
+            <span class="search-label">Role search</span>
+            <input class="search-input" type="search" placeholder="Search by city, practice, billing model or keyword" />
+          </label>
+          <button class="search-action" type="button" aria-label="Search roles">
+            <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row" aria-label="Career quick filters">
+        <button class="filter-chip active" type="button">Sydney</button>
+        <button class="filter-chip" type="button">Melbourne</button>
+        <button class="filter-chip" type="button">Brisbane</button>
+        <button class="filter-chip" type="button">Perth</button>
+        <button class="filter-chip" type="button">Adelaide</button>
+        <button class="filter-chip" type="button">Private Billing</button>
+        <button class="filter-chip" type="button">Mixed Billing</button>
+        <button class="filter-chip" type="button">DPA</button>
+        <button class="filter-chip" type="button">Metro</button>
+        <button class="filter-chip" type="button">Regional</button>
+        <button class="filter-chip" type="button">High Earning</button>
+        <button class="filter-chip" type="button">Family Friendly</button>
+      </div>
+
+      <div class="section-head">
+        <h2 class="section-title">Recommended for you</h2>
+        <a class="section-link" href="#" aria-label="See all roles">See all
+          <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+        </a>
+      </div>
+
+      <div class="card-stack">
+        <article class="role-card">
+          <div class="role-top">
+            <div class="role-meta">
+              <span class="match-chip">Match 96%</span>
+              <h3 class="role-name">Harbourline Medical</h3>
+              <div class="role-location">
+                <svg class="chip-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+                Bondi Junction, Sydney NSW
+              </div>
+            </div>
+            <button class="bookmark-btn saved" type="button" aria-label="Saved role">
+              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></svg>
+            </button>
+          </div>
+          <p class="role-summary">Private billing coastal clinic with structured onboarding, relocation support and an experienced international GP team.</p>
+          <div class="badge-row">
+            <span class="badge">Private Billing</span>
+            <span class="badge">Metro</span>
+            <span class="badge dark">Est. $420k+</span>
+            <span class="badge soft">Visa pathway aligned</span>
+          </div>
+          <div class="role-footer">
+            <span class="role-footnote">Fast-track interview available</span>
+            <button class="primary-cta" type="button">View role</button>
+          </div>
+        </article>
+
+        <article class="role-card">
+          <div class="role-top">
+            <div class="role-meta">
+              <span class="match-chip">Match 92%</span>
+              <h3 class="role-name">Westgate Family Practice</h3>
+              <div class="role-location">
+                <svg class="chip-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+                Werribee, Melbourne VIC
+              </div>
+            </div>
+            <button class="bookmark-btn" type="button" aria-label="Save role">
+              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></svg>
+            </button>
+          </div>
+          <p class="role-summary">High-volume mixed billing clinic with strong mentorship, school-friendly rostering and established registrar support.</p>
+          <div class="badge-row">
+            <span class="badge">Mixed Billing</span>
+            <span class="badge warn">DPA</span>
+            <span class="badge dark">Est. $360k+</span>
+            <span class="badge soft">Family friendly</span>
+          </div>
+          <div class="role-footer">
+            <span class="role-footnote">Housing short-list prepared</span>
+            <button class="primary-cta" type="button">View role</button>
+          </div>
+        </article>
+
+        <article class="role-card">
+          <div class="role-top">
+            <div class="role-meta">
+              <span class="match-chip">Match 89%</span>
+              <h3 class="role-name">Riverbend Health Hub</h3>
+              <div class="role-location">
+                <svg class="chip-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+                Toowoomba, Queensland
+              </div>
+            </div>
+            <button class="bookmark-btn" type="button" aria-label="Save role">
+              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></svg>
+            </button>
+          </div>
+          <p class="role-summary">Regional lifestyle role with substantial billings, partner employment assistance and protected supervision time on commencement.</p>
+          <div class="badge-row">
+            <span class="badge">Mixed Billing</span>
+            <span class="badge warn">DPA / MMM 2</span>
+            <span class="badge dark">Est. $390k+</span>
+            <span class="badge soft">Relocation covered</span>
+          </div>
+          <div class="role-footer">
+            <span class="role-footnote">Regional retention incentives</span>
+            <button class="primary-cta" type="button">View role</button>
+          </div>
+        </article>
+
+        <article class="role-card">
+          <div class="role-top">
+            <div class="role-meta">
+              <span class="match-chip">Match 87%</span>
+              <h3 class="role-name">Northshore Clinic Group</h3>
+              <div class="role-location">
+                <svg class="chip-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+                Nedlands, Perth WA
+              </div>
+            </div>
+            <button class="bookmark-btn" type="button" aria-label="Save role">
+              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></svg>
+            </button>
+          </div>
+          <p class="role-summary">Premium suburban group with private billing focus, executive practice management and high continuity patient demand.</p>
+          <div class="badge-row">
+            <span class="badge">Private Billing</span>
+            <span class="badge">Metro</span>
+            <span class="badge dark">Est. $450k+</span>
+            <span class="badge soft">High earning</span>
+          </div>
+          <div class="role-footer">
+            <span class="role-footnote">Executive onboarding support</span>
+            <button class="primary-cta" type="button">View role</button>
+          </div>
+        </article>
+      </div>
+
+      <div class="section-head">
+        <h2 class="section-title">Your applications</h2>
+        <a class="section-link" href="#" aria-label="Open application activity">Activity
+          <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+        </a>
+      </div>
+
+      <div class="applications-grid">
+        <article class="application-card">
+          <div class="application-top">
+            <div>
+              <h3 class="application-title">Harbourline Medical</h3>
+              <p class="application-sub">Bondi Junction, Sydney NSW</p>
+            </div>
+            <span class="status-pill review">
+              <svg class="status-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              Under Review
+            </span>
+          </div>
+          <div class="application-meta">
+            <div class="meta-pill">
+              <span class="meta-label">Applied</span>
+              <span class="meta-value">2 days ago</span>
+            </div>
+            <div class="meta-pill">
+              <span class="meta-label">Billing</span>
+              <span class="meta-value">Private</span>
+            </div>
+            <div class="meta-pill">
+              <span class="meta-label">Next step</span>
+              <span class="meta-value">CV review</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="application-card">
+          <div class="application-top">
+            <div>
+              <h3 class="application-title">Westgate Family Practice</h3>
+              <p class="application-sub">Werribee, Melbourne VIC</p>
+            </div>
+            <span class="status-pill interview">
+              <svg class="status-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M8 2v4"/><path d="M16 2v4"/><path d="M3 10h18"/></svg>
+              Interview Scheduled
+            </span>
+          </div>
+          <div class="application-meta">
+            <div class="meta-pill">
+              <span class="meta-label">Interview</span>
+              <span class="meta-value">Tue 10:30am</span>
+            </div>
+            <div class="meta-pill">
+              <span class="meta-label">Format</span>
+              <span class="meta-value">Video call</span>
+            </div>
+            <div class="meta-pill">
+              <span class="meta-label">Lead</span>
+              <span class="meta-value">Clinic owner</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="application-card">
+          <div class="application-top">
+            <div>
+              <h3 class="application-title">Riverbend Health Hub</h3>
+              <p class="application-sub">Toowoomba, Queensland</p>
+            </div>
+            <span class="status-pill offer">
+              <svg class="status-icon" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h11"/><path d="M4 17h9"/><path d="m16 16 2 2 4-4"/></svg>
+              Offer Pending
+            </span>
+          </div>
+          <div class="application-meta">
+            <div class="meta-pill">
+              <span class="meta-label">Status</span>
+              <span class="meta-value">Verbal positive</span>
+            </div>
+            <div class="meta-pill">
+              <span class="meta-label">Package</span>
+              <span class="meta-value">$390k+</span>
+            </div>
+            <div class="meta-pill">
+              <span class="meta-label">Awaiting</span>
+              <span class="meta-value">Written offer</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="state-pane" data-mode-pane="secured" aria-label="Career secured placement mode">
+      <article class="hero-card">
+        <div class="hero-head">
+          <div>
+            <span class="hero-label">Your secured placement</span>
+            <h2 class="hero-title">Murrumbidgee Medical Centre</h2>
+            <p class="hero-role">General Practitioner</p>
+          </div>
+          <span class="badge soft">Secured</span>
+        </div>
+        <div class="hero-meta">
+          <span>
+            <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+            Wagga Wagga, NSW
+          </span>
+          <span>
+            <svg viewBox="0 0 24 24"><path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M3 10h18"/></svg>
+            Proposed start 18 Aug 2026
+          </span>
+        </div>
+        <div class="hero-note">
+          <span class="hero-note-label">Next major milestone</span>
+          <p class="hero-note-text">Specialist registration outcome</p>
+        </div>
+      </article>
+
+      <article class="details-card">
+        <h2 class="card-title">Practice details</h2>
+        <div class="detail-grid">
+          <div class="detail-row">
+            <span class="detail-label">Practice name</span>
+            <span class="detail-value">Murrumbidgee Medical Centre</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Location</span>
+            <span class="detail-value">Turvey Park, Wagga Wagga, NSW</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Practice type</span>
+            <span class="detail-value">Community medical centre with chronic disease and family medicine focus</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Billing model</span>
+            <span class="detail-value">Mixed billing with established private fee uplift</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Support / supervision</span>
+            <span class="detail-value">Partner GP oversight, relocation coordinator, roster flexibility during school terms and onboarding support in first 90 days</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="summary-card">
+        <h2 class="card-title">Offer summary</h2>
+        <div class="summary-grid">
+          <div class="summary-tile">
+            <span class="detail-label">Estimated income</span>
+            <span class="detail-value">$385k-$420k package</span>
+          </div>
+          <div class="summary-tile">
+            <span class="detail-label">Relocation support</span>
+            <span class="detail-value">Flights, temporary housing and settlement support</span>
+          </div>
+          <div class="summary-tile">
+            <span class="detail-label">Contract status</span>
+            <span class="detail-value">Contract issued and under final review</span>
+          </div>
+          <div class="summary-tile">
+            <span class="detail-label">Employment type</span>
+            <span class="detail-value">Full-time permanent GP placement</span>
+          </div>
+          <div class="summary-tile">
+            <span class="detail-label">Key notes</span>
+            <span class="detail-value">Commencement reserved pending specialist registration outcome</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="timeline-card">
+        <h2 class="card-title">Placement timeline</h2>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-dot">
+              <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+            </div>
+            <div class="timeline-copy">
+              <span class="timeline-title">Interview completed</span>
+              <span class="timeline-sub">Clinic leadership panel confirmed fit and start window.</span>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot">
+              <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+            </div>
+            <div class="timeline-copy">
+              <span class="timeline-title">Offer issued</span>
+              <span class="timeline-sub">Role package and conditions shared with you and GP Link.</span>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot">
+              <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+            </div>
+            <div class="timeline-copy">
+              <span class="timeline-title">Contract sent</span>
+              <span class="timeline-sub">Agreement circulated pending registration timing confirmation.</span>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot">
+              <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+            </div>
+            <div class="timeline-copy">
+              <span class="timeline-title">Placement secured</span>
+              <span class="timeline-sub">Role is reserved while registration and relocation remain in motion.</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="updates-card">
+        <h2 class="card-title">GP Link updates</h2>
+        <ul class="updates-list">
+          <li>We are coordinating with the medical centre regarding commencement timing.</li>
+          <li>Your placement is being held pending specialist registration outcome.</li>
+        </ul>
+      </article>
+
+      <article class="next-step-card">
+        <div class="next-step-head">
+          <div class="lock-wrap">
+            <svg class="lock-icon" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 1 1 8 0v3"/></svg>
+          </div>
+          <div>
+            <h2 class="card-title">Next stage locked</h2>
+            <p class="page-subtitle" style="max-width:none; margin-top:4px;">Visa &amp; Relocation opens once specialist registration has been granted.</p>
+          </div>
+        </div>
+        <p class="next-step-copy">Your secured role is preserved. The relocation workflow will unlock the moment registration status moves from pending to granted.</p>
+      </article>
+
+      <div class="section-head">
+        <h2 class="section-title">Other opportunities</h2>
+        <a class="section-link" href="#" aria-label="Review other opportunities">Reduced
+          <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+        </a>
+      </div>
+
+      <article class="opportunity-card">
+        <div class="collapsed-row">
+          <div class="collapsed-copy">
+            <span class="collapsed-kicker">Held in reserve</span>
+            <h3 class="collapsed-title">Northshore Clinic Group</h3>
+            <p class="collapsed-sub">Perth WA · Private billing · Remains available only if your secured placement changes.</p>
+          </div>
+          <button class="secondary-cta" type="button">View</button>
+        </div>
+      </article>
+    </section>
+
+    <nav class="bottom-nav" aria-label="Primary">
+      <a class="nav-item" href="/pages/index.html">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+        <span>Home</span>
+      </a>
+      <a class="nav-item" href="/pages/myinthealth.html">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+        <span>Registration</span>
+      </a>
+      <a class="nav-item active" href="/pages/career.html" aria-current="page">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+        <span>Career</span>
+      </a>
+      <a class="nav-item" href="/pages/messages.html">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 5h16v11H7l-3 3z"/></svg>
+        <span>Updates</span>
+      </a>
+      <a class="nav-item" href="/pages/account.html">
+        <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+        <span>Account</span>
+      </a>
+    </nav>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const shell = document.querySelector(".career-shell");
+      const subtitle = document.getElementById("pageSubtitle");
+      const modeButtons = [...document.querySelectorAll("[data-mode-toggle]")];
+      const panes = [...document.querySelectorAll("[data-mode-pane]")];
+      const filterChips = [...document.querySelectorAll(".filter-chip")];
+      const bookmarkButtons = [...document.querySelectorAll(".bookmark-btn")];
+
+      const subtitles = {
+        browse: "Explore roles matched to your relocation goals and track your applications.",
+        secured: "Your placement has been secured. View your role details and track what comes next."
+      };
+
+      function setMode(mode) {
+        shell.dataset.mode = mode;
+        if (subtitle) subtitle.textContent = subtitles[mode] || subtitles.browse;
+        modeButtons.forEach((button) => {
+          const active = button.dataset.modeToggle === mode;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        panes.forEach((pane) => {
+          pane.classList.toggle("active", pane.dataset.modePane === mode);
+        });
+      }
+
+      modeButtons.forEach((button) => {
+        button.addEventListener("click", () => setMode(button.dataset.modeToggle));
+      });
+
+      filterChips.forEach((chip) => {
+        chip.addEventListener("click", () => {
+          filterChips.forEach((item) => item.classList.remove("active"));
+          chip.classList.add("active");
+        });
+      });
+
+      bookmarkButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const saved = button.classList.toggle("saved");
+          button.setAttribute("aria-label", saved ? "Saved role" : "Save role");
+        });
+      });
+
+      setMode("browse");
+    })();
+  </script>
+</body>
+</html>

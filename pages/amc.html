@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>AMC Portfolio - GP Link</title>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
-  <script src="../js/state-sync.js" defer></script>
+  <script src="../js/state-sync.js?v=20260314b" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260310a" defer></script>
@@ -479,14 +479,41 @@
       align-items: center; gap: 10px;
       border: 1px solid #e8edf5; background: #fafbfd;
       border-radius: 14px; padding: 10px 12px;
+      position: relative;
+      overflow: hidden;
     }
     .reg-name { font-size: 13px; font-weight: 700; }
     .reg-sub { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .reg-row.done {
+      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+      border-color: #86efac;
+    }
+    .reg-row.done .reg-name,
+    .reg-row.done .reg-sub {
+      color: #166534;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+    }
+    .reg-row.done::before,
+    .reg-row.done::after {
+      content: "";
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      top: 50%;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+      pointer-events: none;
+    }
+    .reg-row.done::before { transform: rotate(6deg); }
+    .reg-row.done::after { transform: rotate(-6deg); }
     .reg-pill {
       font-size: 10px; text-transform: uppercase; font-weight: 800;
       border-radius: 999px; padding: 4px 10px;
       background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
     }
+    .reg-pill.done { background: #16a34a; color: #fff; border-color: #16a34a; }
     .reg-pill.locked { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
     .reg-btn {
       text-decoration: none; padding: 8px 14px; border-radius: 10px;
@@ -495,6 +522,12 @@
       border: 1px solid #bfdbfe; transition: all .15s ease;
     }
     .reg-btn:hover { background: #dbeafe; }
+    .reg-btn.done {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #166534;
+      cursor: not-allowed;
+    }
     .reg-btn.locked { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
     .reg-btn:disabled { cursor: not-allowed; }
 
@@ -534,7 +567,7 @@
       backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border-top: 1px solid #e2e8f0;
       padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
-      display: none; grid-template-columns: repeat(5, 1fr); gap: 4px; z-index: 50; overflow: visible;
+      display: none; grid-template-columns: repeat(6, 1fr); gap: 4px; z-index: 50; overflow: visible;
     }
     .bottom-tab {
       text-decoration: none; border: 0; background: transparent; color: #94a3b8;
@@ -693,6 +726,10 @@
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
             <span>My Documents</span>
           </a>
+          <a class="nav-link nav-item" href="/pages/career.html" data-nav="career">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+            <span>Career</span>
+          </a>
           <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
             <span>Messages</span>
@@ -807,6 +844,10 @@
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
       <span class="bottom-tab-label">Scan</span>
     </button>
+    <a class="bottom-tab" href="/pages/career.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
+      <span class="bottom-tab-label">Career</span>
+    </a>
     <button class="bottom-tab" id="mobileSupportBtn" type="button">
       <span class="bottom-tab-icon">
         <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
@@ -871,7 +912,10 @@
     // ─── CONSTANTS ───────────────────────────────────────────────
     const STORAGE_KEY = "gp_amc_progress";
     const TUTORIAL_SEEN_KEY = "gp_amc_tutorial_seen";
+    const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
+    const AHPRA_KEY = "gp_ahpra_progress";
+    const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const AMC_URL = "https://www.amc.org.au";
@@ -1525,15 +1569,66 @@
       try { return JSON.parse(raw); } catch (e) { return null; }
     }
 
+    function getRegistrationReturnOverrides() {
+      const parsed = parseStorage(REGISTRATION_RETURN_KEY);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+
+    function isRegistrationReturnAllowed(stepKey) {
+      return getRegistrationReturnOverrides()[stepKey] === true;
+    }
+
+    function hasMeaningfulAmcProgress(progress) {
+      if (!progress || typeof progress !== "object") return false;
+      if (typeof progress.stage === "string" && progress.stage && progress.stage !== "create_portfolio") return true;
+      const completed = progress.completed && typeof progress.completed === "object" ? progress.completed : null;
+      return !!(completed && Object.values(completed).some((value) => value === true));
+    }
+
+    function buildRegistrationRow(stepKey, config) {
+      const locked = !!config.locked;
+      const done = !!config.done;
+      const returnable = done && isRegistrationReturnAllowed(stepKey);
+      return {
+        title: config.title,
+        sub: config.sub,
+        status: locked ? "Locked" : done ? "Done" : "Current",
+        locked,
+        done,
+        current: !locked && !done,
+        returnable,
+        href: !locked && (!done || returnable) ? config.href : "#",
+        cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+      };
+    }
+
     function getRegistrationRows() {
-      const epic = parseStorage(STORAGE_KEY);
       const amc = parseStorage(AMC_KEY);
-      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      const ahpra = parseStorage(AHPRA_KEY);
+      const epicDone = true;
       const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
       return [
-        { title: "1. MyIntealth Account", sub: "Create account and complete EPIC verification.", status: epicDone ? "Done" : "Current", locked: false, href: "myinthealth.html", cta: "Continue" },
-        { title: "2. AMC Portfolio", sub: "Create AMC candidate portfolio and upload credentials.", status: epicDone ? (amcDone ? "Done" : "Current") : "Locked", locked: !epicDone, href: epicDone ? "amc.html" : "#", cta: epicDone ? "Continue" : "Locked" },
-        { title: "3. AHPRA Registration", sub: "Specialist registration submission.", status: amcDone ? "Current" : "Locked", locked: !amcDone, href: amcDone ? "ahpra.html" : "#", cta: amcDone ? "Continue" : "Locked" }
+        buildRegistrationRow("myinthealth", {
+          title: "1. MyIntealth Account",
+          sub: "Create account and complete EPIC verification.",
+          done: epicDone,
+          href: "myinthealth.html"
+        }),
+        buildRegistrationRow("amc", {
+          title: "2. AMC Portfolio",
+          sub: "Create AMC candidate portfolio and upload credentials.",
+          locked: !epicDone,
+          done: amcDone,
+          href: "amc.html"
+        }),
+        buildRegistrationRow("ahpra", {
+          title: "3. AHPRA Registration",
+          sub: "Specialist registration submission.",
+          locked: !amcDone,
+          done: ahpraDone,
+          href: "ahpra.html"
+        })
       ];
     }
 
@@ -1541,18 +1636,19 @@
       regTableEl.innerHTML = "";
       mobileRegTable.innerHTML = "";
       getRegistrationRows().forEach(row => {
-        const sc = row.locked ? "locked" : "";
+        const sc = row.done ? "done" : row.locked ? "locked" : "";
+        const actionDisabled = row.locked || (row.done && !row.returnable);
         const el = document.createElement("div");
-        el.className = "reg-row";
+        el.className = `reg-row ${row.done ? "done" : ""}`.trim();
         const textWrap = document.createElement("div");
         textWrap.innerHTML = `<div class="reg-name">${row.title}</div><div class="reg-sub">${row.sub}</div>`;
         const pill = document.createElement("span");
         pill.className = `reg-pill ${sc}`.trim();
         pill.textContent = row.status;
-        const ctaEl = row.locked ? document.createElement("button") : document.createElement("a");
+        const ctaEl = actionDisabled ? document.createElement("button") : document.createElement("a");
         ctaEl.className = `reg-btn ${sc}`.trim();
         ctaEl.textContent = row.cta;
-        if (row.locked) {
+        if (actionDisabled) {
           ctaEl.type = "button";
           ctaEl.disabled = true;
         } else {
@@ -1770,17 +1866,27 @@
       });
     }
 
-    function redirectToPrerequisiteStep() {
-      const epic = parseStorage("gp_epic_progress");
-      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+    function redirectToAllowedStage() {
+      const epic = parseStorage(EPIC_KEY);
+      const amc = parseStorage(AMC_KEY);
+      const ahpra = parseStorage(AHPRA_KEY);
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true) || hasMeaningfulAmcProgress(amc);
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
       if (!epicDone) {
         window.location.replace("/pages/myinthealth.html");
         return true;
       }
-      return false;
+      if (!amcDone || isRegistrationReturnAllowed("amc")) return false;
+      if (!ahpraDone) {
+        window.location.replace("/pages/ahpra.html");
+        return true;
+      }
+      window.location.replace("/pages/index.html");
+      return true;
     }
 
-    if (!redirectToPrerequisiteStep()) {
+    if (!redirectToAllowedStage()) {
       const initialProgress = loadProgress();
 
       const routeTab = pickTabFromRoute(initialProgress);
@@ -1796,7 +1902,7 @@
       });
       // Re-render after state-sync hydrates the current user's data
       window.addEventListener("gp-state-hydrated", function () {
-        if (redirectToPrerequisiteStep()) return;
+        if (redirectToAllowedStage()) return;
         const progress = loadProgress();
         currentTabKey = activeTabStage(progress);
         renderPage(progress);

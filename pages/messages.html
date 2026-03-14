@@ -71,12 +71,12 @@
 
     .nav-menu {
       display: flex;
-      gap: 22px;
+      gap: 8px;
       align-items: center;
       justify-content: center;
       position: relative;
       font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
-      padding: 6px;
+      padding: 4px;
       border-radius: 14px;
     }
 
@@ -88,17 +88,17 @@
       border: 0;
       background: transparent;
       color: #111827;
-      padding: 6px 10px;
-      font-size: 14px;
+      padding: 8px 12px;
+      font-size: 13px;
       font-weight: 500;
       white-space: nowrap;
       display: inline-flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 3px;
+      gap: 4px;
       line-height: 1.15;
-      min-width: 104px;
+      min-width: 92px;
       border-radius: 12px;
       font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
     }
@@ -160,7 +160,7 @@
       position: absolute;
       top: 0;
       left: 0;
-      width: 104px;
+      width: 96px;
       height: 44px;
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.58);
@@ -587,7 +587,7 @@
       border-top: 1px solid #e2e8f0;
       padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
       display: none;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 4px;
       z-index: 50;
       overflow: visible;
@@ -695,6 +695,10 @@
           <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
             <span class="nav-text">My Documents</span>
+          </a>
+          <a class="nav-link nav-item" href="career.html" data-nav="career">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+            <span class="nav-text">Career</span>
           </a>
           <a class="nav-link nav-item active" href="messages.html" data-nav="messages">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
@@ -808,6 +812,10 @@
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
       <span class="mobile-tab-label">Scan</span>
     </button>
+    <a class="mobile-tab" href="career.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
+      <span class="mobile-tab-label">Career</span>
+    </a>
     <a class="mobile-tab mobile-tab-active" href="messages.html">
       <span class="mobile-icon-wrap">
         <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg></span>

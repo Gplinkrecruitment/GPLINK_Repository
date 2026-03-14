@@ -21,6 +21,7 @@
   const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
   const SESSION_OWNER_KEY = 'gp_state_owner';
   const AUTO_PUSH_DEBOUNCE_MS = 450;
+  const PROGRESS_STATE_KEYS = ['gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress'];
 
   let hydrated = false;
   let hydratePromise = null;
@@ -38,6 +39,7 @@
 
   async function pushState() {
     if (shuttingDown) return;
+    flushTrackedBatches();
     const payload = { state: {} };
     STATE_KEYS.forEach((key) => {
       const raw = localStorage.getItem(key);
@@ -71,6 +73,80 @@
         localStorage.removeItem(key);
         localStorage.removeItem(key + SAVE_BATCH_META_SUFFIX);
       });
+    });
+  }
+
+  function snapshotTrackedLocalState() {
+    const snapshot = {};
+    STATE_KEYS.forEach((key) => {
+      const raw = localStorage.getItem(key);
+      if (raw !== null) snapshot[key] = raw;
+    });
+    return snapshot;
+  }
+
+  function parseJsonSafe(raw) {
+    if (typeof raw !== 'string' || !raw) return null;
+    try { return JSON.parse(raw); } catch (err) { return null; }
+  }
+
+  function getUpdatedAtMs(parsed) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 0;
+    const rawTs = typeof parsed.updatedAt === 'string'
+      ? parsed.updatedAt
+      : (typeof parsed.updated_at === 'string' ? parsed.updated_at : '');
+    const ts = Date.parse(rawTs);
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  function getProgressCompletionScore(parsed) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return -1;
+    const completed = parsed.completed && typeof parsed.completed === 'object' ? parsed.completed : null;
+    if (!completed) return -1;
+    return Object.keys(completed).reduce((count, key) => count + (completed[key] === true ? 1 : 0), 0);
+  }
+
+  function chooseTrackedStateValue(key, localRaw, serverRaw) {
+    if (typeof localRaw !== 'string') return typeof serverRaw === 'string' ? serverRaw : null;
+    if (typeof serverRaw !== 'string') return localRaw;
+    if (localRaw === serverRaw) return localRaw;
+
+    const localParsed = parseJsonSafe(localRaw);
+    const serverParsed = parseJsonSafe(serverRaw);
+    const localTs = getUpdatedAtMs(localParsed);
+    const serverTs = getUpdatedAtMs(serverParsed);
+
+    if (localTs && serverTs && localTs !== serverTs) {
+      return localTs > serverTs ? localRaw : serverRaw;
+    }
+    if (localTs && !serverTs) return localRaw;
+    if (serverTs && !localTs) return serverRaw;
+
+    if (PROGRESS_STATE_KEYS.indexOf(key) !== -1) {
+      const localScore = getProgressCompletionScore(localParsed);
+      const serverScore = getProgressCompletionScore(serverParsed);
+      if (localScore !== serverScore) {
+        return localScore > serverScore ? localRaw : serverRaw;
+      }
+    }
+
+    return serverRaw;
+  }
+
+  function mergeTrackedState(localState, serverState) {
+    const merged = {};
+    STATE_KEYS.forEach((key) => {
+      const mergedValue = chooseTrackedStateValue(key, localState[key], serverState[key]);
+      if (typeof mergedValue === 'string') merged[key] = mergedValue;
+    });
+    return merged;
+  }
+
+  function trackedStateDiffers(a, b) {
+    return STATE_KEYS.some((key) => {
+      const aValue = typeof a[key] === 'string' ? a[key] : null;
+      const bValue = typeof b[key] === 'string' ? b[key] : null;
+      return aValue !== bValue;
     });
   }
 
@@ -167,15 +243,20 @@
         // Immediately clear stale data if user changed (synchronous, before any rendering)
         if (sessionEmail) enforceOwnership(sessionEmail);
 
+        flushTrackedBatches();
+        var localState = snapshotTrackedLocalState();
         var serverState = await fetchState();
+        var mergedState = mergeTrackedState(localState, serverState);
+        var shouldPushMergedState = trackedStateDiffers(mergedState, serverState);
         clearTrackedLocalState();
         withSuppressedObserver(() => {
           STATE_KEYS.forEach((key) => {
-            if (typeof serverState[key] === 'string') {
-              localStorage.setItem(key, serverState[key]);
+            if (typeof mergedState[key] === 'string') {
+              localStorage.setItem(key, mergedState[key]);
             }
           });
         });
+        if (shouldPushMergedState) pendingTrackedChange = true;
         stateOk = true;
         hydrated = true;
         window.dispatchEvent(new Event('gp-state-hydrated'));

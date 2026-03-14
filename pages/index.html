@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>GP Registration Portal Dashboard</title>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
-  <script src="../js/state-sync.js" defer></script>
+  <script src="../js/state-sync.js?v=20260314b" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260310a" defer></script>
@@ -528,7 +528,7 @@
       backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border-top: 1px solid #e2e8f0;
       padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
-      display: none; grid-template-columns: repeat(5, 1fr);
+      display: none; grid-template-columns: repeat(6, 1fr);
       gap: 4px; z-index: 50; overflow: visible;
     }
 
@@ -671,16 +671,43 @@
       align-items: center; gap: 10px;
       border: 1px solid #e8edf5; background: #fafbfd;
       border-radius: 14px; padding: 10px 12px;
+      position: relative;
+      overflow: hidden;
     }
 
     .reg-name { font-size: 13px; font-weight: 700; }
     .reg-sub { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .reg-row.done {
+      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+      border-color: #86efac;
+    }
+    .reg-row.done .reg-name,
+    .reg-row.done .reg-sub {
+      color: #166534;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+    }
+    .reg-row.done::before,
+    .reg-row.done::after {
+      content: "";
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      top: 50%;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+      pointer-events: none;
+    }
+    .reg-row.done::before { transform: rotate(6deg); }
+    .reg-row.done::after { transform: rotate(-6deg); }
 
     .reg-pill {
       font-size: 10px; text-transform: uppercase; font-weight: 800;
       border-radius: 999px; padding: 4px 10px;
       background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
     }
+    .reg-pill.done { background: #16a34a; color: #fff; border-color: #16a34a; }
     .reg-pill.locked { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
 
     .reg-btn {
@@ -690,6 +717,12 @@
       border: 1px solid #bfdbfe; transition: all .15s ease;
     }
     .reg-btn:hover { background: #dbeafe; }
+    .reg-btn.done {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #166534;
+      cursor: not-allowed;
+    }
     .reg-btn.locked { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
 
     /* ─── MOBILE REGISTRATION SHEET ─── */
@@ -855,6 +888,10 @@
           <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
             <span>My Documents</span>
+          </a>
+          <a class="nav-link nav-item" href="career.html" data-nav="career">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
+            <span>Career</span>
           </a>
           <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
@@ -1025,6 +1062,10 @@
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
       <span class="bottom-tab-label">Scan</span>
     </button>
+    <a class="bottom-tab" href="career.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
+      <span class="bottom-tab-label">Career</span>
+    </a>
     <a class="bottom-tab" href="my-documents.html">
       <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
       <span class="bottom-tab-label">Documents</span>
@@ -1063,8 +1104,10 @@
     const TOTAL_STEPS = 4;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
+    const AHPRA_KEY = "gp_ahpra_progress";
     const DOC_KEY = "gp_documents_prep";
     const PREPARED_DOCS_KEY = "gp_prepared_docs";
+    const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
     const ringCirc = 289.026524;
 
     const epicStageLabels = {
@@ -1184,6 +1227,34 @@
       const raw = localStorage.getItem(key);
       if (!raw) return null;
       try { return JSON.parse(raw); } catch (err) { return null; }
+    }
+
+    function getRegistrationReturnOverrides() {
+      const parsed = parseStorage(REGISTRATION_RETURN_KEY);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+
+    function isRegistrationReturnAllowed(stepKey) {
+      return getRegistrationReturnOverrides()[stepKey] === true;
+    }
+
+    function buildRegistrationRow(stepKey, config) {
+      const locked = !!config.locked;
+      const done = !!config.done;
+      const returnable = done && isRegistrationReturnAllowed(stepKey);
+      return {
+        title: config.title,
+        sub: config.sub,
+        mobileDetail: config.mobileDetail,
+        mobileStatus: config.mobileStatus,
+        status: locked ? "Locked" : done ? "Done" : "Current",
+        locked,
+        done,
+        current: !locked && !done,
+        returnable,
+        href: !locked && (!done || returnable) ? config.href : "#",
+        cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+      };
     }
 
     function formatUpdateTimestamp(tsValue) {
@@ -1516,37 +1587,35 @@
 
     function getRegistrationRows() {
       const snap = getProgressSnapshot();
+      const ahpra = parseStorage(AHPRA_KEY);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
       return [
-        {
+        buildRegistrationRow("myinthealth", {
           title: "1. MyIntealth Account",
           sub: "Create account and complete EPIC verification.",
           mobileDetail: "EPIC verification is set up and moving forward.",
-          mobileStatus: snap.epicCurrentLabel,
-          status: snap.epicDone ? "Done" : "Continue",
-          locked: false,
-          href: "myinthealth.html",
-          cta: "Continue"
-        },
-        {
+          mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
+          done: snap.epicDone,
+          href: "myinthealth.html"
+        }),
+        buildRegistrationRow("amc", {
           title: "2. AMC Portfolio",
           sub: "Create AMC candidate portfolio and upload credentials.",
           mobileDetail: "AMC portfolio is created and connected to your verification.",
           mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
-          status: snap.epicDone ? (snap.amcDone ? "Done" : "Continue") : "Locked",
           locked: !snap.epicDone,
-          href: snap.epicDone ? "amc.html" : "#",
-          cta: snap.epicDone ? "Continue" : "Locked"
-        },
-        {
+          done: snap.amcDone,
+          href: "amc.html"
+        }),
+        buildRegistrationRow("ahpra", {
           title: "3. AHPRA Registration",
           sub: "Prepare and submit your specialist registration application.",
           mobileDetail: "Specialist registration application is prepared and submitted correctly.",
-          mobileStatus: snap.amcDone ? "In progress" : "Unlocked after Step 2 is complete",
-          status: snap.amcDone ? "Continue" : "Locked",
+          mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : ahpraDone ? "Completed" : "In progress",
           locked: !snap.amcDone,
-          href: snap.amcDone ? "ahpra.html" : "#",
-          cta: snap.amcDone ? "Continue" : "Locked"
-        }
+          done: ahpraDone,
+          href: "ahpra.html"
+        })
       ];
     }
 
@@ -1555,17 +1624,27 @@
       regTableEl.innerHTML = "";
       mobileRegTable.innerHTML = "";
       rows.forEach((row) => {
-        const statusClass = row.locked ? "locked" : "";
+        const statusClass = row.done ? "done" : row.locked ? "locked" : "";
+        const actionDisabled = row.locked || (row.done && !row.returnable);
         const rowEl = document.createElement("div");
-        rowEl.className = "reg-row";
+        rowEl.className = `reg-row ${row.done ? "done" : ""}`.trim();
         rowEl.innerHTML = `
           <div>
             <div class="reg-name">${row.title}</div>
             <div class="reg-sub">${row.sub}</div>
           </div>
           <span class="reg-pill ${statusClass}">${row.status}</span>
-          <a class="reg-btn ${statusClass}" href="${row.href}">${row.cta}</a>
         `;
+        const actionEl = actionDisabled ? document.createElement("button") : document.createElement("a");
+        actionEl.className = `reg-btn ${statusClass}`.trim();
+        actionEl.textContent = row.cta;
+        if (actionDisabled) {
+          actionEl.type = "button";
+          actionEl.disabled = true;
+        } else {
+          actionEl.href = row.href;
+        }
+        rowEl.appendChild(actionEl);
         regTableEl.appendChild(rowEl);
       });
 
@@ -1578,7 +1657,8 @@
       }
 
       rows.forEach((row, idx) => {
-        const isCurrent = row.status === "Continue" && !row.locked;
+        const isCurrent = row.current;
+        const actionDisabled = row.locked || (row.done && !row.returnable);
         const cardEl = document.createElement("div");
         cardEl.className = `mobile-step-card ${row.locked ? "locked" : "unlocked"} ${isCurrent ? "current open" : ""}`;
         const bodyId = `mobileStepBody${idx}`;
@@ -1598,11 +1678,20 @@
           <div class="mobile-step-body" id="${bodyId}" ${isCurrent ? "" : "hidden"}>
             <p class="mobile-step-copy">${row.mobileDetail || row.sub}</p>
             <p class="mobile-step-status"><b>Status:</b> ${row.mobileStatus || row.status}</p>
-            <a class="reg-btn ${row.locked ? "locked" : ""}" href="${row.href}">${row.cta}</a>
           </div>
         `;
         const headBtn = cardEl.querySelector(".mobile-step-head");
         const bodyEl = cardEl.querySelector(".mobile-step-body");
+        const actionEl = actionDisabled ? document.createElement("button") : document.createElement("a");
+        actionEl.className = `reg-btn ${row.done ? "done" : row.locked ? "locked" : ""}`.trim();
+        actionEl.textContent = row.cta;
+        if (actionDisabled) {
+          actionEl.type = "button";
+          actionEl.disabled = true;
+        } else {
+          actionEl.href = row.href;
+        }
+        bodyEl.appendChild(actionEl);
         let autoCloseTimer = null;
         if (headBtn && bodyEl && !isCurrent) {
           headBtn.addEventListener("click", () => {
