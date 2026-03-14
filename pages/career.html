@@ -328,19 +328,6 @@
       min-width: 0;
     }
 
-    .hero-eyebrow {
-      width: fit-content;
-      padding: 7px 11px;
-      border-radius: 999px;
-      background: #eff6ff;
-      color: #1d4ed8;
-      border: 1px solid #bfdbfe;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
-
     .page-hero h1 {
       margin: 0;
       font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -655,11 +642,9 @@
       gap: 12px;
     }
 
-    .role-kicker,
     .status-pill,
     .badge,
     .badge-soft,
-    .badge-warn,
     .badge-dark {
       display: inline-flex;
       align-items: center;
@@ -674,12 +659,6 @@
       white-space: nowrap;
     }
 
-    .role-kicker {
-      background: #eff6ff;
-      color: #1d4ed8;
-      border: 1px solid #bfdbfe;
-    }
-
     .role-title {
       margin: 6px 0 4px;
       font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -691,7 +670,6 @@
     }
 
     .role-location,
-    .card-footnote,
     .application-sub,
     .timeline-sub,
     .detail-subcopy {
@@ -759,12 +737,6 @@
       background: var(--success-soft);
       color: var(--success);
       border: 1px solid rgba(22, 101, 52, 0.1);
-    }
-
-    .badge-warn {
-      background: var(--warning-soft);
-      color: var(--warning);
-      border: 1px solid rgba(146, 64, 14, 0.1);
     }
 
     .badge-dark {
@@ -1479,7 +1451,6 @@
       }
 
       .role-location,
-      .card-footnote,
       .application-sub,
       .timeline-sub,
       .detail-subcopy,
@@ -1545,7 +1516,7 @@
         <div class="header-avatar">GP</div>
         <div class="header-text">
           <h1>Career</h1>
-          <p>Roles, applications and placement progress</p>
+          <p>Your roles and applications</p>
         </div>
       </div>
       <div class="header-actions">
@@ -1594,10 +1565,9 @@
     <main class="main">
       <section class="page-hero">
         <div class="hero-copy">
-          <span class="hero-eyebrow"><svg style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px;margin-right:4px;" viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>Premium GP placements</span>
           <div>
             <h1>Career</h1>
-            <p class="page-subtitle" id="pageSubtitle">Explore roles matched to your relocation goals and track your applications.</p>
+            <p class="page-subtitle" id="pageSubtitle">Explore roles matched to your profile and relocation goals.</p>
           </div>
         </div>
         <div class="hero-stats">
@@ -1613,9 +1583,9 @@
       </section>
 
       <nav class="view-tabs" aria-label="Career sections">
-        <button class="view-tab active" type="button" data-view="browse"><span class="view-tab-label">Browsing Mode</span></button>
-        <button class="view-tab" type="button" data-view="applications"><span class="view-tab-label">Your Applications</span> <span class="view-count" id="applicationsCountBadge">0</span></button>
-        <button class="view-tab" type="button" data-view="secured"><span class="view-tab-label">Secured Placement</span></button>
+        <button class="view-tab active" type="button" data-view="browse"><span class="view-tab-label">Browse</span></button>
+        <button class="view-tab" type="button" data-view="applications"><span class="view-tab-label">Applications</span> <span class="view-count" id="applicationsCountBadge">0</span></button>
+        <button class="view-tab" type="button" data-view="secured"><span class="view-tab-label">Placement</span></button>
       </nav>
 
       <section class="view-panel is-active" data-view-panel="browse">
@@ -1632,15 +1602,13 @@
 
         <div class="section-head">
           <h2 class="section-title">Recommended for you</h2>
-          <button class="section-link" id="clearFiltersBtn" type="button">See all
-            <svg class="detail-icon" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></svg>
-          </button>
+          <button class="section-link" id="clearFiltersBtn" type="button">Clear filters</button>
         </div>
 
         <div class="role-grid" id="recommendedRoles"></div>
         <div class="empty-state" id="rolesEmptyState">
           <h3 class="empty-state-title">No roles match your current filters</h3>
-          <p class="empty-state-copy">Clear the search or choose a different city or billing filter to see more opportunities.</p>
+          <p class="empty-state-copy">Try a different filter or clear your search.</p>
         </div>
       </section>
 
@@ -1648,7 +1616,7 @@
         <section class="summary-strip">
           <div class="summary-strip-copy">
             <h2 class="summary-strip-title">Your applications</h2>
-            <p class="summary-strip-text">Track applied roles, interviews and offers without leaving the app.</p>
+            <p class="summary-strip-text">Track your applied roles, interviews and offers.</p>
           </div>
           <button class="btn-secondary" id="browseRolesBtn" type="button">Browse roles</button>
         </section>
@@ -1656,7 +1624,7 @@
         <div class="application-grid" id="applicationsGrid"></div>
         <div class="empty-state" id="applicationsEmptyState">
           <h3 class="empty-state-title">No active applications yet</h3>
-          <p class="empty-state-copy">Open a role, review the details and apply to create your first tracked application.</p>
+          <p class="empty-state-copy">Apply to a role to start tracking it here.</p>
         </div>
       </section>
 
@@ -1711,15 +1679,13 @@
                 <p class="page-subtitle" style="max-width:none; margin-top:4px;">Visa &amp; Relocation will open once specialist registration has been granted.</p>
               </div>
             </div>
-            <p class="next-step-copy">Your placement is reserved. GP Link will unlock the next workflow as soon as specialist registration is confirmed.</p>
+            <p class="next-step-copy">Your placement is reserved. The next stage will unlock once specialist registration is confirmed.</p>
           </article>
 
           <article class="opportunity-card">
             <div class="section-head">
               <h2 class="card-title">Other opportunities</h2>
-              <button class="section-link" id="openBrowseFromSecuredBtn" type="button">Back to browsing
-                <svg class="detail-icon" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></svg>
-              </button>
+              <button class="section-link" id="openBrowseFromSecuredBtn" type="button">Browse roles</button>
             </div>
             <div class="opportunity-grid" id="otherOpportunitiesGrid"></div>
           </article>
@@ -1760,7 +1726,6 @@
       <button class="modal-close" id="roleModalCloseBtn" type="button" aria-label="Close role details">
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
       </button>
-      <span class="role-kicker" id="roleModalMatch">Match 90%</span>
       <div>
         <h2 class="modal-title" id="roleModalTitle">Role title</h2>
         <p class="role-location" id="roleModalLocation"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>Location</span></p>
@@ -2012,9 +1977,9 @@
     let currentRoleId = null;
 
     const subtitleMap = {
-      browse: "Explore roles matched to your relocation goals and track your applications.",
-      applications: "Review your active applications, interviews and offer progress in one place.",
-      secured: "Your placement has been secured. View your role details and track what comes next."
+      browse: "Explore roles matched to your profile and relocation goals.",
+      applications: "Track your applications, interviews and offers.",
+      secured: "Your placement is confirmed. View details and next steps."
     };
 
     const navGlassEl = document.getElementById("navGlass");
@@ -2039,7 +2004,6 @@
     const openBrowseFromSecuredBtnEl = document.getElementById("openBrowseFromSecuredBtn");
     const roleModalEl = document.getElementById("roleModal");
     const roleModalCloseBtnEl = document.getElementById("roleModalCloseBtn");
-    const roleModalMatchEl = document.getElementById("roleModalMatch");
     const roleModalTitleEl = document.getElementById("roleModalTitle");
     const roleModalLocationEl = document.getElementById("roleModalLocation");
     const roleModalSummaryEl = document.getElementById("roleModalSummary");
@@ -2223,7 +2187,6 @@
         card.innerHTML = `
           <div class="card-head">
             <div>
-              <span class="role-kicker">${role.match}</span>
               <h3 class="role-title">${role.practiceName}</h3>
               <p class="role-location"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span></p>
             </div>
@@ -2236,11 +2199,9 @@
             <span class="badge">${role.billing}</span>
             <span class="badge">${role.geography}</span>
             <span class="badge-dark">${role.earnings}</span>
-            ${role.tags.map((tag, index) => `<span class="${index === 0 && tag.includes("DPA") ? "badge-warn" : "badge-soft"}">${tag}</span>`).join("")}
           </div>
           <div class="role-footer">
-            <span class="card-footnote">${role.footnote}</span>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;">
               <button class="ghost-btn" type="button" data-save-role="${role.id}">${isSaved(role.id) ? "Saved" : "Save"}</button>
               <button class="btn-primary" type="button" data-open-role="${role.id}">View role</button>
             </div>
@@ -2275,10 +2236,9 @@
             `).join("")}
           </div>
           <div class="application-footer">
-            <span class="card-footnote">${role ? role.footnote : "Application in progress"}</span>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button class="ghost-btn" type="button" data-save-role="${application.roleId}">${isSaved(application.roleId) ? "Saved" : "Save job"}</button>
-              <button class="btn-primary" type="button" data-open-role="${application.roleId}">Open role</button>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;">
+              <button class="ghost-btn" type="button" data-save-role="${application.roleId}">${isSaved(application.roleId) ? "Saved" : "Save"}</button>
+              <button class="btn-primary" type="button" data-open-role="${application.roleId}">View details</button>
             </div>
           </div>
         `;
@@ -2327,7 +2287,6 @@
           <article class="role-card">
             <div class="card-head">
               <div>
-                <span class="role-kicker">Held in reserve</span>
                 <h3 class="application-title">${role.practiceName}</h3>
                 <p class="application-sub"><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span></p>
               </div>
@@ -2339,8 +2298,7 @@
               <span class="badge-dark">${role.earnings}</span>
             </div>
             <div class="role-footer">
-              <span class="card-footnote">${role.footnote}</span>
-              <button class="btn-primary" type="button" data-open-role="${role.id}">View role</button>
+              <button class="btn-primary" type="button" data-open-role="${role.id}" style="margin-left:auto;">View role</button>
             </div>
           </article>
         `;
@@ -2351,7 +2309,6 @@
       const role = findRole(roleId);
       if (!role) return;
       currentRoleId = roleId;
-      roleModalMatchEl.textContent = role.match;
       roleModalTitleEl.textContent = role.practiceName;
       roleModalLocationEl.innerHTML = `<svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${role.location}</span>`;
       roleModalSummaryEl.textContent = role.summary;
@@ -2359,7 +2316,6 @@
         <span class="badge">${role.billing}</span>
         <span class="badge">${role.geography}</span>
         <span class="badge-dark">${role.earnings}</span>
-        ${role.tags.map((tag, index) => `<span class="${index === 0 && tag.includes("DPA") ? "badge-warn" : "badge-soft"}">${tag}</span>`).join("")}
       `;
       roleModalDetailsEl.innerHTML = `
         <div class="modal-detail-card">
