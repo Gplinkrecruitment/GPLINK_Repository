@@ -12,27 +12,28 @@
   <script src="../js/account-dropdown.js" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <style>
     :root {
       --bg: #f0f4fa;
       --panel: #ffffff;
-      --panel-soft: #f4f5f7;
-      --panel-muted: #eceef1;
+      --panel-soft: #f8fafc;
+      --panel-muted: #f1f5f9;
       --text: #0f172a;
       --muted: #64748b;
-      --ink: #111111;
-      --charcoal: #1f2937;
-      --line: #e8edf5;
-      --line-strong: #d5dce6;
+      --ink: #0f172a;
+      --charcoal: #1e293b;
+      --line: #e2e8f0;
+      --line-strong: #cbd5e1;
       --blue: #2563eb;
       --blue2: #1d4ed8;
-      --success: #166534;
+      --blue3: #1e3a8a;
+      --success: #16a34a;
       --success-soft: #ecfdf5;
-      --warning: #92400e;
-      --warning-soft: #fff7ed;
+      --warning: #d97706;
+      --warning-soft: #fffbeb;
       --shadow-soft: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
-      --shadow-card: 0 18px 40px -28px rgba(15, 23, 42, 0.28);
+      --shadow-card: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
       --radius-lg: 20px;
       --radius-md: 14px;
       --radius-sm: 10px;
@@ -42,7 +43,11 @@
     html, body { margin: 0; min-height: 100%; }
     body {
       font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
+      background:
+        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
+        radial-gradient(760px 460px at 100% 0%, rgba(29, 78, 216, 0.14), transparent 58%),
+        radial-gradient(600px 400px at 50% 100%, rgba(37, 99, 235, 0.06), transparent 60%),
+        var(--bg);
       color: var(--text);
       padding: 0;
     }
@@ -75,19 +80,19 @@
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #111111, #374151);
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
       color: #fff;
       display: grid;
       place-items: center;
       font-weight: 800;
       font-size: 18px;
       border: 2px solid #fff;
-      box-shadow: 0 8px 18px -14px rgba(17, 24, 39, 0.7);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
     }
 
     .header-text h1 {
       margin: 0;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 20px;
       font-weight: 800;
       letter-spacing: -0.03em;
@@ -110,8 +115,10 @@
       width: 42px;
       height: 42px;
       border-radius: 14px;
-      border: 1px solid #e2e8f0;
-      background: #fff;
+      border: 1px solid rgba(226, 232, 240, 0.6);
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       display: grid;
       place-items: center;
       cursor: pointer;
@@ -122,8 +129,8 @@
     }
 
     .header-icon-btn:hover {
-      background: #f8fafc;
-      border-color: #cbd5e1;
+      background: rgba(248, 250, 252, 0.8);
+      border-color: rgba(203, 213, 225, 0.7);
     }
 
     .header-icon-btn svg,
@@ -173,9 +180,11 @@
       margin-top: 18px;
       padding: 14px 16px;
       border-radius: var(--radius-lg);
-      border: 1px solid var(--line);
-      background: #fff;
-      box-shadow: var(--shadow-soft);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.7);
     }
 
     .topbar-row {
@@ -290,17 +299,23 @@
     .opportunity-card,
     .empty-state,
     .summary-strip {
-      background: var(--panel);
-      border: 1px solid rgba(17, 17, 17, 0.06);
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border: 1px solid rgba(255, 255, 255, 0.5);
       border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-soft);
+      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.6);
     }
 
     .page-hero {
       padding: 22px;
       background:
-        radial-gradient(circle at top right, rgba(15, 23, 42, 0.06), transparent 40%),
-        linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%);
+        radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 40%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0%, rgba(248, 250, 252, 0.65) 100%);
+      backdrop-filter: blur(24px) saturate(1.5);
+      -webkit-backdrop-filter: blur(24px) saturate(1.5);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.8);
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
@@ -317,8 +332,9 @@
       width: fit-content;
       padding: 7px 11px;
       border-radius: 999px;
-      background: rgba(17, 17, 17, 0.06);
-      color: #334155;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
       font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.12em;
@@ -327,7 +343,7 @@
 
     .page-hero h1 {
       margin: 0;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 34px;
       line-height: .95;
       letter-spacing: -0.05em;
@@ -353,21 +369,28 @@
     .hero-stat {
       padding: 14px 16px;
       border-radius: 18px;
-      background: #111111;
+      background: linear-gradient(135deg, rgba(30, 64, 175, 0.88) 0%, rgba(37, 99, 235, 0.85) 100%);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
       color: #fff;
       display: grid;
       gap: 4px;
       min-width: 0;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
     }
 
     .hero-stat.secondary {
-      background: #f8fafc;
+      background: rgba(239, 246, 255, 0.6);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
       color: var(--text);
-      border: 1px solid var(--line);
+      border: 1px solid rgba(191, 219, 254, 0.6);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
     }
 
     .hero-stat-value {
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 24px;
       font-weight: 800;
       letter-spacing: -0.04em;
@@ -385,9 +408,11 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 8px;
       padding: 6px;
-      background: rgba(17, 17, 17, 0.05);
+      background: rgba(241, 245, 249, 0.55);
       border-radius: 16px;
-      border: 1px solid rgba(17, 17, 17, 0.06);
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
     }
 
     .view-tab {
@@ -416,9 +441,9 @@
     }
 
     .view-tab.active {
-      background: #111111;
+      background: var(--blue);
       color: #fff;
-      box-shadow: 0 10px 18px -18px rgba(17, 17, 17, 0.72);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
     }
 
     .view-tab:active {
@@ -465,8 +490,10 @@
       align-items: center;
       padding: 10px;
       border-radius: 18px;
-      background: #f8fafc;
-      border: 1px solid var(--line);
+      background: rgba(248, 250, 252, 0.6);
+      border: 1px solid rgba(226, 232, 240, 0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
 
     .search-input-wrap {
@@ -506,21 +533,28 @@
 
     .search-btn,
     .btn-primary {
-      background: #111111;
+      background: var(--blue);
       color: #fff;
       border-radius: 14px;
       padding: 12px 16px;
       font-size: 13px;
       font-weight: 800;
       letter-spacing: -0.02em;
-      box-shadow: 0 14px 20px -18px rgba(17, 17, 17, 0.8);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+
+    .search-btn:hover,
+    .btn-primary:hover {
+      background: var(--blue2);
     }
 
     .btn-secondary,
     .ghost-btn {
-      background: #fff;
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       color: var(--text);
-      border: 1px solid var(--line-strong);
+      border: 1px solid rgba(203, 213, 225, 0.6);
       border-radius: 14px;
       padding: 11px 14px;
       font-size: 13px;
@@ -548,9 +582,11 @@
     }
 
     .filter-chip {
-      border: 1px solid rgba(15, 23, 42, 0.08);
+      border: 1px solid rgba(226, 232, 240, 0.6);
       border-radius: 999px;
-      background: #fff;
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       color: #334155;
       padding: 10px 14px;
       white-space: nowrap;
@@ -562,9 +598,9 @@
     }
 
     .filter-chip.active {
-      background: #111111;
+      background: var(--blue);
       color: #fff;
-      border-color: #111111;
+      border-color: var(--blue);
     }
 
     .filter-chip:active {
@@ -580,7 +616,7 @@
 
     .section-title {
       margin: 0;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 20px;
       letter-spacing: -0.04em;
       font-weight: 800;
@@ -639,14 +675,14 @@
     }
 
     .role-kicker {
-      background: #f8fafc;
-      color: #334155;
-      border: 1px solid #e2e8f0;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
     }
 
     .role-title {
       margin: 6px 0 4px;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 24px;
       line-height: 1.02;
       letter-spacing: -0.04em;
@@ -671,8 +707,10 @@
       width: 42px;
       height: 42px;
       border-radius: 14px;
-      border: 1px solid #e2e8f0;
-      background: #fff;
+      border: 1px solid rgba(226, 232, 240, 0.6);
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       color: #0f172a;
       display: grid;
       place-items: center;
@@ -682,9 +720,9 @@
     }
 
     .save-btn.saved {
-      background: #111111;
+      background: var(--blue);
       color: #fff;
-      border-color: #111111;
+      border-color: var(--blue);
     }
 
     .save-btn:active {
@@ -710,9 +748,11 @@
     }
 
     .badge {
-      background: #f8fafc;
+      background: rgba(248, 250, 252, 0.55);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       color: #334155;
-      border: 1px solid #e2e8f0;
+      border: 1px solid rgba(226, 232, 240, 0.5);
     }
 
     .badge-soft {
@@ -728,9 +768,9 @@
     }
 
     .badge-dark {
-      background: #111111;
+      background: var(--blue3);
       color: #fff;
-      border: 1px solid #111111;
+      border: 1px solid var(--blue3);
     }
 
     .role-footer,
@@ -751,7 +791,7 @@
 
     .application-title {
       margin: 0;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 18px;
       font-weight: 800;
       letter-spacing: -0.03em;
@@ -763,8 +803,9 @@
     }
 
     .status-pill.interview {
-      background: rgba(15, 23, 42, 0.08);
-      color: #0f172a;
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid #e2e8f0;
     }
 
     .status-pill.offer {
@@ -777,7 +818,7 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
       padding-top: 12px;
-      border-top: 1px solid rgba(15, 23, 42, 0.08);
+      border-top: 1px solid var(--line);
     }
 
     .meta-card {
@@ -816,7 +857,7 @@
 
     .summary-strip-title {
       margin: 0;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 18px;
       font-weight: 800;
       letter-spacing: -0.03em;
@@ -831,10 +872,13 @@
 
     .hero-card {
       padding: 24px;
-      background: linear-gradient(180deg, #111111 0%, #1f2937 100%);
+      background: linear-gradient(135deg, rgba(30, 64, 175, 0.92) 0%, rgba(59, 130, 246, 0.88) 50%, rgba(37, 99, 235, 0.92) 100%);
+      backdrop-filter: blur(24px) saturate(1.6);
+      -webkit-backdrop-filter: blur(24px) saturate(1.6);
       color: #fff;
       border-radius: 24px;
-      box-shadow: var(--shadow-card);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.2);
       display: grid;
       gap: 18px;
     }
@@ -869,7 +913,7 @@
 
     .hero-title {
       margin: 10px 0 4px;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 30px;
       line-height: 1;
       letter-spacing: -0.05em;
@@ -904,8 +948,11 @@
     .hero-note {
       padding: 16px;
       border-radius: 18px;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
       display: grid;
       gap: 6px;
     }
@@ -943,7 +990,7 @@
 
     .card-title {
       margin: 0;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 19px;
       font-weight: 800;
       letter-spacing: -0.03em;
@@ -958,7 +1005,7 @@
       display: grid;
       gap: 4px;
       padding-bottom: 12px;
-      border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+      border-bottom: 1px solid var(--line);
     }
 
     .detail-row:last-child {
@@ -983,8 +1030,10 @@
     .summary-tile {
       padding: 14px;
       border-radius: 16px;
-      background: #f8fafc;
-      border: 1px solid var(--line);
+      background: rgba(248, 250, 252, 0.5);
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       display: grid;
       gap: 5px;
     }
@@ -1003,7 +1052,7 @@
       bottom: 10px;
       left: 11px;
       width: 2px;
-      background: linear-gradient(180deg, rgba(15, 23, 42, 0.18), rgba(15, 23, 42, 0.08));
+      background: linear-gradient(180deg, rgba(37, 99, 235, 0.25), rgba(37, 99, 235, 0.08));
     }
 
     .timeline-item {
@@ -1017,13 +1066,13 @@
       width: 24px;
       height: 24px;
       border-radius: 50%;
-      background: #111111;
+      background: var(--blue);
       color: #fff;
       display: grid;
       place-items: center;
       position: relative;
       z-index: 1;
-      box-shadow: 0 10px 20px -16px rgba(15, 23, 42, 0.6);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
     }
 
     .timeline-copy {
@@ -1058,14 +1107,17 @@
       height: 9px;
       border-radius: 50%;
       margin-top: 6px;
-      background: #111111;
+      background: var(--blue);
     }
 
     .next-step-card {
-      background: linear-gradient(180deg, rgba(17, 17, 17, 0.03), rgba(17, 17, 17, 0.01));
+      background: linear-gradient(180deg, rgba(37, 99, 235, 0.06), rgba(255, 255, 255, 0.5));
+      backdrop-filter: blur(18px) saturate(1.3);
+      -webkit-backdrop-filter: blur(18px) saturate(1.3);
       border-style: dashed;
       border-width: 1.5px;
-      border-color: rgba(17, 17, 17, 0.12);
+      border-color: rgba(37, 99, 235, 0.2);
+      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.5);
     }
 
     .next-step-head {
@@ -1078,11 +1130,12 @@
       width: 42px;
       height: 42px;
       border-radius: 16px;
-      background: #111111;
+      background: linear-gradient(135deg, #1e40af, #2563eb);
       color: #fff;
       display: grid;
       place-items: center;
       flex-shrink: 0;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
     }
 
     .empty-state {
@@ -1098,7 +1151,7 @@
 
     .empty-state-title {
       margin: 0;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 18px;
       font-weight: 800;
       letter-spacing: -0.03em;
@@ -1115,7 +1168,9 @@
     .modal {
       position: fixed;
       inset: 0;
-      background: rgba(15, 23, 42, 0.56);
+      background: rgba(15, 23, 42, 0.4);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
       display: none;
       align-items: center;
       justify-content: center;
@@ -1131,10 +1186,12 @@
       width: min(560px, 100%);
       max-height: calc(100dvh - 32px);
       overflow: auto;
-      background: #fff;
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(28px) saturate(1.5);
+      -webkit-backdrop-filter: blur(28px) saturate(1.5);
       border-radius: 20px;
-      border: 1px solid var(--line);
-      box-shadow: 0 28px 56px -28px rgba(15, 23, 42, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      box-shadow: 0 28px 56px -28px rgba(15, 23, 42, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.7);
       padding: 18px;
       display: grid;
       gap: 14px;
@@ -1145,8 +1202,10 @@
       width: 38px;
       height: 38px;
       border-radius: 12px;
-      border: 1px solid var(--line);
-      background: #fff;
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       color: #334155;
       display: grid;
       place-items: center;
@@ -1157,7 +1216,7 @@
 
     .modal-title {
       margin: 0;
-      font-family: "Manrope", "Inter", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 28px;
       line-height: 1;
       letter-spacing: -0.04em;
@@ -1183,8 +1242,10 @@
     .modal-detail-card {
       padding: 14px;
       border-radius: 16px;
-      background: #f8fafc;
-      border: 1px solid var(--line);
+      background: rgba(248, 250, 252, 0.5);
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       display: grid;
       gap: 5px;
     }
@@ -1207,7 +1268,10 @@
       bottom: 92px;
       z-index: 95;
       border-radius: 10px;
-      background: #111827;
+      background: rgba(30, 58, 138, 0.85);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       color: #fff;
       padding: 10px 14px;
       font-size: 12px;
@@ -1530,7 +1594,7 @@
     <main class="main">
       <section class="page-hero">
         <div class="hero-copy">
-          <span class="hero-eyebrow">Premium GP placements</span>
+          <span class="hero-eyebrow"><svg style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px;margin-right:4px;" viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>Premium GP placements</span>
           <div>
             <h1>Career</h1>
             <p class="page-subtitle" id="pageSubtitle">Explore roles matched to your relocation goals and track your applications.</p>
@@ -1730,7 +1794,7 @@
       "Family Friendly"
     ];
 
-    const ROLE_DATA = [
+    const FALLBACK_ROLE_DATA = [
       {
         id: "harbourline-medical",
         match: "Match 96%",
@@ -1833,6 +1897,9 @@
       otherOpportunityIds: ["northshore-clinic-group"]
     };
 
+    let roleData = clone(FALLBACK_ROLE_DATA);
+    let careerDataSource = "fallback";
+
     function createSavedSnapshot(role) {
       return {
         id: role.id,
@@ -1846,7 +1913,8 @@
     }
 
     function createDefaultApplication(roleId, status, meta) {
-      const role = ROLE_DATA.find((item) => item.id === roleId);
+      const role = roleData.find((item) => item.id === roleId);
+      if (!role) return null;
       return {
         roleId: role.id,
         practiceName: role.practiceName,
@@ -1857,30 +1925,42 @@
       };
     }
 
-    function getDefaultCareerState() {
+    function getDefaultCareerState(context = {}) {
+      const activeRoles = Array.isArray(context.roles) && context.roles.length ? context.roles : roleData;
+      const source = String(context.dataSource || careerDataSource || "fallback");
+      if (!activeRoles.length || source !== "fallback") {
+        return {
+          updatedAt: "2026-03-15T00:00:00.000Z",
+          activeView: "browse",
+          activeFilter: "",
+          searchTerm: "",
+          savedJobs: [],
+          applications: []
+        };
+      }
       return {
         updatedAt: "2026-03-15T00:00:00.000Z",
         activeView: "browse",
         activeFilter: "",
         searchTerm: "",
-        savedJobs: [createSavedSnapshot(ROLE_DATA[0])],
+        savedJobs: activeRoles[0] ? [createSavedSnapshot(activeRoles[0])] : [],
         applications: [
-          createDefaultApplication(ROLE_DATA[0].id, { label: "Under Review", tone: "review" }, [
+          activeRoles[0] ? createDefaultApplication(activeRoles[0].id, { label: "Under Review", tone: "review" }, [
             { label: "Applied", value: "2 days ago" },
             { label: "Billing", value: "Private" },
             { label: "Next step", value: "CV review" }
-          ]),
-          createDefaultApplication(ROLE_DATA[1].id, { label: "Interview Scheduled", tone: "interview" }, [
+          ]) : null,
+          activeRoles[1] ? createDefaultApplication(activeRoles[1].id, { label: "Interview Scheduled", tone: "interview" }, [
             { label: "Interview", value: "Tue 10:30am" },
             { label: "Format", value: "Video call" },
             { label: "Lead", value: "Clinic owner" }
-          ]),
-          createDefaultApplication(ROLE_DATA[2].id, { label: "Offer Pending", tone: "offer" }, [
+          ]) : null,
+          activeRoles[2] ? createDefaultApplication(activeRoles[2].id, { label: "Offer Pending", tone: "offer" }, [
             { label: "Status", value: "Verbal positive" },
             { label: "Package", value: "$390k+" },
             { label: "Awaiting", value: "Written offer" }
-          ])
-        ]
+          ]) : null
+        ].filter(Boolean)
       };
     }
 
@@ -1897,16 +1977,22 @@
       return JSON.parse(JSON.stringify(value));
     }
 
-    function normalizeCareerState(raw) {
-      const fallback = getDefaultCareerState();
+    function normalizeCareerState(raw, context = {}) {
+      const roles = Array.isArray(context.roles) && context.roles.length ? context.roles : roleData;
+      const roleIds = new Set(roles.map((role) => role && role.id).filter(Boolean));
+      const fallback = getDefaultCareerState({ dataSource: context.dataSource || careerDataSource, roles });
       const source = raw && typeof raw === "object" ? raw : {};
       return {
         updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : fallback.updatedAt,
         activeView: ["browse", "applications", "secured"].includes(source.activeView) ? source.activeView : fallback.activeView,
         activeFilter: typeof source.activeFilter === "string" ? source.activeFilter : fallback.activeFilter,
         searchTerm: typeof source.searchTerm === "string" ? source.searchTerm : fallback.searchTerm,
-        savedJobs: Array.isArray(source.savedJobs) ? source.savedJobs : fallback.savedJobs,
-        applications: Array.isArray(source.applications) ? source.applications : fallback.applications
+        savedJobs: Array.isArray(source.savedJobs)
+          ? source.savedJobs.filter((job) => job && roleIds.has(job.id))
+          : fallback.savedJobs,
+        applications: Array.isArray(source.applications)
+          ? source.applications.filter((job) => job && roleIds.has(job.roleId))
+          : fallback.applications
       };
     }
 
@@ -1922,7 +2008,7 @@
       history.replaceState(null, "", url.pathname + url.search + url.hash);
     }
 
-    let careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY));
+    let careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
     let currentRoleId = null;
 
     const subtitleMap = {
@@ -2004,7 +2090,7 @@
     }
 
     function findRole(roleId) {
-      return ROLE_DATA.find((role) => role.id === roleId) || null;
+      return roleData.find((role) => role.id === roleId) || null;
     }
 
     function isSaved(roleId) {
@@ -2065,7 +2151,7 @@
     function getFilteredRoles() {
       const searchTerm = careerState.searchTerm.trim().toLowerCase();
       const filter = careerState.activeFilter;
-      return ROLE_DATA.filter((role) => {
+      return roleData.filter((role) => {
         const matchesFilter = !filter || role.filterTokens.includes(filter);
         if (!matchesFilter) return false;
         if (!searchTerm) return true;
@@ -2082,6 +2168,31 @@
         ].join(" ").toLowerCase();
         return haystack.includes(searchTerm);
       });
+    }
+
+    async function loadRemoteRoles() {
+      try {
+        const response = await fetch("/api/career/roles", { credentials: "same-origin" });
+        if (!response.ok) return;
+        const payload = await response.json().catch(() => null);
+        if (!payload || payload.ok !== true) return;
+        const remoteRoles = Array.isArray(payload.roles) ? payload.roles.filter((role) => role && role.id) : [];
+        if (payload.source === "supabase" || payload.source === "supabase-empty") {
+          roleData = remoteRoles;
+          careerDataSource = "api";
+          careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
+          persistCareerState();
+          renderPage();
+          const requestedRoleId = new URL(window.location.href).searchParams.get("role");
+          if (requestedRoleId && findRole(requestedRoleId)) {
+            renderRoleModal(requestedRoleId);
+          } else if (requestedRoleId && !findRole(requestedRoleId)) {
+            closeRoleModal();
+          }
+        }
+      } catch (err) {
+        // Fall back to local dummy roles when the backend cannot provide live data.
+      }
     }
 
     function renderFilters() {
@@ -2386,7 +2497,7 @@
     });
 
     window.addEventListener("gp-state-hydrated", () => {
-      careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY));
+      careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
       const hashView = window.location.hash.replace("#", "");
       if (["browse", "applications", "secured"].includes(hashView)) {
         careerState.activeView = hashView;
@@ -2401,7 +2512,7 @@
 
     window.addEventListener("storage", (event) => {
       if (event.key === CAREER_STATE_KEY) {
-        careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY));
+        careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
         renderPage();
       }
       if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases") {
@@ -2428,6 +2539,7 @@
         persistCareerState();
       }
       renderPage();
+      loadRemoteRoles();
       const requestedRoleId = new URL(window.location.href).searchParams.get("role");
       if (requestedRoleId && findRole(requestedRoleId)) {
         renderRoleModal(requestedRoleId);
