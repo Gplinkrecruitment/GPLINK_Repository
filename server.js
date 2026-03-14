@@ -2630,12 +2630,23 @@ async function zohoFormRequest(accountsServer, params) {
 
 function getZohoErrorMessage(payload, fallback) {
   if (!payload || typeof payload !== 'object') return fallback;
-  return String(
+  const message = String(
     payload.error_description ||
     payload.error ||
+    payload.code ||
     payload.message ||
     fallback
   ).trim();
+  if (message && message !== fallback) return message;
+  if (typeof payload.details === 'string' && payload.details.trim()) return payload.details.trim();
+  if (payload.details && typeof payload.details === 'object') {
+    try {
+      const serialized = JSON.stringify(payload.details);
+      if (serialized && serialized !== '{}') return serialized;
+    } catch (err) {}
+  }
+  if (typeof payload.raw === 'string' && payload.raw.trim()) return payload.raw.trim().slice(0, 400);
+  return fallback;
 }
 
 function mapZohoConnectionRow(row) {
@@ -2978,12 +2989,12 @@ async function syncZohoRecruitRoles() {
   const seenIds = new Set();
 
   for (let page = 1; page <= ZOHO_RECRUIT_SYNC_MAX_PAGES; page += 1) {
-    const result = await zohoRecruitApiGet(apiDomain, 'JobOpenings', accessToken, {
+    const result = await zohoRecruitApiGet(apiDomain, 'Job_Openings', accessToken, {
       page,
       per_page: ZOHO_RECRUIT_SYNC_PAGE_SIZE
     });
     if (!result.ok) {
-      const errorMessage = getZohoErrorMessage(result.data, 'Failed to fetch Zoho Recruit job openings.');
+      const errorMessage = getZohoErrorMessage(result.data, `Failed to fetch Zoho Recruit job openings (HTTP ${result.status || 0}).`);
       await upsertZohoRecruitConnection({
         apiDomain,
         status: 'error',
