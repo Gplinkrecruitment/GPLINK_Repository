@@ -48,7 +48,7 @@ const ZOHO_RECRUIT_CLIENT_ID = String(process.env.ZOHO_RECRUIT_CLIENT_ID || '').
 const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET || '').trim();
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
-const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRecruit.modules.jobopenings.READ').trim() || 'ZohoRecruit.modules.jobopenings.READ';
+const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRECRUIT.modules.jobopening.READ').trim() || 'ZohoRECRUIT.modules.jobopening.READ';
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
@@ -2584,8 +2584,6 @@ function getZohoRecruitScopes() {
 function getZohoRecruitCandidateBases(connection, apiDomain = '') {
   const candidates = [];
   const apiBase = normalizeUrlBase(apiDomain, '');
-  if (apiBase) candidates.push(apiBase);
-
   const accountsBase = normalizeUrlBase(connection && connection.accountsServer, '');
   if (accountsBase) {
     try {
@@ -2604,6 +2602,8 @@ function getZohoRecruitCandidateBases(connection, apiDomain = '') {
       }
     } catch (err) {}
   }
+
+  if (apiBase) candidates.push(apiBase);
 
   return candidates.filter(Boolean).filter((value, index, all) => all.indexOf(value) === index);
 }
@@ -2822,8 +2822,11 @@ async function fetchZohoRecruitJobOpenings(connection, accessToken, apiDomain, q
       if (result.ok) return result;
       lastFailure = result;
       const errorText = getZohoErrorMessage(result.data, '').toLowerCase();
+      const rawText = String(result && result.data && result.data.raw ? result.data.raw : '').toLowerCase();
       const missingModule = errorText.includes('invalid module') || errorText.includes('module') || errorText.includes('not supported');
-      if (!missingModule) {
+      const htmlFallback = rawText.includes('<html') || rawText.includes('<!doctype html') || rawText.includes('crm_error') || rawText.includes('zoho crm');
+      const shouldTryNextVariant = missingModule || htmlFallback || result.status === 401 || result.status === 403 || result.status === 404;
+      if (!shouldTryNextVariant) {
         return result;
       }
     }

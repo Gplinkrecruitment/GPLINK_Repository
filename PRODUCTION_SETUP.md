@@ -41,7 +41,7 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `ZOHO_RECRUIT_CLIENT_SECRET=<your-zoho-client-secret>` (server-side only)
 - `ZOHO_RECRUIT_ACCOUNTS_SERVER=https://accounts.zoho.com` (or your Zoho data-center accounts server)
 - `ZOHO_RECRUIT_REDIRECT_URI=https://app.mygplink.com.au/api/integrations/zoho-recruit/callback`
-- `ZOHO_RECRUIT_SCOPES=ZohoRecruit.modules.jobopenings.READ`
+- `ZOHO_RECRUIT_SCOPES=ZohoRECRUIT.modules.jobopening.READ`
 - `ADMIN_EMAILS=<comma-separated-admin-emails>` (required for admin access)
 - `ADMIN_ALLOWED_HOSTS=admin.mygplink.com.au` (required in production; restricts `/pages/admin*.html` and `/api/admin/*`)
 - `ADMIN_COOKIE_NAME=gp_admin_session` (optional override)
