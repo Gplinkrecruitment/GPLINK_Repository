@@ -2858,7 +2858,7 @@
         const payload = await response.json().catch(() => null);
         if (!payload || payload.ok !== true) return;
         const remoteRoles = Array.isArray(payload.roles) ? payload.roles.filter((role) => role && role.id) : [];
-        if (payload.source === "supabase" || payload.source === "supabase-empty") {
+        if (payload.source === "zoho-live" || payload.source === "supabase" || payload.source === "supabase-empty") {
           roleDetailCache.clear();
           roleData = remoteRoles;
           careerDataSource = "api";

@@ -52,6 +52,7 @@ const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRECRU
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
+let _zohoRolesCache = null; // { roles: [], ts: 0 } — 5 min in-memory cache for live Zoho roles
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
@@ -5012,22 +5013,62 @@ async function handleApi(req, res, pathname) {
   if (pathname === '/api/career/roles' && req.method === 'GET') {
     const session = requireSession(req, res);
     if (!session) return;
-    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
-      sendJson(res, 503, { ok: false, message: 'Career roles require Supabase database configuration.' });
+
+    // Try direct Zoho fetch with in-memory cache
+    const now = Date.now();
+    const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+    if (_zohoRolesCache && _zohoRolesCache.roles && (now - _zohoRolesCache.ts) < CACHE_TTL) {
+      sendJson(res, 200, { ok: true, source: 'zoho-live', roles: _zohoRolesCache.roles });
       return;
     }
 
-    const [rows, connection] = await Promise.all([
-      listCareerRoleRows(true),
-      getZohoRecruitConnection()
-    ]);
-    sendJson(res, 200, {
-      ok: true,
-      source: rows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
-      connected: !!(connection && connection.refreshToken),
-      lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
-      roles: rows.map(mapCareerRoleRowToClient)
-    });
+    const zoho = await getZohoRecruitAccessTokenAndDomain();
+    if (zoho) {
+      try {
+        const allRoles = [];
+        for (let page = 1; page <= ZOHO_RECRUIT_SYNC_MAX_PAGES; page++) {
+          const result = await fetchZohoRecruitJobOpenings(zoho.connection, zoho.accessToken, zoho.apiDomain, {
+            page,
+            per_page: ZOHO_RECRUIT_SYNC_PAGE_SIZE
+          });
+          if (!result.ok) break;
+          const records = Array.isArray(result.data && result.data.data) ? result.data.data : [];
+          records.forEach((record) => {
+            const mapped = buildCareerRoleRecordFromZoho(record, new Date().toISOString());
+            if (!mapped) return;
+            // Filter out Test jobs and inactive/filled/closed jobs
+            if (/test/i.test(mapped.title || '')) return;
+            if (!mapped.is_active) return;
+            allRoles.push(mapCareerRoleRowToClient(mapped));
+          });
+          const moreRecords = !!(result.data && result.data.info && result.data.info.more_records);
+          if (!moreRecords || records.length === 0) break;
+        }
+        _zohoRolesCache = { roles: allRoles, ts: Date.now() };
+        sendJson(res, 200, { ok: true, source: 'zoho-live', roles: allRoles });
+        return;
+      } catch (err) {
+        // Fall through to DB fallback
+      }
+    }
+
+    // Fallback to DB if Zoho is not connected or fails
+    if (isSupabaseDbConfigured()) {
+      const [rows, connection] = await Promise.all([
+        listCareerRoleRows(true),
+        getZohoRecruitConnection()
+      ]);
+      sendJson(res, 200, {
+        ok: true,
+        source: rows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
+        connected: !!(connection && connection.refreshToken),
+        lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
+        roles: rows.map(mapCareerRoleRowToClient)
+      });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, source: 'fallback', roles: [] });
     return;
   }
 
