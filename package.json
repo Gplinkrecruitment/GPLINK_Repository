@@ -12,7 +12,8 @@
     "start:prod": "NODE_ENV=production node server.js",
     "init:db": "node scripts/init-db.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "agents": "node scripts/agents.js"
   },
   "engines": {
     "node": ">=18.x"
