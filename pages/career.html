@@ -44,10 +44,9 @@
     body {
       font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background:
-        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
-        radial-gradient(760px 460px at 100% 0%, rgba(29, 78, 216, 0.14), transparent 58%),
-        radial-gradient(600px 400px at 50% 100%, rgba(37, 99, 235, 0.06), transparent 60%),
-        var(--bg);
+        radial-gradient(880px 520px at 10% -10%, rgba(59, 130, 246, 0.16), transparent 56%),
+        radial-gradient(760px 460px at 100% 0%, rgba(37, 99, 235, 0.12), transparent 58%),
+        linear-gradient(180deg, #0f172a 0, #111827 340px, var(--bg) 340px, var(--bg) 100%);
       color: var(--text);
       padding: 0;
     }
@@ -96,12 +95,13 @@
       font-size: 20px;
       font-weight: 800;
       letter-spacing: -0.03em;
+      color: #fff;
     }
 
     .header-text p {
       margin: 2px 0 0;
       font-size: 13px;
-      color: var(--muted);
+      color: rgba(226, 232, 240, 0.76);
       font-weight: 600;
     }
 
@@ -115,8 +115,8 @@
       width: 42px;
       height: 42px;
       border-radius: 14px;
-      border: 1px solid rgba(226, 232, 240, 0.6);
-      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.08);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       display: grid;
@@ -124,13 +124,13 @@
       cursor: pointer;
       position: relative;
       transition: all .15s ease;
-      color: #475569;
+      color: #fff;
       text-decoration: none;
     }
 
     .header-icon-btn:hover {
-      background: rgba(248, 250, 252, 0.8);
-      border-color: rgba(203, 213, 225, 0.7);
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.18);
     }
 
     .header-icon-btn svg,
@@ -177,7 +177,7 @@
     }
 
     .topbar {
-      margin-top: 18px;
+      margin-top: 0;
       padding: 14px 16px;
       border-radius: var(--radius-lg);
       border: 1px solid rgba(255, 255, 255, 0.55);
@@ -281,7 +281,7 @@
     }
 
     .main {
-      padding: 14px 0 0;
+      padding: 0;
       display: grid;
       gap: 12px;
     }
@@ -326,22 +326,12 @@
       min-width: 0;
     }
 
-    .page-hero h1 {
-      margin: 0;
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 34px;
-      line-height: .95;
-      letter-spacing: -0.05em;
-      font-weight: 800;
-      color: #fff;
-    }
-
     .page-subtitle {
       margin: 0;
       max-width: 56ch;
       font-size: 14px;
       line-height: 1.6;
-      color: rgba(226, 232, 240, 0.8);
+      color: var(--muted);
       font-weight: 600;
     }
 
@@ -417,22 +407,6 @@
 
     .hero-clear-btn:active {
       transform: scale(0.985);
-    }
-
-    .hero-filter-row {
-      margin-top: -2px;
-    }
-
-    .hero-filter-row .filter-chip {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(255, 255, 255, 0.12);
-      color: rgba(226, 232, 240, 0.86);
-    }
-
-    .hero-filter-row .filter-chip.active {
-      background: #fff;
-      color: #0f172a;
-      border-color: #fff;
     }
 
     .hero-shortcuts {
@@ -518,102 +492,6 @@
       font-size: 12px;
       line-height: 1.5;
       font-weight: 600;
-    }
-
-    .doc-tabs {
-      display: flex;
-      gap: 4px;
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 16px;
-      padding: 4px;
-      position: relative;
-      overflow: hidden;
-      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.72);
-    }
-
-    .career-doc-tabs {
-      margin: 0;
-    }
-
-    .doc-tab {
-      flex: 1;
-      border: 0;
-      background: transparent;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--muted);
-      padding: 11px 10px;
-      border-radius: 12px;
-      cursor: pointer;
-      position: relative;
-      z-index: 2;
-      transition: color .25s ease, transform .16s ease;
-      white-space: nowrap;
-      text-align: center;
-    }
-
-    .career-doc-tab {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      min-height: 46px;
-    }
-
-    .doc-tab:hover {
-      color: var(--text);
-    }
-
-    .doc-tab.is-active,
-    .doc-tab.active {
-      color: #fff;
-    }
-
-    .doc-tab:active {
-      transform: scale(0.985);
-    }
-
-    .doc-tab-slider {
-      position: absolute;
-      top: 4px;
-      left: 4px;
-      height: calc(100% - 8px);
-      border-radius: 12px;
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.5);
-      z-index: 1;
-      pointer-events: none;
-      transition: left .35s cubic-bezier(.22,.9,.18,1.05), width .35s cubic-bezier(.22,.9,.18,1.05);
-    }
-
-    .view-tab-label {
-      display: inline-block;
-      min-width: 0;
-      white-space: normal;
-      line-height: 1.15;
-    }
-
-    .doc-tab-count {
-      min-width: 20px;
-      height: 20px;
-      padding: 0 6px;
-      border-radius: 999px;
-      background: #e2e8f0;
-      color: #0f172a;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 800;
-      transition: background .18s ease, color .18s ease;
-    }
-
-    .doc-tab.is-active .doc-tab-count,
-    .doc-tab.active .doc-tab-count {
-      background: rgba(255, 255, 255, 0.18);
-      color: #fff;
     }
 
     .view-panel {
@@ -1788,21 +1666,6 @@
         display: grid;
       }
 
-      .page-hero h1 {
-        font-size: 30px;
-      }
-
-      .doc-tab {
-        font-size: 12px;
-        padding: 10px 8px;
-      }
-
-      .career-doc-tab {
-        min-height: 52px;
-        gap: 6px;
-        flex-direction: column;
-      }
-
       .hero-search-meta,
       .hero-search-actions,
       .hero-shortcuts {
@@ -1970,10 +1833,6 @@
     <main class="main">
       <section class="page-hero">
         <div class="hero-copy">
-          <div>
-            <h1>Career</h1>
-            <p class="page-subtitle" id="pageSubtitle">Explore roles matched to your profile and relocation goals.</p>
-          </div>
           <div class="hero-search-card">
             <div class="hero-search-line">
               <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
@@ -1991,7 +1850,6 @@
               <button class="hero-clear-btn" id="clearFiltersBtn" type="button">Clear filters</button>
             </div>
           </div>
-          <div class="filter-row hero-filter-row" id="careerFilterRow" aria-label="Quick filters"></div>
           <div class="hero-shortcuts">
             <button class="hero-shortcut" id="savedJobsShortcutBtn" type="button">
               <span class="hero-shortcut-icon">
@@ -2019,13 +1877,6 @@
           </div>
         </div>
       </section>
-
-      <nav class="doc-tabs career-doc-tabs" aria-label="Career sections">
-        <div class="doc-tab-slider" id="careerTabSlider" aria-hidden="true"></div>
-        <button class="doc-tab career-doc-tab is-active" type="button" data-view="browse"><span class="view-tab-label">Browse</span></button>
-        <button class="doc-tab career-doc-tab" type="button" data-view="applications"><span class="view-tab-label">Applications</span> <span class="doc-tab-count" id="applicationsCountBadge">0</span></button>
-        <button class="doc-tab career-doc-tab" type="button" data-view="secured"><span class="view-tab-label">Placement</span></button>
-      </nav>
 
       <section class="view-panel is-active" data-view-panel="browse">
         <div class="section-head">
@@ -2520,18 +2371,10 @@
     let careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
     let currentRoleId = null;
 
-    const subtitleMap = {
-      browse: "Explore roles matched to your profile and relocation goals.",
-      applications: "Track your applications, interviews and offers.",
-      secured: "Your placement is confirmed. View details and next steps."
-    };
-
     const navGlassEl = document.getElementById("navGlass");
     const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
     let activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
 
-    const subtitleEl = document.getElementById("pageSubtitle");
-    const careerTabSliderEl = document.getElementById("careerTabSlider");
     const heroLocationChipEl = document.getElementById("heroLocationChip");
     const heroBillingChipEl = document.getElementById("heroBillingChip");
     const savedJobsShortcutBtnEl = document.getElementById("savedJobsShortcutBtn");
@@ -2539,13 +2382,10 @@
     const howToApplyShortcutBtnEl = document.getElementById("howToApplyShortcutBtn");
     const savedJobsShortcutCountEl = document.getElementById("savedJobsShortcutCount");
     const applicationsShortcutCountEl = document.getElementById("applicationsShortcutCount");
-    const filterRowEl = document.getElementById("careerFilterRow");
     const recommendedRolesEl = document.getElementById("recommendedRoles");
     const rolesEmptyStateEl = document.getElementById("rolesEmptyState");
     const applicationsGridEl = document.getElementById("applicationsGrid");
     const applicationsEmptyStateEl = document.getElementById("applicationsEmptyState");
-    const applicationsCountBadgeEl = document.getElementById("applicationsCountBadge");
-    const viewTabs = [...document.querySelectorAll("[data-view]")];
     const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
     const openSearchByBtnEl = document.getElementById("openSearchByBtn");
     const searchByModalEl = document.getElementById("searchByModal");
@@ -2619,24 +2459,7 @@
       navGlassEl.style.height = rect.height + "px";
     }
 
-    function moveCareerTabSlider(target) {
-      if (!careerTabSliderEl || !target || !target.parentElement) return;
-      const rect = target.getBoundingClientRect();
-      const parentRect = target.parentElement.getBoundingClientRect();
-      careerTabSliderEl.style.left = (rect.left - parentRect.left) + "px";
-      careerTabSliderEl.style.width = rect.width + "px";
-    }
-
     function syncActiveViewUi() {
-      subtitleEl.textContent = subtitleMap[careerState.activeView];
-      viewTabs.forEach((button) => {
-        const isActive = button.dataset.view === careerState.activeView;
-        button.classList.toggle("is-active", isActive);
-        button.classList.toggle("active", isActive);
-        if (isActive) {
-          moveCareerTabSlider(button);
-        }
-      });
       viewPanels.forEach((panel) => {
         panel.classList.toggle("is-active", panel.dataset.viewPanel === careerState.activeView);
       });
@@ -2991,24 +2814,6 @@
       }
     }
 
-    function renderFilters() {
-      if (!filterRowEl) return;
-      filterRowEl.innerHTML = "";
-      FILTERS.forEach((filter) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "filter-chip" + (careerState.activeFilter === filter ? " active" : "");
-        button.textContent = filter;
-        button.addEventListener("click", () => {
-          careerState.activeFilter = careerState.activeFilter === filter ? "" : filter;
-          persistCareerState();
-          renderRoles();
-          renderFilters();
-        });
-        filterRowEl.appendChild(button);
-      });
-    }
-
     function renderRoles() {
       const roles = getFilteredRoles();
       recommendedRolesEl.innerHTML = "";
@@ -3053,7 +2858,6 @@
           </article>
         `;
       }).join("");
-      applicationsCountBadgeEl.textContent = String(careerState.applications.length);
     }
 
     function renderSecuredPlacement() {
@@ -3158,13 +2962,11 @@
     }
 
     function renderPage() {
-      renderFilters();
       renderSearchFilterControls();
       renderHeroShortcuts();
       renderRoles();
       renderApplications();
       renderSecuredPlacement();
-      applicationsCountBadgeEl.textContent = String(careerState.applications.length);
       syncActiveViewUi();
     }
 
@@ -3237,10 +3039,6 @@
     openBrowseFromSecuredBtnEl.addEventListener("click", () => {
       careerState.showSavedOnly = false;
       setView("browse");
-    });
-
-    viewTabs.forEach((button) => {
-      button.addEventListener("click", () => setView(button.dataset.view));
     });
 
     document.addEventListener("click", (event) => {
@@ -3316,8 +3114,6 @@
     document.querySelector(".nav-menu").addEventListener("mouseleave", () => moveNavGlass(activeNavItem));
     window.addEventListener("resize", () => {
       moveNavGlass(activeNavItem);
-      const activeTab = viewTabs.find((button) => button.dataset.view === careerState.activeView);
-      if (activeTab) moveCareerTabSlider(activeTab);
     });
 
     (function init() {
