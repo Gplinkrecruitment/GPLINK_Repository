@@ -1,0 +1,1119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job Details - GP Link</title>
+  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/state-sync.js?v=20260315a" defer></script>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260310a" defer></script>
+  <script src="../js/account-dropdown.js?v=20260316a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f0f4fa;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --panel-muted: #f1f5f9;
+      --text: #0f172a;
+      --muted: #64748b;
+      --ink: #0f172a;
+      --charcoal: #1e293b;
+      --line: #e2e8f0;
+      --line-strong: #cbd5e1;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --blue3: #1e3a8a;
+      --success: #16a34a;
+      --success-soft: #ecfdf5;
+      --warning: #d97706;
+      --warning-soft: #fffbeb;
+      --shadow-soft: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --shadow-card: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+    }
+
+    :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 0;
+    }
+
+    button, input { font: inherit; }
+
+    /* ── Back bar ── */
+    .back-bar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+    }
+
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: none;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.06);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .14s ease;
+    }
+    .back-btn:hover { background: rgba(15, 23, 42, 0.1); }
+    .back-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+    .back-bar-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Hero image ── */
+    .hero-image {
+      width: 100%;
+      height: 260px;
+      object-fit: cover;
+      display: block;
+      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
+    }
+
+    .hero-image-placeholder {
+      width: 100%;
+      height: 260px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-image-placeholder::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 30% 40%, rgba(37, 99, 235, 0.12), transparent),
+        radial-gradient(ellipse 60% 50% at 70% 60%, rgba(29, 78, 216, 0.08), transparent);
+    }
+
+    .hero-image-placeholder .hero-location-label {
+      position: relative;
+      color: var(--blue2);
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      text-align: center;
+      padding: 0 20px;
+    }
+
+    .hero-image-placeholder svg {
+      width: 32px;
+      height: 32px;
+      stroke: var(--blue);
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      margin-bottom: 8px;
+    }
+
+    /* ── Shell ── */
+    .shell {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 0 16px 140px;
+    }
+
+    /* ── Billing pill floating ── */
+    .billing-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: -18px;
+      padding: 0 4px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .billing-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      box-shadow: 0 4px 14px -6px rgba(37, 99, 235, 0.6);
+    }
+
+    .geography-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(226, 232, 240, 0.6);
+      color: var(--charcoal);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    /* ── Title block ── */
+    .title-block {
+      padding: 20px 0 0;
+      display: grid;
+      gap: 8px;
+    }
+
+    .role-title {
+      margin: 0;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 26px;
+      line-height: 1.06;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    .role-location {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .role-location svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex-shrink: 0;
+    }
+
+    /* ── Practice mask ── */
+    .practice-mask {
+      position: relative;
+      overflow: hidden;
+      border-radius: 18px;
+      border: 1px solid rgba(226, 232, 240, 0.88);
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.05), rgba(15, 23, 42, 0.02));
+      min-height: 72px;
+      padding: 16px 18px;
+      display: grid;
+      align-content: center;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+      margin-top: 10px;
+    }
+
+    .practice-mask-text {
+      margin: 0;
+      color: rgba(15, 23, 42, 0.72);
+      font-size: 20px;
+      line-height: 1.04;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+      filter: blur(8px);
+      transform: scale(1.03);
+      user-select: none;
+      pointer-events: none;
+    }
+
+    .practice-mask-note {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 0 18px;
+      text-align: center;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 800;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.18));
+    }
+
+    /* ── Summary ── */
+    .role-summary {
+      margin: 0;
+      color: #334155;
+      font-size: 14px;
+      line-height: 1.6;
+      font-weight: 700;
+      padding: 16px 0;
+    }
+
+    /* ── Section cards ── */
+    .section-card {
+      background: var(--panel);
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(226, 232, 240, 0.65);
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+      margin-top: 16px;
+    }
+
+    .section-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 16px 18px 12px;
+    }
+
+    .section-card-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    .section-card-subtitle {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .section-card-body {
+      padding: 0 18px 18px;
+    }
+
+    /* ── Earnings section ── */
+    .earnings-display {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .earnings-value {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    .earnings-period {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .earnings-info-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 10px;
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .earnings-info-btn svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ── Earnings disclaimer popup ── */
+    .earnings-disclaimer {
+      margin-top: 10px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: var(--warning-soft);
+      border: 1px solid rgba(217, 119, 6, 0.15);
+      font-size: 12px;
+      line-height: 1.55;
+      font-weight: 700;
+      color: #92400e;
+    }
+
+    .earnings-disclaimer[hidden] { display: none; }
+
+    /* ── Benefits ── */
+    .benefit-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .benefit-tile {
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(248, 250, 252, 0.58);
+      border: 1px solid rgba(226, 232, 240, 0.5);
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .benefit-label {
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .benefit-copy {
+      margin: 0;
+      color: #0f172a;
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 800;
+    }
+
+    /* ── Detail cards (role, practice, support, etc.) ── */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 18px 18px;
+    }
+
+    .detail-card {
+      padding: 14px;
+      border-radius: 14px;
+      background: var(--panel-soft);
+      border: 1px solid rgba(226, 232, 240, 0.4);
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .detail-card-label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .detail-card-value {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    /* ── Map ── */
+    .map-section {
+      margin-top: 16px;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      border: 1px solid rgba(226, 232, 240, 0.65);
+      box-shadow: var(--shadow-soft);
+      background: var(--panel);
+    }
+
+    .map-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 16px 18px;
+    }
+
+    .map-header-text {
+      display: grid;
+      gap: 3px;
+    }
+
+    .map-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    .map-hint {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .map-toggle-btn {
+      padding: 8px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .14s ease;
+    }
+    .map-toggle-btn:hover { background: var(--panel-soft); }
+
+    .map-embed-wrap {
+      width: 100%;
+      aspect-ratio: 16/10;
+      border-top: 1px solid var(--line);
+    }
+
+    .map-embed-wrap[hidden] { display: none; }
+
+    .map-embed {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    /* ── Sticky bottom actions ── */
+    .sticky-actions {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(226, 232, 240, 0.6);
+    }
+
+    .sticky-actions-inner {
+      max-width: 640px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn-apply {
+      padding: 16px 32px;
+      border: none;
+      border-radius: 16px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 8px 28px -10px rgba(37, 99, 235, 0.5);
+      transition: transform .14s ease, box-shadow .14s ease;
+      text-align: center;
+    }
+    .btn-apply:hover { transform: translateY(-1px); box-shadow: 0 12px 32px -10px rgba(37, 99, 235, 0.6); }
+    .btn-apply:active { transform: scale(0.98); }
+    .btn-apply:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .btn-save-bottom {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background .14s ease, color .14s ease, border-color .14s ease;
+    }
+    .btn-save-bottom svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .btn-save-bottom.saved { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .btn-save-bottom.saved svg { fill: currentColor; }
+
+    /* ── Loading state ── */
+    .page-loading {
+      display: grid;
+      place-items: center;
+      min-height: 60vh;
+      gap: 16px;
+    }
+
+    .page-loading-text {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--line);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Error state ── */
+    .page-error {
+      display: grid;
+      place-items: center;
+      min-height: 50vh;
+      gap: 12px;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .page-error-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--ink);
+    }
+
+    .page-error-text {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 20px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .14s ease;
+    }
+    .btn-secondary:hover { background: var(--panel-soft); }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed;
+      bottom: 100px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      padding: 12px 22px;
+      border-radius: 14px;
+      background: var(--charcoal);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+      z-index: 200;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+
+    /* ── AI status badge ── */
+    .ai-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.08);
+      color: var(--blue);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .ai-badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .hero-image, .hero-image-placeholder { height: 200px; }
+      .role-title { font-size: 22px; }
+      .benefit-grid, .detail-grid { grid-template-columns: 1fr; }
+      .earnings-value { font-size: 24px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Back bar -->
+  <div class="back-bar">
+    <a class="back-btn" href="career.html" id="backBtn">
+      <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg>
+      Back
+    </a>
+    <p class="back-bar-title" id="backBarTitle"></p>
+  </div>
+
+  <!-- Hero image area -->
+  <div id="heroArea">
+    <div class="hero-image-placeholder" id="heroPlaceholder">
+      <div style="text-align:center;">
+        <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+        <div class="hero-location-label" id="heroLocationLabel"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="shell">
+    <!-- Loading state -->
+    <div class="page-loading" id="loadingState">
+      <div class="spinner"></div>
+      <p class="page-loading-text">Loading role details...</p>
+    </div>
+
+    <!-- Error state -->
+    <div class="page-error" id="errorState" hidden>
+      <h2 class="page-error-title">Role not found</h2>
+      <p class="page-error-text" id="errorText">This role may no longer be available.</p>
+      <a class="btn-secondary" href="career.html">Browse all roles</a>
+    </div>
+
+    <!-- Content (hidden until loaded) -->
+    <div id="roleContent" hidden>
+      <!-- Billing pills -->
+      <div class="billing-row">
+        <span class="billing-pill" id="billingPill">Billing</span>
+        <span class="geography-pill" id="geographyPill">Geography</span>
+      </div>
+
+      <!-- Title block -->
+      <div class="title-block">
+        <h1 class="role-title" id="roleTitle">Confidential GP opportunity</h1>
+        <span class="role-location" id="roleLocation">
+          <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>
+          <span id="roleLocationText">Location</span>
+        </span>
+      </div>
+
+      <!-- Confidential practice mask -->
+      <div class="practice-mask" id="practiceMask">
+        <p class="practice-mask-text" id="practiceMaskText">Confidential practice profile</p>
+        <div class="practice-mask-note">Practice identity is shared once the practice accepts your application.</div>
+      </div>
+
+      <!-- Summary -->
+      <p class="role-summary" id="roleSummary"></p>
+
+      <!-- Earnings section -->
+      <div class="section-card" id="earningsSection">
+        <div class="section-card-header">
+          <div>
+            <h3 class="section-card-title">Estimated earnings</h3>
+            <p class="section-card-subtitle">Indicative range based on role data</p>
+          </div>
+          <span class="ai-badge" id="aiBadge">AI enriched</span>
+        </div>
+        <div class="section-card-body">
+          <div class="earnings-display">
+            <span class="earnings-value" id="earningsValue">Package on request</span>
+          </div>
+          <button class="earnings-info-btn" id="earningsInfoBtn" type="button">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+            Income disclaimer
+          </button>
+          <div class="earnings-disclaimer" id="earningsDisclaimer" hidden>
+            GP Link can only give a rough estimate as GP work is predominantly subcontractor and final income is dependant on billings, patient numbers, and other variables unique to each practice. Earnings shown are indicative only and should not be relied upon as a guarantee.
+          </div>
+        </div>
+      </div>
+
+      <!-- Benefits -->
+      <div class="section-card" id="benefitsSection">
+        <div class="section-card-header">
+          <h3 class="section-card-title">Why GPs consider this role</h3>
+        </div>
+        <div class="section-card-body">
+          <div class="benefit-grid" id="benefitGrid"></div>
+        </div>
+      </div>
+
+      <!-- Role detail cards -->
+      <div class="section-card" id="detailsSection">
+        <div class="section-card-header">
+          <h3 class="section-card-title">Role details</h3>
+        </div>
+        <div class="detail-grid" id="detailGrid"></div>
+      </div>
+
+      <!-- Map -->
+      <div class="map-section" id="mapSection" hidden>
+        <div class="map-header">
+          <div class="map-header-text">
+            <h3 class="map-title">Area map</h3>
+            <p class="map-hint" id="mapHint">Explore the suburb surrounding this confidential practice profile.</p>
+          </div>
+          <button class="map-toggle-btn" id="mapToggleBtn" type="button">Show map</button>
+        </div>
+        <div class="map-embed-wrap" id="mapWrap" hidden>
+          <iframe class="map-embed" id="mapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role suburb map"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sticky bottom actions -->
+  <div class="sticky-actions" id="stickyActions" hidden>
+    <div class="sticky-actions-inner">
+      <button class="btn-apply" id="applyBtn" type="button">Apply</button>
+      <button class="btn-save-bottom" id="saveBtn" type="button" aria-label="Save for later">
+        <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="jobToast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const CAREER_STATE_KEY = "gp_career_state";
+
+  function parseStorage(key) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
+  }
+
+  function escapeHtml(value) {
+    const str = String(value == null ? "" : value);
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function showToast(message) {
+    const el = document.getElementById("jobToast");
+    if (!el) return;
+    el.textContent = message;
+    el.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.remove("show"), 2200);
+  }
+
+  /* ── Career state helpers (shared with career.html) ── */
+  function getCareerState() {
+    const raw = parseStorage(CAREER_STATE_KEY);
+    return raw && typeof raw === "object" ? raw : { savedJobs: [], applications: [] };
+  }
+
+  function persistCareerState(state) {
+    state.updatedAt = new Date().toISOString();
+    localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(state));
+    window.dispatchEvent(new Event("gp-career-updated"));
+  }
+
+  function isSaved(roleId) {
+    const state = getCareerState();
+    return Array.isArray(state.savedJobs) && state.savedJobs.includes(roleId);
+  }
+
+  function isApplied(roleId) {
+    const state = getCareerState();
+    return Array.isArray(state.applications) && state.applications.some(
+      (app) => app && (app.roleId === roleId || app.id === roleId)
+    );
+  }
+
+  function toggleSaved(roleId) {
+    const state = getCareerState();
+    if (!Array.isArray(state.savedJobs)) state.savedJobs = [];
+    const index = state.savedJobs.indexOf(roleId);
+    if (index >= 0) {
+      state.savedJobs.splice(index, 1);
+      persistCareerState(state);
+      return false;
+    } else {
+      state.savedJobs.push(roleId);
+      persistCareerState(state);
+      return true;
+    }
+  }
+
+  /* ── DOM refs ── */
+  const loadingEl = document.getElementById("loadingState");
+  const errorEl = document.getElementById("errorState");
+  const errorTextEl = document.getElementById("errorText");
+  const contentEl = document.getElementById("roleContent");
+  const stickyEl = document.getElementById("stickyActions");
+  const backBarTitleEl = document.getElementById("backBarTitle");
+  const heroAreaEl = document.getElementById("heroArea");
+  const heroPlaceholderEl = document.getElementById("heroPlaceholder");
+  const heroLocationLabelEl = document.getElementById("heroLocationLabel");
+  const billingPillEl = document.getElementById("billingPill");
+  const geographyPillEl = document.getElementById("geographyPill");
+  const roleTitleEl = document.getElementById("roleTitle");
+  const roleLocationTextEl = document.getElementById("roleLocationText");
+  const practiceMaskTextEl = document.getElementById("practiceMaskText");
+  const roleSummaryEl = document.getElementById("roleSummary");
+  const earningsValueEl = document.getElementById("earningsValue");
+  const aiBadgeEl = document.getElementById("aiBadge");
+  const earningsInfoBtnEl = document.getElementById("earningsInfoBtn");
+  const earningsDisclaimerEl = document.getElementById("earningsDisclaimer");
+  const benefitGridEl = document.getElementById("benefitGrid");
+  const detailGridEl = document.getElementById("detailGrid");
+  const mapSectionEl = document.getElementById("mapSection");
+  const mapHintEl = document.getElementById("mapHint");
+  const mapToggleBtnEl = document.getElementById("mapToggleBtn");
+  const mapWrapEl = document.getElementById("mapWrap");
+  const mapFrameEl = document.getElementById("mapFrame");
+  const applyBtnEl = document.getElementById("applyBtn");
+  const saveBtnEl = document.getElementById("saveBtn");
+
+  let currentRole = null;
+  let mapVisible = false;
+
+  /* ── Get role ID from URL ── */
+  function getRoleIdFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("id") || "";
+  }
+
+  /* ── Render functions ── */
+  function renderBenefits(benefits) {
+    const items = Array.isArray(benefits) ? benefits.filter(Boolean) : [];
+    if (!items.length) {
+      benefitGridEl.innerHTML = '<div class="detail-card" style="grid-column:1/-1"><span class="detail-card-value">Benefits will appear here once GP Link finalises the public profile.</span></div>';
+      return;
+    }
+    benefitGridEl.innerHTML = items.map((b, i) => `
+      <div class="benefit-tile">
+        <span class="benefit-label">Benefit ${i + 1}</span>
+        <p class="benefit-copy">${escapeHtml(b)}</p>
+      </div>
+    `).join("");
+  }
+
+  function renderDetailCards(role) {
+    const cards = Array.isArray(role.detailCards) && role.detailCards.length
+      ? role.detailCards
+      : [
+          { label: "Role", value: role.roleType || "General Practitioner" },
+          { label: "Practice profile", value: role.practiceType || "Confidential GP practice" },
+          { label: "Support", value: role.support || "GP Link will coordinate further role details." },
+          { label: "Location profile", value: role.locationSummary || "Australian community setting" },
+          { label: "Earnings note", value: role.earningNote || "Compensation details provided on request." },
+          { label: "Employment type", value: role.footnote || "Live opening via Zoho Recruit" }
+        ];
+    detailGridEl.innerHTML = cards.map((c) => `
+      <div class="detail-card">
+        <span class="detail-card-label">${escapeHtml(c.label)}</span>
+        <span class="detail-card-value">${escapeHtml(c.value)}</span>
+      </div>
+    `).join("");
+  }
+
+  function getConfidentialTitle(role) {
+    const roleType = String(role.roleType || "General Practitioner").trim();
+    return "Confidential " + roleType + " opportunity";
+  }
+
+  function updateSaveButton() {
+    if (!currentRole) return;
+    const saved = isSaved(currentRole.id);
+    saveBtnEl.classList.toggle("saved", saved);
+    saveBtnEl.setAttribute("aria-label", saved ? "Remove saved job" : "Save for later");
+  }
+
+  function renderRole(role) {
+    currentRole = role;
+    document.title = getConfidentialTitle(role) + " - GP Link";
+    backBarTitleEl.textContent = getConfidentialTitle(role);
+    heroLocationLabelEl.textContent = role.mapLabel || role.location || "Australia";
+    billingPillEl.textContent = role.billing || "Billing to be confirmed";
+    geographyPillEl.textContent = role.geography || "Australia";
+    roleTitleEl.textContent = getConfidentialTitle(role);
+    roleLocationTextEl.textContent = role.location || "Australia";
+    practiceMaskTextEl.textContent = role.practiceName || "Confidential practice profile";
+    roleSummaryEl.textContent = role.summary || "Confidential practice profile with GP Link support.";
+
+    // Earnings
+    earningsValueEl.textContent = role.earnings || "Package on request";
+    aiBadgeEl.textContent = role.aiStatus === "success" ? "AI enriched" : (role.aiStatus === "fallback" ? "Profile ready" : "Building profile");
+
+    renderBenefits(role.benefits);
+    renderDetailCards(role);
+
+    // Map
+    if (role.mapQuery) {
+      mapSectionEl.hidden = false;
+      mapHintEl.textContent = "Explore the suburb surrounding " + (role.mapLabel || "this confidential practice profile") + ".";
+    } else {
+      mapSectionEl.hidden = true;
+    }
+
+    // Apply button state
+    if (isApplied(role.id)) {
+      applyBtnEl.textContent = "Application submitted";
+      applyBtnEl.disabled = true;
+    } else {
+      applyBtnEl.textContent = "Apply";
+      applyBtnEl.disabled = false;
+    }
+
+    updateSaveButton();
+
+    loadingEl.hidden = true;
+    contentEl.hidden = false;
+    stickyEl.hidden = false;
+    heroAreaEl.hidden = false;
+  }
+
+  function showError(message) {
+    loadingEl.hidden = true;
+    errorEl.hidden = false;
+    heroAreaEl.hidden = true;
+    stickyEl.hidden = true;
+    if (message) errorTextEl.textContent = message;
+  }
+
+  /* ── Fetch role ── */
+  async function loadRole(roleId) {
+    try {
+      const res = await fetch("/api/career/role?id=" + encodeURIComponent(roleId), { credentials: "same-origin" });
+      const data = await res.json();
+      if (!data.ok || !data.role) {
+        showError(data.message || "This role may no longer be available.");
+        return;
+      }
+      renderRole(data.role);
+    } catch (err) {
+      showError("Failed to load role details. Please try again.");
+    }
+  }
+
+  /* ── Apply ── */
+  async function applyForRole() {
+    if (!currentRole) return;
+    applyBtnEl.disabled = true;
+    applyBtnEl.textContent = "Applying...";
+    try {
+      const res = await fetch("/api/career/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ roleId: currentRole.id })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        applyBtnEl.textContent = "Application submitted";
+        applyBtnEl.disabled = true;
+        const state = getCareerState();
+        if (!Array.isArray(state.applications)) state.applications = [];
+        if (!state.applications.some((a) => a && a.roleId === currentRole.id)) {
+          state.applications.push({ roleId: currentRole.id, appliedAt: new Date().toISOString() });
+          persistCareerState(state);
+        }
+        showToast("Application submitted");
+      } else {
+        applyBtnEl.textContent = "Apply";
+        applyBtnEl.disabled = false;
+        showToast(data.message || "Could not apply. Try again.");
+      }
+    } catch {
+      applyBtnEl.textContent = "Apply";
+      applyBtnEl.disabled = false;
+      showToast("Network error. Please try again.");
+    }
+  }
+
+  /* ── Event listeners ── */
+  earningsInfoBtnEl.addEventListener("click", () => {
+    earningsDisclaimerEl.hidden = !earningsDisclaimerEl.hidden;
+    earningsInfoBtnEl.textContent = earningsDisclaimerEl.hidden ? "" : "";
+    earningsInfoBtnEl.innerHTML = earningsDisclaimerEl.hidden
+      ? '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg> Income disclaimer'
+      : '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg> Hide disclaimer';
+  });
+
+  mapToggleBtnEl.addEventListener("click", () => {
+    if (!currentRole || !currentRole.mapQuery) return;
+    mapVisible = !mapVisible;
+    mapWrapEl.hidden = !mapVisible;
+    mapToggleBtnEl.textContent = mapVisible ? "Hide map" : "Show map";
+    if (mapVisible && !mapFrameEl.getAttribute("src")) {
+      mapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(currentRole.mapQuery) + "&z=13&output=embed");
+    }
+  });
+
+  applyBtnEl.addEventListener("click", applyForRole);
+
+  saveBtnEl.addEventListener("click", () => {
+    if (!currentRole) return;
+    const nowSaved = toggleSaved(currentRole.id);
+    updateSaveButton();
+    showToast(nowSaved ? "Saved for later" : "Removed from saved");
+  });
+
+  /* ── Init ── */
+  const roleId = getRoleIdFromUrl();
+  if (!roleId) {
+    showError("No role specified. Please select a role from the career page.");
+  } else {
+    heroAreaEl.hidden = true;
+    loadRole(roleId);
+  }
+})();
+</script>
+</body>
+</html>

@@ -2857,10 +2857,9 @@
           persistCareerState();
           renderPage();
           const requestedRoleId = new URL(window.location.href).searchParams.get("role");
-          if (requestedRoleId && findRole(requestedRoleId)) {
-            renderRoleModal(requestedRoleId);
-          } else if (requestedRoleId && !findRole(requestedRoleId)) {
-            closeRoleModal();
+          if (requestedRoleId) {
+            window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
+            return;
           }
         }
       } catch (err) {
@@ -3140,7 +3139,8 @@
 
       const openBtn = event.target.closest("[data-open-role]");
       if (openBtn) {
-        renderRoleModal(openBtn.getAttribute("data-open-role"));
+        const roleId = openBtn.getAttribute("data-open-role");
+        window.location.href = "job.html?id=" + encodeURIComponent(roleId);
       }
     });
 
@@ -3180,8 +3180,9 @@
       }
       renderPage();
       const requestedRoleId = new URL(window.location.href).searchParams.get("role");
-      if (requestedRoleId && findRole(requestedRoleId)) {
-        renderRoleModal(requestedRoleId);
+      if (requestedRoleId) {
+        window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
+        return;
       }
       syncInboxIndicators();
     });
@@ -3220,8 +3221,9 @@
       await loadRemoteRoles();
       await loadRemoteApplications();
       const requestedRoleId = new URL(window.location.href).searchParams.get("role");
-      if (requestedRoleId && findRole(requestedRoleId)) {
-        renderRoleModal(requestedRoleId);
+      if (requestedRoleId) {
+        window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
+        return;
       }
       syncInboxIndicators();
     })();
