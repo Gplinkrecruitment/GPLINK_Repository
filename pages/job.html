@@ -119,13 +119,13 @@
       object-fit: cover;
       display: block;
       background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
-      opacity: 0;
+      opacity: 1;
       transition: opacity .22s ease;
       z-index: 0;
     }
 
-    .hero-media-card.has-image .hero-image {
-      opacity: 1;
+    .hero-image[hidden] {
+      display: none;
     }
 
     .hero-media-card.has-image .hero-image-placeholder {
@@ -271,20 +271,6 @@
       line-height: 1.45;
       font-weight: 700;
       opacity: 0.94;
-    }
-
-    .hero-image-credit {
-      margin: 8px 4px 0;
-      font-size: 11px;
-      line-height: 1.45;
-      color: var(--muted);
-      font-weight: 700;
-    }
-
-    .hero-image-credit a {
-      color: inherit;
-      text-decoration: underline;
-      text-underline-offset: 2px;
     }
 
     /* ── Shell ── */
@@ -809,7 +795,6 @@
         </div>
       </div>
     </div>
-    <p class="hero-image-credit" id="heroImageCredit" hidden></p>
   </div>
 
   <div class="shell">
@@ -988,7 +973,6 @@
   const heroCardEl = document.querySelector(".hero-media-card");
   const heroImageEl = document.getElementById("heroImage");
   const heroPlaceholderEl = document.getElementById("heroPlaceholder");
-  const heroImageCreditEl = document.getElementById("heroImageCredit");
   const heroLocationLabelEl = document.getElementById("heroLocationLabel");
   const heroCaptionCopyEl = document.getElementById("heroCaptionCopy");
   const billingPillEl = document.getElementById("billingPill");
@@ -1157,51 +1141,32 @@
 
   function renderHeroImage(role) {
     const imageUrl = String(role && role.heroImageUrl ? role.heroImageUrl : "").trim();
-    const credit = String(role && role.heroImageCredit ? role.heroImageCredit : "").trim();
-    const sourceUrl = String(role && role.heroImageSourceUrl ? role.heroImageSourceUrl : "").trim();
     const label = String(role && (role.locationLine || role.location || role.mapLabel) ? (role.locationLine || role.location || role.mapLabel) : "the surrounding suburb").trim();
 
     if (!imageUrl) {
       if (heroImageEl) {
+        heroImageEl.hidden = true;
         heroImageEl.removeAttribute("src");
         heroImageEl.removeAttribute("data-src");
       }
       if (heroCardEl) heroCardEl.classList.remove("has-image");
-      if (heroImageCreditEl) {
-        heroImageCreditEl.hidden = true;
-        heroImageCreditEl.innerHTML = "";
-      }
       applyHeroPalette(role);
       return;
     }
 
     if (heroImageEl) {
+      heroImageEl.hidden = false;
       heroImageEl.alt = `Landscape view of ${label}`;
+      if (heroCardEl) heroCardEl.classList.add("has-image");
       if (heroImageEl.dataset.src !== imageUrl) {
         heroImageEl.dataset.src = imageUrl;
-        heroImageEl.onload = () => {
-          if (heroCardEl) heroCardEl.classList.add("has-image");
-        };
+        heroImageEl.onload = null;
         heroImageEl.onerror = () => {
+          heroImageEl.hidden = true;
           if (heroCardEl) heroCardEl.classList.remove("has-image");
           applyHeroPalette(role);
         };
         heroImageEl.src = imageUrl;
-      } else if (heroImageEl.complete) {
-        if (heroCardEl) heroCardEl.classList.add("has-image");
-      }
-    }
-
-    if (heroImageCreditEl) {
-      if (credit && sourceUrl) {
-        heroImageCreditEl.innerHTML = `Landscape image via <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a> · ${escapeHtml(credit)}`;
-        heroImageCreditEl.hidden = false;
-      } else if (credit) {
-        heroImageCreditEl.textContent = `Landscape image · ${credit}`;
-        heroImageCreditEl.hidden = false;
-      } else {
-        heroImageCreditEl.hidden = true;
-        heroImageCreditEl.innerHTML = "";
       }
     }
   }
