@@ -46,7 +46,9 @@
     html, body { margin: 0; min-height: 100%; }
     body {
       font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
+      background:
+        radial-gradient(720px 360px at 50% -10%, rgba(37, 99, 235, 0.1), transparent 55%),
+        linear-gradient(180deg, #eef4fb 0%, #f6f9fd 45%, #f0f4fa 100%);
       color: var(--text);
       padding: 0;
     }
@@ -97,9 +99,24 @@
     }
 
     /* ── Hero image ── */
+    #heroArea {
+      max-width: 460px;
+      margin: 18px auto 0;
+      padding: 0 16px;
+    }
+
+    .hero-media-card {
+      border-radius: 28px;
+      overflow: hidden;
+      border: 1px solid rgba(226, 232, 240, 0.68);
+      box-shadow: var(--shadow-card);
+      background: #cbd5e1;
+      position: relative;
+    }
+
     .hero-image {
       width: 100%;
-      height: 260px;
+      height: 270px;
       object-fit: cover;
       display: block;
       background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
@@ -107,12 +124,15 @@
 
     .hero-image-placeholder {
       width: 100%;
-      height: 260px;
-      display: grid;
-      place-items: center;
-      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
+      height: 270px;
+      display: flex;
+      align-items: stretch;
+      justify-content: stretch;
       position: relative;
       overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.32)),
+        linear-gradient(135deg, #b7d5fb 0%, #76a9fa 55%, #4f46e5 100%);
     }
 
     .hero-image-placeholder::before {
@@ -120,36 +140,124 @@
       position: absolute;
       inset: 0;
       background:
-        radial-gradient(ellipse 80% 60% at 30% 40%, rgba(37, 99, 235, 0.12), transparent),
-        radial-gradient(ellipse 60% 50% at 70% 60%, rgba(29, 78, 216, 0.08), transparent);
+        radial-gradient(ellipse 84% 64% at 24% 34%, rgba(255, 255, 255, 0.2), transparent),
+        radial-gradient(ellipse 56% 44% at 70% 68%, rgba(255, 255, 255, 0.14), transparent);
+      opacity: 0.85;
     }
 
-    .hero-image-placeholder .hero-location-label {
+    .hero-image-placeholder::after {
+      content: "";
+      position: absolute;
+      left: -8%;
+      right: -8%;
+      bottom: -18%;
+      height: 54%;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.26), transparent 18%),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.4)),
+        linear-gradient(0deg, rgba(15, 23, 42, 0.42), rgba(30, 64, 175, 0.18));
+      clip-path: polygon(0 62%, 12% 48%, 28% 55%, 40% 38%, 56% 44%, 70% 24%, 88% 34%, 100% 16%, 100% 100%, 0 100%);
+    }
+
+    .hero-overlay {
       position: relative;
-      color: var(--blue2);
-      font-size: 16px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      text-align: center;
-      padding: 0 20px;
+      z-index: 2;
+      width: 100%;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
 
-    .hero-image-placeholder svg {
-      width: 32px;
-      height: 32px;
-      stroke: var(--blue);
+    .hero-topline {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .hero-badge-dark {
+      background: rgba(15, 23, 42, 0.62);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .hero-bottomline {
+      display: grid;
+      gap: 10px;
+      align-self: stretch;
+    }
+
+    .hero-location-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .hero-location-label svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
       fill: none;
-      stroke-width: 1.5;
+      stroke-width: 2;
       stroke-linecap: round;
       stroke-linejoin: round;
-      margin-bottom: 8px;
+      flex-shrink: 0;
+    }
+
+    .hero-caption {
+      max-width: 300px;
+      display: grid;
+      gap: 3px;
+      color: #fff;
+    }
+
+    .hero-caption-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.86;
+    }
+
+    .hero-caption-copy {
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 700;
+      opacity: 0.94;
     }
 
     /* ── Shell ── */
     .shell {
-      max-width: 640px;
+      max-width: 460px;
       margin: 0 auto;
-      padding: 0 16px 140px;
+      padding: 0 16px 156px;
     }
 
     /* ── Billing pill floating ── */
@@ -158,7 +266,7 @@
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
-      margin-top: -18px;
+      margin-top: 12px;
       padding: 0 4px;
       position: relative;
       z-index: 2;
@@ -184,11 +292,11 @@
       align-items: center;
       padding: 9px 14px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.85);
+      background: rgba(15, 23, 42, 0.76);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
-      border: 1px solid rgba(226, 232, 240, 0.6);
-      color: var(--charcoal);
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      color: #fff;
       font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.04em;
@@ -197,9 +305,9 @@
 
     /* ── Title block ── */
     .title-block {
-      padding: 20px 0 0;
+      padding: 18px 0 0;
       display: grid;
-      gap: 8px;
+      gap: 10px;
     }
 
     .role-title {
@@ -271,7 +379,7 @@
       font-size: 12px;
       line-height: 1.45;
       font-weight: 800;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.18));
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.26));
     }
 
     /* ── Summary ── */
@@ -498,6 +606,108 @@
     }
     .map-toggle-btn:hover { background: var(--panel-soft); }
 
+    .map-preview {
+      margin: 0 18px 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(226, 232, 240, 0.7);
+      background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .map-preview-graphic {
+      min-height: 170px;
+      position: relative;
+      background:
+        linear-gradient(0deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.08)),
+        linear-gradient(180deg, #ffffff 0%, #edf5ff 100%);
+      overflow: hidden;
+    }
+
+    .map-preview-graphic::before,
+    .map-preview-graphic::after {
+      content: "";
+      position: absolute;
+      border-radius: 18px;
+      border: 3px solid rgba(15, 23, 42, 0.68);
+      background:
+        linear-gradient(90deg, rgba(15, 23, 42, 0.08) 0 8%, transparent 8% 92%, rgba(15, 23, 42, 0.08) 92% 100%),
+        linear-gradient(180deg, transparent 0 9%, rgba(15, 23, 42, 0.08) 9% 17%, transparent 17% 100%);
+    }
+
+    .map-preview-graphic::before {
+      width: 84px;
+      height: 120px;
+      top: 18px;
+      left: 24px;
+    }
+
+    .map-preview-graphic::after {
+      width: 84px;
+      height: 120px;
+      bottom: -26px;
+      right: 22px;
+      opacity: 0.22;
+      transform: rotate(-9deg);
+    }
+
+    .map-preview-route {
+      position: absolute;
+      left: 52px;
+      top: 48px;
+      width: 150px;
+      height: 86px;
+      border: 3px solid rgba(37, 99, 235, 0.5);
+      border-right: 0;
+      border-top: 0;
+      border-radius: 0 0 0 28px;
+      transform: rotate(7deg);
+    }
+
+    .map-preview-route::before,
+    .map-preview-route::after {
+      content: "";
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #2563eb;
+      box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.12);
+    }
+
+    .map-preview-route::before {
+      top: -8px;
+      left: -8px;
+    }
+
+    .map-preview-route::after {
+      right: -2px;
+      bottom: -2px;
+      background: #0f172a;
+      box-shadow: 0 0 0 5px rgba(15, 23, 42, 0.08);
+    }
+
+    .map-preview-copy {
+      padding: 14px 16px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .map-preview-title {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .map-preview-note {
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
     .map-embed-wrap {
       width: 100%;
       aspect-ratio: 16/10;
@@ -530,13 +740,15 @@
     .sticky-actions-inner {
       max-width: 640px;
       margin: 0 auto;
+      max-width: 420px;
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: 1fr;
       gap: 10px;
       align-items: center;
     }
 
     .btn-apply {
+      width: 100%;
       padding: 16px 32px;
       border: none;
       border-radius: 16px;
@@ -554,21 +766,31 @@
     .btn-apply:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 
     .btn-save-bottom {
-      width: 52px;
-      height: 52px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: var(--panel);
-      color: var(--text);
-      display: grid;
-      place-items: center;
+      width: fit-content;
+      min-width: 138px;
+      height: auto;
+      justify-self: center;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      background: #0f172a;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       cursor: pointer;
       flex-shrink: 0;
-      transition: background .14s ease, color .14s ease, border-color .14s ease;
+      transition: background .14s ease, color .14s ease, border-color .14s ease, transform .14s ease;
     }
-    .btn-save-bottom svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .btn-save-bottom:hover { transform: translateY(-1px); }
+    .btn-save-bottom svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     .btn-save-bottom.saved { background: var(--blue); color: #fff; border-color: var(--blue); }
     .btn-save-bottom.saved svg { fill: currentColor; }
+    .btn-save-bottom-label {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
 
     /* ── Loading state ── */
     .page-loading {
@@ -681,10 +903,17 @@
 
     /* ── Responsive ── */
     @media (max-width: 600px) {
-      .hero-image, .hero-image-placeholder { height: 200px; }
+      #heroArea {
+        margin-top: 12px;
+        padding: 0 12px;
+      }
+      .hero-image, .hero-image-placeholder { height: 220px; }
       .role-title { font-size: 22px; }
       .benefit-grid, .detail-grid { grid-template-columns: 1fr; }
       .earnings-value { font-size: 24px; }
+      .hero-caption {
+        max-width: 100%;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -709,10 +938,23 @@
 
   <!-- Hero image area -->
   <div id="heroArea">
-    <div class="hero-image-placeholder" id="heroPlaceholder">
-      <div style="text-align:center;">
-        <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-        <div class="hero-location-label" id="heroLocationLabel"></div>
+    <div class="hero-media-card">
+      <div class="hero-image-placeholder" id="heroPlaceholder">
+        <div class="hero-overlay">
+          <div class="hero-topline">
+            <span class="hero-badge hero-badge-dark" id="heroPrivacyBadge">Confidential listing</span>
+          </div>
+          <div class="hero-bottomline">
+            <div class="hero-location-label" id="heroLocationLabel">
+              <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>
+              <span>Location reference</span>
+            </div>
+            <div class="hero-caption">
+              <span class="hero-caption-title">Protected identity</span>
+              <span class="hero-caption-copy">Exact suburb and practice identity are only released once the practice accepts your application.</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -744,14 +986,14 @@
         <h1 class="role-title" id="roleTitle">Confidential GP opportunity</h1>
         <span class="role-location" id="roleLocation">
           <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>
-          <span id="roleLocationText">Location</span>
+          <span id="roleLocationText">Location reference</span>
         </span>
       </div>
 
       <!-- Confidential practice mask -->
       <div class="practice-mask" id="practiceMask">
         <p class="practice-mask-text" id="practiceMaskText">Confidential practice profile</p>
-        <div class="practice-mask-note">Practice identity is shared once the practice accepts your application.</div>
+        <div class="practice-mask-note">Practice name is only released after your application is accepted by the practice.</div>
       </div>
 
       <!-- Summary -->
@@ -807,6 +1049,15 @@
           </div>
           <button class="map-toggle-btn" id="mapToggleBtn" type="button">Show map</button>
         </div>
+        <div class="map-preview" id="mapPreview">
+          <div class="map-preview-graphic" aria-hidden="true">
+            <div class="map-preview-route"></div>
+          </div>
+          <div class="map-preview-copy">
+            <span class="map-preview-title">Interactive suburb map</span>
+            <span class="map-preview-note">Open the map to inspect the broader suburb catchment while the practice identity remains confidential.</span>
+          </div>
+        </div>
         <div class="map-embed-wrap" id="mapWrap" hidden>
           <iframe class="map-embed" id="mapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role suburb map"></iframe>
         </div>
@@ -820,6 +1071,7 @@
       <button class="btn-apply" id="applyBtn" type="button">Apply</button>
       <button class="btn-save-bottom" id="saveBtn" type="button" aria-label="Save for later">
         <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
+        <span class="btn-save-bottom-label">Save for later</span>
       </button>
     </div>
   </div>
@@ -863,9 +1115,39 @@
     window.dispatchEvent(new Event("gp-career-updated"));
   }
 
+  function createSavedSnapshot(role) {
+    return {
+      id: role.id,
+      practiceName: role.practiceName,
+      location: role.location,
+      billing: role.billing,
+      earnings: role.earnings,
+      tags: Array.isArray(role.benefits) && role.benefits.length ? role.benefits.slice(0, 2) : [],
+      summary: role.summary
+    };
+  }
+
+  function createApplicationSnapshot(role) {
+    return {
+      roleId: role.id,
+      practiceName: role.practiceName,
+      location: role.location,
+      status: "Under Review",
+      tone: "review",
+      meta: [
+        { label: "Applied", value: "Just now" },
+        { label: "Billing", value: String(role.billing || "To be confirmed").replace(" Billing", "") },
+        { label: "Next step", value: "GP Link screening" }
+      ]
+    };
+  }
+
   function isSaved(roleId) {
     const state = getCareerState();
-    return Array.isArray(state.savedJobs) && state.savedJobs.includes(roleId);
+    return Array.isArray(state.savedJobs) && state.savedJobs.some((job) => {
+      if (typeof job === "string") return job === roleId;
+      return !!(job && job.id === roleId);
+    });
   }
 
   function isApplied(roleId) {
@@ -878,13 +1160,17 @@
   function toggleSaved(roleId) {
     const state = getCareerState();
     if (!Array.isArray(state.savedJobs)) state.savedJobs = [];
-    const index = state.savedJobs.indexOf(roleId);
+    const index = state.savedJobs.findIndex((job) => {
+      if (typeof job === "string") return job === roleId;
+      return !!(job && job.id === roleId);
+    });
     if (index >= 0) {
       state.savedJobs.splice(index, 1);
       persistCareerState(state);
       return false;
     } else {
-      state.savedJobs.push(roleId);
+      if (!currentRole || currentRole.id !== roleId) return false;
+      state.savedJobs.unshift(createSavedSnapshot(currentRole));
       persistCareerState(state);
       return true;
     }
@@ -915,6 +1201,7 @@
   const mapSectionEl = document.getElementById("mapSection");
   const mapHintEl = document.getElementById("mapHint");
   const mapToggleBtnEl = document.getElementById("mapToggleBtn");
+  const mapPreviewEl = document.getElementById("mapPreview");
   const mapWrapEl = document.getElementById("mapWrap");
   const mapFrameEl = document.getElementById("mapFrame");
   const applyBtnEl = document.getElementById("applyBtn");
@@ -968,24 +1255,83 @@
     return "Confidential " + roleType + " opportunity";
   }
 
+  function extractStateCode(location) {
+    const raw = String(location || "").trim();
+    if (!raw) return "";
+    const match = raw.match(/\b(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\b/i);
+    return match ? match[1].toUpperCase() : "";
+  }
+
+  function getPublicLocationReference(role) {
+    const rawLocation = String(role && role.location ? role.location : "").trim();
+    const geography = String(role && role.geography ? role.geography : "").trim();
+    const stateCode = extractStateCode(rawLocation);
+    const cityMatches = ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide", "Canberra", "Hobart", "Darwin"];
+    const knownCity = cityMatches.find((city) => rawLocation.toLowerCase().includes(city.toLowerCase()));
+    if (knownCity) {
+      if (geography && /regional/i.test(geography) && stateCode) return `Regional ${stateCode}`;
+      return geography && /regional/i.test(geography) ? `Regional ${knownCity}` : knownCity;
+    }
+    if (geography && stateCode) {
+      return `${geography} ${stateCode}`.trim();
+    }
+    if (geography) return geography;
+    if (stateCode) return stateCode;
+    if (rawLocation.includes(",")) {
+      const parts = rawLocation.split(",").map((part) => part.trim()).filter(Boolean);
+      return parts[parts.length - 1] || parts[0];
+    }
+    return rawLocation || "Australia";
+  }
+
+  function getRolePalette(role) {
+    const seed = String(role && (role.location || role.id || role.mapLabel) ? (role.location || role.id || role.mapLabel) : "gplink");
+    let hash = 0;
+    for (let index = 0; index < seed.length; index += 1) {
+      hash = ((hash << 5) - hash) + seed.charCodeAt(index);
+      hash |= 0;
+    }
+    const hue = Math.abs(hash % 360);
+    const accentHue = (hue + 34) % 360;
+    return {
+      top: `hsl(${hue} 72% 72%)`,
+      mid: `hsl(${(hue + 18) % 360} 68% 58%)`,
+      base: `hsl(${accentHue} 70% 42%)`
+    };
+  }
+
+  function applyHeroPalette(role) {
+    if (!heroPlaceholderEl) return;
+    const palette = getRolePalette(role);
+    heroPlaceholderEl.style.background = [
+      "linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.32))",
+      `linear-gradient(135deg, ${palette.top} 0%, ${palette.mid} 55%, ${palette.base} 100%)`
+    ].join(",");
+  }
+
   function updateSaveButton() {
     if (!currentRole) return;
     const saved = isSaved(currentRole.id);
     saveBtnEl.classList.toggle("saved", saved);
     saveBtnEl.setAttribute("aria-label", saved ? "Remove saved job" : "Save for later");
+    const labelEl = saveBtnEl.querySelector(".btn-save-bottom-label");
+    if (labelEl) labelEl.textContent = saved ? "Saved for later" : "Save for later";
   }
 
   function renderRole(role) {
     currentRole = role;
+    mapVisible = false;
+    const publicLocationReference = getPublicLocationReference(role);
     document.title = getConfidentialTitle(role) + " - GP Link";
     backBarTitleEl.textContent = getConfidentialTitle(role);
-    heroLocationLabelEl.textContent = role.mapLabel || role.location || "Australia";
+    heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(publicLocationReference)}</span>`;
     billingPillEl.textContent = role.billing || "Billing to be confirmed";
-    geographyPillEl.textContent = role.geography || "Australia";
+    geographyPillEl.textContent = role.geography || publicLocationReference || "Australia";
     roleTitleEl.textContent = getConfidentialTitle(role);
-    roleLocationTextEl.textContent = role.location || "Australia";
+    roleLocationTextEl.textContent = publicLocationReference || "Australia";
     practiceMaskTextEl.textContent = role.practiceName || "Confidential practice profile";
     roleSummaryEl.textContent = role.summary || "Confidential practice profile with GP Link support.";
+    applyHeroPalette(role);
 
     // Earnings
     earningsValueEl.textContent = role.earnings || "Package on request";
@@ -997,9 +1343,14 @@
     // Map
     if (role.mapQuery) {
       mapSectionEl.hidden = false;
-      mapHintEl.textContent = "Explore the suburb surrounding " + (role.mapLabel || "this confidential practice profile") + ".";
+      if (mapPreviewEl) mapPreviewEl.hidden = false;
+      mapWrapEl.hidden = true;
+      mapFrameEl.removeAttribute("src");
+      mapToggleBtnEl.textContent = "Show map";
+      mapHintEl.textContent = "Explore the suburb surrounding this confidential role while the practice identity remains protected.";
     } else {
       mapSectionEl.hidden = true;
+      if (mapPreviewEl) mapPreviewEl.hidden = true;
     }
 
     // Apply button state
@@ -1061,7 +1412,7 @@
         const state = getCareerState();
         if (!Array.isArray(state.applications)) state.applications = [];
         if (!state.applications.some((a) => a && a.roleId === currentRole.id)) {
-          state.applications.push({ roleId: currentRole.id, appliedAt: new Date().toISOString() });
+          state.applications.unshift(createApplicationSnapshot(currentRole));
           persistCareerState(state);
         }
         showToast("Application submitted");
@@ -1090,6 +1441,7 @@
     if (!currentRole || !currentRole.mapQuery) return;
     mapVisible = !mapVisible;
     mapWrapEl.hidden = !mapVisible;
+    if (mapPreviewEl) mapPreviewEl.hidden = mapVisible;
     mapToggleBtnEl.textContent = mapVisible ? "Hide map" : "Show map";
     if (mapVisible && !mapFrameEl.getAttribute("src")) {
       mapFrameEl.setAttribute("src", "https://www.google.com/maps?q=" + encodeURIComponent(currentRole.mapQuery) + "&z=13&output=embed");
