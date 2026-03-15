@@ -71,6 +71,146 @@
       gap: 10px;
     }
 
+    .integration-panel {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+    .integration-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .integration-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 780;
+      letter-spacing: -0.02em;
+    }
+    .integration-copy {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+    .integration-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pill-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .status-chip {
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      border: 1px solid #dbe3ee;
+      background: #f8fafc;
+      color: #334155;
+    }
+    .status-chip.connected {
+      background: #ebf9f0;
+      border-color: #b9e8c8;
+      color: #166534;
+    }
+    .status-chip.pending {
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #9a3412;
+    }
+    .status-chip.error {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #b91c1c;
+    }
+    .status-chip.disconnected {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+    .integration-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .integration-tile {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfdff;
+      padding: 12px;
+      display: grid;
+      gap: 4px;
+    }
+    .integration-label {
+      font-size: 11px;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .integration-value {
+      font-size: 16px;
+      font-weight: 760;
+      color: #0f172a;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+    .integration-sub {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+    .integration-banner {
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 650;
+      border: 1px solid #dbe3ee;
+      background: #f8fafc;
+      color: #334155;
+    }
+    .integration-banner.success {
+      background: #ebf9f0;
+      border-color: #b9e8c8;
+      color: #166534;
+    }
+    .integration-banner.error {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #b91c1c;
+    }
+    .integration-banner.pending {
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #9a3412;
+    }
+    .integration-note {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 560;
+    }
+    .mono-inline {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      color: #334155;
+      background: #f8fafc;
+      border: 1px solid #dbe3ee;
+      border-radius: 8px;
+      padding: 2px 6px;
+    }
+
     .stat {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -534,6 +674,7 @@
 
     @media (max-width: 1024px) {
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .tab { min-width: 0; flex: 1; }
       .toolbar { grid-template-columns: 1fr; }
       .ticket-split { grid-template-columns: 1fr; }
@@ -545,6 +686,7 @@
       body { padding: 10px; }
       .hero h1 { font-size: 24px; }
       .stats { grid-template-columns: 1fr; }
+      .integration-grid { grid-template-columns: 1fr; }
       .modal-title { font-size: 24px; }
       .candidate-grid { grid-template-columns: 1fr; }
       .stepper-nav {
@@ -577,6 +719,10 @@
       <p id="refreshText" class="inline-note">Loading...</p>
     </header>
 
+    <section class="panel integration-panel" id="zohoRecruitPanel">
+      <div class="empty">Loading Zoho Recruit status...</div>
+    </section>
+
     <section class="stats" id="stats"></section>
 
     <section class="panel">
@@ -608,10 +754,14 @@
   <script>
     const state = {
       dashboard: null,
+      zohoRecruit: null,
+      zohoRecruitNotice: null,
       tab: "registrations",
       query: "",
       refreshTimer: null,
-      isLoading: false
+      isLoading: false,
+      isZohoLoading: false,
+      isZohoSyncing: false
     };
     const LOCAL_DEMO_DASHBOARD = {
       summary: {
@@ -833,6 +983,7 @@
     const statsEl = document.getElementById("stats");
     const contentEl = document.getElementById("content");
     const refreshTextEl = document.getElementById("refreshText");
+    const zohoRecruitPanelEl = document.getElementById("zohoRecruitPanel");
     const searchInputEl = document.getElementById("searchInput");
     const logoutBtnEl = document.getElementById("logoutBtn");
     const candidateModalEl = document.getElementById("candidateModal");
@@ -843,12 +994,20 @@
       institution_docs: "Institution documents",
       gplink_pack: "GP Link pack"
     };
+    state.zohoRecruitNotice = buildZohoNoticeFromParams();
 
     function fmtDate(value) {
       if (!value) return "-";
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return "-";
       return date.toLocaleDateString();
+    }
+
+    function fmtDateTime(value) {
+      if (!value) return "Never";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "Never";
+      return date.toLocaleString();
     }
 
     function fmtRelative(value) {
@@ -871,6 +1030,48 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+    }
+
+    function toTitleLabel(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "-";
+      return raw
+        .replace(/[_-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function buildZohoNoticeFromParams() {
+      const params = new URLSearchParams(window.location.search);
+      const zohoState = String(params.get("zohoRecruit") || "").trim();
+      const syncState = String(params.get("sync") || "").trim();
+      const roles = String(params.get("roles") || "").trim();
+      const message = String(params.get("message") || "").trim();
+      if (!zohoState && !syncState && !message && !roles) return null;
+
+      let tone = "pending";
+      let text = "Zoho Recruit status updated.";
+      if (syncState === "success") {
+        tone = "success";
+        text = roles
+          ? `Zoho Recruit connected and synced successfully. ${roles} live roles are now available.`
+          : "Zoho Recruit connected and synced successfully.";
+      } else if (syncState === "error" || zohoState === "error") {
+        tone = "error";
+        text = message || "Zoho Recruit connection or sync failed.";
+      } else if (zohoState === "connected") {
+        tone = "success";
+        text = "Zoho Recruit is connected.";
+      } else if (message) {
+        tone = "pending";
+        text = message;
+      }
+
+      ["zohoRecruit", "sync", "roles", "message"].forEach((key) => params.delete(key));
+      const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}${window.location.hash || ""}`;
+      window.history.replaceState({}, document.title, nextUrl);
+      return { tone, text };
     }
 
     function statusLabel(status) {
@@ -1131,6 +1332,168 @@
           <div class="sub">${row.sub}</div>
         </article>
       `).join("");
+    }
+
+    function renderZohoRecruitPanel() {
+      if (state.isZohoLoading && !state.zohoRecruit) {
+        zohoRecruitPanelEl.innerHTML = `<div class="empty">Loading Zoho Recruit status...</div>`;
+        return;
+      }
+
+      const data = state.zohoRecruit;
+      if (!data) {
+        zohoRecruitPanelEl.innerHTML = `<div class="empty">Zoho Recruit status is unavailable right now.</div>`;
+        return;
+      }
+
+      const connection = data.connection || null;
+      const connectionStatus = data.connected
+        ? ((connection && connection.status === "error") ? "error" : "connected")
+        : "disconnected";
+      const lastSyncStatus = connection && connection.lastSyncStatus
+        ? String(connection.lastSyncStatus).trim().toLowerCase()
+        : (data.connected ? "pending" : "disconnected");
+      const lastSyncTone = lastSyncStatus === "success"
+        ? "connected"
+        : (lastSyncStatus === "error" ? "error" : (lastSyncStatus === "disconnected" ? "disconnected" : "pending"));
+      const syncButtonDisabled = state.isZohoSyncing || state.isZohoLoading || !data.connected;
+      const banner = state.zohoRecruitNotice
+        ? `<div class="integration-banner ${escapeHtml(state.zohoRecruitNotice.tone)}">${escapeHtml(state.zohoRecruitNotice.text)}</div>`
+        : "";
+      const errorBanner = connection && connection.lastSyncError
+        ? `<div class="integration-banner error">${escapeHtml(connection.lastSyncError)}</div>`
+        : "";
+
+      zohoRecruitPanelEl.innerHTML = `
+        <div class="integration-head">
+          <div>
+            <h2 class="integration-title">Zoho Recruit Sync</h2>
+            <p class="integration-copy">Monitor connection health, automatic scheduler readiness, and the latest synced career role volume.</p>
+          </div>
+          <div class="integration-actions">
+            <button class="btn" data-zoho-connect type="button">Connect Zoho Recruit</button>
+            <button class="btn primary" data-zoho-sync type="button" ${syncButtonDisabled ? "disabled" : ""}>${state.isZohoSyncing ? "Syncing..." : "Sync Now"}</button>
+          </div>
+        </div>
+        ${banner}
+        ${errorBanner}
+        <div class="pill-row">
+          <span class="status-chip ${escapeHtml(connectionStatus)}">${escapeHtml(data.connected ? "Connected" : "Not connected")}</span>
+          <span class="status-chip ${escapeHtml(lastSyncTone)}">Last sync: ${escapeHtml(toTitleLabel(lastSyncStatus))}</span>
+          <span class="status-chip ${escapeHtml(data.cronConfigured ? "connected" : "pending")}">Scheduler: ${escapeHtml(data.cronConfigured ? "Ready" : "Needs secret")}</span>
+        </div>
+        <div class="integration-grid">
+          <article class="integration-tile">
+            <div class="integration-label">Connected Email</div>
+            <div class="integration-value">${escapeHtml(connection && connection.connectedEmail ? connection.connectedEmail : "Not connected")}</div>
+            <div class="integration-sub">Admin account that completed the Zoho OAuth link.</div>
+          </article>
+          <article class="integration-tile">
+            <div class="integration-label">Live Roles</div>
+            <div class="integration-value">${escapeHtml(String(data.roleCount || 0))}</div>
+            <div class="integration-sub">Career roles currently stored in Supabase.</div>
+          </article>
+          <article class="integration-tile">
+            <div class="integration-label">Last Successful Sync</div>
+            <div class="integration-value">${escapeHtml(fmtDateTime(connection && connection.lastSyncAt))}</div>
+            <div class="integration-sub">Latest completed pull from Zoho Recruit.</div>
+          </article>
+          <article class="integration-tile">
+            <div class="integration-label">Token Refreshed</div>
+            <div class="integration-value">${escapeHtml(fmtDateTime(connection && connection.tokenLastRefreshedAt))}</div>
+            <div class="integration-sub">Last time GP Link refreshed the Zoho access token.</div>
+          </article>
+          <article class="integration-tile">
+            <div class="integration-label">Scheduler Endpoint</div>
+            <div class="integration-value"><span class="mono-inline">${escapeHtml(data.cronPath || "/api/integrations/zoho-recruit/cron-sync")}</span></div>
+            <div class="integration-sub">External scheduler should call this every 15 minutes with the cron bearer secret.</div>
+          </article>
+          <article class="integration-tile">
+            <div class="integration-label">API Domain</div>
+            <div class="integration-value">${escapeHtml(connection && connection.apiDomain ? connection.apiDomain : data.accountsServer || "-")}</div>
+            <div class="integration-sub">Zoho tenant domain currently serving Recruit data.</div>
+          </article>
+        </div>
+        <div class="integration-note">
+          <span>Redirect URI: <span class="mono-inline">${escapeHtml(data.redirectUri || "-")}</span></span>
+          <span>Scopes: <span class="mono-inline">${escapeHtml(Array.isArray(data.scopes) && data.scopes.length ? data.scopes.join(", ") : "-")}</span></span>
+        </div>
+      `;
+    }
+
+    async function loadZohoRecruitStatus(force = false) {
+      if (state.isZohoLoading && !force) return;
+      state.isZohoLoading = true;
+      renderZohoRecruitPanel();
+      try {
+        const response = await fetch("/api/admin/integrations/zoho-recruit/status", {
+          credentials: "same-origin"
+        });
+        if (response.status === 401) {
+          window.location.href = "/pages/admin-signin.html";
+          return;
+        }
+        if (response.status === 403) {
+          throw new Error("This account does not have admin access.");
+        }
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || "Failed to load Zoho Recruit status.");
+        }
+        state.zohoRecruit = data;
+      } catch (err) {
+        state.zohoRecruit = {
+          ok: false,
+          configured: false,
+          connected: false,
+          cronConfigured: false,
+          cronPath: "/api/integrations/zoho-recruit/cron-sync",
+          redirectUri: "",
+          accountsServer: "",
+          scopes: [],
+          connection: err && err.message ? { status: "error", lastSyncStatus: "error", lastSyncError: err.message } : null,
+          roleCount: 0
+        };
+        state.zohoRecruitNotice = { tone: "error", text: err.message || "Failed to load Zoho Recruit status." };
+      } finally {
+        state.isZohoLoading = false;
+        renderZohoRecruitPanel();
+      }
+    }
+
+    async function triggerZohoRecruitSync() {
+      if (state.isZohoSyncing) return;
+      state.isZohoSyncing = true;
+      renderZohoRecruitPanel();
+      try {
+        const response = await fetch("/api/admin/integrations/zoho-recruit/sync", {
+          method: "POST",
+          credentials: "same-origin"
+        });
+        if (response.status === 401) {
+          window.location.href = "/pages/admin-signin.html";
+          return;
+        }
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || "Failed to sync Zoho Recruit.");
+        }
+        const roleCount = Number(data.syncedRoleCount || 0);
+        state.zohoRecruitNotice = {
+          tone: "success",
+          text: `Zoho Recruit sync completed. ${roleCount} live role${roleCount === 1 ? "" : "s"} stored.`
+        };
+        await loadZohoRecruitStatus(true);
+      } catch (err) {
+        state.zohoRecruitNotice = {
+          tone: "error",
+          text: err.message || "Zoho Recruit sync failed."
+        };
+        renderZohoRecruitPanel();
+      } finally {
+        state.isZohoSyncing = false;
+        renderZohoRecruitPanel();
+      }
     }
 
     function filteredCandidates() {
@@ -1402,6 +1765,7 @@
 
       document.getElementById("refreshBtn").addEventListener("click", () => {
         loadDashboard(true);
+        loadZohoRecruitStatus(true);
       });
 
       document.getElementById("exportBtn").addEventListener("click", () => {
@@ -1487,6 +1851,18 @@
           }
         }
       });
+
+      zohoRecruitPanelEl.addEventListener("click", (event) => {
+        const connectBtn = event.target.closest("[data-zoho-connect]");
+        if (connectBtn) {
+          window.location.href = "/api/admin/integrations/zoho-recruit/connect";
+          return;
+        }
+        const syncBtn = event.target.closest("[data-zoho-sync]");
+        if (syncBtn) {
+          triggerZohoRecruitSync();
+        }
+      });
     }
 
     function startAutoRefresh() {
@@ -1494,14 +1870,19 @@
       state.refreshTimer = setInterval(() => {
         if (document.visibilityState !== "visible") return;
         loadDashboard();
+        loadZohoRecruitStatus();
       }, 15000);
     }
 
     bindEvents();
     loadDashboard();
+    loadZohoRecruitStatus();
     startAutoRefresh();
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") loadDashboard();
+      if (document.visibilityState === "visible") {
+        loadDashboard();
+        loadZohoRecruitStatus();
+      }
     });
   </script>
 </body>

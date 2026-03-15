@@ -115,5 +115,10 @@ This applies required schema, including `public.runtime_kv`, and deploys the Sup
 - This endpoint skips if a successful sync already ran in the last ~45 seconds and uses a short lock to reduce overlapping runs.
 - Vercel Hobby does not support per-minute cron schedules. Use one of:
   - Vercel Pro cron with `* * * * *`
-  - an external scheduler such as cron-job.org or Upstash QStash calling the secure endpoint every minute
+  - an external scheduler such as GitHub Actions, cron-job.org, or Upstash QStash calling the secure endpoint every 15 minutes
+- This repo includes a ready-to-use GitHub Actions workflow at `.github/workflows/zoho-recruit-sync.yml`.
+- To enable it:
+  1. Set `ZOHO_RECRUIT_SYNC_CRON_SECRET` in Vercel.
+  2. Add the same value as a GitHub repository secret named `ZOHO_RECRUIT_SYNC_CRON_SECRET`.
+  3. Keep the workflow enabled; it will call `https://app.mygplink.com.au/api/integrations/zoho-recruit/cron-sync` every 15 minutes.
 - Recommended cadence in production is usually every 5-15 minutes unless job openings change extremely frequently.

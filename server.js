@@ -5318,6 +5318,8 @@ async function handleApi(req, res, pathname) {
       redirectUri: ZOHO_RECRUIT_REDIRECT_URI,
       accountsServer: getZohoRecruitAccountsServer(),
       scopes: getZohoRecruitScopes(),
+      cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
+      cronPath: '/api/integrations/zoho-recruit/cron-sync',
       connected: !!(connection && connection.refreshToken),
       connection,
       roleCount: roles.length
@@ -5490,6 +5492,8 @@ async function handleApi(req, res, pathname) {
       redirectUri: ZOHO_RECRUIT_REDIRECT_URI,
       accountsServer: getZohoRecruitAccountsServer(),
       scopes: getZohoRecruitScopes(),
+      cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
+      cronPath: '/api/integrations/zoho-recruit/cron-sync',
       connected: !!(connection && connection.refreshToken),
       connection,
       roleCount: roles.length

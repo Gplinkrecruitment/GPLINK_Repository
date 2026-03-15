@@ -1,0 +1,23 @@
+name: Zoho Recruit Sync
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scheduled Zoho Recruit sync
+        env:
+          ZOHO_RECRUIT_SYNC_CRON_SECRET: ${{ secrets.ZOHO_RECRUIT_SYNC_CRON_SECRET }}
+        run: |
+          if [ -z "$ZOHO_RECRUIT_SYNC_CRON_SECRET" ]; then
+            echo "Missing ZOHO_RECRUIT_SYNC_CRON_SECRET GitHub secret."
+            exit 1
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $ZOHO_RECRUIT_SYNC_CRON_SECRET" \
+            "https://app.mygplink.com.au/api/integrations/zoho-recruit/cron-sync"
