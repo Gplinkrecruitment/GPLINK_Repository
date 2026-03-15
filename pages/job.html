@@ -88,16 +88,6 @@
     .back-btn:hover { background: rgba(15, 23, 42, 0.1); }
     .back-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 
-    .back-bar-title {
-      margin: 0;
-      font-size: 14px;
-      font-weight: 800;
-      color: var(--muted);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
     /* ── Hero image ── */
     #heroArea {
       max-width: 460px;
@@ -273,14 +263,8 @@
 
     .modal-sheet {
       position: relative;
-      margin-top: -24px;
-      padding: 18px;
-      border-radius: 28px;
-      background: rgba(255, 255, 255, 0.96);
-      border: 1px solid rgba(226, 232, 240, 0.72);
-      box-shadow: 0 18px 42px -28px rgba(15, 23, 42, 0.38);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      margin-top: 18px;
+      padding: 0 0 18px;
     }
 
     /* ── Billing pill floating ── */
@@ -289,10 +273,8 @@
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
-      margin-top: 12px;
-      padding: 0 4px;
-      position: relative;
-      z-index: 2;
+      margin-top: 0;
+      padding: 0;
     }
 
     .billing-pill {
@@ -326,304 +308,32 @@
       text-transform: uppercase;
     }
 
-    /* ── Title block ── */
-    .title-block {
-      padding: 18px 0 0;
+    .detail-section {
+      margin-top: 20px;
       display: grid;
-      gap: 10px;
+      gap: 14px;
     }
 
-    .role-title {
-      margin: 0;
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 26px;
-      line-height: 1.06;
-      letter-spacing: -0.04em;
-      font-weight: 800;
-      color: var(--ink);
-    }
-
-    .role-location {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--muted);
-      font-size: 13px;
-      font-weight: 700;
-    }
-
-    .role-location svg {
-      width: 16px;
-      height: 16px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      flex-shrink: 0;
-    }
-
-    .public-location-caption {
-      margin: 0;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.55;
-      font-weight: 700;
-    }
-
-    /* ── Practice mask ── */
-    .practice-mask {
-      position: relative;
-      overflow: hidden;
-      border-radius: 18px;
-      border: 1px solid rgba(226, 232, 240, 0.88);
-      background: linear-gradient(180deg, rgba(15, 23, 42, 0.05), rgba(15, 23, 42, 0.02));
-      min-height: 72px;
-      padding: 16px 18px;
-      display: grid;
-      align-content: center;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
-      margin-top: 10px;
-    }
-
-    .practice-mask-text {
-      margin: 0;
-      color: rgba(15, 23, 42, 0.72);
-      font-size: 20px;
-      line-height: 1.04;
-      letter-spacing: -0.04em;
-      font-weight: 800;
-      filter: blur(8px);
-      transform: scale(1.03);
-      user-select: none;
-      pointer-events: none;
-    }
-
-    .practice-mask-note {
-      position: absolute;
-      inset: 0;
-      display: grid;
-      place-items: center;
-      padding: 0 18px;
-      text-align: center;
-      color: var(--text);
-      font-size: 12px;
-      line-height: 1.45;
-      font-weight: 800;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.26));
-    }
-
-    /* ── Summary ── */
-    .role-summary {
-      margin: 0;
-      color: #334155;
-      font-size: 14px;
-      line-height: 1.62;
-      font-weight: 700;
-    }
-
-    .summary-panel {
-      margin-top: 16px;
-      padding: 16px;
-      border-radius: 22px;
-      border: 1px solid rgba(226, 232, 240, 0.72);
-      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
-      display: grid;
-      gap: 12px;
-    }
-
-    .summary-panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .section-eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 7px 11px;
-      border-radius: 999px;
-      background: rgba(37, 99, 235, 0.1);
-      color: var(--blue);
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
-
-    .section-eyebrow::before {
-      content: "";
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: currentColor;
-    }
-
-    .summary-panel-meta {
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .insight-copy {
-      display: grid;
-      gap: 12px;
-    }
-
-    .insight-note {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      width: fit-content;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: rgba(37, 99, 235, 0.08);
-      color: var(--blue);
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
-
-    .insight-note::before {
-      content: "";
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: currentColor;
-    }
-
-    /* ── Section cards ── */
-    .section-card {
-      background: var(--panel);
-      border-radius: var(--radius-lg);
-      border: 1px solid rgba(226, 232, 240, 0.65);
-      box-shadow: var(--shadow-soft);
-      overflow: hidden;
-      margin-top: 16px;
-    }
-
-    .section-card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 16px 18px 12px;
-    }
-
-    .section-card-title {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 800;
-      color: var(--ink);
-    }
-
-    .section-card-subtitle {
-      margin: 0;
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--muted);
-    }
-
-    .section-card-body {
-      padding: 0 18px 18px;
-    }
-
-    .glance-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .glance-item {
+    .detail-section-head {
       display: grid;
       gap: 4px;
-      padding: 12px 14px;
-      border-radius: 16px;
-      background: rgba(248, 250, 252, 0.72);
-      border: 1px solid rgba(226, 232, 240, 0.6);
     }
 
-    .glance-label {
-      font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+    .detail-section-title {
+      margin: 0;
+      font-size: 18px;
       font-weight: 800;
-      color: var(--muted);
-    }
-
-    .glance-value {
-      font-size: 13px;
-      line-height: 1.5;
-      font-weight: 800;
+      letter-spacing: -0.03em;
       color: var(--ink);
     }
 
-    /* ── Earnings section ── */
-    .earnings-display {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .earnings-value {
-      font-size: 28px;
-      font-weight: 900;
-      letter-spacing: -0.04em;
-      color: var(--ink);
-      line-height: 1;
-    }
-
-    .earnings-period {
+    .detail-section-copy {
+      margin: 0;
       font-size: 13px;
-      font-weight: 700;
-      color: var(--muted);
-    }
-
-    .earnings-info-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      margin-top: 10px;
-      padding: 0;
-      border: none;
-      background: none;
-      color: var(--blue);
-      font-size: 12px;
-      font-weight: 800;
-      cursor: pointer;
-    }
-
-    .earnings-info-btn svg {
-      width: 14px;
-      height: 14px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    /* ── Earnings disclaimer popup ── */
-    .earnings-disclaimer {
-      margin-top: 10px;
-      padding: 14px 16px;
-      border-radius: 14px;
-      background: var(--warning-soft);
-      border: 1px solid rgba(217, 119, 6, 0.15);
-      font-size: 12px;
       line-height: 1.55;
       font-weight: 700;
-      color: #92400e;
+      color: var(--muted);
     }
-
-    .earnings-disclaimer[hidden] { display: none; }
 
     /* ── Benefits ── */
     .benefit-list {
@@ -675,39 +385,9 @@
       font-weight: 800;
     }
 
-    /* ── Detail list ── */
-    .snapshot-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .snapshot-row {
-      display: grid;
-      gap: 4px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: var(--panel-soft);
-      border: 1px solid rgba(226, 232, 240, 0.45);
-    }
-
-    .snapshot-label {
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      font-weight: 800;
-      color: var(--muted);
-    }
-
-    .snapshot-value {
-      font-size: 13px;
-      font-weight: 800;
-      color: var(--ink);
-      line-height: 1.45;
-    }
-
     /* ── Map ── */
     .map-section {
-      margin-top: 16px;
+      margin-top: 22px;
       border-radius: var(--radius-lg);
       overflow: hidden;
       border: 1px solid rgba(226, 232, 240, 0.65);
@@ -1028,29 +708,6 @@
     }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
 
-    /* ── AI status badge ── */
-    .ai-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 5px 10px;
-      border-radius: 999px;
-      background: rgba(37, 99, 235, 0.08);
-      color: var(--blue);
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-
-    .ai-badge::before {
-      content: '';
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: currentColor;
-    }
-
     /* ── Responsive ── */
     @media (max-width: 600px) {
       #heroArea {
@@ -1061,12 +718,10 @@
         padding: 0 12px 156px;
       }
       .modal-sheet {
-        margin-top: -18px;
-        padding: 16px;
-        border-radius: 24px;
+        margin-top: 16px;
+        padding-bottom: 18px;
       }
       .hero-image, .hero-image-placeholder { height: 220px; }
-      .role-title { font-size: 22px; }
       .hero-caption {
         max-width: 100%;
       }
@@ -1089,7 +744,6 @@
       <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg>
       Back
     </a>
-    <p class="back-bar-title" id="backBarTitle"></p>
   </div>
 
   <!-- Hero image area -->
@@ -1137,22 +791,13 @@
           <span class="billing-pill" id="billingPill">Billing</span>
         </div>
 
-        <div class="title-block">
-          <h1 class="role-title" id="roleTitle">General Practitioner role</h1>
-          <p class="public-location-caption">Practice identity stays confidential until the practice accepts your application.</p>
-        </div>
-
-        <div class="section-card" id="benefitsSection">
-          <div class="section-card-header">
-            <div>
-              <h3 class="section-card-title">Why GPs consider this role</h3>
-              <p class="section-card-subtitle">AI-built highlights from the Zoho Recruit profile and the practice website.</p>
-            </div>
+        <section class="detail-section" id="benefitsSection">
+          <div class="detail-section-head">
+            <h2 class="detail-section-title">Why GPs consider this role</h2>
+            <p class="detail-section-copy">AI-built highlights from the Zoho Recruit profile and the practice website.</p>
           </div>
-          <div class="section-card-body">
-            <ul class="benefit-list" id="benefitGrid"></ul>
-          </div>
-        </div>
+          <ul class="benefit-list" id="benefitGrid"></ul>
+        </section>
 
         <div class="map-section" id="mapSection" hidden>
           <div class="map-header">
@@ -1297,13 +942,11 @@
   const errorTextEl = document.getElementById("errorText");
   const contentEl = document.getElementById("roleContent");
   const stickyEl = document.getElementById("stickyActions");
-  const backBarTitleEl = document.getElementById("backBarTitle");
   const heroAreaEl = document.getElementById("heroArea");
   const heroPlaceholderEl = document.getElementById("heroPlaceholder");
   const heroLocationLabelEl = document.getElementById("heroLocationLabel");
   const heroCaptionCopyEl = document.getElementById("heroCaptionCopy");
   const billingPillEl = document.getElementById("billingPill");
-  const roleTitleEl = document.getElementById("roleTitle");
   const benefitGridEl = document.getElementById("benefitGrid");
   const mapSectionEl = document.getElementById("mapSection");
   const mapHintEl = document.getElementById("mapHint");
@@ -1367,11 +1010,6 @@
         <p class="benefit-copy">${escapeHtml(benefit)}</p>
       </li>
     `).join("");
-  }
-
-  function getDisplayTitle(role) {
-    const roleType = String(role && role.roleType ? role.roleType : "General Practitioner").trim();
-    return roleType || "General Practitioner";
   }
 
   function extractStateCode(location) {
@@ -1479,12 +1117,10 @@
     currentRole = role;
     mapVisible = false;
     const heroLocationText = getHeroLocationText(role);
-    document.title = getDisplayTitle(role) + " - GP Link";
-    backBarTitleEl.textContent = getDisplayTitle(role);
+    document.title = "Job Details - GP Link";
     heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(heroLocationText)}</span>`;
     if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(role);
     billingPillEl.textContent = role.billing || "Billing to be confirmed";
-    roleTitleEl.textContent = getDisplayTitle(role);
     applyHeroPalette(role);
 
     renderBenefits(role.benefits);
@@ -1625,6 +1261,7 @@
       return;
     }
 
+    document.title = "Job Details - GP Link";
     heroAreaEl.hidden = true;
 
     let previewRole = readPreviewRole(roleId);
