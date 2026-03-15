@@ -87,6 +87,12 @@
     }
     .back-btn:hover { background: rgba(15, 23, 42, 0.1); }
     .back-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+    .back-bar-title,
+    .title-block,
+    .role-title,
+    .public-location-caption {
+      display: none !important;
+    }
 
     /* ── Hero image ── */
     #heroArea {
@@ -988,6 +994,26 @@
     }
   }
 
+  function stripLegacyTitleUi() {
+    document.querySelectorAll(".back-bar-title, .title-block, .role-title, .public-location-caption").forEach((node) => {
+      if (node && typeof node.remove === "function") node.remove();
+    });
+  }
+
+  function setPageState(mode, message) {
+    const isContent = mode === "content";
+    const isLoading = mode === "loading";
+    const isError = mode === "error";
+
+    loadingEl.hidden = !isLoading;
+    errorEl.hidden = !isError;
+    contentEl.hidden = !isContent;
+    stickyEl.hidden = !isContent;
+    heroAreaEl.hidden = !isContent;
+
+    if (isError && message) errorTextEl.textContent = message;
+  }
+
   /* ── Render functions ── */
   function renderBenefits(benefits) {
     const items = Array.isArray(benefits) ? benefits.filter(Boolean) : [];
@@ -1116,6 +1142,8 @@
   function renderRole(role) {
     currentRole = role;
     mapVisible = false;
+    stripLegacyTitleUi();
+    setPageState("content");
     const heroLocationText = getHeroLocationText(role);
     document.title = "Job Details - GP Link";
     heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(heroLocationText)}</span>`;
@@ -1146,21 +1174,10 @@
     }
 
     updateSaveButton();
-
-    errorEl.hidden = true;
-    loadingEl.hidden = true;
-    contentEl.hidden = false;
-    stickyEl.hidden = false;
-    heroAreaEl.hidden = false;
   }
 
   function showError(message) {
-    loadingEl.hidden = true;
-    contentEl.hidden = true;
-    errorEl.hidden = false;
-    heroAreaEl.hidden = true;
-    stickyEl.hidden = true;
-    if (message) errorTextEl.textContent = message;
+    setPageState("error", message);
   }
 
   /* ── Fetch role ── */
@@ -1262,7 +1279,8 @@
     }
 
     document.title = "Job Details - GP Link";
-    heroAreaEl.hidden = true;
+    stripLegacyTitleUi();
+    setPageState("loading");
 
     let previewRole = readPreviewRole(roleId);
     if (previewRole) {
@@ -1270,7 +1288,7 @@
     }
 
     const previewPromise = previewRole ? Promise.resolve(previewRole) : loadRolePreview(roleId);
-    const detailPromise = loadRoleDetail(roleId, 12000);
+    const detailPromise = loadRoleDetail(roleId, 25000);
 
     const fastRole = await previewPromise;
     if (!currentRole && fastRole) {
