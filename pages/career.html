@@ -3245,7 +3245,7 @@
       moveNavGlass(activeNavItem);
     });
 
-    (function init() {
+    (async function init() {
       const hadStoredCareerState = !!localStorage.getItem(CAREER_STATE_KEY);
       const hashView = window.location.hash.replace("#", "");
       if (["browse", "applications", "secured"].includes(hashView)) {
