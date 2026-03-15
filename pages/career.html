@@ -2158,21 +2158,6 @@
 
   <script>
     const CAREER_STATE_KEY = "gp_career_state";
-    const FILTERS = [
-      "Sydney",
-      "Melbourne",
-      "Brisbane",
-      "Perth",
-      "Adelaide",
-      "Private Billing",
-      "Mixed Billing",
-      "DPA",
-      "Metro",
-      "Regional",
-      "High Earning",
-      "Family Friendly"
-    ];
-
     const FALLBACK_ROLE_DATA = [
       {
         id: "harbourline-medical",
@@ -2341,11 +2326,9 @@
         return {
           updatedAt: "2026-03-15T00:00:00.000Z",
           activeView: "browse",
-          activeFilter: "",
           filterLocation: "",
           filterBilling: "",
           showSavedOnly: false,
-          searchTerm: "",
           savedJobs: [],
           applications: []
         };
@@ -2353,11 +2336,9 @@
       return {
         updatedAt: "2026-03-15T00:00:00.000Z",
         activeView: "browse",
-        activeFilter: "",
         filterLocation: "",
         filterBilling: "",
         showSavedOnly: false,
-        searchTerm: "",
         savedJobs: activeRoles[0] ? [createSavedSnapshot(activeRoles[0])] : [],
         applications: [
           activeRoles[0] ? createDefaultApplication(activeRoles[0].id, { label: "Under Review", tone: "review" }, [
@@ -2401,11 +2382,9 @@
       return {
         updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : fallback.updatedAt,
         activeView: ["browse", "applications", "secured"].includes(source.activeView) ? source.activeView : fallback.activeView,
-        activeFilter: typeof source.activeFilter === "string" ? source.activeFilter : fallback.activeFilter,
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
         filterBilling: typeof source.filterBilling === "string" ? source.filterBilling : fallback.filterBilling,
         showSavedOnly: source.showSavedOnly === true,
-        searchTerm: typeof source.searchTerm === "string" ? source.searchTerm : fallback.searchTerm,
         savedJobs: Array.isArray(source.savedJobs)
           ? source.savedJobs
               .filter((job) => job && roleIds.has(job.id))
@@ -2843,32 +2822,16 @@
     }
 
     function getFilteredRoles() {
-      const searchTerm = careerState.searchTerm.trim().toLowerCase();
-      const filter = careerState.activeFilter;
       const filterLocation = careerState.filterLocation.trim().toLowerCase();
       const filterBilling = careerState.filterBilling.trim().toLowerCase();
       return roleData.filter((role) => {
         const matchesSaved = !careerState.showSavedOnly || isSaved(role.id);
         if (!matchesSaved) return false;
-        const matchesFilter = !filter || role.filterTokens.includes(filter);
-        if (!matchesFilter) return false;
         const matchesLocation = !filterLocation || String(role.location || "").trim().toLowerCase() === filterLocation;
         if (!matchesLocation) return false;
         const matchesBilling = !filterBilling || String(role.billing || "").trim().toLowerCase() === filterBilling;
         if (!matchesBilling) return false;
-        if (!searchTerm) return true;
-        const haystack = [
-          role.practiceName,
-          role.location,
-          role.summary,
-          role.billing,
-          role.geography,
-          role.earnings,
-          role.tags.join(" "),
-          role.support,
-          role.practiceType
-        ].join(" ").toLowerCase();
-        return haystack.includes(searchTerm);
+        return true;
       });
     }
 
@@ -3151,11 +3114,9 @@
     });
 
     clearFiltersBtnEl.addEventListener("click", () => {
-      careerState.activeFilter = "";
       careerState.filterLocation = "";
       careerState.filterBilling = "";
       careerState.showSavedOnly = false;
-      careerState.searchTerm = "";
       persistCareerState();
       renderPage();
       window.scrollTo({ top: 0, behavior: "smooth" });
