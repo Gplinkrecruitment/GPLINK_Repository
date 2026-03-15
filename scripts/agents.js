@@ -58,12 +58,37 @@ function readFileSafe(filePath) {
 }
 
 function readProjectContext() {
+  // Pull Zoho-related lines from server.js as a focused snippet
+  const serverFull = readFileSafe(path.join(ROOT, 'server.js')) || '';
+  const serverTop = serverFull.split('\n').slice(0, 120).join('\n');
+  const zohoLines = serverFull.split('\n')
+    .filter(l => /zoho|ZOHO|recruit|RECRUIT/i.test(l))
+    .slice(0, 40).join('\n');
+  const supabaseLines = serverFull.split('\n')
+    .filter(l => /supabase|SUPABASE/i.test(l))
+    .slice(0, 30).join('\n');
+
+  // Supabase migrations list
+  const migrationsDir = path.join(ROOT, 'supabase', 'migrations');
+  let migrationsList = '';
+  try {
+    migrationsList = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).join('\n');
+  } catch { migrationsList = '(no migrations dir found)'; }
+
+  // vercel.json
+  const vercelJson = readFileSafe(path.join(ROOT, 'vercel.json'));
+
   const files = {
-    'server.js (first 120 lines)': readFileSafe(path.join(ROOT, 'server.js'))?.split('\n').slice(0, 120).join('\n'),
-    'pages/career.html (structure)': readFileSafe(path.join(ROOT, 'pages/career.html'))?.split('\n').slice(0, 80).join('\n'),
-    'pages/my-documents.html (structure)': readFileSafe(path.join(ROOT, 'pages/my-documents.html'))?.split('\n').slice(0, 80).join('\n'),
+    'server.js — top 120 lines (routing patterns, env vars)': serverTop,
+    'server.js — Zoho Recruit lines': zohoLines || '(none found)',
+    'server.js — Supabase lines': supabaseLines || '(none found)',
+    'vercel.json': vercelJson,
+    'supabase/migrations (existing files)': migrationsList,
+    'pages/career.html — structure (first 80 lines)': readFileSafe(path.join(ROOT, 'pages/career.html'))?.split('\n').slice(0, 80).join('\n'),
+    'pages/my-documents.html — structure (first 80 lines)': readFileSafe(path.join(ROOT, 'pages/my-documents.html'))?.split('\n').slice(0, 80).join('\n'),
     'js/auth-guard.js (first 40 lines)': readFileSafe(path.join(ROOT, 'js/auth-guard.js'))?.split('\n').slice(0, 40).join('\n'),
     'docs/ai-scan-reference.md': readFileSafe(path.join(ROOT, 'docs/ai-scan-reference.md')),
+    '.env.example (available env vars)': readFileSafe(path.join(ROOT, '.env.example')),
   };
 
   return Object.entries(files)
@@ -118,8 +143,21 @@ function ensureDir(dir) {
 async function leadAgent(task, projectContext) {
   const system = `You are the Lead Agent for GP Link, a GP recruitment web app.
 
-The stack is: vanilla HTML/CSS/JS pages in /pages/, a Node.js server in server.js,
-Supabase for the database, deployed on Vercel. No React on the main pages — pure JS.
+Full stack overview:
+- Frontend: vanilla HTML/CSS/JS pages in /pages/ — no React, no build step, pure JS
+- Backend: server.js — Node.js HTTP server (no Express), manual routing
+- Database: Supabase (Postgres) — accessed via REST API, migrations in supabase/migrations/
+- CRM/ATS: Zoho Recruit — OAuth 2.0, syncs job openings, candidates, applications
+- Hosting: Vercel — vercel.json routes everything through server.js, env vars in Vercel dashboard
+- AI: Anthropic Claude (claude-sonnet-4-6) — document verification, classification
+
+Backend agent capabilities:
+- Can add/edit API endpoints in server.js
+- Can write Supabase SQL migrations (new tables, columns, RLS policies, functions)
+- Can add/modify Zoho Recruit API calls (list jobs, create candidates, update application stage)
+- Can add Vercel cron jobs in vercel.json
+- Knows all env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ZOHO_RECRUIT_CLIENT_ID,
+  ZOHO_RECRUIT_CLIENT_SECRET, ZOHO_RECRUIT_ACCOUNTS_SERVER, ANTHROPIC_API_KEY, AUTH_SECRET
 
 Your job is to:
 1. Understand the task
@@ -127,18 +165,19 @@ Your job is to:
 3. Return a structured plan as JSON
 
 The specialist agents are:
-- frontend: handles HTML pages in /pages/, inline CSS, inline JS, mobile nav, modals, cards
-- backend: handles server.js API endpoints, Supabase schema (SQL migrations), auth logic
-- review: audits code for security issues, bugs, consistency, accessibility
+- frontend: HTML pages in /pages/, inline CSS, inline JS, mobile nav, modals, cards, design system
+- backend: server.js endpoints, Supabase schema, Zoho Recruit API calls, Vercel cron jobs
+- review: security audit, bug check, accessibility, design consistency
 
 Rules:
 - Only include an agent if the task genuinely needs it
-- Be specific — each subtask should be self-contained and actionable
-- frontend subtasks should name which HTML file(s) to edit
-- backend subtasks should name which endpoint or table is affected
-- review always runs last
+- Be specific — each subtask must be self-contained and actionable
+- frontend subtasks must name which HTML file(s) to edit
+- backend subtasks must name which endpoint, table, or Zoho module is affected
+- If a task touches Zoho data AND the UI, backend runs first, frontend depends on it
+- review always runs last with dependsOn pointing to all other subtask ids
 
-Return ONLY this JSON (no markdown fences needed):
+Return ONLY valid JSON (no markdown fences):
 {
   "summary": "one sentence describing what will be built",
   "subtasks": [
@@ -211,41 +250,91 @@ Be precise — 'find' strings must match exactly what's in the file.`;
 // ─── Backend Agent ───────────────────────────────────────────────────────────
 
 async function backendAgent(subtask, projectContext, previousOutputs) {
-  const system = `You are the Backend Agent for GP Link.
+  const system = `You are the Backend Agent for GP Link. You have full knowledge of and access to three systems:
 
-Stack:
-- server.js: Node.js HTTP server (no Express), uses native \`http\` module + manual routing
-- Supabase: postgres DB accessed via REST API using SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
-- Auth: gp_session cookie (signed JWT-like), parsed by verifySession()
-- AI: fetch to https://api.anthropic.com/v1/messages with ANTHROPIC_API_KEY
-- Deployed on Vercel via @vercel/node
-
-Patterns in server.js:
-- Routes matched by: if (method === 'POST' && pathname === '/api/...')
-- DB calls: fetch(\`\${SUPABASE_URL}/rest/v1/tablename\`, { headers: { apikey, Authorization } })
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. SERVER.JS — Node.js HTTP server
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- No Express — native http module with manual routing
+- Routes: if (method === 'POST' && pathname === '/api/...')
+- Auth: verifySession(req) returns { userId, email } or throws
 - Always return JSON: res.end(JSON.stringify({ ok: true, ... }))
-- Migrations go in supabase/migrations/YYYYMMDDHHMMSS_name.sql
+- Env vars already available: ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+  ZOHO_RECRUIT_CLIENT_ID, ZOHO_RECRUIT_CLIENT_SECRET, ZOHO_RECRUIT_ACCOUNTS_SERVER,
+  ZOHO_RECRUIT_REDIRECT_URI, ZOHO_RECRUIT_SCOPES
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. SUPABASE — Postgres database (REST API)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- REST calls: fetch(\`\${SUPABASE_URL}/rest/v1/tablename\`, {
+    headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: \`Bearer \${SUPABASE_SERVICE_ROLE_KEY}\`,
+               'Content-Type': 'application/json', Prefer: 'return=representation' }
+  })
+- SELECT: GET with ?select=col1,col2&filter=eq.value
+- INSERT: POST with body JSON
+- UPDATE: PATCH with ?id=eq.value and body JSON
+- UPSERT: POST with Prefer: resolution=merge-duplicates
+- RPC: POST to /rest/v1/rpc/function_name
+- Migrations: supabase/migrations/YYYYMMDDHHMMSS_name.sql
+- Key tables: gp_users, gp_onboarding_state, gp_documents, gp_career_roles, gp_applications
+- Storage buckets: gp-link-documents (for uploaded files)
+- Always add Row Level Security (RLS) policies in migrations
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. ZOHO RECRUIT — CRM/ATS integration
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- OAuth 2.0 flow: ZOHO_RECRUIT_CLIENT_ID + ZOHO_RECRUIT_CLIENT_SECRET
+- Token endpoint: \`\${ZOHO_RECRUIT_ACCOUNTS_SERVER}/oauth/v2/token\`
+- API base: https://recruit.zoho.com/recruit/v2/ (or region-specific)
+- Key modules: Job_Openings, Candidates, Applications, Interviews
+- Tokens stored in Supabase (zoho_tokens table) — refresh before each call
+- Sync endpoint already exists: GET /api/integrations/zoho-recruit/cron-sync
+- Webhook support: POST /api/integrations/zoho-recruit/webhook
+- Common operations:
+  - List jobs: GET /recruit/v2/Job_Openings?fields=Job_Opening_Name,City,State,Salary&status=Open
+  - Get candidate: GET /recruit/v2/Candidates/{id}
+  - Create application: POST /recruit/v2/Applications
+  - Update stage: PUT /recruit/v2/Applications/{id}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. VERCEL — Deployment platform
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Deployed via vercel.json — all routes go through server.js
+- Cron jobs defined in vercel.json under "crons": [{ "path": "/api/...", "schedule": "0 * * * *" }]
+- Env vars set in Vercel dashboard (not in .env for production)
+- vercel.json maxDuration: 30 (seconds) per request — keep endpoints fast
+- For long-running tasks use background jobs or split into smaller calls
+- Edge config not used — all config via env vars
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Your output must be a JSON object:
 {
   "files": [
     {
-      "path": "server.js" | "supabase/migrations/....sql",
+      "path": "server.js" | "supabase/migrations/YYYYMMDDHHMMSS_name.sql" | "vercel.json",
       "action": "edit" | "create",
       "description": "what changed and why",
       "changes": [
         {
           "description": "what this change does",
-          "find": "exact text to find (for edits)",
+          "find": "exact text to find (for edits) — must match file exactly",
           "replace": "replacement text"
         }
       ]
     }
   ],
-  "notes": "any env vars needed, migration steps, or deployment notes"
+  "envVars": [
+    { "name": "VAR_NAME", "description": "what it's for", "required": true }
+  ],
+  "supabaseMigrations": ["list any SQL migration files created"],
+  "zohoScopes": ["any additional Zoho OAuth scopes needed beyond the default"],
+  "notes": "deployment steps, cron schedules, migration instructions"
 }
 
-For 'create' actions, include 'fullContent' instead of 'changes'.`;
+For 'create' actions, include 'fullContent' instead of 'changes'.
+Always validate inputs server-side. Always check auth with verifySession() on protected routes.
+Never log secrets. Use parameterised queries / Supabase REST params, never string-concatenated SQL.`;
 
   const prevContext = previousOutputs.length
     ? `\n\nPrevious agent outputs:\n${previousOutputs.map(o => `[${o.id}]\n${o.output}`).join('\n\n')}`
@@ -261,12 +350,38 @@ For 'create' actions, include 'fullContent' instead of 'changes'.`;
 async function reviewAgent(subtask, projectContext, previousOutputs) {
   const system = `You are the Security & Code Review Agent for GP Link.
 
-Review all agent outputs for:
-1. Security: XSS, SQL injection, missing auth checks, exposed secrets, unvalidated input
-2. Bugs: off-by-one errors, missing null checks, unhandled promise rejections
-3. Consistency: design system compliance (colors, spacing, fonts), mobile nav structure
-4. Accessibility: missing aria labels, poor contrast, keyboard traps
-5. Performance: unnecessary re-renders, missing cache busters, large payloads
+You review changes across all three backend systems plus the frontend:
+
+FRONTEND checks:
+- XSS: no innerHTML with unescaped user data, no eval()
+- Missing cache busters on script/link tags (?v=YYYYMMDD)
+- Mobile nav must have exactly 5 tabs (Home, Registration, Scan, Career, Account)
+- Design system: Inter font, --blue #2563eb, glass cards with backdrop-filter
+- Accessibility: aria labels, keyboard nav, sufficient contrast
+
+BACKEND / server.js checks:
+- Every protected endpoint calls verifySession() before touching data
+- No secrets logged or returned to client
+- Input validated and sanitised before use
+- JSON parse wrapped in try/catch
+- Errors return { ok: false, error: "..." } not stack traces
+
+SUPABASE checks:
+- New tables have RLS enabled in migration SQL
+- RLS policies exist for SELECT/INSERT/UPDATE/DELETE
+- No raw SQL string concatenation — use Supabase REST params
+- Migrations are additive (no DROP TABLE on live data without backup plan)
+
+ZOHO RECRUIT checks:
+- OAuth tokens refreshed before each API call, not assumed valid
+- Zoho API errors handled gracefully (rate limits, 401, 429)
+- No Zoho credentials exposed to frontend responses
+- Synced data normalised before storing in Supabase
+
+VERCEL checks:
+- maxDuration not exceeded (30s limit per request)
+- Cron jobs have auth protection (CRON_SECRET header check)
+- No secrets in vercel.json (env vars only in dashboard)
 
 Return a JSON report:
 {
@@ -280,10 +395,10 @@ Return a JSON report:
       "fix": "exactly how to fix it"
     }
   ],
-  "summary": "overall assessment"
+  "summary": "overall assessment in 1-2 sentences"
 }
 
-If approved is false, list all critical issues that must be fixed before shipping.`;
+approved: false if any critical issues exist.`;
 
   const allOutputs = previousOutputs.map(o => `[${o.id} — ${o.agent}]\n${o.output}`).join('\n\n');
   const message = `Project context:\n${projectContext}\n\nAll agent outputs to review:\n${allOutputs}\n\n---\nReview task: ${subtask.description}`;
