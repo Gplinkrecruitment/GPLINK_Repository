@@ -308,15 +308,12 @@
     }
 
     .page-hero {
-      padding: 24px;
-      background:
-        radial-gradient(circle at top right, rgba(59, 130, 246, 0.18), transparent 34%),
-        radial-gradient(circle at bottom left, rgba(37, 99, 235, 0.16), transparent 32%),
-        linear-gradient(180deg, #0f172a 0%, #111827 100%);
-      backdrop-filter: blur(24px) saturate(1.3);
-      -webkit-backdrop-filter: blur(24px) saturate(1.3);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 28px 56px -28px rgba(15, 23, 42, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      padding: 0;
+      background: transparent;
+      border: 0;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
       display: grid;
       gap: 18px;
     }
@@ -339,11 +336,11 @@
       line-height: .95;
       letter-spacing: -0.05em;
       font-weight: 800;
-      color: #fff;
+      color: var(--text);
     }
 
     .desktop-hero-copy .page-subtitle {
-      color: rgba(226, 232, 240, 0.8);
+      color: var(--muted);
     }
 
     .page-subtitle {
@@ -370,30 +367,34 @@
       gap: 10px;
     }
 
-    .hero-search-chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+    .hero-filter-field {
+      position: relative;
+      display: block;
+      min-width: 0;
+    }
+
+    .hero-filter-select {
+      width: 100%;
       min-height: 46px;
-      padding: 0 14px;
+      padding: 0 40px 0 14px;
       border-radius: 14px;
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       color: #0f172a;
       font-size: 13px;
       font-weight: 700;
+      appearance: none;
+      -webkit-appearance: none;
       cursor: pointer;
       transition: border-color .16s ease, background .16s ease, transform .16s ease;
-      text-align: left;
     }
 
-    .hero-search-chip:hover {
+    .hero-filter-select:hover {
       background: #eef2f7;
       border-color: rgba(100, 116, 139, 0.3);
     }
 
-    .hero-search-chip:active {
+    .hero-filter-select:active {
       transform: scale(0.985);
     }
 
@@ -402,82 +403,76 @@
       height: 16px;
       color: #94a3b8;
       flex: 0 0 auto;
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
     }
 
-    .hero-search-actions {
+    .hero-search-footer {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .hero-search-cta {
-      justify-content: flex-start;
+      justify-content: flex-end;
     }
 
     .hero-clear-btn {
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 14px;
-      background: #f8fafc;
-      color: #0f172a;
-      padding: 12px 14px;
-      font-size: 13px;
-      font-weight: 800;
+      border: 0;
+      background: transparent;
+      color: #64748b;
+      padding: 0;
+      font-size: 12px;
+      font-weight: 700;
       cursor: pointer;
-      transition: transform .16s ease, background .16s ease, border-color .16s ease;
+      transition: color .16s ease, opacity .16s ease;
     }
 
     .hero-clear-btn:hover {
-      background: #eef2f7;
-      border-color: rgba(100, 116, 139, 0.3);
+      color: #0f172a;
     }
 
     .hero-clear-btn:active {
-      transform: scale(0.985);
+      opacity: .7;
     }
 
     .hero-shortcuts {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
-      padding-top: 10px;
+      gap: 10px;
     }
 
     .hero-shortcut {
-      border: 0;
-      background: transparent;
-      color: rgba(226, 232, 240, 0.88);
+      border: 1px solid rgba(226, 232, 240, 0.82);
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--text);
       text-align: center;
       padding: 12px 14px;
-      min-height: 88px;
+      min-height: 74px;
       display: grid;
-      gap: 10px;
+      gap: 8px;
       justify-items: center;
       align-content: center;
       cursor: pointer;
       position: relative;
-      transition: background .16s ease, color .16s ease;
-    }
-
-    .hero-shortcut + .hero-shortcut {
-      border-left: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      box-shadow: var(--shadow-soft);
+      transition: background .16s ease, color .16s ease, border-color .16s ease;
     }
 
     .hero-shortcut:hover,
     .hero-shortcut.is-active {
-      background: rgba(255, 255, 255, 0.06);
-      color: #fff;
+      background: #fff;
+      border-color: rgba(37, 99, 235, 0.28);
+      color: var(--text);
     }
 
     .hero-shortcut-icon {
       width: 34px;
       height: 34px;
       border-radius: 14px;
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(37, 99, 235, 0.12);
       display: grid;
       place-items: center;
-      color: #fff;
+      color: #2563eb;
       position: relative;
     }
 
@@ -513,13 +508,6 @@
       font-size: 14px;
       font-weight: 800;
       letter-spacing: -0.02em;
-    }
-
-    .hero-shortcut-copy {
-      color: rgba(203, 213, 225, 0.74);
-      font-size: 12px;
-      line-height: 1.5;
-      font-weight: 600;
     }
 
     .view-panel {
@@ -1714,10 +1702,12 @@
         margin: 0 -12px 0;
         padding: 10px 18px 18px;
         display: grid;
+        background:
+          radial-gradient(circle at top right, rgba(59, 130, 246, 0.18), transparent 34%),
+          radial-gradient(circle at bottom left, rgba(37, 99, 235, 0.16), transparent 32%),
+          linear-gradient(180deg, #0f172a 0%, #111827 100%);
+        border: 0;
         border-radius: 0 0 28px 28px;
-        border-top: 0;
-        border-left: 0;
-        border-right: 0;
         box-shadow: 0 22px 44px -34px rgba(15, 23, 42, 0.88);
       }
 
@@ -1727,12 +1717,23 @@
 
       .hero-shortcuts {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0;
       }
 
       .hero-shortcut {
         min-height: 74px;
         padding: 10px 8px;
         gap: 8px;
+        border: 0;
+        background: transparent;
+        color: rgba(226, 232, 240, 0.88);
+        box-shadow: none;
+      }
+
+      .hero-shortcut:hover,
+      .hero-shortcut.is-active {
+        background: rgba(255, 255, 255, 0.06);
+        color: #fff;
       }
 
       .hero-shortcut + .hero-shortcut {
@@ -1740,31 +1741,26 @@
         border-top: 0;
       }
 
+      .hero-shortcut-icon {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+      }
+
       .hero-shortcut-title {
         font-size: 12px;
-      }
-
-      .hero-shortcut-copy {
-        display: none;
-      }
-
-      .hero-search-actions {
-        flex-wrap: wrap;
       }
 
       .hero-search-meta {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .hero-search-chip,
-      .search-launch-btn,
-      .hero-clear-btn {
+      .hero-filter-select {
         min-height: 44px;
       }
 
-      .hero-search-chip {
+      .hero-filter-select {
         font-size: 12px;
-        padding: 0 12px;
+        padding: 0 36px 0 12px;
       }
 
       .section-title {
@@ -1924,22 +1920,18 @@
             <p class="page-subtitle">Explore roles matched to your profile and relocation goals.</p>
           </div>
           <div class="hero-search-card">
-            <div class="hero-search-actions">
-              <button class="search-launch-btn hero-search-cta" id="openSearchByBtn" type="button">
-                <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
-                <span>Search</span>
-              </button>
-              <button class="hero-clear-btn" id="clearFiltersBtn" type="button">Clear filters</button>
-            </div>
             <div class="hero-search-meta">
-              <button class="hero-search-chip" id="openLocationFilterBtn" type="button">
-                <span id="heroLocationChip">Any location</span>
+              <label class="hero-filter-field">
+                <select class="hero-filter-select" id="heroLocationSelect" aria-label="Filter by location"></select>
                 <svg class="hero-search-chip-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
-              </button>
-              <button class="hero-search-chip" id="openBillingFilterBtn" type="button">
-                <span id="heroBillingChip">Any billing type</span>
+              </label>
+              <label class="hero-filter-field">
+                <select class="hero-filter-select" id="heroBillingSelect" aria-label="Filter by billing type"></select>
                 <svg class="hero-search-chip-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
-              </button>
+              </label>
+            </div>
+            <div class="hero-search-footer">
+              <button class="hero-clear-btn" id="clearFiltersBtn" type="button">Clear filters</button>
             </div>
           </div>
           <div class="hero-shortcuts">
@@ -1949,7 +1941,6 @@
                 <span class="hero-shortcut-badge" id="savedJobsShortcutCount">0</span>
               </span>
               <span class="hero-shortcut-title">Saved Jobs</span>
-              <span class="hero-shortcut-copy">Open your shortlisted roles inside Career.</span>
             </button>
             <button class="hero-shortcut" id="applicationsShortcutBtn" type="button">
               <span class="hero-shortcut-icon">
@@ -1957,14 +1948,12 @@
                 <span class="hero-shortcut-badge" id="applicationsShortcutCount">0</span>
               </span>
               <span class="hero-shortcut-title">Applications</span>
-              <span class="hero-shortcut-copy">Track interviews, reviews and live role progress.</span>
             </button>
             <button class="hero-shortcut" id="howToApplyShortcutBtn" type="button">
               <span class="hero-shortcut-icon">
                 <svg viewBox="0 0 24 24"><path d="M9.1 9a3 3 0 1 1 5.8 1c0 2-3 2-3 4"></path><path d="M12 17h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>
               </span>
               <span class="hero-shortcut-title">How to apply</span>
-              <span class="hero-shortcut-copy">See the quick steps before your application goes to a practice.</span>
             </button>
           </div>
         </div>
@@ -2121,32 +2110,6 @@
       <div class="modal-actions">
         <button class="btn-secondary" id="roleModalSaveBtn" type="button">Save job</button>
         <button class="btn-primary" id="roleModalApplyBtn" type="button">Apply now</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="searchByModal" aria-hidden="true">
-    <div class="modal-card search-modal-card" role="dialog" aria-modal="true" aria-labelledby="searchByTitle">
-      <button class="modal-close" id="searchByCloseBtn" type="button" aria-label="Close search filters">
-        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-      </button>
-      <div class="search-modal-header">
-        <h2 class="modal-title" id="searchByTitle">Search</h2>
-        <p class="page-subtitle" style="max-width:none;">Choose location and billing type to narrow the live role list.</p>
-      </div>
-      <div class="search-form-grid">
-        <label class="search-select-field">
-          <span class="detail-label">Location</span>
-          <select id="searchLocationSelect"></select>
-        </label>
-        <label class="search-select-field">
-          <span class="detail-label">Billing type</span>
-          <select id="searchBillingSelect"></select>
-        </label>
-      </div>
-      <div class="modal-actions">
-        <button class="btn-secondary" id="searchByClearBtn" type="button">Clear</button>
-        <button class="btn-primary" id="searchByApplyBtn" type="button">Apply filters</button>
       </div>
     </div>
   </div>
@@ -2467,8 +2430,8 @@
     const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
     let activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
 
-    const heroLocationChipEl = document.getElementById("heroLocationChip");
-    const heroBillingChipEl = document.getElementById("heroBillingChip");
+    const heroLocationSelectEl = document.getElementById("heroLocationSelect");
+    const heroBillingSelectEl = document.getElementById("heroBillingSelect");
     const savedJobsShortcutBtnEl = document.getElementById("savedJobsShortcutBtn");
     const applicationsShortcutBtnEl = document.getElementById("applicationsShortcutBtn");
     const howToApplyShortcutBtnEl = document.getElementById("howToApplyShortcutBtn");
@@ -2479,15 +2442,6 @@
     const applicationsGridEl = document.getElementById("applicationsGrid");
     const applicationsEmptyStateEl = document.getElementById("applicationsEmptyState");
     const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
-    const openSearchByBtnEl = document.getElementById("openSearchByBtn");
-    const openLocationFilterBtnEl = document.getElementById("openLocationFilterBtn");
-    const openBillingFilterBtnEl = document.getElementById("openBillingFilterBtn");
-    const searchByModalEl = document.getElementById("searchByModal");
-    const searchByCloseBtnEl = document.getElementById("searchByCloseBtn");
-    const searchLocationSelectEl = document.getElementById("searchLocationSelect");
-    const searchBillingSelectEl = document.getElementById("searchBillingSelect");
-    const searchByApplyBtnEl = document.getElementById("searchByApplyBtn");
-    const searchByClearBtnEl = document.getElementById("searchByClearBtn");
     const howToApplyModalEl = document.getElementById("howToApplyModal");
     const howToApplyCloseBtnEl = document.getElementById("howToApplyCloseBtn");
     const howToApplyDoneBtnEl = document.getElementById("howToApplyDoneBtn");
@@ -2638,38 +2592,8 @@
     }
 
     function renderSearchFilterControls() {
-      setSelectOptions(searchLocationSelectEl, getRoleLocationOptions(), "Any location", careerState.filterLocation);
-      setSelectOptions(searchBillingSelectEl, getRoleBillingOptions(), "Any billing type", careerState.filterBilling);
-      if (heroLocationChipEl) {
-        heroLocationChipEl.textContent = careerState.filterLocation || "Any location";
-      }
-      if (heroBillingChipEl) {
-        heroBillingChipEl.textContent = careerState.filterBilling || "Any billing type";
-      }
-    }
-
-    function openSearchByModal(targetField) {
-      renderSearchFilterControls();
-      if (!searchByModalEl) return;
-      searchByModalEl.classList.add("is-open");
-      searchByModalEl.setAttribute("aria-hidden", "false");
-      window.requestAnimationFrame(() => {
-        if (targetField === "location" && searchLocationSelectEl) {
-          searchLocationSelectEl.focus();
-          return;
-        }
-        if (targetField === "billing" && searchBillingSelectEl) {
-          searchBillingSelectEl.focus();
-          return;
-        }
-        if (searchLocationSelectEl) searchLocationSelectEl.focus();
-      });
-    }
-
-    function closeSearchByModal() {
-      if (!searchByModalEl) return;
-      searchByModalEl.classList.remove("is-open");
-      searchByModalEl.setAttribute("aria-hidden", "true");
+      setSelectOptions(heroLocationSelectEl, getRoleLocationOptions(), "Any location", careerState.filterLocation);
+      setSelectOptions(heroBillingSelectEl, getRoleBillingOptions(), "Any billing type", careerState.filterBilling);
     }
 
     function openHowToApplyModal() {
@@ -3075,28 +2999,16 @@
       syncActiveViewUi();
     }
 
-    openSearchByBtnEl.addEventListener("click", () => openSearchByModal());
-    openLocationFilterBtnEl.addEventListener("click", () => openSearchByModal("location"));
-    openBillingFilterBtnEl.addEventListener("click", () => openSearchByModal("billing"));
-    searchByCloseBtnEl.addEventListener("click", closeSearchByModal);
-    searchByModalEl.addEventListener("click", (event) => {
-      if (event.target === searchByModalEl) closeSearchByModal();
-    });
-
-    searchByApplyBtnEl.addEventListener("click", () => {
-      careerState.filterLocation = searchLocationSelectEl.value;
-      careerState.filterBilling = searchBillingSelectEl.value;
+    heroLocationSelectEl.addEventListener("change", () => {
+      careerState.filterLocation = heroLocationSelectEl.value;
       persistCareerState();
-      closeSearchByModal();
       renderPage();
     });
 
-    searchByClearBtnEl.addEventListener("click", () => {
-      careerState.filterLocation = "";
-      careerState.filterBilling = "";
+    heroBillingSelectEl.addEventListener("change", () => {
+      careerState.filterBilling = heroBillingSelectEl.value;
       persistCareerState();
       renderPage();
-      closeSearchByModal();
     });
 
     savedJobsShortcutBtnEl.addEventListener("click", () => {
@@ -3122,7 +3034,6 @@
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        if (searchByModalEl.classList.contains("is-open")) closeSearchByModal();
         if (howToApplyModalEl.classList.contains("is-open")) closeHowToApplyModal();
         if (roleModalEl.classList.contains("is-open")) closeRoleModal();
       }
