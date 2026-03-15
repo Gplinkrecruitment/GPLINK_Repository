@@ -44,9 +44,10 @@
     body {
       font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background:
-        radial-gradient(880px 520px at 10% -10%, rgba(59, 130, 246, 0.16), transparent 56%),
-        radial-gradient(760px 460px at 100% 0%, rgba(37, 99, 235, 0.12), transparent 58%),
-        linear-gradient(180deg, #0f172a 0, #111827 340px, var(--bg) 340px, var(--bg) 100%);
+        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.14), transparent 56%),
+        radial-gradient(760px 460px at 100% 0%, rgba(29, 78, 216, 0.14), transparent 58%),
+        radial-gradient(600px 400px at 50% 100%, rgba(37, 99, 235, 0.06), transparent 60%),
+        var(--bg);
       color: var(--text);
       padding: 0;
     }
@@ -95,13 +96,13 @@
       font-size: 20px;
       font-weight: 800;
       letter-spacing: -0.03em;
-      color: #fff;
+      color: var(--text);
     }
 
     .header-text p {
       margin: 2px 0 0;
       font-size: 13px;
-      color: rgba(226, 232, 240, 0.76);
+      color: var(--muted);
       font-weight: 600;
     }
 
@@ -115,8 +116,8 @@
       width: 42px;
       height: 42px;
       border-radius: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(226, 232, 240, 0.6);
+      background: rgba(255, 255, 255, 0.6);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       display: grid;
@@ -124,13 +125,13 @@
       cursor: pointer;
       position: relative;
       transition: all .15s ease;
-      color: #fff;
+      color: #475569;
       text-decoration: none;
     }
 
     .header-icon-btn:hover {
-      background: rgba(255, 255, 255, 0.14);
-      border-color: rgba(255, 255, 255, 0.18);
+      background: rgba(248, 250, 252, 0.8);
+      border-color: rgba(203, 213, 225, 0.7);
     }
 
     .header-icon-btn svg,
@@ -177,7 +178,7 @@
     }
 
     .topbar {
-      margin-top: 0;
+      margin-top: 18px;
       padding: 14px 16px;
       border-radius: var(--radius-lg);
       border: 1px solid rgba(255, 255, 255, 0.55);
@@ -281,7 +282,7 @@
     }
 
     .main {
-      padding: 0;
+      padding: 14px 0 0;
       display: grid;
       gap: 12px;
     }
@@ -326,6 +327,25 @@
       min-width: 0;
     }
 
+    .desktop-hero-copy {
+      display: grid;
+      gap: 4px;
+    }
+
+    .desktop-hero-copy h1 {
+      margin: 0;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 34px;
+      line-height: .95;
+      letter-spacing: -0.05em;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .desktop-hero-copy .page-subtitle {
+      color: rgba(226, 232, 240, 0.8);
+    }
+
     .page-subtitle {
       margin: 0;
       max-width: 56ch;
@@ -337,24 +357,11 @@
 
     .hero-search-card {
       display: grid;
-      gap: 14px;
+      gap: 12px;
       background: rgba(255, 255, 255, 0.96);
       border-radius: 20px;
       padding: 16px;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 22px 40px -34px rgba(15, 23, 42, 0.72);
-    }
-
-    .hero-search-line {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      color: #64748b;
-      font-size: 14px;
-      font-weight: 700;
-    }
-
-    .hero-search-line .search-icon {
-      color: #94a3b8;
     }
 
     .hero-search-meta {
@@ -366,6 +373,8 @@
     .hero-search-chip {
       display: inline-flex;
       align-items: center;
+      justify-content: space-between;
+      gap: 10px;
       min-height: 46px;
       padding: 0 14px;
       border-radius: 14px;
@@ -374,18 +383,36 @@
       color: #0f172a;
       font-size: 13px;
       font-weight: 700;
+      cursor: pointer;
+      transition: border-color .16s ease, background .16s ease, transform .16s ease;
+      text-align: left;
+    }
+
+    .hero-search-chip:hover {
+      background: #eef2f7;
+      border-color: rgba(100, 116, 139, 0.3);
+    }
+
+    .hero-search-chip:active {
+      transform: scale(0.985);
+    }
+
+    .hero-search-chip-caret {
+      width: 16px;
+      height: 16px;
+      color: #94a3b8;
+      flex: 0 0 auto;
     }
 
     .hero-search-actions {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
+      display: flex;
       align-items: center;
+      justify-content: space-between;
+      gap: 10px;
     }
 
     .hero-search-cta {
-      justify-content: center;
-      width: 100%;
+      justify-content: flex-start;
     }
 
     .hero-clear-btn {
@@ -421,12 +448,13 @@
       border: 0;
       background: transparent;
       color: rgba(226, 232, 240, 0.88);
-      text-align: left;
+      text-align: center;
       padding: 12px 14px;
-      min-height: 96px;
+      min-height: 88px;
       display: grid;
-      gap: 8px;
-      align-content: start;
+      gap: 10px;
+      justify-items: center;
+      align-content: center;
       cursor: pointer;
       position: relative;
       transition: background .16s ease, color .16s ease;
@@ -1642,6 +1670,7 @@
 
     @media (max-width: 767px) {
       body {
+        background: linear-gradient(180deg, #0f172a 0, #111827 430px, var(--bg) 430px, var(--bg) 100%);
         padding-bottom: 96px;
       }
 
@@ -1651,6 +1680,26 @@
 
       .app-header {
         display: flex;
+        padding: calc(env(safe-area-inset-top, 0px) + 18px) 4px 16px;
+      }
+
+      .header-text h1 {
+        color: #fff;
+      }
+
+      .header-text p {
+        color: rgba(226, 232, 240, 0.76);
+      }
+
+      .header-icon-btn {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+      }
+
+      .header-icon-btn:hover {
+        background: rgba(255, 255, 255, 0.14);
+        border-color: rgba(255, 255, 255, 0.18);
       }
 
       .topbar {
@@ -1662,23 +1711,60 @@
       }
 
       .page-hero {
-        padding: 18px;
+        margin: 0 -12px 0;
+        padding: 10px 18px 18px;
         display: grid;
+        border-radius: 0 0 28px 28px;
+        border-top: 0;
+        border-left: 0;
+        border-right: 0;
+        box-shadow: 0 22px 44px -34px rgba(15, 23, 42, 0.88);
       }
 
-      .hero-search-meta,
-      .hero-search-actions,
+      .desktop-hero-copy {
+        display: none;
+      }
+
       .hero-shortcuts {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
       .hero-shortcut {
-        min-height: auto;
+        min-height: 74px;
+        padding: 10px 8px;
+        gap: 8px;
       }
 
       .hero-shortcut + .hero-shortcut {
-        border-left: 0;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        border-top: 0;
+      }
+
+      .hero-shortcut-title {
+        font-size: 12px;
+      }
+
+      .hero-shortcut-copy {
+        display: none;
+      }
+
+      .hero-search-actions {
+        flex-wrap: wrap;
+      }
+
+      .hero-search-meta {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .hero-search-chip,
+      .search-launch-btn,
+      .hero-clear-btn {
+        min-height: 44px;
+      }
+
+      .hero-search-chip {
+        font-size: 12px;
+        padding: 0 12px;
       }
 
       .section-title {
@@ -1833,21 +1919,27 @@
     <main class="main">
       <section class="page-hero">
         <div class="hero-copy">
+          <div class="desktop-hero-copy">
+            <h1>Career</h1>
+            <p class="page-subtitle">Explore roles matched to your profile and relocation goals.</p>
+          </div>
           <div class="hero-search-card">
-            <div class="hero-search-line">
-              <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
-              <span>Search by location or billing type</span>
-            </div>
-            <div class="hero-search-meta">
-              <span class="hero-search-chip" id="heroLocationChip">Any location</span>
-              <span class="hero-search-chip" id="heroBillingChip">Any billing type</span>
-            </div>
             <div class="hero-search-actions">
               <button class="search-launch-btn hero-search-cta" id="openSearchByBtn" type="button">
-                <svg class="search-icon" viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M7 12h10"></path><path d="M10 17h4"></path></svg>
-                <span>Search by</span>
+                <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+                <span>Search</span>
               </button>
               <button class="hero-clear-btn" id="clearFiltersBtn" type="button">Clear filters</button>
+            </div>
+            <div class="hero-search-meta">
+              <button class="hero-search-chip" id="openLocationFilterBtn" type="button">
+                <span id="heroLocationChip">Any location</span>
+                <svg class="hero-search-chip-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
+              <button class="hero-search-chip" id="openBillingFilterBtn" type="button">
+                <span id="heroBillingChip">Any billing type</span>
+                <svg class="hero-search-chip-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
+              </button>
             </div>
           </div>
           <div class="hero-shortcuts">
@@ -2039,7 +2131,7 @@
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
       </button>
       <div class="search-modal-header">
-        <h2 class="modal-title" id="searchByTitle">Search by</h2>
+        <h2 class="modal-title" id="searchByTitle">Search</h2>
         <p class="page-subtitle" style="max-width:none;">Choose location and billing type to narrow the live role list.</p>
       </div>
       <div class="search-form-grid">
@@ -2388,6 +2480,8 @@
     const applicationsEmptyStateEl = document.getElementById("applicationsEmptyState");
     const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
     const openSearchByBtnEl = document.getElementById("openSearchByBtn");
+    const openLocationFilterBtnEl = document.getElementById("openLocationFilterBtn");
+    const openBillingFilterBtnEl = document.getElementById("openBillingFilterBtn");
     const searchByModalEl = document.getElementById("searchByModal");
     const searchByCloseBtnEl = document.getElementById("searchByCloseBtn");
     const searchLocationSelectEl = document.getElementById("searchLocationSelect");
@@ -2554,11 +2648,22 @@
       }
     }
 
-    function openSearchByModal() {
+    function openSearchByModal(targetField) {
       renderSearchFilterControls();
       if (!searchByModalEl) return;
       searchByModalEl.classList.add("is-open");
       searchByModalEl.setAttribute("aria-hidden", "false");
+      window.requestAnimationFrame(() => {
+        if (targetField === "location" && searchLocationSelectEl) {
+          searchLocationSelectEl.focus();
+          return;
+        }
+        if (targetField === "billing" && searchBillingSelectEl) {
+          searchBillingSelectEl.focus();
+          return;
+        }
+        if (searchLocationSelectEl) searchLocationSelectEl.focus();
+      });
     }
 
     function closeSearchByModal() {
@@ -2970,7 +3075,9 @@
       syncActiveViewUi();
     }
 
-    openSearchByBtnEl.addEventListener("click", openSearchByModal);
+    openSearchByBtnEl.addEventListener("click", () => openSearchByModal());
+    openLocationFilterBtnEl.addEventListener("click", () => openSearchByModal("location"));
+    openBillingFilterBtnEl.addEventListener("click", () => openSearchByModal("billing"));
     searchByCloseBtnEl.addEventListener("click", closeSearchByModal);
     searchByModalEl.addEventListener("click", (event) => {
       if (event.target === searchByModalEl) closeSearchByModal();
