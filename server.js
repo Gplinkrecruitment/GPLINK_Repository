@@ -53,6 +53,10 @@ const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SI
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
 let _zohoRolesCache = null; // { roles: [], ts: 0 } — 5 min in-memory cache for live Zoho roles
+let _zohoRolesFetchPromise = null; // promise coalescing for concurrent requests
+const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limiting apply endpoint
+const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const APPLY_RATE_MAX = 10; // max 10 applications per hour
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
@@ -2570,6 +2574,7 @@ function getZohoField(record, candidates) {
   for (const candidate of candidates) {
     const key = String(candidate || '').trim();
     if (!key) continue;
+    if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
     const value = sanitizeZohoText(record[key]);
     if (value) return value;
   }
@@ -3286,22 +3291,35 @@ async function zohoRecruitApiGet(apiDomain, resourcePath, accessToken, queryPara
     if (value === undefined || value === null || value === '') return;
     url.searchParams.set(key, String(value));
   });
-  try {
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`
+  const maxRetries = 2;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`
+        }
+      });
+      if (response.status === 429 && attempt < maxRetries) {
+        const retryAfter = Math.min(Number(response.headers.get('Retry-After') || 2) * 1000, 10000);
+        await new Promise((resolve) => setTimeout(resolve, retryAfter));
+        continue;
       }
-    });
-    const text = await response.text();
-    let data = {};
-    if (text) {
-      try { data = JSON.parse(text); } catch (err) { data = { raw: text }; }
+      const text = await response.text();
+      let data = {};
+      if (text) {
+        try { data = JSON.parse(text); } catch (err) { data = { raw: text }; }
+      }
+      return { ok: response.ok, status: response.status, data };
+    } catch (err) {
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
+      return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API.' } };
     }
-    return { ok: response.ok, status: response.status, data };
-  } catch (err) {
-    return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API.' } };
   }
+  return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API after retries.' } };
 }
 
 async function zohoRecruitApiPost(apiDomain, resourcePath, accessToken, bodyData) {
@@ -3844,6 +3862,10 @@ async function syncZohoRecruitRoles() {
       lastSyncAt: syncedAt
     }
   });
+
+  // Invalidate in-memory cache so next request fetches fresh data
+  _zohoRolesCache = null;
+  _zohoRolesFetchPromise = null;
 
   return {
     ok: true,
@@ -5022,9 +5044,22 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Promise coalescing: if another request is already fetching, wait for it
+    if (_zohoRolesFetchPromise) {
+      try {
+        const cachedRoles = await _zohoRolesFetchPromise;
+        if (cachedRoles) {
+          sendJson(res, 200, { ok: true, source: 'zoho-live', roles: cachedRoles });
+          return;
+        }
+      } catch {
+        // Fall through to DB fallback
+      }
+    }
+
     const zoho = await getZohoRecruitAccessTokenAndDomain();
     if (zoho) {
-      try {
+      _zohoRolesFetchPromise = (async () => {
         const allRoles = [];
         for (let page = 1; page <= ZOHO_RECRUIT_SYNC_MAX_PAGES; page++) {
           const result = await fetchZohoRecruitJobOpenings(zoho.connection, zoho.accessToken, zoho.apiDomain, {
@@ -5045,9 +5080,20 @@ async function handleApi(req, res, pathname) {
           if (!moreRecords || records.length === 0) break;
         }
         _zohoRolesCache = { roles: allRoles, ts: Date.now() };
-        sendJson(res, 200, { ok: true, source: 'zoho-live', roles: allRoles });
-        return;
-      } catch (err) {
+        return allRoles;
+      })().catch((err) => {
+        return null;
+      }).finally(() => {
+        _zohoRolesFetchPromise = null;
+      });
+
+      try {
+        const allRoles = await _zohoRolesFetchPromise;
+        if (allRoles) {
+          sendJson(res, 200, { ok: true, source: 'zoho-live', roles: allRoles });
+          return;
+        }
+      } catch {
         // Fall through to DB fallback
       }
     }
@@ -5107,6 +5153,17 @@ async function handleApi(req, res, pathname) {
     if (!session) return;
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    // Per-user rate limiting
+    const rateLimitUserId = getSessionSupabaseUserId(session) || email;
+    const now = Date.now();
+    const timestamps = (_applyRateLimitStore.get(rateLimitUserId) || []).filter((ts) => now - ts < APPLY_RATE_WINDOW_MS);
+    if (timestamps.length >= APPLY_RATE_MAX) {
+      sendJson(res, 429, { ok: false, message: 'Too many applications. Please try again later.' });
+      return;
+    }
+    timestamps.push(now);
+    _applyRateLimitStore.set(rateLimitUserId, timestamps);
 
     let body;
     try { body = await readJsonBody(req); } catch {

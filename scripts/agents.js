@@ -58,43 +58,79 @@ function readFileSafe(filePath) {
 }
 
 function readProjectContext() {
-  // Pull Zoho-related lines from server.js as a focused snippet
-  const serverFull = readFileSafe(path.join(ROOT, 'server.js')) || '';
-  const serverTop = serverFull.split('\n').slice(0, 120).join('\n');
-  const zohoLines = serverFull.split('\n')
-    .filter(l => /zoho|ZOHO|recruit|RECRUIT/i.test(l))
-    .slice(0, 40).join('\n');
-  const supabaseLines = serverFull.split('\n')
-    .filter(l => /supabase|SUPABASE/i.test(l))
-    .slice(0, 30).join('\n');
+  // Full source files — agents need exact content for accurate find/replace
+  const sourceFiles = [
+    'server.js',
+    'vercel.json',
+    'pages/career.html',
+    'pages/my-documents.html',
+    'pages/account.html',
+    'pages/index.html',
+    'pages/onboarding.html',
+    'pages/signin.html',
+    'pages/admin.html',
+    'pages/admin-signin.html',
+    'pages/inbox.html',
+    'pages/messages.html',
+    'pages/myinthealth.html',
+    'pages/ahpra.html',
+    'pages/amc.html',
+    'pages/support-cases.html',
+    'pages/privacy.html',
+    'pages/terms.html',
+    'js/auth-guard.js',
+    'js/account-dropdown.js',
+    'js/onboarding.js',
+    'js/qualification-camera.js',
+    'js/qualification-scan.js',
+    'js/registration-stepper.js',
+    'js/state-sync.js',
+    'js/updates-sync.js',
+    'docs/ai-scan-reference.md',
+    'docs/ai-verification-instructions.md',
+    '.env.example',
+  ];
 
-  // Supabase migrations list
+  const parts = [];
+
+  for (const relPath of sourceFiles) {
+    const content = readFileSafe(path.join(ROOT, relPath));
+    if (content) {
+      parts.push(`### ${relPath}\n\`\`\`\n${content}\n\`\`\``);
+    }
+  }
+
+  // Supabase migrations — include full SQL
   const migrationsDir = path.join(ROOT, 'supabase', 'migrations');
-  let migrationsList = '';
   try {
-    migrationsList = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).join('\n');
-  } catch { migrationsList = '(no migrations dir found)'; }
+    const migFiles = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+    for (const mf of migFiles) {
+      const content = readFileSafe(path.join(migrationsDir, mf));
+      if (content) {
+        parts.push(`### supabase/migrations/${mf}\n\`\`\`sql\n${content}\n\`\`\``);
+      }
+    }
+  } catch { parts.push('### supabase/migrations\n(no migrations dir found)'); }
 
-  // vercel.json
-  const vercelJson = readFileSafe(path.join(ROOT, 'vercel.json'));
+  return parts.join('\n\n');
+}
 
-  const files = {
-    'server.js — top 120 lines (routing patterns, env vars)': serverTop,
-    'server.js — Zoho Recruit lines': zohoLines || '(none found)',
-    'server.js — Supabase lines': supabaseLines || '(none found)',
-    'vercel.json': vercelJson,
-    'supabase/migrations (existing files)': migrationsList,
-    'pages/career.html — structure (first 80 lines)': readFileSafe(path.join(ROOT, 'pages/career.html'))?.split('\n').slice(0, 80).join('\n'),
-    'pages/my-documents.html — structure (first 80 lines)': readFileSafe(path.join(ROOT, 'pages/my-documents.html'))?.split('\n').slice(0, 80).join('\n'),
-    'js/auth-guard.js (first 40 lines)': readFileSafe(path.join(ROOT, 'js/auth-guard.js'))?.split('\n').slice(0, 40).join('\n'),
-    'docs/ai-scan-reference.md': readFileSafe(path.join(ROOT, 'docs/ai-scan-reference.md')),
-    '.env.example (available env vars)': readFileSafe(path.join(ROOT, '.env.example')),
-  };
+// Build focused context for a specific subtask — includes full content of
+// only the files the subtask will touch, plus a structural overview of the rest.
+function buildSubtaskContext(subtask) {
+  const taskFiles = (subtask.files || []);
+  const parts = [];
 
-  return Object.entries(files)
-    .filter(([, v]) => v)
-    .map(([k, v]) => `### ${k}\n\`\`\`\n${v}\n\`\`\``)
-    .join('\n\n');
+  for (const relPath of taskFiles) {
+    const content = readFileSafe(path.join(ROOT, relPath));
+    if (content) {
+      parts.push(`### ${relPath} (FULL — this is the file you will edit)\n\`\`\`\n${content}\n\`\`\``);
+    }
+  }
+
+  return parts.length > 0
+    ? `\n\n## Files for this subtask (FULL CONTENT — use for exact find/replace)\n${parts.join('\n\n')}`
+    : '';
 }
 
 async function callClaude(systemPrompt, userMessage, { label = 'Agent', maxTokens = 4096 } = {}) {
@@ -193,7 +229,7 @@ Return ONLY valid JSON (no markdown fences):
 }`;
 
   const message = `Project context:\n${projectContext}\n\n---\nTask: ${task}`;
-  const raw = await callClaude(system, message, { label: 'Lead', maxTokens: 2048 });
+  const raw = await callClaude(system, message, { label: 'Lead', maxTokens: 4096 });
   const plan = parseJSON(raw);
   if (!plan || !Array.isArray(plan.subtasks)) {
     throw new Error('Lead agent returned invalid plan:\n' + raw);
@@ -242,8 +278,9 @@ Be precise — 'find' strings must match exactly what's in the file.`;
     ? `\n\nPrevious agent outputs:\n${previousOutputs.map(o => `[${o.id}]\n${o.output}`).join('\n\n')}`
     : '';
 
-  const message = `Project context:\n${projectContext}${prevContext}\n\n---\nSubtask: ${subtask.title}\n${subtask.description}\nFiles involved: ${subtask.files.join(', ')}`;
-  const raw = await callClaude(system, message, { label: `Frontend:${subtask.id}`, maxTokens: 6000 });
+  const subtaskContext = buildSubtaskContext(subtask);
+  const message = `Project context:\n${projectContext}${prevContext}${subtaskContext}\n\n---\nSubtask: ${subtask.title}\n${subtask.description}\nFiles involved: ${subtask.files.join(', ')}\n\nIMPORTANT: Your 'find' strings MUST match the exact text in the file content provided above. Copy-paste from the file content, do not guess or reconstruct from memory.`;
+  const raw = await callClaude(system, message, { label: `Frontend:${subtask.id}`, maxTokens: 8192 });
   return { raw, parsed: parseJSON(raw) };
 }
 
@@ -340,8 +377,9 @@ Never log secrets. Use parameterised queries / Supabase REST params, never strin
     ? `\n\nPrevious agent outputs:\n${previousOutputs.map(o => `[${o.id}]\n${o.output}`).join('\n\n')}`
     : '';
 
-  const message = `Project context:\n${projectContext}${prevContext}\n\n---\nSubtask: ${subtask.title}\n${subtask.description}\nFiles involved: ${subtask.files.join(', ')}`;
-  const raw = await callClaude(system, message, { label: `Backend:${subtask.id}`, maxTokens: 6000 });
+  const subtaskContext = buildSubtaskContext(subtask);
+  const message = `Project context:\n${projectContext}${prevContext}${subtaskContext}\n\n---\nSubtask: ${subtask.title}\n${subtask.description}\nFiles involved: ${subtask.files.join(', ')}\n\nIMPORTANT: Your 'find' strings MUST match the exact text in the file content provided above. Copy-paste from the file content, do not guess or reconstruct from memory.`;
+  const raw = await callClaude(system, message, { label: `Backend:${subtask.id}`, maxTokens: 8192 });
   return { raw, parsed: parseJSON(raw) };
 }
 
@@ -402,7 +440,7 @@ approved: false if any critical issues exist.`;
 
   const allOutputs = previousOutputs.map(o => `[${o.id} — ${o.agent}]\n${o.output}`).join('\n\n');
   const message = `Project context:\n${projectContext}\n\nAll agent outputs to review:\n${allOutputs}\n\n---\nReview task: ${subtask.description}`;
-  const raw = await callClaude(system, message, { label: 'Review', maxTokens: 3000 });
+  const raw = await callClaude(system, message, { label: 'Review', maxTokens: 8192 });
   return { raw, parsed: parseJSON(raw) };
 }
 

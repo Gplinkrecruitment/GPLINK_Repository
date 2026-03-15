@@ -5,7 +5,7 @@ ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS zoho_candidate_id TEXT;
 CREATE TABLE IF NOT EXISTS gp_applications (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  career_role_id UUID REFERENCES career_roles(id) ON DELETE SET NULL,
+  career_role_id BIGINT REFERENCES career_roles(id) ON DELETE SET NULL,
   provider_role_id TEXT NOT NULL,
   zoho_candidate_id TEXT,
   zoho_application_id TEXT,
