@@ -2281,6 +2281,7 @@
       otherOpportunityIds: ["northshore-clinic-group"]
     };
 
+    const ROLE_PREVIEW_SESSION_KEY = "gp_role_preview";
     let roleData = clone(FALLBACK_ROLE_DATA);
     let careerDataSource = "fallback";
     const roleDetailCache = new Map();
@@ -2505,6 +2506,16 @@
 
     function findRole(roleId) {
       return roleData.find((role) => role.id === roleId) || null;
+    }
+
+    function cacheRolePreview(roleId) {
+      const role = roleDetailCache.get(roleId) || findRole(roleId);
+      if (!role) return;
+      try {
+        sessionStorage.setItem(ROLE_PREVIEW_SESSION_KEY, JSON.stringify(role));
+      } catch (err) {
+        // Ignore storage failures and continue with normal navigation.
+      }
     }
 
     function updateRoleInData(nextRole) {
@@ -3140,6 +3151,7 @@
       const openBtn = event.target.closest("[data-open-role]");
       if (openBtn) {
         const roleId = openBtn.getAttribute("data-open-role");
+        cacheRolePreview(roleId);
         window.location.href = "job.html?id=" + encodeURIComponent(roleId);
       }
     });
@@ -3181,6 +3193,7 @@
       renderPage();
       const requestedRoleId = new URL(window.location.href).searchParams.get("role");
       if (requestedRoleId) {
+        cacheRolePreview(requestedRoleId);
         window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
         return;
       }
@@ -3222,6 +3235,7 @@
       await loadRemoteApplications();
       const requestedRoleId = new URL(window.location.href).searchParams.get("role");
       if (requestedRoleId) {
+        cacheRolePreview(requestedRoleId);
         window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
         return;
       }

@@ -112,14 +112,24 @@
       box-shadow: var(--shadow-card);
       background: #cbd5e1;
       position: relative;
+      min-height: 270px;
     }
 
     .hero-image {
+      position: absolute;
+      inset: 0;
       width: 100%;
-      height: 270px;
+      height: 100%;
       object-fit: cover;
       display: block;
       background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
+      opacity: 0;
+      transition: opacity .22s ease;
+      z-index: 0;
+    }
+
+    .hero-media-card.has-image .hero-image {
+      opacity: 1;
     }
 
     .hero-image-placeholder {
@@ -133,6 +143,7 @@
       background:
         linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.32)),
         linear-gradient(135deg, #b7d5fb 0%, #76a9fa 55%, #4f46e5 100%);
+      z-index: 1;
     }
 
     .hero-image-placeholder::before {
@@ -260,6 +271,18 @@
       padding: 0 16px 156px;
     }
 
+    .modal-sheet {
+      position: relative;
+      margin-top: -24px;
+      padding: 18px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid rgba(226, 232, 240, 0.72);
+      box-shadow: 0 18px 42px -28px rgba(15, 23, 42, 0.38);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+
     /* ── Billing pill floating ── */
     .billing-row {
       display: flex;
@@ -340,6 +363,14 @@
       flex-shrink: 0;
     }
 
+    .public-location-caption {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      font-weight: 700;
+    }
+
     /* ── Practice mask ── */
     .practice-mask {
       position: relative;
@@ -387,9 +418,85 @@
       margin: 0;
       color: #334155;
       font-size: 14px;
-      line-height: 1.6;
+      line-height: 1.62;
       font-weight: 700;
-      padding: 16px 0;
+    }
+
+    .summary-panel {
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 22px;
+      border: 1px solid rgba(226, 232, 240, 0.72);
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+      display: grid;
+      gap: 12px;
+    }
+
+    .summary-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .section-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.1);
+      color: var(--blue);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .section-eyebrow::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .summary-panel-meta {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .insight-copy {
+      display: grid;
+      gap: 12px;
+    }
+
+    .insight-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.08);
+      color: var(--blue);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .insight-note::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: currentColor;
     }
 
     /* ── Section cards ── */
@@ -426,6 +533,35 @@
 
     .section-card-body {
       padding: 0 18px 18px;
+    }
+
+    .glance-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .glance-item {
+      display: grid;
+      gap: 4px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(248, 250, 252, 0.72);
+      border: 1px solid rgba(226, 232, 240, 0.6);
+    }
+
+    .glance-label {
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .glance-value {
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 800;
+      color: var(--ink);
     }
 
     /* ── Earnings section ── */
@@ -490,28 +626,45 @@
     .earnings-disclaimer[hidden] { display: none; }
 
     /* ── Benefits ── */
-    .benefit-grid {
+    .benefit-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
 
-    .benefit-tile {
-      padding: 14px;
-      border-radius: 16px;
-      background: rgba(248, 250, 252, 0.58);
-      border: 1px solid rgba(226, 232, 240, 0.5);
+    .benefit-item {
       display: grid;
-      gap: 6px;
-      min-width: 0;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(248, 250, 252, 0.68);
+      border: 1px solid rgba(226, 232, 240, 0.55);
     }
 
-    .benefit-label {
-      font-size: 10px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      font-weight: 800;
-      color: var(--muted);
+    .benefit-check {
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.12);
+      color: var(--blue);
+      display: inline-grid;
+      place-items: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .benefit-check svg {
+      width: 13px;
+      height: 13px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     .benefit-copy {
@@ -522,25 +675,22 @@
       font-weight: 800;
     }
 
-    /* ── Detail cards (role, practice, support, etc.) ── */
-    .detail-grid {
+    /* ── Detail list ── */
+    .snapshot-list {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
-      padding: 0 18px 18px;
     }
 
-    .detail-card {
-      padding: 14px;
-      border-radius: 14px;
-      background: var(--panel-soft);
-      border: 1px solid rgba(226, 232, 240, 0.4);
+    .snapshot-row {
       display: grid;
       gap: 4px;
-      min-width: 0;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: var(--panel-soft);
+      border: 1px solid rgba(226, 232, 240, 0.45);
     }
 
-    .detail-card-label {
+    .snapshot-label {
       font-size: 10px;
       letter-spacing: 0.1em;
       text-transform: uppercase;
@@ -548,7 +698,7 @@
       color: var(--muted);
     }
 
-    .detail-card-value {
+    .snapshot-value {
       font-size: 13px;
       font-weight: 800;
       color: var(--ink);
@@ -907,10 +1057,16 @@
         margin-top: 12px;
         padding: 0 12px;
       }
+      .shell {
+        padding: 0 12px 156px;
+      }
+      .modal-sheet {
+        margin-top: -18px;
+        padding: 16px;
+        border-radius: 24px;
+      }
       .hero-image, .hero-image-placeholder { height: 220px; }
       .role-title { font-size: 22px; }
-      .benefit-grid, .detail-grid { grid-template-columns: 1fr; }
-      .earnings-value { font-size: 24px; }
       .hero-caption {
         max-width: 100%;
       }
@@ -937,8 +1093,9 @@
   </div>
 
   <!-- Hero image area -->
-  <div id="heroArea">
+  <div id="heroArea" hidden>
     <div class="hero-media-card">
+      <img class="hero-image" id="heroImage" alt="Confidential role location atmosphere" />
       <div class="hero-image-placeholder" id="heroPlaceholder">
         <div class="hero-overlay">
           <div class="hero-topline">
@@ -951,7 +1108,7 @@
             </div>
             <div class="hero-caption">
               <span class="hero-caption-title">Protected identity</span>
-              <span class="hero-caption-copy">Exact suburb and practice identity are only released once the practice accepts your application.</span>
+              <span class="hero-caption-copy" id="heroCaptionCopy">Exact suburb and practice identity are only released once the practice accepts your application.</span>
             </div>
           </div>
         </div>
@@ -975,91 +1132,78 @@
 
     <!-- Content (hidden until loaded) -->
     <div id="roleContent" hidden>
-      <!-- Billing pills -->
-      <div class="billing-row">
-        <span class="billing-pill" id="billingPill">Billing</span>
-        <span class="geography-pill" id="geographyPill">Geography</span>
-      </div>
-
-      <!-- Title block -->
-      <div class="title-block">
-        <h1 class="role-title" id="roleTitle">Confidential GP opportunity</h1>
-        <span class="role-location" id="roleLocation">
-          <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>
-          <span id="roleLocationText">Location reference</span>
-        </span>
-      </div>
-
-      <!-- Confidential practice mask -->
-      <div class="practice-mask" id="practiceMask">
-        <p class="practice-mask-text" id="practiceMaskText">Confidential practice profile</p>
-        <div class="practice-mask-note">Practice name is only released after your application is accepted by the practice.</div>
-      </div>
-
-      <!-- Summary -->
-      <p class="role-summary" id="roleSummary"></p>
-
-      <!-- Earnings section -->
-      <div class="section-card" id="earningsSection">
-        <div class="section-card-header">
-          <div>
-            <h3 class="section-card-title">Estimated earnings</h3>
-            <p class="section-card-subtitle">Indicative range based on role data</p>
-          </div>
-          <span class="ai-badge" id="aiBadge">AI enriched</span>
+      <div class="modal-sheet">
+        <div class="billing-row">
+          <span class="billing-pill" id="billingPill">Billing</span>
+          <span class="geography-pill" id="geographyPill">Protected area</span>
         </div>
-        <div class="section-card-body">
-          <div class="earnings-display">
-            <span class="earnings-value" id="earningsValue">Package on request</span>
+
+        <div class="title-block">
+          <h1 class="role-title" id="roleTitle">General Practitioner role</h1>
+          <span class="role-location" id="roleLocation">
+            <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>
+            <span id="roleLocationText">Location reference</span>
+          </span>
+          <p class="public-location-caption" id="publicLocationCaption">Public listing shows only a broad location reference. Exact suburb and practice identity are released once the practice accepts your application.</p>
+        </div>
+
+        <div class="practice-mask" id="practiceMask">
+          <p class="practice-mask-text" id="practiceMaskText">Practice name withheld</p>
+          <div class="practice-mask-note">Practice name is released once the practice accepts your application.</div>
+        </div>
+
+        <div class="summary-panel" id="summaryPanel">
+          <div class="summary-panel-head">
+            <span class="section-eyebrow" id="aiBadge">AI role summary</span>
+            <span class="summary-panel-meta" id="summaryMeta">Zoho Recruit profile</span>
           </div>
-          <button class="earnings-info-btn" id="earningsInfoBtn" type="button">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
-            Income disclaimer
-          </button>
-          <div class="earnings-disclaimer" id="earningsDisclaimer" hidden>
-            GP Link can only give a rough estimate as GP work is predominantly subcontractor and final income is dependant on billings, patient numbers, and other variables unique to each practice. Earnings shown are indicative only and should not be relied upon as a guarantee.
+          <p class="role-summary" id="roleSummary"></p>
+        </div>
+
+        <div class="section-card" id="benefitsSection">
+          <div class="section-card-header">
+            <div>
+              <h3 class="section-card-title">Why GPs consider this role</h3>
+              <p class="section-card-subtitle">Clear public benefits derived from Zoho Recruit and AI-enriched website analysis.</p>
+            </div>
+          </div>
+          <div class="section-card-body">
+            <ul class="benefit-list" id="benefitGrid"></ul>
           </div>
         </div>
-      </div>
 
-      <!-- Benefits -->
-      <div class="section-card" id="benefitsSection">
-        <div class="section-card-header">
-          <h3 class="section-card-title">Why GPs consider this role</h3>
-        </div>
-        <div class="section-card-body">
-          <div class="benefit-grid" id="benefitGrid"></div>
-        </div>
-      </div>
-
-      <!-- Role detail cards -->
-      <div class="section-card" id="detailsSection">
-        <div class="section-card-header">
-          <h3 class="section-card-title">Role details</h3>
-        </div>
-        <div class="detail-grid" id="detailGrid"></div>
-      </div>
-
-      <!-- Map -->
-      <div class="map-section" id="mapSection" hidden>
-        <div class="map-header">
-          <div class="map-header-text">
-            <h3 class="map-title">Area map</h3>
-            <p class="map-hint" id="mapHint">Explore the suburb surrounding this confidential practice profile.</p>
+        <div class="section-card" id="glanceSection">
+          <div class="section-card-header">
+            <div>
+              <h3 class="section-card-title">At a glance</h3>
+              <p class="section-card-subtitle">Public-facing facts only. Sensitive practice identifiers stay hidden.</p>
+            </div>
           </div>
-          <button class="map-toggle-btn" id="mapToggleBtn" type="button">Show map</button>
-        </div>
-        <div class="map-preview" id="mapPreview">
-          <div class="map-preview-graphic" aria-hidden="true">
-            <div class="map-preview-route"></div>
-          </div>
-          <div class="map-preview-copy">
-            <span class="map-preview-title">Interactive suburb map</span>
-            <span class="map-preview-note">Open the map to inspect the broader suburb catchment while the practice identity remains confidential.</span>
+          <div class="section-card-body">
+            <div class="glance-list" id="glanceList"></div>
           </div>
         </div>
-        <div class="map-embed-wrap" id="mapWrap" hidden>
-          <iframe class="map-embed" id="mapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role suburb map"></iframe>
+
+        <div class="map-section" id="mapSection" hidden>
+          <div class="map-header">
+            <div class="map-header-text">
+              <h3 class="map-title">Area map</h3>
+              <p class="map-hint" id="mapHint">Explore the suburb surrounding this confidential role while the practice identity remains protected.</p>
+            </div>
+            <button class="map-toggle-btn" id="mapToggleBtn" type="button">Show map</button>
+          </div>
+          <div class="map-preview" id="mapPreview">
+            <div class="map-preview-graphic" aria-hidden="true">
+              <div class="map-preview-route"></div>
+            </div>
+            <div class="map-preview-copy">
+              <span class="map-preview-title">Interactive suburb map</span>
+              <span class="map-preview-note">Open the map to inspect the broader suburb catchment while the practice identity remains confidential.</span>
+            </div>
+          </div>
+          <div class="map-embed-wrap" id="mapWrap" hidden>
+            <iframe class="map-embed" id="mapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Role suburb map"></iframe>
+          </div>
         </div>
       </div>
     </div>
@@ -1084,6 +1228,7 @@
   "use strict";
 
   const CAREER_STATE_KEY = "gp_career_state";
+  const ROLE_PREVIEW_SESSION_KEY = "gp_role_preview";
 
   function parseStorage(key) {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
@@ -1186,18 +1331,18 @@
   const heroAreaEl = document.getElementById("heroArea");
   const heroPlaceholderEl = document.getElementById("heroPlaceholder");
   const heroLocationLabelEl = document.getElementById("heroLocationLabel");
+  const heroCaptionCopyEl = document.getElementById("heroCaptionCopy");
   const billingPillEl = document.getElementById("billingPill");
   const geographyPillEl = document.getElementById("geographyPill");
   const roleTitleEl = document.getElementById("roleTitle");
   const roleLocationTextEl = document.getElementById("roleLocationText");
+  const publicLocationCaptionEl = document.getElementById("publicLocationCaption");
   const practiceMaskTextEl = document.getElementById("practiceMaskText");
   const roleSummaryEl = document.getElementById("roleSummary");
-  const earningsValueEl = document.getElementById("earningsValue");
   const aiBadgeEl = document.getElementById("aiBadge");
-  const earningsInfoBtnEl = document.getElementById("earningsInfoBtn");
-  const earningsDisclaimerEl = document.getElementById("earningsDisclaimer");
+  const summaryMetaEl = document.getElementById("summaryMeta");
   const benefitGridEl = document.getElementById("benefitGrid");
-  const detailGridEl = document.getElementById("detailGrid");
+  const glanceListEl = document.getElementById("glanceList");
   const mapSectionEl = document.getElementById("mapSection");
   const mapHintEl = document.getElementById("mapHint");
   const mapToggleBtnEl = document.getElementById("mapToggleBtn");
@@ -1216,43 +1361,70 @@
     return params.get("id") || "";
   }
 
+  function readPreviewRole(roleId) {
+    try {
+      const raw = sessionStorage.getItem(ROLE_PREVIEW_SESSION_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && parsed.id === roleId ? parsed : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function clearPreviewRole(roleId) {
+    try {
+      const raw = sessionStorage.getItem(ROLE_PREVIEW_SESSION_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && (!roleId || parsed.id === roleId)) {
+        sessionStorage.removeItem(ROLE_PREVIEW_SESSION_KEY);
+      }
+    } catch (err) {
+      // Ignore storage failures.
+    }
+  }
+
   /* ── Render functions ── */
   function renderBenefits(benefits) {
     const items = Array.isArray(benefits) ? benefits.filter(Boolean) : [];
     if (!items.length) {
-      benefitGridEl.innerHTML = '<div class="detail-card" style="grid-column:1/-1"><span class="detail-card-value">Benefits will appear here once GP Link finalises the public profile.</span></div>';
+      benefitGridEl.innerHTML = `
+        <li class="benefit-item">
+          <span class="benefit-check" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg>
+          </span>
+          <p class="benefit-copy">GP Link is preparing the public benefits summary for this confidential role.</p>
+        </li>
+      `;
       return;
     }
-    benefitGridEl.innerHTML = items.map((b, i) => `
-      <div class="benefit-tile">
-        <span class="benefit-label">Benefit ${i + 1}</span>
-        <p class="benefit-copy">${escapeHtml(b)}</p>
+    benefitGridEl.innerHTML = items.slice(0, 4).map((benefit) => `
+      <li class="benefit-item">
+        <span class="benefit-check" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg>
+        </span>
+        <p class="benefit-copy">${escapeHtml(benefit)}</p>
+      </li>
+    `).join("");
+  }
+
+  function renderGlanceList(role) {
+    const items = [
+      { label: "Estimated earnings", value: role.earnings || "Package on request" },
+      { label: "Role type", value: role.roleType || "General Practitioner" },
+      { label: "Practice style", value: role.practiceType || "Confidential GP practice" },
+      { label: "GP Link support", value: role.support || "GP Link will coordinate further role details." }
+    ];
+    glanceListEl.innerHTML = items.map((item) => `
+      <div class="glance-item">
+        <span class="glance-label">${escapeHtml(item.label)}</span>
+        <span class="glance-value">${escapeHtml(item.value)}</span>
       </div>
     `).join("");
   }
 
-  function renderDetailCards(role) {
-    const cards = Array.isArray(role.detailCards) && role.detailCards.length
-      ? role.detailCards
-      : [
-          { label: "Role", value: role.roleType || "General Practitioner" },
-          { label: "Practice profile", value: role.practiceType || "Confidential GP practice" },
-          { label: "Support", value: role.support || "GP Link will coordinate further role details." },
-          { label: "Location profile", value: role.locationSummary || "Australian community setting" },
-          { label: "Earnings note", value: role.earningNote || "Compensation details provided on request." },
-          { label: "Employment type", value: role.footnote || "Live opening via Zoho Recruit" }
-        ];
-    detailGridEl.innerHTML = cards.map((c) => `
-      <div class="detail-card">
-        <span class="detail-card-label">${escapeHtml(c.label)}</span>
-        <span class="detail-card-value">${escapeHtml(c.value)}</span>
-      </div>
-    `).join("");
-  }
-
-  function getConfidentialTitle(role) {
-    const roleType = String(role.roleType || "General Practitioner").trim();
-    return "Confidential " + roleType + " opportunity";
+  function getDisplayTitle(role) {
+    const roleType = String(role && role.roleType ? role.roleType : "General Practitioner").trim();
+    return roleType || "General Practitioner";
   }
 
   function extractStateCode(location) {
@@ -1282,6 +1454,27 @@
       return parts[parts.length - 1] || parts[0];
     }
     return rawLocation || "Australia";
+  }
+
+  function getLocationCaption(publicLocationReference) {
+    if (!publicLocationReference) {
+      return "Public listing shows only a broad location reference. Exact suburb and practice identity are released once the practice accepts your application.";
+    }
+    return `Public listing is shown using ${publicLocationReference} as the location reference. Exact suburb and practice identity are released once the practice accepts your application.`;
+  }
+
+  function getLocationDisplayLabel(publicLocationReference) {
+    const value = String(publicLocationReference || "").trim();
+    if (!value) return "Australia";
+    if (/^(regional|metro|australia)/i.test(value)) return value;
+    return `Near ${value}`;
+  }
+
+  function getHeroCaption(publicLocationReference) {
+    if (!publicLocationReference) {
+      return "Exact suburb and practice identity are only released once the practice accepts your application.";
+    }
+    return `Shown publicly using ${getLocationDisplayLabel(publicLocationReference)}. Exact suburb and practice identity are only released once the practice accepts your application.`;
   }
 
   function getRolePalette(role) {
@@ -1318,29 +1511,43 @@
     if (labelEl) labelEl.textContent = saved ? "Saved for later" : "Save for later";
   }
 
+  function mergeRoleData(baseRole, nextRole) {
+    if (!baseRole) return nextRole;
+    if (!nextRole) return baseRole;
+    return {
+      ...baseRole,
+      ...nextRole,
+      benefits: Array.isArray(nextRole.benefits) && nextRole.benefits.length ? nextRole.benefits : (baseRole.benefits || []),
+      summary: nextRole.summary || baseRole.summary,
+      support: nextRole.support || baseRole.support,
+      locationSummary: nextRole.locationSummary || baseRole.locationSummary,
+      mapQuery: nextRole.mapQuery || baseRole.mapQuery
+    };
+  }
+
   function renderRole(role) {
     currentRole = role;
     mapVisible = false;
     const publicLocationReference = getPublicLocationReference(role);
-    document.title = getConfidentialTitle(role) + " - GP Link";
-    backBarTitleEl.textContent = getConfidentialTitle(role);
-    heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(publicLocationReference)}</span>`;
+    const publicLocationLabel = getLocationDisplayLabel(publicLocationReference);
+    document.title = getDisplayTitle(role) + " - GP Link";
+    backBarTitleEl.textContent = getDisplayTitle(role);
+    heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(publicLocationLabel)}</span>`;
+    if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(publicLocationReference);
     billingPillEl.textContent = role.billing || "Billing to be confirmed";
-    geographyPillEl.textContent = role.geography || publicLocationReference || "Australia";
-    roleTitleEl.textContent = getConfidentialTitle(role);
-    roleLocationTextEl.textContent = publicLocationReference || "Australia";
-    practiceMaskTextEl.textContent = role.practiceName || "Confidential practice profile";
+    geographyPillEl.textContent = role.geography || "Protected area";
+    roleTitleEl.textContent = getDisplayTitle(role);
+    roleLocationTextEl.textContent = publicLocationLabel;
+    if (publicLocationCaptionEl) publicLocationCaptionEl.textContent = getLocationCaption(publicLocationReference);
+    practiceMaskTextEl.textContent = role.practiceName || "Practice name withheld";
     roleSummaryEl.textContent = role.summary || "Confidential practice profile with GP Link support.";
+    if (summaryMetaEl) summaryMetaEl.textContent = role.aiStatus === "success" ? "AI + Zoho Recruit" : "Zoho Recruit profile";
     applyHeroPalette(role);
-
-    // Earnings
-    earningsValueEl.textContent = role.earnings || "Package on request";
-    aiBadgeEl.textContent = role.aiStatus === "success" ? "AI enriched" : (role.aiStatus === "fallback" ? "Profile ready" : "Building profile");
+    aiBadgeEl.textContent = role.aiStatus === "success" ? "AI role summary" : "Profile summary";
 
     renderBenefits(role.benefits);
-    renderDetailCards(role);
+    renderGlanceList(role);
 
-    // Map
     if (role.mapQuery) {
       mapSectionEl.hidden = false;
       if (mapPreviewEl) mapPreviewEl.hidden = false;
@@ -1353,7 +1560,6 @@
       if (mapPreviewEl) mapPreviewEl.hidden = true;
     }
 
-    // Apply button state
     if (isApplied(role.id)) {
       applyBtnEl.textContent = "Application submitted";
       applyBtnEl.disabled = true;
@@ -1364,6 +1570,7 @@
 
     updateSaveButton();
 
+    errorEl.hidden = true;
     loadingEl.hidden = true;
     contentEl.hidden = false;
     stickyEl.hidden = false;
@@ -1372,6 +1579,7 @@
 
   function showError(message) {
     loadingEl.hidden = true;
+    contentEl.hidden = true;
     errorEl.hidden = false;
     heroAreaEl.hidden = true;
     stickyEl.hidden = true;
@@ -1379,17 +1587,36 @@
   }
 
   /* ── Fetch role ── */
-  async function loadRole(roleId) {
+  async function loadRolePreview(roleId) {
     try {
-      const res = await fetch("/api/career/role?id=" + encodeURIComponent(roleId), { credentials: "same-origin" });
-      const data = await res.json();
-      if (!data.ok || !data.role) {
-        showError(data.message || "This role may no longer be available.");
-        return;
+      const res = await fetch("/api/career/roles", { credentials: "same-origin" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok !== true || !Array.isArray(data.roles)) {
+        return null;
       }
-      renderRole(data.role);
+      return data.roles.find((role) => role && role.id === roleId) || null;
     } catch (err) {
-      showError("Failed to load role details. Please try again.");
+      return null;
+    }
+  }
+
+  async function loadRoleDetail(roleId, timeoutMs) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch("/api/career/role?id=" + encodeURIComponent(roleId), {
+        credentials: "same-origin",
+        signal: controller.signal
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok !== true || !data.role) {
+        return null;
+      }
+      return data.role;
+    } catch (err) {
+      return null;
+    } finally {
+      window.clearTimeout(timeout);
     }
   }
 
@@ -1429,14 +1656,6 @@
   }
 
   /* ── Event listeners ── */
-  earningsInfoBtnEl.addEventListener("click", () => {
-    earningsDisclaimerEl.hidden = !earningsDisclaimerEl.hidden;
-    earningsInfoBtnEl.textContent = earningsDisclaimerEl.hidden ? "" : "";
-    earningsInfoBtnEl.innerHTML = earningsDisclaimerEl.hidden
-      ? '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg> Income disclaimer'
-      : '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg> Hide disclaimer';
-  });
-
   mapToggleBtnEl.addEventListener("click", () => {
     if (!currentRole || !currentRole.mapQuery) return;
     mapVisible = !mapVisible;
@@ -1458,13 +1677,45 @@
   });
 
   /* ── Init ── */
-  const roleId = getRoleIdFromUrl();
-  if (!roleId) {
-    showError("No role specified. Please select a role from the career page.");
-  } else {
+  async function init() {
+    const roleId = getRoleIdFromUrl();
+    if (!roleId) {
+      showError("No role specified. Please select a role from the career page.");
+      return;
+    }
+
     heroAreaEl.hidden = true;
-    loadRole(roleId);
+
+    let previewRole = readPreviewRole(roleId);
+    if (previewRole) {
+      renderRole(previewRole);
+    }
+
+    const previewPromise = previewRole ? Promise.resolve(previewRole) : loadRolePreview(roleId);
+    const detailPromise = loadRoleDetail(roleId, 12000);
+
+    const fastRole = await previewPromise;
+    if (!currentRole && fastRole) {
+      previewRole = fastRole;
+      renderRole(fastRole);
+    }
+
+    const enrichedRole = await detailPromise;
+    if (enrichedRole) {
+      renderRole(mergeRoleData(currentRole || previewRole, enrichedRole));
+      clearPreviewRole(roleId);
+      return;
+    }
+
+    if (currentRole) {
+      clearPreviewRole(roleId);
+      return;
+    }
+
+    showError("Failed to load role details. Please try again.");
   }
+
+  init();
 })();
 </script>
 </body>
