@@ -1107,7 +1107,7 @@
               <span>Location reference</span>
             </div>
             <div class="hero-caption">
-              <span class="hero-caption-title">Protected identity</span>
+              <span class="hero-caption-title">Practice summary</span>
               <span class="hero-caption-copy" id="heroCaptionCopy">Exact suburb and practice identity are only released once the practice accepts your application.</span>
             </div>
           </div>
@@ -1135,52 +1135,22 @@
       <div class="modal-sheet">
         <div class="billing-row">
           <span class="billing-pill" id="billingPill">Billing</span>
-          <span class="geography-pill" id="geographyPill">Protected area</span>
         </div>
 
         <div class="title-block">
           <h1 class="role-title" id="roleTitle">General Practitioner role</h1>
-          <span class="role-location" id="roleLocation">
-            <svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>
-            <span id="roleLocationText">Location reference</span>
-          </span>
-          <p class="public-location-caption" id="publicLocationCaption">Public listing shows only a broad location reference. Exact suburb and practice identity are released once the practice accepts your application.</p>
-        </div>
-
-        <div class="practice-mask" id="practiceMask">
-          <p class="practice-mask-text" id="practiceMaskText">Practice name withheld</p>
-          <div class="practice-mask-note">Practice name is released once the practice accepts your application.</div>
-        </div>
-
-        <div class="summary-panel" id="summaryPanel">
-          <div class="summary-panel-head">
-            <span class="section-eyebrow" id="aiBadge">AI role summary</span>
-            <span class="summary-panel-meta" id="summaryMeta">Zoho Recruit profile</span>
-          </div>
-          <p class="role-summary" id="roleSummary"></p>
+          <p class="public-location-caption">Practice identity stays confidential until the practice accepts your application.</p>
         </div>
 
         <div class="section-card" id="benefitsSection">
           <div class="section-card-header">
             <div>
               <h3 class="section-card-title">Why GPs consider this role</h3>
-              <p class="section-card-subtitle">Clear public benefits derived from Zoho Recruit and AI-enriched website analysis.</p>
+              <p class="section-card-subtitle">AI-built highlights from the Zoho Recruit profile and the practice website.</p>
             </div>
           </div>
           <div class="section-card-body">
             <ul class="benefit-list" id="benefitGrid"></ul>
-          </div>
-        </div>
-
-        <div class="section-card" id="glanceSection">
-          <div class="section-card-header">
-            <div>
-              <h3 class="section-card-title">At a glance</h3>
-              <p class="section-card-subtitle">Public-facing facts only. Sensitive practice identifiers stay hidden.</p>
-            </div>
-          </div>
-          <div class="section-card-body">
-            <div class="glance-list" id="glanceList"></div>
           </div>
         </div>
 
@@ -1333,16 +1303,8 @@
   const heroLocationLabelEl = document.getElementById("heroLocationLabel");
   const heroCaptionCopyEl = document.getElementById("heroCaptionCopy");
   const billingPillEl = document.getElementById("billingPill");
-  const geographyPillEl = document.getElementById("geographyPill");
   const roleTitleEl = document.getElementById("roleTitle");
-  const roleLocationTextEl = document.getElementById("roleLocationText");
-  const publicLocationCaptionEl = document.getElementById("publicLocationCaption");
-  const practiceMaskTextEl = document.getElementById("practiceMaskText");
-  const roleSummaryEl = document.getElementById("roleSummary");
-  const aiBadgeEl = document.getElementById("aiBadge");
-  const summaryMetaEl = document.getElementById("summaryMeta");
   const benefitGridEl = document.getElementById("benefitGrid");
-  const glanceListEl = document.getElementById("glanceList");
   const mapSectionEl = document.getElementById("mapSection");
   const mapHintEl = document.getElementById("mapHint");
   const mapToggleBtnEl = document.getElementById("mapToggleBtn");
@@ -1407,21 +1369,6 @@
     `).join("");
   }
 
-  function renderGlanceList(role) {
-    const items = [
-      { label: "Estimated earnings", value: role.earnings || "Package on request" },
-      { label: "Role type", value: role.roleType || "General Practitioner" },
-      { label: "Practice style", value: role.practiceType || "Confidential GP practice" },
-      { label: "GP Link support", value: role.support || "GP Link will coordinate further role details." }
-    ];
-    glanceListEl.innerHTML = items.map((item) => `
-      <div class="glance-item">
-        <span class="glance-label">${escapeHtml(item.label)}</span>
-        <span class="glance-value">${escapeHtml(item.value)}</span>
-      </div>
-    `).join("");
-  }
-
   function getDisplayTitle(role) {
     const roleType = String(role && role.roleType ? role.roleType : "General Practitioner").trim();
     return roleType || "General Practitioner";
@@ -1456,13 +1403,6 @@
     return rawLocation || "Australia";
   }
 
-  function getLocationCaption(publicLocationReference) {
-    if (!publicLocationReference) {
-      return "Public listing shows only a broad location reference. Exact suburb and practice identity are released once the practice accepts your application.";
-    }
-    return `Public listing is shown using ${publicLocationReference} as the location reference. Exact suburb and practice identity are released once the practice accepts your application.`;
-  }
-
   function getLocationDisplayLabel(publicLocationReference) {
     const value = String(publicLocationReference || "").trim();
     if (!value) return "Australia";
@@ -1470,11 +1410,21 @@
     return `Near ${value}`;
   }
 
-  function getHeroCaption(publicLocationReference) {
-    if (!publicLocationReference) {
+  function getHeroLocationText(role) {
+    const locationLine = String(role && role.locationLine ? role.locationLine : "").trim();
+    const proximityNote = String(role && role.proximityNote ? role.proximityNote : "").trim();
+    const fallback = getLocationDisplayLabel(getPublicLocationReference(role));
+    if (!locationLine) return fallback;
+    return proximityNote ? `${locationLine} (${proximityNote})` : locationLine;
+  }
+
+  function getHeroCaption(role) {
+    const summary = String(role && role.summary ? role.summary : "").trim();
+    if (summary) return summary;
+    if (!role) {
       return "Exact suburb and practice identity are only released once the practice accepts your application.";
     }
-    return `Shown publicly using ${getLocationDisplayLabel(publicLocationReference)}. Exact suburb and practice identity are only released once the practice accepts your application.`;
+    return "AI is preparing the public practice summary for this confidential listing.";
   }
 
   function getRolePalette(role) {
@@ -1528,25 +1478,16 @@
   function renderRole(role) {
     currentRole = role;
     mapVisible = false;
-    const publicLocationReference = getPublicLocationReference(role);
-    const publicLocationLabel = getLocationDisplayLabel(publicLocationReference);
+    const heroLocationText = getHeroLocationText(role);
     document.title = getDisplayTitle(role) + " - GP Link";
     backBarTitleEl.textContent = getDisplayTitle(role);
-    heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(publicLocationLabel)}</span>`;
-    if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(publicLocationReference);
+    heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(heroLocationText)}</span>`;
+    if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(role);
     billingPillEl.textContent = role.billing || "Billing to be confirmed";
-    geographyPillEl.textContent = role.geography || "Protected area";
     roleTitleEl.textContent = getDisplayTitle(role);
-    roleLocationTextEl.textContent = publicLocationLabel;
-    if (publicLocationCaptionEl) publicLocationCaptionEl.textContent = getLocationCaption(publicLocationReference);
-    practiceMaskTextEl.textContent = role.practiceName || "Practice name withheld";
-    roleSummaryEl.textContent = role.summary || "Confidential practice profile with GP Link support.";
-    if (summaryMetaEl) summaryMetaEl.textContent = role.aiStatus === "success" ? "AI + Zoho Recruit" : "Zoho Recruit profile";
     applyHeroPalette(role);
-    aiBadgeEl.textContent = role.aiStatus === "success" ? "AI role summary" : "Profile summary";
 
     renderBenefits(role.benefits);
-    renderGlanceList(role);
 
     if (role.mapQuery) {
       mapSectionEl.hidden = false;

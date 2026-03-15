@@ -58,6 +58,7 @@ const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limi
 const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
+const CAREER_AI_PROFILE_VERSION = 2;
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
@@ -2728,6 +2729,39 @@ function buildCareerLocationSummary(context = {}) {
   return 'Australian community setting';
 }
 
+function buildCareerPublicLocationLine(row, suburb = '') {
+  const suburbText = String(suburb || '').trim();
+  const stateText = String(row && row.location_state ? row.location_state : '').trim();
+  const cityText = String(row && row.location_city ? row.location_city : '').trim();
+  return buildLocationLabel([
+    suburbText,
+    stateText
+  ]) || buildLocationLabel([
+    cityText,
+    stateText
+  ]) || 'Australia';
+}
+
+function buildCareerPublicProximityNote(row, suburb = '') {
+  const suburbText = String(suburb || '').trim().toLowerCase();
+  const cityText = String(row && row.location_city ? row.location_city : '').trim();
+  if (!cityText) return '';
+  if (suburbText && cityText.toLowerCase() === suburbText) return '';
+  return `Near ${cityText}`;
+}
+
+function sanitizeCareerLocationDisplay(value, fallback = '') {
+  const text = stripHtml(String(value || '')).replace(/\s+/g, ' ').trim();
+  if (!text) return String(fallback || '').trim();
+  return text.length <= 72 ? text : `${text.slice(0, 69).trim()}...`;
+}
+
+function sanitizeCareerProximityNote(value, fallback = '') {
+  const text = stripHtml(String(value || '')).replace(/\s+/g, ' ').trim();
+  if (!text) return String(fallback || '').trim();
+  return text.length <= 88 ? text : `${text.slice(0, 85).trim()}...`;
+}
+
 function extractCareerBenefits(record, context = {}) {
   const benefits = [];
   const directKeys = [
@@ -2846,6 +2880,8 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
     regional: !!(row && row.regional),
     metro: !!(row && row.metro)
   });
+  const publicLocationLine = buildCareerPublicLocationLine(row, suburb);
+  const publicLocationProximity = buildCareerPublicProximityNote(row, suburb);
   return {
     websiteUrl,
     suburb,
@@ -2868,8 +2904,11 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
       familyFriendly: !!(row && row.family_friendly)
     }), identifierValues),
     locationSummary,
+    publicLocationLine,
+    publicLocationProximity,
     mapQuery: buildLocationLabel([suburb, row && row.location_state, row && row.location_country]),
     aiStatus: websiteUrl && OPENAI_API_KEY ? 'pending' : 'fallback',
+    aiProfileVersion: 0,
     aiError: '',
     aiEnrichedAt: null,
     websiteBillingLabel: billingLabel,
@@ -2959,26 +2998,25 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
 
   const rawRecord = getCareerRoleRawPayload(row);
   const practiceName = row && row.practice_name ? String(row.practice_name) : '';
-  const locationTokens = [
-    row && row.location_label,
-    row && row.location_city,
-    row && row.location_state,
-    gpLinkMeta && gpLinkMeta.suburb
-  ].filter(Boolean);
+  const locationDisplayFallback = buildCareerPublicLocationLine(row, gpLinkMeta && gpLinkMeta.suburb);
+  const proximityFallback = buildCareerPublicProximityNote(row, gpLinkMeta && gpLinkMeta.suburb);
 
   const prompt = [
     'You are writing a premium candidate-facing practice profile for overseas General Practitioners relocating to Australia.',
     'CRITICAL PRIVACY RULES:',
-    '- Never reveal the practice name, website URL, suburb, city, state, street address, phone number, clinician names, or any identifying details.',
+    '- Never reveal the practice name, website URL, street address, phone number, clinician names, or any identifying details.',
     '- Refer to the employer only as "this practice" or with a generic descriptor.',
     '- Do not use the raw practice name anywhere.',
     '- Do not mention the website or source material.',
+    '- You may mention the suburb and state, and you may mention the nearest major city as a travel reference.',
     'Return strict JSON with keys:',
     'headline: short anonymous title, 4-8 words',
-    'intro: 1-2 sentences, max 240 chars, persuasive and high-trust',
-    'benefits: array of 3 to 4 short benefit strings',
+    'intro: 2 short sentences, max 280 chars total, concise and high-trust, describing the practice without naming it and without repeating the location line',
+    'benefits: array of 3 to 4 short one-line benefit strings, max 80 chars each',
     'support: one short sentence about onboarding/support',
     'location_summary: one short generic sentence about the setting without naming the suburb/city/state',
+    'location_display: formatted like "Erina, NSW"',
+    'proximity_note: short travel-style note like "10 min drive from Sydney CBD" or "" if unclear',
     'billing_model: exactly one of "Bulk Billing", "Private Billing", "Mixed Billing", or "" if unclear',
     `role_title: ${sanitizeZohoText(row && row.title)}`,
     `billing_model: ${sanitizeZohoText(row && row.billing_model)}`,
@@ -2988,9 +3026,13 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
     `earnings_text: ${sanitizeZohoText(row && row.earnings_text)}`,
     `source_benefits: ${JSON.stringify((gpLinkMeta && gpLinkMeta.sourceBenefits) || [])}`,
     `support_summary: ${sanitizeZohoText(row && row.support_summary)}`,
+    `raw_suburb: ${sanitizeZohoText(gpLinkMeta && gpLinkMeta.suburb)}`,
+    `raw_state: ${sanitizeZohoText(row && row.location_state)}`,
+    `raw_city_reference: ${sanitizeZohoText(row && row.location_city)}`,
+    `fallback_location_display: ${locationDisplayFallback}`,
+    `fallback_proximity_note: ${proximityFallback}`,
     `website_excerpt: ${String(websiteText || '').slice(0, 8000)}`,
     `raw_practice_name_for_redaction_only: ${practiceName}`,
-    `raw_location_tokens_for_redaction_only: ${JSON.stringify(locationTokens)}`,
     `raw_website_for_redaction_only: ${sanitizeZohoText(gpLinkMeta && gpLinkMeta.websiteUrl)}`,
     'Return JSON only.'
   ].join('\n');
@@ -3031,10 +3073,6 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
   const identifierValues = [
     practiceName,
     gpLinkMeta && gpLinkMeta.websiteUrl,
-    row && row.location_label,
-    row && row.location_city,
-    row && row.location_state,
-    gpLinkMeta && gpLinkMeta.suburb,
     rawRecord && rawRecord.Practice_Website
   ];
 
@@ -3043,6 +3081,8 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
   const support = redactCareerIdentifiers(String(parsed.support || '').trim(), identifierValues);
   const locationSummary = redactCareerIdentifiers(String(parsed.location_summary || '').trim(), identifierValues);
   const billingModel = normalizeCareerBillingLabel(String(parsed.billing_model || '').trim());
+  const locationDisplay = sanitizeCareerLocationDisplay(parsed.location_display, locationDisplayFallback);
+  const proximityNote = sanitizeCareerProximityNote(parsed.proximity_note, proximityFallback);
   const benefits = Array.isArray(parsed.benefits)
     ? parsed.benefits.map((item) => redactCareerIdentifiers(sanitizeCareerBenefit(item), identifierValues)).filter(Boolean)
     : [];
@@ -3053,6 +3093,9 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
     publicBenefits: benefits.slice(0, 4).length ? benefits.slice(0, 4) : gpLinkMeta.publicBenefits,
     publicSupport: support || gpLinkMeta.publicSupport,
     locationSummary: locationSummary || gpLinkMeta.locationSummary,
+    publicLocationLine: locationDisplay || gpLinkMeta.publicLocationLine || locationDisplayFallback,
+    publicLocationProximity: proximityNote || gpLinkMeta.publicLocationProximity || proximityFallback,
+    aiProfileVersion: CAREER_AI_PROFILE_VERSION,
     websiteBillingLabel: billingModel || gpLinkMeta.websiteBillingLabel || '',
     websiteBillingCheckedAt: new Date().toISOString(),
     websiteBillingStatus: billingModel ? 'success' : 'unclear'
@@ -3576,6 +3619,7 @@ async function updateCareerRoleRow(row, gpLinkMetaPatch = {}, rowPatch = {}) {
 function shouldRefreshCareerAiProfile(row, meta) {
   if (!meta || typeof meta !== 'object') return false;
   if (!meta.websiteUrl || !OPENAI_API_KEY) return false;
+  if (Number(meta.aiProfileVersion || 0) !== CAREER_AI_PROFILE_VERSION) return true;
   if (!normalizeCareerBillingLabel(row && row.billing_model) && meta.websiteBillingStatus !== 'success') return true;
   if (meta.aiStatus !== 'success' || !meta.aiEnrichedAt) return true;
   const enrichedAt = Date.parse(meta.aiEnrichedAt);
@@ -3706,6 +3750,8 @@ function mapCareerRoleRowToClient(row) {
     match: 'Live opening',
     practiceName: gpLinkMeta.publicHeadline || 'Confidential GP practice',
     location: location || 'Australia',
+    locationLine: gpLinkMeta.publicLocationLine || buildCareerPublicLocationLine(row, gpLinkMeta.suburb),
+    proximityNote: gpLinkMeta.publicLocationProximity || buildCareerPublicProximityNote(row, gpLinkMeta.suburb),
     summary: gpLinkMeta.publicIntro || (row && row.summary ? String(row.summary) : 'Live role available through GP Link.'),
     billing: billingLabel,
     geography: row && row.regional ? 'Regional' : (row && row.metro ? 'Metro' : 'Australia'),
