@@ -3787,10 +3787,10 @@ async function syncZohoRecruitRoles() {
     records.forEach((record) => {
       const mapped = buildCareerRoleRecordFromZoho(record, syncedAt);
       if (!mapped) return;
-      // Skip jobs with "Test" in the title
-      if (/test/i.test(mapped.title || '')) return;
-      // Skip filled/closed/inactive jobs
-      if (!mapped.is_active) return;
+      // Mark jobs with "Test" in the title as inactive (filtered from user view)
+      if (/test/i.test(mapped.title || '')) {
+        mapped.is_active = false;
+      }
       rows.push(mapped);
       seenIds.add(mapped.provider_role_id);
     });
