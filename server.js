@@ -59,6 +59,7 @@ const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const CAREER_AI_PROFILE_VERSION = 2;
+const CAREER_HERO_IMAGE_VERSION = 1;
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
@@ -2907,6 +2908,12 @@ function buildCareerRoleGpLinkMetaFromRow(row) {
     publicLocationLine,
     publicLocationProximity,
     mapQuery: buildLocationLabel([suburb, row && row.location_state, row && row.location_country]),
+    heroImageUrl: '',
+    heroImageSourceUrl: '',
+    heroImageCredit: '',
+    heroImageStatus: suburb ? 'pending' : 'unavailable',
+    heroImageCheckedAt: null,
+    heroImageVersion: 0,
     aiStatus: websiteUrl && OPENAI_API_KEY ? 'pending' : 'fallback',
     aiProfileVersion: 0,
     aiError: '',
@@ -2991,6 +2998,270 @@ async function fetchCareerWebsiteProfile(websiteUrl) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function stripCareerCommonsMeta(value) {
+  return stripHtml(String(value || '')).replace(/\s+/g, ' ').trim();
+}
+
+function buildCareerHeroImageQueries(context = {}) {
+  const suburb = String(context.suburb || '').trim();
+  const state = String(context.state || '').trim();
+  const city = String(context.city || '').trim();
+  const country = String(context.country || 'Australia').trim() || 'Australia';
+  const basePlace = [suburb || city, state, country].filter(Boolean).join(' ').trim();
+  const queries = [
+    basePlace,
+    [suburb, city, state, country].filter(Boolean).join(' ').trim(),
+    [suburb || city, state, country, 'skyline'].filter(Boolean).join(' ').trim(),
+    [suburb || city, state, country, 'panorama'].filter(Boolean).join(' ').trim(),
+    [suburb || city, state, country, 'view'].filter(Boolean).join(' ').trim(),
+    [suburb || city, state, country, 'aerial'].filter(Boolean).join(' ').trim()
+  ];
+  return queries.filter(Boolean).filter((value, index, all) => all.indexOf(value) === index);
+}
+
+function scoreCareerHeroImageCandidate(candidate, context = {}) {
+  const suburb = String(context.suburb || '').trim().toLowerCase();
+  const state = String(context.state || '').trim().toLowerCase();
+  const city = String(context.city || '').trim().toLowerCase();
+  const combined = [
+    candidate.title,
+    candidate.description,
+    candidate.categories,
+    candidate.objectName
+  ].join(' ').toLowerCase();
+
+  const negativePattern = /\b(station|railway|train|tram|locomotive|platform|post office|townhouse|townhouses|house|church|school|bird|cockatoo|power station|workshop|workshops|factory|memorial|portrait|person|people|car|bus|logo|diagram|map|illustration|document|pdf|djvu)\b/;
+  if (negativePattern.test(combined)) return -1000;
+
+  let score = 0;
+  const width = Number(candidate.width || 0);
+  const height = Number(candidate.height || 0);
+  const ratio = width > 0 && height > 0 ? width / height : 0;
+
+  if (width >= 1400) score += 4;
+  if (width >= 2200) score += 4;
+  if (ratio >= 1.35) score += 3;
+  if (ratio >= 1.7) score += 3;
+
+  if (suburb && combined.includes(suburb)) score += 8;
+  if (state && combined.includes(state)) score += 3;
+  if (city && combined.includes(city)) score += 2;
+
+  const positiveMatches = combined.match(/\b(view|skyline|cityscape|landscape|panorama|aerial|coast|coastline|bay|harbour|harbor|river|seascape|suburb|foreshore)\b/g);
+  if (positiveMatches) score += Math.min(positiveMatches.length, 4) * 2;
+
+  if (/melbourne city from|view towards|skyline of/i.test(combined)) score += 4;
+
+  return score;
+}
+
+async function fetchCareerHeroImageCandidates(context = {}) {
+  const queries = buildCareerHeroImageQueries(context);
+  if (!queries.length) return [];
+
+  const seen = new Set();
+  const candidates = [];
+
+  for (const query of queries) {
+    try {
+      const url = new URL('https://commons.wikimedia.org/w/api.php');
+      url.searchParams.set('action', 'query');
+      url.searchParams.set('generator', 'search');
+      url.searchParams.set('gsrsearch', query);
+      url.searchParams.set('gsrnamespace', '6');
+      url.searchParams.set('gsrlimit', '8');
+      url.searchParams.set('prop', 'imageinfo');
+      url.searchParams.set('iiprop', 'url|size|extmetadata');
+      url.searchParams.set('iiurlwidth', '1600');
+      url.searchParams.set('format', 'json');
+
+      const response = await fetch(url.toString(), {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GP Link Career Hero/1.0; +https://app.mygplink.com.au)' }
+      });
+      if (!response.ok) continue;
+
+      const payload = await response.json().catch(() => null);
+      const pages = payload && payload.query && payload.query.pages && typeof payload.query.pages === 'object'
+        ? Object.values(payload.query.pages)
+        : [];
+
+      for (const page of pages) {
+        const info = Array.isArray(page && page.imageinfo) ? page.imageinfo[0] : null;
+        if (!info) continue;
+        const title = String(page && page.title ? page.title : '').trim();
+        const lowerTitle = title.toLowerCase();
+        if (!title || seen.has(lowerTitle)) continue;
+        if (!/\.(jpg|jpeg|png|webp|tif|tiff)$/i.test(title)) continue;
+
+        const width = Number(info.width || 0);
+        const height = Number(info.height || 0);
+        if (!width || !height || width <= height || width < 1280) continue;
+
+        const meta = info.extmetadata && typeof info.extmetadata === 'object' ? info.extmetadata : {};
+        const description = stripCareerCommonsMeta(meta.ImageDescription && meta.ImageDescription.value);
+        const categories = stripCareerCommonsMeta(meta.Categories && meta.Categories.value);
+        const objectName = stripCareerCommonsMeta(meta.ObjectName && meta.ObjectName.value);
+        const artist = stripCareerCommonsMeta(meta.Artist && meta.Artist.value);
+        const license = stripCareerCommonsMeta(meta.LicenseShortName && meta.LicenseShortName.value);
+        const imageUrl = String(info.thumburl || info.url || '').trim();
+        const sourceUrl = String(info.descriptionurl || info.descriptionshorturl || '').trim();
+        if (!imageUrl) continue;
+
+        const candidate = {
+          id: title,
+          title,
+          description,
+          categories,
+          objectName,
+          width,
+          height,
+          imageUrl,
+          sourceUrl,
+          artist,
+          license
+        };
+        candidate.score = scoreCareerHeroImageCandidate(candidate, context);
+        if (candidate.score < 0) continue;
+        seen.add(lowerTitle);
+        candidates.push(candidate);
+      }
+    } catch (err) {
+      continue;
+    }
+  }
+
+  return candidates
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+    .slice(0, 8);
+}
+
+async function chooseCareerHeroImageCandidate(context = {}, candidates = []) {
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+  if (candidates.length === 1 || !OPENAI_API_KEY) return candidates[0];
+
+  const prompt = [
+    'Choose the best public hero image candidate for a confidential GP job listing.',
+    'Goal: a wide suburb landscape or skyline style image that represents the broader area.',
+    'Reject anything that is likely a single building, station, train, townhouse, bird, document, map, logo, or close-up object.',
+    'Prefer high resolution landscape images suitable for a premium mobile hero header.',
+    `suburb: ${String(context.suburb || '').trim()}`,
+    `state: ${String(context.state || '').trim()}`,
+    `nearest_city: ${String(context.city || '').trim()}`,
+    'Return strict JSON only: {"selected_id":"candidate id or empty string","reason":"short reason"}',
+    `candidates: ${JSON.stringify(candidates.map((candidate) => ({
+      id: candidate.id,
+      title: candidate.title,
+      description: candidate.description,
+      categories: candidate.categories,
+      width: candidate.width,
+      height: candidate.height,
+      score: candidate.score
+    })))}`
+  ].join('\n');
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_CAREER_MODEL,
+        input: prompt,
+        max_output_tokens: 160,
+        temperature: 0.1
+      })
+    });
+
+    if (!response.ok) return candidates[0];
+    const payload = await response.json().catch(() => null);
+    const text = payload && typeof payload.output_text === 'string' ? payload.output_text : '';
+    if (!text) return candidates[0];
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (match) parsed = JSON.parse(match[0]);
+    }
+
+    const selectedId = parsed && typeof parsed.selected_id === 'string' ? parsed.selected_id.trim() : '';
+    const selected = candidates.find((candidate) => candidate.id === selectedId);
+    if (selected) {
+      selected.reason = typeof parsed.reason === 'string' ? parsed.reason.trim() : '';
+      return selected;
+    }
+  } catch (err) {}
+
+  return candidates[0];
+}
+
+function shouldRefreshCareerHeroImage(row, meta) {
+  if (!meta || typeof meta !== 'object') return false;
+  const hasLocation = !!String(meta.suburb || row && row.location_city || row && row.location_label || '').trim();
+  if (!hasLocation) return false;
+  if (Number(meta.heroImageVersion || 0) !== CAREER_HERO_IMAGE_VERSION) return true;
+  if (meta.heroImageStatus === 'success' && meta.heroImageUrl && meta.heroImageCheckedAt) {
+    const checkedAt = Date.parse(meta.heroImageCheckedAt);
+    if (Number.isFinite(checkedAt) && (Date.now() - checkedAt) < (30 * 24 * 60 * 60 * 1000)) return false;
+  }
+  if (!meta.heroImageCheckedAt) return true;
+  const checkedAt = Date.parse(meta.heroImageCheckedAt);
+  if (!Number.isFinite(checkedAt)) return true;
+  return (Date.now() - checkedAt) > (14 * 24 * 60 * 60 * 1000);
+}
+
+async function ensureCareerRoleHeroImage(row) {
+  if (!row) return null;
+  const currentMeta = getCareerRoleGpLinkMeta(row);
+  if (!shouldRefreshCareerHeroImage(row, currentMeta)) return row;
+
+  const checkedAt = new Date().toISOString();
+  const candidates = await fetchCareerHeroImageCandidates({
+    suburb: currentMeta.suburb,
+    state: row && row.location_state,
+    city: row && row.location_city,
+    country: row && row.location_country
+  });
+
+  if (!candidates.length) {
+    return updateCareerRoleRow(row, {
+      ...currentMeta,
+      heroImageUrl: '',
+      heroImageSourceUrl: '',
+      heroImageCredit: '',
+      heroImageStatus: 'unavailable',
+      heroImageCheckedAt: checkedAt,
+      heroImageVersion: CAREER_HERO_IMAGE_VERSION
+    });
+  }
+
+  const selected = await chooseCareerHeroImageCandidate({
+    suburb: currentMeta.suburb,
+    state: row && row.location_state,
+    city: row && row.location_city
+  }, candidates);
+
+  const chosen = selected || candidates[0];
+  const creditParts = [
+    stripCareerCommonsMeta(chosen.title).replace(/^File:/i, ''),
+    stripCareerCommonsMeta(chosen.artist),
+    stripCareerCommonsMeta(chosen.license)
+  ].filter(Boolean);
+
+  return updateCareerRoleRow(row, {
+    ...currentMeta,
+    heroImageUrl: String(chosen.imageUrl || '').trim(),
+    heroImageSourceUrl: String(chosen.sourceUrl || '').trim(),
+    heroImageCredit: creditParts.join(' · '),
+    heroImageStatus: 'success',
+    heroImageCheckedAt: checkedAt,
+    heroImageVersion: CAREER_HERO_IMAGE_VERSION
+  });
 }
 
 async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
@@ -3765,6 +4036,9 @@ function mapCareerRoleRowToClient(row) {
     earningNote: row && row.earnings_text ? String(row.earnings_text) : 'Compensation details provided on request.',
     footnote: row && row.employment_type ? String(row.employment_type) : 'Live opening via Zoho Recruit',
     locationSummary: gpLinkMeta.locationSummary || '',
+    heroImageUrl: gpLinkMeta.heroImageUrl || '',
+    heroImageSourceUrl: gpLinkMeta.heroImageSourceUrl || '',
+    heroImageCredit: gpLinkMeta.heroImageCredit || '',
     mapQuery: gpLinkMeta.mapQuery || '',
     mapLabel: gpLinkMeta.suburb || row.location_city || row.location_label || '',
     aiStatus: gpLinkMeta.aiStatus || 'fallback'
@@ -5186,10 +5460,11 @@ async function handleApi(req, res, pathname) {
     }
 
     const billingReadyRow = await ensureCareerRoleWebsiteBilling(existingRow);
-    const enrichedRow = await ensureCareerRoleAiProfile(billingReadyRow || existingRow);
+    const aiReadyRow = await ensureCareerRoleAiProfile(billingReadyRow || existingRow);
+    const heroReadyRow = await ensureCareerRoleHeroImage(aiReadyRow || billingReadyRow || existingRow);
     sendJson(res, 200, {
       ok: true,
-      role: mapCareerRoleDetailToClient(enrichedRow || billingReadyRow || existingRow)
+      role: mapCareerRoleDetailToClient(heroReadyRow || aiReadyRow || billingReadyRow || existingRow)
     });
     return;
   }

@@ -128,6 +128,19 @@
       opacity: 1;
     }
 
+    .hero-media-card.has-image .hero-image-placeholder {
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.14), rgba(15, 23, 42, 0.52));
+    }
+
+    .hero-media-card.has-image .hero-image-placeholder::before {
+      opacity: 0.36;
+    }
+
+    .hero-media-card.has-image .hero-image-placeholder::after {
+      opacity: 0.72;
+    }
+
     .hero-image-placeholder {
       width: 100%;
       height: 270px;
@@ -258,6 +271,20 @@
       line-height: 1.45;
       font-weight: 700;
       opacity: 0.94;
+    }
+
+    .hero-image-credit {
+      margin: 8px 4px 0;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .hero-image-credit a {
+      color: inherit;
+      text-decoration: underline;
+      text-underline-offset: 2px;
     }
 
     /* ── Shell ── */
@@ -782,6 +809,7 @@
         </div>
       </div>
     </div>
+    <p class="hero-image-credit" id="heroImageCredit" hidden></p>
   </div>
 
   <div class="shell">
@@ -957,7 +985,10 @@
   const contentEl = document.getElementById("roleContent");
   const stickyEl = document.getElementById("stickyActions");
   const heroAreaEl = document.getElementById("heroArea");
+  const heroCardEl = document.querySelector(".hero-media-card");
+  const heroImageEl = document.getElementById("heroImage");
   const heroPlaceholderEl = document.getElementById("heroPlaceholder");
+  const heroImageCreditEl = document.getElementById("heroImageCredit");
   const heroLocationLabelEl = document.getElementById("heroLocationLabel");
   const heroCaptionCopyEl = document.getElementById("heroCaptionCopy");
   const billingPillEl = document.getElementById("billingPill");
@@ -1124,6 +1155,57 @@
     ].join(",");
   }
 
+  function renderHeroImage(role) {
+    const imageUrl = String(role && role.heroImageUrl ? role.heroImageUrl : "").trim();
+    const credit = String(role && role.heroImageCredit ? role.heroImageCredit : "").trim();
+    const sourceUrl = String(role && role.heroImageSourceUrl ? role.heroImageSourceUrl : "").trim();
+    const label = String(role && (role.locationLine || role.location || role.mapLabel) ? (role.locationLine || role.location || role.mapLabel) : "the surrounding suburb").trim();
+
+    if (!imageUrl) {
+      if (heroImageEl) {
+        heroImageEl.removeAttribute("src");
+        heroImageEl.removeAttribute("data-src");
+      }
+      if (heroCardEl) heroCardEl.classList.remove("has-image");
+      if (heroImageCreditEl) {
+        heroImageCreditEl.hidden = true;
+        heroImageCreditEl.innerHTML = "";
+      }
+      applyHeroPalette(role);
+      return;
+    }
+
+    if (heroImageEl) {
+      heroImageEl.alt = `Landscape view of ${label}`;
+      if (heroImageEl.dataset.src !== imageUrl) {
+        heroImageEl.dataset.src = imageUrl;
+        heroImageEl.onload = () => {
+          if (heroCardEl) heroCardEl.classList.add("has-image");
+        };
+        heroImageEl.onerror = () => {
+          if (heroCardEl) heroCardEl.classList.remove("has-image");
+          applyHeroPalette(role);
+        };
+        heroImageEl.src = imageUrl;
+      } else if (heroImageEl.complete) {
+        if (heroCardEl) heroCardEl.classList.add("has-image");
+      }
+    }
+
+    if (heroImageCreditEl) {
+      if (credit && sourceUrl) {
+        heroImageCreditEl.innerHTML = `Landscape image via <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Wikimedia Commons</a> · ${escapeHtml(credit)}`;
+        heroImageCreditEl.hidden = false;
+      } else if (credit) {
+        heroImageCreditEl.textContent = `Landscape image · ${credit}`;
+        heroImageCreditEl.hidden = false;
+      } else {
+        heroImageCreditEl.hidden = true;
+        heroImageCreditEl.innerHTML = "";
+      }
+    }
+  }
+
   function updateSaveButton() {
     if (!currentRole) return;
     const saved = isSaved(currentRole.id);
@@ -1157,7 +1239,7 @@
     heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(heroLocationText)}</span>`;
     if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(role);
     billingPillEl.textContent = role.billing || "Billing to be confirmed";
-    applyHeroPalette(role);
+    renderHeroImage(role);
 
     renderBenefits(role.benefits);
 
