@@ -287,7 +287,6 @@
     }
 
     .page-hero,
-    .search-panel,
     .role-card,
     .application-card,
     .hero-card,
@@ -308,23 +307,22 @@
     }
 
     .page-hero {
-      padding: 22px;
+      padding: 24px;
       background:
-        radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 40%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0%, rgba(248, 250, 252, 0.65) 100%);
-      backdrop-filter: blur(24px) saturate(1.5);
-      -webkit-backdrop-filter: blur(24px) saturate(1.5);
-      border: 1px solid rgba(255, 255, 255, 0.6);
-      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.8);
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
+        radial-gradient(circle at top right, rgba(59, 130, 246, 0.18), transparent 34%),
+        radial-gradient(circle at bottom left, rgba(37, 99, 235, 0.16), transparent 32%),
+        linear-gradient(180deg, #0f172a 0%, #111827 100%);
+      backdrop-filter: blur(24px) saturate(1.3);
+      -webkit-backdrop-filter: blur(24px) saturate(1.3);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 28px 56px -28px rgba(15, 23, 42, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      display: grid;
       gap: 18px;
     }
 
     .hero-copy {
       display: grid;
-      gap: 10px;
+      gap: 16px;
       min-width: 0;
     }
 
@@ -335,7 +333,7 @@
       line-height: .95;
       letter-spacing: -0.05em;
       font-weight: 800;
-      color: var(--ink);
+      color: #fff;
     }
 
     .page-subtitle {
@@ -343,7 +341,182 @@
       max-width: 56ch;
       font-size: 14px;
       line-height: 1.6;
-      color: var(--muted);
+      color: rgba(226, 232, 240, 0.8);
+      font-weight: 600;
+    }
+
+    .hero-search-card {
+      display: grid;
+      gap: 14px;
+      background: rgba(255, 255, 255, 0.96);
+      border-radius: 20px;
+      padding: 16px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 22px 40px -34px rgba(15, 23, 42, 0.72);
+    }
+
+    .hero-search-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: #64748b;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .hero-search-line .search-icon {
+      color: #94a3b8;
+    }
+
+    .hero-search-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .hero-search-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 46px;
+      padding: 0 14px;
+      border-radius: 14px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      color: #0f172a;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .hero-search-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .hero-search-cta {
+      justify-content: center;
+      width: 100%;
+    }
+
+    .hero-clear-btn {
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 14px;
+      background: #f8fafc;
+      color: #0f172a;
+      padding: 12px 14px;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform .16s ease, background .16s ease, border-color .16s ease;
+    }
+
+    .hero-clear-btn:hover {
+      background: #eef2f7;
+      border-color: rgba(100, 116, 139, 0.3);
+    }
+
+    .hero-clear-btn:active {
+      transform: scale(0.985);
+    }
+
+    .hero-filter-row {
+      margin-top: -2px;
+    }
+
+    .hero-filter-row .filter-chip {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: rgba(226, 232, 240, 0.86);
+    }
+
+    .hero-filter-row .filter-chip.active {
+      background: #fff;
+      color: #0f172a;
+      border-color: #fff;
+    }
+
+    .hero-shortcuts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 10px;
+    }
+
+    .hero-shortcut {
+      border: 0;
+      background: transparent;
+      color: rgba(226, 232, 240, 0.88);
+      text-align: left;
+      padding: 12px 14px;
+      min-height: 96px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+      cursor: pointer;
+      position: relative;
+      transition: background .16s ease, color .16s ease;
+    }
+
+    .hero-shortcut + .hero-shortcut {
+      border-left: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .hero-shortcut:hover,
+    .hero-shortcut.is-active {
+      background: rgba(255, 255, 255, 0.06);
+      color: #fff;
+    }
+
+    .hero-shortcut-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.1);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      position: relative;
+    }
+
+    .hero-shortcut-icon svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .hero-shortcut-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 999px;
+      background: #22c55e;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .hero-shortcut-title {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-shortcut-copy {
+      color: rgba(203, 213, 225, 0.74);
+      font-size: 12px;
+      line-height: 1.5;
       font-weight: 600;
     }
 
@@ -452,20 +625,6 @@
       display: grid;
     }
 
-    .search-panel {
-      padding: 14px;
-      display: grid;
-      gap: 12px;
-    }
-
-    .search-launch-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
     .search-launch-btn {
       display: inline-flex;
       align-items: center;
@@ -489,49 +648,6 @@
 
     .search-launch-btn:active {
       transform: scale(0.985);
-    }
-
-    .search-selection-pills {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      gap: 8px;
-      flex: 1;
-      min-width: 0;
-    }
-
-    .selection-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      border: 1px solid rgba(191, 219, 254, 0.7);
-      border-radius: 999px;
-      background: rgba(239, 246, 255, 0.92);
-      color: #1d4ed8;
-      padding: 9px 12px;
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      cursor: pointer;
-      transition: transform .16s ease, background .16s ease, border-color .16s ease;
-    }
-
-    .selection-pill:hover {
-      background: #dbeafe;
-      border-color: #93c5fd;
-    }
-
-    .selection-pill:active {
-      transform: scale(0.985);
-    }
-
-    .selection-pill-empty {
-      display: inline-flex;
-      align-items: center;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      min-height: 38px;
     }
 
     .search-launch-btn,
@@ -1546,7 +1662,7 @@
       max-width: 560px;
       z-index: 50;
       display: none;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 4px;
       border-top: 1px solid #e2e8f0;
       background: rgba(255, 255, 255, 0.92);
@@ -1676,10 +1792,6 @@
         font-size: 30px;
       }
 
-      .search-panel {
-        padding: 10px;
-      }
-
       .doc-tab {
         font-size: 12px;
         padding: 10px 8px;
@@ -1691,17 +1803,19 @@
         flex-direction: column;
       }
 
-      .search-launch-row {
-        align-items: stretch;
+      .hero-search-meta,
+      .hero-search-actions,
+      .hero-shortcuts {
+        grid-template-columns: 1fr;
       }
 
-      .search-launch-btn {
-        width: 100%;
+      .hero-shortcut {
+        min-height: auto;
       }
 
-      .search-selection-pills {
-        width: 100%;
-        justify-content: flex-start;
+      .hero-shortcut + .hero-shortcut {
+        border-left: 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
       }
 
       .section-title {
@@ -1860,6 +1974,49 @@
             <h1>Career</h1>
             <p class="page-subtitle" id="pageSubtitle">Explore roles matched to your profile and relocation goals.</p>
           </div>
+          <div class="hero-search-card">
+            <div class="hero-search-line">
+              <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+              <span>Search by location or billing type</span>
+            </div>
+            <div class="hero-search-meta">
+              <span class="hero-search-chip" id="heroLocationChip">Any location</span>
+              <span class="hero-search-chip" id="heroBillingChip">Any billing type</span>
+            </div>
+            <div class="hero-search-actions">
+              <button class="search-launch-btn hero-search-cta" id="openSearchByBtn" type="button">
+                <svg class="search-icon" viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M7 12h10"></path><path d="M10 17h4"></path></svg>
+                <span>Search by</span>
+              </button>
+              <button class="hero-clear-btn" id="clearFiltersBtn" type="button">Clear filters</button>
+            </div>
+          </div>
+          <div class="filter-row hero-filter-row" id="careerFilterRow" aria-label="Quick filters"></div>
+          <div class="hero-shortcuts">
+            <button class="hero-shortcut" id="savedJobsShortcutBtn" type="button">
+              <span class="hero-shortcut-icon">
+                <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
+                <span class="hero-shortcut-badge" id="savedJobsShortcutCount">0</span>
+              </span>
+              <span class="hero-shortcut-title">Saved Jobs</span>
+              <span class="hero-shortcut-copy">Open your shortlisted roles inside Career.</span>
+            </button>
+            <button class="hero-shortcut" id="applicationsShortcutBtn" type="button">
+              <span class="hero-shortcut-icon">
+                <svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
+                <span class="hero-shortcut-badge" id="applicationsShortcutCount">0</span>
+              </span>
+              <span class="hero-shortcut-title">Applications</span>
+              <span class="hero-shortcut-copy">Track interviews, reviews and live role progress.</span>
+            </button>
+            <button class="hero-shortcut" id="howToApplyShortcutBtn" type="button">
+              <span class="hero-shortcut-icon">
+                <svg viewBox="0 0 24 24"><path d="M9.1 9a3 3 0 1 1 5.8 1c0 2-3 2-3 4"></path><path d="M12 17h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>
+              </span>
+              <span class="hero-shortcut-title">How to apply</span>
+              <span class="hero-shortcut-copy">See the quick steps before your application goes to a practice.</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1871,20 +2028,8 @@
       </nav>
 
       <section class="view-panel is-active" data-view-panel="browse">
-        <section class="search-panel">
-          <div class="search-launch-row">
-            <button class="search-launch-btn" id="openSearchByBtn" type="button">
-              <svg class="search-icon" viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M7 12h10"></path><path d="M10 17h4"></path></svg>
-              <span>Search by</span>
-            </button>
-            <div class="search-selection-pills" id="searchSelectionPills"></div>
-          </div>
-          <div class="filter-row" id="careerFilterRow" aria-label="Quick filters"></div>
-        </section>
-
         <div class="section-head">
           <h2 class="section-title">Recommended for you</h2>
-          <button class="section-link" id="clearFiltersBtn" type="button">Clear filters</button>
         </div>
 
         <div class="role-grid" id="recommendedRoles"></div>
@@ -1993,10 +2138,6 @@
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
       <span class="mobile-tab-label">Career</span>
     </a>
-    <a class="mobile-tab" href="my-documents.html">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg></span>
-      <span class="mobile-tab-label">Documents</span>
-    </a>
     <a class="mobile-tab" href="account.html">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
       <span class="mobile-tab-label">Account</span>
@@ -2063,6 +2204,35 @@
       <div class="modal-actions">
         <button class="btn-secondary" id="searchByClearBtn" type="button">Clear</button>
         <button class="btn-primary" id="searchByApplyBtn" type="button">Apply filters</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="howToApplyModal" aria-hidden="true">
+    <div class="modal-card search-modal-card" role="dialog" aria-modal="true" aria-labelledby="howToApplyTitle">
+      <button class="modal-close" id="howToApplyCloseBtn" type="button" aria-label="Close how to apply">
+        <svg viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+      <div class="search-modal-header">
+        <h2 class="modal-title" id="howToApplyTitle">How to apply</h2>
+        <p class="page-subtitle" style="max-width:none;">GP Link keeps the early process confidential and only releases practice identity after the practice accepts your application.</p>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-row">
+          <span class="detail-label">Step 1</span>
+          <span class="detail-value">Open a role, review the summary, suburb and benefits, then save it if you want to return later.</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Step 2</span>
+          <span class="detail-value">Apply through GP Link so your profile, documents and preferences can be checked before submission.</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Step 3</span>
+          <span class="detail-value">Once the practice accepts your application, GP Link releases the practice identity and coordinates the next conversation.</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary" id="howToApplyDoneBtn" type="button">Close</button>
       </div>
     </div>
   </div>
@@ -2257,6 +2427,7 @@
           activeFilter: "",
           filterLocation: "",
           filterBilling: "",
+          showSavedOnly: false,
           searchTerm: "",
           savedJobs: [],
           applications: []
@@ -2268,6 +2439,7 @@
         activeFilter: "",
         filterLocation: "",
         filterBilling: "",
+        showSavedOnly: false,
         searchTerm: "",
         savedJobs: activeRoles[0] ? [createSavedSnapshot(activeRoles[0])] : [],
         applications: [
@@ -2315,6 +2487,7 @@
         activeFilter: typeof source.activeFilter === "string" ? source.activeFilter : fallback.activeFilter,
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
         filterBilling: typeof source.filterBilling === "string" ? source.filterBilling : fallback.filterBilling,
+        showSavedOnly: source.showSavedOnly === true,
         searchTerm: typeof source.searchTerm === "string" ? source.searchTerm : fallback.searchTerm,
         savedJobs: Array.isArray(source.savedJobs)
           ? source.savedJobs
@@ -2359,6 +2532,13 @@
 
     const subtitleEl = document.getElementById("pageSubtitle");
     const careerTabSliderEl = document.getElementById("careerTabSlider");
+    const heroLocationChipEl = document.getElementById("heroLocationChip");
+    const heroBillingChipEl = document.getElementById("heroBillingChip");
+    const savedJobsShortcutBtnEl = document.getElementById("savedJobsShortcutBtn");
+    const applicationsShortcutBtnEl = document.getElementById("applicationsShortcutBtn");
+    const howToApplyShortcutBtnEl = document.getElementById("howToApplyShortcutBtn");
+    const savedJobsShortcutCountEl = document.getElementById("savedJobsShortcutCount");
+    const applicationsShortcutCountEl = document.getElementById("applicationsShortcutCount");
     const filterRowEl = document.getElementById("careerFilterRow");
     const recommendedRolesEl = document.getElementById("recommendedRoles");
     const rolesEmptyStateEl = document.getElementById("rolesEmptyState");
@@ -2368,13 +2548,15 @@
     const viewTabs = [...document.querySelectorAll("[data-view]")];
     const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
     const openSearchByBtnEl = document.getElementById("openSearchByBtn");
-    const searchSelectionPillsEl = document.getElementById("searchSelectionPills");
     const searchByModalEl = document.getElementById("searchByModal");
     const searchByCloseBtnEl = document.getElementById("searchByCloseBtn");
     const searchLocationSelectEl = document.getElementById("searchLocationSelect");
     const searchBillingSelectEl = document.getElementById("searchBillingSelect");
     const searchByApplyBtnEl = document.getElementById("searchByApplyBtn");
     const searchByClearBtnEl = document.getElementById("searchByClearBtn");
+    const howToApplyModalEl = document.getElementById("howToApplyModal");
+    const howToApplyCloseBtnEl = document.getElementById("howToApplyCloseBtn");
+    const howToApplyDoneBtnEl = document.getElementById("howToApplyDoneBtn");
     const clearFiltersBtnEl = document.getElementById("clearFiltersBtn");
     const browseRolesBtnEl = document.getElementById("browseRolesBtn");
     const openBrowseFromSecuredBtnEl = document.getElementById("openBrowseFromSecuredBtn");
@@ -2541,18 +2723,12 @@
     function renderSearchFilterControls() {
       setSelectOptions(searchLocationSelectEl, getRoleLocationOptions(), "Any location", careerState.filterLocation);
       setSelectOptions(searchBillingSelectEl, getRoleBillingOptions(), "Any billing type", careerState.filterBilling);
-
-      if (!searchSelectionPillsEl) return;
-      const pills = [];
-      if (careerState.filterLocation) {
-        pills.push(`<button class="selection-pill" type="button" data-clear-selection="location">Location: ${escapeHtml(careerState.filterLocation)} <span aria-hidden="true">×</span></button>`);
+      if (heroLocationChipEl) {
+        heroLocationChipEl.textContent = careerState.filterLocation || "Any location";
       }
-      if (careerState.filterBilling) {
-        pills.push(`<button class="selection-pill" type="button" data-clear-selection="billing">Billing: ${escapeHtml(careerState.filterBilling)} <span aria-hidden="true">×</span></button>`);
+      if (heroBillingChipEl) {
+        heroBillingChipEl.textContent = careerState.filterBilling || "Any billing type";
       }
-      searchSelectionPillsEl.innerHTML = pills.length
-        ? pills.join("")
-        : '<span class="selection-pill-empty">Choose location and billing type to narrow the role list.</span>';
     }
 
     function openSearchByModal() {
@@ -2566,6 +2742,29 @@
       if (!searchByModalEl) return;
       searchByModalEl.classList.remove("is-open");
       searchByModalEl.setAttribute("aria-hidden", "true");
+    }
+
+    function openHowToApplyModal() {
+      if (!howToApplyModalEl) return;
+      howToApplyModalEl.classList.add("is-open");
+      howToApplyModalEl.setAttribute("aria-hidden", "false");
+    }
+
+    function closeHowToApplyModal() {
+      if (!howToApplyModalEl) return;
+      howToApplyModalEl.classList.remove("is-open");
+      howToApplyModalEl.setAttribute("aria-hidden", "true");
+    }
+
+    function renderHeroShortcuts() {
+      if (savedJobsShortcutCountEl) savedJobsShortcutCountEl.textContent = String(careerState.savedJobs.length);
+      if (applicationsShortcutCountEl) applicationsShortcutCountEl.textContent = String(careerState.applications.length);
+      if (savedJobsShortcutBtnEl) {
+        savedJobsShortcutBtnEl.classList.toggle("is-active", careerState.activeView === "browse" && careerState.showSavedOnly);
+      }
+      if (applicationsShortcutBtnEl) {
+        applicationsShortcutBtnEl.classList.toggle("is-active", careerState.activeView === "applications");
+      }
     }
 
     function buildPracticeMaskHtml(role) {
@@ -2742,6 +2941,8 @@
       const filterLocation = careerState.filterLocation.trim().toLowerCase();
       const filterBilling = careerState.filterBilling.trim().toLowerCase();
       return roleData.filter((role) => {
+        const matchesSaved = !careerState.showSavedOnly || isSaved(role.id);
+        if (!matchesSaved) return false;
         const matchesFilter = !filter || role.filterTokens.includes(filter);
         if (!matchesFilter) return false;
         const matchesLocation = !filterLocation || String(role.location || "").trim().toLowerCase() === filterLocation;
@@ -2811,6 +3012,9 @@
     function renderRoles() {
       const roles = getFilteredRoles();
       recommendedRolesEl.innerHTML = "";
+      rolesEmptyStateEl.innerHTML = careerState.showSavedOnly
+        ? '<h3 class="empty-state-title">No saved jobs yet</h3><p class="empty-state-copy">Save a role from the list and it will appear here when Saved Jobs is active.</p>'
+        : '<h3 class="empty-state-title">No roles match your current filters</h3><p class="empty-state-copy">Try a different filter or clear your search.</p>';
       rolesEmptyStateEl.classList.toggle("is-visible", roles.length === 0);
       recommendedRolesEl.innerHTML = roles.map((role) => buildRoleCardHtml(role)).join("");
     }
@@ -2956,6 +3160,7 @@
     function renderPage() {
       renderFilters();
       renderSearchFilterControls();
+      renderHeroShortcuts();
       renderRoles();
       renderApplications();
       renderSecuredPlacement();
@@ -2985,19 +3190,31 @@
       closeSearchByModal();
     });
 
-    searchSelectionPillsEl.addEventListener("click", (event) => {
-      const clearBtn = event.target.closest("[data-clear-selection]");
-      if (!clearBtn) return;
-      const kind = clearBtn.getAttribute("data-clear-selection");
-      if (kind === "location") careerState.filterLocation = "";
-      if (kind === "billing") careerState.filterBilling = "";
+    savedJobsShortcutBtnEl.addEventListener("click", () => {
+      careerState.showSavedOnly = !(careerState.activeView === "browse" && careerState.showSavedOnly);
+      careerState.activeView = "browse";
       persistCareerState();
       renderPage();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    applicationsShortcutBtnEl.addEventListener("click", () => {
+      careerState.showSavedOnly = false;
+      setView("applications");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    howToApplyShortcutBtnEl.addEventListener("click", openHowToApplyModal);
+    howToApplyCloseBtnEl.addEventListener("click", closeHowToApplyModal);
+    howToApplyDoneBtnEl.addEventListener("click", closeHowToApplyModal);
+    howToApplyModalEl.addEventListener("click", (event) => {
+      if (event.target === howToApplyModalEl) closeHowToApplyModal();
     });
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         if (searchByModalEl.classList.contains("is-open")) closeSearchByModal();
+        if (howToApplyModalEl.classList.contains("is-open")) closeHowToApplyModal();
         if (roleModalEl.classList.contains("is-open")) closeRoleModal();
       }
     });
@@ -3006,14 +3223,21 @@
       careerState.activeFilter = "";
       careerState.filterLocation = "";
       careerState.filterBilling = "";
+      careerState.showSavedOnly = false;
       careerState.searchTerm = "";
       persistCareerState();
       renderPage();
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
 
-    browseRolesBtnEl.addEventListener("click", () => setView("browse"));
-    openBrowseFromSecuredBtnEl.addEventListener("click", () => setView("browse"));
+    browseRolesBtnEl.addEventListener("click", () => {
+      careerState.showSavedOnly = false;
+      setView("browse");
+    });
+    openBrowseFromSecuredBtnEl.addEventListener("click", () => {
+      careerState.showSavedOnly = false;
+      setView("browse");
+    });
 
     viewTabs.forEach((button) => {
       button.addEventListener("click", () => setView(button.dataset.view));
