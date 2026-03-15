@@ -48,7 +48,7 @@ const ZOHO_RECRUIT_CLIENT_ID = String(process.env.ZOHO_RECRUIT_CLIENT_ID || '').
 const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET || '').trim();
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
-const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRECRUIT.modules.jobopening.READ').trim() || 'ZohoRECRUIT.modules.jobopening.READ';
+const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRECRUIT.modules.jobopening.READ,ZohoRECRUIT.modules.Candidates.ALL,ZohoRECRUIT.modules.Applications.ALL').trim() || 'ZohoRECRUIT.modules.jobopening.READ,ZohoRECRUIT.modules.Candidates.ALL,ZohoRECRUIT.modules.Applications.ALL';
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
@@ -3303,6 +3303,62 @@ async function zohoRecruitApiGet(apiDomain, resourcePath, accessToken, queryPara
   }
 }
 
+async function zohoRecruitApiPost(apiDomain, resourcePath, accessToken, bodyData) {
+  const base = normalizeUrlBase(apiDomain, '');
+  if (!base) {
+    return { ok: false, status: 400, data: { message: 'Zoho Recruit API domain is missing.' } };
+  }
+  const url = `${base}/recruit/v2/${String(resourcePath || '').replace(/^\/+/, '')}`;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(bodyData)
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try { data = JSON.parse(text); } catch (err) { data = { raw: text }; }
+    }
+    return { ok: response.ok, status: response.status, data };
+  } catch (err) {
+    return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API.' } };
+  }
+}
+
+async function zohoRecruitApiUploadAttachment(apiDomain, moduleName, recordId, accessToken, fileName, fileBuffer, mimeType) {
+  const base = normalizeUrlBase(apiDomain, '');
+  if (!base) {
+    return { ok: false, status: 400, data: { message: 'Zoho Recruit API domain is missing.' } };
+  }
+  const url = `${base}/recruit/v2/${moduleName}/${recordId}/Attachments`;
+  const boundary = '----ZohoFormBoundary' + Date.now().toString(36);
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`;
+  const footer = `\r\n--${boundary}--\r\n`;
+  const body = Buffer.concat([Buffer.from(header), fileBuffer, Buffer.from(footer)]);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`
+      },
+      body
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try { data = JSON.parse(text); } catch (err) { data = { raw: text }; }
+    }
+    return { ok: response.ok, status: response.status, data };
+  } catch (err) {
+    return { ok: false, status: 502, data: { message: 'Failed to upload attachment to Zoho Recruit.' } };
+  }
+}
+
 async function fetchZohoRecruitJobOpenings(connection, accessToken, apiDomain, queryParams = {}) {
   const bases = getZohoRecruitCandidateBases(connection, apiDomain);
   const resourcePaths = ['JobOpenings', 'jobopenings', 'Job_Openings'];
@@ -3731,6 +3787,10 @@ async function syncZohoRecruitRoles() {
     records.forEach((record) => {
       const mapped = buildCareerRoleRecordFromZoho(record, syncedAt);
       if (!mapped) return;
+      // Skip jobs with "Test" in the title
+      if (/test/i.test(mapped.title || '')) return;
+      // Skip filled/closed/inactive jobs
+      if (!mapped.is_active) return;
       rows.push(mapped);
       seenIds.add(mapped.provider_role_id);
     });
@@ -3826,6 +3886,150 @@ async function runZohoRecruitScheduledSync() {
   } finally {
     await deleteRuntimeKv(lockKey);
   }
+}
+
+async function supabaseStorageDownloadObject(bucket, objectPath) {
+  if (!isSupabaseDbConfigured()) return null;
+  try {
+    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
+      method: 'GET',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+      }
+    });
+    if (!response || !response.ok) return null;
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return { buffer, mimeType: contentType };
+  } catch (err) {
+    return null;
+  }
+}
+
+async function getZohoRecruitAccessTokenAndDomain() {
+  if (!isZohoRecruitConfigured()) return null;
+  const connection = await getZohoRecruitConnection();
+  if (!connection || !connection.refreshToken) return null;
+  const refreshed = await refreshZohoRecruitAccessToken(connection);
+  if (!refreshed.ok) return null;
+  const accessToken = String(refreshed.data && refreshed.data.access_token ? refreshed.data.access_token : '').trim();
+  const apiDomain = normalizeUrlBase(
+    refreshed.data && refreshed.data.api_domain,
+    (connection || {}).apiDomain || ''
+  );
+  if (!accessToken || !apiDomain) return null;
+  return { accessToken, apiDomain, connection };
+}
+
+async function createZohoRecruitCandidate(userId, email, userProfile, onboardingState) {
+  const zoho = await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho) return { ok: false, message: 'Zoho Recruit is not connected.' };
+
+  const firstName = String(userProfile.first_name || '').trim();
+  const lastName = String(userProfile.last_name || '').trim();
+  const phone = String(userProfile.phone_number || '').trim();
+  const countryDial = String(userProfile.country_dial || '').trim();
+  const fullPhone = countryDial && phone ? `${countryDial}${phone}` : phone;
+  const qualCountry = String(userProfile.qualification_country || onboardingState.country || '').trim();
+  const preferredCity = String(userProfile.preferred_city || onboardingState.preferredCity || '').trim();
+  const targetDate = String(userProfile.target_arrival_date || onboardingState.targetDate || '').trim();
+  const whoMoving = String(userProfile.who_moving || onboardingState.whoMoving || '').trim();
+  const childrenCount = userProfile.children_count || onboardingState.childrenCount || 0;
+
+  // Build relocation details text
+  const relocationParts = [];
+  if (whoMoving) relocationParts.push(`Moving: ${whoMoving}`);
+  if (childrenCount > 0) relocationParts.push(`Children: ${childrenCount}`);
+  if (qualCountry) relocationParts.push(`From: ${qualCountry}`);
+  const relocationDetails = relocationParts.join(', ');
+
+  const candidateData = {
+    data: [{
+      First_Name: firstName,
+      Last_Name: lastName || email.split('@')[0],
+      Email: email,
+      Phone: fullPhone || undefined,
+      Country: qualCountry || undefined,
+      Current_Job_Title: 'General Practitioner',
+      Source: 'GP Link App',
+      // Custom GP Link App fields
+      App_Email: email,
+      Target_Arrival_Date: targetDate || undefined,
+      Preferred_City: preferredCity || undefined,
+      Relocation_Details: relocationDetails || undefined
+    }]
+  };
+
+  // Try multiple module path variants for Candidates
+  const candidatePaths = ['Candidates', 'candidates'];
+  let lastError = null;
+  for (const path of candidatePaths) {
+    const result = await zohoRecruitApiPost(zoho.apiDomain, path, zoho.accessToken, candidateData);
+    if (result.ok && result.data && result.data.data && result.data.data[0]) {
+      const created = result.data.data[0];
+      const zohoId = created.details && created.details.id ? String(created.details.id) : '';
+      if (zohoId) {
+        // Store Zoho Candidate ID in user_profiles
+        await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: { zoho_candidate_id: zohoId, updated_at: new Date().toISOString() }
+        });
+        return { ok: true, zohoId };
+      }
+    }
+    lastError = result;
+  }
+  return { ok: false, message: 'Failed to create Zoho Recruit candidate.', detail: lastError };
+}
+
+async function uploadDocumentsToZohoCandidate(userId, zohoCanidateId) {
+  const zoho = await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho || !zohoCanidateId) return;
+
+  // Get all user documents from DB
+  const docsResult = await supabaseDbRequest(
+    'user_documents',
+    `select=document_key,country_code,file_name,file_url&user_id=eq.${encodeURIComponent(userId)}&status=eq.uploaded`
+  );
+  if (!docsResult.ok || !Array.isArray(docsResult.data)) return;
+
+  for (const doc of docsResult.data) {
+    const storagePath = doc.file_url;
+    if (!storagePath) continue;
+    const downloaded = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath);
+    if (!downloaded) continue;
+    const fileName = doc.file_name || `${doc.document_key || 'document'}.pdf`;
+    await zohoRecruitApiUploadAttachment(
+      zoho.apiDomain, 'Candidates', zohoCanidateId, zoho.accessToken,
+      fileName, downloaded.buffer, downloaded.mimeType
+    );
+  }
+}
+
+async function createZohoRecruitApplication(zohoCandidateId, zohoJobId) {
+  const zoho = await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho) return { ok: false, message: 'Zoho Recruit is not connected.' };
+
+  // Look up the provider_role_id to get the actual Zoho Job Opening ID
+  const applicationData = {
+    data: [{
+      Candidate_Id: zohoCandidateId,
+      Job_Opening: zohoJobId,
+      Application_Status: 'New',
+      Source: 'GP Link App'
+    }]
+  };
+
+  const appPaths = ['Applications', 'applications'];
+  let lastError = null;
+  for (const path of appPaths) {
+    const result = await zohoRecruitApiPost(zoho.apiDomain, path, zoho.accessToken, applicationData);
+    if (result.ok) return { ok: true, data: result.data };
+    lastError = result;
+  }
+  return { ok: false, message: 'Failed to create Zoho Recruit application.', detail: lastError };
 }
 
 async function getRuntimeKv(key) {
@@ -4857,6 +5061,147 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === '/api/career/apply' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const roleId = String(body && body.roleId || '').trim();
+    if (!roleId) {
+      sendJson(res, 400, { ok: false, message: 'Missing roleId.' });
+      return;
+    }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) {
+      sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' });
+      return;
+    }
+
+    // Check onboarding is complete
+    const stateResult = await getSupabaseUserStateByEmail(email);
+    const userState = stateResult && stateResult.state && typeof stateResult.state === 'object' ? stateResult.state : {};
+    if (!userState.gp_onboarding_complete) {
+      sendJson(res, 403, { ok: false, message: 'Please complete onboarding before applying.' });
+      return;
+    }
+
+    // Check CV is uploaded
+    const cvResult = await supabaseDbRequest(
+      'user_documents',
+      `select=id&user_id=eq.${encodeURIComponent(userId)}&document_key=eq.cv_signed_dated&status=eq.uploaded&limit=1`
+    );
+    if (!cvResult.ok || !Array.isArray(cvResult.data) || cvResult.data.length === 0) {
+      sendJson(res, 403, { ok: false, message: 'Please upload your CV before applying.', requiresCv: true });
+      return;
+    }
+
+    // Get user profile for Zoho candidate ID
+    const profileResult = await supabaseDbRequest('user_profiles', `select=zoho_candidate_id&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const profile = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0] ? profileResult.data[0] : {};
+    const zohoCandidateId = String(profile.zoho_candidate_id || '').trim();
+
+    // Resolve the career role to get the Zoho job opening ID
+    const parsedRoleId = parseCareerRolePublicId(roleId);
+    if (!parsedRoleId) {
+      sendJson(res, 400, { ok: false, message: 'Invalid role ID format.' });
+      return;
+    }
+    const roleRow = await getCareerRoleRow(parsedRoleId.provider, parsedRoleId.providerRoleId);
+    if (!roleRow) {
+      sendJson(res, 404, { ok: false, message: 'Role not found.' });
+      return;
+    }
+
+    // Check for duplicate application
+    const existingApp = await supabaseDbRequest(
+      'gp_applications',
+      `select=id&user_id=eq.${encodeURIComponent(userId)}&career_role_id=eq.${encodeURIComponent(roleRow.id)}&limit=1`
+    );
+    if (existingApp.ok && Array.isArray(existingApp.data) && existingApp.data.length > 0) {
+      sendJson(res, 409, { ok: false, message: 'You have already applied for this role.' });
+      return;
+    }
+
+    // Create Zoho Application if we have a candidate ID
+    let zohoApplicationId = '';
+    if (zohoCandidateId && isZohoRecruitConfigured()) {
+      const appResult = await createZohoRecruitApplication(zohoCandidateId, parsedRoleId.providerRoleId);
+      if (appResult.ok && appResult.data && appResult.data.data && appResult.data.data[0]) {
+        const detail = appResult.data.data[0].details;
+        zohoApplicationId = detail && detail.id ? String(detail.id) : '';
+      }
+    }
+
+    // Save application to DB
+    const appRow = {
+      user_id: userId,
+      career_role_id: roleRow.id,
+      provider_role_id: parsedRoleId.providerRoleId,
+      zoho_candidate_id: zohoCandidateId || null,
+      zoho_application_id: zohoApplicationId || null,
+      status: 'applied',
+      applied_at: new Date().toISOString()
+    };
+    const insertResult = await supabaseDbRequest('gp_applications', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [appRow]
+    });
+
+    if (!insertResult.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save application.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      message: 'Application submitted successfully.',
+      application: insertResult.data && insertResult.data[0] ? insertResult.data[0] : appRow
+    });
+    return;
+  }
+
+  if (pathname === '/api/career/applications' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const result = await supabaseDbRequest(
+      'gp_applications',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&order=applied_at.desc`
+    );
+    const applications = result.ok && Array.isArray(result.data) ? result.data : [];
+
+    // Enrich with role info
+    const enriched = [];
+    for (const app of applications) {
+      let roleRow = null;
+      if (app.provider_role_id) {
+        roleRow = await getCareerRoleRow('zoho_recruit', app.provider_role_id);
+      }
+      enriched.push({
+        id: app.id,
+        status: app.status,
+        appliedAt: app.applied_at,
+        role: roleRow ? mapCareerRoleRowToClient(roleRow) : { id: app.provider_role_id, title: 'Unknown Role' }
+      });
+    }
+
+    sendJson(res, 200, { ok: true, applications: enriched });
+    return;
+  }
+
   if (pathname === '/api/integrations/zoho-recruit/status' && req.method === 'GET') {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Zoho Recruit integration requires Supabase database configuration.' });
@@ -5267,6 +5612,26 @@ async function handleApi(req, res, pathname) {
       dbState.userProfiles[email].onboarding_completed_at = new Date().toISOString();
       saveDbState(dbState);
     }
+    // Create Zoho Recruit Candidate (best-effort, don't block onboarding)
+    if (isSupabaseDbConfigured() && isZohoRecruitConfigured() && userId) {
+      (async () => {
+        try {
+          const profile = await supabaseDbRequest('user_profiles', `select=*&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+          const userProfile = profile.ok && Array.isArray(profile.data) && profile.data[0] ? profile.data[0] : {};
+          // Only create if not already created
+          if (!userProfile.zoho_candidate_id) {
+            const candidateResult = await createZohoRecruitCandidate(userId, email, userProfile, body);
+            if (candidateResult.ok && candidateResult.zohoId) {
+              // Upload documents as attachments
+              await uploadDocumentsToZohoCandidate(userId, candidateResult.zohoId);
+            }
+          }
+        } catch (err) {
+          // Zoho candidate creation is best-effort
+        }
+      })();
+    }
+
     sendJson(res, 200, { ok: true, message: 'Onboarding complete.' });
     return;
   }

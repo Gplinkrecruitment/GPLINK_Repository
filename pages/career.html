@@ -2756,7 +2756,7 @@
       if (currentRoleId === roleId) renderRoleModal(roleId);
     }
 
-    function applyForRole(roleId) {
+    async function applyForRole(roleId) {
       const role = findRole(roleId);
       if (!role) return;
       if (isApplied(roleId)) {
@@ -2765,26 +2765,60 @@
         showToast("Application already tracked");
         return;
       }
-      careerState.applications = [
-        {
-          roleId: role.id,
-          practiceName: role.practiceName,
-          location: role.location,
-          status: "Under Review",
-          tone: "review",
-          meta: [
-            { label: "Applied", value: "Just now" },
-            { label: "Billing", value: role.billing.replace(" Billing", "") },
-            { label: "Next step", value: "GP Link screening" }
-          ]
-        },
-        ...careerState.applications
-      ];
-      careerState.activeView = "applications";
-      persistCareerState();
-      closeRoleModal();
-      renderPage();
-      showToast("Application added to your tracker");
+
+      // Disable button while applying
+      if (roleModalApplyBtnEl) {
+        roleModalApplyBtnEl.disabled = true;
+        roleModalApplyBtnEl.textContent = "Applying...";
+      }
+
+      try {
+        const resp = await fetch("/api/career/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roleId: role.id })
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          if (data.requiresCv) {
+            showToast("Please upload your CV first");
+            closeRoleModal();
+            window.location.href = "/pages/my-documents.html";
+            return;
+          }
+          showToast(data.message || "Could not submit application");
+          return;
+        }
+
+        careerState.applications = [
+          {
+            roleId: role.id,
+            practiceName: role.practiceName,
+            location: role.location,
+            status: "Under Review",
+            tone: "review",
+            meta: [
+              { label: "Applied", value: "Just now" },
+              { label: "Billing", value: (role.billing || "").replace(" Billing", "") },
+              { label: "Next step", value: "GP Link screening" }
+            ]
+          },
+          ...careerState.applications
+        ];
+        careerState.activeView = "applications";
+        persistCareerState();
+        closeRoleModal();
+        renderPage();
+        showToast("Application submitted successfully");
+      } catch (err) {
+        showToast("Network error — please try again");
+      } finally {
+        if (roleModalApplyBtnEl) {
+          roleModalApplyBtnEl.disabled = false;
+          roleModalApplyBtnEl.textContent = "Apply Now";
+        }
+      }
     }
 
     function getFilteredRoles() {
@@ -2840,6 +2874,37 @@
         }
       } catch (err) {
         // Fall back to local dummy roles when the backend cannot provide live data.
+      }
+    }
+
+    async function loadRemoteApplications() {
+      try {
+        const response = await fetch("/api/career/applications", { credentials: "same-origin" });
+        if (!response.ok) return;
+        const payload = await response.json().catch(() => null);
+        if (!payload || !payload.ok || !Array.isArray(payload.applications)) return;
+        const remote = payload.applications.map((app) => ({
+          roleId: app.role && app.role.id ? app.role.id : app.id,
+          practiceName: app.role && app.role.practiceName ? app.role.practiceName : "Practice",
+          location: app.role && app.role.location ? app.role.location : "",
+          status: app.status === "applied" ? "Under Review" : app.status,
+          tone: "review",
+          meta: [
+            { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
+            { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
+            { label: "Next step", value: "GP Link screening" }
+          ]
+        }));
+        if (remote.length > 0) {
+          // Merge: keep remote as source of truth, add any local-only apps
+          const remoteIds = new Set(remote.map((a) => a.roleId));
+          const localOnly = careerState.applications.filter((a) => a && a.roleId && !remoteIds.has(a.roleId));
+          careerState.applications = [...remote, ...localOnly];
+          persistCareerState();
+          renderPage();
+        }
+      } catch (err) {
+        // Fallback to localStorage applications
       }
     }
 
@@ -3145,7 +3210,8 @@
         persistCareerState();
       }
       renderPage();
-      loadRemoteRoles();
+      await loadRemoteRoles();
+      await loadRemoteApplications();
       const requestedRoleId = new URL(window.location.href).searchParams.get("role");
       if (requestedRoleId && findRole(requestedRoleId)) {
         renderRoleModal(requestedRoleId);
