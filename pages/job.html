@@ -988,6 +988,7 @@
 
   let currentRole = null;
   let mapVisible = false;
+  let heroImageLookupRequestId = 0;
 
   /* ── Get role ID from URL ── */
   function getRoleIdFromUrl() {
@@ -1171,6 +1172,58 @@
     }
   }
 
+  function parseStateCodeFromText(value) {
+    const match = String(value || "").match(/\b(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\b/i);
+    return match ? match[1].toUpperCase() : "";
+  }
+
+  function buildHeroImageLookupParams(role) {
+    const params = new URLSearchParams();
+    if (!role) return params;
+    if (role.id) params.set("roleId", role.id);
+    if (role.mapLabel) params.set("mapLabel", role.mapLabel);
+    if (role.locationLine) params.set("locationLine", role.locationLine);
+    if (role.location) params.set("location", role.location);
+    if (role.mapQuery) params.set("mapQuery", role.mapQuery);
+    const state = parseStateCodeFromText(role.locationLine || role.location || role.mapQuery || "");
+    if (state) params.set("state", state);
+    params.set("country", "Australia");
+    return params;
+  }
+
+  function writePreviewRole(role) {
+    if (!role || !role.id) return;
+    try {
+      sessionStorage.setItem(ROLE_PREVIEW_SESSION_KEY, JSON.stringify(role));
+    } catch (err) {
+      // Ignore storage failures.
+    }
+  }
+
+  async function ensureHeroImage(role) {
+    if (!role || role.heroImageUrl) return;
+    const params = buildHeroImageLookupParams(role);
+    const requestId = ++heroImageLookupRequestId;
+    try {
+      const res = await fetch("/api/career/hero-image?" + params.toString(), {
+        credentials: "same-origin"
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.ok !== true || !data.heroImageUrl) return;
+      if (!currentRole || currentRole.id !== role.id || requestId !== heroImageLookupRequestId) return;
+      currentRole = {
+        ...currentRole,
+        heroImageUrl: data.heroImageUrl,
+        heroImageSourceUrl: data.heroImageSourceUrl || "",
+        heroImageCredit: data.heroImageCredit || ""
+      };
+      writePreviewRole(currentRole);
+      renderHeroImage(currentRole);
+    } catch (err) {
+      // Keep the gradient fallback if lookup fails.
+    }
+  }
+
   function updateSaveButton() {
     if (!currentRole) return;
     const saved = isSaved(currentRole.id);
@@ -1205,6 +1258,7 @@
     if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(role);
     billingPillEl.textContent = role.billing || "Billing to be confirmed";
     renderHeroImage(role);
+    ensureHeroImage(role);
 
     renderBenefits(role.benefits);
 

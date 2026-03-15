@@ -54,12 +54,14 @@ const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAG
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
 let _zohoRolesCache = null; // { roles: [], ts: 0 } — 5 min in-memory cache for live Zoho roles
 let _zohoRolesFetchPromise = null; // promise coalescing for concurrent requests
+const _careerHeroLookupCache = new Map(); // normalized location key -> { ts, value }
 const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limiting apply endpoint
 const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const CAREER_AI_PROFILE_VERSION = 2;
 const CAREER_HERO_IMAGE_VERSION = 1;
+const CAREER_HERO_LOOKUP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
@@ -3215,37 +3217,87 @@ function shouldRefreshCareerHeroImage(row, meta) {
   return (Date.now() - checkedAt) > (14 * 24 * 60 * 60 * 1000);
 }
 
-async function ensureCareerRoleHeroImage(row) {
-  if (!row) return null;
-  const currentMeta = getCareerRoleGpLinkMeta(row);
-  if (!shouldRefreshCareerHeroImage(row, currentMeta)) return row;
+function normalizeCareerHeroLookupContext(context = {}) {
+  const normalized = {
+    suburb: String(context.suburb || context.mapLabel || '').trim(),
+    state: String(context.state || '').trim().toUpperCase(),
+    city: String(context.city || '').trim(),
+    country: String(context.country || '').trim() || 'Australia'
+  };
 
+  const locationText = [
+    context.locationLine,
+    context.location,
+    context.mapQuery
+  ].map((value) => String(value || '').trim()).find(Boolean) || '';
+
+  if (!normalized.state && locationText) {
+    const stateMatch = locationText.match(/\b(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\b/i);
+    if (stateMatch) normalized.state = stateMatch[1].toUpperCase();
+  }
+
+  if ((!normalized.suburb || !normalized.city) && locationText) {
+    const baseLocation = locationText.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    const parts = baseLocation.split(',').map((part) => part.trim()).filter(Boolean);
+    if (!normalized.suburb && parts[0]) normalized.suburb = parts[0];
+    if (!normalized.city && parts[1]) {
+      normalized.city = parts[1].replace(/\b(NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\b/gi, '').replace(/\s+/g, ' ').trim();
+    }
+    if (!normalized.city && parts[0] && normalized.suburb && parts[0].toLowerCase() !== normalized.suburb.toLowerCase()) {
+      normalized.city = parts[0];
+    }
+  }
+
+  if (!normalized.suburb && normalized.city) normalized.suburb = normalized.city;
+  return normalized;
+}
+
+function buildCareerHeroLookupCacheKey(context = {}) {
+  return [
+    String(context.suburb || '').trim().toLowerCase(),
+    String(context.state || '').trim().toLowerCase(),
+    String(context.city || '').trim().toLowerCase(),
+    String(context.country || '').trim().toLowerCase()
+  ].join('|');
+}
+
+async function resolveCareerHeroImageFromContext(context = {}) {
+  const normalized = normalizeCareerHeroLookupContext(context);
+  const hasLocation = !!String(normalized.suburb || normalized.city || '').trim();
   const checkedAt = new Date().toISOString();
-  const candidates = await fetchCareerHeroImageCandidates({
-    suburb: currentMeta.suburb,
-    state: row && row.location_state,
-    city: row && row.location_city,
-    country: row && row.location_country
-  });
 
-  if (!candidates.length) {
-    return updateCareerRoleRow(row, {
-      ...currentMeta,
+  if (!hasLocation) {
+    return {
       heroImageUrl: '',
       heroImageSourceUrl: '',
       heroImageCredit: '',
       heroImageStatus: 'unavailable',
       heroImageCheckedAt: checkedAt,
       heroImageVersion: CAREER_HERO_IMAGE_VERSION
-    });
+    };
   }
 
-  const selected = await chooseCareerHeroImageCandidate({
-    suburb: currentMeta.suburb,
-    state: row && row.location_state,
-    city: row && row.location_city
-  }, candidates);
+  const cacheKey = buildCareerHeroLookupCacheKey(normalized);
+  const cached = _careerHeroLookupCache.get(cacheKey);
+  if (cached && cached.value && (Date.now() - cached.ts) < CAREER_HERO_LOOKUP_CACHE_TTL_MS) {
+    return { ...cached.value };
+  }
 
+  const candidates = await fetchCareerHeroImageCandidates(normalized);
+  if (!candidates.length) {
+    const unavailable = {
+      heroImageUrl: '',
+      heroImageSourceUrl: '',
+      heroImageCredit: '',
+      heroImageStatus: 'unavailable',
+      heroImageCheckedAt: checkedAt,
+      heroImageVersion: CAREER_HERO_IMAGE_VERSION
+    };
+    _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: unavailable });
+    return { ...unavailable };
+  }
+
+  const selected = await chooseCareerHeroImageCandidate(normalized, candidates);
   const chosen = selected || candidates[0];
   const creditParts = [
     stripCareerCommonsMeta(chosen.title).replace(/^File:/i, ''),
@@ -3253,14 +3305,41 @@ async function ensureCareerRoleHeroImage(row) {
     stripCareerCommonsMeta(chosen.license)
   ].filter(Boolean);
 
-  return updateCareerRoleRow(row, {
-    ...currentMeta,
+  const resolved = {
     heroImageUrl: String(chosen.imageUrl || '').trim(),
     heroImageSourceUrl: String(chosen.sourceUrl || '').trim(),
     heroImageCredit: creditParts.join(' · '),
     heroImageStatus: 'success',
     heroImageCheckedAt: checkedAt,
     heroImageVersion: CAREER_HERO_IMAGE_VERSION
+  };
+  _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: resolved });
+  return { ...resolved };
+}
+
+async function ensureCareerRoleHeroImage(row) {
+  if (!row) return null;
+  const currentMeta = getCareerRoleGpLinkMeta(row);
+  if (!shouldRefreshCareerHeroImage(row, currentMeta)) return row;
+
+  const resolved = await resolveCareerHeroImageFromContext({
+    suburb: currentMeta.suburb,
+    mapLabel: currentMeta.suburb,
+    state: row && row.location_state,
+    city: row && row.location_city,
+    country: row && row.location_country,
+    location: row && row.location_label,
+    mapQuery: currentMeta.mapQuery
+  });
+
+  return updateCareerRoleRow(row, {
+    ...currentMeta,
+    heroImageUrl: resolved.heroImageUrl,
+    heroImageSourceUrl: resolved.heroImageSourceUrl,
+    heroImageCredit: resolved.heroImageCredit,
+    heroImageStatus: resolved.heroImageStatus,
+    heroImageCheckedAt: resolved.heroImageCheckedAt,
+    heroImageVersion: resolved.heroImageVersion
   });
 }
 
@@ -5465,6 +5544,50 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, {
       ok: true,
       role: mapCareerRoleDetailToClient(heroReadyRow || aiReadyRow || billingReadyRow || existingRow)
+    });
+    return;
+  }
+
+  if (pathname === '/api/career/hero-image' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const requestedRoleId = String(requestUrl.searchParams.get('roleId') || '').trim();
+    const parsedId = parseCareerRolePublicId(requestedRoleId);
+
+    if (parsedId) {
+      const existingRow = await getCareerRoleRow(parsedId.provider, parsedId.providerRoleId);
+      if (existingRow) {
+        const heroReadyRow = await ensureCareerRoleHeroImage(existingRow);
+        const mappedRole = heroReadyRow ? mapCareerRoleRowToClient(heroReadyRow) : null;
+        sendJson(res, 200, {
+          ok: true,
+          heroImageUrl: mappedRole && mappedRole.heroImageUrl ? mappedRole.heroImageUrl : '',
+          heroImageSourceUrl: mappedRole && mappedRole.heroImageSourceUrl ? mappedRole.heroImageSourceUrl : '',
+          heroImageCredit: mappedRole && mappedRole.heroImageCredit ? mappedRole.heroImageCredit : '',
+          status: mappedRole && mappedRole.heroImageUrl ? 'success' : 'unavailable'
+        });
+        return;
+      }
+    }
+
+    const resolved = await resolveCareerHeroImageFromContext({
+      suburb: requestUrl.searchParams.get('suburb') || requestUrl.searchParams.get('mapLabel') || '',
+      state: requestUrl.searchParams.get('state') || '',
+      city: requestUrl.searchParams.get('city') || '',
+      country: requestUrl.searchParams.get('country') || '',
+      location: requestUrl.searchParams.get('location') || '',
+      locationLine: requestUrl.searchParams.get('locationLine') || '',
+      mapQuery: requestUrl.searchParams.get('mapQuery') || ''
+    });
+
+    sendJson(res, 200, {
+      ok: true,
+      heroImageUrl: resolved.heroImageUrl,
+      heroImageSourceUrl: resolved.heroImageSourceUrl,
+      heroImageCredit: resolved.heroImageCredit,
+      status: resolved.heroImageStatus
     });
     return;
   }
