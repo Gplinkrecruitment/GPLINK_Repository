@@ -55,13 +55,16 @@ const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_
 let _zohoRolesCache = null; // { roles: [], ts: 0 } — 5 min in-memory cache for live Zoho roles
 let _zohoRolesFetchPromise = null; // promise coalescing for concurrent requests
 const _careerHeroLookupCache = new Map(); // normalized location key -> { ts, value }
+let _careerHeroCityLibraryCache = { ts: 0, value: null };
 const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limiting apply endpoint
 const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const CAREER_AI_PROFILE_VERSION = 2;
-const CAREER_HERO_IMAGE_VERSION = 2;
+const CAREER_HERO_IMAGE_VERSION = 3;
 const CAREER_HERO_LOOKUP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const CAREER_HERO_CITY_LIBRARY_CACHE_TTL_MS = 60 * 60 * 1000;
+const CAREER_HERO_IMAGE_BUCKET = String(process.env.CAREER_HERO_IMAGE_BUCKET || 'career-hero-images').trim() || 'career-hero-images';
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
 const HERO_MOBILE_MP4_URL = String(process.env.HERO_MOBILE_MP4_URL || '').trim();
@@ -342,6 +345,13 @@ async function supabaseStorageCreateSignedUrl(bucket, objectPath, fileName) {
     : (payload && typeof payload.signedUrl === 'string' ? payload.signedUrl : '');
   if (!signedPath) return '';
   return signedPath.startsWith('http') ? signedPath : `${SUPABASE_URL}/storage/v1${signedPath}`;
+}
+
+function buildSupabaseStoragePublicUrl(bucket, objectPath) {
+  const bucketName = String(bucket || '').trim();
+  const pathName = String(objectPath || '').trim();
+  if (!SUPABASE_URL || !bucketName || !pathName) return '';
+  return `${SUPABASE_URL}/storage/v1/object/public/${encodeURIComponent(bucketName)}/${encodeSupabaseObjectPath(pathName)}`;
 }
 
 function mapPreparedDocumentRow(row, signedUrl = '') {
@@ -798,7 +808,7 @@ const SECURITY_HEADERS = {
     `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: blob: https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org",
+    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}`,
     "media-src 'self' blob:",
     "frame-ancestors 'none'",
@@ -3277,11 +3287,320 @@ function normalizeCareerHeroLookupContext(context = {}) {
 
 function buildCareerHeroLookupCacheKey(context = {}) {
   return [
+    String(context.roleSeed || '').trim().toLowerCase(),
     String(context.suburb || '').trim().toLowerCase(),
     String(context.state || '').trim().toLowerCase(),
     String(context.city || '').trim().toLowerCase(),
     String(context.country || '').trim().toLowerCase()
   ].join('|');
+}
+
+function createCareerHeroUnavailable(checkedAt = new Date().toISOString()) {
+  return {
+    heroImageUrl: '',
+    heroImageSourceUrl: '',
+    heroImageCredit: '',
+    heroImageStatus: 'unavailable',
+    heroImageCheckedAt: checkedAt,
+    heroImageVersion: CAREER_HERO_IMAGE_VERSION
+  };
+}
+
+function normalizeCareerHeroCityKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-');
+}
+
+function parseCareerCoordinate(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function isAustralianCoordinate(latitude, longitude) {
+  return Number.isFinite(latitude) && Number.isFinite(longitude)
+    && latitude >= -44.5 && latitude <= -9.0
+    && longitude >= 112.0 && longitude <= 154.5;
+}
+
+function buildCareerHeroRoleSeed(context = {}) {
+  return String(context.roleSeed || '').trim()
+    || [
+      context.suburb,
+      context.state,
+      context.city,
+      context.country
+    ].map((value) => String(value || '').trim()).filter(Boolean).join('|');
+}
+
+function hashCareerHeroSeed(seed) {
+  const text = String(seed || '');
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function pickStableCareerHeroImage(images = [], seed = '') {
+  if (!Array.isArray(images) || images.length === 0) return null;
+  const index = hashCareerHeroSeed(seed) % images.length;
+  return images[index] || images[0] || null;
+}
+
+function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const toRadians = (value) => value * (Math.PI / 180);
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
+async function loadCareerHeroCityLibrary() {
+  const cached = _careerHeroCityLibraryCache;
+  if (cached.value && (Date.now() - cached.ts) < CAREER_HERO_CITY_LIBRARY_CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const emptyLibrary = { cities: [], imagesByCityId: new Map() };
+  if (!isSupabaseDbConfigured()) return emptyLibrary;
+
+  const [citiesResult, imagesResult] = await Promise.all([
+    supabaseDbRequest(
+      'career_hero_cities',
+      'select=id,slug,city_name,state_code,country,latitude,longitude,is_active&is_active=is.true&order=city_name.asc'
+    ),
+    supabaseDbRequest(
+      'career_hero_city_images',
+      'select=id,city_id,slot_no,bucket_id,object_path,alt_text,credit,is_active&is_active=is.true&order=city_id.asc,slot_no.asc'
+    )
+  ]);
+
+  if (!citiesResult.ok || !imagesResult.ok || !Array.isArray(citiesResult.data) || !Array.isArray(imagesResult.data)) {
+    return emptyLibrary;
+  }
+
+  const cities = citiesResult.data
+    .map((row) => ({
+      id: Number(row.id || 0),
+      slug: String(row.slug || '').trim(),
+      cityName: String(row.city_name || '').trim(),
+      stateCode: String(row.state_code || '').trim().toUpperCase(),
+      country: String(row.country || 'Australia').trim() || 'Australia',
+      latitude: parseCareerCoordinate(row.latitude),
+      longitude: parseCareerCoordinate(row.longitude)
+    }))
+    .filter((row) => row.id > 0 && row.slug && isAustralianCoordinate(row.latitude, row.longitude));
+
+  const imagesByCityId = new Map();
+  imagesResult.data.forEach((row) => {
+    const cityId = Number(row.city_id || 0);
+    if (!cityId) return;
+    const bucketId = String(row.bucket_id || CAREER_HERO_IMAGE_BUCKET).trim() || CAREER_HERO_IMAGE_BUCKET;
+    const objectPath = String(row.object_path || '').trim();
+    if (!objectPath) return;
+    const publicUrl = buildSupabaseStoragePublicUrl(bucketId, objectPath);
+    if (!publicUrl) return;
+    const entry = {
+      id: Number(row.id || 0),
+      slotNo: Number(row.slot_no || 0),
+      bucketId,
+      objectPath,
+      publicUrl,
+      altText: String(row.alt_text || '').trim(),
+      credit: String(row.credit || '').trim()
+    };
+    if (!imagesByCityId.has(cityId)) imagesByCityId.set(cityId, []);
+    imagesByCityId.get(cityId).push(entry);
+  });
+
+  const library = { cities, imagesByCityId };
+  _careerHeroCityLibraryCache = { ts: Date.now(), value: library };
+  return library;
+}
+
+async function readCareerSuburbGeoCache(context = {}) {
+  const suburb = String(context.suburb || '').trim();
+  const state = String(context.state || '').trim().toUpperCase();
+  const country = String(context.country || 'Australia').trim() || 'Australia';
+  if (!suburb || !isSupabaseDbConfigured()) return null;
+
+  const result = await supabaseDbRequest(
+    'career_suburb_geo_cache',
+    [
+      'select=suburb,state_code,country,latitude,longitude,geocode_source,geocode_status,last_error,geocoded_at',
+      `suburb=ilike.${encodeURIComponent(suburb)}`,
+      `state_code=eq.${encodeURIComponent(state)}`,
+      `country=eq.${encodeURIComponent(country)}`,
+      'limit=1'
+    ].join('&')
+  );
+
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+async function writeCareerSuburbGeoCache(context = {}, patch = {}) {
+  const suburb = String(context.suburb || '').trim();
+  const state = String(context.state || '').trim().toUpperCase();
+  const country = String(context.country || 'Australia').trim() || 'Australia';
+  if (!suburb || !isSupabaseDbConfigured()) return null;
+
+  const payload = {
+    suburb,
+    state_code: state,
+    country,
+    latitude: patch.latitude === null || patch.latitude === undefined ? null : Number(patch.latitude),
+    longitude: patch.longitude === null || patch.longitude === undefined ? null : Number(patch.longitude),
+    geocode_source: String(patch.geocodeSource || '').trim(),
+    geocode_status: String(patch.geocodeStatus || 'pending').trim() || 'pending',
+    last_error: String(patch.lastError || '').trim(),
+    geocoded_at: patch.geocodedAt || new Date().toISOString()
+  };
+
+  const result = await supabaseDbRequest(
+    'career_suburb_geo_cache',
+    'on_conflict=suburb,state_code,country',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [payload]
+    }
+  );
+
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return result.data[0];
+}
+
+function buildCareerGeocodeQuery(context = {}) {
+  return [
+    String(context.suburb || '').trim(),
+    String(context.state || '').trim().toUpperCase(),
+    String(context.country || 'Australia').trim() || 'Australia'
+  ].filter(Boolean).join(', ');
+}
+
+async function fetchCareerSuburbCoordinates(context = {}) {
+  const query = buildCareerGeocodeQuery(context);
+  if (!query) return null;
+
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('q', query);
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('limit', '5');
+    url.searchParams.set('countrycodes', 'au');
+    url.searchParams.set('addressdetails', '1');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; GP Link Career Hero Geocoder/1.0; +https://app.mygplink.com.au)',
+        Accept: 'application/json'
+      }
+    });
+    if (!response.ok) return null;
+
+    const payload = await response.json().catch(() => null);
+    const matches = Array.isArray(payload) ? payload : [];
+    for (const match of matches) {
+      const latitude = parseCareerCoordinate(match && match.lat);
+      const longitude = parseCareerCoordinate(match && match.lon);
+      if (!isAustralianCoordinate(latitude, longitude)) continue;
+      return {
+        latitude,
+        longitude,
+        geocodeSource: 'nominatim'
+      };
+    }
+  } catch (err) {}
+
+  return null;
+}
+
+async function resolveCareerSuburbCoordinates(context = {}) {
+  const checkedAt = Date.now();
+  const cached = await readCareerSuburbGeoCache(context);
+  if (cached) {
+    const latitude = parseCareerCoordinate(cached.latitude);
+    const longitude = parseCareerCoordinate(cached.longitude);
+    if (String(cached.geocode_status || '').trim() === 'success' && isAustralianCoordinate(latitude, longitude)) {
+      return {
+        latitude,
+        longitude,
+        geocodeSource: String(cached.geocode_source || 'cache').trim() || 'cache'
+      };
+    }
+    const geocodedAt = Date.parse(cached.geocoded_at || '');
+    if (Number.isFinite(geocodedAt) && (checkedAt - geocodedAt) < CAREER_HERO_LOOKUP_CACHE_TTL_MS) {
+      return null;
+    }
+  }
+
+  const fresh = await fetchCareerSuburbCoordinates(context);
+  if (fresh) {
+    await writeCareerSuburbGeoCache(context, {
+      latitude: fresh.latitude,
+      longitude: fresh.longitude,
+      geocodeSource: fresh.geocodeSource,
+      geocodeStatus: 'success',
+      lastError: ''
+    });
+    return fresh;
+  }
+
+  await writeCareerSuburbGeoCache(context, {
+    latitude: null,
+    longitude: null,
+    geocodeSource: '',
+    geocodeStatus: 'not_found',
+    lastError: 'No matching Australian suburb coordinates found.'
+  });
+  return null;
+}
+
+function findCareerHeroCityExactMatch(cities = [], context = {}) {
+  const state = String(context.state || '').trim().toUpperCase();
+  const candidateKeys = [
+    normalizeCareerHeroCityKey(context.suburb),
+    normalizeCareerHeroCityKey(context.city)
+  ].filter(Boolean);
+
+  for (const key of candidateKeys) {
+    const exact = cities.find((city) => city.slug === key && (!state || city.stateCode === state));
+    if (exact) return exact;
+  }
+
+  return null;
+}
+
+function selectNearestCareerHeroCity(cities = [], coordinates = null) {
+  if (!coordinates || !isAustralianCoordinate(coordinates.latitude, coordinates.longitude)) return null;
+  let chosen = null;
+  let minDistanceKm = Number.POSITIVE_INFINITY;
+
+  cities.forEach((city) => {
+    if (!isAustralianCoordinate(city.latitude, city.longitude)) return;
+    const distanceKm = haversineDistanceKm(
+      coordinates.latitude,
+      coordinates.longitude,
+      city.latitude,
+      city.longitude
+    );
+    if (distanceKm < minDistanceKm) {
+      minDistanceKm = distanceKm;
+      chosen = city;
+    }
+  });
+
+  return chosen;
 }
 
 async function resolveCareerHeroImageFromContext(context = {}) {
@@ -3290,47 +3609,51 @@ async function resolveCareerHeroImageFromContext(context = {}) {
   const checkedAt = new Date().toISOString();
 
   if (!hasLocation) {
-    return {
-      heroImageUrl: '',
-      heroImageSourceUrl: '',
-      heroImageCredit: '',
-      heroImageStatus: 'unavailable',
-      heroImageCheckedAt: checkedAt,
-      heroImageVersion: CAREER_HERO_IMAGE_VERSION
-    };
+    return createCareerHeroUnavailable(checkedAt);
   }
 
-  const cacheKey = buildCareerHeroLookupCacheKey(normalized);
+  const cacheKey = buildCareerHeroLookupCacheKey({
+    ...normalized,
+    roleSeed: buildCareerHeroRoleSeed(context)
+  });
   const cached = _careerHeroLookupCache.get(cacheKey);
   if (cached && cached.value && (Date.now() - cached.ts) < CAREER_HERO_LOOKUP_CACHE_TTL_MS) {
     return { ...cached.value };
   }
 
-  const candidates = await fetchCareerHeroImageCandidates(normalized);
-  if (!candidates.length) {
-    const unavailable = {
-      heroImageUrl: '',
-      heroImageSourceUrl: '',
-      heroImageCredit: '',
-      heroImageStatus: 'unavailable',
-      heroImageCheckedAt: checkedAt,
-      heroImageVersion: CAREER_HERO_IMAGE_VERSION
-    };
+  const library = await loadCareerHeroCityLibrary();
+  if (!library.cities.length) {
+    const unavailable = createCareerHeroUnavailable(checkedAt);
     _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: unavailable });
     return { ...unavailable };
   }
 
-  const selected = await chooseCareerHeroImageCandidate(normalized, candidates);
-  const chosen = selected || candidates[0];
+  const suburbCoordinates = await resolveCareerSuburbCoordinates(normalized);
+  const chosenCity = selectNearestCareerHeroCity(library.cities, suburbCoordinates)
+    || findCareerHeroCityExactMatch(library.cities, normalized);
+
+  if (!chosenCity) {
+    const unavailable = createCareerHeroUnavailable(checkedAt);
+    _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: unavailable });
+    return { ...unavailable };
+  }
+
+  const images = library.imagesByCityId.get(chosenCity.id) || [];
+  const selectedImage = pickStableCareerHeroImage(images, buildCareerHeroRoleSeed(context));
+  if (!selectedImage) {
+    const unavailable = createCareerHeroUnavailable(checkedAt);
+    _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: unavailable });
+    return { ...unavailable };
+  }
+
   const creditParts = [
-    stripCareerCommonsMeta(chosen.title).replace(/^File:/i, ''),
-    stripCareerCommonsMeta(chosen.artist),
-    stripCareerCommonsMeta(chosen.license)
+    [chosenCity.cityName, chosenCity.stateCode].filter(Boolean).join(', '),
+    selectedImage.credit
   ].filter(Boolean);
 
   const resolved = {
-    heroImageUrl: String(chosen.imageUrl || '').trim(),
-    heroImageSourceUrl: String(chosen.sourceUrl || '').trim(),
+    heroImageUrl: selectedImage.publicUrl,
+    heroImageSourceUrl: selectedImage.publicUrl,
     heroImageCredit: creditParts.join(' · '),
     heroImageStatus: 'success',
     heroImageCheckedAt: checkedAt,
@@ -3346,6 +3669,7 @@ async function ensureCareerRoleHeroImage(row) {
   if (!shouldRefreshCareerHeroImage(row, currentMeta)) return row;
 
   const resolved = await resolveCareerHeroImageFromContext({
+    roleSeed: [row && row.provider, row && row.provider_role_id].filter(Boolean).join(':'),
     suburb: currentMeta.suburb,
     mapLabel: currentMeta.suburb,
     state: row && row.location_state,
@@ -5596,6 +5920,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const resolved = await resolveCareerHeroImageFromContext({
+      roleSeed: requestedRoleId,
       suburb: requestUrl.searchParams.get('suburb') || requestUrl.searchParams.get('mapLabel') || '',
       state: requestUrl.searchParams.get('state') || '',
       city: requestUrl.searchParams.get('city') || '',
