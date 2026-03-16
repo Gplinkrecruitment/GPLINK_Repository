@@ -60,7 +60,7 @@ const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const CAREER_AI_PROFILE_VERSION = 2;
-const CAREER_HERO_IMAGE_VERSION = 1;
+const CAREER_HERO_IMAGE_VERSION = 2;
 const CAREER_HERO_LOOKUP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const HERO_DESKTOP_MP4_URL = String(process.env.HERO_DESKTOP_MP4_URL || '').trim();
 const HERO_DESKTOP_WEBM_URL = String(process.env.HERO_DESKTOP_WEBM_URL || '').trim();
@@ -3011,14 +3011,14 @@ function buildCareerHeroImageQueries(context = {}) {
   const state = String(context.state || '').trim();
   const city = String(context.city || '').trim();
   const country = String(context.country || 'Australia').trim() || 'Australia';
-  const basePlace = [suburb || city, state, country].filter(Boolean).join(' ').trim();
+  const place = [suburb || city, state, country].filter(Boolean).join(' ').trim();
   const queries = [
-    basePlace,
-    [suburb, city, state, country].filter(Boolean).join(' ').trim(),
-    [suburb || city, state, country, 'skyline'].filter(Boolean).join(' ').trim(),
-    [suburb || city, state, country, 'panorama'].filter(Boolean).join(' ').trim(),
-    [suburb || city, state, country, 'view'].filter(Boolean).join(' ').trim(),
-    [suburb || city, state, country, 'aerial'].filter(Boolean).join(' ').trim()
+    [place, 'landscape'].filter(Boolean).join(' ').trim(),
+    [place, 'panorama'].filter(Boolean).join(' ').trim(),
+    [place, 'aerial view'].filter(Boolean).join(' ').trim(),
+    [place, 'skyline'].filter(Boolean).join(' ').trim(),
+    [place, 'streetscape'].filter(Boolean).join(' ').trim(),
+    [place, 'suburb view'].filter(Boolean).join(' ').trim()
   ];
   return queries.filter(Boolean).filter((value, index, all) => all.indexOf(value) === index);
 }
@@ -3034,7 +3034,7 @@ function scoreCareerHeroImageCandidate(candidate, context = {}) {
     candidate.objectName
   ].join(' ').toLowerCase();
 
-  const negativePattern = /\b(station|railway|train|tram|locomotive|platform|post office|townhouse|townhouses|house|church|school|bird|cockatoo|power station|workshop|workshops|factory|memorial|portrait|person|people|car|bus|logo|diagram|map|illustration|document|pdf|djvu)\b/;
+  const negativePattern = /\b(station|railway|train|tram|locomotive|platform|post office|townhouse|townhouses|house|church|school|bird|cockatoo|power station|workshop|workshops|factory|memorial|portrait|person|people|car|cars|bus|truck|vehicle|vehicles|traffic|racetrack|raceway|speedway|circuit|motorsport|motor racing|grand prix|pit lane|stadium|arena|event|festival|logo|diagram|map|illustration|document|pdf|djvu)\b/;
   if (negativePattern.test(combined)) return -1000;
 
   let score = 0;
@@ -3051,7 +3051,7 @@ function scoreCareerHeroImageCandidate(candidate, context = {}) {
   if (state && combined.includes(state)) score += 3;
   if (city && combined.includes(city)) score += 2;
 
-  const positiveMatches = combined.match(/\b(view|skyline|cityscape|landscape|panorama|aerial|coast|coastline|bay|harbour|harbor|river|seascape|suburb|foreshore)\b/g);
+  const positiveMatches = combined.match(/\b(view|skyline|cityscape|landscape|panorama|aerial|coast|coastline|bay|harbour|harbor|river|seascape|suburb|foreshore|streetscape|neighbourhood|neighborhood)\b/g);
   if (positiveMatches) score += Math.min(positiveMatches.length, 4) * 2;
 
   if (/melbourne city from|view towards|skyline of/i.test(combined)) score += 4;
@@ -3141,27 +3141,50 @@ async function fetchCareerHeroImageCandidates(context = {}) {
 
 async function chooseCareerHeroImageCandidate(context = {}, candidates = []) {
   if (!Array.isArray(candidates) || candidates.length === 0) return null;
-  if (candidates.length === 1 || !OPENAI_API_KEY) return candidates[0];
+  if (!OPENAI_API_KEY) return candidates[0];
 
-  const prompt = [
-    'Choose the best public hero image candidate for a confidential GP job listing.',
-    'Goal: a wide suburb landscape or skyline style image that represents the broader area.',
-    'Reject anything that is likely a single building, station, train, townhouse, bird, document, map, logo, or close-up object.',
-    'Prefer high resolution landscape images suitable for a premium mobile hero header.',
-    `suburb: ${String(context.suburb || '').trim()}`,
-    `state: ${String(context.state || '').trim()}`,
-    `nearest_city: ${String(context.city || '').trim()}`,
-    'Return strict JSON only: {"selected_id":"candidate id or empty string","reason":"short reason"}',
-    `candidates: ${JSON.stringify(candidates.map((candidate) => ({
-      id: candidate.id,
-      title: candidate.title,
-      description: candidate.description,
-      categories: candidate.categories,
-      width: candidate.width,
-      height: candidate.height,
-      score: candidate.score
-    })))}`
-  ].join('\n');
+  const shortlisted = candidates.slice(0, 6);
+  const content = [
+    {
+      type: 'input_text',
+      text: [
+        'Choose the best public hero image candidate for a confidential GP job listing.',
+        'This is a strict visual review task.',
+        'STRICT RULES:',
+        '- Select only a genuine wide landscape image of the suburb or its broader surrounding area.',
+        '- Good examples: skyline, aerial, coast, foreshore, river, neighbourhood, or broad streetscape views.',
+        '- The image must feel like a location hero banner, not an event photo or close-up subject.',
+        '- Reject any image dominated by cars, traffic, racetracks, sports venues, events, people, single buildings, houses, stations, trains, logos, maps, or documents.',
+        '- If none clearly qualify, return an empty selected_id.',
+        `suburb: ${String(context.suburb || '').trim()}`,
+        `state: ${String(context.state || '').trim()}`,
+        `nearest_city: ${String(context.city || '').trim()}`,
+        'Return strict JSON only: {"selected_id":"candidate id or empty string","reason":"short reason"}'
+      ].join('\n')
+    }
+  ];
+
+  shortlisted.forEach((candidate, index) => {
+    content.push({
+      type: 'input_text',
+      text: [
+        `Candidate ${index + 1}`,
+        `id: ${candidate.id}`,
+        `title: ${candidate.title}`,
+        `description: ${candidate.description}`,
+        `categories: ${candidate.categories}`,
+        `width: ${candidate.width}`,
+        `height: ${candidate.height}`,
+        `score: ${candidate.score}`
+      ].join('\n')
+    });
+    if (candidate.imageUrl) {
+      content.push({
+        type: 'input_image',
+        image_url: candidate.imageUrl
+      });
+    }
+  });
 
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
@@ -3172,16 +3195,16 @@ async function chooseCareerHeroImageCandidate(context = {}, candidates = []) {
       },
       body: JSON.stringify({
         model: OPENAI_CAREER_MODEL,
-        input: prompt,
+        input: [{ role: 'user', content }],
         max_output_tokens: 160,
         temperature: 0.1
       })
     });
 
-    if (!response.ok) return candidates[0];
+    if (!response.ok) return null;
     const payload = await response.json().catch(() => null);
     const text = payload && typeof payload.output_text === 'string' ? payload.output_text : '';
-    if (!text) return candidates[0];
+    if (!text) return null;
 
     let parsed = null;
     try {
@@ -3199,7 +3222,7 @@ async function chooseCareerHeroImageCandidate(context = {}, candidates = []) {
     }
   } catch (err) {}
 
-  return candidates[0];
+  return null;
 }
 
 function shouldRefreshCareerHeroImage(row, meta) {
