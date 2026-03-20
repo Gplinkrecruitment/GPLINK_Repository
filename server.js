@@ -2085,6 +2085,169 @@ function invalidateAdminDashboardCache() {
   adminDashboardCache.data = null;
 }
 
+function getTimestampMs(value) {
+  if (!value) return 0;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function getAdminExecutiveStage(candidate) {
+  const progress = Number(candidate && candidate.progressPercent);
+  const percent = Number.isFinite(progress) ? progress : 0;
+  const label = String(candidate && candidate.currentStepLabel ? candidate.currentStepLabel : '').trim().toLowerCase();
+
+  if (percent >= 100 || label.includes('complete')) return 'complete';
+  if (label.includes('ahpra') || percent >= 75) return 'ahpra';
+  if (label.includes('document') || percent >= 55) return 'documents';
+  if (label.includes('amc') || percent >= 34) return 'amc';
+  if (label.includes('epic') || percent >= 13) return 'epic';
+  return 'registered';
+}
+
+function buildSortedBreakdown(map, limit = 5) {
+  return Array.from(map.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.label.localeCompare(b.label);
+    })
+    .slice(0, limit);
+}
+
+function buildAdminExecutiveData(candidates = [], tickets = [], roles = [], applications = []) {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const recent30Threshold = nowMs - (30 * DAY_MS);
+  const recent7Threshold = nowMs - (7 * DAY_MS);
+  const stale7Threshold = nowMs - (7 * DAY_MS);
+  const stale14Threshold = nowMs - (14 * DAY_MS);
+
+  const stageDefs = [
+    { id: 'registered', label: 'Registered' },
+    { id: 'epic', label: 'EPIC' },
+    { id: 'amc', label: 'AMC' },
+    { id: 'documents', label: 'Documents' },
+    { id: 'ahpra', label: 'AHPRA' },
+    { id: 'complete', label: 'Completed' }
+  ];
+  const stageCounts = new Map(stageDefs.map((item) => [item.id, 0]));
+  const countryCounts = new Map();
+  const actionRequired = [];
+  const stale7 = [];
+  const stale14 = [];
+  const openTicketList = Array.isArray(tickets) ? tickets.filter((item) => item && item.status !== 'closed') : [];
+  const urgentTickets = openTicketList.filter((item) => item.priority === 'urgent' || item.priority === 'high');
+  const activeCandidates = [];
+
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    if (!candidate || typeof candidate !== 'object') continue;
+
+    const stage = getAdminExecutiveStage(candidate);
+    stageCounts.set(stage, (stageCounts.get(stage) || 0) + 1);
+
+    const country = String(candidate.country || '').trim();
+    if (country) countryCounts.set(country, (countryCounts.get(country) || 0) + 1);
+
+    if (candidate.status !== 'complete') activeCandidates.push(candidate);
+    if (candidate.status === 'action_required') actionRequired.push(candidate);
+
+    const lastActiveMs = getTimestampMs(candidate.lastActiveAt);
+    if (candidate.status !== 'complete' && lastActiveMs && lastActiveMs < stale7Threshold) stale7.push(candidate);
+    if (candidate.status !== 'complete' && lastActiveMs && lastActiveMs < stale14Threshold) stale14.push(candidate);
+  }
+
+  const registrations30d = activeCandidates.filter((candidate) => getTimestampMs(candidate.registeredAt) >= recent30Threshold).length;
+  const documentsBacklog = activeCandidates.filter((candidate) => Number(candidate.documentsPending || 0) > 0).length;
+  const verificationBacklog = activeCandidates.filter((candidate) => candidate.pendingVerification).length;
+  const completedCandidates = Array.isArray(candidates) ? candidates.filter((candidate) => candidate && candidate.status === 'complete').length : 0;
+
+  const activeRoles = Array.isArray(roles) ? roles.filter((item) => item && item.is_active !== false) : [];
+  const liveRoles = activeRoles.length;
+  const regionalRoles = activeRoles.filter((item) => item.regional).length;
+  const metroRoles = activeRoles.filter((item) => item.metro).length;
+  const practiceCounts = new Map();
+  activeRoles.forEach((role) => {
+    const label = String(role.practice_name || role.location_state || role.location_city || 'Unassigned').trim();
+    practiceCounts.set(label, (practiceCounts.get(label) || 0) + 1);
+  });
+
+  const applicationList = Array.isArray(applications) ? applications : [];
+  const applicationsRecent7d = applicationList.filter((item) => getTimestampMs(item.applied_at) >= recent7Threshold).length;
+  const applicationsRecent30d = applicationList.filter((item) => getTimestampMs(item.applied_at) >= recent30Threshold).length;
+  const applicationStatusCounts = new Map();
+  applicationList.forEach((item) => {
+    const status = String(item && item.status ? item.status : 'applied').trim() || 'applied';
+    applicationStatusCounts.set(status, (applicationStatusCounts.get(status) || 0) + 1);
+  });
+
+  const funnel = stageDefs.map((stage) => {
+    const count = stageCounts.get(stage.id) || 0;
+    const share = candidates.length ? Math.round((count / candidates.length) * 100) : 0;
+    return { ...stage, count, share };
+  });
+
+  return {
+    overview: {
+      activePipeline: activeCandidates.length,
+      registrations30d,
+      liveRoles,
+      applications30d: applicationsRecent30d,
+      stalled7d: stale7.length,
+      stalled14d: stale14.length,
+      actionRequired: actionRequired.length,
+      urgentTickets: urgentTickets.length,
+      activeCountries: countryCounts.size,
+      completedCandidates,
+      verificationBacklog,
+      documentsBacklog
+    },
+    funnel,
+    risk: [
+      {
+        id: 'stalled_14',
+        tone: stale14.length ? 'error' : 'connected',
+        label: 'No activity in 14 days',
+        value: stale14.length,
+        detail: stale14.length ? 'Candidates needing executive intervention or reassignment.' : 'No long-stalled GP files right now.'
+      },
+      {
+        id: 'action_required',
+        tone: actionRequired.length ? 'pending' : 'connected',
+        label: 'Action required',
+        value: actionRequired.length,
+        detail: actionRequired.length ? 'Candidates blocked by missing steps or team action.' : 'No candidate is waiting on a manual unblock.'
+      },
+      {
+        id: 'verification_backlog',
+        tone: verificationBacklog ? 'pending' : 'connected',
+        label: 'Verification backlog',
+        value: verificationBacklog,
+        detail: verificationBacklog ? 'Files awaiting certificate or qualification review.' : 'Verification queue is under control.'
+      },
+      {
+        id: 'urgent_tickets',
+        tone: urgentTickets.length ? 'error' : 'connected',
+        label: 'Urgent support tickets',
+        value: urgentTickets.length,
+        detail: urgentTickets.length ? 'Open high-priority GP issues still in the queue.' : 'No urgent support tickets are open.'
+      }
+    ],
+    countries: buildSortedBreakdown(countryCounts, 5),
+    practices: buildSortedBreakdown(practiceCounts, 5),
+    roles: {
+      live: liveRoles,
+      regional: regionalRoles,
+      metro: metroRoles
+    },
+    applications: {
+      total: applicationList.length,
+      recent7d: applicationsRecent7d,
+      recent30d: applicationsRecent30d,
+      byStatus: buildSortedBreakdown(applicationStatusCounts, 5)
+    }
+  };
+}
+
 async function getCachedAdminDashboardData() {
   if (ADMIN_DASHBOARD_CACHE_TTL_MS <= 0) {
     return collectAdminDashboardData();
@@ -2121,7 +2284,7 @@ async function getCachedAdminDashboardData() {
 
 async function collectAdminDashboardData() {
   if (isSupabaseDbConfigured()) {
-    const [profilesResult, statesResult] = await Promise.all([
+    const [profilesResult, statesResult, rolesResult, applicationsResult] = await Promise.all([
       supabaseDbRequest(
         'user_profiles',
         'select=user_id,email,first_name,last_name,phone,registration_country,created_at,updated_at'
@@ -2129,10 +2292,20 @@ async function collectAdminDashboardData() {
       supabaseDbRequest(
         'user_state',
         'select=user_id,state,updated_at'
+      ),
+      supabaseDbRequest(
+        'career_roles',
+        'select=id,practice_name,location_city,location_state,metro,regional,is_active,updated_at'
+      ),
+      supabaseDbRequest(
+        'gp_applications',
+        'select=status,applied_at,updated_at,career_role_id'
       )
     ]);
 
     if (profilesResult.ok && statesResult.ok && Array.isArray(profilesResult.data) && Array.isArray(statesResult.data)) {
+      const roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
+      const applications = applicationsResult.ok && Array.isArray(applicationsResult.data) ? applicationsResult.data : [];
       const profileByUserId = new Map();
       for (const row of profilesResult.data) {
         if (row && typeof row.user_id === 'string') {
@@ -2241,6 +2414,7 @@ async function collectAdminDashboardData() {
             openSupportTickets,
             averageProgress
           },
+          executive: buildAdminExecutiveData(candidates, tickets, roles, applications),
           candidates,
           verificationQueue: candidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
           tickets
@@ -2255,6 +2429,7 @@ async function collectAdminDashboardData() {
           openSupportTickets: 0,
           averageProgress: 0
         },
+        executive: buildAdminExecutiveData([], [], rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [], applicationsResult.ok && Array.isArray(applicationsResult.data) ? applicationsResult.data : []),
         candidates: [],
         verificationQueue: [],
         tickets: []
@@ -2358,6 +2533,7 @@ async function collectAdminDashboardData() {
       openSupportTickets,
       averageProgress
     },
+    executive: buildAdminExecutiveData(candidates, tickets, [], []),
     candidates,
     verificationQueue: candidates.filter((item) => item.pendingVerification || item.documentsPending > 0),
     tickets

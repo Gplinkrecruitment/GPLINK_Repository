@@ -238,6 +238,187 @@
       border-radius: 8px;
       padding: 2px 6px;
     }
+    .executive-panel {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+      background:
+        radial-gradient(420px 200px at 100% 0%, rgba(99, 102, 241, 0.12), transparent 70%),
+        linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    }
+    .executive-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .executive-kicker {
+      margin: 0 0 4px;
+      color: #5b21b6;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .executive-title {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #0f172a;
+    }
+    .executive-copy {
+      margin: 5px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 560;
+      max-width: 720px;
+    }
+    .executive-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .executive-metric {
+      border: 1px solid #dde7f5;
+      border-radius: 14px;
+      background: #ffffff;
+      padding: 12px;
+      display: grid;
+      gap: 4px;
+      box-shadow: 0 14px 30px -26px rgba(15, 23, 42, 0.45);
+    }
+    .executive-metric-label {
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .executive-metric-value {
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 820;
+      letter-spacing: -0.04em;
+      color: #0f172a;
+    }
+    .executive-metric-sub {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .executive-columns {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .executive-card {
+      border: 1px solid #dde7f5;
+      border-radius: 14px;
+      background: #ffffff;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      min-height: 100%;
+    }
+    .executive-card-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 780;
+      letter-spacing: -0.02em;
+      color: #0f172a;
+    }
+    .executive-card-copy {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+    .funnel-list,
+    .risk-list,
+    .stack-list {
+      display: grid;
+      gap: 8px;
+    }
+    .funnel-row,
+    .risk-item,
+    .stack-item {
+      border: 1px solid #e3ebf7;
+      border-radius: 12px;
+      background: #fbfdff;
+      padding: 10px 12px;
+    }
+    .funnel-row {
+      display: grid;
+      gap: 8px;
+    }
+    .funnel-meta,
+    .stack-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .funnel-meta small,
+    .stack-meta small {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .funnel-bar {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: #e8eef9;
+      overflow: hidden;
+    }
+    .funnel-bar > span {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #7c3aed 0%, #2563eb 100%);
+    }
+    .risk-item {
+      display: grid;
+      gap: 6px;
+    }
+    .risk-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .risk-label {
+      font-size: 13px;
+      font-weight: 760;
+      color: #0f172a;
+    }
+    .risk-value {
+      font-size: 22px;
+      font-weight: 820;
+      letter-spacing: -0.03em;
+      color: #0f172a;
+    }
+    .risk-note {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+      line-height: 1.4;
+    }
+    .stack-item {
+      display: grid;
+      gap: 4px;
+    }
+    .stack-sub {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 650;
+    }
 
     .stat {
       background: var(--panel);
@@ -702,6 +883,8 @@
 
     @media (max-width: 1024px) {
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .executive-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .executive-columns { grid-template-columns: 1fr; }
       .integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .tab { min-width: 0; flex: 1; }
       .toolbar { grid-template-columns: 1fr; }
@@ -714,7 +897,10 @@
       body { padding: 10px; }
       .hero h1 { font-size: 24px; }
       .stats { grid-template-columns: 1fr; }
+      .executive-grid { grid-template-columns: 1fr; }
       .integration-grid { grid-template-columns: 1fr; }
+      .executive-title { font-size: 21px; }
+      .executive-metric-value { font-size: 26px; }
       .modal-title { font-size: 24px; }
       .candidate-grid { grid-template-columns: 1fr; }
       .stepper-nav {
@@ -740,10 +926,10 @@
   <div class="app">
     <header class="hero">
       <div class="hero-top">
-        <h1>Admin Dashboard</h1>
+        <h1 id="heroTitle">Admin Dashboard</h1>
         <button class="btn hero-btn" id="logoutBtn" type="button">Sign Out</button>
       </div>
-      <p>Manage GP registrations, verify certificates, and respond to support tickets.</p>
+      <p id="heroSubtitle">Manage GP registrations, verify certificates, and respond to support tickets.</p>
       <div class="hero-meta" id="heroMeta">
         <span class="hero-chip" id="heroHostBadge">Loading portal...</span>
         <span class="hero-chip" id="heroRoleBadge" hidden></span>
@@ -751,6 +937,50 @@
       </div>
       <p id="refreshText" class="inline-note">Loading...</p>
     </header>
+
+    <section class="panel executive-panel" id="executivePanel" hidden>
+      <div class="executive-head">
+        <div>
+          <p class="executive-kicker">CEO Command Centre</p>
+          <h2 class="executive-title">Operational signal across pipeline, demand, and risk.</h2>
+          <p class="executive-copy">A board-style summary of GP pipeline momentum, role demand, and cases that need executive attention.</p>
+        </div>
+        <div class="pill-row" id="executiveBadges"></div>
+      </div>
+      <div class="executive-grid" id="executiveMetrics"></div>
+      <div class="executive-columns">
+        <article class="executive-card">
+          <div>
+            <h3 class="executive-card-title">Pipeline Funnel</h3>
+            <p class="executive-card-copy">Track how many GPs are sitting in each major registration stage right now.</p>
+          </div>
+          <div class="funnel-list" id="executiveFunnel"></div>
+        </article>
+        <article class="executive-card">
+          <div>
+            <h3 class="executive-card-title">Risk Radar</h3>
+            <p class="executive-card-copy">See where the business is exposed to delay, backlog, or urgent intervention.</p>
+          </div>
+          <div class="risk-list" id="executiveRisk"></div>
+        </article>
+      </div>
+      <div class="executive-columns">
+        <article class="executive-card">
+          <div>
+            <h3 class="executive-card-title">Market Footprint</h3>
+            <p class="executive-card-copy">Understand where your GP demand and candidate volume are concentrated.</p>
+          </div>
+          <div class="stack-list" id="executiveCountries"></div>
+        </article>
+        <article class="executive-card">
+          <div>
+            <h3 class="executive-card-title">Commercial Flow</h3>
+            <p class="executive-card-copy">Role volume, application momentum, and top practice demand in one view.</p>
+          </div>
+          <div class="stack-list" id="executiveCommercial"></div>
+        </article>
+      </div>
+    </section>
 
     <section class="panel integration-panel" id="zohoRecruitPanel">
       <div class="empty">Loading Zoho Recruit status...</div>
@@ -1019,9 +1249,18 @@
     const statsEl = document.getElementById("stats");
     const contentEl = document.getElementById("content");
     const refreshTextEl = document.getElementById("refreshText");
+    const heroTitleEl = document.getElementById("heroTitle");
+    const heroSubtitleEl = document.getElementById("heroSubtitle");
     const heroHostBadgeEl = document.getElementById("heroHostBadge");
     const heroRoleBadgeEl = document.getElementById("heroRoleBadge");
     const heroEmailBadgeEl = document.getElementById("heroEmailBadge");
+    const executivePanelEl = document.getElementById("executivePanel");
+    const executiveBadgesEl = document.getElementById("executiveBadges");
+    const executiveMetricsEl = document.getElementById("executiveMetrics");
+    const executiveFunnelEl = document.getElementById("executiveFunnel");
+    const executiveRiskEl = document.getElementById("executiveRisk");
+    const executiveCountriesEl = document.getElementById("executiveCountries");
+    const executiveCommercialEl = document.getElementById("executiveCommercial");
     const zohoRecruitPanelEl = document.getElementById("zohoRecruitPanel");
     const searchInputEl = document.getElementById("searchInput");
     const logoutBtnEl = document.getElementById("logoutBtn");
@@ -1062,6 +1301,60 @@
       return `Last active: ${days} day${days === 1 ? "" : "s"} ago`;
     }
 
+    function isSuperAdminView() {
+      return state.hostScope === "super_admin" || !!(state.viewer && state.viewer.adminRole === "super_admin");
+    }
+
+    function createEmptyExecutiveData() {
+      return {
+        overview: {
+          activePipeline: 0,
+          registrations30d: 0,
+          liveRoles: Number(state.zohoRecruit && state.zohoRecruit.roleCount ? state.zohoRecruit.roleCount : 0),
+          applications30d: 0,
+          stalled7d: 0,
+          stalled14d: 0,
+          actionRequired: 0,
+          urgentTickets: 0,
+          activeCountries: 0,
+          completedCandidates: 0,
+          verificationBacklog: 0,
+          documentsBacklog: 0
+        },
+        funnel: [
+          { id: "registered", label: "Registered", count: 0, share: 0 },
+          { id: "epic", label: "EPIC", count: 0, share: 0 },
+          { id: "amc", label: "AMC", count: 0, share: 0 },
+          { id: "documents", label: "Documents", count: 0, share: 0 },
+          { id: "ahpra", label: "AHPRA", count: 0, share: 0 },
+          { id: "complete", label: "Completed", count: 0, share: 0 }
+        ],
+        risk: [],
+        countries: [],
+        practices: [],
+        roles: { live: Number(state.zohoRecruit && state.zohoRecruit.roleCount ? state.zohoRecruit.roleCount : 0), regional: 0, metro: 0 },
+        applications: { total: 0, recent7d: 0, recent30d: 0, byStatus: [] }
+      };
+    }
+
+    function getExecutiveData() {
+      const base = createEmptyExecutiveData();
+      const raw = state.dashboard && state.dashboard.executive && typeof state.dashboard.executive === "object"
+        ? state.dashboard.executive
+        : {};
+      const merged = {
+        ...base,
+        ...raw,
+        overview: { ...base.overview, ...(raw.overview || {}) },
+        roles: { ...base.roles, ...(raw.roles || {}) },
+        applications: { ...base.applications, ...(raw.applications || {}) }
+      };
+      if (!merged.roles.live && state.zohoRecruit && state.zohoRecruit.roleCount) {
+        merged.roles.live = Number(state.zohoRecruit.roleCount || 0);
+      }
+      return merged;
+    }
+
     function applyAdminViewerContext() {
       const hostLabel = state.hostLabel || "Admin";
       if (heroHostBadgeEl) {
@@ -1078,6 +1371,14 @@
         const email = state.viewer && state.viewer.email ? state.viewer.email : "";
         heroEmailBadgeEl.hidden = !email;
         heroEmailBadgeEl.textContent = email || "";
+      }
+      if (heroTitleEl) {
+        heroTitleEl.textContent = isSuperAdminView() ? "CEO Dashboard" : "Admin Dashboard";
+      }
+      if (heroSubtitleEl) {
+        heroSubtitleEl.textContent = isSuperAdminView()
+          ? "Monitor GP pipeline health, role demand, and executive risk across the business."
+          : "Manage GP registrations, verify certificates, and respond to support tickets.";
       }
     }
 
@@ -1381,30 +1682,200 @@
       document.body.style.overflow = "hidden";
     }
 
-    function renderStats() {
-      const summary = state.dashboard ? state.dashboard.summary : null;
-      const rows = [
+    function renderExecutivePanel() {
+      if (!executivePanelEl) return;
+      if (!isSuperAdminView()) {
+        executivePanelEl.hidden = true;
+        return;
+      }
+
+      const executive = getExecutiveData();
+      const overview = executive.overview || {};
+      const zoho = state.zohoRecruit || null;
+      const liveRoles = Number(executive.roles && executive.roles.live ? executive.roles.live : 0);
+
+      executivePanelEl.hidden = false;
+
+      const badges = [
+        `<span class="status-chip ${escapeHtml(zoho && zoho.connected ? "connected" : "disconnected")}">Zoho ${escapeHtml(zoho && zoho.connected ? "connected" : "not connected")}</span>`,
+        `<span class="status-chip ${escapeHtml(zoho && zoho.cronConfigured ? "connected" : "pending")}">Scheduler ${escapeHtml(zoho && zoho.cronConfigured ? "ready" : "needs secret")}</span>`,
+        `<span class="status-chip ${escapeHtml(Number(overview.stalled14d || 0) > 0 ? "error" : "connected")}">${escapeHtml(String(overview.stalled14d || 0))} stalled 14d</span>`,
+        `<span class="status-chip ${escapeHtml(Number(overview.actionRequired || 0) > 0 ? "pending" : "connected")}">${escapeHtml(String(overview.actionRequired || 0))} action required</span>`
+      ];
+      executiveBadgesEl.innerHTML = badges.join("");
+
+      const metricRows = [
         {
-          label: "Total GPs",
-          value: summary ? summary.totalGps : 0,
-          sub: `${summary ? summary.activeGps : 0} active`
+          label: "New Registrations",
+          value: overview.registrations30d || 0,
+          sub: "Created in the last 30 days"
         },
         {
-          label: "Pending Verifications",
-          value: summary ? summary.pendingVerifications : 0,
-          sub: "Awaiting review"
+          label: "Completed Pathway",
+          value: overview.completedCandidates || 0,
+          sub: "Files currently marked complete"
         },
         {
-          label: "Open Support Tickets",
-          value: summary ? summary.openSupportTickets : 0,
-          sub: "Urgent work queue"
+          label: "Verification Backlog",
+          value: overview.verificationBacklog || 0,
+          sub: `${overview.documentsBacklog || 0} with document backlog`
         },
         {
-          label: "Average Progress",
-          value: `${summary ? summary.averageProgress : 0}%`,
-          sub: "Across all GPs"
+          label: "Active Countries",
+          value: overview.activeCountries || 0,
+          sub: `${liveRoles} live role${liveRoles === 1 ? "" : "s"} supporting demand`
         }
       ];
+      executiveMetricsEl.innerHTML = metricRows.map((row) => `
+        <article class="executive-metric">
+          <div class="executive-metric-label">${escapeHtml(row.label)}</div>
+          <div class="executive-metric-value">${escapeHtml(String(row.value))}</div>
+          <div class="executive-metric-sub">${escapeHtml(row.sub)}</div>
+        </article>
+      `).join("");
+
+      const funnelItems = Array.isArray(executive.funnel) ? executive.funnel : [];
+      executiveFunnelEl.innerHTML = funnelItems.length
+        ? funnelItems.map((item) => `
+          <div class="funnel-row">
+            <div class="funnel-meta">
+              <span>${escapeHtml(item.label || item.id || "Stage")}</span>
+              <small>${escapeHtml(String(item.count || 0))} GP${Number(item.count || 0) === 1 ? "" : "s"} • ${escapeHtml(String(item.share || 0))}%</small>
+            </div>
+            <div class="funnel-bar"><span style="width:${Math.max(Number(item.count || 0) > 0 ? 8 : 0, Number(item.share || 0))}%"></span></div>
+          </div>
+        `).join("")
+        : `<div class="empty">Executive funnel data will appear here once GP activity is available.</div>`;
+
+      const riskItems = Array.isArray(executive.risk) ? executive.risk : [];
+      executiveRiskEl.innerHTML = riskItems.length
+        ? riskItems.map((item) => `
+          <article class="risk-item">
+            <div class="risk-top">
+              <span class="risk-label">${escapeHtml(item.label || "Risk")}</span>
+              <span class="status-chip ${escapeHtml(item.tone || "pending")}">${escapeHtml(String(item.value || 0))}</span>
+            </div>
+            <p class="risk-note">${escapeHtml(item.detail || "")}</p>
+          </article>
+        `).join("")
+        : `<div class="empty">No executive risk items are available yet.</div>`;
+
+      const countryItems = [];
+      countryItems.push(`
+        <div class="stack-item">
+          <div class="stack-meta">
+            <span>Role Mix</span>
+            <small>${escapeHtml(String(executive.roles && executive.roles.live ? executive.roles.live : 0))} live roles</small>
+          </div>
+          <div class="stack-sub">${escapeHtml(String(executive.roles && executive.roles.regional ? executive.roles.regional : 0))} regional • ${escapeHtml(String(executive.roles && executive.roles.metro ? executive.roles.metro : 0))} metro</div>
+        </div>
+      `);
+      if (Array.isArray(executive.countries) && executive.countries.length) {
+        executive.countries.forEach((item) => {
+          countryItems.push(`
+            <div class="stack-item">
+              <div class="stack-meta">
+                <span>${escapeHtml(item.label || "-")}</span>
+                <small>${escapeHtml(String(item.count || 0))} GP${Number(item.count || 0) === 1 ? "" : "s"}</small>
+              </div>
+              <div class="stack-sub">Active candidate concentration by registration country.</div>
+            </div>
+          `);
+        });
+      } else {
+        countryItems.push(`<div class="empty">Country concentration will appear as candidate volume grows.</div>`);
+      }
+      executiveCountriesEl.innerHTML = countryItems.join("");
+
+      const commercialItems = [
+        `
+          <div class="stack-item">
+            <div class="stack-meta">
+              <span>Application Momentum</span>
+              <small>${escapeHtml(String(executive.applications && executive.applications.total ? executive.applications.total : 0))} total</small>
+            </div>
+            <div class="stack-sub">${escapeHtml(String(executive.applications && executive.applications.recent7d ? executive.applications.recent7d : 0))} in the last 7 days • ${escapeHtml(String(executive.applications && executive.applications.recent30d ? executive.applications.recent30d : 0))} in the last 30 days</div>
+          </div>
+        `
+      ];
+      if (Array.isArray(executive.practices) && executive.practices.length) {
+        executive.practices.forEach((item) => {
+          commercialItems.push(`
+            <div class="stack-item">
+              <div class="stack-meta">
+                <span>${escapeHtml(item.label || "Practice demand")}</span>
+                <small>${escapeHtml(String(item.count || 0))} live role${Number(item.count || 0) === 1 ? "" : "s"}</small>
+              </div>
+              <div class="stack-sub">Current demand concentration by practice or location.</div>
+            </div>
+          `);
+        });
+      }
+      if (Array.isArray(executive.applications && executive.applications.byStatus) && executive.applications.byStatus.length) {
+        executive.applications.byStatus.forEach((item) => {
+          commercialItems.push(`
+            <div class="stack-item">
+              <div class="stack-meta">
+                <span>${escapeHtml(toTitleLabel(item.label || "applied"))}</span>
+                <small>${escapeHtml(String(item.count || 0))}</small>
+              </div>
+              <div class="stack-sub">Application records currently carrying this status.</div>
+            </div>
+          `);
+        });
+      }
+      executiveCommercialEl.innerHTML = commercialItems.join("");
+    }
+
+    function renderStats() {
+      const summary = state.dashboard ? state.dashboard.summary : null;
+      const executive = getExecutiveData();
+      const atRiskCount = Number(executive.overview.actionRequired || 0) + Number(executive.overview.stalled14d || 0);
+      const rows = isSuperAdminView()
+        ? [
+            {
+              label: "Active Pipeline",
+              value: executive.overview.activePipeline || 0,
+              sub: `${executive.overview.registrations30d || 0} new in 30 days`
+            },
+            {
+              label: "Live Roles",
+              value: executive.roles.live || 0,
+              sub: `${executive.roles.regional || 0} regional • ${executive.roles.metro || 0} metro`
+            },
+            {
+              label: "Applications (30d)",
+              value: executive.applications.recent30d || 0,
+              sub: `${executive.applications.recent7d || 0} in the last 7 days`
+            },
+            {
+              label: "At-Risk Cases",
+              value: atRiskCount,
+              sub: `${executive.overview.urgentTickets || 0} urgent tickets open`
+            }
+          ]
+        : [
+            {
+              label: "Total GPs",
+              value: summary ? summary.totalGps : 0,
+              sub: `${summary ? summary.activeGps : 0} active`
+            },
+            {
+              label: "Pending Verifications",
+              value: summary ? summary.pendingVerifications : 0,
+              sub: "Awaiting review"
+            },
+            {
+              label: "Open Support Tickets",
+              value: summary ? summary.openSupportTickets : 0,
+              sub: "Urgent work queue"
+            },
+            {
+              label: "Average Progress",
+              value: `${summary ? summary.averageProgress : 0}%`,
+              sub: "Across all GPs"
+            }
+          ];
 
       statsEl.innerHTML = rows.map((row) => `
         <article class="stat">
@@ -1539,6 +2010,7 @@
       } finally {
         state.isZohoLoading = false;
         renderZohoRecruitPanel();
+        renderExecutivePanel();
       }
     }
 
@@ -1745,17 +2217,20 @@
         }
         state.dashboard = data;
         renderStats();
+        renderExecutivePanel();
         renderTabLabels();
         renderContent();
         refreshTextEl.textContent = `Updated ${new Date(data.refreshedAt).toLocaleString()}`;
       } catch (err) {
         state.dashboard = {
           summary: { totalGps: 0, activeGps: 0, pendingVerifications: 0, openSupportTickets: 0, averageProgress: 0 },
+          executive: createEmptyExecutiveData(),
           candidates: [],
           verificationQueue: [],
           tickets: []
         };
         renderStats();
+        renderExecutivePanel();
         renderTabLabels();
         renderContent();
         refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}).`;
