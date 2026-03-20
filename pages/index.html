@@ -926,18 +926,18 @@
           <div class="pc-progress-track"><div class="pc-progress-fill" id="pc-main-bar" style="width:3%"></div></div>
         </div>
       </a>
-      <a class="progress-card progress-card-3" href="my-documents.html">
+      <a class="progress-card progress-card-3" id="careerProgressCard" href="career.html#browse">
         <div class="pc-top">
-          <div class="pc-badge">Specialist Registration</div>
-          <div class="pc-title">Supporting Documents</div>
-          <div class="pc-sub" id="pc-docs-sub">Upload and manage your registration documents.</div>
+          <div class="pc-badge">Career</div>
+          <div class="pc-title">MyCareer</div>
+          <div class="pc-sub" id="pc-career-sub">Browse roles, review applications and track your placement progress.</div>
         </div>
         <div class="pc-bottom">
           <div class="pc-progress-row">
-            <span class="pc-progress-label">Status</span>
-            <span class="pc-progress-val" id="pc-docs-val">Pending</span>
+            <span class="pc-progress-label" id="pc-career-label">Status</span>
+            <span class="pc-progress-val" id="pc-career-val">Ready</span>
           </div>
-          <div class="pc-progress-track"><div class="pc-progress-fill" id="pc-docs-bar" style="width:3%"></div></div>
+          <div class="pc-progress-track"><div class="pc-progress-fill" id="pc-career-bar" style="width:18%"></div></div>
         </div>
       </a>
     </div>
@@ -1108,6 +1108,7 @@
     const DOC_KEY = "gp_documents_prep";
     const PREPARED_DOCS_KEY = "gp_prepared_docs";
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
+    const CAREER_STATE_KEY = "gp_career_state";
     const ringCirc = 289.026524;
 
     const epicStageLabels = {
@@ -1508,6 +1509,45 @@
       };
     }
 
+    function getCareerCardSnapshot() {
+      const career = parseStorage(CAREER_STATE_KEY);
+      const savedCount = Array.isArray(career && career.savedJobs) ? career.savedJobs.filter(Boolean).length : 0;
+      const applicationCount = Array.isArray(career && career.applications) ? career.applications.filter(Boolean).length : 0;
+      const countToPercent = (count) => Math.max(18, Math.round((Math.min(count, 5) / 5) * 100));
+
+      if (applicationCount > 0) {
+        return {
+          href: "career.html#applications",
+          label: "Applications",
+          value: applicationCount === 1 ? "1 Active" : `${applicationCount} Active`,
+          percent: countToPercent(applicationCount),
+          sub: applicationCount === 1
+            ? "You have 1 active application ready to review."
+            : `You have ${applicationCount} active applications ready to review.`
+        };
+      }
+
+      if (savedCount > 0) {
+        return {
+          href: "career.html#browse",
+          label: "Saved Roles",
+          value: savedCount === 1 ? "1 Saved" : `${savedCount} Saved`,
+          percent: countToPercent(savedCount),
+          sub: savedCount === 1
+            ? "You have 1 saved role ready to revisit."
+            : `You have ${savedCount} saved roles ready to revisit.`
+        };
+      }
+
+      return {
+        href: "career.html#browse",
+        label: "Status",
+        value: "Ready",
+        percent: 18,
+        sub: "Browse roles, review applications and track your placement progress."
+      };
+    }
+
     function setTaskVisual(stepNum, state, statusText, href) {
       const taskEl = document.getElementById(`task${stepNum}`);
       const pill = document.getElementById(`step${stepNum}-pill`);
@@ -1554,22 +1594,18 @@
       if (mainPercent) mainPercent.textContent = `${Math.round(snap.progressPercent)}%`;
       if (mainBar) mainBar.style.width = `${snap.progressPercent}%`;
 
-      // Docs card
-      const docsVal = document.getElementById("pc-docs-val");
-      const docsBar = document.getElementById("pc-docs-bar");
-      const docsSub = document.getElementById("pc-docs-sub");
-      if (snap.docsDone) {
-        if (docsVal) docsVal.textContent = "Complete";
-        if (docsBar) docsBar.style.width = "100%";
-        if (docsSub) docsSub.textContent = "All required documents are ready.";
-      } else {
-        const totalDocItems = UK_DOC_KEYS.length + UK_INST_KEYS.length + UK_SUPERVISED_KEYS.length;
-        const doneDocItems = snap.preparedUploaded + snap.institutionRequested + snap.supervisedReady;
-        const docPercent = totalDocItems > 0 ? Math.round((doneDocItems / totalDocItems) * 100) : 0;
-        if (docsVal) docsVal.textContent = `${doneDocItems}/${totalDocItems}`;
-        if (docsBar) docsBar.style.width = `${Math.max(3, docPercent)}%`;
-        if (docsSub) docsSub.textContent = `Prepared ${snap.preparedUploaded}/4 | Requested ${snap.institutionRequested}/3 | Ready ${snap.supervisedReady}/5`;
-      }
+      // MyCareer card
+      const careerCard = document.getElementById("careerProgressCard");
+      const careerLabel = document.getElementById("pc-career-label");
+      const careerVal = document.getElementById("pc-career-val");
+      const careerBar = document.getElementById("pc-career-bar");
+      const careerSub = document.getElementById("pc-career-sub");
+      const careerSnap = getCareerCardSnapshot();
+      if (careerCard) careerCard.href = careerSnap.href;
+      if (careerLabel) careerLabel.textContent = careerSnap.label;
+      if (careerVal) careerVal.textContent = careerSnap.value;
+      if (careerBar) careerBar.style.width = `${careerSnap.percent}%`;
+      if (careerSub) careerSub.textContent = careerSnap.sub;
 
       const nextMilestoneEl = document.getElementById("next-milestone");
       if (nextMilestoneEl) {
@@ -1858,6 +1894,9 @@
       if (!event || typeof event.key !== "string") return;
       if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases" || event.key === "gp_link_updates" || event.key === DOC_KEY || event.key === `${DOC_KEY}${BATCH_META_SUFFIX}`) {
         renderUpdatesFeed();
+      }
+      if (event.key === CAREER_STATE_KEY) {
+        renderDashboard();
       }
     });
     document.addEventListener("visibilitychange", () => {
