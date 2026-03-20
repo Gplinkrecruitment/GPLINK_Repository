@@ -7,15 +7,16 @@
    - `backups/`
    - `*.zip`
 2. Keep only `.env.example` in GitHub.
-3. Admin panel is protected by dedicated admin session + `ADMIN_EMAILS` allowlist + host allowlist.
+3. Admin panel is protected by dedicated admin session + role-aware host allowlists.
 
-## 2. Deploy as two surfaces (best practice)
-Create two Vercel projects from the same repo:
+## 2. Deploy as separate surfaces (best practice)
+Create separate Vercel surfaces from the same repo:
 
 1. Public app surface (for candidates/users), e.g. `app.mygplink.com.au`
 2. Internal admin surface, e.g. `admin.mygplink.com.au`
+3. CEO / super-admin surface, e.g. `ceo.admin.mygplink.com.au` (recommended)
 
-Both projects can use the same codebase; access is separated by host-based admin allowlisting.
+All surfaces can use the same codebase; access is separated by host-based admin allowlisting plus admin roles.
 
 ## 3. Vercel project configuration
 1. Import this GitHub repository into Vercel.
@@ -40,11 +41,13 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `ZOHO_RECRUIT_CLIENT_ID=<your-zoho-client-id>` (server-side only)
 - `ZOHO_RECRUIT_CLIENT_SECRET=<your-zoho-client-secret>` (server-side only)
 - `ZOHO_RECRUIT_ACCOUNTS_SERVER=https://accounts.zoho.com` (or your Zoho data-center accounts server)
-- `ZOHO_RECRUIT_REDIRECT_URI=https://app.mygplink.com.au/api/integrations/zoho-recruit/callback`
+- `ZOHO_RECRUIT_REDIRECT_URI=https://admin.mygplink.com.au/api/admin/integrations/zoho-recruit/callback`
 - `ZOHO_RECRUIT_SCOPES=ZohoRECRUIT.modules.jobopening.READ`
 - `ZOHO_RECRUIT_SYNC_CRON_SECRET=<strong-random-secret>` (recommended if using scheduled sync)
-- `ADMIN_EMAILS=<comma-separated-admin-emails>` (required for admin access)
-- `ADMIN_ALLOWED_HOSTS=admin.mygplink.com.au` (required in production; restricts `/pages/admin*.html` and `/api/admin/*`)
+- `ADMIN_ALLOWED_HOSTS=admin.mygplink.com.au` (required in production; employee admin hostnames)
+- `SUPER_ADMIN_ALLOWED_HOSTS=ceo.admin.mygplink.com.au` (recommended; super-admin-only hostname)
+- `ADMIN_EMAILS=<comma-separated-bootstrap-admin-emails>` (optional fallback/bootstrap allowlist)
+- `SUPER_ADMIN_EMAILS=<comma-separated-bootstrap-super-admin-emails>` (optional fallback/bootstrap allowlist)
 - `ADMIN_COOKIE_NAME=gp_admin_session` (optional override)
 - `ADMIN_SESSION_TTL_MS=28800000` (optional, default 8 hours)
 
@@ -56,14 +59,44 @@ Optional:
 ## 5. Routing and runtime
 - `vercel.json` routes all traffic to `server.js`.
 - Runtime is `nodejs20.x`.
-- `/pages/admin.html` is protected by admin-auth cookie + `ADMIN_EMAILS` + `ADMIN_ALLOWED_HOSTS`.
+- `/pages/admin.html` is protected by admin-auth cookie + admin role + host allowlists.
 - Admin login is separate: `/pages/admin-signin.html` + `/api/admin/auth/login`.
 - Normal sign in (`/pages/signin.html`) does not grant admin session.
 
 ## 6. Admin access behavior
-- If request host is not in `ADMIN_ALLOWED_HOSTS`, admin pages/APIs return `404`.
+- If request host is not in `ADMIN_ALLOWED_HOSTS` or `SUPER_ADMIN_ALLOWED_HOSTS`, admin pages/APIs return `404`.
 - Admin dashboard requires a dedicated `gp_admin_session` cookie.
-- Only emails listed in `ADMIN_EMAILS` can sign in to admin.
+- `admin.mygplink.com.au` accepts `staff`, `admin`, and `super_admin`.
+- `ceo.admin.mygplink.com.au` accepts `super_admin` only.
+- Preferred source of truth is `public.user_roles`; env email lists are bootstrap fallbacks.
+
+## 6a. Seed admin roles
+Add internal users to `public.user_roles` after their auth accounts exist.
+
+Example SQL:
+
+```sql
+insert into public.user_roles (user_id, role)
+select id, 'admin'
+from auth.users
+where email = 'employee@mygplink.com.au'
+on conflict (user_id) do update
+set role = excluded.role,
+    updated_at = now();
+
+insert into public.user_roles (user_id, role)
+select id, 'super_admin'
+from auth.users
+where email = 'ceo@mygplink.com.au'
+on conflict (user_id) do update
+set role = excluded.role,
+    updated_at = now();
+```
+
+Allowed role values:
+- `staff`
+- `admin`
+- `super_admin`
 
 ## 7. Health check
 - Endpoint: `GET /api/health`
@@ -100,10 +133,10 @@ This applies required schema, including `public.runtime_kv`, and deploys the Sup
 ## 11. Connect Zoho Recruit
 1. In Zoho API Console, create a server-based OAuth client.
 2. Set the redirect URI to your live app callback:
-   - `https://app.mygplink.com.au/api/integrations/zoho-recruit/callback`
+   - `https://admin.mygplink.com.au/api/admin/integrations/zoho-recruit/callback`
 3. Add the Zoho env vars above to Vercel.
-4. Sign in to GP Link with an email listed in `ADMIN_EMAILS` and open:
-   - `GET /api/integrations/zoho-recruit/connect`
+4. Sign in to the employee admin portal with an account assigned `staff`, `admin`, or `super_admin`, then open:
+   - `https://admin.mygplink.com.au/pages/admin.html`
 5. After consent, GP Link stores the refresh token in Supabase table `public.integration_connections`.
 6. GP Link syncs Zoho `JobOpenings` into `public.career_roles`.
 7. Candidate-facing Career UI reads from GP Link `/api/career/roles`, not from Zoho directly.

@@ -35,6 +35,12 @@ const ADMIN_ALLOWED_HOSTS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
+const SUPER_ADMIN_ALLOWED_HOSTS = new Set(
+  String(process.env.SUPER_ADMIN_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 const DEFAULT_DB_FILE_PATH = process.env.VERCEL
   ? path.join('/tmp', 'app-db.json')
   : path.join(process.cwd(), 'data', 'app-db.json');
@@ -79,6 +85,12 @@ const ADMIN_EMAILS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
+const SUPER_ADMIN_EMAILS = new Set(
+  String(process.env.SUPER_ADMIN_EMAILS || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 function validateRuntimeConfig() {
   if (NODE_ENV !== 'production') return;
@@ -94,12 +106,12 @@ function validateRuntimeConfig() {
     throw new Error('SUPABASE_SERVICE_ROLE_KEY must be set in production (REQUIRE_SUPABASE_DB=true).');
   }
 
-  if (ADMIN_EMAILS.size === 0) {
-    console.warn('[WARN] ADMIN_EMAILS is empty. Admin routes will be inaccessible in production.');
+  if (ADMIN_EMAILS.size === 0 && SUPER_ADMIN_EMAILS.size === 0) {
+    console.warn('[WARN] ADMIN_EMAILS and SUPER_ADMIN_EMAILS are empty. Admin sign-in requires roles in public.user_roles or env bootstrap allowlists.');
   }
 
-  if (ADMIN_ALLOWED_HOSTS.size === 0) {
-    console.warn('[WARN] ADMIN_ALLOWED_HOSTS is empty. Admin routes are blocked in production.');
+  if (ADMIN_ALLOWED_HOSTS.size === 0 && SUPER_ADMIN_ALLOWED_HOSTS.size === 0) {
+    console.warn('[WARN] ADMIN_ALLOWED_HOSTS and SUPER_ADMIN_ALLOWED_HOSTS are empty. Admin routes are blocked in production.');
   }
 }
 
@@ -887,11 +899,67 @@ function isLoopbackHostname(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 }
 
-function isAllowedAdminHost(req) {
+function normalizeAdminRole(value) {
+  const role = String(value || '').trim().toLowerCase().replace(/-/g, '_');
+  if (role === 'staff' || role === 'admin' || role === 'super_admin') return role;
+  return '';
+}
+
+function hasAdminPortalAccess(role) {
+  return normalizeAdminRole(role) !== '';
+}
+
+function isSuperAdminRole(role) {
+  return normalizeAdminRole(role) === 'super_admin';
+}
+
+function getAdminRoleLabel(role) {
+  const normalized = normalizeAdminRole(role);
+  if (normalized === 'super_admin') return 'Super Admin';
+  if (normalized === 'staff') return 'Staff Admin';
+  if (normalized === 'admin') return 'Admin';
+  return 'Admin';
+}
+
+function getConfiguredAdminRoleForEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return '';
+  if (SUPER_ADMIN_EMAILS.has(normalizedEmail)) return 'super_admin';
+  if (ADMIN_EMAILS.has(normalizedEmail)) return 'admin';
+  return '';
+}
+
+function getAdminHostScope(req) {
   const hostname = getRequestHostname(req);
-  if (!hostname) return false;
-  if (ADMIN_ALLOWED_HOSTS.size > 0) return ADMIN_ALLOWED_HOSTS.has(hostname);
-  return NODE_ENV !== 'production' && isLoopbackHostname(hostname);
+  if (!hostname) return '';
+  if (SUPER_ADMIN_ALLOWED_HOSTS.has(hostname)) return 'super_admin';
+  if (ADMIN_ALLOWED_HOSTS.has(hostname)) return 'admin';
+  if (NODE_ENV !== 'production' && isLoopbackHostname(hostname)) return 'local';
+  return '';
+}
+
+function getAdminHostLabel(scope) {
+  if (scope === 'super_admin') return 'CEO / Super Admin';
+  if (scope === 'admin') return 'Employee Admin';
+  if (scope === 'local') return 'Local Admin';
+  return 'Admin';
+}
+
+function doesAdminRoleMatchHost(role, hostScope) {
+  const normalizedRole = normalizeAdminRole(role);
+  if (!normalizedRole) return false;
+  if (hostScope === 'super_admin') return normalizedRole === 'super_admin';
+  return hostScope === 'admin' || hostScope === 'local';
+}
+
+function getAdminRoleFromSession(session) {
+  const storedRole = normalizeAdminRole(session && session.userProfile && session.userProfile.adminRole);
+  if (storedRole) return storedRole;
+  return getConfiguredAdminRoleForEmail(getSessionEmail(session));
+}
+
+function isAllowedAdminHost(req) {
+  return !!getAdminHostScope(req);
 }
 
 function randomToken(size = 32) {
@@ -1603,14 +1671,39 @@ function parseJsonLike(value) {
   }
 }
 
+async function getAdminRoleFromSupabaseUserId(userId) {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId || !isSupabaseDbConfigured()) return '';
+  const result = await supabaseDbRequest(
+    'user_roles',
+    `select=role&user_id=eq.${encodeURIComponent(normalizedUserId)}&limit=1`
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return '';
+  return normalizeAdminRole(result.data[0] && result.data[0].role);
+}
+
+async function resolveAdminRoleForSupabaseUser(supaUser, fallbackEmail = '') {
+  const userId = String(supaUser && supaUser.id ? supaUser.id : '').trim();
+  const email = String((supaUser && supaUser.email) || fallbackEmail || '').trim().toLowerCase();
+  const dbRole = await getAdminRoleFromSupabaseUserId(userId);
+  if (dbRole) return dbRole;
+  return getConfiguredAdminRoleForEmail(email);
+}
+
+function buildAdminSessionProfile(userProfile, adminRole) {
+  return {
+    ...(userProfile && typeof userProfile === 'object' ? userProfile : {}),
+    adminRole: normalizeAdminRole(adminRole)
+  };
+}
+
 function isAdminEmail(email) {
-  if (!email) return false;
-  if (ADMIN_EMAILS.size === 0) return false;
-  return ADMIN_EMAILS.has(String(email).trim().toLowerCase());
+  return hasAdminPortalAccess(getConfiguredAdminRoleForEmail(email));
 }
 
 function requireAdminSession(req, res) {
-  if (!isAllowedAdminHost(req)) {
+  const hostScope = getAdminHostScope(req);
+  if (!hostScope) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
     return null;
   }
@@ -1620,22 +1713,36 @@ function requireAdminSession(req, res) {
     return null;
   }
   const email = getSessionEmail(session);
-  if (!isAdminEmail(email)) {
-    sendJson(res, 403, { ok: false, message: 'Admin access required.' });
+  const role = getAdminRoleFromSession(session);
+  if (!doesAdminRoleMatchHost(role, hostScope)) {
+    sendJson(res, 403, {
+      ok: false,
+      message: hostScope === 'super_admin'
+        ? 'Super admin access required on this host.'
+        : 'Admin access required.'
+    });
     return null;
   }
-  return { session, email };
+  return {
+    session,
+    email,
+    role,
+    roleLabel: getAdminRoleLabel(role),
+    hostScope,
+    hostLabel: getAdminHostLabel(hostScope)
+  };
 }
 
 function requireIntegrationAdminSession(req, res) {
   const session = requireSession(req, res);
   if (!session) return null;
   const email = getSessionEmail(session);
-  if (!isAdminEmail(email)) {
+  const role = getConfiguredAdminRoleForEmail(email);
+  if (!hasAdminPortalAccess(role)) {
     sendJson(res, 403, { ok: false, message: 'Admin access required.' });
     return null;
   }
-  return { session, email };
+  return { session, email, role, roleLabel: getAdminRoleLabel(role) };
 }
 
 function timingSafeEqualStrings(left, right) {
@@ -7529,20 +7636,45 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/admin/auth/session' && req.method === 'GET') {
+    const hostScope = getAdminHostScope(req);
+    const hostLabel = getAdminHostLabel(hostScope);
+    if (!hostScope) {
+      sendJson(res, 404, { ok: false, message: 'Not found', hostScope: '', hostLabel: '' });
+      return;
+    }
     const session = getAdminSession(req);
     if (!session) {
-      sendJson(res, 401, { ok: false, authenticated: false });
+      sendJson(res, 401, {
+        ok: false,
+        authenticated: false,
+        hostScope,
+        hostLabel,
+        requiredRole: hostScope === 'super_admin' ? 'super_admin' : 'admin'
+      });
       return;
     }
     const email = getSessionEmail(session);
-    if (!isAdminEmail(email)) {
-      sendJson(res, 403, { ok: false, message: 'Admin access required.' });
+    const role = getAdminRoleFromSession(session);
+    if (!doesAdminRoleMatchHost(role, hostScope)) {
+      sendJson(res, 403, {
+        ok: false,
+        authenticated: true,
+        hostScope,
+        hostLabel,
+        profile: buildAdminSessionProfile(session.userProfile, role),
+        message: hostScope === 'super_admin'
+          ? 'Super admin access required on this host.'
+          : 'Admin access required.'
+      });
       return;
     }
     sendJson(res, 200, {
       ok: true,
       authenticated: true,
-      profile: session.userProfile
+      hostScope,
+      hostLabel,
+      profile: buildAdminSessionProfile(session.userProfile, role),
+      redirectTo: '/pages/admin.html'
     });
     return;
   }
@@ -7563,11 +7695,6 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Please provide a valid email and password.' });
       return;
     }
-    if (!isAdminEmail(email)) {
-      sendJson(res, 403, { ok: false, message: 'Admin access required.' });
-      return;
-    }
-
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
     if (!loginResult.ok) {
       const msg = loginResult.data && loginResult.data.msg
@@ -7580,10 +7707,38 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
+    const adminRole = await resolveAdminRoleForSupabaseUser(loginUser, email);
+    const hostScope = getAdminHostScope(req);
+    if (!hasAdminPortalAccess(adminRole)) {
+      sendJson(res, 403, { ok: false, message: 'This account is not assigned to the admin portal.' });
+      return;
+    }
+    if (!doesAdminRoleMatchHost(adminRole, hostScope)) {
+      sendJson(res, 403, {
+        ok: false,
+        message: hostScope === 'super_admin'
+          ? 'This host is reserved for super admin access.'
+          : 'This admin account is not allowed on this host.'
+      });
+      return;
+    }
     upsertLocalUserFromSupabaseUser(loginUser);
     await ensureSupabaseUserProfile(loginUser);
-    setAdminSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
-    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/admin.html' });
+    setAdminSession(res, buildAdminSessionProfile(getSessionProfileFromSupabaseUser(loginUser, email), adminRole));
+    sendJson(res, 200, {
+      ok: true,
+      message: 'Authenticated',
+      redirectTo: '/pages/admin.html',
+      hostScope,
+      hostLabel: getAdminHostLabel(hostScope),
+      profile: {
+        email,
+        adminRole,
+        roleLabel: getAdminRoleLabel(adminRole),
+        hostScope,
+        hostLabel: getAdminHostLabel(hostScope)
+      }
+    });
     return;
   }
 
@@ -8373,9 +8528,14 @@ async function handleRequest(req, res) {
   }
 
   if (pathname === '/pages/admin-signin.html' && adminSession) {
-    res.writeHead(302, { Location: '/pages/admin.html' });
-    res.end();
-    return;
+    const adminRole = getAdminRoleFromSession(adminSession);
+    const adminHostScope = getAdminHostScope(req);
+    if (doesAdminRoleMatchHost(adminRole, adminHostScope)) {
+      res.writeHead(302, { Location: '/pages/admin.html' });
+      res.end();
+      return;
+    }
+    clearAdminSession(res);
   }
 
   if (pathname === '/pages/admin.html') {
@@ -8384,10 +8544,12 @@ async function handleRequest(req, res) {
       res.end();
       return;
     }
-    const email = getSessionEmail(adminSession);
-    if (!isAdminEmail(email)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Admin access required');
+    const adminRole = getAdminRoleFromSession(adminSession);
+    const adminHostScope = getAdminHostScope(req);
+    if (!doesAdminRoleMatchHost(adminRole, adminHostScope)) {
+      clearAdminSession(res);
+      res.writeHead(302, { Location: '/pages/admin-signin.html' });
+      res.end();
       return;
     }
   }

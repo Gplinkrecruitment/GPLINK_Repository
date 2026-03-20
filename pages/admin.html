@@ -64,6 +64,34 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    .hero-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      background: rgba(255, 255, 255, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      color: #fff;
+    }
+    .hero-chip.super-admin {
+      background: rgba(15, 23, 42, 0.22);
+      border-color: rgba(255, 255, 255, 0.34);
+    }
+    .hero-chip.email {
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 700;
+    }
 
     .stats {
       display: grid;
@@ -716,6 +744,11 @@
         <button class="btn hero-btn" id="logoutBtn" type="button">Sign Out</button>
       </div>
       <p>Manage GP registrations, verify certificates, and respond to support tickets.</p>
+      <div class="hero-meta" id="heroMeta">
+        <span class="hero-chip" id="heroHostBadge">Loading portal...</span>
+        <span class="hero-chip" id="heroRoleBadge" hidden></span>
+        <span class="hero-chip email" id="heroEmailBadge" hidden></span>
+      </div>
       <p id="refreshText" class="inline-note">Loading...</p>
     </header>
 
@@ -756,6 +789,9 @@
       dashboard: null,
       zohoRecruit: null,
       zohoRecruitNotice: null,
+      viewer: null,
+      hostScope: "",
+      hostLabel: "",
       tab: "registrations",
       query: "",
       refreshTimer: null,
@@ -983,6 +1019,9 @@
     const statsEl = document.getElementById("stats");
     const contentEl = document.getElementById("content");
     const refreshTextEl = document.getElementById("refreshText");
+    const heroHostBadgeEl = document.getElementById("heroHostBadge");
+    const heroRoleBadgeEl = document.getElementById("heroRoleBadge");
+    const heroEmailBadgeEl = document.getElementById("heroEmailBadge");
     const zohoRecruitPanelEl = document.getElementById("zohoRecruitPanel");
     const searchInputEl = document.getElementById("searchInput");
     const logoutBtnEl = document.getElementById("logoutBtn");
@@ -1021,6 +1060,48 @@
       if (hours < 24) return `Last active: ${hours} hour${hours === 1 ? "" : "s"} ago`;
       const days = Math.round(hours / 24);
       return `Last active: ${days} day${days === 1 ? "" : "s"} ago`;
+    }
+
+    function applyAdminViewerContext() {
+      const hostLabel = state.hostLabel || "Admin";
+      if (heroHostBadgeEl) {
+        heroHostBadgeEl.textContent = hostLabel;
+        heroHostBadgeEl.classList.toggle("super-admin", state.hostScope === "super_admin");
+      }
+      if (heroRoleBadgeEl) {
+        const roleLabel = state.viewer && state.viewer.roleLabel ? state.viewer.roleLabel : "";
+        heroRoleBadgeEl.hidden = !roleLabel;
+        heroRoleBadgeEl.textContent = roleLabel || "";
+        heroRoleBadgeEl.classList.toggle("super-admin", state.viewer && state.viewer.adminRole === "super_admin");
+      }
+      if (heroEmailBadgeEl) {
+        const email = state.viewer && state.viewer.email ? state.viewer.email : "";
+        heroEmailBadgeEl.hidden = !email;
+        heroEmailBadgeEl.textContent = email || "";
+      }
+    }
+
+    async function loadAdminSession() {
+      const response = await fetch("/api/admin/auth/session", { credentials: "same-origin" });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        state.hostScope = data.hostScope || "";
+        state.hostLabel = data.hostLabel || "";
+        applyAdminViewerContext();
+        window.location.href = "/pages/admin-signin.html";
+        return false;
+      }
+      if (response.status === 403) {
+        throw new Error(data.message || "Admin access required.");
+      }
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || "Unable to verify admin session.");
+      }
+      state.viewer = data.profile || null;
+      state.hostScope = data.hostScope || "";
+      state.hostLabel = data.hostLabel || "";
+      applyAdminViewerContext();
+      return true;
     }
 
     function escapeHtml(value) {
@@ -1433,10 +1514,10 @@
           window.location.href = "/pages/admin-signin.html";
           return;
         }
-        if (response.status === 403) {
-          throw new Error("This account does not have admin access.");
-        }
         const data = await response.json().catch(() => ({}));
+        if (response.status === 403) {
+          throw new Error(data.message || "This account does not have admin access.");
+        }
         if (!response.ok || !data.ok) {
           throw new Error(data.message || "Failed to load Zoho Recruit status.");
         }
@@ -1655,13 +1736,13 @@
           window.location.href = "/pages/admin-signin.html";
           return;
         }
+        const data = await response.json().catch(() => ({}));
         if (response.status === 403) {
-          throw new Error("This account does not have admin access. Set ADMIN_EMAILS in your environment.");
+          throw new Error(data.message || "This account does not have admin access.");
         }
         if (!response.ok) {
-          throw new Error("Failed to load admin dashboard.");
+          throw new Error(data.message || "Failed to load admin dashboard.");
         }
-        const data = await response.json();
         state.dashboard = data;
         renderStats();
         renderTabLabels();
@@ -1875,9 +1956,16 @@
     }
 
     bindEvents();
-    loadDashboard();
-    loadZohoRecruitStatus();
-    startAutoRefresh();
+    loadAdminSession()
+      .then((ok) => {
+        if (!ok) return;
+        loadDashboard();
+        loadZohoRecruitStatus();
+        startAutoRefresh();
+      })
+      .catch((err) => {
+        refreshTextEl.textContent = err && err.message ? err.message : "Unable to verify admin session.";
+      });
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         loadDashboard();

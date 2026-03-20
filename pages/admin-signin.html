@@ -118,12 +118,33 @@
     }
     .status.error { color: var(--error); }
     .status.ok { color: var(--ok); }
+    .scope-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid #d8e2f0;
+      background: #f8fafc;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .scope-chip.super-admin {
+      background: #eef2ff;
+      border-color: #c7d2fe;
+      color: #4338ca;
+    }
   </style>
 </head>
 <body>
   <main class="panel">
     <h1>Admin Sign In</h1>
-    <p>Use an internal admin account to access the GP Link operations dashboard.</p>
+    <div class="scope-chip" id="portalScopeChip">Loading portal...</div>
+    <p id="portalCopy">Use an internal admin account to access the GP Link operations dashboard.</p>
     <form id="adminLoginForm">
       <div class="field">
         <label for="email">Work email</label>
@@ -144,6 +165,8 @@
     const formEl = document.getElementById("adminLoginForm");
     const statusEl = document.getElementById("status");
     const submitBtnEl = document.getElementById("submitBtn");
+    const portalCopyEl = document.getElementById("portalCopy");
+    const portalScopeChipEl = document.getElementById("portalScopeChip");
 
     function setStatus(message, type) {
       statusEl.textContent = message || "";
@@ -151,13 +174,32 @@
       if (type) statusEl.classList.add(type);
     }
 
+    function inferHostScope() {
+      const host = window.location.hostname || "";
+      if (host.startsWith("ceo.") || host.startsWith("superadmin.") || host.startsWith("super-admin.")) return "super_admin";
+      return "admin";
+    }
+
+    function applyPortalContext(payload) {
+      const scope = payload && payload.hostScope ? payload.hostScope : inferHostScope();
+      const isSuperAdmin = scope === "super_admin";
+      portalScopeChipEl.textContent = isSuperAdmin ? "CEO / Super Admin Portal" : "Employee Admin Portal";
+      portalScopeChipEl.classList.toggle("super-admin", isSuperAdmin);
+      portalCopyEl.textContent = isSuperAdmin
+        ? "Use your super admin account to access CEO-level GP Link controls."
+        : "Use your employee admin account to access the GP Link operations dashboard.";
+    }
+
     async function checkExistingSession() {
       try {
         const response = await fetch("/api/admin/auth/session", { credentials: "same-origin" });
+        const data = await response.json().catch(() => ({}));
+        applyPortalContext(data);
         if (response.ok) {
-          window.location.href = "/pages/admin.html";
+          window.location.href = data.redirectTo || "/pages/admin.html";
         }
       } catch (err) {
+        applyPortalContext(null);
         // Ignore connectivity checks on load.
       }
     }
@@ -187,6 +229,7 @@
           setStatus(data.message || "Sign in failed.", "error");
           return;
         }
+        applyPortalContext(data);
         setStatus("Signed in. Redirecting...", "ok");
         window.location.href = data.redirectTo || "/pages/admin.html";
       } catch (err) {
