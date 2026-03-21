@@ -1638,6 +1638,7 @@
     }
 
     .placement-story-card,
+    .placement-practice-contact-card,
     .placement-broker-card,
     .placement-package-card,
     .placement-status-card {
@@ -1736,13 +1737,81 @@
       text-align: right;
     }
 
+    .placement-practice-contact-card {
+      gap: 14px;
+      background: rgba(15, 23, 42, 0.9);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .placement-practice-contact-kicker {
+      display: block;
+      margin: 0;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(191, 219, 254, 0.6);
+    }
+
+    .placement-practice-contact-body {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .placement-practice-contact-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #4338ca, #2563eb);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      box-shadow: 0 12px 24px -18px rgba(15, 23, 42, 0.95);
+    }
+
+    .placement-practice-contact-copy {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .placement-practice-contact-name {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .placement-practice-contact-role,
+    .placement-practice-contact-meta {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .placement-practice-contact-role {
+      color: rgba(226, 232, 240, 0.88);
+    }
+
+    .placement-practice-contact-meta {
+      color: rgba(148, 163, 184, 0.84);
+    }
+
     .placement-checklist {
       display: grid;
       gap: 14px;
     }
 
     .placement-checklist-head {
-      padding-left: 38px;
+      padding-left: 0;
     }
 
     .placement-checklist-title {
@@ -1930,6 +1999,48 @@
       stroke-width: 2;
       stroke-linecap: round;
       stroke-linejoin: round;
+    }
+
+    .placement-practice-contact-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .placement-practice-contact-btn {
+      text-decoration: none;
+      min-height: 44px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      gap: 4px;
+      color: rgba(241, 245, 249, 0.88);
+      font-size: 11px;
+      font-weight: 700;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease, color .16s ease;
+    }
+
+    .placement-practice-contact-btn:hover {
+      border-color: rgba(96, 165, 250, 0.34);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .placement-practice-contact-btn svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .placement-practice-contact-btn-whatsapp {
+      color: #22c55e;
+      border-color: rgba(34, 197, 94, 0.28);
     }
 
     @keyframes checklistPulse {
@@ -2633,6 +2744,7 @@
       .role-card,
       .application-card,
       .placement-hero-card,
+      .placement-practice-contact-card,
       .placement-story-card,
       .placement-broker-card,
       .placement-package-card,
@@ -2814,6 +2926,7 @@
     }
 
     body.career-mode-secured .placement-hero-card,
+    body.career-mode-secured .placement-practice-contact-card,
     body.career-mode-secured .placement-story-card,
     body.career-mode-secured .placement-broker-card,
     body.career-mode-secured .placement-package-card,
@@ -2997,6 +3110,30 @@
       font-size: 11px;
       font-weight: 700;
       padding-bottom: 4px;
+    }
+
+    body.career-mode-secured .placement-practice-contact-card {
+      padding: 14px;
+      gap: 12px;
+      background: #101b28;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    body.career-mode-secured .placement-practice-contact-kicker {
+      color: rgba(191, 219, 254, 0.48);
+      font-size: 9px;
+    }
+
+    body.career-mode-secured .placement-practice-contact-name {
+      font-size: 25px;
+    }
+
+    body.career-mode-secured .placement-practice-contact-role {
+      font-size: 12px;
+    }
+
+    body.career-mode-secured .placement-practice-contact-meta {
+      font-size: 10px;
     }
 
     body.career-mode-secured .placement-story-card {
@@ -3314,6 +3451,32 @@
               <span class="placement-income-unit" id="securedExpectedIncomeUnit">Per Day</span>
             </div>
           </div>
+
+          <article class="placement-practice-contact-card" aria-label="Direct practice contact">
+            <span class="placement-practice-contact-kicker">You'll Be Working With</span>
+            <div class="placement-practice-contact-body">
+              <div class="placement-practice-contact-avatar" id="securedPracticeContactInitials">DI</div>
+              <div class="placement-practice-contact-copy">
+                <h3 class="placement-practice-contact-name" id="securedPracticeContactName">Dr Ifediora</h3>
+                <p class="placement-practice-contact-role" id="securedPracticeContactRole">Practice Owner</p>
+                <p class="placement-practice-contact-meta" id="securedPracticeContactMeta">Last contacted 3 days ago</p>
+              </div>
+            </div>
+            <div class="placement-practice-contact-actions">
+              <a class="placement-practice-contact-btn" id="securedPracticeContactCallLink" href="tel:+61259082200">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.64 2.6a2 2 0 0 1-.45 2.11L8 9.91a16 16 0 0 0 6.09 6.09l1.48-1.3a2 2 0 0 1 2.11-.45c.83.31 1.7.52 2.6.64A2 2 0 0 1 22 16.92z"></path></svg>
+                <span>Call</span>
+              </a>
+              <a class="placement-practice-contact-btn" id="securedPracticeContactEmailLink" href="mailto:practice@murrumbidgeemedical.com.au">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"></path><path d="m4 7 8 6 8-6"></path></svg>
+                <span>Email</span>
+              </a>
+              <a class="placement-practice-contact-btn placement-practice-contact-btn-whatsapp" id="securedPracticeContactWhatsAppLink" href="https://wa.me/61400000000" target="_blank" rel="noreferrer">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-11.72 7.05L4 20l1.52-4.06A8 8 0 1 1 20 11.5Z"></path><path d="M9.8 9.4c.2-.4.4-.4.6-.4h.5c.2 0 .4 0 .5.4l.4 1c.1.2.1.4 0 .5l-.3.5c-.1.1-.2.3 0 .5.3.6 1 1.6 2.3 2.2.2.1.4.1.5 0l.5-.3c.1-.1.3-.1.5 0l1 .4c.3.1.4.3.4.5v.5c0 .2 0 .4-.4.6-.4.2-1.1.4-1.8.2-1-.2-2.3-.8-3.6-2.1-1.4-1.3-2-2.6-2.1-3.6-.2-.7 0-1.4.3-1.9Z"></path></svg>
+                <span>WhatsApp</span>
+              </a>
+            </div>
+          </article>
 
           <div class="placement-primary-grid">
             <article class="placement-story-card">
@@ -3653,6 +3816,15 @@
         imageUrl: "../media/images/account-header-sunset-exact.jpg",
         mapQuery: "Turvey Park, Wagga Wagga NSW, Australia",
         mapHint: "Suburb view shown before full handover details unlock."
+      },
+      practiceContact: {
+        name: "Dr Ifediora",
+        initials: "DI",
+        role: "Practice Owner",
+        meta: "Last contacted 3 days ago",
+        phone: "+61 2 5908 2200",
+        email: "practice@murrumbidgeemedical.com.au",
+        whatsapp: "+61400000000"
       },
       broker: {
         name: "Khaleed",
@@ -3998,6 +4170,13 @@
     const securedQuickStatsEl = document.getElementById("securedQuickStats");
     const securedExpectedIncomeEl = document.getElementById("securedExpectedIncome");
     const securedExpectedIncomeUnitEl = document.getElementById("securedExpectedIncomeUnit");
+    const securedPracticeContactInitialsEl = document.getElementById("securedPracticeContactInitials");
+    const securedPracticeContactNameEl = document.getElementById("securedPracticeContactName");
+    const securedPracticeContactRoleEl = document.getElementById("securedPracticeContactRole");
+    const securedPracticeContactMetaEl = document.getElementById("securedPracticeContactMeta");
+    const securedPracticeContactCallLinkEl = document.getElementById("securedPracticeContactCallLink");
+    const securedPracticeContactEmailLinkEl = document.getElementById("securedPracticeContactEmailLink");
+    const securedPracticeContactWhatsAppLinkEl = document.getElementById("securedPracticeContactWhatsAppLink");
     const securedStoryMediaEl = document.getElementById("securedStoryMedia");
     const securedStoryChipsEl = document.getElementById("securedStoryChips");
     const securedStoryTitleEl = document.getElementById("securedStoryTitle");
@@ -4117,6 +4296,9 @@
         ? placementApp.placement
         : {};
       const storyPayload = placementPayload.story && typeof placementPayload.story === "object" ? placementPayload.story : {};
+      const practiceContactPayload = placementPayload.practiceContact && typeof placementPayload.practiceContact === "object"
+        ? placementPayload.practiceContact
+        : {};
       const brokerPayload = placementPayload.broker && typeof placementPayload.broker === "object" ? placementPayload.broker : {};
       const compensationPayload = placementPayload.compensation && typeof placementPayload.compensation === "object"
         ? placementPayload.compensation
@@ -4149,6 +4331,15 @@
           imageUrl: storyPayload.imageUrl || (placementRole && placementRole.heroImageUrl) || SECURED_PLACEMENT.story.imageUrl,
           mapQuery: storyPayload.mapQuery || (placementRole && (placementRole.mapQuery || placementRole.location)) || SECURED_PLACEMENT.story.mapQuery,
           mapHint: storyPayload.mapHint || SECURED_PLACEMENT.story.mapHint
+        },
+        practiceContact: {
+          name: practiceContactPayload.name || SECURED_PLACEMENT.practiceContact.name,
+          initials: practiceContactPayload.initials || SECURED_PLACEMENT.practiceContact.initials,
+          role: practiceContactPayload.role || SECURED_PLACEMENT.practiceContact.role,
+          meta: practiceContactPayload.meta || SECURED_PLACEMENT.practiceContact.meta,
+          phone: practiceContactPayload.phone || SECURED_PLACEMENT.practiceContact.phone,
+          email: practiceContactPayload.email || SECURED_PLACEMENT.practiceContact.email,
+          whatsapp: practiceContactPayload.whatsapp || SECURED_PLACEMENT.practiceContact.whatsapp
         },
         broker: {
           name: brokerPayload.name || SECURED_PLACEMENT.broker.name,
@@ -4769,6 +4960,17 @@
       securedCountdownCopyEl.textContent = placement.countdownCopy || "days until your start";
       securedExpectedIncomeEl.textContent = placement.compensation.range;
       securedExpectedIncomeUnitEl.textContent = placement.compensation.unit;
+      securedPracticeContactInitialsEl.textContent = placement.practiceContact.initials;
+      securedPracticeContactNameEl.textContent = placement.practiceContact.name;
+      securedPracticeContactRoleEl.textContent = placement.practiceContact.role;
+      securedPracticeContactMetaEl.textContent = placement.practiceContact.meta;
+      securedPracticeContactCallLinkEl.href = placement.practiceContact.phone
+        ? "tel:" + placement.practiceContact.phone.replace(/\s+/g, "")
+        : "#";
+      securedPracticeContactEmailLinkEl.href = placement.practiceContact.email
+        ? "mailto:" + placement.practiceContact.email
+        : "#";
+      securedPracticeContactWhatsAppLinkEl.href = buildWhatsAppHref(placement.practiceContact.whatsapp);
 
       securedQuickStatsEl.innerHTML = (Array.isArray(placement.quickStats) ? placement.quickStats : []).map((item) => `
         <article class="placement-stat-card">
