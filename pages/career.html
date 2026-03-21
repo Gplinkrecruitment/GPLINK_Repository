@@ -1736,6 +1736,232 @@
       text-align: right;
     }
 
+    .placement-checklist {
+      display: grid;
+      gap: 12px;
+    }
+
+    .placement-checklist-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .placement-checklist-badge {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: #2563eb;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 14px 24px -18px rgba(37, 99, 235, 0.4);
+    }
+
+    .placement-checklist-badge svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .placement-checklist-copy {
+      display: grid;
+      gap: 2px;
+    }
+
+    .placement-checklist-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .placement-checklist-progress {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .placement-checklist-list {
+      display: grid;
+      gap: 2px;
+    }
+
+    .placement-checklist-item {
+      display: grid;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    }
+
+    .placement-checklist-item:last-child {
+      border-bottom: 0;
+    }
+
+    .placement-checklist-toggle {
+      width: 100%;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      background: transparent;
+      border: 0;
+      padding: 0;
+      text-align: left;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .placement-checklist-marker {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 800;
+      border: 1.5px solid #d1d5db;
+      color: #94a3b8;
+      background: #fff;
+    }
+
+    .placement-checklist-marker svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .placement-checklist-item.complete .placement-checklist-marker {
+      background: #3b82f6;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+
+    .placement-checklist-item.current .placement-checklist-marker {
+      border-color: #3b82f6;
+      color: #2563eb;
+    }
+
+    .placement-checklist-item.current .placement-checklist-item-state {
+      color: #2563eb;
+    }
+
+    .placement-checklist-item.locked .placement-checklist-item-title,
+    .placement-checklist-item.locked .placement-checklist-item-state {
+      color: #94a3b8;
+    }
+
+    .placement-checklist-copyline {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .placement-checklist-item.complete .placement-checklist-item-title {
+      text-decoration: line-through;
+      color: #94a3b8;
+    }
+
+    .placement-checklist-item-title {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .placement-checklist-item-state {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .placement-checklist-caret {
+      width: 18px;
+      height: 18px;
+      color: #94a3b8;
+      transition: transform .18s ease;
+    }
+
+    .placement-checklist-caret svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .placement-checklist-item.open .placement-checklist-caret {
+      transform: rotate(180deg);
+    }
+
+    .placement-checklist-panel {
+      margin-left: 38px;
+      display: grid;
+      gap: 10px;
+      max-width: 280px;
+    }
+
+    .placement-checklist-panel[hidden] {
+      display: none;
+    }
+
+    .placement-checklist-panel p {
+      margin: 0;
+      color: #475569;
+      font-size: 12px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+
+    .placement-checklist-action {
+      width: fit-content;
+      min-height: 34px;
+      border-radius: 10px;
+      border: 0;
+      background: #111827;
+      color: #fff;
+      padding: 0 14px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      box-shadow: 0 12px 18px -16px rgba(15, 23, 42, 0.9);
+    }
+
+    .placement-checklist-action[disabled] {
+      background: #cbd5e1;
+      color: #64748b;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .placement-checklist-action svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .placement-broker-card,
     .placement-package-card,
     .placement-status-card {
@@ -3138,6 +3364,19 @@
             </article>
           </div>
 
+          <section class="placement-checklist" aria-label="What's Left To Do">
+            <div class="placement-checklist-head">
+              <div class="placement-checklist-badge" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path></svg>
+              </div>
+              <div class="placement-checklist-copy">
+                <h3 class="placement-checklist-title">What's Left To Do</h3>
+                <p class="placement-checklist-progress" id="securedChecklistProgress">1/4</p>
+              </div>
+            </div>
+            <div class="placement-checklist-list" id="securedChecklistList"></div>
+          </section>
+
           <div class="placement-secondary-grid">
             <article class="placement-package-card">
               <div class="placement-card-head">
@@ -3389,6 +3628,40 @@
         { label: "Split", value: "70%" },
         { label: "Contract", value: "2 years" }
       ],
+      checklist: [
+        {
+          key: "placement",
+          title: "Placement",
+          summary: "Your role has been secured and the practice is holding this placement for you.",
+          status: "complete",
+          started: true,
+          href: "career.html#secured"
+        },
+        {
+          key: "registration",
+          title: "Registration",
+          summary: "Continue your specialist registration steps so the next onboarding tasks can unlock.",
+          status: "current",
+          started: true,
+          href: "myinthealth.html"
+        },
+        {
+          key: "visa",
+          title: "Visa",
+          summary: "Once registration is complete, you can begin your visa submission workflow.",
+          status: "pending",
+          started: false,
+          href: "myinthealth.html"
+        },
+        {
+          key: "pbs_number",
+          title: "PBS Number",
+          summary: "PBS setup becomes available after the earlier onboarding steps are complete.",
+          status: "pending",
+          started: false,
+          href: "myinthealth.html"
+        }
+      ],
       story: {
         title: "Desirable location",
         text: "Established mixed-billing centre with strong patient demand, school-friendly rostering and a GP Link-supported arrival plan.",
@@ -3409,10 +3682,10 @@
         dockTitle: "Khaleed — Your GP Link Agent",
         dockStatus: "Online now"
       },
-      compensation: {
-        range: "$2,500-$3,500",
-        unit: "Per Day",
-        note: "Offer package live",
+        compensation: {
+          range: "$2,500-$3,500",
+          unit: "Per Day",
+          note: "Offer package live",
         facts: [
           { label: "Billing split", value: "70/30" },
           { label: "Contract length", value: "2 years" },
@@ -3747,6 +4020,8 @@
     const securedStoryTextEl = document.getElementById("securedStoryText");
     const securedMapLinkEl = document.getElementById("securedMapLink");
     const securedMapHintEl = document.getElementById("securedMapHint");
+    const securedChecklistProgressEl = document.getElementById("securedChecklistProgress");
+    const securedChecklistListEl = document.getElementById("securedChecklistList");
     const securedBrokerNameEl = document.getElementById("securedBrokerName");
     const securedBrokerRoleEl = document.getElementById("securedBrokerRole");
     const securedBrokerPresenceEl = document.getElementById("securedBrokerPresence");
@@ -3769,6 +4044,7 @@
     const placementDockWhatsAppLinkEl = document.getElementById("placementDockWhatsAppLink");
     const toastEl = document.getElementById("careerToast");
     let roleModalMapVisible = false;
+    let currentChecklistOpenKey = "";
 
     function persistCareerState() {
       careerState.updatedAt = new Date().toISOString();
@@ -3891,6 +4167,9 @@
             ? compensationPayload.facts
             : SECURED_PLACEMENT.compensation.facts
         },
+        checklist: Array.isArray(placementPayload.checklist) && placementPayload.checklist.length
+          ? placementPayload.checklist
+          : SECURED_PLACEMENT.checklist,
         statusSteps: Array.isArray(placementPayload.statusSteps) && placementPayload.statusSteps.length
           ? placementPayload.statusSteps
           : SECURED_PLACEMENT.statusSteps,
@@ -3900,6 +4179,103 @@
           href: nextStepPayload.href || SECURED_PLACEMENT.nextStep.href
         }
       };
+    }
+
+    function normalizeChecklistStatus(value) {
+      const key = normalizeStatusKey(value || "pending");
+      if (["complete", "completed", "done"].includes(key)) return "complete";
+      if (["current", "in_progress", "started", "active"].includes(key)) return "current";
+      return "pending";
+    }
+
+    function buildPlacementChecklistItems(items) {
+      const source = Array.isArray(items) ? items : [];
+      let blockedBy = null;
+      return source.map((item, index) => {
+        const status = normalizeChecklistStatus(item && item.status);
+        const title = String(item && item.title || `Step ${index + 1}`).trim();
+        const started = item && item.started === true;
+        const unlocked = !blockedBy;
+        const actionLabel = status === "complete"
+          ? "Completed"
+          : (!unlocked ? "Locked" : (started || status === "current" ? "Continue" : "Get Started"));
+        const helperText = unlocked
+          ? String(item && item.summary || "").trim()
+          : `Please complete ${blockedBy} to unlock ${title}.`;
+        const nextBlockedBy = blockedBy || (status === "complete" ? null : title);
+        const derived = {
+          key: String(item && item.key || `step_${index + 1}`),
+          title,
+          summary: helperText,
+          status,
+          unlocked,
+          started,
+          actionLabel,
+          href: String(item && item.href || "").trim(),
+          stepNumber: index + 1
+        };
+        blockedBy = nextBlockedBy;
+        return derived;
+      });
+    }
+
+    function renderPlacementChecklist(checklistItems) {
+      if (!securedChecklistProgressEl || !securedChecklistListEl) return;
+      const items = buildPlacementChecklistItems(checklistItems);
+      if (!items.length) {
+        securedChecklistProgressEl.textContent = "0/0";
+        securedChecklistListEl.innerHTML = "";
+        currentChecklistOpenKey = "";
+        return;
+      }
+
+      const completedCount = items.filter((item) => item.status === "complete").length;
+      securedChecklistProgressEl.textContent = `${completedCount}/${items.length}`;
+
+      const explicitCollapse = currentChecklistOpenKey === "__closed__";
+      const hasOpenKey = items.some((item) => item.key === currentChecklistOpenKey);
+      if (!explicitCollapse && !hasOpenKey) {
+        const defaultOpenItem = items.find((item) => item.status === "current")
+          || items.find((item) => item.unlocked && item.status !== "complete")
+          || items[0];
+        currentChecklistOpenKey = defaultOpenItem ? defaultOpenItem.key : "";
+      }
+
+      const openKey = explicitCollapse ? "__closed__" : currentChecklistOpenKey;
+      securedChecklistListEl.innerHTML = items.map((item) => {
+        const isOpen = item.key === openKey;
+        const stateLabel = item.status === "complete"
+          ? "Completed"
+          : (!item.unlocked ? "Locked" : (item.started || item.status === "current" ? "In progress" : "Ready"));
+        const marker = item.status === "complete"
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 12 3 3 7-7"></path></svg>'
+          : String(item.stepNumber);
+        const actionDisabled = !item.unlocked || item.status === "complete" || !item.href;
+        const panelMarkup = `
+          <div class="placement-checklist-panel"${isOpen ? "" : " hidden"}>
+            <p>${escapeHtml(item.summary)}</p>
+            <button class="placement-checklist-action" type="button" data-checklist-action="${escapeHtml(item.key)}" data-href="${escapeHtml(item.href)}"${actionDisabled ? " disabled" : ""}>
+              <span>${escapeHtml(item.actionLabel)}</span>
+              ${actionDisabled ? "" : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m13 5 7 7-7 7"></path></svg>'}
+            </button>
+          </div>
+        `;
+        return `
+          <div class="placement-checklist-item ${escapeHtml(item.status)}${item.unlocked ? "" : " locked"}${isOpen ? " open" : ""}">
+            <button class="placement-checklist-toggle" type="button" data-checklist-toggle="${escapeHtml(item.key)}" aria-expanded="${isOpen ? "true" : "false"}">
+              <span class="placement-checklist-marker">${marker}</span>
+              <span class="placement-checklist-copyline">
+                <span class="placement-checklist-item-title">${escapeHtml(item.title)}</span>
+                <span class="placement-checklist-item-state">${escapeHtml(stateLabel)}</span>
+              </span>
+              <span class="placement-checklist-caret" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
+              </span>
+            </button>
+            ${panelMarkup}
+          </div>
+        `;
+      }).join("");
     }
 
     function cacheRolePreview(roleId) {
@@ -4411,6 +4787,7 @@
       securedMapLinkEl.href = buildMapsHref(placement.story.mapQuery);
       securedMapLinkEl.setAttribute("aria-disabled", placement.story.mapQuery ? "false" : "true");
       securedMapHintEl.textContent = placement.story.mapHint;
+      renderPlacementChecklist(placement.checklist);
 
       securedBrokerNameEl.textContent = placement.broker.name;
       securedBrokerRoleEl.textContent = placement.broker.role;
@@ -4591,6 +4968,24 @@
       const saveBtn = event.target.closest("[data-save-role]");
       if (saveBtn) {
         toggleSavedJob(saveBtn.getAttribute("data-save-role"));
+        return;
+      }
+
+      const checklistToggle = event.target.closest("[data-checklist-toggle]");
+      if (checklistToggle) {
+        const key = checklistToggle.getAttribute("data-checklist-toggle") || "";
+        currentChecklistOpenKey = currentChecklistOpenKey === key ? "__closed__" : key;
+        renderSecuredPlacement();
+        return;
+      }
+
+      const checklistAction = event.target.closest("[data-checklist-action]");
+      if (checklistAction) {
+        if (checklistAction.hasAttribute("disabled")) return;
+        const href = checklistAction.getAttribute("data-href") || "";
+        if (href) {
+          window.location.href = href;
+        }
         return;
       }
 
