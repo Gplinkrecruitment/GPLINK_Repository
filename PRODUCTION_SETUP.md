@@ -42,7 +42,7 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `ZOHO_RECRUIT_CLIENT_SECRET=<your-zoho-client-secret>` (server-side only)
 - `ZOHO_RECRUIT_ACCOUNTS_SERVER=https://accounts.zoho.com` (or your Zoho data-center accounts server)
 - `ZOHO_RECRUIT_REDIRECT_URI=https://app.mygplink.com.au/api/integrations/zoho-recruit/callback`
-- `ZOHO_RECRUIT_SCOPES=ZohoRecruit.modules.READ,ZohoRecruit.search.READ`
+- `ZOHO_RECRUIT_SCOPES=ZohoRecruit.modules.READ`
 - `ZOHO_RECRUIT_SYNC_CRON_SECRET=<strong-random-secret>` (recommended if using scheduled sync)
 - `ADMIN_ALLOWED_HOSTS=admin.mygplink.com.au` (required in production; employee admin hostnames)
 - `SUPER_ADMIN_ALLOWED_HOSTS=ceo.admin.mygplink.com.au` (recommended; super-admin-only hostname)

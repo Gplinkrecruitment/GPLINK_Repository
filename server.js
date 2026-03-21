@@ -55,10 +55,12 @@ const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
 const REQUIRED_ZOHO_RECRUIT_SCOPES = Object.freeze([
-  'ZohoRecruit.modules.READ',
+  'ZohoRecruit.modules.READ'
+]);
+const OPTIONAL_ZOHO_RECRUIT_SCOPES = Object.freeze([
   'ZohoRecruit.search.READ'
 ]);
-const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || REQUIRED_ZOHO_RECRUIT_SCOPES.join(',')).trim() || REQUIRED_ZOHO_RECRUIT_SCOPES.join(',');
+const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || '').trim();
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
@@ -4252,6 +4254,14 @@ function mergeZohoRecruitScopes(...values) {
   return merged;
 }
 
+function getConfiguredZohoRecruitScopes() {
+  const allowed = new Set(
+    [...REQUIRED_ZOHO_RECRUIT_SCOPES, ...OPTIONAL_ZOHO_RECRUIT_SCOPES]
+      .map((scope) => String(scope).toLowerCase())
+  );
+  return parseZohoRecruitScopes(ZOHO_RECRUIT_SCOPES).filter((scope) => allowed.has(String(scope).toLowerCase()));
+}
+
 function doesZohoRecruitScopeGrant(requiredScope, grantedScopes) {
   const normalizedRequired = normalizeZohoRecruitScope(requiredScope);
   if (!normalizedRequired) return false;
@@ -4278,7 +4288,7 @@ function isZohoRecruitWriteScope(scope) {
 }
 
 function getZohoRecruitScopeStatus(connection) {
-  const requestedScopes = mergeZohoRecruitScopes(ZOHO_RECRUIT_SCOPES, REQUIRED_ZOHO_RECRUIT_SCOPES);
+  const requestedScopes = getZohoRecruitScopes();
   const grantedScopes = parseZohoRecruitScopes(connection && connection.scopes);
   const missingScopes = requestedScopes.filter((scope) => !doesZohoRecruitScopeGrant(scope, grantedScopes));
   const missingRequiredScopes = REQUIRED_ZOHO_RECRUIT_SCOPES.filter((scope) => !doesZohoRecruitScopeGrant(scope, grantedScopes));
@@ -4294,7 +4304,7 @@ function getZohoRecruitScopeStatus(connection) {
 }
 
 function getZohoRecruitScopes() {
-  return mergeZohoRecruitScopes(ZOHO_RECRUIT_SCOPES, REQUIRED_ZOHO_RECRUIT_SCOPES);
+  return mergeZohoRecruitScopes(REQUIRED_ZOHO_RECRUIT_SCOPES, getConfiguredZohoRecruitScopes());
 }
 
 function getZohoRecruitCandidateBases(connection, apiDomain = '') {
@@ -5935,6 +5945,10 @@ async function buildCareerPlacementPayload({
 
 async function fetchZohoRecruitCareerApplicationsForUser(zoho, email, zohoCandidateId, localApplications) {
   if (!zoho) return [];
+  const canSearchApplications = doesZohoRecruitScopeGrant(
+    'ZohoRecruit.search.READ',
+    zoho.connection && Array.isArray(zoho.connection.scopes) ? zoho.connection.scopes : []
+  );
 
   const liveById = new Map();
   const localIds = Array.isArray(localApplications)
@@ -5949,18 +5963,20 @@ async function fetchZohoRecruitCareerApplicationsForUser(zoho, email, zohoCandid
     if (id) liveById.set(id, record);
   });
 
-  const searchedByEmail = await searchZohoRecruitApplicationsByEmail(zoho, email);
-  searchedByEmail.forEach((record) => {
-    const id = sanitizeZohoText(record.id);
-    if (id && !liveById.has(id)) liveById.set(id, record);
-  });
-
-  if (liveById.size === 0 && zohoCandidateId) {
-    const searchedByCandidate = await searchZohoRecruitApplicationsByCandidateId(zoho, zohoCandidateId);
-    searchedByCandidate.forEach((record) => {
+  if (canSearchApplications) {
+    const searchedByEmail = await searchZohoRecruitApplicationsByEmail(zoho, email);
+    searchedByEmail.forEach((record) => {
       const id = sanitizeZohoText(record.id);
       if (id && !liveById.has(id)) liveById.set(id, record);
     });
+
+    if (liveById.size === 0 && zohoCandidateId) {
+      const searchedByCandidate = await searchZohoRecruitApplicationsByCandidateId(zoho, zohoCandidateId);
+      searchedByCandidate.forEach((record) => {
+        const id = sanitizeZohoText(record.id);
+        if (id && !liveById.has(id)) liveById.set(id, record);
+      });
+    }
   }
 
   return Array.from(liveById.values()).sort(sortZohoRecordsByRecent);
