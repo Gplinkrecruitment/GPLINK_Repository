@@ -479,50 +479,83 @@
         showScanError(err.message);
       });
     } else {
-      // For PDFs/non-images, fall back to the basic classification endpoint
-      fetch("/api/ai/scan-qualification", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, textSnippet: "" })
-      })
-      .then(function (res) {
-        return res.json().then(function (data) {
-          if (!res.ok || !data.ok || !data.classification || !data.classification.key) {
-            throw new Error(data.message || "Could not identify this document.");
-          }
-          return data;
-        });
-      })
-      .then(function (data) {
-        try {
-          var raw = localStorage.getItem("gp_documents_prep");
-          var state = raw ? JSON.parse(raw) : { country: "uk", docs: {} };
-          if (!state.docs) state.docs = {};
-          state.docs[data.classification.key] = {
-            uploaded: true,
-            fileName: file.name,
-            status: "under_review",
-            source: "ai_scan",
-            updatedAt: new Date().toISOString()
-          };
-          localStorage.setItem("gp_documents_prep", JSON.stringify(state));
-          if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
-        } catch (e) {}
-
-        var label = DOC_LABELS[data.classification.key] || data.classification.key;
-        var resultEl = document.getElementById("gpScanResult");
-        if (resultEl) {
-          resultEl.innerHTML =
-            '<div class="ok"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
-            '<h4>Document Identified</h4>' +
-            '<p>Filed as <strong>' + label + '</strong></p>' +
-            '<button class="scan-submit" data-scan-action="viewdocs" type="button">View in My Documents</button>' +
-            '<button class="scan-btn-outline" data-scan-action="another" type="button">Scan another</button>';
+      // For PDFs/non-images, use the same AI verification endpoint (supports PDFs)
+      fileToBase64(file).then(function (base64) {
+        var profileName = "";
+        if (window.gpSessionProfile) {
+          profileName = window.gpSessionProfile.full_name || window.gpSessionProfile.name || "";
         }
-        showStep("result");
-      })
-      .catch(function (err) {
+
+        return fetch("/api/ai/verify-qualification", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageBase64: base64,
+            mimeType: file.type || "application/pdf",
+            documentType: "Unknown - identify this document",
+            expectedCountry: "any",
+            profileName: profileName
+          })
+        });
+      }).then(function (res) {
+        return res.json();
+      }).then(function (data) {
+        if (data.ok && data.verification) {
+          var v = data.verification;
+          var docType = v.documentType || "Document";
+          var nameFound = v.nameFound || "";
+          var dateFound = v.dateFound || "";
+          var verified = v.verified;
+          var nameMatch = v.nameMatch || "unknown";
+          var nameMismatch = nameMatch === "mismatch";
+
+          if (nameMismatch) verified = false;
+
+          try {
+            var raw = localStorage.getItem("gp_documents_prep");
+            var state = raw ? JSON.parse(raw) : { country: "uk", docs: {} };
+            if (!state.docs) state.docs = {};
+            var key = (docType || "unknown").toLowerCase().replace(/[^a-z0-9]/g, "_");
+            state.docs[key] = {
+              uploaded: true,
+              fileName: file.name,
+              status: verified ? "verified" : (nameMismatch ? "name_mismatch" : "under_review"),
+              source: "ai_scan",
+              docType: docType,
+              nameFound: nameFound,
+              nameMatch: nameMatch,
+              dateFound: dateFound,
+              updatedAt: new Date().toISOString()
+            };
+            localStorage.setItem("gp_documents_prep", JSON.stringify(state));
+            if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+          } catch (e) {}
+
+          var resultEl = document.getElementById("gpScanResult");
+          if (resultEl) {
+            var issuesHtml = "";
+            if (v.issues && v.issues.length > 0) {
+              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + v.issues.join("<br>") + '</p>';
+            }
+            var nameColor = nameMismatch ? "#dc2626" : "#64748b";
+            var nameLabel = nameMismatch ? "Name (mismatch): " : "Name: ";
+            resultEl.innerHTML =
+              '<div class="' + (verified ? "ok" : "err") + '"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2">' +
+              (verified ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>') +
+              '</svg></div>' +
+              '<h4>' + (verified ? "Document Verified" : (nameMismatch ? "Name Mismatch" : "Needs Review")) + '</h4>' +
+              '<p>Identified as: <strong>' + docType + '</strong></p>' +
+              (nameFound ? '<p style="font-size:12px;color:' + nameColor + ';">' + nameLabel + nameFound + (dateFound ? ' &middot; Date: ' + dateFound : '') + '</p>' : '') +
+              issuesHtml +
+              '<button class="scan-submit" data-scan-action="viewdocs" type="button">View in My Documents</button>' +
+              '<button class="scan-btn-outline" data-scan-action="another" type="button">Scan another</button>';
+          }
+          showStep("result");
+        } else {
+          throw new Error(data.message || "Could not verify this document.");
+        }
+      }).catch(function (err) {
         showScanError(err.message);
       });
     }

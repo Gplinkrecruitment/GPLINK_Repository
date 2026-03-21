@@ -6318,6 +6318,633 @@ function extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow) {
   };
 }
 
+function isDomainLifestyleConfigured() {
+  return !!(DOMAIN_API_BASE && DOMAIN_API_KEY);
+}
+
+function getCareerLifestyleGoogleMapsPayload() {
+  return {
+    enabled: !!GOOGLE_MAPS_BROWSER_API_KEY,
+    apiKey: GOOGLE_MAPS_BROWSER_API_KEY || '',
+    mapId: GOOGLE_MAPS_MAP_ID || ''
+  };
+}
+
+function parsePlacementLocationContext(locationValue) {
+  const value = String(locationValue || '').trim().replace(/,\s*Australia\s*$/i, '');
+  const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
+  const suburb = parts[0] || '';
+  const second = parts[1] || '';
+  const stateMatch = second.match(/\b(NSW|QLD|VIC|SA|WA|TAS|NT|ACT)\b/i);
+  const postcodeMatch = second.match(/\b(\d{4})\b/);
+  return {
+    suburb,
+    state: stateMatch ? stateMatch[1].toUpperCase() : '',
+    postcode: postcodeMatch ? postcodeMatch[1] : '',
+    country: 'Australia',
+    label: value
+  };
+}
+
+function parseWholeNumber(value, fallback = 0) {
+  const numeric = Number(String(value ?? '').replace(/[^\d.-]+/g, ''));
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.round(numeric));
+}
+
+function deriveCareerLifestyleHousehold(profile) {
+  const whoMovingRaw = String(profile && profile.who_moving || '').trim();
+  const key = whoMovingRaw.toLowerCase().replace(/[^a-z]+/g, '_');
+  const childrenCount = parseWholeNumber(profile && profile.children_count, 0);
+  let adultCount = 1;
+  if (['me_partner', 'me_and_partner', 'me_partner_children', 'family'].includes(key) || /partner/.test(key)) {
+    adultCount = 2;
+  }
+  const sharedAdultRooms = Math.max(1, Math.ceil(adultCount / 2));
+  const recommendedBedrooms = Math.max(1, sharedAdultRooms + childrenCount);
+  const partySummary = [
+    adultCount === 1 ? '1 adult' : `${adultCount} adults`,
+    childrenCount ? `${childrenCount} child${childrenCount === 1 ? '' : 'ren'}` : ''
+  ].filter(Boolean).join(' + ');
+  return {
+    whoMoving: whoMovingRaw || 'Just me',
+    adultCount,
+    childrenCount,
+    recommendedBedrooms,
+    partySummary
+  };
+}
+
+function toRadians(value) {
+  return (Number(value) || 0) * (Math.PI / 180);
+}
+
+function calculateDistanceKm(from, to) {
+  const fromLat = parseCareerCoordinate(from && from.lat);
+  const fromLng = parseCareerCoordinate(from && from.lng);
+  const toLat = parseCareerCoordinate(to && to.lat);
+  const toLng = parseCareerCoordinate(to && to.lng);
+  if (!Number.isFinite(fromLat) || !Number.isFinite(fromLng) || !Number.isFinite(toLat) || !Number.isFinite(toLng)) return null;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(toLat - fromLat);
+  const dLng = toRadians(toLng - fromLng);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRadians(fromLat)) * Math.cos(toRadians(toLat)) * Math.sin(dLng / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistanceKm(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+  return `${numeric.toFixed(1).replace(/\.0$/, '')} km`;
+}
+
+function formatLifestyleDriveTime(distanceKm) {
+  const numeric = Number(distanceKm);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+  const minutes = Math.max(4, Math.round((numeric * 1.55) + 2));
+  return `${minutes} min drive`;
+}
+
+function buildCareerLifestyleCacheKey(applicationId, practiceName, location, household) {
+  const signature = crypto.createHash('sha1')
+    .update(JSON.stringify({
+      applicationId: String(applicationId || '').trim(),
+      practiceName: String(practiceName || '').trim().toLowerCase(),
+      location: String(location || '').trim().toLowerCase(),
+      bedrooms: household && household.recommendedBedrooms ? household.recommendedBedrooms : 1,
+      whoMoving: household && household.whoMoving ? household.whoMoving : '',
+      childrenCount: household && Number.isFinite(household.childrenCount) ? household.childrenCount : 0
+    }))
+    .digest('hex')
+    .slice(0, 20);
+  return `career_lifestyle:${signature}`;
+}
+
+function buildLifestyleCoordinate(lat, lng) {
+  const latitude = parseCareerCoordinate(lat);
+  const longitude = parseCareerCoordinate(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { lat: latitude, lng: longitude };
+}
+
+function offsetCoordinate(base, deltaLat, deltaLng) {
+  const latitude = parseCareerCoordinate(base && base.lat);
+  const longitude = parseCareerCoordinate(base && base.lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return {
+    lat: Number((latitude + deltaLat).toFixed(6)),
+    lng: Number((longitude + deltaLng).toFixed(6))
+  };
+}
+
+function buildLifestyleImage(index = 0) {
+  const images = [
+    '../media/images/account-header-sunset-exact.jpg',
+    '../media/images/account-header.webp',
+    '../media/images/australian-landscape-illustration-vector-design-600nw-2188905367.webp'
+  ];
+  return images[index % images.length];
+}
+
+function parseBedroomsCount(value) {
+  const numeric = parseWholeNumber(value, 0);
+  return numeric > 0 ? numeric : 0;
+}
+
+function formatBedroomsLabel(value) {
+  const numeric = parseBedroomsCount(value);
+  return `${Math.max(1, numeric)} bed`;
+}
+
+function buildTweedLifestyleHousingSeeds(practiceCoords) {
+  return {
+    rent: [
+      { id: 'tweed-rent-1', price: '$680/wk', bedrooms: 3, imageUrl: buildLifestyleImage(0), coords: offsetCoordinate(practiceCoords, 0.0102, -0.0114) },
+      { id: 'tweed-rent-2', price: '$820/wk', bedrooms: 4, imageUrl: buildLifestyleImage(1), coords: offsetCoordinate(practiceCoords, -0.0192, 0.0181) },
+      { id: 'tweed-rent-3', price: '$740/wk', bedrooms: 3, imageUrl: buildLifestyleImage(2), coords: offsetCoordinate(practiceCoords, -0.0135, -0.0075) }
+    ],
+    buy: [
+      { id: 'tweed-buy-1', price: '$1.18m', bedrooms: 4, imageUrl: buildLifestyleImage(0), coords: offsetCoordinate(practiceCoords, 0.0124, -0.0098) },
+      { id: 'tweed-buy-2', price: '$1.34m', bedrooms: 5, imageUrl: buildLifestyleImage(1), coords: offsetCoordinate(practiceCoords, -0.0226, 0.0244) },
+      { id: 'tweed-buy-3', price: '$1.06m', bedrooms: 3, imageUrl: buildLifestyleImage(2), coords: offsetCoordinate(practiceCoords, -0.0164, -0.0117) }
+    ]
+  };
+}
+
+function buildGenericLifestyleHousingSeeds(practiceCoords, locationContext) {
+  const suburb = locationContext && locationContext.suburb ? locationContext.suburb : 'the practice';
+  const build = (market) => {
+    const base = market === 'buy'
+      ? [
+          { id: 'buy-1', price: '$1.08m', bedrooms: 4, delta: [0.0102, -0.0096] },
+          { id: 'buy-2', price: '$1.26m', bedrooms: 5, delta: [-0.0186, 0.0208] },
+          { id: 'buy-3', price: '$945k', bedrooms: 3, delta: [-0.0114, -0.0074] }
+        ]
+      : [
+          { id: 'rent-1', price: '$650/wk', bedrooms: 3, delta: [0.0096, -0.0101] },
+          { id: 'rent-2', price: '$790/wk', bedrooms: 4, delta: [-0.0172, 0.0162] },
+          { id: 'rent-3', price: '$720/wk', bedrooms: 3, delta: [-0.0121, -0.0062] }
+        ];
+    return base.map((item, index) => ({
+      id: `${normalizeCareerHeroCityKey(suburb) || 'practice'}-${item.id}`,
+      price: item.price,
+      bedrooms: item.bedrooms,
+      imageUrl: buildLifestyleImage(index),
+      imagePosition: 'center',
+      coords: offsetCoordinate(practiceCoords, item.delta[0], item.delta[1]),
+      address: `${suburb} home option ${index + 1}`
+    }));
+  };
+  return { rent: build('rent'), buy: build('buy') };
+}
+
+function normalizeLifestyleListing(seed, practiceCoords, market, locationContext) {
+  const coords = buildLifestyleCoordinate(seed && seed.coords && seed.coords.lat, seed && seed.coords && seed.coords.lng);
+  const distanceKm = coords && practiceCoords ? calculateDistanceKm(practiceCoords, coords) : null;
+  const bedrooms = parseBedroomsCount(seed && seed.bedrooms);
+  return {
+    id: String(seed && seed.id || crypto.randomUUID()),
+    price: String(seed && seed.price || (market === 'buy' ? '$1.10m' : '$700/wk')),
+    bedrooms,
+    beds: formatBedroomsLabel(bedrooms),
+    distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
+    driveTime: formatLifestyleDriveTime(distanceKm || 0),
+    imageUrl: String(seed && seed.imageUrl || buildLifestyleImage(0)),
+    imagePosition: String(seed && seed.imagePosition || 'center'),
+    address: String(seed && seed.address || `${locationContext && locationContext.suburb ? locationContext.suburb : 'Practice'} property option`),
+    lat: coords ? coords.lat : null,
+    lng: coords ? coords.lng : null,
+    market
+  };
+}
+
+async function domainApiRequest(resourcePath, options = {}) {
+  if (!isDomainLifestyleConfigured()) return null;
+  const method = String(options.method || 'GET').toUpperCase();
+  const url = resourcePath.startsWith('http') ? resourcePath : `${DOMAIN_API_BASE}${resourcePath}`;
+  const headers = {
+    Accept: 'application/json',
+    'X-API-Key': DOMAIN_API_KEY
+  };
+  if (method !== 'GET') headers['Content-Type'] = 'application/json';
+  try {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    });
+    if (!response.ok) return null;
+    return await response.json().catch(() => null);
+  } catch (err) {
+    return null;
+  }
+}
+
+function buildDomainResidentialSearchPayload(locationContext, market, household) {
+  const suburb = String(locationContext && locationContext.suburb || '').trim();
+  const state = String(locationContext && locationContext.state || '').trim().toUpperCase();
+  if (!suburb || !state) return null;
+  return {
+    listingType: market === 'buy' ? 'Sale' : 'Rent',
+    minBedrooms: Math.max(1, household && household.recommendedBedrooms ? household.recommendedBedrooms : 1),
+    locations: [
+      {
+        suburb,
+        state,
+        includeSurroundingSuburbs: true
+      }
+    ]
+  };
+}
+
+function pickFirstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+}
+
+function extractDomainListingCoordinates(record) {
+  const lat = parseCareerCoordinate(
+    pickFirstDefined(
+      record && record.latitude,
+      record && record.geoLocation && record.geoLocation.latitude,
+      record && record.geoLocation && record.geoLocation.lat,
+      record && record.listing && record.listing.geoLocation && record.listing.geoLocation.latitude,
+      record && record.listing && record.listing.geoLocation && record.listing.geoLocation.lat
+    )
+  );
+  const lng = parseCareerCoordinate(
+    pickFirstDefined(
+      record && record.longitude,
+      record && record.geoLocation && record.geoLocation.longitude,
+      record && record.geoLocation && record.geoLocation.lon,
+      record && record.listing && record.listing.geoLocation && record.listing.geoLocation.longitude,
+      record && record.listing && record.listing.geoLocation && record.listing.geoLocation.lon
+    )
+  );
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function normalizeDomainListing(record, practiceCoords, market) {
+  const coords = extractDomainListingCoordinates(record);
+  if (!coords) return null;
+  const bedrooms = parseBedroomsCount(
+    pickFirstDefined(
+      record && record.bedrooms,
+      record && record.bedroomCount,
+      record && record.features && record.features.bedrooms,
+      record && record.propertyDetails && record.propertyDetails.bedrooms
+    )
+  );
+  const priceLabel = String(
+    pickFirstDefined(
+      record && record.priceDetails && record.priceDetails.displayPrice,
+      record && record.price,
+      record && record.listing && record.listing.priceDetails && record.listing.priceDetails.displayPrice
+    ) || ''
+  ).trim();
+  const imageUrl = String(
+    pickFirstDefined(
+      record && record.media && record.media[0] && record.media[0].url,
+      record && record.media && record.media[0] && record.media[0].imageUrl,
+      record && record.photos && record.photos[0] && record.photos[0].url,
+      record && record.listing && record.listing.media && record.listing.media[0] && record.listing.media[0].url
+    ) || ''
+  ).trim();
+  const address = buildLocationLabel([
+    pickFirstDefined(
+      record && record.addressParts && record.addressParts.displayAddress,
+      record && record.displayAddress,
+      record && record.address,
+      record && record.listing && record.listing.addressParts && record.listing.addressParts.displayAddress
+    )
+  ]);
+  const distanceKm = calculateDistanceKm(practiceCoords, coords);
+  return {
+    id: String(pickFirstDefined(record && record.id, record && record.listing && record.listing.id, crypto.randomUUID())),
+    price: priceLabel || (market === 'buy' ? '$1.10m' : '$700/wk'),
+    bedrooms,
+    beds: formatBedroomsLabel(bedrooms),
+    distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
+    driveTime: formatLifestyleDriveTime(distanceKm || 0),
+    imageUrl: imageUrl || buildLifestyleImage(0),
+    imagePosition: 'center',
+    address: address || 'Property option',
+    lat: coords.lat,
+    lng: coords.lng,
+    market
+  };
+}
+
+async function fetchDomainLifestyleListings(locationContext, practiceCoords, market, household) {
+  const payload = buildDomainResidentialSearchPayload(locationContext, market, household);
+  if (!payload) return [];
+  const response = await domainApiRequest('/v1/listings/residential/_search', {
+    method: 'POST',
+    body: payload
+  });
+  const rows = Array.isArray(response)
+    ? response
+    : (Array.isArray(response && response.searchResults) ? response.searchResults : []);
+  return rows
+    .map((item) => normalizeDomainListing(item, practiceCoords, market))
+    .filter(Boolean)
+    .filter((item) => item.distanceKm <= 25)
+    .sort((left, right) => left.distanceKm - right.distanceKm)
+    .slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
+}
+
+async function querySchoolFinderSql(query) {
+  const sql = String(query || '').trim();
+  if (!sql) return [];
+  const url = new URL(NSW_SCHOOL_FINDER_SQL_ENDPOINT);
+  url.searchParams.set('q', sql);
+  try {
+    const response = await fetch(url.toString(), {
+      headers: { Accept: 'application/json' }
+    });
+    if (!response.ok) return [];
+    const payload = await response.json().catch(() => null);
+    return Array.isArray(payload && payload.rows) ? payload.rows : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function buildSchoolFinderTypeWhere(phase) {
+  return phase === 'secondary'
+    ? "(s.type = 'secondary' OR s.type = 'central')"
+    : "(s.type = 'primary' OR s.type = 'infants' OR s.type = 'central')";
+}
+
+async function fetchNearbyPublicSchools(practiceCoords, phase, limit = 8) {
+  const lat = parseCareerCoordinate(practiceCoords && practiceCoords.lat);
+  const lng = parseCareerCoordinate(practiceCoords && practiceCoords.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+  const sql = [
+    'SELECT',
+    's.school_code, s.school_name, s.type, s.level_of_schooling,',
+    `ST_DISTANCE(s.the_geom::geography, ST_SetSRID(ST_Point(${lng},${lat}),4326)::geography) / 1000 AS distance_km,`,
+    'ST_Y(s.the_geom) AS latitude, ST_X(s.the_geom) AS longitude',
+    `FROM ${SCHOOL_FINDER_TABLE_SCHOOLS} AS s`,
+    `WHERE ${buildSchoolFinderTypeWhere(phase)}`,
+    'ORDER BY distance_km ASC',
+    `LIMIT ${Math.max(1, Math.min(20, Number(limit) || 8))}`
+  ].join(' ');
+  return querySchoolFinderSql(sql);
+}
+
+async function fetchCatchmentSchoolsForListing(listing, phase) {
+  const lat = parseCareerCoordinate(listing && listing.lat);
+  const lng = parseCareerCoordinate(listing && listing.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+  const sql = [
+    'SELECT DISTINCT ON (s.school_code)',
+    's.school_code, s.school_name, s.type, s.level_of_schooling,',
+    'b.catchment_level, b.calendar_year,',
+    `ST_DISTANCE(s.the_geom::geography, ST_SetSRID(ST_Point(${lng},${lat}),4326)::geography) / 1000 AS distance_km,`,
+    'ST_Y(s.the_geom) AS latitude, ST_X(s.the_geom) AS longitude',
+    `FROM ${SCHOOL_FINDER_TABLE_SCHOOLS} AS s`,
+    `JOIN ${SCHOOL_FINDER_TABLE_CATCHMENTS} AS b ON s.school_code = b.school_code`,
+    `WHERE ST_CONTAINS(b.the_geom, ST_SetSRID(ST_Point(${lng},${lat}),4326))`,
+    `AND ${buildSchoolFinderTypeWhere(phase)}`,
+    'ORDER BY s.school_code, b.calendar_year DESC NULLS LAST, distance_km ASC'
+  ].join(' ');
+  return querySchoolFinderSql(sql);
+}
+
+function buildTweedSchoolHints() {
+  return {
+    primary: [
+      { key: 'tweed heads public school', sector: 'Public', sectorGroup: 'public', rating: 'Above Average', rankingScore: 78, coords: { lat: -28.1758, lng: 153.5429 } },
+      { key: 'st james primary', sector: 'Catholic', sectorGroup: 'private', rating: 'Above Average', rankingScore: 82, coords: { lat: -28.1914, lng: 153.5312 }, eligibilityLabel: 'Application', eligibilityTone: 'open' },
+      { key: 'lindisfarne anglican school', sector: 'Private', sectorGroup: 'private', rating: 'Excellent', rankingScore: 90, coords: { lat: -28.2034, lng: 153.5157 }, eligibilityLabel: 'Application', eligibilityTone: 'open' },
+      { key: 'banora point public school', sector: 'Public', sectorGroup: 'public', rating: 'Above Average', rankingScore: 74, coords: { lat: -28.2082, lng: 153.5341 } }
+    ],
+    secondary: [
+      { key: 'lindisfarne anglican grammar', sector: 'Private', sectorGroup: 'private', rating: 'Top 15% ATAR', rankingScore: 95, coords: { lat: -28.2034, lng: 153.5157 }, eligibilityLabel: 'Application', eligibilityTone: 'open' },
+      { key: 'palm beach currumbin shs', sector: 'Public', sectorGroup: 'public', rating: 'Top 25% ATAR', rankingScore: 87, coords: { lat: -28.1199, lng: 153.4667 } },
+      { key: 'tweed river high school', sector: 'Public', sectorGroup: 'public', rating: 'Above Average', rankingScore: 80, coords: { lat: -28.1778, lng: 153.5386 } },
+      { key: 'st joseph', sector: 'Catholic', sectorGroup: 'private', rating: 'Strong pastoral support', rankingScore: 76, coords: { lat: -28.2124, lng: 153.5369 }, eligibilityLabel: 'Application', eligibilityTone: 'open' }
+    ]
+  };
+}
+
+function getLifestyleSchoolHints(locationContext) {
+  const suburb = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
+  if (suburb === 'tweed_heads') return buildTweedSchoolHints();
+  return { primary: [], secondary: [] };
+}
+
+function normalizeLifestyleSchoolEntry(source, phase, practiceCoords, hints = {}, eligibilityByListing = {}) {
+  const name = String(pickFirstDefined(source && source.school_name, source && source.name) || '').trim();
+  if (!name) return null;
+  const hintKey = normalizeCareerHeroCityKey(name);
+  const hint = Array.isArray(hints[phase])
+    ? hints[phase].find((item) => hintKey.includes(normalizeCareerHeroCityKey(item.key)))
+    : null;
+  const coords = buildLifestyleCoordinate(
+    pickFirstDefined(source && source.latitude, hint && hint.coords && hint.coords.lat),
+    pickFirstDefined(source && source.longitude, hint && hint.coords && hint.coords.lng)
+  );
+  const distanceKm = Number.isFinite(Number(source && source.distance_km))
+    ? Number(source.distance_km)
+    : (coords && practiceCoords ? calculateDistanceKm(practiceCoords, coords) : null);
+  return {
+    id: String(pickFirstDefined(source && source.school_code, source && source.id, hintKey || crypto.randomUUID())),
+    name,
+    sector: String(pickFirstDefined(source && source.sector, hint && hint.sector) || 'Public'),
+    sectorGroup: String(pickFirstDefined(source && source.sectorGroup, hint && hint.sectorGroup) || 'public'),
+    distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
+    rating: String(pickFirstDefined(source && source.rating, source && source.rating_label, hint && hint.rating) || (phase === 'secondary' ? 'ATAR data pending' : 'Primary catchment option')),
+    rankingScore: Number(pickFirstDefined(source && source.rankingScore, source && source.atar_rank, hint && hint.rankingScore) || 0) || 0,
+    lat: coords ? coords.lat : null,
+    lng: coords ? coords.lng : null,
+    eligibilityByListing,
+    eligibilityLabel: String(pickFirstDefined(source && source.eligibilityLabel, hint && hint.eligibilityLabel) || ''),
+    eligibilityTone: String(pickFirstDefined(source && source.eligibilityTone, hint && hint.eligibilityTone) || '')
+  };
+}
+
+async function buildLifestyleSchools(practiceCoords, housingByMarket, locationContext) {
+  const hints = getLifestyleSchoolHints(locationContext);
+  const listingPool = []
+    .concat(Array.isArray(housingByMarket.rent) ? housingByMarket.rent : [])
+    .concat(Array.isArray(housingByMarket.buy) ? housingByMarket.buy : []);
+  const listingSubset = listingPool.slice(0, 6);
+
+  const phases = ['primary', 'secondary'];
+  const output = {
+    defaultPhase: 'primary',
+    defaultSector: 'all',
+    primary: [],
+    secondary: []
+  };
+
+  for (const phase of phases) {
+    const nearbyRows = await fetchNearbyPublicSchools(practiceCoords, phase, 8);
+    const bySchoolId = new Map();
+
+    nearbyRows.forEach((row) => {
+      const normalized = normalizeLifestyleSchoolEntry(row, phase, practiceCoords, hints, {});
+      if (normalized) bySchoolId.set(normalized.id, normalized);
+    });
+
+    for (const listing of listingSubset) {
+      const catchmentRows = await fetchCatchmentSchoolsForListing(listing, phase);
+      catchmentRows.forEach((row) => {
+        const schoolId = String(row && row.school_code || '').trim();
+        if (!schoolId) return;
+        const existing = bySchoolId.get(schoolId) || normalizeLifestyleSchoolEntry(row, phase, practiceCoords, hints, {});
+        if (!existing) return;
+        existing.eligibilityByListing = {
+          ...(existing.eligibilityByListing || {}),
+          [listing.id]: 'catchment'
+        };
+        bySchoolId.set(schoolId, existing);
+      });
+    }
+
+    if (Array.isArray(hints[phase])) {
+      hints[phase].forEach((hint) => {
+        const synthetic = normalizeLifestyleSchoolEntry({
+          id: hint.key,
+          name: hint.key.replace(/\b\w/g, (part) => part.toUpperCase()),
+          sector: hint.sector,
+          sectorGroup: hint.sectorGroup,
+          rating: hint.rating,
+          rankingScore: hint.rankingScore,
+          latitude: hint.coords && hint.coords.lat,
+          longitude: hint.coords && hint.coords.lng,
+          eligibilityLabel: hint.eligibilityLabel,
+          eligibilityTone: hint.eligibilityTone
+        }, phase, practiceCoords, hints, {});
+        if (!synthetic || bySchoolId.has(synthetic.id)) return;
+        bySchoolId.set(synthetic.id, synthetic);
+      });
+    }
+
+    output[phase] = Array.from(bySchoolId.values())
+      .sort((left, right) => {
+        if (right.rankingScore !== left.rankingScore) return right.rankingScore - left.rankingScore;
+        return left.distanceKm - right.distanceKm;
+      })
+      .slice(0, 8);
+  }
+
+  return output;
+}
+
+function buildLifestyleFlights(practiceCoords, locationContext) {
+  const suburb = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
+  const tweedDestinations = [
+    { id: 'ool', name: 'Gold Coast Airport (OOL)', type: 'airport', coords: { lat: -28.1644, lng: 153.5052 } },
+    { id: 'bne', name: 'Brisbane Airport (BNE)', type: 'airport', coords: { lat: -27.3842, lng: 153.1175 } },
+    { id: 'surfers', name: 'Surfers Paradise', type: 'destination', coords: { lat: -28.0021, lng: 153.4303 } },
+    { id: 'byron', name: 'Byron Bay', type: 'destination', coords: { lat: -28.6474, lng: 153.6020 } }
+  ];
+  const genericDestinations = [
+    { id: 'airport', name: 'Nearest Airport', type: 'airport', coords: offsetCoordinate(practiceCoords, 0.045, -0.02) },
+    { id: 'capital', name: 'Capital city connector', type: 'airport', coords: offsetCoordinate(practiceCoords, 0.35, 0.22) },
+    { id: 'coast', name: 'Coastal lifestyle hub', type: 'destination', coords: offsetCoordinate(practiceCoords, 0.11, -0.14) },
+    { id: 'regional', name: 'Regional family base', type: 'destination', coords: offsetCoordinate(practiceCoords, -0.12, 0.1) }
+  ];
+  const destinations = suburb === 'tweed_heads' ? tweedDestinations : genericDestinations;
+  return destinations.map((item) => {
+    const coords = buildLifestyleCoordinate(item.coords && item.coords.lat, item.coords && item.coords.lng);
+    const distanceKm = coords ? calculateDistanceKm(practiceCoords, coords) : null;
+    const minutes = Math.max(12, Math.round((distanceKm || 12) * (item.type === 'airport' ? 1.05 : 1.1)));
+    return {
+      id: item.id,
+      name: item.name,
+      distanceLabel: distanceKm ? formatDistanceKm(distanceKm) : '',
+      travelTime: minutes >= 60
+        ? `${Math.floor(minutes / 60)}h ${minutes % 60} min`
+        : `${minutes} min`,
+      type: item.type,
+      lat: coords ? coords.lat : null,
+      lng: coords ? coords.lng : null
+    };
+  });
+}
+
+async function resolvePracticeLifestylePayload({ applicationId, practiceName, location, roleRow, profile }) {
+  const household = deriveCareerLifestyleHousehold(profile || {});
+  const cacheKey = buildCareerLifestyleCacheKey(applicationId, practiceName, location, household);
+  const cached = await getRuntimeKv(cacheKey);
+  if (cached && cached.value && typeof cached.value === 'object' && cached.value.status === 'ready' && cached.value.payload) {
+    return cached.value.payload;
+  }
+
+  const locationContext = parsePlacementLocationContext(location);
+  const roleMeta = getCareerRoleGpLinkMeta(roleRow);
+  const geocoded = await resolveCareerSuburbCoordinates({
+    suburb: roleMeta && roleMeta.suburb ? roleMeta.suburb : locationContext.suburb,
+    state: roleRow && roleRow.location_state ? roleRow.location_state : locationContext.state,
+    country: roleRow && roleRow.location_country ? roleRow.location_country : locationContext.country
+  });
+  const practiceCoords = buildLifestyleCoordinate(geocoded && geocoded.latitude, geocoded && geocoded.longitude)
+    || (normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads' ? { lat: -28.1883, lng: 153.5375 } : null);
+
+  const fallbackHousing = normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads'
+    ? buildTweedLifestyleHousingSeeds(practiceCoords)
+    : buildGenericLifestyleHousingSeeds(practiceCoords, locationContext);
+
+  const [liveRentListings, liveBuyListings] = practiceCoords
+    ? await Promise.all([
+        fetchDomainLifestyleListings(locationContext, practiceCoords, 'rent', household),
+        fetchDomainLifestyleListings(locationContext, practiceCoords, 'buy', household)
+      ])
+    : [[], []];
+
+  const housingByMarket = {
+    rent: (liveRentListings.length ? liveRentListings : fallbackHousing.rent.map((item) => normalizeLifestyleListing(item, practiceCoords, 'rent', locationContext)))
+      .filter((item) => item.bedrooms >= household.recommendedBedrooms)
+      .slice(0, 6),
+    buy: (liveBuyListings.length ? liveBuyListings : fallbackHousing.buy.map((item) => normalizeLifestyleListing(item, practiceCoords, 'buy', locationContext)))
+      .filter((item) => item.bedrooms >= household.recommendedBedrooms)
+      .slice(0, 6)
+  };
+
+  const schools = practiceCoords
+    ? await buildLifestyleSchools(practiceCoords, housingByMarket, locationContext)
+    : { defaultPhase: 'primary', defaultSector: 'all', primary: [], secondary: [] };
+  const flights = practiceCoords ? buildLifestyleFlights(practiceCoords, locationContext) : [];
+
+  const payload = {
+    key: normalizeCareerHeroCityKey(`${locationContext.suburb}-${locationContext.state}`) || 'practice_lifestyle',
+    heading: 'Life Around This Practice',
+    intro: `Curated housing, schooling and travel planning for ${household.partySummary || 'your move'}.`,
+    title: locationContext.label || location || practiceName,
+    subtitle: 'Live map context with homes, schools and travel around the practice',
+    map: {
+      center: practiceCoords,
+      zoom: 12,
+      googleMaps: getCareerLifestyleGoogleMapsPayload()
+    },
+    housing: {
+      defaultMode: 'rent',
+      defaultRadiusKm: 5,
+      recommendedBedrooms: household.recommendedBedrooms,
+      partySummary: household.partySummary,
+      rent: housingByMarket.rent,
+      buy: housingByMarket.buy
+    },
+    schools,
+    flights
+  };
+
+  await setRuntimeKv(cacheKey, {
+    status: 'ready',
+    payload
+  }, Date.now() + CAREER_LIFESTYLE_CACHE_TTL_MS);
+
+  return payload;
+}
+
 const BUILD_PRACTICE_CONTACT_FALLBACKS = {
   '11734000000934182': {
     name: 'Khaleed Mahmoud',
@@ -6364,7 +6991,8 @@ async function buildCareerPlacementPayload({
   jobOpeningRecord,
   startDateIso,
   practiceContacts,
-  providerRoleId
+  providerRoleId,
+  profile
 }) {
   const practiceName = getZohoApplicationPracticeName(applicationRecord)
     || getZohoField(jobOpeningRecord, ['Posting_Title', 'Job_Opening_Name', 'Title'])
@@ -6388,6 +7016,13 @@ async function buildCareerPlacementPayload({
     ? buildPracticeContactPayload(practiceContactRecord, practiceName)
     : buildPlacementFallbackPracticeContact(jobOpeningRecord, practiceName, providerRoleId);
   const resolvedStartDateIso = getPlacementStartDate(startDateIso, applicationRecord, jobOpeningRecord, roleRow);
+  const lifestyle = await resolvePracticeLifestylePayload({
+    applicationId: sanitizeZohoText(applicationRecord && applicationRecord.id),
+    practiceName,
+    location,
+    roleRow,
+    profile
+  });
 
   return {
     practiceName,
@@ -6406,6 +7041,7 @@ async function buildCareerPlacementPayload({
       imageUrl: roleClient && roleClient.heroImageUrl ? roleClient.heroImageUrl : '',
       mapQuery: roleClient && roleClient.mapQuery ? roleClient.mapQuery : location
     },
+    lifestyle,
     practiceContact,
     compensation: {
       range: '$2,500-$3,500',
@@ -7855,7 +8491,8 @@ async function handleApi(req, res, pathname) {
             || normalizePlacementStartDate(getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Expected_Joining_Date']))
             || normalizePlacementStartDate(getZohoField(jobOpeningRecord, ['Target_Date', 'Expected_Start_Date', 'Start_Date'])),
           practiceContacts,
-          providerRoleId
+          providerRoleId,
+          profile
         })
         : null;
 
@@ -8419,13 +9056,25 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const normalizedImage = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
-    if (!normalizedImage.ok) {
-      sendJson(res, 400, { ok: false, message: normalizedImage.message || 'Unsupported image type.' });
-      return;
+    const isPdf = /pdf/i.test(mimeType || '');
+    let mediaType, aiImageBase64, contentBlock;
+    if (isPdf) {
+      const rawBase64 = stripBase64DataUrlPrefix(imageBase64);
+      if (!rawBase64) {
+        sendJson(res, 400, { ok: false, message: 'Missing document data.' });
+        return;
+      }
+      contentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: rawBase64 } };
+    } else {
+      const normalizedImage = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
+      if (!normalizedImage.ok) {
+        sendJson(res, 400, { ok: false, message: normalizedImage.message || 'Unsupported image type.' });
+        return;
+      }
+      mediaType = normalizedImage.mediaType;
+      aiImageBase64 = normalizedImage.base64;
+      contentBlock = { type: 'image', source: { type: 'base64', media_type: mediaType, data: aiImageBase64 } };
     }
-    const mediaType = normalizedImage.mediaType;
-    const aiImageBase64 = normalizedImage.base64;
 
     const dateRules = {
       GB: 'August 2007 or later',
@@ -8494,10 +9143,7 @@ Verify this document.`;
           messages: [{
             role: 'user',
             content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: mediaType, data: aiImageBase64 }
-              },
+              contentBlock,
               { type: 'text', text: qualUserPrompt }
             ]
           }]
