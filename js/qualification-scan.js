@@ -425,6 +425,11 @@
           var nameFound = v.nameFound || "";
           var dateFound = v.dateFound || "";
           var verified = v.verified;
+          var nameMatch = v.nameMatch || "unknown";
+          var nameMismatch = nameMatch === "mismatch";
+
+          // If name mismatch, override verified to false
+          if (nameMismatch) verified = false;
 
           // Save to localStorage
           try {
@@ -435,10 +440,11 @@
             state.docs[key] = {
               uploaded: true,
               fileName: file.name,
-              status: verified ? "verified" : "under_review",
+              status: verified ? "verified" : (nameMismatch ? "name_mismatch" : "under_review"),
               source: "ai_scan",
               docType: docType,
               nameFound: nameFound,
+              nameMatch: nameMatch,
               dateFound: dateFound,
               updatedAt: new Date().toISOString()
             };
@@ -452,13 +458,15 @@
             if (v.issues && v.issues.length > 0) {
               issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + v.issues.join("<br>") + '</p>';
             }
+            var nameColor = nameMismatch ? "#dc2626" : "#64748b";
+            var nameLabel = nameMismatch ? "Name (mismatch): " : "Name: ";
             resultEl.innerHTML =
               '<div class="' + (verified ? "ok" : "err") + '"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2">' +
               (verified ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>') +
               '</svg></div>' +
-              '<h4>' + (verified ? "Document Verified" : "Needs Review") + '</h4>' +
+              '<h4>' + (verified ? "Document Verified" : (nameMismatch ? "Name Mismatch" : "Needs Review")) + '</h4>' +
               '<p>Identified as: <strong>' + docType + '</strong></p>' +
-              (nameFound ? '<p style="font-size:12px;color:#64748b;">Name: ' + nameFound + (dateFound ? ' &middot; Date: ' + dateFound : '') + '</p>' : '') +
+              (nameFound ? '<p style="font-size:12px;color:' + nameColor + ';">' + nameLabel + nameFound + (dateFound ? ' &middot; Date: ' + dateFound : '') + '</p>' : '') +
               issuesHtml +
               '<button class="scan-submit" data-scan-action="viewdocs" type="button">View in My Documents</button>' +
               '<button class="scan-btn-outline" data-scan-action="another" type="button">Scan another</button>';

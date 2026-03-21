@@ -86,6 +86,24 @@ const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini'
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
 const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6').trim() || 'claude-sonnet-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
+const GOOGLE_MAPS_BROWSER_API_KEY = String(
+  process.env.GOOGLE_MAPS_BROWSER_API_KEY
+  || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+  || ''
+).trim();
+const GOOGLE_MAPS_SERVER_API_KEY = String(
+  process.env.GOOGLE_MAPS_SERVER_API_KEY
+  || GOOGLE_MAPS_BROWSER_API_KEY
+  || ''
+).trim();
+const GOOGLE_MAPS_MAP_ID = String(process.env.GOOGLE_MAPS_MAP_ID || '').trim();
+const DOMAIN_API_BASE = normalizeUrlBase(process.env.DOMAIN_API_BASE, 'https://api.domain.com.au');
+const DOMAIN_API_KEY = String(process.env.DOMAIN_API_KEY || '').trim();
+const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
+const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 8);
+const NSW_SCHOOL_FINDER_SQL_ENDPOINT = 'https://cesensw.carto.com/api/v2/sql';
+const SCHOOL_FINDER_TABLE_SCHOOLS = 'dec_schools_2020';
+const SCHOOL_FINDER_TABLE_CATCHMENTS = 'catchments_2020';
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -8536,8 +8554,9 @@ Verify this document.`;
       verification.nameMatch = nameCheck.match;
       verification.nameMatchedAgainst = nameCheck.matchedAgainst;
       if (nameCheck.match === 'mismatch') {
+        verification.verified = false;
         verification.issues = verification.issues || [];
-        verification.issues.push('Name on document does not match your profile name or previously verified documents.');
+        verification.issues.push('The name on this document does not match your account name. Please upload a document with the name matching your profile.');
       }
 
       sendJson(res, 200, {
