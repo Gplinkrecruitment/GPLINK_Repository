@@ -4210,19 +4210,21 @@ function getZohoRecruitOauthRedirectUri() {
 function normalizeZohoRecruitScope(scope) {
   const value = String(scope || '').trim();
   if (!value) return '';
-  const compact = value.replace(/\s+/g, '');
-  const canonicalKey = compact.toLowerCase()
-    .replace(/^zohorecruit\./, 'zohorecruit.')
-    .replace(/^zohorecruit\.modules\.candidates\./, 'zohorecruit.modules.candidate.')
-    .replace(/^zohorecruit\.modules\.applications\./, 'zohorecruit.modules.application.')
-    .replace(/^zohorecruit\.modules\.clients\./, 'zohorecruit.modules.client.')
-    .replace(/^zohorecruit\.modules\.contacts\./, 'zohorecruit.modules.contact.')
-    .replace(/^zohorecruit\.modules\.jobopenings\./, 'zohorecruit.modules.jobopening.')
-    .replace(/^zohorecruit\.modules\.job_openings\./, 'zohorecruit.modules.jobopening.');
+  const compact = value.replace(/\s+/g, '').replace(/^ZohoRECRUIT/i, 'ZohoRecruit');
+  const canonicalKey = compact.toLowerCase().replace(/^zohorecruit\./, 'zohorecruit.');
 
-  const requiredMatch = REQUIRED_ZOHO_RECRUIT_SCOPES.find((candidate) => candidate.toLowerCase() === canonicalKey);
-  if (requiredMatch) return requiredMatch;
-  return compact.replace(/^ZohoRECRUIT/i, 'ZohoRecruit');
+  if (canonicalKey === 'zohorecruit.modules.all') return 'ZohoRecruit.modules.ALL';
+  if (canonicalKey === 'zohorecruit.search.read') return 'ZohoRecruit.search.READ';
+  if (canonicalKey.startsWith('zohorecruit.modules.attachments.')) {
+    return 'ZohoRecruit.modules.attachments.all';
+  }
+  if (canonicalKey.startsWith('zohorecruit.modules.') && canonicalKey !== 'zohorecruit.modules.all') {
+    // Collapse stale legacy module-specific scopes from older env values into the
+    // current valid Recruit group scope accepted by OAuth.
+    return 'ZohoRecruit.modules.ALL';
+  }
+
+  return '';
 }
 
 function parseZohoRecruitScopes(value) {
