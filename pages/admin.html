@@ -1915,7 +1915,7 @@
         ? `<div class="integration-banner ${escapeHtml(state.zohoRecruitNotice.tone)}">${escapeHtml(state.zohoRecruitNotice.text)}</div>`
         : "";
       const reconnectBanner = needsReconnect
-        ? `<div class="integration-banner pending">Zoho Recruit needs to be reconnected to grant the scopes required for applications, contacts, search, and contract attachments. Missing: ${escapeHtml(Array.isArray(data.missingRequiredScopes) && data.missingRequiredScopes.length ? data.missingRequiredScopes.join(", ") : "Required scopes are missing.")}</div>`
+        ? `<div class="integration-banner pending">Zoho Recruit needs to be reconnected with read-only scopes. ${escapeHtml(Array.isArray(data.missingRequiredScopes) && data.missingRequiredScopes.length ? `Missing: ${data.missingRequiredScopes.join(", ")}` : "")}${Array.isArray(data.overbroadGrantedScopes) && data.overbroadGrantedScopes.length ? `${Array.isArray(data.missingRequiredScopes) && data.missingRequiredScopes.length ? " " : ""}Too broad: ${data.overbroadGrantedScopes.join(", ")}` : ""}</div>`
         : "";
       const errorBanner = connection && connection.lastSyncError
         ? `<div class="integration-banner error">${escapeHtml(connection.lastSyncError)}</div>`
@@ -2016,6 +2016,7 @@
           grantedScopes: [],
           missingScopes: [],
           missingRequiredScopes: [],
+          overbroadGrantedScopes: [],
           needsReconnect: false,
           connection: err && err.message ? { status: "error", lastSyncStatus: "error", lastSyncError: err.message } : null,
           roleCount: 0

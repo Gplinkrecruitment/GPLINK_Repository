@@ -55,7 +55,7 @@ const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
 const REQUIRED_ZOHO_RECRUIT_SCOPES = Object.freeze([
-  'ZohoRecruit.modules.ALL',
+  'ZohoRecruit.modules.READ',
   'ZohoRecruit.search.READ'
 ]);
 const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || REQUIRED_ZOHO_RECRUIT_SCOPES.join(',')).trim() || REQUIRED_ZOHO_RECRUIT_SCOPES.join(',');
@@ -4212,15 +4212,13 @@ function normalizeZohoRecruitScope(scope) {
   const compact = value.replace(/\s+/g, '').replace(/^ZohoRECRUIT/i, 'ZohoRecruit');
   const canonicalKey = compact.toLowerCase().replace(/^zohorecruit\./, 'zohorecruit.');
 
-  if (canonicalKey === 'zohorecruit.modules.all') return 'ZohoRecruit.modules.ALL';
+  if (canonicalKey === 'zohorecruit.modules.read') return 'ZohoRecruit.modules.READ';
+  if (canonicalKey === 'zohorecruit.modules.all') return 'ZohoRecruit.modules.READ';
   if (canonicalKey === 'zohorecruit.search.read') return 'ZohoRecruit.search.READ';
-  if (canonicalKey.startsWith('zohorecruit.modules.attachments.')) {
-    return 'ZohoRecruit.modules.ALL';
-  }
   if (canonicalKey.startsWith('zohorecruit.modules.') && canonicalKey !== 'zohorecruit.modules.all') {
-    // Collapse stale legacy module-specific scopes from older env values into the
-    // documented Recruit group scope accepted by OAuth.
-    return 'ZohoRecruit.modules.ALL';
+    // Collapse stale or broader module scopes into the documented read-only group
+    // scope so the integration cannot request write/delete access.
+    return 'ZohoRecruit.modules.READ';
   }
 
   return '';
@@ -4270,17 +4268,28 @@ function doesZohoRecruitScopeGrant(requiredScope, grantedScopes) {
   return false;
 }
 
+function isZohoRecruitWriteScope(scope) {
+  const value = String(scope || '').trim().toLowerCase();
+  if (!value) return false;
+  if (value === 'zohorecruit.modules.all') return true;
+  if (/^zohorecruit\.modules\.[a-z_]+\.(all|create|update|delete)$/.test(value)) return true;
+  if (value === 'zohorecruit.modules.create' || value === 'zohorecruit.modules.update' || value === 'zohorecruit.modules.delete') return true;
+  return false;
+}
+
 function getZohoRecruitScopeStatus(connection) {
   const requestedScopes = mergeZohoRecruitScopes(ZOHO_RECRUIT_SCOPES, REQUIRED_ZOHO_RECRUIT_SCOPES);
   const grantedScopes = parseZohoRecruitScopes(connection && connection.scopes);
   const missingScopes = requestedScopes.filter((scope) => !doesZohoRecruitScopeGrant(scope, grantedScopes));
   const missingRequiredScopes = REQUIRED_ZOHO_RECRUIT_SCOPES.filter((scope) => !doesZohoRecruitScopeGrant(scope, grantedScopes));
+  const overbroadGrantedScopes = grantedScopes.filter((scope) => isZohoRecruitWriteScope(scope));
   return {
     requestedScopes,
     grantedScopes,
     missingScopes,
     missingRequiredScopes,
-    needsReconnect: !!(connection && connection.refreshToken && missingRequiredScopes.length > 0)
+    overbroadGrantedScopes,
+    needsReconnect: !!(connection && connection.refreshToken && (missingRequiredScopes.length > 0 || overbroadGrantedScopes.length > 0))
   };
 }
 
@@ -7395,6 +7404,7 @@ async function handleApi(req, res, pathname) {
       grantedScopes: scopeStatus.grantedScopes,
       missingScopes: scopeStatus.missingScopes,
       missingRequiredScopes: scopeStatus.missingRequiredScopes,
+      overbroadGrantedScopes: scopeStatus.overbroadGrantedScopes,
       needsReconnect: scopeStatus.needsReconnect,
       cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
       cronPath: '/api/integrations/zoho-recruit/cron-sync',
@@ -7578,6 +7588,7 @@ async function handleApi(req, res, pathname) {
       grantedScopes: scopeStatus.grantedScopes,
       missingScopes: scopeStatus.missingScopes,
       missingRequiredScopes: scopeStatus.missingRequiredScopes,
+      overbroadGrantedScopes: scopeStatus.overbroadGrantedScopes,
       needsReconnect: scopeStatus.needsReconnect,
       cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
       cronPath: '/api/integrations/zoho-recruit/cron-sync',
