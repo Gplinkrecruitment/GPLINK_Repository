@@ -834,6 +834,58 @@ function matchNames(docName, profileName) {
   return 'mismatch';
 }
 
+/**
+ * Extract names from previously verified documents in a user's onboarding state.
+ * Returns an array of non-empty name strings found on verified/verified_name_pending docs.
+ */
+function getVerifiedDocumentNames(onboardingState) {
+  if (!onboardingState || typeof onboardingState !== 'object') return [];
+  const qualDocs = onboardingState.qualDocs;
+  if (!qualDocs || typeof qualDocs !== 'object') return [];
+  const names = [];
+  for (const key of Object.keys(qualDocs)) {
+    const doc = qualDocs[key];
+    if (!doc || typeof doc !== 'object') continue;
+    const status = doc.status;
+    if (status !== 'verified' && status !== 'verified_name_pending') continue;
+    const name = doc.scanResult && doc.scanResult.nameFound;
+    if (typeof name === 'string' && name.trim().length > 0) {
+      names.push(name.trim());
+    }
+  }
+  return names;
+}
+
+/**
+ * Check a document name against profile name AND previously verified document names.
+ * Returns { match: 'exact'|'fuzzy'|'mismatch'|'unknown', matchedAgainst: string|null }
+ */
+function crossCheckDocumentName(docName, profileName, verifiedNames) {
+  if (!docName) return { match: 'unknown', matchedAgainst: null };
+
+  // Check against profile name first
+  if (profileName) {
+    const profileMatch = matchNames(docName, profileName);
+    if (profileMatch !== 'mismatch') {
+      return { match: profileMatch, matchedAgainst: 'profile' };
+    }
+  }
+
+  // Check against previously verified document names
+  for (const prevName of (verifiedNames || [])) {
+    const docMatch = matchNames(docName, prevName);
+    if (docMatch !== 'mismatch') {
+      return { match: docMatch, matchedAgainst: 'previous_document' };
+    }
+  }
+
+  // Nothing matched
+  if (!profileName && (!verifiedNames || verifiedNames.length === 0)) {
+    return { match: 'unknown', matchedAgainst: null };
+  }
+  return { match: 'mismatch', matchedAgainst: null };
+}
+
 const CSP_SUPABASE_ORIGIN = SUPABASE_URL ? new URL(SUPABASE_URL).origin : '';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -8470,15 +8522,22 @@ Verify this document.`;
         return;
       }
 
-      // Name matching
-      let nameMatch = 'unknown';
-      if (profileName && verification.nameFound) {
-        nameMatch = matchNames(verification.nameFound, profileName);
+      // Name matching — check against profile name AND previously verified documents
+      let verifiedNames = [];
+      if (verifyEmail && isSupabaseDbConfigured()) {
+        try {
+          const userState = await getSupabaseUserStateByEmail(verifyEmail);
+          const onboarding = userState && userState.state && userState.state.gp_onboarding;
+          verifiedNames = getVerifiedDocumentNames(onboarding);
+        } catch (e) { /* non-critical — proceed with profile name only */ }
       }
-      verification.nameMatch = nameMatch;
-      if (nameMatch === 'mismatch') {
+
+      const nameCheck = crossCheckDocumentName(verification.nameFound, profileName, verifiedNames);
+      verification.nameMatch = nameCheck.match;
+      verification.nameMatchedAgainst = nameCheck.matchedAgainst;
+      if (nameCheck.match === 'mismatch') {
         verification.issues = verification.issues || [];
-        verification.issues.push('Name on document does not match profile name.');
+        verification.issues.push('Name on document does not match your profile name or previously verified documents.');
       }
 
       sendJson(res, 200, {
@@ -8988,27 +9047,35 @@ Return ONLY valid JSON with no markdown formatting:
         verification.issues.push('Please upload a passport or driver\'s licence. This appears to be: ' + (verification.documentType || 'unknown'));
       }
 
-      // Name matching against qualification documents
+      // Name matching against profile, qualification name, AND previously verified documents
       if (verification.verified && verification.nameFound) {
         const idName = verification.nameFound;
-        let nameOk = false;
 
-        // Check against qualification name
-        if (qualificationName) {
-          nameOk = matchNames(idName, qualificationName) !== 'mismatch';
-        }
-        // Also check against profile name
-        if (!nameOk && profileName) {
-          nameOk = matchNames(idName, profileName) !== 'mismatch';
+        // Gather all known names to check against
+        const namesToCheck = [];
+        if (qualificationName) namesToCheck.push(qualificationName);
+        if (profileName) namesToCheck.push(profileName);
+
+        // Fetch previously verified document names from onboarding state
+        const verifyEmail = getSessionEmail(session);
+        if (verifyEmail && isSupabaseDbConfigured()) {
+          try {
+            const userState = await getSupabaseUserStateByEmail(verifyEmail);
+            const onboarding = userState && userState.state && userState.state.gp_onboarding;
+            const prevNames = getVerifiedDocumentNames(onboarding);
+            namesToCheck.push(...prevNames);
+          } catch (e) { /* non-critical */ }
         }
 
-        if (!nameOk) {
+        const nameCheck = crossCheckDocumentName(idName, profileName, namesToCheck);
+        if (nameCheck.match === 'mismatch') {
           verification.verified = false;
           verification.issues = verification.issues || [];
-          verification.issues.push('Name on ID does not match your qualification documents. Please upload an ID with the same name as your qualifications.');
+          verification.issues.push('Name on ID does not match your profile name or previously verified documents. Please upload an ID with the same name as your qualifications.');
           verification.nameMatch = 'mismatch';
         } else {
-          verification.nameMatch = 'match';
+          verification.nameMatch = nameCheck.match === 'unknown' ? 'match' : nameCheck.match;
+          verification.nameMatchedAgainst = nameCheck.matchedAgainst;
         }
       }
 
