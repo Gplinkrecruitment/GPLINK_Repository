@@ -5772,6 +5772,27 @@ function parseContractCurrencyAmount(value) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+function formatContractPercentValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+  const rounded = Math.round(numeric * 100) / 100;
+  const normalized = Number.isInteger(rounded)
+    ? String(rounded)
+    : String(rounded).replace(/(\.\d*?[1-9])0+$/u, '$1').replace(/\.0+$/u, '');
+  return `${normalized}%`;
+}
+
+function formatContractCurrencyAmount(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+  const rounded = Math.round(numeric * 100) / 100;
+  const hasCents = Math.abs(rounded - Math.round(rounded)) > 0.0001;
+  return `$${rounded.toLocaleString('en-AU', {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2
+  })}`;
+}
+
 function scoreContractRelocationDisplay(value) {
   const normalized = normalizeContractCurrencyDisplay(value);
   if (!normalized) return 0;
@@ -5797,6 +5818,55 @@ function pickBetterContractTermValue(leftValue, rightValue, scoreFn, normalizeFn
   if (rightScore > leftScore) return normalizeFn(rightValue);
   if (leftScore > 0) return normalizeFn(leftValue);
   return normalizeFn(rightValue || leftValue || '');
+}
+
+function extractDoctorShareFromSource(sourceText) {
+  const text = stripHtml(String(sourceText || '')).replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+
+  const directPatterns = [
+    /(?:doctor|gp|practitioner)[^.%]{0,80}?(?:receive|receives|retain|retains|keep|keeps|paid|entitled to)[^.%]{0,40}?(\d{1,2}(?:\.\d+)?)\s*(?:%|percent|per cent)/i,
+    /(\d{1,2}(?:\.\d+)?)\s*(?:%|percent|per cent)[^.%]{0,40}?(?:to the doctor|to doctor|to the gp|to practitioner)/i
+  ];
+  for (const pattern of directPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) return formatContractPercentValue(match[1]);
+  }
+
+  const practiceFeeMatch = text.match(/(?:service fee|management fee|practice retains?|retained by practice|fee charged to the doctor|charged to the doctor|practice keeps?)[^.%]{0,60}?(\d{1,2}(?:\.\d+)?)\s*(?:%|percent|per cent)/i);
+  if (practiceFeeMatch && practiceFeeMatch[1]) {
+    const feePercent = Number(practiceFeeMatch[1]);
+    if (Number.isFinite(feePercent) && feePercent > 0 && feePercent < 100) {
+      return formatContractPercentValue(100 - feePercent);
+    }
+  }
+
+  return '';
+}
+
+function extractRelocationPackageFromSource(sourceText) {
+  const text = stripHtml(String(sourceText || '')).replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+
+  const relocationWindow = text.match(/(?:relocation(?: package| allowance| support)?|sign[-\s]?on)[\s\S]{0,320}/i);
+  if (!relocationWindow || !relocationWindow[0]) return '';
+
+  const amountMatches = [...relocationWindow[0].matchAll(/\$\s*\d[\d,\s]*(?:\.\d{2})?/g)];
+  if (!amountMatches.length) return '';
+
+  const amounts = amountMatches
+    .map((match) => parseContractCurrencyAmount(match[0]))
+    .filter((value) => value > 0);
+  if (!amounts.length) return '';
+  if (amounts.length === 1) return formatContractCurrencyAmount(amounts[0]);
+
+  const total = amounts.reduce((sum, value) => sum + value, 0);
+  const largest = Math.max(...amounts);
+  const remainder = total - largest;
+  if (amounts.length >= 3 && Math.abs(largest - remainder) < 0.01) {
+    return formatContractCurrencyAmount(largest);
+  }
+  return formatContractCurrencyAmount(total);
 }
 
 function mergeCareerContractTerms(heuristicTerms, aiTerms) {
@@ -5825,6 +5895,18 @@ function mergeCareerContractTerms(heuristicTerms, aiTerms) {
   };
 }
 
+function finalizeCareerContractTerms(rawTerms, extractedText) {
+  const terms = rawTerms && typeof rawTerms === 'object' ? rawTerms : {};
+  const derivedDoctorShare = extractDoctorShareFromSource(extractedText) || extractDoctorShareFromSource(terms.notes);
+  const derivedRelocationPackage = extractRelocationPackageFromSource(extractedText) || extractRelocationPackageFromSource(terms.notes);
+  return {
+    splitDisplay: derivedDoctorShare || normalizeContractSplitDisplay(terms.splitDisplay),
+    relocationPackageDisplay: derivedRelocationPackage || normalizeContractCurrencyDisplay(terms.relocationPackageDisplay),
+    contractLengthDisplay: normalizeContractLengthDisplay(terms.contractLengthDisplay),
+    notes: String(terms.notes || '').trim()
+  };
+}
+
 function shouldAttemptAiContractExtraction(fileName, mimeType, extractedText, heuristicTerms) {
   const resolvedMime = String(mimeType || '').trim().toLowerCase();
   const isPdf = resolvedMime.includes('pdf') || /\.pdf$/i.test(String(fileName || ''));
@@ -5844,7 +5926,10 @@ function isSuspiciousCachedCareerContractTerms(value) {
   if (!value || typeof value !== 'object') return false;
   const splitScore = scoreContractSplitDisplay(value.splitDisplay);
   const relocationScore = scoreContractRelocationDisplay(value.relocationPackageDisplay);
-  return splitScore === 0 && relocationScore > 0 && relocationScore < 3;
+  const doctorShareFromNotes = extractDoctorShareFromSource(value.notes);
+  if (doctorShareFromNotes && doctorShareFromNotes !== normalizeContractSplitDisplay(value.splitDisplay)) return true;
+  return (splitScore === 0 && relocationScore > 0 && relocationScore < 3)
+    || relocationScore === 1;
 }
 
 function heuristicExtractCareerContractTerms(textValue) {
@@ -5878,10 +5963,10 @@ Return ONLY valid JSON with these exact keys:
 {"splitDisplay":"","relocationPackageDisplay":"","contractLengthDisplay":"","notes":""}
 
 Rules:
-- splitDisplay: the exact billing split if stated, such as "70/30" or "70%".
-- relocationPackageDisplay: the relocation package value exactly as written, such as "$10,000 AUD".
+- splitDisplay: the GP/doctor/practitioner share only. If the contract says the practice retains 35% or charges a 35% service fee, output "65%".
+- relocationPackageDisplay: the total relocation package payable to the GP across all instalments. If there are two payments of $5,000 each, output "$10,000".
 - contractLengthDisplay: the contract length exactly as written, such as "2 years".
-- notes: a short note only if the contract wording is ambiguous. Otherwise use "".
+- notes: a short note only if the contract wording is ambiguous or if you had to derive the GP share or total relocation by reasoning over the contract wording.
 - If a value is missing, use an empty string.
 - Do not invent values.`;
 
@@ -6004,7 +6089,10 @@ async function resolveCareerContractTerms(zoho, applicationId) {
         extractedText
       )
       : null;
-    const extracted = mergeCareerContractTerms(heuristic, aiExtracted);
+    const extracted = finalizeCareerContractTerms(
+      mergeCareerContractTerms(heuristic, aiExtracted),
+      extractedText
+    );
 
     if (!extracted || (!extracted.splitDisplay && !extracted.relocationPackageDisplay && !extracted.contractLengthDisplay)) {
       lastAttempt = {
