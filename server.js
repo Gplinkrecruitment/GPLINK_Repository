@@ -54,7 +54,16 @@ const ZOHO_RECRUIT_CLIENT_ID = String(process.env.ZOHO_RECRUIT_CLIENT_ID || '').
 const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET || '').trim();
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
-const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || 'ZohoRECRUIT.modules.jobopening.READ,ZohoRECRUIT.modules.Candidates.ALL,ZohoRECRUIT.modules.Applications.ALL').trim() || 'ZohoRECRUIT.modules.jobopening.READ,ZohoRECRUIT.modules.Candidates.ALL,ZohoRECRUIT.modules.Applications.ALL';
+const REQUIRED_ZOHO_RECRUIT_SCOPES = Object.freeze([
+  'ZohoRecruit.modules.jobopening.READ',
+  'ZohoRecruit.modules.candidate.ALL',
+  'ZohoRecruit.modules.application.ALL',
+  'ZohoRecruit.modules.client.READ',
+  'ZohoRecruit.modules.contact.READ',
+  'ZohoRecruit.modules.attachments.ALL',
+  'ZohoRecruit.search.READ'
+]);
+const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || REQUIRED_ZOHO_RECRUIT_SCOPES.join(',')).trim() || REQUIRED_ZOHO_RECRUIT_SCOPES.join(',');
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
@@ -4180,11 +4189,81 @@ function getZohoRecruitAccountsServer() {
   return normalizeUrlBase(ZOHO_RECRUIT_ACCOUNTS_SERVER, 'https://accounts.zoho.com');
 }
 
+function normalizeZohoRecruitScope(scope) {
+  const value = String(scope || '').trim();
+  if (!value) return '';
+  const compact = value.replace(/\s+/g, '');
+  const canonicalKey = compact.toLowerCase()
+    .replace(/^zohorecruit\./, 'zohorecruit.')
+    .replace(/^zohorecruit\.modules\.candidates\./, 'zohorecruit.modules.candidate.')
+    .replace(/^zohorecruit\.modules\.applications\./, 'zohorecruit.modules.application.')
+    .replace(/^zohorecruit\.modules\.clients\./, 'zohorecruit.modules.client.')
+    .replace(/^zohorecruit\.modules\.contacts\./, 'zohorecruit.modules.contact.')
+    .replace(/^zohorecruit\.modules\.jobopenings\./, 'zohorecruit.modules.jobopening.')
+    .replace(/^zohorecruit\.modules\.job_openings\./, 'zohorecruit.modules.jobopening.');
+
+  const requiredMatch = REQUIRED_ZOHO_RECRUIT_SCOPES.find((candidate) => candidate.toLowerCase() === canonicalKey);
+  if (requiredMatch) return requiredMatch;
+  return compact.replace(/^ZohoRECRUIT/i, 'ZohoRecruit');
+}
+
+function parseZohoRecruitScopes(value) {
+  const items = Array.isArray(value) ? value : String(value || '').split(',');
+  const scopes = [];
+  const seen = new Set();
+  for (const item of items) {
+    const normalized = normalizeZohoRecruitScope(item);
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) continue;
+    seen.add(key);
+    scopes.push(normalized);
+  }
+  return scopes;
+}
+
+function mergeZohoRecruitScopes(...values) {
+  const merged = [];
+  const seen = new Set();
+  for (const value of values) {
+    for (const scope of parseZohoRecruitScopes(value)) {
+      const key = scope.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(scope);
+    }
+  }
+  return merged;
+}
+
+function doesZohoRecruitScopeGrant(requiredScope, grantedScopes) {
+  const normalizedRequired = normalizeZohoRecruitScope(requiredScope);
+  if (!normalizedRequired) return false;
+  const grantedKeys = new Set(parseZohoRecruitScopes(grantedScopes).map((item) => item.toLowerCase()));
+  const requiredKey = normalizedRequired.toLowerCase();
+  if (grantedKeys.has(requiredKey)) return true;
+  if (requiredKey.endsWith('.read')) {
+    const elevated = `${requiredKey.slice(0, -5)}.all`;
+    if (grantedKeys.has(elevated)) return true;
+  }
+  return false;
+}
+
+function getZohoRecruitScopeStatus(connection) {
+  const requestedScopes = mergeZohoRecruitScopes(ZOHO_RECRUIT_SCOPES, REQUIRED_ZOHO_RECRUIT_SCOPES);
+  const grantedScopes = parseZohoRecruitScopes(connection && connection.scopes);
+  const missingScopes = requestedScopes.filter((scope) => !doesZohoRecruitScopeGrant(scope, grantedScopes));
+  const missingRequiredScopes = REQUIRED_ZOHO_RECRUIT_SCOPES.filter((scope) => !doesZohoRecruitScopeGrant(scope, grantedScopes));
+  return {
+    requestedScopes,
+    grantedScopes,
+    missingScopes,
+    missingRequiredScopes,
+    needsReconnect: !!(connection && connection.refreshToken && missingRequiredScopes.length > 0)
+  };
+}
+
 function getZohoRecruitScopes() {
-  return String(ZOHO_RECRUIT_SCOPES || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return mergeZohoRecruitScopes(ZOHO_RECRUIT_SCOPES, REQUIRED_ZOHO_RECRUIT_SCOPES);
 }
 
 function getZohoRecruitCandidateBases(connection, apiDomain = '') {
@@ -4290,7 +4369,7 @@ function mapZohoConnectionRow(row) {
     accountsServer: typeof row.accounts_server === 'string' ? row.accounts_server : getZohoRecruitAccountsServer(),
     apiDomain: typeof row.api_domain === 'string' ? row.api_domain : '',
     refreshToken: typeof row.refresh_token === 'string' ? row.refresh_token : '',
-    scopes: Array.isArray(row.scopes) ? row.scopes.filter((item) => typeof item === 'string') : [],
+    scopes: parseZohoRecruitScopes(Array.isArray(row.scopes) ? row.scopes : []),
     connectedByUserId: typeof row.connected_by_user_id === 'string' ? row.connected_by_user_id : '',
     connectedEmail: typeof row.connected_email === 'string' ? row.connected_email : '',
     tokenLastRefreshedAt: typeof row.token_last_refreshed_at === 'string' ? row.token_last_refreshed_at : null,
@@ -4326,7 +4405,7 @@ async function upsertZohoRecruitConnection(patch = {}) {
       ''
     ),
     refresh_token: patch.refreshToken !== undefined ? String(patch.refreshToken || '') : ((existing && existing.refreshToken) || ''),
-    scopes: Array.isArray(patch.scopes) ? patch.scopes : ((existing && existing.scopes) || getZohoRecruitScopes()),
+    scopes: parseZohoRecruitScopes(Array.isArray(patch.scopes) ? patch.scopes : ((existing && existing.scopes) || getZohoRecruitScopes())),
     connected_by_user_id: patch.connectedByUserId !== undefined ? String(patch.connectedByUserId || '') : ((existing && existing.connectedByUserId) || ''),
     connected_email: patch.connectedEmail !== undefined ? String(patch.connectedEmail || '').trim().toLowerCase() : ((existing && existing.connectedEmail) || ''),
     token_last_refreshed_at: patch.tokenLastRefreshedAt !== undefined ? patch.tokenLastRefreshedAt : ((existing && existing.tokenLastRefreshedAt) || null),
@@ -7281,12 +7360,17 @@ async function handleApi(req, res, pathname) {
       getZohoRecruitConnection(),
       listCareerRoleRows(false, 'zoho_recruit')
     ]);
+    const scopeStatus = getZohoRecruitScopeStatus(connection);
     sendJson(res, 200, {
       ok: true,
       configured: isZohoRecruitConfigured(),
       redirectUri: ZOHO_RECRUIT_REDIRECT_URI,
       accountsServer: getZohoRecruitAccountsServer(),
-      scopes: getZohoRecruitScopes(),
+      scopes: scopeStatus.requestedScopes,
+      grantedScopes: scopeStatus.grantedScopes,
+      missingScopes: scopeStatus.missingScopes,
+      missingRequiredScopes: scopeStatus.missingRequiredScopes,
+      needsReconnect: scopeStatus.needsReconnect,
       cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
       cronPath: '/api/integrations/zoho-recruit/cron-sync',
       connected: !!(connection && connection.refreshToken),
@@ -7372,10 +7456,7 @@ async function handleApi(req, res, pathname) {
       accountsServer: callbackAccountsServer,
       apiDomain: normalizeUrlBase(exchanged.data && exchanged.data.api_domain, ''),
       refreshToken: exchanged.data && exchanged.data.refresh_token ? String(exchanged.data.refresh_token) : '',
-      scopes: String(exchanged.data && exchanged.data.scope ? exchanged.data.scope : ZOHO_RECRUIT_SCOPES)
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
+      scopes: parseZohoRecruitScopes(exchanged.data && exchanged.data.scope ? exchanged.data.scope : getZohoRecruitScopes()),
       connectedByUserId: callbackUserId,
       connectedEmail: statePayload.email,
       tokenLastRefreshedAt: connectedAt,
@@ -7455,12 +7536,17 @@ async function handleApi(req, res, pathname) {
       getZohoRecruitConnection(),
       listCareerRoleRows(false, 'zoho_recruit')
     ]);
+    const scopeStatus = getZohoRecruitScopeStatus(connection);
     sendJson(res, 200, {
       ok: true,
       configured: isZohoRecruitConfigured(),
       redirectUri: ZOHO_RECRUIT_REDIRECT_URI,
       accountsServer: getZohoRecruitAccountsServer(),
-      scopes: getZohoRecruitScopes(),
+      scopes: scopeStatus.requestedScopes,
+      grantedScopes: scopeStatus.grantedScopes,
+      missingScopes: scopeStatus.missingScopes,
+      missingRequiredScopes: scopeStatus.missingRequiredScopes,
+      needsReconnect: scopeStatus.needsReconnect,
       cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
       cronPath: '/api/integrations/zoho-recruit/cron-sync',
       connected: !!(connection && connection.refreshToken),
@@ -7545,10 +7631,7 @@ async function handleApi(req, res, pathname) {
       accountsServer: callbackAccountsServer,
       apiDomain: normalizeUrlBase(exchanged.data && exchanged.data.api_domain, ''),
       refreshToken: exchanged.data && exchanged.data.refresh_token ? String(exchanged.data.refresh_token) : '',
-      scopes: String(exchanged.data && exchanged.data.scope ? exchanged.data.scope : ZOHO_RECRUIT_SCOPES)
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
+      scopes: parseZohoRecruitScopes(exchanged.data && exchanged.data.scope ? exchanged.data.scope : getZohoRecruitScopes()),
       connectedByUserId: adminUserId,
       connectedEmail: adminCtx.email,
       tokenLastRefreshedAt: connectedAt,

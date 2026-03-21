@@ -1908,9 +1908,14 @@
       const lastSyncTone = lastSyncStatus === "success"
         ? "connected"
         : (lastSyncStatus === "error" ? "error" : (lastSyncStatus === "disconnected" ? "disconnected" : "pending"));
+      const needsReconnect = !!data.needsReconnect;
+      const connectLabel = needsReconnect ? "Reconnect Zoho Recruit" : "Connect Zoho Recruit";
       const syncButtonDisabled = state.isZohoSyncing || state.isZohoLoading || !data.connected;
       const banner = state.zohoRecruitNotice
         ? `<div class="integration-banner ${escapeHtml(state.zohoRecruitNotice.tone)}">${escapeHtml(state.zohoRecruitNotice.text)}</div>`
+        : "";
+      const reconnectBanner = needsReconnect
+        ? `<div class="integration-banner pending">Zoho Recruit needs to be reconnected to grant the scopes required for applications, contacts, search, and contract attachments. Missing: ${escapeHtml(Array.isArray(data.missingRequiredScopes) && data.missingRequiredScopes.length ? data.missingRequiredScopes.join(", ") : "Required scopes are missing.")}</div>`
         : "";
       const errorBanner = connection && connection.lastSyncError
         ? `<div class="integration-banner error">${escapeHtml(connection.lastSyncError)}</div>`
@@ -1923,16 +1928,18 @@
             <p class="integration-copy">Monitor connection health, automatic scheduler readiness, and the latest synced career role volume.</p>
           </div>
           <div class="integration-actions">
-            <button class="btn" data-zoho-connect type="button">Connect Zoho Recruit</button>
+            <button class="btn" data-zoho-connect type="button">${escapeHtml(connectLabel)}</button>
             <button class="btn primary" data-zoho-sync type="button" ${syncButtonDisabled ? "disabled" : ""}>${state.isZohoSyncing ? "Syncing..." : "Sync Now"}</button>
           </div>
         </div>
         ${banner}
+        ${reconnectBanner}
         ${errorBanner}
         <div class="pill-row">
           <span class="status-chip ${escapeHtml(connectionStatus)}">${escapeHtml(data.connected ? "Connected" : "Not connected")}</span>
           <span class="status-chip ${escapeHtml(lastSyncTone)}">Last sync: ${escapeHtml(toTitleLabel(lastSyncStatus))}</span>
           <span class="status-chip ${escapeHtml(data.cronConfigured ? "connected" : "pending")}">Scheduler: ${escapeHtml(data.cronConfigured ? "Ready" : "Needs secret")}</span>
+          <span class="status-chip ${escapeHtml(needsReconnect ? "pending" : "connected")}">Scopes: ${escapeHtml(needsReconnect ? "Reconnect required" : "Ready")}</span>
         </div>
         <div class="integration-grid">
           <article class="integration-tile">
@@ -1968,7 +1975,8 @@
         </div>
         <div class="integration-note">
           <span>Redirect URI: <span class="mono-inline">${escapeHtml(data.redirectUri || "-")}</span></span>
-          <span>Scopes: <span class="mono-inline">${escapeHtml(Array.isArray(data.scopes) && data.scopes.length ? data.scopes.join(", ") : "-")}</span></span>
+          <span>Requested Scopes: <span class="mono-inline">${escapeHtml(Array.isArray(data.scopes) && data.scopes.length ? data.scopes.join(", ") : "-")}</span></span>
+          <span>Granted Scopes: <span class="mono-inline">${escapeHtml(Array.isArray(data.grantedScopes) && data.grantedScopes.length ? data.grantedScopes.join(", ") : "-")}</span></span>
         </div>
       `;
     }
@@ -2003,6 +2011,10 @@
           redirectUri: "",
           accountsServer: "",
           scopes: [],
+          grantedScopes: [],
+          missingScopes: [],
+          missingRequiredScopes: [],
+          needsReconnect: false,
           connection: err && err.message ? { status: "error", lastSyncStatus: "error", lastSyncError: err.message } : null,
           roleCount: 0
         };
