@@ -2579,23 +2579,19 @@
       min-height: 100vh;
     }
 
-    body.career-mode-secured .app-header,
-    body.career-mode-secured .topbar,
-    body.career-mode-secured .mobile-nav {
-      display: none !important;
-    }
-
     body.career-mode-secured .shell {
-      max-width: 392px;
-      padding: 18px 12px 110px;
+      max-width: 960px;
+      padding: 0 12px 108px;
     }
 
     body.career-mode-secured .main {
-      gap: 10px;
-      padding-top: 0;
+      gap: 12px;
+      padding-top: 14px;
     }
 
     body.career-mode-secured .secured-grid {
+      max-width: 388px;
+      margin: 0 auto;
       gap: 10px;
     }
 
@@ -2623,10 +2619,11 @@
     }
 
     body.career-mode-secured .placement-hero-top,
-    body.career-mode-secured .placement-card-head,
-    body.career-mode-secured .placement-story-footer,
-    body.career-mode-secured .placement-next-step {
-      display: block;
+    body.career-mode-secured .placement-story-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
 
     body.career-mode-secured .placement-kicker {
@@ -2641,23 +2638,32 @@
     body.career-mode-secured .placement-title {
       max-width: 8ch;
       margin-top: 2px;
-      font-size: 32px;
+      font-size: 34px;
       line-height: 0.98;
       letter-spacing: -0.055em;
     }
 
     body.career-mode-secured .placement-subtitle {
-      gap: 6px;
+      display: block;
+      font-size: 28px;
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+      color: #fff;
+    }
+
+    body.career-mode-secured .placement-location-line {
+      margin: 2px 0 0;
+      color: rgba(226, 232, 240, 0.68);
       font-size: 12px;
-      color: rgba(226, 232, 240, 0.7);
+      font-weight: 700;
     }
 
     body.career-mode-secured .placement-status-chip {
-      margin-top: 8px;
-      padding: 5px 9px;
-      background: rgba(34, 197, 94, 0.14);
-      border-color: rgba(74, 222, 128, 0.2);
-      color: #bbf7d0;
+      margin-top: 0;
+      padding: 6px 10px;
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #fff;
       font-size: 9px;
       letter-spacing: 0.03em;
       text-transform: none;
@@ -2697,13 +2703,15 @@
 
     body.career-mode-secured .placement-quick-stats {
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
+      gap: 10px;
     }
 
     body.career-mode-secured .placement-stat-card {
       padding: 12px 10px;
-      background: #182231;
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      border: 0;
+      box-shadow: 0 14px 22px -18px rgba(37, 99, 235, 0.92);
+      transform: translateY(-2px);
     }
 
     body.career-mode-secured .placement-stat-value {
@@ -2715,13 +2723,52 @@
       font-size: 10px;
       letter-spacing: 0;
       text-transform: none;
-      color: rgba(226, 232, 240, 0.64);
+      color: rgba(226, 232, 240, 0.82);
     }
 
     body.career-mode-secured .placement-primary-grid,
     body.career-mode-secured .placement-secondary-grid {
       grid-template-columns: 1fr;
       gap: 10px;
+    }
+
+    body.career-mode-secured .placement-income-float {
+      padding: 2px 4px 6px;
+      color: #fff;
+    }
+
+    body.career-mode-secured .placement-income-label {
+      display: block;
+      color: #7db1ff;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    body.career-mode-secured .placement-income-line {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    body.career-mode-secured .placement-income-value {
+      margin: 0;
+      font-size: 34px;
+      line-height: 0.94;
+      letter-spacing: -0.06em;
+      font-weight: 800;
+      color: #fff;
+      text-shadow: 0 16px 28px rgba(15, 23, 42, 0.42), 0 8px 18px rgba(37, 99, 235, 0.28);
+    }
+
+    body.career-mode-secured .placement-income-unit {
+      color: rgba(226, 232, 240, 0.82);
+      font-size: 12px;
+      font-weight: 700;
+      padding-bottom: 4px;
     }
 
     body.career-mode-secured .placement-story-card {
@@ -2777,185 +2824,16 @@
     }
 
     body.career-mode-secured .placement-broker-card,
-    body.career-mode-secured .placement-package-card,
-    body.career-mode-secured .placement-status-card {
-      padding: 14px;
-      background: #fff;
-      border: 1px solid #ece7df;
-      gap: 12px;
-    }
-
-    body.career-mode-secured .placement-card-head .detail-label {
-      margin-bottom: 3px;
-      display: block;
-    }
-
-    body.career-mode-secured .placement-broker-card .card-title,
-    body.career-mode-secured .placement-package-card .card-title,
-    body.career-mode-secured .placement-status-card .card-title {
-      font-size: 16px;
-    }
-
-    body.career-mode-secured .placement-broker-presence,
-    body.career-mode-secured .placement-package-note {
-      margin-top: 8px;
-      padding: 0;
-      background: transparent;
-      color: #64748b;
-      font-size: 10px;
-      font-weight: 700;
-    }
-
-    body.career-mode-secured .placement-broker-profile {
-      grid-template-columns: auto 1fr;
-      gap: 10px;
-      align-items: center;
-    }
-
-    body.career-mode-secured .placement-broker-avatar {
-      width: 34px;
-      height: 34px;
-      border-radius: 999px;
-      background: linear-gradient(145deg, #4f46e5, #1d4ed8);
-      font-size: 11px;
-      box-shadow: none;
-    }
-
-    body.career-mode-secured .placement-broker-note,
-    body.career-mode-secured .role-summary {
-      font-size: 11px;
-      line-height: 1.45;
-    }
-
-    body.career-mode-secured .placement-broker-actions {
-      gap: 8px;
-    }
-
-    body.career-mode-secured .placement-contact-btn {
-      min-height: 38px;
-      border-radius: 10px;
-      background: #f8fafc;
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    body.career-mode-secured .placement-salary-line {
-      gap: 4px;
-      margin-top: 2px;
-    }
-
-    body.career-mode-secured .placement-salary {
-      font-size: 38px;
-      line-height: 0.94;
-    }
-
-    body.career-mode-secured .placement-salary-unit {
-      padding-bottom: 2px;
-      font-size: 11px;
-    }
-
-    body.career-mode-secured .placement-offer-facts {
-      gap: 0;
-    }
-
-    body.career-mode-secured .placement-offer-fact {
-      padding: 11px 0;
-      border: 0;
-      border-bottom: 1px solid #eef2f7;
-      border-radius: 0;
-      background: transparent;
-    }
-
-    body.career-mode-secured .placement-offer-fact:last-child {
-      border-bottom: 0;
-      padding-bottom: 0;
-    }
-
-    body.career-mode-secured .placement-offer-fact .detail-label,
-    body.career-mode-secured .placement-offer-value {
-      font-size: 11px;
-    }
-
-    body.career-mode-secured .placement-status-list {
-      gap: 0;
-    }
-
-    body.career-mode-secured .placement-status-item {
-      padding: 11px 0;
-      border: 0;
-      border-bottom: 1px solid #eef2f7;
-      border-radius: 0;
-      background: transparent;
-      align-items: center;
-    }
-
-    body.career-mode-secured .placement-status-item:last-child {
-      padding-bottom: 0;
-      border-bottom: 0;
-    }
-
-    body.career-mode-secured .placement-status-title {
-      font-size: 12px;
-    }
-
-    body.career-mode-secured .placement-status-sub {
-      font-size: 10px;
-      line-height: 1.4;
-    }
-
-    body.career-mode-secured .placement-step-pill {
-      padding: 4px 8px;
-      font-size: 8px;
-      letter-spacing: 0.04em;
-      border: 0;
-    }
-
-    body.career-mode-secured .placement-step-pill.in_progress {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-
-    body.career-mode-secured .placement-step-pill.pending {
-      background: #fef3c7;
-      color: #92400e;
-    }
-
-    body.career-mode-secured .placement-step-pill.not_booked {
-      background: #e5e7eb;
-      color: #6b7280;
-    }
-
-    body.career-mode-secured .placement-next-step {
-      margin-top: 4px;
-      padding: 10px 0 0;
-      border: 0;
-      border-top: 1px solid #eef2f7;
-      border-radius: 0;
-      background: transparent;
-    }
-
-    body.career-mode-secured .placement-next-step-copy {
-      gap: 4px;
-      margin-bottom: 6px;
-    }
-
-    body.career-mode-secured .placement-next-step-text {
-      font-size: 11px;
-      line-height: 1.45;
-    }
-
-    body.career-mode-secured .placement-inline-link {
-      padding: 0;
+    body.career-mode-secured .placement-secondary-grid {
+      display: none;
     }
 
     body.career-mode-secured .placement-dock {
       display: block;
-      position: fixed;
-      left: 50%;
-      transform: translateX(-50%);
-      bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
-      width: min(100% - 24px, 392px);
-      z-index: 60;
+      position: static;
+      transform: none;
+      width: min(100%, 388px);
+      margin: 10px auto 0;
     }
 
     body.career-mode-secured .placement-dock-card {
@@ -3009,8 +2887,26 @@
 
     @media (min-width: 768px) {
       body.career-mode-secured .shell {
-        max-width: 392px;
-        padding-top: 20px;
+        max-width: 960px;
+        padding-top: 0;
+      }
+
+      body.career-mode-secured .app-header {
+        display: none !important;
+      }
+
+      body.career-mode-secured .topbar {
+        display: block !important;
+      }
+    }
+
+    @media (max-width: 767px) {
+      body.career-mode-secured .app-header {
+        display: flex !important;
+      }
+
+      body.career-mode-secured .mobile-nav {
+        display: grid !important;
       }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -3155,16 +3051,14 @@
         <div class="secured-grid">
           <article class="placement-hero-card">
             <div class="placement-hero-top">
-              <div class="placement-hero-copy">
-                <span class="placement-kicker">My Career</span>
-                <h2 class="placement-title">Your Practice Is Secured</h2>
-                <p class="placement-subtitle">
-                  <span id="securedPracticeName">Murrumbidgee Medical Centre</span>
-                  <span class="placement-subtitle-dot" aria-hidden="true">•</span>
-                  <span id="securedLocation">Wagga Wagga, NSW</span>
-                </p>
-                <span class="placement-status-chip" id="securedStatusChip">Placement confirmed</span>
-              </div>
+              <span class="placement-kicker">My Career</span>
+              <span class="placement-status-chip" id="securedStatusChip">Placement confirmed</span>
+            </div>
+
+            <div class="placement-hero-copy">
+              <h2 class="placement-title">Your Practice Is Secured</h2>
+              <p class="placement-subtitle" id="securedPracticeName">Murrumbidgee Medical Centre</p>
+              <p class="placement-location-line" id="securedLocation">Wagga Wagga, NSW</p>
             </div>
 
             <div class="placement-countdown">
@@ -3180,6 +3074,14 @@
           </article>
 
           <div class="placement-quick-stats" id="securedQuickStats"></div>
+
+          <div class="placement-income-float">
+            <span class="placement-income-label">Expected income</span>
+            <div class="placement-income-line">
+              <p class="placement-income-value" id="securedExpectedIncome">$2,500-$3,500</p>
+              <span class="placement-income-unit" id="securedExpectedIncomeUnit">/day</span>
+            </div>
+          </div>
 
           <div class="placement-primary-grid">
             <article class="placement-story-card">
@@ -3469,7 +3371,7 @@
       quickStats: [
         { label: "Billing", value: "Mixed" },
         { label: "Split", value: "70%" },
-        { label: "Team", value: "6 GPs" }
+        { label: "Contract", value: "2 years" }
       ],
       story: {
         title: "Desirable location",
@@ -3620,6 +3522,15 @@
       if (Number.isNaN(parsed.getTime())) return "";
       return parsed.toLocaleDateString("en-AU", {
         day: "numeric",
+        month: "long",
+        year: "numeric"
+      });
+    }
+
+    function formatMonthYearLabel(dateValue) {
+      const parsed = new Date(dateValue);
+      if (Number.isNaN(parsed.getTime())) return "";
+      return parsed.toLocaleDateString("en-AU", {
         month: "long",
         year: "numeric"
       });
@@ -3812,6 +3723,8 @@
     const securedCountdownValueEl = document.getElementById("securedCountdownValue");
     const securedCountdownCopyEl = document.getElementById("securedCountdownCopy");
     const securedQuickStatsEl = document.getElementById("securedQuickStats");
+    const securedExpectedIncomeEl = document.getElementById("securedExpectedIncome");
+    const securedExpectedIncomeUnitEl = document.getElementById("securedExpectedIncomeUnit");
     const securedStoryMediaEl = document.getElementById("securedStoryMedia");
     const securedStoryChipsEl = document.getElementById("securedStoryChips");
     const securedStoryTitleEl = document.getElementById("securedStoryTitle");
@@ -4447,7 +4360,7 @@
 
     function renderSecuredPlacement() {
       const placement = resolveSecuredPlacement();
-      const startDateLabel = formatLongDateLabel(placement.startDateIso);
+      const startDateLabel = formatMonthYearLabel(placement.startDateIso);
       const daysUntilStart = getDaysUntil(placement.startDateIso);
 
       securedPracticeNameEl.textContent = placement.practiceName;
@@ -4457,6 +4370,8 @@
       securedStartDateEl.textContent = startDateLabel ? "Starts " + startDateLabel : "Start date to be confirmed";
       securedCountdownValueEl.textContent = daysUntilStart !== null ? String(daysUntilStart) : "—";
       securedCountdownCopyEl.textContent = placement.countdownCopy || "days until your start";
+      securedExpectedIncomeEl.textContent = placement.compensation.range;
+      securedExpectedIncomeUnitEl.textContent = placement.compensation.unit;
 
       securedQuickStatsEl.innerHTML = (Array.isArray(placement.quickStats) ? placement.quickStats : []).map((item) => `
         <article class="placement-stat-card">
