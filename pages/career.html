@@ -1741,11 +1741,11 @@
       position: relative;
       z-index: 2;
       margin: -22px 12px 0;
-      padding: 12px 10px 10px;
+      padding: 12px;
       border-radius: 18px;
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
+      gap: 10px;
       background: rgba(255, 255, 255, 0.18);
       border: 1px solid rgba(255, 255, 255, 0.24);
       box-shadow: 0 18px 32px -28px rgba(15, 23, 42, 0.46);
@@ -1756,7 +1756,9 @@
     .placement-story-bubble-item {
       display: grid;
       justify-items: center;
-      gap: 6px;
+      align-content: start;
+      gap: 2px;
+      padding: 2px 0;
       text-align: center;
       color: #0f172a;
     }
@@ -1779,6 +1781,7 @@
       font-size: 11px;
       font-weight: 800;
       letter-spacing: -0.02em;
+      line-height: 1.1;
       color: #0f172a;
     }
 
@@ -3225,7 +3228,7 @@
 
     body.career-mode-secured .placement-story-bubble {
       margin: -24px 10px 8px;
-      padding: 11px 8px 9px;
+      padding: 12px;
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.14);
       border-color: rgba(255, 255, 255, 0.22);
@@ -3239,6 +3242,7 @@
 
     body.career-mode-secured .placement-story-bubble-label {
       font-size: 10px;
+      line-height: 1.08;
     }
 
     body.career-mode-secured .placement-checklist {
