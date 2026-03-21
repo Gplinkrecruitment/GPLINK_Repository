@@ -1738,40 +1738,11 @@
 
     .placement-checklist {
       display: grid;
-      gap: 12px;
+      gap: 14px;
     }
 
     .placement-checklist-head {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .placement-checklist-badge {
-      width: 42px;
-      height: 42px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.72);
-      border: 1px solid rgba(148, 163, 184, 0.25);
-      color: #2563eb;
-      display: grid;
-      place-items: center;
-      box-shadow: 0 14px 24px -18px rgba(37, 99, 235, 0.4);
-    }
-
-    .placement-checklist-badge svg {
-      width: 20px;
-      height: 20px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .placement-checklist-copy {
-      display: grid;
-      gap: 2px;
+      padding-left: 38px;
     }
 
     .placement-checklist-title {
@@ -1783,21 +1754,15 @@
       color: var(--text);
     }
 
-    .placement-checklist-progress {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-    }
-
     .placement-checklist-list {
       display: grid;
-      gap: 2px;
+      gap: 4px;
     }
 
     .placement-checklist-item {
       display: grid;
       gap: 10px;
-      padding: 8px 0;
+      padding: 10px 0;
       border-bottom: 1px solid rgba(148, 163, 184, 0.18);
     }
 
@@ -1844,18 +1809,23 @@
     }
 
     .placement-checklist-item.complete .placement-checklist-marker {
-      background: #3b82f6;
-      border-color: #3b82f6;
+      background: var(--blue);
+      border-color: var(--blue);
       color: #fff;
     }
 
     .placement-checklist-item.current .placement-checklist-marker {
-      border-color: #3b82f6;
-      color: #2563eb;
+      border-color: var(--blue);
+      color: var(--blue);
+      animation: checklistPulse 1.8s ease-out infinite;
     }
 
     .placement-checklist-item.current .placement-checklist-item-state {
-      color: #2563eb;
+      color: var(--blue);
+    }
+
+    .placement-checklist-item.current .placement-checklist-caret {
+      color: var(--blue);
     }
 
     .placement-checklist-item.locked .placement-checklist-item-title,
@@ -1960,6 +1930,20 @@
       stroke-width: 2;
       stroke-linecap: round;
       stroke-linejoin: round;
+    }
+
+    @keyframes checklistPulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.34);
+      }
+
+      70% {
+        box-shadow: 0 0 0 10px rgba(37, 99, 235, 0);
+      }
+
+      100% {
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+      }
     }
 
     .placement-broker-card,
@@ -2958,8 +2942,10 @@
     }
 
     body.career-mode-secured .placement-stat-label {
+      display: block;
       font-size: 10px;
       letter-spacing: 0;
+      line-height: 1.2;
       text-transform: none;
       color: rgba(226, 232, 240, 0.82);
     }
@@ -2971,8 +2957,11 @@
     }
 
     body.career-mode-secured .placement-income-float {
+      display: grid;
+      justify-items: center;
       padding: 2px 4px 6px;
       color: var(--text);
+      text-align: center;
     }
 
     body.career-mode-secured .placement-income-label {
@@ -2990,6 +2979,7 @@
       align-items: flex-end;
       gap: 6px;
       flex-wrap: wrap;
+      justify-content: center;
     }
 
     body.career-mode-secured .placement-income-value {
@@ -3366,13 +3356,7 @@
 
           <section class="placement-checklist" aria-label="What's Left To Do">
             <div class="placement-checklist-head">
-              <div class="placement-checklist-badge" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path></svg>
-              </div>
-              <div class="placement-checklist-copy">
-                <h3 class="placement-checklist-title">What's Left To Do</h3>
-                <p class="placement-checklist-progress" id="securedChecklistProgress">1/4</p>
-              </div>
+              <h3 class="placement-checklist-title">What's Left To Do</h3>
             </div>
             <div class="placement-checklist-list" id="securedChecklistList"></div>
           </section>
@@ -3626,7 +3610,7 @@
       quickStats: [
         { label: "Billing", value: "Mixed" },
         { label: "Split", value: "70%" },
-        { label: "Contract", value: "2 years" }
+        { label: "Relocation Package", value: "$10,000AUD" }
       ],
       checklist: [
         {
@@ -3688,8 +3672,8 @@
           note: "Offer package live",
         facts: [
           { label: "Billing split", value: "70/30" },
+          { label: "Relocation package", value: "$10,000AUD" },
           { label: "Contract length", value: "2 years" },
-          { label: "Relocation bonus", value: "$15,000 AUD" },
           { label: "Start date", value: "18 August 2026" }
         ]
       },
@@ -4109,6 +4093,23 @@
       return careerState.applications.some((application) => application && application.isPlacementSecured);
     }
 
+    function normalizeSecuredQuickStats(items) {
+      return (Array.isArray(items) ? items : []).map((item, index) => {
+        const label = String(item && item.label || "").trim();
+        const value = String(item && item.value || "").trim();
+        if (index === 2 || /contract/i.test(label) || /2\s*years?/i.test(value)) {
+          return {
+            label: "Relocation Package",
+            value: "$10,000AUD"
+          };
+        }
+        return {
+          label: label || `Metric ${index + 1}`,
+          value: value || "TBC"
+        };
+      });
+    }
+
     function resolveSecuredPlacement() {
       const placementApp = careerState.applications.find((application) => application && application.isPlacementSecured) || null;
       const placementRole = placementApp ? findRole(placementApp.roleId) : null;
@@ -4134,9 +4135,11 @@
         statusLabel: placementPayload.statusLabel || SECURED_PLACEMENT.statusLabel,
         startDateIso: placementPayload.startDateIso || SECURED_PLACEMENT.startDateIso,
         countdownCopy: placementPayload.countdownCopy || SECURED_PLACEMENT.countdownCopy,
-        quickStats: Array.isArray(placementPayload.quickStats) && placementPayload.quickStats.length
-          ? placementPayload.quickStats
-          : SECURED_PLACEMENT.quickStats,
+        quickStats: normalizeSecuredQuickStats(
+          Array.isArray(placementPayload.quickStats) && placementPayload.quickStats.length
+            ? placementPayload.quickStats
+            : SECURED_PLACEMENT.quickStats
+        ),
         story: {
           title: storyPayload.title || SECURED_PLACEMENT.story.title,
           text: storyPayload.text || SECURED_PLACEMENT.story.text,
@@ -4220,17 +4223,19 @@
     }
 
     function renderPlacementChecklist(checklistItems) {
-      if (!securedChecklistProgressEl || !securedChecklistListEl) return;
+      if (!securedChecklistListEl) return;
       const items = buildPlacementChecklistItems(checklistItems);
       if (!items.length) {
-        securedChecklistProgressEl.textContent = "0/0";
+        if (securedChecklistProgressEl) securedChecklistProgressEl.textContent = "0/0";
         securedChecklistListEl.innerHTML = "";
         currentChecklistOpenKey = "";
         return;
       }
 
       const completedCount = items.filter((item) => item.status === "complete").length;
-      securedChecklistProgressEl.textContent = `${completedCount}/${items.length}`;
+      if (securedChecklistProgressEl) {
+        securedChecklistProgressEl.textContent = `${completedCount}/${items.length}`;
+      }
 
       const explicitCollapse = currentChecklistOpenKey === "__closed__";
       const hasOpenKey = items.some((item) => item.key === currentChecklistOpenKey);
