@@ -84,6 +84,7 @@ const HERO_MOBILE_WEBM_URL = String(process.env.HERO_MOBILE_WEBM_URL || '').trim
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini').trim();
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
+const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6').trim() || 'claude-sonnet-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
@@ -5731,18 +5732,133 @@ function extractStructuredContractText(fileName, fileBuffer, mimeType) {
   return '';
 }
 
+function normalizeContractSplitDisplay(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  const slashMatch = source.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
+  if (slashMatch) return `${slashMatch[1]}/${slashMatch[2]}`;
+  const percentMatch = source.match(/(\d{1,2}(?:\.\d+)?)\s*(?:%|percent|per cent)/i);
+  if (percentMatch) return `${percentMatch[1]}%`;
+  return source.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeContractCurrencyDisplay(value) {
+  const source = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!source) return '';
+  const match = source.match(/^\$\s*([\d,\s]+(?:\.\d{2})?)(.*)$/);
+  if (!match) return source;
+  const amount = match[1].replace(/\s+/g, '');
+  const suffix = match[2].replace(/\s+/g, ' ').trim();
+  return `$${amount}${suffix ? ` ${suffix}` : ''}`.trim();
+}
+
+function normalizeContractLengthDisplay(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function scoreContractSplitDisplay(value) {
+  const normalized = normalizeContractSplitDisplay(value);
+  if (!normalized) return 0;
+  if (/^\d{1,2}\/\d{1,2}$/.test(normalized)) return 4;
+  if (/^\d{1,2}(?:\.\d+)?%$/.test(normalized)) return 3;
+  return 1;
+}
+
+function parseContractCurrencyAmount(value) {
+  const normalized = normalizeContractCurrencyDisplay(value);
+  const match = normalized.match(/(\d[\d,]*)(?:\.\d{2})?/);
+  if (!match) return 0;
+  const numeric = Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function scoreContractRelocationDisplay(value) {
+  const normalized = normalizeContractCurrencyDisplay(value);
+  if (!normalized) return 0;
+  const amount = parseContractCurrencyAmount(normalized);
+  let score = amount > 0 ? 1 : 0;
+  if (amount >= 100) score += 1;
+  if (amount >= 1000) score += 2;
+  if (/\b(?:aud|australian dollars?)\b/i.test(normalized)) score += 1;
+  if (/\d,\d{3}\b/.test(normalized)) score += 1;
+  return score;
+}
+
+function scoreContractLengthDisplay(value) {
+  const normalized = normalizeContractLengthDisplay(value);
+  if (!normalized) return 0;
+  if (/\d+\s*(?:year|month|week)s?\b/i.test(normalized)) return 3;
+  return 1;
+}
+
+function pickBetterContractTermValue(leftValue, rightValue, scoreFn, normalizeFn) {
+  const leftScore = scoreFn(leftValue);
+  const rightScore = scoreFn(rightValue);
+  if (rightScore > leftScore) return normalizeFn(rightValue);
+  if (leftScore > 0) return normalizeFn(leftValue);
+  return normalizeFn(rightValue || leftValue || '');
+}
+
+function mergeCareerContractTerms(heuristicTerms, aiTerms) {
+  const heuristic = heuristicTerms && typeof heuristicTerms === 'object' ? heuristicTerms : {};
+  const ai = aiTerms && typeof aiTerms === 'object' ? aiTerms : {};
+  return {
+    splitDisplay: pickBetterContractTermValue(
+      heuristic.splitDisplay,
+      ai.splitDisplay,
+      scoreContractSplitDisplay,
+      normalizeContractSplitDisplay
+    ),
+    relocationPackageDisplay: pickBetterContractTermValue(
+      heuristic.relocationPackageDisplay,
+      ai.relocationPackageDisplay,
+      scoreContractRelocationDisplay,
+      normalizeContractCurrencyDisplay
+    ),
+    contractLengthDisplay: pickBetterContractTermValue(
+      heuristic.contractLengthDisplay,
+      ai.contractLengthDisplay,
+      scoreContractLengthDisplay,
+      normalizeContractLengthDisplay
+    ),
+    notes: String(ai.notes || heuristic.notes || '').trim()
+  };
+}
+
+function shouldAttemptAiContractExtraction(fileName, mimeType, extractedText, heuristicTerms) {
+  const resolvedMime = String(mimeType || '').trim().toLowerCase();
+  const isPdf = resolvedMime.includes('pdf') || /\.pdf$/i.test(String(fileName || ''));
+  const hasTextPayload = isPdf || !!String(extractedText || '').trim();
+  if (!hasTextPayload) return false;
+  const heuristic = heuristicTerms && typeof heuristicTerms === 'object' ? heuristicTerms : null;
+  if (!heuristic) return true;
+  if (scoreContractSplitDisplay(heuristic.splitDisplay) === 0) return true;
+  if (scoreContractLengthDisplay(heuristic.contractLengthDisplay) === 0) return true;
+  const relocationScore = scoreContractRelocationDisplay(heuristic.relocationPackageDisplay);
+  if (heuristic.relocationPackageDisplay && relocationScore > 0 && relocationScore < 3) return true;
+  if (!heuristic.relocationPackageDisplay) return true;
+  return false;
+}
+
+function isSuspiciousCachedCareerContractTerms(value) {
+  if (!value || typeof value !== 'object') return false;
+  const splitScore = scoreContractSplitDisplay(value.splitDisplay);
+  const relocationScore = scoreContractRelocationDisplay(value.relocationPackageDisplay);
+  return splitScore === 0 && relocationScore > 0 && relocationScore < 3;
+}
+
 function heuristicExtractCareerContractTerms(textValue) {
   const text = stripHtml(String(textValue || '')).replace(/\s+/g, ' ').trim();
   if (!text) return null;
 
-  const splitMatch = text.match(/(?:billing|percentage|collections|remuneration|split)[^.%$]{0,80}?(\d{1,2}\s*\/\s*\d{1,2}|\d{1,2}\s*%)/i);
-  const relocationMatch = text.match(/(?:relocation|relocation package|relocation allowance|sign[-\s]?on)[^$]{0,80}?(\$ ?[\d,]+(?:\.\d{2})?\s*(?:aud|australian dollars?)?)/i);
+  const splitMatch = text.match(/(?:billing|billings|percentage|collections?|gross billings?|remuneration|split|entitled to|receive|receives)[^.%$]{0,120}?(\d{1,2}\s*\/\s*\d{1,2}|\d{1,2}(?:\.\d+)?\s*(?:%|percent|per cent))/i);
+  const relocationMatch = text.match(/(?:relocation|relocation package|relocation allowance|relocation support|sign[-\s]?on)[^$]{0,120}?(\$ ?\d[\d,\s]*(?:\.\d{2})?\s*(?:aud|australian dollars?)?)/i);
   const contractLengthMatch = text.match(/(?:contract(?: length)?|term|initial term|period)[^.\n]{0,80}?(\d+\s*(?:year|month)s?)/i);
 
   return {
-    splitDisplay: splitMatch ? splitMatch[1].replace(/\s+/g, '') : '',
-    relocationPackageDisplay: relocationMatch ? relocationMatch[1].replace(/\s{2,}/g, ' ').trim() : '',
-    contractLengthDisplay: contractLengthMatch ? contractLengthMatch[1].replace(/\s+/g, ' ').trim() : ''
+    splitDisplay: splitMatch ? normalizeContractSplitDisplay(splitMatch[1]) : '',
+    relocationPackageDisplay: relocationMatch ? normalizeContractCurrencyDisplay(relocationMatch[1]) : '',
+    contractLengthDisplay: contractLengthMatch ? normalizeContractLengthDisplay(contractLengthMatch[1]) : ''
   };
 }
 
@@ -5795,7 +5911,7 @@ Rules:
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-3-5-sonnet-latest',
+        model: ANTHROPIC_MODEL,
         max_tokens: 300,
         temperature: 0,
         messages: [{ role: 'user', content }]
@@ -5854,7 +5970,12 @@ async function resolveCareerContractTerms(zoho, applicationId) {
   }
 
   const candidateIds = candidates.map((record) => getZohoAttachmentId(record)).filter(Boolean);
-  if (cachedValue && cachedValue.status === 'ready' && candidateIds.includes(String(cachedValue.attachmentId || '').trim())) {
+  if (
+    cachedValue &&
+    cachedValue.status === 'ready' &&
+    candidateIds.includes(String(cachedValue.attachmentId || '').trim()) &&
+    !isSuspiciousCachedCareerContractTerms(cachedValue)
+  ) {
     return cachedValue;
   }
 
@@ -5875,14 +5996,15 @@ async function resolveCareerContractTerms(zoho, applicationId) {
     const fileName = getZohoAttachmentFileName(candidate) || downloaded.fileName || 'contract.pdf';
     const extractedText = extractStructuredContractText(fileName, downloaded.buffer, downloaded.mimeType);
     const heuristic = extractedText ? heuristicExtractCareerContractTerms(extractedText) : null;
-    const extracted = heuristic && (heuristic.splitDisplay || heuristic.relocationPackageDisplay || heuristic.contractLengthDisplay)
-      ? heuristic
-      : await extractCareerContractTermsWithAi(
+    const aiExtracted = shouldAttemptAiContractExtraction(fileName, downloaded.mimeType, extractedText, heuristic)
+      ? await extractCareerContractTermsWithAi(
         fileName,
         downloaded.buffer,
         downloaded.mimeType,
         extractedText
-      );
+      )
+      : null;
+    const extracted = mergeCareerContractTerms(heuristic, aiExtracted);
 
     if (!extracted || (!extracted.splitDisplay && !extracted.relocationPackageDisplay && !extracted.contractLengthDisplay)) {
       lastAttempt = {
