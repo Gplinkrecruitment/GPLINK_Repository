@@ -2569,13 +2569,7 @@
     }
 
     body.career-mode-secured {
-      background: #08131d;
-    }
-
-    body.career-mode-secured {
-      background:
-        radial-gradient(440px 220px at 84% 0%, rgba(37, 99, 235, 0.18), transparent 58%),
-        linear-gradient(180deg, #08131d 0 340px, #f4efe7 340px 100%);
+      background: #f0f4fa;
       min-height: 100vh;
     }
 
@@ -2587,6 +2581,20 @@
     body.career-mode-secured .main {
       gap: 12px;
       padding-top: 14px;
+    }
+
+    body.career-mode-secured .header-text h1 {
+      color: var(--text);
+    }
+
+    body.career-mode-secured .header-text p {
+      color: var(--muted);
+    }
+
+    body.career-mode-secured .header-icon-btn {
+      border: 1px solid rgba(226, 232, 240, 0.6);
+      background: rgba(255, 255, 255, 0.76);
+      color: #475569;
     }
 
     body.career-mode-secured .secured-grid {
@@ -2697,6 +2705,10 @@
       letter-spacing: 0.04em;
     }
 
+    body.career-mode-secured .placement-countdown-tag-muted {
+      display: none;
+    }
+
     body.career-mode-secured .placement-hero-actions {
       display: none;
     }
@@ -2734,12 +2746,12 @@
 
     body.career-mode-secured .placement-income-float {
       padding: 2px 4px 6px;
-      color: #fff;
+      color: var(--text);
     }
 
     body.career-mode-secured .placement-income-label {
       display: block;
-      color: #7db1ff;
+      color: #1d4ed8;
       font-size: 9px;
       font-weight: 800;
       letter-spacing: 0.14em;
@@ -2760,27 +2772,31 @@
       line-height: 0.94;
       letter-spacing: -0.06em;
       font-weight: 800;
-      color: #fff;
-      text-shadow: 0 16px 28px rgba(15, 23, 42, 0.42), 0 8px 18px rgba(37, 99, 235, 0.28);
+      color: #0f172a;
+      text-shadow: 0 14px 22px rgba(15, 23, 42, 0.16), 0 8px 18px rgba(37, 99, 235, 0.1);
     }
 
     body.career-mode-secured .placement-income-unit {
-      color: rgba(226, 232, 240, 0.82);
-      font-size: 12px;
+      color: #334155;
+      font-size: 11px;
       font-weight: 700;
       padding-bottom: 4px;
     }
 
     body.career-mode-secured .placement-story-card {
       padding: 8px;
-      background: #e9d6c8;
-      border: 0;
+      background: #d9dee7;
+      border: 1.5px solid #0f172a;
     }
 
     body.career-mode-secured .placement-story-media {
       min-height: 172px;
       border-radius: 12px;
       box-shadow: none;
+    }
+
+    body.career-mode-secured .placement-story-chip-row {
+      display: none;
     }
 
     body.career-mode-secured .placement-story-overlay {
@@ -3067,7 +3083,7 @@
                 <p class="placement-countdown-copy" id="securedCountdownCopy">days until your start</p>
               </div>
               <div class="placement-countdown-meta">
-                <span class="placement-countdown-tag" id="securedStartDate">Starts 18 Aug 2026</span>
+                <span class="placement-countdown-tag" id="securedStartDate">Starts August 2026</span>
                 <span class="placement-countdown-tag placement-countdown-tag-muted" id="securedRoleTitle">General Practitioner</span>
               </div>
             </div>
@@ -3079,7 +3095,7 @@
             <span class="placement-income-label">Expected income</span>
             <div class="placement-income-line">
               <p class="placement-income-value" id="securedExpectedIncome">$2,500-$3,500</p>
-              <span class="placement-income-unit" id="securedExpectedIncomeUnit">/day</span>
+              <span class="placement-income-unit" id="securedExpectedIncomeUnit">Per Day</span>
             </div>
           </div>
 
@@ -3090,7 +3106,7 @@
                   <div class="placement-story-chip-row" id="securedStoryChips"></div>
                   <div class="placement-story-copy">
                     <p class="placement-story-eyebrow">Practice snapshot</p>
-                    <h3 class="placement-story-title" id="securedStoryTitle">Desirable location</h3>
+                    <h3 class="placement-story-title" id="securedStoryTitle">Turvey Park, Wagga Wagga NSW</h3>
                     <p class="placement-story-text" id="securedStoryText">High patient demand and a GP Link-supported arrival plan.</p>
                   </div>
                 </div>
@@ -3393,10 +3409,10 @@
         dockTitle: "Khaleed — Your GP Link Agent",
         dockStatus: "Online now"
       },
-        compensation: {
-          range: "$2,500-$3,500",
-          unit: "/day",
-          note: "Offer package live",
+      compensation: {
+        range: "$2,500-$3,500",
+        unit: "Per Day",
+        note: "Offer package live",
         facts: [
           { label: "Billing split", value: "70/30" },
           { label: "Contract length", value: "2 years" },
@@ -4381,14 +4397,17 @@
       `).join("");
 
       const storyImage = placement.story && placement.story.imageUrl ? placement.story.imageUrl : "";
+      const storyLocationTitle = String(
+        (placement.story && placement.story.mapQuery ? placement.story.mapQuery.replace(/,\s*Australia\s*$/i, "") : "")
+        || placement.location
+        || ""
+      ).trim();
       securedStoryMediaEl.style.backgroundImage = storyImage
         ? `linear-gradient(180deg, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.62)), url("${storyImage}")`
         : "";
-      securedStoryTitleEl.textContent = placement.story.title;
+      securedStoryTitleEl.textContent = storyLocationTitle || placement.story.title;
       securedStoryTextEl.textContent = placement.story.text;
-      securedStoryChipsEl.innerHTML = (Array.isArray(placement.story.chips) ? placement.story.chips : []).map((item) => `
-        <span class="placement-story-chip">${escapeHtml(item)}</span>
-      `).join("");
+      securedStoryChipsEl.innerHTML = "";
       securedMapLinkEl.href = buildMapsHref(placement.story.mapQuery);
       securedMapLinkEl.setAttribute("aria-disabled", placement.story.mapQuery ? "false" : "true");
       securedMapHintEl.textContent = placement.story.mapHint;
