@@ -897,6 +897,17 @@
       background: linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.18));
     }
 
+    .practice-mask.revealed .practice-mask-text {
+      filter: none;
+      transform: none;
+      color: var(--text);
+    }
+
+    .practice-mask.revealed .practice-mask-note {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08));
+      color: #2563eb;
+    }
+
     .role-metrics {
       display: flex;
       flex-wrap: wrap;
@@ -1049,6 +1060,12 @@
     .status-pill.offer {
       background: var(--warning-soft);
       color: var(--warning);
+    }
+
+    .status-pill.secured {
+      background: #ecfdf5;
+      color: #15803d;
+      border: 1px solid #bbf7d0;
     }
 
     .application-meta {
@@ -1403,6 +1420,603 @@
       font-weight: 600;
     }
 
+    body.career-mode-secured .page-hero {
+      display: none;
+    }
+
+    body.career-mode-secured .main {
+      padding-top: 18px;
+    }
+
+    body.career-mode-secured .shell {
+      padding-bottom: 186px;
+    }
+
+    .secured-grid {
+      gap: 16px;
+    }
+
+    .placement-hero-card,
+    .placement-story-card,
+    .placement-broker-card,
+    .placement-package-card,
+    .placement-status-card,
+    .placement-dock-card,
+    .placement-stat-card {
+      background: rgba(255, 255, 255, 0.76);
+      backdrop-filter: blur(20px) saturate(1.3);
+      -webkit-backdrop-filter: blur(20px) saturate(1.3);
+      border: 1px solid rgba(255, 255, 255, 0.56);
+      border-radius: 24px;
+      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+    }
+
+    .placement-hero-card {
+      padding: 22px;
+      display: grid;
+      gap: 18px;
+      background:
+        radial-gradient(680px 260px at 100% 0%, rgba(96, 165, 250, 0.24), transparent 52%),
+        linear-gradient(145deg, #0f172a 0%, #13284d 52%, #1d4ed8 100%);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 26px 46px -32px rgba(15, 23, 42, 0.92), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    }
+
+    .placement-hero-top,
+    .placement-card-head,
+    .placement-story-footer,
+    .placement-next-step {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .placement-hero-copy {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .placement-kicker {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(226, 232, 240, 0.82);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .placement-title {
+      margin: 0;
+      max-width: 10ch;
+      font-size: 34px;
+      line-height: 0.98;
+      letter-spacing: -0.06em;
+      font-weight: 800;
+    }
+
+    .placement-subtitle {
+      margin: 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      color: rgba(226, 232, 240, 0.8);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .placement-subtitle-dot {
+      opacity: 0.5;
+    }
+
+    .placement-status-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: rgba(34, 197, 94, 0.18);
+      border: 1px solid rgba(187, 247, 208, 0.32);
+      color: #dcfce7;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .placement-countdown {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .placement-countdown-main {
+      display: grid;
+      gap: 4px;
+    }
+
+    .placement-countdown-value {
+      font-size: 62px;
+      line-height: 0.86;
+      letter-spacing: -0.08em;
+      font-weight: 800;
+    }
+
+    .placement-countdown-copy {
+      margin: 0;
+      color: rgba(226, 232, 240, 0.74);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .placement-countdown-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .placement-countdown-tag {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .placement-countdown-tag-muted {
+      color: rgba(226, 232, 240, 0.82);
+    }
+
+    .placement-hero-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .placement-hero-actions .ghost-btn {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.14);
+    }
+
+    .placement-hero-actions .btn-primary {
+      background: #fff;
+      color: #0f172a;
+      box-shadow: none;
+    }
+
+    .placement-quick-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .placement-stat-card {
+      padding: 14px;
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .placement-stat-value {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1;
+      letter-spacing: -0.05em;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .placement-stat-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .placement-primary-grid,
+    .placement-secondary-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .placement-story-card,
+    .placement-broker-card,
+    .placement-package-card,
+    .placement-status-card {
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .placement-story-media {
+      position: relative;
+      overflow: hidden;
+      min-height: 248px;
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.62)),
+        url("../media/images/account-header-sunset-exact.jpg") center/cover no-repeat;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    }
+
+    .placement-story-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px;
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.48) 58%, rgba(15, 23, 42, 0.82) 100%);
+    }
+
+    .placement-story-chip-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-self: flex-start;
+    }
+
+    .placement-story-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.48);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .placement-story-copy {
+      display: grid;
+      gap: 6px;
+      color: #fff;
+      max-width: 24rem;
+    }
+
+    .placement-story-eyebrow {
+      margin: 0;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(226, 232, 240, 0.72);
+    }
+
+    .placement-story-title {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.02;
+      letter-spacing: -0.05em;
+      font-weight: 800;
+    }
+
+    .placement-story-text {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.55;
+      font-weight: 700;
+      color: rgba(241, 245, 249, 0.88);
+    }
+
+    .placement-story-footer {
+      align-items: center;
+      color: var(--muted);
+    }
+
+    .placement-story-hint {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .placement-broker-card,
+    .placement-package-card,
+    .placement-status-card {
+      background: rgba(255, 255, 255, 0.84);
+    }
+
+    .placement-broker-presence,
+    .placement-package-note {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.08);
+      color: #1d4ed8;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .placement-broker-profile {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .placement-broker-avatar,
+    .placement-dock-avatar {
+      width: 50px;
+      height: 50px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #0f172a, #1d4ed8);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      box-shadow: 0 12px 24px -18px rgba(15, 23, 42, 0.95);
+    }
+
+    .placement-broker-actions,
+    .placement-dock-actions {
+      display: grid;
+      gap: 10px;
+    }
+
+    .placement-broker-actions {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .placement-dock-actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .placement-contact-btn,
+    .placement-dock-btn {
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      border-radius: 14px;
+      border: 1px solid rgba(203, 213, 225, 0.7);
+      background: rgba(248, 250, 252, 0.92);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 800;
+      transition: transform .16s ease, background .16s ease, border-color .16s ease, color .16s ease;
+    }
+
+    .placement-contact-btn:hover,
+    .placement-dock-btn:hover {
+      background: #fff;
+      border-color: rgba(37, 99, 235, 0.28);
+    }
+
+    .placement-contact-btn-whatsapp,
+    .placement-dock-btn-whatsapp {
+      background: #16a34a;
+      border-color: #16a34a;
+      color: #fff;
+    }
+
+    .placement-salary-line {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .placement-salary {
+      margin: 0;
+      font-size: 40px;
+      line-height: 0.94;
+      letter-spacing: -0.07em;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .placement-salary-unit {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      padding-bottom: 4px;
+      text-transform: lowercase;
+    }
+
+    .placement-offer-facts {
+      display: grid;
+      gap: 10px;
+    }
+
+    .placement-offer-fact {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(248, 250, 252, 0.9);
+      border: 1px solid rgba(226, 232, 240, 0.82);
+    }
+
+    .placement-offer-fact .detail-label {
+      font-size: 10px;
+    }
+
+    .placement-offer-value {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+      text-align: right;
+    }
+
+    .placement-status-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .placement-status-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(248, 250, 252, 0.92);
+      border: 1px solid rgba(226, 232, 240, 0.82);
+    }
+
+    .placement-status-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .placement-status-title {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .placement-status-sub {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 700;
+    }
+
+    .placement-step-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }
+
+    .placement-step-pill.in_progress {
+      background: #dbeafe;
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+    }
+
+    .placement-step-pill.pending {
+      background: #f1f5f9;
+      color: #475569;
+      border-color: #e2e8f0;
+    }
+
+    .placement-step-pill.not_booked {
+      background: #f8fafc;
+      color: #64748b;
+      border-color: #e2e8f0;
+    }
+
+    .placement-step-pill.complete {
+      background: #ecfdf5;
+      color: #15803d;
+      border-color: #bbf7d0;
+    }
+
+    .placement-next-step {
+      padding: 16px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(37, 99, 235, 0.06), rgba(255, 255, 255, 0.9));
+      border: 1px dashed rgba(37, 99, 235, 0.2);
+      align-items: center;
+    }
+
+    .placement-next-step-copy {
+      display: grid;
+      gap: 6px;
+    }
+
+    .placement-next-step-text {
+      margin: 0;
+      color: #334155;
+      font-size: 13px;
+      line-height: 1.55;
+      font-weight: 700;
+    }
+
+    .placement-dock {
+      display: none;
+    }
+
+    body.career-mode-secured .placement-dock {
+      display: block;
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
+      width: min(100% - 24px, 520px);
+      z-index: 45;
+    }
+
+    .placement-dock-card {
+      padding: 12px;
+      display: grid;
+      gap: 12px;
+      background: rgba(15, 23, 42, 0.88);
+      border-color: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 24px 42px -34px rgba(15, 23, 42, 1), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    .placement-dock-copy {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .placement-dock-text {
+      display: grid;
+      gap: 2px;
+      color: #fff;
+    }
+
+    .placement-dock-text strong {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .placement-dock-text span {
+      color: rgba(226, 232, 240, 0.68);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
     .modal {
       position: fixed;
       inset: 0;
@@ -1656,14 +2270,33 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .secured-grid {
+      .placement-primary-grid,
+      .placement-secondary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .hero-card,
-      .next-step-card,
-      .opportunity-card {
+      .placement-hero-card,
+      .placement-quick-stats {
         grid-column: 1 / -1;
+      }
+
+      .placement-quick-stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      body.career-mode-secured .placement-dock {
+        position: static;
+        transform: none;
+        width: 100%;
+      }
+
+      .placement-dock-card {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+
+      .placement-dock-actions {
+        width: 220px;
       }
     }
 
@@ -1680,6 +2313,10 @@
 
       .shell {
         padding: 0 12px 108px;
+      }
+
+      body.career-mode-secured .shell {
+        padding-bottom: 182px;
       }
 
       .app-header {
@@ -1785,6 +2422,11 @@
 
       .role-card,
       .application-card,
+      .placement-hero-card,
+      .placement-story-card,
+      .placement-broker-card,
+      .placement-package-card,
+      .placement-status-card,
       .details-card,
       .summary-card,
       .timeline-card,
@@ -1840,7 +2482,11 @@
       .application-top,
       .hero-top,
       .summary-strip,
-      .next-step-head {
+      .next-step-head,
+      .placement-hero-top,
+      .placement-card-head,
+      .placement-story-footer,
+      .placement-next-step {
         grid-template-columns: 1fr;
         display: grid;
       }
@@ -1850,6 +2496,7 @@
       }
 
       .application-meta,
+      .placement-broker-actions,
       .summary-grid,
       .modal-detail-grid,
       .benefit-grid {
@@ -1858,6 +2505,53 @@
 
       .hero-title {
         font-size: 26px;
+      }
+
+      .placement-title {
+        max-width: none;
+        font-size: 28px;
+      }
+
+      .placement-countdown {
+        align-items: flex-start;
+      }
+
+      .placement-countdown-value {
+        font-size: 52px;
+      }
+
+      .placement-quick-stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .placement-story-media {
+        min-height: 220px;
+      }
+
+      .placement-story-hint {
+        text-align: left;
+      }
+
+      .placement-status-item {
+        align-items: flex-start;
+      }
+
+      .placement-next-step .btn-primary,
+      .placement-hero-actions .btn-primary,
+      .placement-hero-actions .ghost-btn {
+        width: 100%;
+      }
+
+      .placement-dock {
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+      }
+
+      .placement-dock-card {
+        padding: 10px;
+      }
+
+      .placement-dock-copy {
+        align-items: flex-start;
       }
 
       .hero-meta span {
@@ -1871,6 +2565,452 @@
 
       .modal-card {
         padding: 16px;
+      }
+    }
+
+    body.career-mode-secured {
+      background: #08131d;
+    }
+
+    body.career-mode-secured {
+      background:
+        radial-gradient(440px 220px at 84% 0%, rgba(37, 99, 235, 0.18), transparent 58%),
+        linear-gradient(180deg, #08131d 0 340px, #f4efe7 340px 100%);
+      min-height: 100vh;
+    }
+
+    body.career-mode-secured .app-header,
+    body.career-mode-secured .topbar,
+    body.career-mode-secured .mobile-nav {
+      display: none !important;
+    }
+
+    body.career-mode-secured .shell {
+      max-width: 392px;
+      padding: 18px 12px 110px;
+    }
+
+    body.career-mode-secured .main {
+      gap: 10px;
+      padding-top: 0;
+    }
+
+    body.career-mode-secured .secured-grid {
+      gap: 10px;
+    }
+
+    body.career-mode-secured .placement-hero-card,
+    body.career-mode-secured .placement-story-card,
+    body.career-mode-secured .placement-broker-card,
+    body.career-mode-secured .placement-package-card,
+    body.career-mode-secured .placement-status-card,
+    body.career-mode-secured .placement-dock-card,
+    body.career-mode-secured .placement-stat-card {
+      border-radius: 16px;
+      box-shadow: 0 16px 34px -28px rgba(15, 23, 42, 0.45);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    body.career-mode-secured .placement-hero-card {
+      padding: 16px;
+      gap: 14px;
+      background:
+        radial-gradient(360px 180px at 100% 0%, rgba(37, 99, 235, 0.16), transparent 62%),
+        linear-gradient(180deg, #0d1722 0%, #122031 100%);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      box-shadow: 0 28px 40px -34px rgba(15, 23, 42, 0.96);
+    }
+
+    body.career-mode-secured .placement-hero-top,
+    body.career-mode-secured .placement-card-head,
+    body.career-mode-secured .placement-story-footer,
+    body.career-mode-secured .placement-next-step {
+      display: block;
+    }
+
+    body.career-mode-secured .placement-kicker {
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      color: #5ea2ff;
+      font-size: 9px;
+      letter-spacing: 0.18em;
+    }
+
+    body.career-mode-secured .placement-title {
+      max-width: 8ch;
+      margin-top: 2px;
+      font-size: 32px;
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+    }
+
+    body.career-mode-secured .placement-subtitle {
+      gap: 6px;
+      font-size: 12px;
+      color: rgba(226, 232, 240, 0.7);
+    }
+
+    body.career-mode-secured .placement-status-chip {
+      margin-top: 8px;
+      padding: 5px 9px;
+      background: rgba(34, 197, 94, 0.14);
+      border-color: rgba(74, 222, 128, 0.2);
+      color: #bbf7d0;
+      font-size: 9px;
+      letter-spacing: 0.03em;
+      text-transform: none;
+    }
+
+    body.career-mode-secured .placement-countdown {
+      display: block;
+    }
+
+    body.career-mode-secured .placement-countdown-value {
+      font-size: 64px;
+      line-height: 0.85;
+    }
+
+    body.career-mode-secured .placement-countdown-copy {
+      font-size: 11px;
+      color: rgba(226, 232, 240, 0.68);
+    }
+
+    body.career-mode-secured .placement-countdown-meta {
+      margin-top: 10px;
+      justify-content: flex-start;
+    }
+
+    body.career-mode-secured .placement-countdown-tag {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.08);
+      font-size: 9px;
+      letter-spacing: 0.04em;
+    }
+
+    body.career-mode-secured .placement-hero-actions {
+      display: none;
+    }
+
+    body.career-mode-secured .placement-quick-stats {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    body.career-mode-secured .placement-stat-card {
+      padding: 12px 10px;
+      background: #182231;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    body.career-mode-secured .placement-stat-value {
+      font-size: 18px;
+      color: #fff;
+    }
+
+    body.career-mode-secured .placement-stat-label {
+      font-size: 10px;
+      letter-spacing: 0;
+      text-transform: none;
+      color: rgba(226, 232, 240, 0.64);
+    }
+
+    body.career-mode-secured .placement-primary-grid,
+    body.career-mode-secured .placement-secondary-grid {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    body.career-mode-secured .placement-story-card {
+      padding: 8px;
+      background: #e9d6c8;
+      border: 0;
+    }
+
+    body.career-mode-secured .placement-story-media {
+      min-height: 172px;
+      border-radius: 12px;
+      box-shadow: none;
+    }
+
+    body.career-mode-secured .placement-story-overlay {
+      padding: 12px;
+    }
+
+    body.career-mode-secured .placement-story-chip {
+      padding: 4px 8px;
+      font-size: 8px;
+      letter-spacing: 0.05em;
+    }
+
+    body.career-mode-secured .placement-story-eyebrow {
+      display: none;
+    }
+
+    body.career-mode-secured .placement-story-title {
+      font-size: 17px;
+    }
+
+    body.career-mode-secured .placement-story-text {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    body.career-mode-secured .placement-story-footer {
+      padding: 4px 4px 0;
+    }
+
+    body.career-mode-secured .placement-story-footer .section-link,
+    body.career-mode-secured .placement-inline-link {
+      color: #2563eb;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    body.career-mode-secured .placement-story-hint {
+      margin-top: 4px;
+      font-size: 10px;
+      text-align: left;
+    }
+
+    body.career-mode-secured .placement-broker-card,
+    body.career-mode-secured .placement-package-card,
+    body.career-mode-secured .placement-status-card {
+      padding: 14px;
+      background: #fff;
+      border: 1px solid #ece7df;
+      gap: 12px;
+    }
+
+    body.career-mode-secured .placement-card-head .detail-label {
+      margin-bottom: 3px;
+      display: block;
+    }
+
+    body.career-mode-secured .placement-broker-card .card-title,
+    body.career-mode-secured .placement-package-card .card-title,
+    body.career-mode-secured .placement-status-card .card-title {
+      font-size: 16px;
+    }
+
+    body.career-mode-secured .placement-broker-presence,
+    body.career-mode-secured .placement-package-note {
+      margin-top: 8px;
+      padding: 0;
+      background: transparent;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    body.career-mode-secured .placement-broker-profile {
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: center;
+    }
+
+    body.career-mode-secured .placement-broker-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      background: linear-gradient(145deg, #4f46e5, #1d4ed8);
+      font-size: 11px;
+      box-shadow: none;
+    }
+
+    body.career-mode-secured .placement-broker-note,
+    body.career-mode-secured .role-summary {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    body.career-mode-secured .placement-broker-actions {
+      gap: 8px;
+    }
+
+    body.career-mode-secured .placement-contact-btn {
+      min-height: 38px;
+      border-radius: 10px;
+      background: #f8fafc;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    body.career-mode-secured .placement-salary-line {
+      gap: 4px;
+      margin-top: 2px;
+    }
+
+    body.career-mode-secured .placement-salary {
+      font-size: 38px;
+      line-height: 0.94;
+    }
+
+    body.career-mode-secured .placement-salary-unit {
+      padding-bottom: 2px;
+      font-size: 11px;
+    }
+
+    body.career-mode-secured .placement-offer-facts {
+      gap: 0;
+    }
+
+    body.career-mode-secured .placement-offer-fact {
+      padding: 11px 0;
+      border: 0;
+      border-bottom: 1px solid #eef2f7;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    body.career-mode-secured .placement-offer-fact:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    body.career-mode-secured .placement-offer-fact .detail-label,
+    body.career-mode-secured .placement-offer-value {
+      font-size: 11px;
+    }
+
+    body.career-mode-secured .placement-status-list {
+      gap: 0;
+    }
+
+    body.career-mode-secured .placement-status-item {
+      padding: 11px 0;
+      border: 0;
+      border-bottom: 1px solid #eef2f7;
+      border-radius: 0;
+      background: transparent;
+      align-items: center;
+    }
+
+    body.career-mode-secured .placement-status-item:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    body.career-mode-secured .placement-status-title {
+      font-size: 12px;
+    }
+
+    body.career-mode-secured .placement-status-sub {
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    body.career-mode-secured .placement-step-pill {
+      padding: 4px 8px;
+      font-size: 8px;
+      letter-spacing: 0.04em;
+      border: 0;
+    }
+
+    body.career-mode-secured .placement-step-pill.in_progress {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    body.career-mode-secured .placement-step-pill.pending {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    body.career-mode-secured .placement-step-pill.not_booked {
+      background: #e5e7eb;
+      color: #6b7280;
+    }
+
+    body.career-mode-secured .placement-next-step {
+      margin-top: 4px;
+      padding: 10px 0 0;
+      border: 0;
+      border-top: 1px solid #eef2f7;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    body.career-mode-secured .placement-next-step-copy {
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+
+    body.career-mode-secured .placement-next-step-text {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    body.career-mode-secured .placement-inline-link {
+      padding: 0;
+    }
+
+    body.career-mode-secured .placement-dock {
+      display: block;
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+      width: min(100% - 24px, 392px);
+      z-index: 60;
+    }
+
+    body.career-mode-secured .placement-dock-card {
+      padding: 10px;
+      gap: 10px;
+      background: #101b28;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 20px 32px -28px rgba(15, 23, 42, 1);
+    }
+
+    body.career-mode-secured .placement-dock-avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: linear-gradient(145deg, #4f46e5, #2563eb);
+      font-size: 9px;
+      box-shadow: none;
+    }
+
+    body.career-mode-secured .placement-dock-copy {
+      gap: 8px;
+    }
+
+    body.career-mode-secured .placement-dock-text strong {
+      font-size: 11px;
+    }
+
+    body.career-mode-secured .placement-dock-text span {
+      font-size: 10px;
+    }
+
+    body.career-mode-secured .placement-dock-actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    body.career-mode-secured .placement-dock-btn {
+      min-height: 36px;
+      border-radius: 10px;
+      border-color: rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.06);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    body.career-mode-secured .placement-dock-btn-whatsapp {
+      background: #16a34a;
+      border-color: #16a34a;
+    }
+
+    @media (min-width: 768px) {
+      body.career-mode-secured .shell {
+        max-width: 392px;
+        padding-top: 20px;
       }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -1889,8 +3029,8 @@
       <div class="header-greeting">
         <div class="header-avatar">GP</div>
         <div class="header-text">
-          <h1>Career</h1>
-          <p>Your roles and applications</p>
+          <h1 id="pageHeaderTitle">Career</h1>
+          <p id="pageHeaderSubtitle">Your roles and applications</p>
         </div>
       </div>
       <div class="header-actions">
@@ -1940,8 +3080,8 @@
       <section class="page-hero">
         <div class="hero-copy">
           <div class="desktop-hero-copy">
-            <h1>Career</h1>
-            <p class="page-subtitle">Explore roles matched to your profile and relocation goals.</p>
+            <h1 id="pageHeroTitle">Career</h1>
+            <p class="page-subtitle" id="pageHeroSubtitle">Explore roles matched to your profile and relocation goals.</p>
           </div>
           <div class="hero-search-card">
             <div class="hero-search-meta">
@@ -2013,68 +3153,125 @@
 
       <section class="view-panel" data-view-panel="secured">
         <div class="secured-grid">
-          <article class="hero-card">
-            <div class="hero-top">
-              <div>
-                <span class="hero-label">Your secured placement</span>
-                <h2 class="hero-title" id="securedPracticeName">Murrumbidgee Medical Centre</h2>
-                <p class="hero-role" id="securedRoleTitle">General Practitioner</p>
-              </div>
-              <span class="badge-soft">Secured</span>
-            </div>
-            <div class="hero-meta">
-              <span><svg class="detail-icon" viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span id="securedLocation">Wagga Wagga, NSW</span></span>
-              <span><svg class="detail-icon" viewBox="0 0 24 24"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="3"></rect><path d="M3 10h18"></path></svg><span id="securedStartDate">Proposed start 18 Aug 2026</span></span>
-            </div>
-            <div class="hero-note">
-              <span class="hero-note-label">Next major milestone</span>
-              <p class="hero-note-text">Specialist registration outcome</p>
-            </div>
-          </article>
-
-          <article class="details-card">
-            <h2 class="card-title">Practice details</h2>
-            <div class="detail-grid" id="practiceDetailsGrid"></div>
-          </article>
-
-          <article class="summary-card">
-            <h2 class="card-title">Offer summary</h2>
-            <div class="summary-grid" id="offerSummaryGrid"></div>
-          </article>
-
-          <article class="timeline-card">
-            <h2 class="card-title">Placement timeline</h2>
-            <div class="timeline" id="placementTimeline"></div>
-          </article>
-
-          <article class="updates-card">
-            <h2 class="card-title">GP Link updates</h2>
-            <ul class="updates-list" id="securedUpdatesList"></ul>
-          </article>
-
-          <article class="next-step-card">
-            <div class="next-step-head">
-              <div class="lock-wrap">
-                <svg class="detail-icon" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>
-              </div>
-              <div>
-                <h2 class="card-title">Next stage locked</h2>
-                <p class="page-subtitle" style="max-width:none; margin-top:4px;">Visa &amp; Relocation will open once specialist registration has been granted.</p>
+          <article class="placement-hero-card">
+            <div class="placement-hero-top">
+              <div class="placement-hero-copy">
+                <span class="placement-kicker">My Career</span>
+                <h2 class="placement-title">Your Practice Is Secured</h2>
+                <p class="placement-subtitle">
+                  <span id="securedPracticeName">Murrumbidgee Medical Centre</span>
+                  <span class="placement-subtitle-dot" aria-hidden="true">•</span>
+                  <span id="securedLocation">Wagga Wagga, NSW</span>
+                </p>
+                <span class="placement-status-chip" id="securedStatusChip">Placement confirmed</span>
               </div>
             </div>
-            <p class="next-step-copy">Your placement is reserved. The next stage will unlock once specialist registration is confirmed.</p>
+
+            <div class="placement-countdown">
+              <div class="placement-countdown-main">
+                <div class="placement-countdown-value" id="securedCountdownValue">142</div>
+                <p class="placement-countdown-copy" id="securedCountdownCopy">days until your start</p>
+              </div>
+              <div class="placement-countdown-meta">
+                <span class="placement-countdown-tag" id="securedStartDate">Starts 18 Aug 2026</span>
+                <span class="placement-countdown-tag placement-countdown-tag-muted" id="securedRoleTitle">General Practitioner</span>
+              </div>
+            </div>
           </article>
 
-          <article class="opportunity-card">
-            <div class="section-head">
-              <h2 class="card-title">Other opportunities</h2>
-              <button class="section-link" id="openBrowseFromSecuredBtn" type="button">Browse roles</button>
-            </div>
-            <div class="opportunity-grid" id="otherOpportunitiesGrid"></div>
-          </article>
+          <div class="placement-quick-stats" id="securedQuickStats"></div>
+
+          <div class="placement-primary-grid">
+            <article class="placement-story-card">
+              <div class="placement-story-media" id="securedStoryMedia">
+                <div class="placement-story-overlay">
+                  <div class="placement-story-chip-row" id="securedStoryChips"></div>
+                  <div class="placement-story-copy">
+                    <p class="placement-story-eyebrow">Practice snapshot</p>
+                    <h3 class="placement-story-title" id="securedStoryTitle">Desirable location</h3>
+                    <p class="placement-story-text" id="securedStoryText">High patient demand and a GP Link-supported arrival plan.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="placement-story-footer">
+                <a class="section-link" id="securedMapLink" href="#" target="_blank" rel="noreferrer">View map</a>
+                <span class="placement-story-hint" id="securedMapHint">Exact practice address will unlock in your handover pack.</span>
+              </div>
+            </article>
+
+            <article class="placement-broker-card">
+              <div class="placement-card-head">
+                <div>
+                  <span class="detail-label">Your GP broker</span>
+                  <h3 class="card-title" id="securedBrokerName">Khaleed</h3>
+                  <p class="application-sub" id="securedBrokerRole">Your GP Link placement agent</p>
+                </div>
+                <span class="placement-broker-presence" id="securedBrokerPresence">Last active 2 days ago</span>
+              </div>
+              <div class="placement-broker-profile">
+                <div class="placement-broker-avatar" id="securedBrokerInitials">KH</div>
+                <p class="role-summary" id="securedBrokerNote">I’ll coordinate registration timing, contract questions and your relocation handover with the practice.</p>
+              </div>
+              <div class="placement-broker-actions">
+                <a class="placement-contact-btn" id="securedBrokerCallLink" href="tel:+61432555018">Call</a>
+                <a class="placement-contact-btn" id="securedBrokerEmailLink" href="mailto:khaleed@gplink.com.au">Email</a>
+                <a class="placement-contact-btn placement-contact-btn-whatsapp" id="securedBrokerWhatsAppLink" href="https://wa.me/61432555018" target="_blank" rel="noreferrer">WhatsApp</a>
+              </div>
+            </article>
+          </div>
+
+          <div class="placement-secondary-grid">
+            <article class="placement-package-card">
+              <div class="placement-card-head">
+                <div>
+                  <span class="detail-label">Your drawn salary</span>
+                  <div class="placement-salary-line">
+                    <h3 class="placement-salary" id="securedSalaryRange">$2,500-$3,500</h3>
+                    <span class="placement-salary-unit" id="securedSalaryUnit">day</span>
+                  </div>
+                </div>
+                <span class="placement-package-note" id="securedOfferNote">Offer package live</span>
+              </div>
+              <div class="placement-offer-facts" id="securedOfferFacts"></div>
+            </article>
+
+            <article class="placement-status-card">
+              <div class="placement-card-head">
+                <div>
+                  <span class="detail-label">Relocation status</span>
+                  <h3 class="card-title">Next unlocks</h3>
+                </div>
+                <button class="section-link" id="securedApplicationsBtn" type="button">View application</button>
+              </div>
+              <div class="placement-status-list" id="securedStatusList"></div>
+              <div class="placement-next-step">
+                <div class="placement-next-step-copy">
+                  <span class="detail-label">Next action</span>
+                  <p class="placement-next-step-text" id="securedNextStepText">Upload your final registration outcome so visa and arrival tasks can open.</p>
+                </div>
+                <button class="section-link placement-inline-link" id="securedContinueBtn" type="button">Continue Step 3</button>
+              </div>
+            </article>
+          </div>
         </div>
       </section>
     </main>
+
+    <aside class="placement-dock" id="placementDock" aria-label="Placement contact">
+      <div class="placement-dock-card">
+        <div class="placement-dock-copy">
+          <div class="placement-dock-avatar" id="placementDockInitials">KH</div>
+          <div class="placement-dock-text">
+            <strong id="placementDockTitle">Khaleed — Your GP Link Agent</strong>
+            <span id="placementDockStatus">Online now</span>
+          </div>
+        </div>
+        <div class="placement-dock-actions">
+          <a class="placement-dock-btn" href="messages.html">Chat</a>
+          <a class="placement-dock-btn placement-dock-btn-whatsapp" id="placementDockWhatsAppLink" href="https://wa.me/61432555018" target="_blank" rel="noreferrer">WhatsApp</a>
+        </div>
+      </div>
+    </aside>
   </div>
 
   <nav class="mobile-nav" aria-label="Mobile navigation">
@@ -2266,33 +3463,86 @@
       practiceName: "Murrumbidgee Medical Centre",
       roleTitle: "General Practitioner",
       location: "Wagga Wagga, NSW",
-      startDate: "Proposed start 18 Aug 2026",
-      practiceDetails: [
-        { label: "Practice name", value: "Murrumbidgee Medical Centre" },
-        { label: "Location", value: "Turvey Park, Wagga Wagga, NSW" },
-        { label: "Practice type", value: "Community medical centre with chronic disease and family medicine focus" },
-        { label: "Billing model", value: "Mixed billing with established private fee uplift" },
-        { label: "Support / supervision", value: "Partner GP oversight, relocation coordinator, roster flexibility during school terms and onboarding support in the first 90 days" }
+      statusLabel: "Placement confirmed",
+      startDateIso: "2026-08-18",
+      countdownCopy: "days until your start",
+      quickStats: [
+        { label: "Billing", value: "Mixed" },
+        { label: "Split", value: "70%" },
+        { label: "Team", value: "6 GPs" }
       ],
-      offerSummary: [
-        { label: "Estimated income", value: "$385k-$420k package" },
-        { label: "Relocation support", value: "Flights, temporary housing and settlement support" },
-        { label: "Contract status", value: "Contract issued and under final review" },
-        { label: "Employment type", value: "Full-time permanent GP placement" },
-        { label: "Key notes", value: "Commencement reserved pending specialist registration outcome" }
+      story: {
+        title: "Desirable location",
+        text: "Established mixed-billing centre with strong patient demand, school-friendly rostering and a GP Link-supported arrival plan.",
+        chips: ["Desirable location", "High patient demand"],
+        imageUrl: "../media/images/account-header-sunset-exact.jpg",
+        mapQuery: "Turvey Park, Wagga Wagga NSW, Australia",
+        mapHint: "Suburb view shown before full handover details unlock."
+      },
+      broker: {
+        name: "Khaleed",
+        initials: "KH",
+        role: "Your GP Link placement agent",
+        presence: "Last active 2 days ago",
+        note: "I’ll coordinate registration timing, contract questions and your relocation handover with the practice.",
+        phone: "+61 432 555 018",
+        email: "khaleed@gplink.com.au",
+        whatsapp: "+61432555018",
+        dockTitle: "Khaleed — Your GP Link Agent",
+        dockStatus: "Online now"
+      },
+        compensation: {
+          range: "$2,500-$3,500",
+          unit: "/day",
+          note: "Offer package live",
+        facts: [
+          { label: "Billing split", value: "70/30" },
+          { label: "Contract length", value: "2 years" },
+          { label: "Relocation bonus", value: "$15,000 AUD" },
+          { label: "Start date", value: "18 August 2026" }
+        ]
+      },
+      statusSteps: [
+        {
+          title: "Specialist registration",
+          detail: "Awaiting final outcome before visa and arrival tasks can fully unlock.",
+          state: "in_progress",
+          label: "In Progress"
+        },
+        {
+          title: "Visa application",
+          detail: "Preparation pack is ready as soon as registration timing is confirmed.",
+          state: "in_progress",
+          label: "In Progress"
+        },
+        {
+          title: "Flights",
+          detail: "Booking window will open once the visa milestone is cleared.",
+          state: "not_booked",
+          label: "Not Booked"
+        },
+        {
+          title: "Arrival plan",
+          detail: "Housing and settlement handover are queued behind registration.",
+          state: "pending",
+          label: "Pending"
+        }
       ],
-      timeline: [
-        { title: "Interview completed", sub: "Clinic leadership panel confirmed fit and start window." },
-        { title: "Offer issued", sub: "Role package and conditions shared with you and GP Link." },
-        { title: "Contract sent", sub: "Agreement circulated pending registration timing confirmation." },
-        { title: "Placement secured", sub: "Role is reserved while registration and relocation remain in motion." }
-      ],
-      updates: [
-        "We are coordinating with the medical centre regarding commencement timing.",
-        "Your placement is being held pending specialist registration outcome."
-      ],
-      otherOpportunityIds: ["northshore-clinic-group"]
+      nextStep: {
+        text: "Upload your final registration outcome so visa and arrival tasks can open.",
+        label: "Continue Step 3",
+        href: "myinthealth.html"
+      }
     };
+
+    const SECURED_PLACEMENT_STATUS_KEYS = new Set([
+      "hired",
+      "secured",
+      "placed",
+      "placement_secured",
+      "offer_accepted",
+      "contract_signed"
+    ]);
 
     const ROLE_PREVIEW_SESSION_KEY = "gp_role_preview";
     let roleData = clone(FALLBACK_ROLE_DATA);
@@ -2306,6 +3556,90 @@
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+    }
+
+    function normalizeStatusKey(value) {
+      return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    }
+
+    function startCase(value) {
+      return String(value || "")
+        .split(/[_\s-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    }
+
+    function isConfidentialText(value) {
+      return /confidential/i.test(String(value || ""));
+    }
+
+    function getApplicationStatusMeta(statusValue) {
+      const key = normalizeStatusKey(statusValue);
+      if (["applied", "review", "under_review", "submitted"].includes(key)) {
+        return { label: "Under Review", tone: "review", isPlacementSecured: false };
+      }
+      if (["interview", "interview_scheduled", "shortlisted"].includes(key)) {
+        return { label: "Interview Scheduled", tone: "interview", isPlacementSecured: false };
+      }
+      if (["offer", "offer_pending", "offered"].includes(key)) {
+        return { label: "Offer Pending", tone: "offer", isPlacementSecured: false };
+      }
+      if (SECURED_PLACEMENT_STATUS_KEYS.has(key)) {
+        return { label: "Practice Secured", tone: "secured", isPlacementSecured: true };
+      }
+      return {
+        label: statusValue ? startCase(key || statusValue) : "Under Review",
+        tone: "review",
+        isPlacementSecured: false
+      };
+    }
+
+    function normalizeCareerApplication(record) {
+      const source = record && typeof record === "object" ? record : {};
+      const meta = getApplicationStatusMeta(source.rawStatus || source.status);
+      return {
+        roleId: source.roleId || "",
+        practiceName: source.practiceName || "",
+        location: source.location || "",
+        rawStatus: source.rawStatus || source.status || meta.label,
+        status: meta.label,
+        tone: meta.tone,
+        isPlacementSecured: meta.isPlacementSecured || source.isPlacementSecured === true,
+        meta: Array.isArray(source.meta) ? source.meta : [],
+        placement: source.placement && typeof source.placement === "object" ? source.placement : null
+      };
+    }
+
+    function formatLongDateLabel(dateValue) {
+      const parsed = new Date(dateValue);
+      if (Number.isNaN(parsed.getTime())) return "";
+      return parsed.toLocaleDateString("en-AU", {
+        day: "numeric",
+        month: "long",
+        year: "numeric"
+      });
+    }
+
+    function getDaysUntil(dateValue) {
+      const parsed = new Date(dateValue);
+      if (Number.isNaN(parsed.getTime())) return null;
+      const diffMs = parsed.getTime() - Date.now();
+      return Math.max(0, Math.ceil(diffMs / 86400000));
+    }
+
+    function buildMapsHref(query) {
+      const safe = String(query || "").trim();
+      return safe ? "https://www.google.com/maps?q=" + encodeURIComponent(safe) : "#";
+    }
+
+    function buildWhatsAppHref(value) {
+      const digits = String(value || "").replace(/[^\d]/g, "");
+      return digits ? "https://wa.me/" + digits : "#";
     }
 
     function createSavedSnapshot(role) {
@@ -2323,14 +3657,13 @@
     function createDefaultApplication(roleId, status, meta) {
       const role = roleData.find((item) => item.id === roleId);
       if (!role) return null;
-      return {
+      return normalizeCareerApplication({
         roleId: role.id,
         practiceName: role.practiceName,
         location: role.location,
-        status: status.label,
-        tone: status.tone,
+        rawStatus: status && (status.key || status.label),
         meta: meta
-      };
+      });
     }
 
     function getDefaultCareerState(context = {}) {
@@ -2355,17 +3688,17 @@
         showSavedOnly: false,
         savedJobs: activeRoles[0] ? [createSavedSnapshot(activeRoles[0])] : [],
         applications: [
-          activeRoles[0] ? createDefaultApplication(activeRoles[0].id, { label: "Under Review", tone: "review" }, [
+          activeRoles[0] ? createDefaultApplication(activeRoles[0].id, { label: "Under Review", key: "under_review" }, [
             { label: "Applied", value: "2 days ago" },
             { label: "Billing", value: "Private" },
             { label: "Next step", value: "CV review" }
           ]) : null,
-          activeRoles[1] ? createDefaultApplication(activeRoles[1].id, { label: "Interview Scheduled", tone: "interview" }, [
+          activeRoles[1] ? createDefaultApplication(activeRoles[1].id, { label: "Interview Scheduled", key: "interview_scheduled" }, [
             { label: "Interview", value: "Tue 10:30am" },
             { label: "Format", value: "Video call" },
             { label: "Lead", value: "Clinic owner" }
           ]) : null,
-          activeRoles[2] ? createDefaultApplication(activeRoles[2].id, { label: "Offer Pending", tone: "offer" }, [
+          activeRoles[2] ? createDefaultApplication(activeRoles[2].id, { label: "Offer Pending", key: "offer_pending" }, [
             { label: "Status", value: "Verbal positive" },
             { label: "Package", value: "$390k+" },
             { label: "Awaiting", value: "Written offer" }
@@ -2409,7 +3742,7 @@
               .filter((job) => job && roleIds.has(job.roleId))
               .map((job) => {
                 const liveRole = roleMap.get(job.roleId);
-                return liveRole ? { ...job, practiceName: liveRole.practiceName, location: liveRole.location } : job;
+                return normalizeCareerApplication(liveRole ? { ...job, practiceName: liveRole.practiceName, location: liveRole.location } : job);
               })
           : fallback.applications
       };
@@ -2434,6 +3767,10 @@
     const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
     let activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
 
+    const pageHeaderTitleEl = document.getElementById("pageHeaderTitle");
+    const pageHeaderSubtitleEl = document.getElementById("pageHeaderSubtitle");
+    const pageHeroTitleEl = document.getElementById("pageHeroTitle");
+    const pageHeroSubtitleEl = document.getElementById("pageHeroSubtitle");
     const heroLocationSelectEl = document.getElementById("heroLocationSelect");
     const heroBillingSelectEl = document.getElementById("heroBillingSelect");
     const savedJobsShortcutBtnEl = document.getElementById("savedJobsShortcutBtn");
@@ -2451,7 +3788,6 @@
     const howToApplyDoneBtnEl = document.getElementById("howToApplyDoneBtn");
     const clearFiltersBtnEl = document.getElementById("clearFiltersBtn");
     const browseRolesBtnEl = document.getElementById("browseRolesBtn");
-    const openBrowseFromSecuredBtnEl = document.getElementById("openBrowseFromSecuredBtn");
     const roleModalEl = document.getElementById("roleModal");
     const roleModalCloseBtnEl = document.getElementById("roleModalCloseBtn");
     const roleModalTitleEl = document.getElementById("roleModalTitle");
@@ -2468,11 +3804,40 @@
     const roleModalMapFrameEl = document.getElementById("roleModalMapFrame");
     const roleModalSaveBtnEl = document.getElementById("roleModalSaveBtn");
     const roleModalApplyBtnEl = document.getElementById("roleModalApplyBtn");
-    const otherOpportunitiesGridEl = document.getElementById("otherOpportunitiesGrid");
-    const practiceDetailsGridEl = document.getElementById("practiceDetailsGrid");
-    const offerSummaryGridEl = document.getElementById("offerSummaryGrid");
-    const placementTimelineEl = document.getElementById("placementTimeline");
-    const securedUpdatesListEl = document.getElementById("securedUpdatesList");
+    const securedPracticeNameEl = document.getElementById("securedPracticeName");
+    const securedLocationEl = document.getElementById("securedLocation");
+    const securedRoleTitleEl = document.getElementById("securedRoleTitle");
+    const securedStatusChipEl = document.getElementById("securedStatusChip");
+    const securedStartDateEl = document.getElementById("securedStartDate");
+    const securedCountdownValueEl = document.getElementById("securedCountdownValue");
+    const securedCountdownCopyEl = document.getElementById("securedCountdownCopy");
+    const securedQuickStatsEl = document.getElementById("securedQuickStats");
+    const securedStoryMediaEl = document.getElementById("securedStoryMedia");
+    const securedStoryChipsEl = document.getElementById("securedStoryChips");
+    const securedStoryTitleEl = document.getElementById("securedStoryTitle");
+    const securedStoryTextEl = document.getElementById("securedStoryText");
+    const securedMapLinkEl = document.getElementById("securedMapLink");
+    const securedMapHintEl = document.getElementById("securedMapHint");
+    const securedBrokerNameEl = document.getElementById("securedBrokerName");
+    const securedBrokerRoleEl = document.getElementById("securedBrokerRole");
+    const securedBrokerPresenceEl = document.getElementById("securedBrokerPresence");
+    const securedBrokerInitialsEl = document.getElementById("securedBrokerInitials");
+    const securedBrokerNoteEl = document.getElementById("securedBrokerNote");
+    const securedBrokerCallLinkEl = document.getElementById("securedBrokerCallLink");
+    const securedBrokerEmailLinkEl = document.getElementById("securedBrokerEmailLink");
+    const securedBrokerWhatsAppLinkEl = document.getElementById("securedBrokerWhatsAppLink");
+    const securedSalaryRangeEl = document.getElementById("securedSalaryRange");
+    const securedSalaryUnitEl = document.getElementById("securedSalaryUnit");
+    const securedOfferNoteEl = document.getElementById("securedOfferNote");
+    const securedOfferFactsEl = document.getElementById("securedOfferFacts");
+    const securedStatusListEl = document.getElementById("securedStatusList");
+    const securedNextStepTextEl = document.getElementById("securedNextStepText");
+    const securedContinueBtnEl = document.getElementById("securedContinueBtn");
+    const securedApplicationsBtnEl = document.getElementById("securedApplicationsBtn");
+    const placementDockInitialsEl = document.getElementById("placementDockInitials");
+    const placementDockTitleEl = document.getElementById("placementDockTitle");
+    const placementDockStatusEl = document.getElementById("placementDockStatus");
+    const placementDockWhatsAppLinkEl = document.getElementById("placementDockWhatsAppLink");
     const toastEl = document.getElementById("careerToast");
     let roleModalMapVisible = false;
 
@@ -2515,10 +3880,97 @@
       viewPanels.forEach((panel) => {
         panel.classList.toggle("is-active", panel.dataset.viewPanel === careerState.activeView);
       });
+      const isSecuredView = careerState.activeView === "secured";
+      document.body.classList.toggle("career-mode-secured", isSecuredView);
+      if (pageHeaderTitleEl) pageHeaderTitleEl.textContent = isSecuredView ? "Placement" : "Career";
+      if (pageHeaderSubtitleEl) {
+        pageHeaderSubtitleEl.textContent = isSecuredView
+          ? "Your secured role and relocation progress"
+          : "Your roles and applications";
+      }
+      if (pageHeroTitleEl) pageHeroTitleEl.textContent = isSecuredView ? "Placement" : "Career";
+      if (pageHeroSubtitleEl) {
+        pageHeroSubtitleEl.textContent = isSecuredView
+          ? "Track your secured role, recruiter support and next relocation steps."
+          : "Explore roles matched to your profile and relocation goals.";
+      }
     }
 
     function findRole(roleId) {
       return roleData.find((role) => role.id === roleId) || null;
+    }
+
+    function hasSecuredPlacement() {
+      return careerState.applications.some((application) => application && application.isPlacementSecured);
+    }
+
+    function resolveSecuredPlacement() {
+      const placementApp = careerState.applications.find((application) => application && application.isPlacementSecured) || null;
+      const placementRole = placementApp ? findRole(placementApp.roleId) : null;
+      const placementPayload = placementApp && placementApp.placement && typeof placementApp.placement === "object"
+        ? placementApp.placement
+        : {};
+      const storyPayload = placementPayload.story && typeof placementPayload.story === "object" ? placementPayload.story : {};
+      const brokerPayload = placementPayload.broker && typeof placementPayload.broker === "object" ? placementPayload.broker : {};
+      const compensationPayload = placementPayload.compensation && typeof placementPayload.compensation === "object"
+        ? placementPayload.compensation
+        : {};
+      const nextStepPayload = placementPayload.nextStep && typeof placementPayload.nextStep === "object"
+        ? placementPayload.nextStep
+        : {};
+
+      return {
+        practiceName: placementPayload.practiceName
+          || ((placementApp && placementApp.practiceName && !isConfidentialText(placementApp.practiceName)) ? placementApp.practiceName : "")
+          || ((placementRole && placementRole.practiceName && !isConfidentialText(placementRole.practiceName)) ? placementRole.practiceName : "")
+          || SECURED_PLACEMENT.practiceName,
+        roleTitle: placementPayload.roleTitle || (placementRole && placementRole.roleType) || SECURED_PLACEMENT.roleTitle,
+        location: placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || SECURED_PLACEMENT.location,
+        statusLabel: placementPayload.statusLabel || SECURED_PLACEMENT.statusLabel,
+        startDateIso: placementPayload.startDateIso || SECURED_PLACEMENT.startDateIso,
+        countdownCopy: placementPayload.countdownCopy || SECURED_PLACEMENT.countdownCopy,
+        quickStats: Array.isArray(placementPayload.quickStats) && placementPayload.quickStats.length
+          ? placementPayload.quickStats
+          : SECURED_PLACEMENT.quickStats,
+        story: {
+          title: storyPayload.title || SECURED_PLACEMENT.story.title,
+          text: storyPayload.text || SECURED_PLACEMENT.story.text,
+          chips: Array.isArray(storyPayload.chips) && storyPayload.chips.length
+            ? storyPayload.chips
+            : SECURED_PLACEMENT.story.chips,
+          imageUrl: storyPayload.imageUrl || (placementRole && placementRole.heroImageUrl) || SECURED_PLACEMENT.story.imageUrl,
+          mapQuery: storyPayload.mapQuery || (placementRole && (placementRole.mapQuery || placementRole.location)) || SECURED_PLACEMENT.story.mapQuery,
+          mapHint: storyPayload.mapHint || SECURED_PLACEMENT.story.mapHint
+        },
+        broker: {
+          name: brokerPayload.name || SECURED_PLACEMENT.broker.name,
+          initials: brokerPayload.initials || SECURED_PLACEMENT.broker.initials,
+          role: brokerPayload.role || SECURED_PLACEMENT.broker.role,
+          presence: brokerPayload.presence || SECURED_PLACEMENT.broker.presence,
+          note: brokerPayload.note || SECURED_PLACEMENT.broker.note,
+          phone: brokerPayload.phone || SECURED_PLACEMENT.broker.phone,
+          email: brokerPayload.email || SECURED_PLACEMENT.broker.email,
+          whatsapp: brokerPayload.whatsapp || SECURED_PLACEMENT.broker.whatsapp,
+          dockTitle: brokerPayload.dockTitle || SECURED_PLACEMENT.broker.dockTitle,
+          dockStatus: brokerPayload.dockStatus || SECURED_PLACEMENT.broker.dockStatus
+        },
+        compensation: {
+          range: compensationPayload.range || SECURED_PLACEMENT.compensation.range,
+          unit: compensationPayload.unit || SECURED_PLACEMENT.compensation.unit,
+          note: compensationPayload.note || SECURED_PLACEMENT.compensation.note,
+          facts: Array.isArray(compensationPayload.facts) && compensationPayload.facts.length
+            ? compensationPayload.facts
+            : SECURED_PLACEMENT.compensation.facts
+        },
+        statusSteps: Array.isArray(placementPayload.statusSteps) && placementPayload.statusSteps.length
+          ? placementPayload.statusSteps
+          : SECURED_PLACEMENT.statusSteps,
+        nextStep: {
+          text: nextStepPayload.text || SECURED_PLACEMENT.nextStep.text,
+          label: nextStepPayload.label || SECURED_PLACEMENT.nextStep.label,
+          href: nextStepPayload.href || SECURED_PLACEMENT.nextStep.href
+        }
+      };
     }
 
     function cacheRolePreview(roleId) {
@@ -2633,11 +4085,13 @@
       }
     }
 
-    function buildPracticeMaskHtml(role) {
+    function buildPracticeMaskHtml(role, options = {}) {
+      const shouldReveal = options.reveal === true;
+      const note = shouldReveal ? "Practice identity released after placement confirmation." : getConfidentialNote();
       return `
-        <div class="practice-mask">
+        <div class="practice-mask${shouldReveal ? " revealed" : ""}">
           <p class="practice-mask-text">${escapeHtml(role && role.practiceName ? role.practiceName : "Confidential practice profile")}</p>
-          <div class="practice-mask-note">${escapeHtml(getConfidentialNote())}</div>
+          <div class="practice-mask-note">${escapeHtml(note)}</div>
         </div>
       `;
     }
@@ -2773,10 +4227,11 @@
     async function applyForRole(roleId) {
       const role = findRole(roleId);
       if (!role) return;
-      if (isApplied(roleId)) {
-        setView("applications");
+      const existingApplication = careerState.applications.find((job) => job && job.roleId === roleId) || null;
+      if (existingApplication) {
+        setView(existingApplication.isPlacementSecured ? "secured" : "applications");
         closeRoleModal();
-        showToast("Application already tracked");
+        showToast(existingApplication.isPlacementSecured ? "Placement already secured" : "Application already tracked");
         return;
       }
 
@@ -2816,18 +4271,17 @@
         }
 
         careerState.applications = [
-          {
+          normalizeCareerApplication({
             roleId: role.id,
             practiceName: role.practiceName,
             location: role.location,
-            status: "Under Review",
-            tone: "review",
+            rawStatus: "under_review",
             meta: [
               { label: "Applied", value: "Just now" },
               { label: "Billing", value: (role.billing || "").replace(" Billing", "") },
               { label: "Next step", value: "GP Link screening" }
             ]
-          },
+          }),
           ...careerState.applications
         ];
         careerState.activeView = "applications";
@@ -2915,23 +4369,28 @@
         if (!response.ok) return;
         const payload = await response.json().catch(() => null);
         if (!payload || !payload.ok || !Array.isArray(payload.applications)) return;
-        const remote = payload.applications.map((app) => ({
+        const remote = payload.applications.map((app) => normalizeCareerApplication({
           roleId: app.role && app.role.id ? app.role.id : app.id,
           practiceName: app.role && app.role.practiceName ? app.role.practiceName : "Practice",
           location: app.role && app.role.location ? app.role.location : "",
-          status: app.status === "applied" ? "Under Review" : app.status,
-          tone: "review",
+          rawStatus: app.status,
+          placement: app.placement,
           meta: [
             { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
             { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
-            { label: "Next step", value: "GP Link screening" }
+            { label: "Next step", value: getApplicationStatusMeta(app.status).isPlacementSecured ? "Relocation handover" : "GP Link screening" }
           ]
         }));
         if (remote.length > 0) {
           // Merge: keep remote as source of truth, add any local-only apps
           const remoteIds = new Set(remote.map((a) => a.roleId));
-          const localOnly = careerState.applications.filter((a) => a && a.roleId && !remoteIds.has(a.roleId));
+          const localOnly = careerState.applications
+            .filter((a) => a && a.roleId && !remoteIds.has(a.roleId))
+            .map((application) => normalizeCareerApplication(application));
           careerState.applications = [...remote, ...localOnly];
+          if (remote.some((application) => application.isPlacementSecured)) {
+            careerState.activeView = "secured";
+          }
           persistCareerState();
           renderPage();
         }
@@ -2964,7 +4423,7 @@
               <span class="status-pill ${application.tone}">${escapeHtml(application.status)}</span>
             </div>
             <div class="privacy-stack">
-              ${buildPracticeMaskHtml(role || application)}
+              ${buildPracticeMaskHtml(role || application, { reveal: application.isPlacementSecured })}
               ${buildRoleMetricsHtml(role || application)}
             </div>
             <div class="application-meta">
@@ -2978,7 +4437,7 @@
             <div class="application-footer">
               <div style="display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;">
                 <button class="ghost-btn" type="button" data-save-role="${application.roleId}">${isSaved(application.roleId) ? "Saved" : "Save"}</button>
-                <button class="btn-primary" type="button" data-open-role="${application.roleId}">View details</button>
+                <button class="btn-primary" type="button" ${application.isPlacementSecured ? 'data-open-placement="true"' : `data-open-role="${application.roleId}"`}>${application.isPlacementSecured ? "Open placement" : "View details"}</button>
               </div>
             </div>
           </article>
@@ -2987,41 +4446,75 @@
     }
 
     function renderSecuredPlacement() {
-      document.getElementById("securedPracticeName").textContent = SECURED_PLACEMENT.practiceName;
-      document.getElementById("securedRoleTitle").textContent = SECURED_PLACEMENT.roleTitle;
-      document.getElementById("securedLocation").textContent = SECURED_PLACEMENT.location;
-      document.getElementById("securedStartDate").textContent = SECURED_PLACEMENT.startDate;
+      const placement = resolveSecuredPlacement();
+      const startDateLabel = formatLongDateLabel(placement.startDateIso);
+      const daysUntilStart = getDaysUntil(placement.startDateIso);
 
-      practiceDetailsGridEl.innerHTML = SECURED_PLACEMENT.practiceDetails.map((item) => `
-        <div class="detail-row">
-          <span class="detail-label">${item.label}</span>
-          <span class="detail-value">${item.value}</span>
+      securedPracticeNameEl.textContent = placement.practiceName;
+      securedRoleTitleEl.textContent = placement.roleTitle;
+      securedLocationEl.textContent = placement.location;
+      securedStatusChipEl.textContent = placement.statusLabel;
+      securedStartDateEl.textContent = startDateLabel ? "Starts " + startDateLabel : "Start date to be confirmed";
+      securedCountdownValueEl.textContent = daysUntilStart !== null ? String(daysUntilStart) : "—";
+      securedCountdownCopyEl.textContent = placement.countdownCopy || "days until your start";
+
+      securedQuickStatsEl.innerHTML = (Array.isArray(placement.quickStats) ? placement.quickStats : []).map((item) => `
+        <article class="placement-stat-card">
+          <p class="placement-stat-value">${escapeHtml(item.value)}</p>
+          <span class="placement-stat-label">${escapeHtml(item.label)}</span>
+        </article>
+      `).join("");
+
+      const storyImage = placement.story && placement.story.imageUrl ? placement.story.imageUrl : "";
+      securedStoryMediaEl.style.backgroundImage = storyImage
+        ? `linear-gradient(180deg, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.62)), url("${storyImage}")`
+        : "";
+      securedStoryTitleEl.textContent = placement.story.title;
+      securedStoryTextEl.textContent = placement.story.text;
+      securedStoryChipsEl.innerHTML = (Array.isArray(placement.story.chips) ? placement.story.chips : []).map((item) => `
+        <span class="placement-story-chip">${escapeHtml(item)}</span>
+      `).join("");
+      securedMapLinkEl.href = buildMapsHref(placement.story.mapQuery);
+      securedMapLinkEl.setAttribute("aria-disabled", placement.story.mapQuery ? "false" : "true");
+      securedMapHintEl.textContent = placement.story.mapHint;
+
+      securedBrokerNameEl.textContent = placement.broker.name;
+      securedBrokerRoleEl.textContent = placement.broker.role;
+      securedBrokerPresenceEl.textContent = placement.broker.presence;
+      securedBrokerInitialsEl.textContent = placement.broker.initials;
+      securedBrokerNoteEl.textContent = placement.broker.note;
+      securedBrokerCallLinkEl.href = placement.broker.phone ? "tel:" + placement.broker.phone.replace(/\s+/g, "") : "#";
+      securedBrokerEmailLinkEl.href = placement.broker.email ? "mailto:" + placement.broker.email : "#";
+      securedBrokerWhatsAppLinkEl.href = buildWhatsAppHref(placement.broker.whatsapp);
+
+      securedSalaryRangeEl.textContent = placement.compensation.range;
+      securedSalaryUnitEl.textContent = placement.compensation.unit;
+      securedOfferNoteEl.textContent = placement.compensation.note;
+      securedOfferFactsEl.innerHTML = (Array.isArray(placement.compensation.facts) ? placement.compensation.facts : []).map((item) => `
+        <div class="placement-offer-fact">
+          <span class="detail-label">${escapeHtml(item.label)}</span>
+          <span class="placement-offer-value">${escapeHtml(item.value)}</span>
         </div>
       `).join("");
 
-      offerSummaryGridEl.innerHTML = SECURED_PLACEMENT.offerSummary.map((item) => `
-        <div class="summary-tile">
-          <span class="detail-label">${item.label}</span>
-          <span class="detail-value">${item.value}</span>
-        </div>
-      `).join("");
-
-      placementTimelineEl.innerHTML = SECURED_PLACEMENT.timeline.map((item) => `
-        <div class="timeline-item">
-          <div class="timeline-dot"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></svg></div>
-          <div class="timeline-copy">
-            <span class="timeline-title">${item.title}</span>
-            <span class="timeline-sub">${item.sub}</span>
+      securedStatusListEl.innerHTML = (Array.isArray(placement.statusSteps) ? placement.statusSteps : []).map((item) => `
+        <div class="placement-status-item">
+          <div class="placement-status-copy">
+            <span class="placement-status-title">${escapeHtml(item.title)}</span>
+            <span class="placement-status-sub">${escapeHtml(item.detail)}</span>
           </div>
+          <span class="placement-step-pill ${escapeHtml(normalizeStatusKey(item.state || "pending"))}">${escapeHtml(item.label || startCase(item.state || "pending"))}</span>
         </div>
       `).join("");
 
-      securedUpdatesListEl.innerHTML = SECURED_PLACEMENT.updates.map((item) => `<li>${item}</li>`).join("");
+      securedNextStepTextEl.textContent = placement.nextStep.text;
+      securedContinueBtnEl.textContent = placement.nextStep.label;
+      securedContinueBtnEl.dataset.href = placement.nextStep.href || "";
 
-      otherOpportunitiesGridEl.innerHTML = SECURED_PLACEMENT.otherOpportunityIds.map((id) => {
-        const role = findRole(id);
-        return role ? buildRoleCardHtml(role, { saveEnabled: false, primaryLabel: "View role" }) : "";
-      }).join("");
+      placementDockInitialsEl.textContent = placement.broker.initials;
+      placementDockTitleEl.textContent = placement.broker.dockTitle;
+      placementDockStatusEl.textContent = placement.broker.dockStatus;
+      placementDockWhatsAppLinkEl.href = buildWhatsAppHref(placement.broker.whatsapp);
     }
 
     async function renderRoleModal(roleId) {
@@ -3041,7 +4534,10 @@
       setRoleModalLoading(role);
       resetRoleMap(role);
       roleModalSaveBtnEl.textContent = isSaved(roleId) ? "Remove saved job" : "Save job";
-      roleModalApplyBtnEl.textContent = isApplied(roleId) ? "Open application" : "Apply now";
+      const existingApplication = careerState.applications.find((job) => job && job.roleId === roleId) || null;
+      roleModalApplyBtnEl.textContent = existingApplication
+        ? (existingApplication.isPlacementSecured ? "Open placement" : "Open application")
+        : "Apply now";
       roleModalEl.classList.add("is-open");
       roleModalEl.setAttribute("aria-hidden", "false");
       replaceCareerUrlState(careerState.activeView, roleId);
@@ -3149,9 +4645,12 @@
       careerState.showSavedOnly = false;
       setView("browse");
     });
-    openBrowseFromSecuredBtnEl.addEventListener("click", () => {
-      careerState.showSavedOnly = false;
-      setView("browse");
+    securedApplicationsBtnEl.addEventListener("click", () => {
+      setView("applications");
+    });
+    securedContinueBtnEl.addEventListener("click", () => {
+      const href = securedContinueBtnEl.dataset.href || "myinthealth.html";
+      window.location.href = href;
     });
 
     document.addEventListener("click", (event) => {
@@ -3161,11 +4660,19 @@
         return;
       }
 
+      const openPlacementBtn = event.target.closest("[data-open-placement]");
+      if (openPlacementBtn) {
+        setView("secured");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+
       const openBtn = event.target.closest("[data-open-role]");
       if (openBtn) {
         const roleId = openBtn.getAttribute("data-open-role");
         cacheRolePreview(roleId);
         window.location.href = "job.html?id=" + encodeURIComponent(roleId);
+        return;
       }
     });
 
@@ -3202,6 +4709,8 @@
       const hashView = window.location.hash.replace("#", "");
       if (["browse", "applications", "secured"].includes(hashView)) {
         careerState.activeView = hashView;
+      } else if (hasSecuredPlacement()) {
+        careerState.activeView = "secured";
       }
       renderPage();
       const requestedRoleId = new URL(window.location.href).searchParams.get("role");
@@ -3216,6 +4725,9 @@
     window.addEventListener("storage", (event) => {
       if (event.key === CAREER_STATE_KEY) {
         careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
+        if (!window.location.hash && hasSecuredPlacement()) {
+          careerState.activeView = "secured";
+        }
         renderPage();
       }
       if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases") {
@@ -3238,6 +4750,8 @@
       const hashView = window.location.hash.replace("#", "");
       if (["browse", "applications", "secured"].includes(hashView)) {
         careerState.activeView = hashView;
+      } else if (hasSecuredPlacement()) {
+        careerState.activeView = "secured";
       }
       moveNavGlass(activeNavItem);
       if (!hadStoredCareerState) {
