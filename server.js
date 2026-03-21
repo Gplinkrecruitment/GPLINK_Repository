@@ -55,7 +55,7 @@ const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
 const REQUIRED_ZOHO_RECRUIT_SCOPES = Object.freeze([
-  'ZohoRecruit.modules.ALL',
+  'ZohoRecruit.modules.all',
   'ZohoRecruit.modules.attachments.all',
   'ZohoRecruit.search.READ'
 ]);
@@ -4213,7 +4213,7 @@ function normalizeZohoRecruitScope(scope) {
   const compact = value.replace(/\s+/g, '').replace(/^ZohoRECRUIT/i, 'ZohoRecruit');
   const canonicalKey = compact.toLowerCase().replace(/^zohorecruit\./, 'zohorecruit.');
 
-  if (canonicalKey === 'zohorecruit.modules.all') return 'ZohoRecruit.modules.ALL';
+  if (canonicalKey === 'zohorecruit.modules.all') return 'ZohoRecruit.modules.all';
   if (canonicalKey === 'zohorecruit.search.read') return 'ZohoRecruit.search.READ';
   if (canonicalKey.startsWith('zohorecruit.modules.attachments.')) {
     return 'ZohoRecruit.modules.attachments.all';
@@ -4221,7 +4221,7 @@ function normalizeZohoRecruitScope(scope) {
   if (canonicalKey.startsWith('zohorecruit.modules.') && canonicalKey !== 'zohorecruit.modules.all') {
     // Collapse stale legacy module-specific scopes from older env values into the
     // current valid Recruit group scope accepted by OAuth.
-    return 'ZohoRecruit.modules.ALL';
+    return 'ZohoRecruit.modules.all';
   }
 
   return '';
