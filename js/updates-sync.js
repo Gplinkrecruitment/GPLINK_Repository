@@ -382,7 +382,7 @@
         if (item.kind === "support" && item.caseId) updateCaseUnread(item.caseId, false);
         refreshInboxBadges();
         closePanel();
-        if (item.target) window.location.href = item.target;
+        if (item.target && item.target.startsWith("/pages/")) window.location.href = item.target;
       });
       listEl.appendChild(el);
     });

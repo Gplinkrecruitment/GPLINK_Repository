@@ -678,7 +678,7 @@
       statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity verified — document has been deleted</div>';
       actionsEl.style.display = "none";
     } else if (status === "failed") {
-      const issues = (idState.issues && idState.issues.length) ? idState.issues.join(", ") : "Verification failed";
+      const issues = (idState.issues && idState.issues.length) ? idState.issues.map(function(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }).join(", ") : "Verification failed";
       statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues + '</div>';
       actionsEl.style.display = "";
     } else if (status === "support_requested") {

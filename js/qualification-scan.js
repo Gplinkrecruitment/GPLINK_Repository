@@ -28,6 +28,11 @@
   var certContext = null; // { key, title, callback } when in certification scan mode
 
   /* ── Helpers ── */
+  function esc(s) {
+    if (typeof s !== "string") return "";
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
   function formatSize(b) {
     if (!b) return "0 B";
     if (b < 1024) return b + " B";
@@ -270,14 +275,14 @@
               resultEl.innerHTML =
                 '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
                 '<h4>Scan Successful</h4>' +
-                '<p>Certification verified for <strong>' + ctx.title + '</strong></p>' +
+                '<p>Certification verified for <strong>' + esc(ctx.title) + '</strong></p>' +
                 '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
             } else {
               var issuesList = (v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."];
               resultEl.innerHTML =
                 '<div class="err"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
                 '<h4>Scan Failed</h4>' +
-                '<p style="color:#dc2626;font-size:13px;line-height:1.5;">' + issuesList.join("<br>") + '</p>' +
+                '<p style="color:#dc2626;font-size:13px;line-height:1.5;">' + issuesList.map(esc).join("<br>") + '</p>' +
                 '<p style="font-size:12px;color:#64748b;margin-top:8px;">Please adjust accordingly and try again.</p>' +
                 '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
                 '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
@@ -298,7 +303,7 @@
           throw new Error(data.message || "Could not verify this document.");
         }
       }).catch(function (err) {
-        showScanError(err.message);
+        showScanError(esc(err.message));
       });
       return;
     }
@@ -340,14 +345,14 @@
             resultEl2.innerHTML =
               '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
               '<h4>Scan Failed</h4>' +
-              '<p>' + certifyIssue + '</p>' +
+              '<p>' + esc(certifyIssue) + '</p>' +
               '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
               '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
           }
         } else {
           var reason = "This file does not appear to be the correct document.";
           if (data.classification && data.classification.identifiedAs) {
-            reason = "This appears to be <strong>" + data.classification.identifiedAs + "</strong>, not <strong>" + ctx2.title + "</strong>.";
+            reason = "This appears to be <strong>" + esc(data.classification.identifiedAs) + "</strong>, not <strong>" + esc(ctx2.title) + "</strong>.";
           }
           var reasonPlain = "This file does not appear to be the correct document.";
           if (data.classification && data.classification.identifiedAs) {
@@ -369,7 +374,7 @@
               '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
               '<h4>Wrong Document</h4>' +
               '<p>' + reason + '</p>' +
-              (data.classification && data.classification.reason ? '<p style="color:#64748b;font-size:13px;">' + data.classification.reason + '</p>' : '') +
+              (data.classification && data.classification.reason ? '<p style="color:#64748b;font-size:13px;">' + esc(data.classification.reason) + '</p>' : '') +
               '<p style="color:#64748b;font-size:13px;">Please upload the correct document and try again.</p>' +
               '<button class="scan-submit" data-scan-action="certdone" type="button">OK</button>';
           }
@@ -388,7 +393,7 @@
           resultEl2.innerHTML =
             '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
             '<h4>Scan Failed</h4>' +
-            '<p>' + failureMessage + '</p>' +
+            '<p>' + esc(failureMessage) + '</p>' +
             '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
             '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
         }
@@ -456,7 +461,7 @@
           if (resultEl) {
             var issuesHtml = "";
             if (v.issues && v.issues.length > 0) {
-              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + v.issues.join("<br>") + '</p>';
+              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + v.issues.map(esc).join("<br>") + '</p>';
             }
             var nameColor = nameMismatch ? "#dc2626" : "#64748b";
             var nameLabel = nameMismatch ? "Name (mismatch): " : "Name: ";
@@ -465,8 +470,8 @@
               (verified ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>') +
               '</svg></div>' +
               '<h4>' + (verified ? "Document Verified" : (nameMismatch ? "Name Mismatch" : "Needs Review")) + '</h4>' +
-              '<p>Identified as: <strong>' + docType + '</strong></p>' +
-              (nameFound ? '<p style="font-size:12px;color:' + nameColor + ';">' + nameLabel + nameFound + (dateFound ? ' &middot; Date: ' + dateFound : '') + '</p>' : '') +
+              '<p>Identified as: <strong>' + esc(docType) + '</strong></p>' +
+              (nameFound ? '<p style="font-size:12px;color:' + nameColor + ';">' + nameLabel + esc(nameFound) + (dateFound ? ' &middot; Date: ' + esc(dateFound) : '') + '</p>' : '') +
               issuesHtml +
               '<button class="scan-submit" data-scan-action="viewdocs" type="button">View in My Documents</button>' +
               '<button class="scan-btn-outline" data-scan-action="another" type="button">Scan another</button>';
@@ -476,7 +481,7 @@
           throw new Error(data.message || "Could not verify this document.");
         }
       }).catch(function (err) {
-        showScanError(err.message);
+        showScanError(esc(err.message));
       });
     } else {
       // For PDFs/non-images, use the same AI verification endpoint (supports PDFs)
@@ -536,7 +541,7 @@
           if (resultEl) {
             var issuesHtml = "";
             if (v.issues && v.issues.length > 0) {
-              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + v.issues.join("<br>") + '</p>';
+              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + v.issues.map(esc).join("<br>") + '</p>';
             }
             var nameColor = nameMismatch ? "#dc2626" : "#64748b";
             var nameLabel = nameMismatch ? "Name (mismatch): " : "Name: ";
@@ -545,8 +550,8 @@
               (verified ? '<polyline points="20 6 9 17 4 12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>') +
               '</svg></div>' +
               '<h4>' + (verified ? "Document Verified" : (nameMismatch ? "Name Mismatch" : "Needs Review")) + '</h4>' +
-              '<p>Identified as: <strong>' + docType + '</strong></p>' +
-              (nameFound ? '<p style="font-size:12px;color:' + nameColor + ';">' + nameLabel + nameFound + (dateFound ? ' &middot; Date: ' + dateFound : '') + '</p>' : '') +
+              '<p>Identified as: <strong>' + esc(docType) + '</strong></p>' +
+              (nameFound ? '<p style="font-size:12px;color:' + nameColor + ';">' + nameLabel + esc(nameFound) + (dateFound ? ' &middot; Date: ' + esc(dateFound) : '') + '</p>' : '') +
               issuesHtml +
               '<button class="scan-submit" data-scan-action="viewdocs" type="button">View in My Documents</button>' +
               '<button class="scan-btn-outline" data-scan-action="another" type="button">Scan another</button>';
@@ -556,7 +561,7 @@
           throw new Error(data.message || "Could not verify this document.");
         }
       }).catch(function (err) {
-        showScanError(err.message);
+        showScanError(esc(err.message));
       });
     }
   }
@@ -567,7 +572,7 @@
       resultEl.innerHTML =
         '<div class="err"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>' +
         '<h4>Scan Failed</h4>' +
-        '<p>' + (msg || "Something went wrong.") + '</p>' +
+        '<p>' + esc(msg || "Something went wrong.") + '</p>' +
         '<button class="scan-btn-outline" data-scan-action="another" type="button">Try again</button>';
     }
     showStep("result");

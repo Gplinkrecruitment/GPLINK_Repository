@@ -7567,12 +7567,12 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const firstName = String(body.firstName || '').trim();
-    const lastName = String(body.lastName || '').trim();
-    const email = String(body.email || '').trim().toLowerCase();
-    const countryDial = String(body.countryDial || '').trim();
-    const phoneNumber = String(body.phoneNumber || '').trim();
-    const registrationCountry = String(body.registrationCountry || '').trim();
+    const firstName = sanitizeUserString(body.firstName, 100);
+    const lastName = sanitizeUserString(body.lastName, 100);
+    const email = String(body.email || '').trim().toLowerCase().slice(0, 320).replace(/[^\w.@+-]/g, '');
+    const countryDial = String(body.countryDial || '').trim().replace(/[^+\d]/g, '').slice(0, 6);
+    const phoneNumber = String(body.phoneNumber || '').trim().replace(/[^\d\s()-]/g, '').slice(0, 20);
+    const registrationCountry = sanitizeUserString(body.registrationCountry, 30);
     const method = body.codeMethod === 'sms' ? 'sms' : 'email';
 
     if (!firstName || !lastName || !isValidEmail(email) || !isValidPhone(phoneNumber)) {
@@ -9066,7 +9066,8 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const { imageBase64, mimeType, expectedCountry } = body || {};
+    const { imageBase64, mimeType } = body || {};
+    const expectedCountry = sanitizeUserString(body.expectedCountry, 20);
     const documentType = sanitizeUserString(body.documentType, 200);
     const profileName = sanitizeUserString(body.profileName, 200);
     if (!imageBase64 || !documentType || !expectedCountry) {
@@ -9629,7 +9630,9 @@ Classify this document.`;
       return;
     }
 
-    const { imageBase64, mimeType, qualificationName, profileName } = body || {};
+    const { imageBase64, mimeType } = body || {};
+    const qualificationName = sanitizeUserString(body.qualificationName, 200);
+    const profileName = sanitizeUserString(body.profileName, 200);
     if (!imageBase64) {
       sendJson(res, 400, { ok: false, message: 'Missing image data.' });
       return;

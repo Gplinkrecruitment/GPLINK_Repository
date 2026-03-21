@@ -631,7 +631,8 @@
       if (step.title || step.description) {
         const tooltip = document.createElement("span");
         tooltip.className = "registration-stepper-tooltip";
-        tooltip.innerHTML = `<strong>${step.title || "Step"}</strong>${step.description || ""}`;
+        const escHtml = (s) => String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        tooltip.innerHTML = `<strong>${escHtml(step.title || "Step")}</strong>${escHtml(step.description || "")}`;
         inner.appendChild(tooltip);
       }
 
