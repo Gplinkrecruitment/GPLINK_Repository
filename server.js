@@ -633,13 +633,13 @@ function checkAnthropicBudget() {
   return anthropicDailySpend.totalCostUsd < ANTHROPIC_DAILY_LIMIT_USD;
 }
 
-function recordAnthropicSpend(inputTokens, outputTokens) {
+function recordAnthropicSpend(inputTokens, outputTokens, cacheReadTokens = 0, cacheWriteTokens = 0) {
   const today = new Date().toISOString().slice(0, 10);
   if (anthropicDailySpend.date !== today) {
     anthropicDailySpend = { date: today, totalCostUsd: 0, callCount: 0 };
   }
-  // Claude Sonnet pricing: $3/M input, $15/M output; images ~$0.02 each
-  const cost = (inputTokens / 1000000) * 3 + (outputTokens / 1000000) * 15 + 0.02;
+  // Claude Sonnet pricing: $3/M input, $15/M output; cached input $0.30/M; images ~$0.01 each (compressed)
+  const cost = (inputTokens / 1000000) * 3 + (outputTokens / 1000000) * 15 + (cacheReadTokens / 1000000) * 0.30 + (cacheWriteTokens / 1000000) * 3.75 + 0.01;
   anthropicDailySpend.totalCostUsd += cost;
   anthropicDailySpend.callCount++;
 }
@@ -744,6 +744,24 @@ async function normalizeImageForAi(base64, mimeType) {
   const fallbackMimeType = normalizeImageMimeType(mimeType || 'image/jpeg');
   const detectedMimeType = normalizeImageMimeType(detectMimeFromBase64(rawBase64, fallbackMimeType));
   if (isClaudeSafeImageMimeType(detectedMimeType)) {
+    // Compress large images to reduce token cost (>500KB base64 ≈ >375KB file)
+    const estimatedBytes = rawBase64.length * 0.75;
+    if (estimatedBytes > 400000) {
+      const compressed = await invokeSupabaseEdgeFunction(SUPABASE_SCAN_NORMALIZER_FUNCTION, {
+        imageBase64: rawBase64,
+        mimeType: detectedMimeType,
+        quality: 72,
+        maxDimension: 1200
+      });
+      if (compressed.ok && compressed.data && typeof compressed.data.normalizedBase64 === 'string') {
+        const compBase64 = stripBase64DataUrlPrefix(compressed.data.normalizedBase64);
+        const compMime = normalizeImageMimeType(detectMimeFromBase64(compBase64, detectedMimeType));
+        if (isClaudeSafeImageMimeType(compMime)) {
+          return { ok: true, base64: compBase64, mediaType: compMime, normalized: true };
+        }
+      }
+      // Compression failed — fall through with original (still Claude-safe)
+    }
     return {
       ok: true,
       base64: rawBase64,
@@ -5972,7 +5990,7 @@ async function extractCareerContractTermsWithAi(fileName, fileBuffer, mimeType, 
     ? String(extractedText || '').slice(0, 30000)
     : '';
 
-  const prompt = `You are extracting relocation and remuneration terms from an employment contract for a GP placement.
+  const contractSystemPrompt = `You are extracting relocation and remuneration terms from an employment contract for a GP placement.
 
 Return ONLY valid JSON with these exact keys:
 {"splitDisplay":"","relocationPackageDisplay":"","contractLengthDisplay":"","notes":""}
@@ -5985,7 +6003,7 @@ Rules:
 - If a value is missing, use an empty string.
 - Do not invent values.`;
 
-  const content = [{ type: 'text', text: prompt }];
+  const content = [{ type: 'text', text: 'Extract the contract terms from this document.' }];
   if (isPdf) {
     content.push({
       type: 'document',
@@ -6014,6 +6032,7 @@ Rules:
         model: ANTHROPIC_MODEL,
         max_tokens: 300,
         temperature: 0,
+        system: [{ type: 'text', text: contractSystemPrompt, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content }]
       })
     });
@@ -6022,7 +6041,9 @@ Rules:
     const payload = await response.json().catch(() => null);
     const inputTokens = Number(payload && payload.usage && payload.usage.input_tokens || 0);
     const outputTokens = Number(payload && payload.usage && payload.usage.output_tokens || 0);
-    if (inputTokens || outputTokens) recordAnthropicSpend(inputTokens, outputTokens);
+    const contractCacheRead = (payload && payload.usage && payload.usage.cache_read_input_tokens) || 0;
+    const contractCacheWrite = (payload && payload.usage && payload.usage.cache_creation_input_tokens) || 0;
+    if (inputTokens || outputTokens) recordAnthropicSpend(inputTokens, outputTokens, contractCacheRead, contractCacheWrite);
 
     const text = payload && Array.isArray(payload.content) && payload.content[0] && typeof payload.content[0].text === 'string'
       ? payload.content[0].text
@@ -8344,10 +8365,7 @@ async function handleApi(req, res, pathname) {
     const dateRule = dateRules[expectedCountry] || 'any date';
 
     const isPrimaryMedDegree = documentType === 'Primary Medical Degree';
-    const prompt = `You are an automated qualification document reader for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized verification.
-
-Expected document type: ${documentType}
-${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountry}`}
+    const qualSystemPrompt = `You are an automated qualification document reader for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized verification.
 
 VERIFICATION RULES:
 1. Is this the correct document type? Check for the correct issuing body:
@@ -8368,7 +8386,7 @@ VERIFICATION RULES:
    - Criminal History Check: Police clearance, DBS check, Fit2Work report, or equivalent
    - CV (Signed and dated): The doctor's curriculum vitae, must be signed and dated
 
-${isPrimaryMedDegree ? '2. The date does not matter for primary medical degrees.' : `2. Is the date on the document valid? Must be from ${dateRule}.`}
+2. Check the date validity based on the per-request instructions.
 
 3. What full name appears on the document?
 
@@ -8386,6 +8404,11 @@ IMPORTANT:
 Return ONLY valid JSON with no markdown formatting:
 {"verified":true/false,"documentType":"what you identified","nameFound":"full name on document","dateFound":"date on document or null","issuingBody":"issuing body found","legible":true/false,"issues":["list of issues if any"]}`;
 
+    const qualUserPrompt = `Expected document type: ${documentType}
+${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountry}\n`}${isPrimaryMedDegree ? 'The date does not matter for primary medical degrees.' : `The date on the document must be from ${dateRule}.`}
+
+Verify this document.`;
+
     try {
       const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -8397,6 +8420,7 @@ Return ONLY valid JSON with no markdown formatting:
         body: JSON.stringify({
           model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
           max_tokens: 500,
+          system: [{ type: 'text', text: qualSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
             role: 'user',
             content: [
@@ -8404,7 +8428,7 @@ Return ONLY valid JSON with no markdown formatting:
                 type: 'image',
                 source: { type: 'base64', media_type: mediaType, data: aiImageBase64 }
               },
-              { type: 'text', text: prompt }
+              { type: 'text', text: qualUserPrompt }
             ]
           }]
         })
@@ -8425,7 +8449,9 @@ Return ONLY valid JSON with no markdown formatting:
       const anthropicData = await anthropicRes.json();
       const inputTokens = (anthropicData.usage && anthropicData.usage.input_tokens) || 0;
       const outputTokens = (anthropicData.usage && anthropicData.usage.output_tokens) || 0;
-      recordAnthropicSpend(inputTokens, outputTokens);
+      const cacheRead = (anthropicData.usage && anthropicData.usage.cache_read_input_tokens) || 0;
+      const cacheWrite = (anthropicData.usage && anthropicData.usage.cache_creation_input_tokens) || 0;
+      recordAnthropicSpend(inputTokens, outputTokens, cacheRead, cacheWrite);
       if (verifyEmail) recordUserAiCall(verifyEmail);
 
       const textContent = anthropicData.content && anthropicData.content[0] && anthropicData.content[0].text;
@@ -8510,9 +8536,7 @@ Return ONLY valid JSON with no markdown formatting:
     const certMediaType = normalizedImage.mediaType;
     const aiImageBase64 = normalizedImage.base64;
 
-    const certPrompt = `You are an automated document certification checker for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
-
-The user has uploaded what should be a CERTIFIED COPY of: ${documentType || 'a qualification document'}
+    const certSystemPrompt = `You are an automated document certification checker for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
 
 Your job is to check whether the document shows evidence of proper certification by a solicitor, public notary, or authorised certifier. A properly certified document should have MOST of the following written, stamped, or printed on the copy:
 
@@ -8534,6 +8558,10 @@ IMPORTANT:
 Return ONLY valid JSON with no markdown formatting:
 {"certified":true,"statementPresent":true,"signaturePresent":true,"certifierName":"name or null","certifierOccupation":"occupation or null","certifierDate":"date or null","contactPresent":true,"stampPresent":true,"issues":[]}`;
 
+    const certUserPrompt = `The user has uploaded what should be a CERTIFIED COPY of: ${documentType || 'a qualification document'}
+
+Check this document for certification markings.`;
+
     try {
       const certRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -8544,12 +8572,13 @@ Return ONLY valid JSON with no markdown formatting:
         },
         body: JSON.stringify({
           model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-          max_tokens: 500,
+          max_tokens: 300,
+          system: [{ type: 'text', text: certSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
             role: 'user',
             content: [
               { type: 'image', source: { type: 'base64', media_type: certMediaType, data: aiImageBase64 } },
-              { type: 'text', text: certPrompt }
+              { type: 'text', text: certUserPrompt }
             ]
           }]
         })
@@ -8570,7 +8599,9 @@ Return ONLY valid JSON with no markdown formatting:
       const certData = await certRes.json();
       const certInputTokens = (certData.usage && certData.usage.input_tokens) || 0;
       const certOutputTokens = (certData.usage && certData.usage.output_tokens) || 0;
-      recordAnthropicSpend(certInputTokens, certOutputTokens);
+      const certCacheRead = (certData.usage && certData.usage.cache_read_input_tokens) || 0;
+      const certCacheWrite = (certData.usage && certData.usage.cache_creation_input_tokens) || 0;
+      recordAnthropicSpend(certInputTokens, certOutputTokens, certCacheRead, certCacheWrite);
       if (certEmail) recordUserAiCall(certEmail);
 
       const certText = certData.content && certData.content[0] && certData.content[0].text;
@@ -8650,11 +8681,9 @@ Return ONLY valid JSON with no markdown formatting:
       contentBlock = { type: 'image', source: { type: 'base64', media_type: normalizedImage.mediaType, data: normalizedImage.base64 } };
     }
 
-    const classifyPrompt = `You are an automated document classifier for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
+    const classifySystemPrompt = `You are an automated document classifier for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
 
-The user is trying to upload a document for: ${expectedLabel}
-
-Your job is to determine whether this document is actually a "${expectedLabel}" or something else entirely.
+Your job is to determine whether a document matches what the user claims it is, or something else entirely.
 
 Valid document types and what they look like:
 - Primary Medical Degree: MBBS, MBChB, MB BCh BAO, MD, BMed certificate from a university/medical school
@@ -8679,6 +8708,10 @@ IMPORTANT:
 Return ONLY valid JSON with no markdown formatting:
 {"matches": true/false, "identifiedAs": "what the document actually appears to be", "reason": "brief explanation"}`;
 
+    const classifyUserPrompt = `The user is trying to upload a document for: ${expectedLabel}
+
+Classify this document.`;
+
     try {
       const classifyRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -8689,12 +8722,13 @@ Return ONLY valid JSON with no markdown formatting:
         },
         body: JSON.stringify({
           model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-          max_tokens: 300,
+          max_tokens: 150,
+          system: [{ type: 'text', text: classifySystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
             role: 'user',
             content: [
               contentBlock,
-              { type: 'text', text: classifyPrompt }
+              { type: 'text', text: classifyUserPrompt }
             ]
           }]
         })
@@ -8712,7 +8746,9 @@ Return ONLY valid JSON with no markdown formatting:
       const classifyData = await classifyRes.json();
       const cInputTokens = (classifyData.usage && classifyData.usage.input_tokens) || 0;
       const cOutputTokens = (classifyData.usage && classifyData.usage.output_tokens) || 0;
-      recordAnthropicSpend(cInputTokens, cOutputTokens);
+      const cCacheRead = (classifyData.usage && classifyData.usage.cache_read_input_tokens) || 0;
+      const cCacheWrite = (classifyData.usage && classifyData.usage.cache_creation_input_tokens) || 0;
+      recordAnthropicSpend(cInputTokens, cOutputTokens, cCacheRead, cCacheWrite);
       if (classifyEmail) recordUserAiCall(classifyEmail);
 
       const classifyText = classifyData.content && classifyData.content[0] && classifyData.content[0].text;
@@ -8865,7 +8901,7 @@ Return ONLY valid JSON with no markdown formatting:
     const mediaType = normalizedImage.mediaType;
     const aiImageBase64 = normalizedImage.base64;
 
-    const idPrompt = `You are an automated identity document reader for a licensed GP recruitment platform. The user has given full consent to upload their ID for name verification. This is a routine, authorized identity check.
+    const idSystemPrompt = `You are an automated identity document reader for a licensed GP recruitment platform. The user has given full consent to upload their ID for name verification. This is a routine, authorized identity check.
 
 YOUR ONLY JOB:
 1. Identify whether this is a passport or driver's licence.
@@ -8887,6 +8923,8 @@ IMPORTANT RULES:
 Return ONLY valid JSON with no markdown formatting:
 {"verified":true/false,"documentType":"passport or drivers_licence or other","nameFound":"full name on document","legible":true/false,"issues":["list of issues if any"]}`;
 
+    const idUserPrompt = 'Verify this ID document.';
+
     try {
       const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -8897,12 +8935,13 @@ Return ONLY valid JSON with no markdown formatting:
         },
         body: JSON.stringify({
           model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-          max_tokens: 400,
+          max_tokens: 200,
+          system: [{ type: 'text', text: idSystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{
             role: 'user',
             content: [
               { type: 'image', source: { type: 'base64', media_type: mediaType, data: aiImageBase64 } },
-              { type: 'text', text: idPrompt }
+              { type: 'text', text: idUserPrompt }
             ]
           }]
         })
@@ -8920,7 +8959,9 @@ Return ONLY valid JSON with no markdown formatting:
       const anthropicData = await anthropicRes.json();
       const inputTokens = (anthropicData.usage && anthropicData.usage.input_tokens) || 0;
       const outputTokens = (anthropicData.usage && anthropicData.usage.output_tokens) || 0;
-      recordAnthropicSpend(inputTokens, outputTokens);
+      const idCacheRead = (anthropicData.usage && anthropicData.usage.cache_read_input_tokens) || 0;
+      const idCacheWrite = (anthropicData.usage && anthropicData.usage.cache_creation_input_tokens) || 0;
+      recordAnthropicSpend(inputTokens, outputTokens, idCacheRead, idCacheWrite);
       if (verifyEmail) recordUserAiCall(verifyEmail);
 
       const textContent = anthropicData.content && anthropicData.content[0] && anthropicData.content[0].text;
