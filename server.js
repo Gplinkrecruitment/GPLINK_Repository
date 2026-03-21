@@ -2968,6 +2968,19 @@ function makeCareerRoleId(provider, providerRoleId) {
   return `${String(provider || 'zoho_recruit').trim()}:${String(providerRoleId || '').trim()}`;
 }
 
+function mergeCareerRoleClientLists(...lists) {
+  const merged = new Map();
+  lists.forEach((list) => {
+    (Array.isArray(list) ? list : []).forEach((role) => {
+      if (!role || typeof role !== 'object') return;
+      const id = String(role.id || '').trim();
+      if (!id || merged.has(id)) return;
+      merged.set(id, role);
+    });
+  });
+  return Array.from(merged.values());
+}
+
 function splitDelimitedText(value) {
   return stripHtml(String(value || ''))
     .split(/\n|;|\||•|·/g)
@@ -4953,7 +4966,7 @@ async function syncZohoRecruitRoles() {
     }
   }
 
-  const existing = await listCareerRoleRows(false);
+  const existing = await listCareerRoleRows(false, 'zoho_recruit');
   const inactiveIds = existing
     .map((row) => row && typeof row.provider_role_id === 'string' ? row.provider_role_id : '')
     .filter((id) => id && !seenIds.has(id));
@@ -5654,6 +5667,61 @@ function getZohoPlacementLocation(jobOpeningRecord, roleRow) {
   return liveLocation || rowLocation || buildCareerPublicLocationLine(roleRow, gpLinkMeta && gpLinkMeta.suburb) || 'Australia';
 }
 
+function getPlacementStartDate(startDateIso, applicationRecord, jobOpeningRecord, roleRow) {
+  return normalizePlacementStartDate(startDateIso)
+    || normalizePlacementStartDate(getZohoField(applicationRecord, ['Expected_Date_of_Joining', 'Expected_Joining_Date', 'Start_Date']))
+    || normalizePlacementStartDate(getZohoField(jobOpeningRecord, ['Target_Date', 'Expected_Start_Date', 'Start_Date', 'Date_Opened']))
+    || normalizePlacementStartDate(getZohoField(getCareerRoleRawPayload(roleRow), ['Target_Date', 'Expected_Start_Date', 'Start_Date']))
+    || '';
+}
+
+function derivePlacementRoleTitle(roleRow, jobOpeningRecord, practiceName) {
+  const liveTitle = getZohoField(jobOpeningRecord, ['Role_Title', 'Job_Title', 'Title']);
+  const rowTitle = roleRow && roleRow.title ? String(roleRow.title).trim() : '';
+  const normalizedPractice = String(practiceName || '').trim().toLowerCase();
+  const selected = liveTitle || rowTitle;
+  if (!selected) return 'General Practitioner';
+  if (selected.trim().toLowerCase() === normalizedPractice) return 'General Practitioner';
+  return selected;
+}
+
+function extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow) {
+  const roleRaw = getCareerRoleRawPayload(roleRow);
+  const sourceText = [
+    getZohoField(jobOpeningRecord, ['Benefit_1', 'Benefit_2', 'Benefit_3', 'Short_Intro', 'Additional_Information', 'Job_Description', 'Description']),
+    getZohoField(roleRaw, ['Benefit_1', 'Benefit_2', 'Benefit_3', 'Short_Intro', 'Additional_Information', 'Job_Description', 'Description'])
+  ].filter(Boolean).join(' ');
+  return heuristicExtractCareerContractTerms(sourceText) || {
+    splitDisplay: '',
+    relocationPackageDisplay: '',
+    contractLengthDisplay: ''
+  };
+}
+
+const BUILD_PRACTICE_CONTACT_FALLBACKS = {
+  '11734000000934182': {
+    name: 'Khaleed Mahmoud',
+    role: 'Medical centre contact',
+    phone: '+61 406 281 243',
+    email: 'khaleedmahmoud1211@gmail.com',
+    whatsapp: '+61406281243'
+  }
+};
+
+function buildPlacementFallbackPracticeContact(jobOpeningRecord, fallbackPracticeName, providerRoleId) {
+  const seeded = BUILD_PRACTICE_CONTACT_FALLBACKS[String(providerRoleId || '').trim()] || null;
+  const name = getZohoField(jobOpeningRecord, ['Contact_Name']) || (seeded && seeded.name) || `${String(fallbackPracticeName || '').trim() || 'Medical Centre'} Team`;
+  return {
+    name,
+    initials: buildInitials(name),
+    role: (seeded && seeded.role) || 'Medical centre contact',
+    meta: seeded ? 'Reach out directly to the practice' : 'Direct contact details will appear here once synced',
+    phone: seeded && seeded.phone ? seeded.phone : '',
+    email: seeded && seeded.email ? seeded.email : '',
+    whatsapp: seeded && seeded.whatsapp ? seeded.whatsapp : ((seeded && seeded.phone) || '')
+  };
+}
+
 function buildPracticeContactPayload(contactRecord, fallbackPracticeName) {
   const name = buildZohoDisplayName(contactRecord) || `${String(fallbackPracticeName || '').trim() || 'Medical Centre'} Team`;
   const email = getZohoField(contactRecord, ['Email', 'Secondary_Email']);
@@ -5675,38 +5743,38 @@ async function buildCareerPlacementPayload({
   roleRow,
   jobOpeningRecord,
   startDateIso,
-  practiceContacts
+  practiceContacts,
+  providerRoleId
 }) {
-  if (!applicationRecord) return null;
-
   const practiceName = getZohoApplicationPracticeName(applicationRecord)
+    || getZohoField(jobOpeningRecord, ['Posting_Title', 'Job_Opening_Name', 'Title'])
     || (roleRow && roleRow.practice_name)
     || 'Medical Centre';
-  const roleTitle = (roleRow && roleRow.title)
-    || getZohoField(jobOpeningRecord, ['Role_Title', 'Job_Title', 'Title'])
-    || 'General Practitioner';
+  const roleTitle = derivePlacementRoleTitle(roleRow, jobOpeningRecord, practiceName);
   const location = getZohoPlacementLocation(jobOpeningRecord, roleRow);
-  const contractTerms = await resolveCareerContractTerms(zoho, sanitizeZohoText(applicationRecord.id));
+  const contractTerms = applicationRecord ? await resolveCareerContractTerms(zoho, sanitizeZohoText(applicationRecord.id)) : null;
+  const fallbackTerms = extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow);
   const billingLabel = normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
     || normalizeCareerBillingLabel(roleRow && roleRow.billing_model)
     || 'Billing pending';
-  const splitDisplay = contractTerms && contractTerms.splitDisplay
-    ? contractTerms.splitDisplay
-    : 'Pending';
-  const relocationDisplay = contractTerms && contractTerms.relocationPackageDisplay
-    ? contractTerms.relocationPackageDisplay
-    : '$10,000AUD';
+  const splitDisplay = (contractTerms && contractTerms.splitDisplay) || fallbackTerms.splitDisplay || 'Pending';
+  const relocationDisplay = (contractTerms && contractTerms.relocationPackageDisplay) || fallbackTerms.relocationPackageDisplay || '$10,000AUD';
+  const contractLengthDisplay = (contractTerms && contractTerms.contractLengthDisplay) || fallbackTerms.contractLengthDisplay || 'Pending';
   const roleClient = roleRow ? mapCareerRoleRowToClient(roleRow) : null;
   const practiceContactRecord = Array.isArray(practiceContacts) && practiceContacts.length > 0
     ? practiceContacts.slice().sort(sortZohoRecordsByRecent)[0]
     : null;
+  const practiceContact = practiceContactRecord
+    ? buildPracticeContactPayload(practiceContactRecord, practiceName)
+    : buildPlacementFallbackPracticeContact(jobOpeningRecord, practiceName, providerRoleId);
+  const resolvedStartDateIso = getPlacementStartDate(startDateIso, applicationRecord, jobOpeningRecord, roleRow);
 
   return {
     practiceName,
     roleTitle,
     location,
     statusLabel: 'Placement confirmed',
-    startDateIso,
+    startDateIso: resolvedStartDateIso,
     quickStats: [
       { label: 'Billing', value: billingLabel.replace(/\s+Billing$/i, '') || billingLabel },
       { label: 'Split', value: splitDisplay },
@@ -5718,7 +5786,7 @@ async function buildCareerPlacementPayload({
       imageUrl: roleClient && roleClient.heroImageUrl ? roleClient.heroImageUrl : '',
       mapQuery: roleClient && roleClient.mapQuery ? roleClient.mapQuery : location
     },
-    practiceContact: buildPracticeContactPayload(practiceContactRecord, practiceName),
+    practiceContact,
     compensation: {
       range: '$2,500-$3,500',
       unit: 'Per Day',
@@ -5729,9 +5797,7 @@ async function buildCareerPlacementPayload({
         { label: 'Relocation package', value: relocationDisplay || 'Pending' },
         {
           label: 'Contract length',
-          value: contractTerms && contractTerms.contractLengthDisplay
-            ? contractTerms.contractLengthDisplay
-            : 'Pending'
+          value: contractLengthDisplay
         }
       ]
     }
@@ -6755,7 +6821,12 @@ async function handleApi(req, res, pathname) {
     const now = Date.now();
     const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     if (_zohoRolesCache && _zohoRolesCache.roles && (now - _zohoRolesCache.ts) < CACHE_TTL) {
-      sendJson(res, 200, { ok: true, source: 'zoho-live', roles: _zohoRolesCache.roles });
+      const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+      sendJson(res, 200, {
+        ok: true,
+        source: 'zoho-live',
+        roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), _zohoRolesCache.roles)
+      });
       return;
     }
 
@@ -6764,7 +6835,12 @@ async function handleApi(req, res, pathname) {
       try {
         const cachedRoles = await _zohoRolesFetchPromise;
         if (cachedRoles) {
-          sendJson(res, 200, { ok: true, source: 'zoho-live', roles: cachedRoles });
+          const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+          sendJson(res, 200, {
+            ok: true,
+            source: 'zoho-live',
+            roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), cachedRoles)
+          });
           return;
         }
       } catch {
@@ -6805,7 +6881,12 @@ async function handleApi(req, res, pathname) {
       try {
         const allRoles = await _zohoRolesFetchPromise;
         if (allRoles) {
-          sendJson(res, 200, { ok: true, source: 'zoho-live', roles: allRoles });
+          const manualRows = isSupabaseDbConfigured() ? await listCareerRoleRows(true, 'manual') : [];
+          sendJson(res, 200, {
+            ok: true,
+            source: 'zoho-live',
+            roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), allRoles)
+          });
           return;
         }
       } catch {
@@ -6991,7 +7072,7 @@ async function handleApi(req, res, pathname) {
 
     // Create Zoho Application if we have a candidate ID
     let zohoApplicationId = '';
-    if (zohoCandidateId && isZohoRecruitConfigured()) {
+    if (zohoCandidateId && isZohoRecruitConfigured() && parsedRoleId.provider === 'zoho_recruit') {
       const appResult = await createZohoRecruitApplication(zohoCandidateId, parsedRoleId.providerRoleId);
       if (appResult.ok && appResult.data && appResult.data.data && appResult.data.data[0]) {
         const detail = appResult.data.data[0].details;
@@ -7138,14 +7219,17 @@ async function handleApi(req, res, pathname) {
           billing: normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing'])) || 'Billing pending',
           roleType: getZohoField(jobOpeningRecord, ['Role_Title', 'Job_Title', 'Title']) || 'General Practitioner'
         };
-      const placement = (liveRecord && isCareerPlacementSecuredStatus(status))
+      const placement = (isCareerPlacementSecuredStatus(status) && (liveRecord || localApp))
         ? await buildCareerPlacementPayload({
           zoho,
           applicationRecord: liveRecord,
           roleRow,
           jobOpeningRecord,
-          startDateIso: startDateIso || normalizePlacementStartDate(getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Expected_Joining_Date'])),
-          practiceContacts
+          startDateIso: startDateIso
+            || normalizePlacementStartDate(getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Expected_Joining_Date']))
+            || normalizePlacementStartDate(getZohoField(jobOpeningRecord, ['Target_Date', 'Expected_Start_Date', 'Start_Date'])),
+          practiceContacts,
+          providerRoleId
         })
         : null;
 
@@ -7195,7 +7279,7 @@ async function handleApi(req, res, pathname) {
 
     const [connection, roles] = await Promise.all([
       getZohoRecruitConnection(),
-      listCareerRoleRows(false)
+      listCareerRoleRows(false, 'zoho_recruit')
     ]);
     sendJson(res, 200, {
       ok: true,
@@ -7369,7 +7453,7 @@ async function handleApi(req, res, pathname) {
 
     const [connection, roles] = await Promise.all([
       getZohoRecruitConnection(),
-      listCareerRoleRows(false)
+      listCareerRoleRows(false, 'zoho_recruit')
     ]);
     sendJson(res, 200, {
       ok: true,

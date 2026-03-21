@@ -5180,6 +5180,9 @@
     }
 
     function renderPage() {
+      if (careerState.activeView === "secured" && !hasSecuredPlacement()) {
+        careerState.activeView = careerState.applications.length ? "applications" : "browse";
+      }
       renderSearchFilterControls();
       renderHeroShortcuts();
       renderRoles();
