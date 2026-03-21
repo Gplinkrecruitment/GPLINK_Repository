@@ -55,12 +55,8 @@ const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
 const REQUIRED_ZOHO_RECRUIT_SCOPES = Object.freeze([
-  'ZohoRecruit.modules.jobopening.READ',
-  'ZohoRecruit.modules.candidate.ALL',
-  'ZohoRecruit.modules.application.ALL',
-  'ZohoRecruit.modules.client.READ',
-  'ZohoRecruit.modules.contact.READ',
-  'ZohoRecruit.modules.attachments.ALL',
+  'ZohoRecruit.modules.ALL',
+  'ZohoRecruit.modules.attachments.all',
   'ZohoRecruit.search.READ'
 ]);
 const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || REQUIRED_ZOHO_RECRUIT_SCOPES.join(',')).trim() || REQUIRED_ZOHO_RECRUIT_SCOPES.join(',');
@@ -4263,6 +4259,9 @@ function doesZohoRecruitScopeGrant(requiredScope, grantedScopes) {
   const grantedKeys = new Set(parseZohoRecruitScopes(grantedScopes).map((item) => item.toLowerCase()));
   const requiredKey = normalizedRequired.toLowerCase();
   if (grantedKeys.has(requiredKey)) return true;
+  if (requiredKey.startsWith('zohorecruit.modules.')) {
+    if (grantedKeys.has('zohorecruit.modules.all')) return true;
+  }
   if (requiredKey.endsWith('.read')) {
     const elevated = `${requiredKey.slice(0, -5)}.all`;
     if (grantedKeys.has(elevated)) return true;
