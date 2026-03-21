@@ -1785,6 +1785,766 @@
       color: #0f172a;
     }
 
+    .practice-lifestyle-module {
+      display: grid;
+      gap: 10px;
+    }
+
+    .practice-lifestyle-head {
+      display: grid;
+      gap: 4px;
+      padding: 0 2px;
+    }
+
+    .practice-lifestyle-intro {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-explorer {
+      display: grid;
+      gap: 0;
+    }
+
+    .practice-lifestyle-map-shell {
+      position: relative;
+      min-height: 360px;
+      overflow: hidden;
+      border-radius: 20px;
+      background: #08111d;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 26px 44px -34px rgba(2, 6, 23, 0.92);
+      transition: border-radius .28s ease;
+    }
+
+    .practice-lifestyle-explorer.is-open .practice-lifestyle-map-shell {
+      border-radius: 20px 20px 0 0;
+    }
+
+    .practice-lifestyle-map-bg,
+    .practice-lifestyle-map-grid,
+    .practice-lifestyle-map-glow,
+    .practice-lifestyle-map-vignette,
+    .practice-lifestyle-map-topfade,
+    .practice-lifestyle-routes,
+    .practice-lifestyle-catchment,
+    .practice-lifestyle-radius {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .practice-lifestyle-map-bg {
+      inset: -12%;
+      background:
+        radial-gradient(circle at 18% 22%, rgba(59, 130, 246, 0.18), transparent 28%),
+        radial-gradient(circle at 78% 32%, rgba(37, 99, 235, 0.14), transparent 26%),
+        linear-gradient(180deg, rgba(4, 9, 15, 0.12), rgba(4, 9, 15, 0.42)),
+        var(--practice-lifestyle-map-image, url("../media/images/account-header.webp")) center/cover no-repeat;
+      filter: brightness(0.35) saturate(0.6) hue-rotate(200deg);
+      transform: scale(1.08);
+    }
+
+    .practice-lifestyle-map-grid {
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.28;
+      mix-blend-mode: screen;
+    }
+
+    .practice-lifestyle-map-glow {
+      background: radial-gradient(circle at 50% 54%, rgba(59, 130, 246, 0.06), transparent 34%);
+    }
+
+    .practice-lifestyle-map-vignette {
+      background:
+        radial-gradient(circle at 50% 52%, transparent 0%, transparent 44%, rgba(3, 7, 18, 0.34) 78%, rgba(3, 7, 18, 0.62) 100%),
+        linear-gradient(180deg, rgba(4, 9, 15, 0.04), rgba(4, 9, 15, 0.28));
+    }
+
+    .practice-lifestyle-map-topfade {
+      height: 120px;
+      background: linear-gradient(180deg, rgba(11, 15, 20, 0.85) 0%, rgba(11, 15, 20, 0.24) 62%, transparent 100%);
+    }
+
+    .practice-lifestyle-overlay {
+      position: absolute;
+      inset: 0;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .practice-lifestyle-topcopy {
+      display: grid;
+      gap: 4px;
+      max-width: 240px;
+    }
+
+    .practice-lifestyle-map-title {
+      margin: 0;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .practice-lifestyle-map-subtitle {
+      margin: 0;
+      color: #9ca3af;
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 600;
+    }
+
+    .practice-lifestyle-stage {
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .practice-lifestyle-radius {
+      display: grid;
+      place-items: center;
+      z-index: 1;
+    }
+
+    .practice-lifestyle-radius::before {
+      content: "";
+      width: var(--radius-size, 144px);
+      height: var(--radius-size, 144px);
+      border-radius: 999px;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0.02) 58%, transparent 100%);
+      box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.04);
+      animation: lifestyleRadiusIn .4s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    }
+
+    .practice-lifestyle-catchment {
+      inset: auto;
+      left: 20%;
+      top: 20%;
+      width: 60%;
+      height: 40%;
+      border-radius: 18px;
+      border: 1.5px dashed rgba(168, 85, 247, 0.3);
+      background: rgba(168, 85, 247, 0.04);
+      animation: lifestyleOverlayIn .32s ease-out both;
+    }
+
+    .practice-lifestyle-routes {
+      z-index: 1;
+      opacity: 0.94;
+      animation: lifestyleOverlayIn .36s ease-out both;
+    }
+
+    .practice-lifestyle-routes line {
+      stroke: rgba(34, 197, 94, 0.4);
+      stroke-width: 1.5;
+      stroke-dasharray: 6 4;
+      stroke-linecap: round;
+    }
+
+    .practice-lifestyle-practice-pin {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 40px;
+      height: 40px;
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center;
+      z-index: 5;
+    }
+
+    .practice-lifestyle-practice-pulse {
+      position: absolute;
+      inset: -14px;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.2);
+      animation: lifestylePracticePulse 2s ease-out infinite;
+    }
+
+    .practice-lifestyle-practice-core {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: #fff;
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.4), 0 0 40px rgba(59, 130, 246, 0.15);
+    }
+
+    .practice-lifestyle-practice-core svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-point {
+      position: absolute;
+      left: var(--x, 50%);
+      top: var(--y, 50%);
+      width: 28px;
+      height: 28px;
+      transform: translate(-50%, -50%);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      padding: 0;
+      pointer-events: auto;
+      cursor: pointer;
+      animation: lifestylePinIn .3s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+      animation-delay: calc(var(--stagger, 0) * 80ms);
+      transition: transform .2s ease, box-shadow .2s ease, background .2s ease, color .2s ease;
+    }
+
+    .practice-lifestyle-point:hover {
+      transform: translate(-50%, -50%) scale(1.05);
+    }
+
+    .practice-lifestyle-point svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-point-housing {
+      background: rgba(255, 255, 255, 0.96);
+      color: #1e293b;
+      box-shadow: 0 16px 32px -22px rgba(2, 6, 23, 0.96);
+    }
+
+    .practice-lifestyle-point-housing.is-selected {
+      background: #2563eb;
+      color: #fff;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.5), 0 16px 28px -18px rgba(37, 99, 235, 0.86);
+    }
+
+    .practice-lifestyle-point-schools {
+      background: rgba(168, 85, 247, 0.9);
+      color: #fff;
+      box-shadow: 0 0 18px rgba(168, 85, 247, 0.3), 0 12px 26px -20px rgba(76, 29, 149, 0.86);
+    }
+
+    .practice-lifestyle-point-flights {
+      background: rgba(34, 197, 94, 0.9);
+      color: #fff;
+      box-shadow: 0 0 18px rgba(34, 197, 94, 0.25), 0 12px 26px -20px rgba(20, 83, 45, 0.86);
+    }
+
+    .practice-lifestyle-dock {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      z-index: 6;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .practice-lifestyle-dock-inner {
+      width: min(100%, 296px);
+      padding: 6px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      border-radius: 24px;
+      background: rgba(11, 15, 20, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      pointer-events: auto;
+    }
+
+    .practice-lifestyle-tab {
+      min-height: 60px;
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      gap: 6px;
+      padding: 10px 8px;
+      border-radius: 16px;
+      border: 0;
+      background: transparent;
+      color: #6b7280;
+      cursor: pointer;
+      transition: background .22s ease, color .22s ease, box-shadow .22s ease;
+    }
+
+    .practice-lifestyle-tab svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-tab span {
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .practice-lifestyle-tab.is-active {
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.24), 0 12px 28px -24px rgba(59, 130, 246, 0.86);
+      text-shadow: 0 0 10px rgba(59, 130, 246, 0.32);
+    }
+
+    .practice-lifestyle-drawer {
+      display: grid;
+      gap: 14px;
+      margin-top: -1px;
+      padding: 18px 14px 14px;
+      border-radius: 0 0 18px 18px;
+      background: linear-gradient(180deg, rgba(13, 18, 27, 0.98), rgba(11, 15, 22, 0.98));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-top: 0;
+      box-shadow: 0 22px 40px -34px rgba(2, 6, 23, 0.94);
+      animation: lifestyleDrawerIn .35s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+    }
+
+    .practice-lifestyle-segmented {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      padding: 4px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .practice-lifestyle-segmented button,
+    .practice-lifestyle-filter-pill {
+      min-height: 36px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: #6b7280;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      transition: background .18s ease, color .18s ease, box-shadow .18s ease;
+    }
+
+    .practice-lifestyle-segmented button.is-active {
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.18);
+    }
+
+    .practice-lifestyle-segmented.is-schools button.is-active {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c4b5fd;
+      box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.2);
+    }
+
+    .practice-lifestyle-radius-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-radius-value {
+      color: #e2e8f0;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-range {
+      width: 100%;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      margin: 0;
+    }
+
+    .practice-lifestyle-range:focus-visible {
+      outline: none;
+    }
+
+    .practice-lifestyle-range::-webkit-slider-runnable-track {
+      height: 3px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    .practice-lifestyle-range::-moz-range-track {
+      height: 3px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    .practice-lifestyle-range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      margin-top: -4.5px;
+      border-radius: 999px;
+      border: 0;
+      background: #3b82f6;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
+    }
+
+    .practice-lifestyle-range::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 0;
+      background: #3b82f6;
+      box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.18);
+    }
+
+    .practice-lifestyle-range-scale {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #6b7280;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .practice-lifestyle-card-rail {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 180px;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      scroll-snap-type: x proximity;
+    }
+
+    .practice-lifestyle-card-rail::-webkit-scrollbar {
+      display: none;
+    }
+
+    .practice-lifestyle-property-card {
+      display: grid;
+      gap: 10px;
+      padding: 0;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.04);
+      color: inherit;
+      text-align: left;
+      overflow: hidden;
+      cursor: pointer;
+      scroll-snap-align: start;
+      transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease;
+    }
+
+    .practice-lifestyle-property-card:hover {
+      transform: translateY(-1px);
+    }
+
+    .practice-lifestyle-property-card.is-selected {
+      border-color: rgba(59, 130, 246, 0.4);
+      box-shadow: 0 14px 28px -24px rgba(59, 130, 246, 0.76);
+    }
+
+    .practice-lifestyle-property-thumb {
+      position: relative;
+      height: 100px;
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.42)),
+        var(--thumb-image, linear-gradient(135deg, #334155, #0f172a));
+      background-size: cover;
+      background-position: var(--thumb-position, center);
+    }
+
+    .practice-lifestyle-property-body {
+      display: grid;
+      gap: 8px;
+      padding: 0 12px 12px;
+    }
+
+    .practice-lifestyle-property-price {
+      margin: 0;
+      color: #fff;
+      font-size: 24px;
+      line-height: 1;
+      letter-spacing: -0.03em;
+      font-weight: 800;
+    }
+
+    .practice-lifestyle-property-meta {
+      color: #6b7280;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .practice-lifestyle-property-drive {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: #94a3b8;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-property-drive svg,
+    .practice-lifestyle-flight-time svg {
+      width: 12px;
+      height: 12px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-filter-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .practice-lifestyle-filter-pill {
+      min-height: 32px;
+      padding: 0 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .practice-lifestyle-filter-pill.is-active {
+      background: rgba(168, 85, 247, 0.15);
+      border-color: rgba(168, 85, 247, 0.2);
+      color: #c4b5fd;
+      box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.16);
+    }
+
+    .practice-lifestyle-school-list,
+    .practice-lifestyle-flight-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .practice-lifestyle-school-card,
+    .practice-lifestyle-flight-card {
+      display: grid;
+      gap: 6px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .practice-lifestyle-school-top,
+    .practice-lifestyle-flight-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .practice-lifestyle-school-name,
+    .practice-lifestyle-flight-name {
+      margin: 0;
+      color: #fff;
+      font-size: 14px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .practice-lifestyle-school-meta,
+    .practice-lifestyle-flight-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: #6b7280;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .practice-lifestyle-school-meta strong {
+      color: #a78bfa;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-school-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-school-badge svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-school-badge.is-catchment {
+      color: #4ade80;
+    }
+
+    .practice-lifestyle-school-badge.is-outside {
+      color: #fbbf24;
+    }
+
+    .practice-lifestyle-drawer-subtitle {
+      margin: 0;
+      color: #6b7280;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-flight-top {
+      align-items: center;
+    }
+
+    .practice-lifestyle-flight-left {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .practice-lifestyle-flight-iconbox {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+    }
+
+    .practice-lifestyle-flight-iconbox.is-airport {
+      background: rgba(37, 99, 235, 0.24);
+    }
+
+    .practice-lifestyle-flight-iconbox.is-destination {
+      background: rgba(34, 197, 94, 0.2);
+    }
+
+    .practice-lifestyle-flight-iconbox svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-flight-time {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .practice-lifestyle-empty {
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      color: #94a3b8;
+      font-size: 12px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+
+    @keyframes lifestylePracticePulse {
+      0% {
+        transform: scale(0.86);
+        opacity: 0.72;
+      }
+      70% {
+        transform: scale(1.82);
+        opacity: 0;
+      }
+      100% {
+        transform: scale(1.82);
+        opacity: 0;
+      }
+    }
+
+    @keyframes lifestylePinIn {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.25);
+      }
+      100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+    }
+
+    @keyframes lifestyleRadiusIn {
+      0% {
+        opacity: 0;
+        transform: scale(0.4);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @keyframes lifestyleOverlayIn {
+      0% {
+        opacity: 0;
+      }
+      100% {
+        opacity: 1;
+      }
+    }
+
+    @keyframes lifestyleDrawerIn {
+      0% {
+        opacity: 0;
+        transform: translateY(-12px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
     .placement-practice-contact-card {
       gap: 14px;
       background: rgba(15, 23, 42, 0.9);
@@ -3245,6 +4005,30 @@
       line-height: 1.08;
     }
 
+    body.career-mode-secured .practice-lifestyle-head {
+      gap: 3px;
+    }
+
+    body.career-mode-secured .practice-lifestyle-intro {
+      font-size: 11px;
+      color: #64748b;
+    }
+
+    body.career-mode-secured .practice-lifestyle-map-shell {
+      min-height: 360px;
+      border-color: rgba(255, 255, 255, 0.08);
+      box-shadow: 0 24px 40px -34px rgba(2, 6, 23, 0.94);
+    }
+
+    body.career-mode-secured .practice-lifestyle-drawer {
+      padding: 16px 14px 14px;
+      border-radius: 0 0 16px 16px;
+    }
+
+    body.career-mode-secured .practice-lifestyle-card-rail {
+      grid-auto-columns: 172px;
+    }
+
     body.career-mode-secured .placement-broker-card,
     body.career-mode-secured .placement-secondary-grid {
       display: none;
@@ -3544,38 +4328,14 @@
           </section>
 
           <div class="placement-primary-grid">
-            <article class="placement-story-card">
-              <div class="placement-story-media" id="securedStoryMedia">
-                <div class="placement-story-overlay">
-                  <div class="placement-story-chip-row" id="securedStoryChips"></div>
-                  <div class="placement-story-copy">
-                    <p class="placement-story-eyebrow">Practice snapshot</p>
-                    <h3 class="placement-story-title" id="securedStoryTitle">Turvey Park, Wagga Wagga NSW</h3>
-                    <p class="placement-story-text" id="securedStoryText">High patient demand and a GP Link-supported arrival plan.</p>
-                  </div>
-                </div>
+            <section class="practice-lifestyle-module" aria-labelledby="practiceLifestyleHeading">
+              <div class="practice-lifestyle-head">
+                <span class="detail-label">Lifestyle planning</span>
+                <h3 class="card-title" id="practiceLifestyleHeading">Life Around This Practice</h3>
+                <p class="practice-lifestyle-intro" id="practiceLifestyleIntro">Explore housing, schooling and travel around the practice before you relocate.</p>
               </div>
-              <div class="placement-story-bubble" aria-label="Local support placeholders">
-                <div class="placement-story-bubble-item">
-                  <span class="placement-story-bubble-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 12h3v9h6v-6h2v6h6v-9h3L12 3z"></path></svg>
-                  </span>
-                  <span class="placement-story-bubble-label">Housing</span>
-                </div>
-                <div class="placement-story-bubble-item">
-                  <span class="placement-story-bubble-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 1 9l11 6 9-4.91V17h2V9L12 3zm-7 7.18V14l7 4 7-4v-3.82l-7 3.82-7-3.82z"></path></svg>
-                  </span>
-                  <span class="placement-story-bubble-label">Schools</span>
-                </div>
-                <div class="placement-story-bubble-item">
-                  <span class="placement-story-bubble-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16.5 13 11V4.5a1.5 1.5 0 0 0-3 0V11l-8 5.5v2l8-2.5V22h3v-6l8 2.5v-2z"></path></svg>
-                  </span>
-                  <span class="placement-story-bubble-label">Flights</span>
-                </div>
-              </div>
-            </article>
+              <div class="practice-lifestyle-explorer" id="securedLifestyleExplorer"></div>
+            </section>
 
             <article class="placement-broker-card">
               <div class="placement-card-head">
@@ -3956,6 +4716,223 @@
       }
     };
 
+    const PRACTICE_LIFESTYLE_SEEDS = Object.freeze({
+      tweed_heads_nsw: {
+        key: "tweed_heads_nsw",
+        title: "Tweed Heads, NSW",
+        subtitle: "Established mixed-billing centre with strong demand",
+        mapImageUrl: "../media/images/account-header.webp",
+        housing: {
+          defaultMode: "rent",
+          defaultRadiusKm: 5,
+          rent: [
+            {
+              id: "tweed-rent-1",
+              price: "$680/wk",
+              beds: "3 bed",
+              distanceKm: 2.1,
+              driveTime: "5 min drive",
+              imageUrl: "../media/images/account-header-sunset-exact.jpg",
+              imagePosition: "center 38%",
+              x: 30,
+              y: 46
+            },
+            {
+              id: "tweed-rent-2",
+              price: "$820/wk",
+              beds: "4 bed",
+              distanceKm: 4.8,
+              driveTime: "8 min drive",
+              imageUrl: "../media/images/account-header.webp",
+              imagePosition: "center 52%",
+              x: 68,
+              y: 34
+            },
+            {
+              id: "tweed-rent-3",
+              price: "$740/wk",
+              beds: "3 bed",
+              distanceKm: 3.2,
+              driveTime: "6 min drive",
+              imageUrl: "../media/images/australian-landscape-illustration-vector-design-600nw-2188905367.webp",
+              imagePosition: "center",
+              x: 74,
+              y: 66
+            }
+          ],
+          buy: [
+            {
+              id: "tweed-buy-1",
+              price: "$1.18m",
+              beds: "4 bed",
+              distanceKm: 2.6,
+              driveTime: "6 min drive",
+              imageUrl: "../media/images/account-header-sunset-exact.jpg",
+              imagePosition: "center 26%",
+              x: 28,
+              y: 48
+            },
+            {
+              id: "tweed-buy-2",
+              price: "$1.34m",
+              beds: "5 bed",
+              distanceKm: 5.4,
+              driveTime: "10 min drive",
+              imageUrl: "../media/images/account-header.webp",
+              imagePosition: "center 44%",
+              x: 70,
+              y: 35
+            },
+            {
+              id: "tweed-buy-3",
+              price: "$1.06m",
+              beds: "3 bed",
+              distanceKm: 3.8,
+              driveTime: "7 min drive",
+              imageUrl: "../media/images/australian-landscape-illustration-vector-design-600nw-2188905367.webp",
+              imagePosition: "center",
+              x: 73,
+              y: 67
+            }
+          ]
+        },
+        schools: {
+          defaultPhase: "primary",
+          defaultSector: "all",
+          primary: [
+            {
+              id: "tweed-school-primary-1",
+              name: "Tweed Heads Public School",
+              sector: "Public",
+              sectorGroup: "public",
+              distanceKm: 1.4,
+              rating: "Above Average",
+              catchment: true,
+              x: 30,
+              y: 44
+            },
+            {
+              id: "tweed-school-primary-2",
+              name: "St James Primary",
+              sector: "Catholic",
+              sectorGroup: "private",
+              distanceKm: 2.1,
+              rating: "Above Average",
+              catchment: true,
+              x: 66,
+              y: 31
+            },
+            {
+              id: "tweed-school-primary-3",
+              name: "Lindisfarne Anglican School",
+              sector: "Private",
+              sectorGroup: "private",
+              distanceKm: 4.2,
+              rating: "Excellent",
+              catchment: false,
+              x: 74,
+              y: 58
+            },
+            {
+              id: "tweed-school-primary-4",
+              name: "Banora Point Public School",
+              sector: "Public",
+              sectorGroup: "public",
+              distanceKm: 3.6,
+              rating: "Above Average",
+              catchment: true,
+              x: 27,
+              y: 66
+            }
+          ],
+          secondary: [
+            {
+              id: "tweed-school-secondary-1",
+              name: "Lindisfarne Anglican Grammar",
+              sector: "Private",
+              sectorGroup: "private",
+              distanceKm: 3.8,
+              rating: "Top 15% ATAR",
+              catchment: false,
+              x: 66,
+              y: 31
+            },
+            {
+              id: "tweed-school-secondary-2",
+              name: "Palm Beach Currumbin SHS",
+              sector: "Public",
+              sectorGroup: "public",
+              distanceKm: 6.2,
+              rating: "Top 25% ATAR",
+              catchment: false,
+              x: 29,
+              y: 65
+            },
+            {
+              id: "tweed-school-secondary-3",
+              name: "Tweed River High School",
+              sector: "Public",
+              sectorGroup: "public",
+              distanceKm: 2.9,
+              rating: "Above Average",
+              catchment: true,
+              x: 31,
+              y: 43
+            },
+            {
+              id: "tweed-school-secondary-4",
+              name: "St Joseph's College Banora Point",
+              sector: "Catholic",
+              sectorGroup: "private",
+              distanceKm: 4.4,
+              rating: "Strong pastoral support",
+              catchment: false,
+              x: 74,
+              y: 57
+            }
+          ]
+        },
+        flights: [
+          {
+            id: "tweed-flight-1",
+            name: "Gold Coast Airport (OOL)",
+            distanceLabel: "8 km",
+            travelTime: "12 min",
+            type: "airport",
+            x: 24,
+            y: 22
+          },
+          {
+            id: "tweed-flight-2",
+            name: "Brisbane Airport (BNE)",
+            distanceLabel: "105 km",
+            travelTime: "1h 15 min",
+            type: "airport",
+            x: 78,
+            y: 22
+          },
+          {
+            id: "tweed-flight-3",
+            name: "Surfers Paradise",
+            distanceLabel: "25 km",
+            travelTime: "28 min",
+            type: "destination",
+            x: 71,
+            y: 66
+          },
+          {
+            id: "tweed-flight-4",
+            name: "Byron Bay",
+            distanceLabel: "32 km",
+            travelTime: "35 min",
+            type: "destination",
+            x: 29,
+            y: 72
+          }
+        ]
+      }
+    });
+
     const SECURED_PLACEMENT_STATUS_KEYS = new Set([
       "hired",
       "secured",
@@ -4234,6 +5211,8 @@
     const roleModalMapFrameEl = document.getElementById("roleModalMapFrame");
     const roleModalSaveBtnEl = document.getElementById("roleModalSaveBtn");
     const roleModalApplyBtnEl = document.getElementById("roleModalApplyBtn");
+    const practiceLifestyleHeadingEl = document.getElementById("practiceLifestyleHeading");
+    const practiceLifestyleIntroEl = document.getElementById("practiceLifestyleIntro");
     const securedPracticeNameEl = document.getElementById("securedPracticeName");
     const securedLocationEl = document.getElementById("securedLocation");
     const securedRoleTitleEl = document.getElementById("securedRoleTitle");
@@ -4251,12 +5230,7 @@
     const securedPracticeContactCallLinkEl = document.getElementById("securedPracticeContactCallLink");
     const securedPracticeContactEmailLinkEl = document.getElementById("securedPracticeContactEmailLink");
     const securedPracticeContactWhatsAppLinkEl = document.getElementById("securedPracticeContactWhatsAppLink");
-    const securedStoryMediaEl = document.getElementById("securedStoryMedia");
-    const securedStoryChipsEl = document.getElementById("securedStoryChips");
-    const securedStoryTitleEl = document.getElementById("securedStoryTitle");
-    const securedStoryTextEl = document.getElementById("securedStoryText");
-    const securedMapLinkEl = document.getElementById("securedMapLink");
-    const securedMapHintEl = document.getElementById("securedMapHint");
+    const securedLifestyleExplorerEl = document.getElementById("securedLifestyleExplorer");
     const securedChecklistProgressEl = document.getElementById("securedChecklistProgress");
     const securedChecklistListEl = document.getElementById("securedChecklistList");
     const securedBrokerNameEl = document.getElementById("securedBrokerName");
@@ -4282,6 +5256,18 @@
     const toastEl = document.getElementById("careerToast");
     let roleModalMapVisible = false;
     let currentChecklistOpenKey = "";
+    let currentPracticeLifestyleKey = "";
+    let practiceLifestyleState = {
+      mode: "overview",
+      housingMode: "rent",
+      radiusKm: 5,
+      schoolPhase: "primary",
+      schoolSector: "all",
+      selectedHousingIds: {
+        rent: "",
+        buy: ""
+      }
+    };
 
     function persistCareerState() {
       careerState.updatedAt = new Date().toISOString();
@@ -4357,6 +5343,404 @@
       });
     }
 
+    function clampNumber(value, minimum, maximum) {
+      return Math.min(maximum, Math.max(minimum, Number(value) || minimum));
+    }
+
+    function buildPracticeLifestyleSeedKey(placementPayload, storyPayload, placementLocation) {
+      const lifestylePayload = placementPayload && placementPayload.lifestyle && typeof placementPayload.lifestyle === "object"
+        ? placementPayload.lifestyle
+        : {};
+      const explicitKey = normalizeStatusKey(lifestylePayload.key || lifestylePayload.seedKey);
+      if (explicitKey && PRACTICE_LIFESTYLE_SEEDS[explicitKey]) return explicitKey;
+      const source = `${placementLocation || ""} ${storyPayload && storyPayload.mapQuery ? storyPayload.mapQuery : ""} ${storyPayload && storyPayload.title ? storyPayload.title : ""}`.toLowerCase();
+      if (source.includes("tweed")) return "tweed_heads_nsw";
+      return "tweed_heads_nsw";
+    }
+
+    function resolvePracticeLifestyleData(placementPayload, storyPayload, placementLocation) {
+      const lifestylePayload = placementPayload && placementPayload.lifestyle && typeof placementPayload.lifestyle === "object"
+        ? placementPayload.lifestyle
+        : {};
+      const seedKey = buildPracticeLifestyleSeedKey(placementPayload, storyPayload, placementLocation);
+      const base = clone(PRACTICE_LIFESTYLE_SEEDS[seedKey] || PRACTICE_LIFESTYLE_SEEDS.tweed_heads_nsw);
+      const housingPayload = lifestylePayload.housing && typeof lifestylePayload.housing === "object" ? lifestylePayload.housing : {};
+      const schoolsPayload = lifestylePayload.schools && typeof lifestylePayload.schools === "object" ? lifestylePayload.schools : {};
+      return {
+        ...base,
+        key: lifestylePayload.key || base.key,
+        title: lifestylePayload.title || base.title,
+        subtitle: lifestylePayload.subtitle || base.subtitle,
+        heading: lifestylePayload.heading || "Life Around This Practice",
+        intro: lifestylePayload.intro || "Explore housing, schooling and travel around the practice before you relocate.",
+        mapImageUrl: lifestylePayload.mapImageUrl || base.mapImageUrl,
+        housing: {
+          ...base.housing,
+          ...housingPayload,
+          rent: Array.isArray(housingPayload.rent) && housingPayload.rent.length ? housingPayload.rent : base.housing.rent,
+          buy: Array.isArray(housingPayload.buy) && housingPayload.buy.length ? housingPayload.buy : base.housing.buy
+        },
+        schools: {
+          ...base.schools,
+          ...schoolsPayload,
+          primary: Array.isArray(schoolsPayload.primary) && schoolsPayload.primary.length ? schoolsPayload.primary : base.schools.primary,
+          secondary: Array.isArray(schoolsPayload.secondary) && schoolsPayload.secondary.length ? schoolsPayload.secondary : base.schools.secondary
+        },
+        flights: Array.isArray(lifestylePayload.flights) && lifestylePayload.flights.length ? lifestylePayload.flights : base.flights
+      };
+    }
+
+    function getPracticeLifestyleHousingListings(lifestyle, market) {
+      if (!lifestyle || !lifestyle.housing) return [];
+      const key = market === "buy" ? "buy" : "rent";
+      return Array.isArray(lifestyle.housing[key]) ? lifestyle.housing[key] : [];
+    }
+
+    function getPracticeLifestyleVisibleHousing(lifestyle) {
+      const listings = getPracticeLifestyleHousingListings(lifestyle, practiceLifestyleState.housingMode);
+      return listings.filter((item) => Number(item && item.distanceKm || 0) <= Number(practiceLifestyleState.radiusKm || 5));
+    }
+
+    function syncPracticeLifestyleState(lifestyle) {
+      if (!lifestyle || typeof lifestyle !== "object") return;
+      if (currentPracticeLifestyleKey !== lifestyle.key) {
+        currentPracticeLifestyleKey = lifestyle.key;
+        practiceLifestyleState = {
+          mode: "overview",
+          housingMode: lifestyle.housing && lifestyle.housing.defaultMode === "buy" ? "buy" : "rent",
+          radiusKm: clampNumber(lifestyle.housing && lifestyle.housing.defaultRadiusKm || 5, 2, 25),
+          schoolPhase: lifestyle.schools && lifestyle.schools.defaultPhase === "secondary" ? "secondary" : "primary",
+          schoolSector: lifestyle.schools && lifestyle.schools.defaultSector === "private" ? "private" : "all",
+          selectedHousingIds: {
+            rent: "",
+            buy: ""
+          }
+        };
+      }
+
+      practiceLifestyleState.mode = ["overview", "housing", "schools", "flights"].includes(practiceLifestyleState.mode)
+        ? practiceLifestyleState.mode
+        : "overview";
+      practiceLifestyleState.housingMode = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      practiceLifestyleState.radiusKm = clampNumber(practiceLifestyleState.radiusKm, 2, 25);
+      practiceLifestyleState.schoolPhase = practiceLifestyleState.schoolPhase === "secondary" ? "secondary" : "primary";
+      practiceLifestyleState.schoolSector = ["all", "public", "private"].includes(practiceLifestyleState.schoolSector)
+        ? practiceLifestyleState.schoolSector
+        : "all";
+
+      const market = practiceLifestyleState.housingMode;
+      const marketListings = getPracticeLifestyleHousingListings(lifestyle, market);
+      const visibleListings = getPracticeLifestyleVisibleHousing(lifestyle);
+      const selectedId = practiceLifestyleState.selectedHousingIds[market];
+      if (!visibleListings.some((item) => item && item.id === selectedId)) {
+        practiceLifestyleState.selectedHousingIds[market] = visibleListings[0] && visibleListings[0].id
+          ? visibleListings[0].id
+          : (marketListings[0] && marketListings[0].id ? marketListings[0].id : "");
+      }
+    }
+
+    function formatLifestyleDistance(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return "";
+      return `${numeric.toFixed(1).replace(/\.0$/, "")} km`;
+    }
+
+    function buildPracticeLifestyleIcon(name) {
+      if (name === "home") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"></path><path d="M5.5 10.5V20h13v-9.5"></path><path d="M9.5 20v-5.5h5V20"></path></svg>';
+      }
+      if (name === "graduation") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 2 9.5 12 15l8.5-4.67V17"></path><path d="M5.5 11.7V15c0 1.9 3.1 3.5 6.5 3.5s6.5-1.6 6.5-3.5v-3.3"></path></svg>';
+      }
+      if (name === "plane") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 16 20-8-8 20-2-9-10-3Z"></path><path d="m12 19 10-11"></path></svg>';
+      }
+      if (name === "map-pin") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>';
+      }
+      if (name === "clock") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg>';
+      }
+      if (name === "check") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg>';
+      }
+      if (name === "alert") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 16H3L12 3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>';
+      }
+      return "";
+    }
+
+    function buildPracticeLifestyleDockHtml(activeMode) {
+      const tabs = [
+        { key: "housing", label: "Housing", icon: "home" },
+        { key: "schools", label: "Schools", icon: "graduation" },
+        { key: "flights", label: "Flights", icon: "plane" }
+      ];
+      return `
+        <div class="practice-lifestyle-dock">
+          <div class="practice-lifestyle-dock-inner" role="tablist" aria-label="Life around this practice">
+            ${tabs.map((tab) => `
+              <button
+                class="practice-lifestyle-tab${activeMode === tab.key ? " is-active" : ""}"
+                type="button"
+                role="tab"
+                aria-selected="${activeMode === tab.key ? "true" : "false"}"
+                data-lifestyle-mode="${tab.key}">
+                ${buildPracticeLifestyleIcon(tab.icon)}
+                <span>${escapeHtml(tab.label)}</span>
+              </button>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function buildPracticeLifestyleHousingPinsHtml(listings) {
+      const selectedId = practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode];
+      return listings.map((listing, index) => `
+        <button
+          class="practice-lifestyle-point practice-lifestyle-point-housing${selectedId === listing.id ? " is-selected" : ""}"
+          type="button"
+          aria-label="${escapeHtml(listing.price)} home option"
+          data-housing-select="${escapeHtml(listing.id)}"
+          style="--x:${Number(listing.x || 50)}%; --y:${Number(listing.y || 50)}%; --stagger:${index};">
+          ${buildPracticeLifestyleIcon("home")}
+        </button>
+      `).join("");
+    }
+
+    function buildPracticeLifestyleSchoolPinsHtml(items) {
+      return items.map((item, index) => `
+        <span
+          class="practice-lifestyle-point practice-lifestyle-point-schools"
+          aria-hidden="true"
+          style="--x:${Number(item.x || 50)}%; --y:${Number(item.y || 50)}%; --stagger:${index};">
+          ${buildPracticeLifestyleIcon("graduation")}
+        </span>
+      `).join("");
+    }
+
+    function buildPracticeLifestyleFlightPinsHtml(items) {
+      return items.map((item, index) => `
+        <span
+          class="practice-lifestyle-point practice-lifestyle-point-flights"
+          aria-hidden="true"
+          style="--x:${Number(item.x || 50)}%; --y:${Number(item.y || 50)}%; --stagger:${index};">
+          ${buildPracticeLifestyleIcon("plane")}
+        </span>
+      `).join("");
+    }
+
+    function buildPracticeLifestyleFlightRoutesHtml(items) {
+      return `
+        <svg class="practice-lifestyle-routes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          ${items.map((item) => `
+            <line x1="50" y1="50" x2="${Number(item.x || 50)}" y2="${Number(item.y || 50)}"></line>
+          `).join("")}
+        </svg>
+      `;
+    }
+
+    function buildPracticeLifestyleHousingDrawerHtml(lifestyle) {
+      const visibleListings = getPracticeLifestyleVisibleHousing(lifestyle);
+      const selectedId = practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode];
+      return `
+        <div class="practice-lifestyle-drawer" data-lifestyle-drawer="housing">
+          <div class="practice-lifestyle-segmented" role="tablist" aria-label="Housing type">
+            ${["rent", "buy"].map((market) => `
+              <button
+                class="${practiceLifestyleState.housingMode === market ? "is-active" : ""}"
+                type="button"
+                role="tab"
+                aria-selected="${practiceLifestyleState.housingMode === market ? "true" : "false"}"
+                data-housing-market="${market}">
+                ${market === "rent" ? "Rent" : "Buy"}
+              </button>
+            `).join("")}
+          </div>
+          <div class="practice-lifestyle-radius-head">
+            <span>Search radius</span>
+            <span class="practice-lifestyle-radius-value">${Math.round(practiceLifestyleState.radiusKm)} km</span>
+          </div>
+          <input
+            class="practice-lifestyle-range"
+            type="range"
+            min="2"
+            max="25"
+            step="1"
+            value="${Math.round(practiceLifestyleState.radiusKm)}"
+            aria-label="Housing search radius in kilometres"
+            data-housing-radius="true">
+          <div class="practice-lifestyle-range-scale">
+            <span>2 km</span>
+            <span>25 km</span>
+          </div>
+          ${visibleListings.length ? `
+            <div class="practice-lifestyle-card-rail" aria-label="Housing results">
+              ${visibleListings.map((listing) => `
+                <button
+                  class="practice-lifestyle-property-card${selectedId === listing.id ? " is-selected" : ""}"
+                  type="button"
+                  data-housing-select="${escapeHtml(listing.id)}">
+                  <div
+                    class="practice-lifestyle-property-thumb"
+                    style="--thumb-image:url('${escapeHtml(listing.imageUrl || "")}'); --thumb-position:${escapeHtml(listing.imagePosition || "center")}"></div>
+                  <div class="practice-lifestyle-property-body">
+                    <p class="practice-lifestyle-property-price">${escapeHtml(listing.price)}</p>
+                    <div class="practice-lifestyle-property-meta">${escapeHtml(listing.beds)} · ${escapeHtml(formatLifestyleDistance(listing.distanceKm))}</div>
+                    <span class="practice-lifestyle-property-drive">${buildPracticeLifestyleIcon("clock")}<span>${escapeHtml(listing.driveTime)}</span></span>
+                  </div>
+                </button>
+              `).join("")}
+            </div>
+          ` : `
+            <div class="practice-lifestyle-empty">No housing options are currently inside this radius. Increase the search radius to view more homes around the practice.</div>
+          `}
+        </div>
+      `;
+    }
+
+    function buildPracticeLifestyleSchoolsDrawerHtml(lifestyle) {
+      const groups = lifestyle && lifestyle.schools ? lifestyle.schools : {};
+      const sourceList = Array.isArray(groups[practiceLifestyleState.schoolPhase]) ? groups[practiceLifestyleState.schoolPhase] : [];
+      const visibleSchools = sourceList.filter((item) => practiceLifestyleState.schoolSector === "all" || item.sectorGroup === practiceLifestyleState.schoolSector);
+      return `
+        <div class="practice-lifestyle-drawer" data-lifestyle-drawer="schools">
+          <div class="practice-lifestyle-segmented is-schools" role="tablist" aria-label="School phase">
+            ${["primary", "secondary"].map((phase) => `
+              <button
+                class="${practiceLifestyleState.schoolPhase === phase ? "is-active" : ""}"
+                type="button"
+                role="tab"
+                aria-selected="${practiceLifestyleState.schoolPhase === phase ? "true" : "false"}"
+                data-school-phase="${phase}">
+                ${phase === "primary" ? "Primary" : "Secondary"}
+              </button>
+            `).join("")}
+          </div>
+          <div class="practice-lifestyle-filter-row" role="group" aria-label="School sector filter">
+            ${[
+              { key: "all", label: "All" },
+              { key: "public", label: "Public" },
+              { key: "private", label: "Private" }
+            ].map((filter) => `
+              <button
+                class="practice-lifestyle-filter-pill${practiceLifestyleState.schoolSector === filter.key ? " is-active" : ""}"
+                type="button"
+                data-school-sector="${filter.key}">
+                ${escapeHtml(filter.label)}
+              </button>
+            `).join("")}
+          </div>
+          <div class="practice-lifestyle-school-list">
+            ${visibleSchools.map((school) => `
+              <article class="practice-lifestyle-school-card">
+                <div class="practice-lifestyle-school-top">
+                  <div>
+                    <p class="practice-lifestyle-school-name">${escapeHtml(school.name)}</p>
+                    <div class="practice-lifestyle-school-meta">
+                      <span>${escapeHtml(school.sector)}</span>
+                      <span>·</span>
+                      <span>${escapeHtml(formatLifestyleDistance(school.distanceKm))}</span>
+                      <span>·</span>
+                      <strong>${escapeHtml(school.rating)}</strong>
+                    </div>
+                  </div>
+                  <span class="practice-lifestyle-school-badge ${school.catchment ? "is-catchment" : "is-outside"}">
+                    ${buildPracticeLifestyleIcon(school.catchment ? "check" : "alert")}
+                    <span>${school.catchment ? "Catchment" : "Outside"}</span>
+                  </span>
+                </div>
+              </article>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function buildPracticeLifestyleFlightsDrawerHtml(lifestyle) {
+      const items = Array.isArray(lifestyle && lifestyle.flights) ? lifestyle.flights : [];
+      return `
+        <div class="practice-lifestyle-drawer" data-lifestyle-drawer="flights">
+          <p class="practice-lifestyle-drawer-subtitle">Travel times from your practice</p>
+          <div class="practice-lifestyle-flight-list">
+            ${items.map((item) => `
+              <article class="practice-lifestyle-flight-card">
+                <div class="practice-lifestyle-flight-top">
+                  <div class="practice-lifestyle-flight-left">
+                    <span class="practice-lifestyle-flight-iconbox ${item.type === "airport" ? "is-airport" : "is-destination"}">
+                      ${buildPracticeLifestyleIcon("plane")}
+                    </span>
+                    <div>
+                      <p class="practice-lifestyle-flight-name">${escapeHtml(item.name)}</p>
+                      <div class="practice-lifestyle-flight-meta">
+                        <span>${escapeHtml(item.distanceLabel)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="practice-lifestyle-flight-time">${buildPracticeLifestyleIcon("clock")}<span>${escapeHtml(item.travelTime)}</span></span>
+                </div>
+              </article>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function buildPracticeLifestyleDrawerHtml(lifestyle) {
+      if (practiceLifestyleState.mode === "housing") return buildPracticeLifestyleHousingDrawerHtml(lifestyle);
+      if (practiceLifestyleState.mode === "schools") return buildPracticeLifestyleSchoolsDrawerHtml(lifestyle);
+      if (practiceLifestyleState.mode === "flights") return buildPracticeLifestyleFlightsDrawerHtml(lifestyle);
+      return "";
+    }
+
+    function buildPracticeLifestyleMapMarkup(lifestyle) {
+      const activeMode = practiceLifestyleState.mode;
+      const visibleHousing = getPracticeLifestyleVisibleHousing(lifestyle);
+      const schools = Array.isArray(lifestyle && lifestyle.schools && lifestyle.schools[practiceLifestyleState.schoolPhase])
+        ? lifestyle.schools[practiceLifestyleState.schoolPhase].filter((item) => practiceLifestyleState.schoolSector === "all" || item.sectorGroup === practiceLifestyleState.schoolSector)
+        : [];
+      const flights = Array.isArray(lifestyle && lifestyle.flights) ? lifestyle.flights : [];
+      const radiusSizePx = 112 + ((Number(practiceLifestyleState.radiusKm || 5) - 2) / 23) * 136;
+      return `
+        <div class="practice-lifestyle-map-shell">
+          <div class="practice-lifestyle-map-bg" style="--practice-lifestyle-map-image:url('${escapeHtml(lifestyle.mapImageUrl || "../media/images/account-header.webp")}');"></div>
+          <div class="practice-lifestyle-map-grid"></div>
+          <div class="practice-lifestyle-map-glow"></div>
+          <div class="practice-lifestyle-map-vignette"></div>
+          <div class="practice-lifestyle-map-topfade"></div>
+
+          <div class="practice-lifestyle-stage">
+            ${activeMode === "housing" ? `<div class="practice-lifestyle-radius" style="--radius-size:${radiusSizePx.toFixed(0)}px;"></div>${buildPracticeLifestyleHousingPinsHtml(visibleHousing)}` : ""}
+            ${activeMode === "schools" ? `<div class="practice-lifestyle-catchment"></div>${buildPracticeLifestyleSchoolPinsHtml(schools)}` : ""}
+            ${activeMode === "flights" ? `${buildPracticeLifestyleFlightRoutesHtml(flights)}${buildPracticeLifestyleFlightPinsHtml(flights)}` : ""}
+          </div>
+
+          <div class="practice-lifestyle-practice-pin" aria-hidden="true">
+            <span class="practice-lifestyle-practice-pulse"></span>
+            <span class="practice-lifestyle-practice-core">${buildPracticeLifestyleIcon("map-pin")}</span>
+          </div>
+
+          <div class="practice-lifestyle-overlay">
+            <div class="practice-lifestyle-topcopy">
+              <p class="practice-lifestyle-map-title">${escapeHtml(lifestyle.title)}</p>
+              <p class="practice-lifestyle-map-subtitle">${escapeHtml(lifestyle.subtitle)}</p>
+            </div>
+          </div>
+
+          ${buildPracticeLifestyleDockHtml(activeMode)}
+        </div>
+      `;
+    }
+
+    function renderPracticeLifestyleExplorer(lifestyle) {
+      if (!securedLifestyleExplorerEl) return;
+      syncPracticeLifestyleState(lifestyle);
+      const isOpen = practiceLifestyleState.mode !== "overview";
+      securedLifestyleExplorerEl.classList.toggle("is-open", isOpen);
+      securedLifestyleExplorerEl.innerHTML = `${buildPracticeLifestyleMapMarkup(lifestyle)}${buildPracticeLifestyleDrawerHtml(lifestyle)}`;
+    }
+
     function resolveSecuredPlacement() {
       const placementApp = careerState.applications.find((application) => application && application.isPlacementSecured) || null;
       const placementRole = placementApp ? findRole(placementApp.roleId) : null;
@@ -4400,6 +5784,11 @@
           mapQuery: storyPayload.mapQuery || (placementRole && (placementRole.mapQuery || placementRole.location)) || SECURED_PLACEMENT.story.mapQuery,
           mapHint: storyPayload.mapHint || SECURED_PLACEMENT.story.mapHint
         },
+        lifestyle: resolvePracticeLifestyleData(
+          placementPayload,
+          storyPayload,
+          placementPayload.location || (placementApp && placementApp.location) || (placementRole && placementRole.location) || SECURED_PLACEMENT.location
+        ),
         practiceContact: {
           name: practiceContactPayload.name || SECURED_PLACEMENT.practiceContact.name,
           initials: practiceContactPayload.initials || SECURED_PLACEMENT.practiceContact.initials,
@@ -5039,6 +6428,8 @@
         ? "mailto:" + placement.practiceContact.email
         : "#";
       securedPracticeContactWhatsAppLinkEl.href = buildWhatsAppHref(placement.practiceContact.whatsapp);
+      if (practiceLifestyleHeadingEl) practiceLifestyleHeadingEl.textContent = placement.lifestyle.heading || "Life Around This Practice";
+      if (practiceLifestyleIntroEl) practiceLifestyleIntroEl.textContent = placement.lifestyle.intro || "Explore housing, schooling and travel around the practice before you relocate.";
 
       securedQuickStatsEl.innerHTML = (Array.isArray(placement.quickStats) ? placement.quickStats : []).map((item) => `
         <article class="placement-stat-card">
@@ -5046,26 +6437,7 @@
           <span class="placement-stat-label">${escapeHtml(item.label)}</span>
         </article>
       `).join("");
-
-      const storyImage = placement.story && placement.story.imageUrl ? placement.story.imageUrl : "";
-      const storyLocationTitle = String(
-        (placement.story && placement.story.mapQuery ? placement.story.mapQuery.replace(/,\s*Australia\s*$/i, "") : "")
-        || placement.location
-        || ""
-      ).trim();
-      securedStoryMediaEl.style.backgroundImage = storyImage
-        ? `linear-gradient(180deg, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.62)), url("${storyImage}")`
-        : "";
-      securedStoryTitleEl.textContent = storyLocationTitle || placement.story.title;
-      securedStoryTextEl.textContent = placement.story.text;
-      securedStoryChipsEl.innerHTML = "";
-      if (securedMapLinkEl) {
-        securedMapLinkEl.href = buildMapsHref(placement.story.mapQuery);
-        securedMapLinkEl.setAttribute("aria-disabled", placement.story.mapQuery ? "false" : "true");
-      }
-      if (securedMapHintEl) {
-        securedMapHintEl.textContent = placement.story.mapHint;
-      }
+      renderPracticeLifestyleExplorer(placement.lifestyle);
       renderPlacementChecklist(placement.checklist);
 
       securedBrokerNameEl.textContent = placement.broker.name;
@@ -5271,6 +6643,43 @@
         return;
       }
 
+      const lifestyleModeBtn = event.target.closest("[data-lifestyle-mode]");
+      if (lifestyleModeBtn) {
+        const nextMode = lifestyleModeBtn.getAttribute("data-lifestyle-mode") || "overview";
+        practiceLifestyleState.mode = practiceLifestyleState.mode === nextMode ? "overview" : nextMode;
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
+      const housingMarketBtn = event.target.closest("[data-housing-market]");
+      if (housingMarketBtn) {
+        practiceLifestyleState.housingMode = housingMarketBtn.getAttribute("data-housing-market") === "buy" ? "buy" : "rent";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
+      const housingSelectBtn = event.target.closest("[data-housing-select]");
+      if (housingSelectBtn) {
+        practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode] = housingSelectBtn.getAttribute("data-housing-select") || "";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
+      const schoolPhaseBtn = event.target.closest("[data-school-phase]");
+      if (schoolPhaseBtn) {
+        practiceLifestyleState.schoolPhase = schoolPhaseBtn.getAttribute("data-school-phase") === "secondary" ? "secondary" : "primary";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
+      const schoolSectorBtn = event.target.closest("[data-school-sector]");
+      if (schoolSectorBtn) {
+        const nextSector = schoolSectorBtn.getAttribute("data-school-sector") || "all";
+        practiceLifestyleState.schoolSector = ["all", "public", "private"].includes(nextSector) ? nextSector : "all";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
       const openPlacementBtn = event.target.closest("[data-open-placement]");
       if (openPlacementBtn) {
         setView("secured");
@@ -5285,6 +6694,13 @@
         window.location.href = "job.html?id=" + encodeURIComponent(roleId);
         return;
       }
+    });
+
+    document.addEventListener("input", (event) => {
+      const radiusInput = event.target.closest("[data-housing-radius]");
+      if (!radiusInput) return;
+      practiceLifestyleState.radiusKm = clampNumber(radiusInput.value, 2, 25);
+      renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
     });
 
     roleModalCloseBtnEl.addEventListener("click", closeRoleModal);
