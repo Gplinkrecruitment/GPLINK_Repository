@@ -5596,6 +5596,21 @@ function getZohoAttachmentCategory(record) {
   return getZohoField(record, ['Attachment_Category', 'Category', 'category']);
 }
 
+function getZohoAttachmentUpdatedAt(record) {
+  return getZohoField(record, ['Modified_Time', 'Updated_On', 'Created_Time']);
+}
+
+function buildZohoAttachmentSignature(record) {
+  if (!record || typeof record !== 'object') return '';
+  const attachmentId = getZohoAttachmentId(record);
+  const fileName = getZohoAttachmentFileName(record);
+  const updatedAt = getZohoAttachmentUpdatedAt(record);
+  const category = getZohoAttachmentCategory(record);
+  return [attachmentId, fileName, updatedAt, category]
+    .map((value) => String(value || '').trim())
+    .join('|');
+}
+
 function scoreZohoContractAttachment(record) {
   const fileName = getZohoAttachmentFileName(record).toLowerCase();
   const category = getZohoAttachmentCategory(record).toLowerCase();
@@ -6037,6 +6052,7 @@ Rules:
 async function resolveCareerContractTerms(zoho, applicationId) {
   const appId = String(applicationId || '').trim();
   if (!zoho || !appId) return null;
+  const contractCacheTtlMs = 30 * 24 * 60 * 60 * 1000;
 
   const cacheKey = buildCareerContractCacheKey(appId);
   const cached = await getRuntimeKv(cacheKey);
@@ -6049,19 +6065,30 @@ async function resolveCareerContractTerms(zoho, applicationId) {
       await setRuntimeKv(cacheKey, {
         status: 'unavailable',
         reason: 'no_contract_attachment'
-      }, Date.now() + (6 * 60 * 60 * 1000));
+      }, Date.now() + contractCacheTtlMs);
     }
     return null;
   }
+
+  const selectedCandidate = candidates[0] || null;
+  const selectedAttachmentId = getZohoAttachmentId(selectedCandidate);
+  const selectedAttachmentSignature = buildZohoAttachmentSignature(selectedCandidate);
+  const cachedAttachmentId = sanitizeZohoText(cachedValue && cachedValue.attachmentId);
+  const cachedAttachmentSignature = String(cachedValue && cachedValue.attachmentSignature || '').trim();
+  const cacheMatchesSelectedAttachment = selectedAttachmentSignature
+    ? cachedAttachmentSignature === selectedAttachmentSignature
+    : (!!selectedAttachmentId && cachedAttachmentId === selectedAttachmentId);
 
   const candidateIds = candidates.map((record) => getZohoAttachmentId(record)).filter(Boolean);
   if (
     cachedValue &&
     cachedValue.status === 'ready' &&
-    candidateIds.includes(String(cachedValue.attachmentId || '').trim()) &&
-    !isSuspiciousCachedCareerContractTerms(cachedValue)
+    cacheMatchesSelectedAttachment
   ) {
     return cachedValue;
+  }
+  if (cachedValue && cachedValue.status === 'unavailable' && cacheMatchesSelectedAttachment) {
+    return null;
   }
 
   let lastAttempt = null;
@@ -6106,6 +6133,7 @@ async function resolveCareerContractTerms(zoho, applicationId) {
     const value = {
       status: 'ready',
       attachmentId,
+      attachmentSignature: buildZohoAttachmentSignature(candidate),
       fileName,
       splitDisplay: extracted.splitDisplay || '',
       relocationPackageDisplay: extracted.relocationPackageDisplay || '',
@@ -6113,17 +6141,18 @@ async function resolveCareerContractTerms(zoho, applicationId) {
       notes: extracted.notes || '',
       extractedAt: new Date().toISOString()
     };
-    await setRuntimeKv(cacheKey, value, Date.now() + (30 * 24 * 60 * 60 * 1000));
+    await setRuntimeKv(cacheKey, value, Date.now() + contractCacheTtlMs);
     return value;
   }
 
   await setRuntimeKv(cacheKey, {
     status: 'unavailable',
-    attachmentId: lastAttempt && lastAttempt.attachmentId ? lastAttempt.attachmentId : candidateIds[0] || '',
+    attachmentId: selectedAttachmentId || (lastAttempt && lastAttempt.attachmentId ? lastAttempt.attachmentId : candidateIds[0] || ''),
+    attachmentSignature: selectedAttachmentSignature || '',
     fileName: lastAttempt && lastAttempt.fileName ? lastAttempt.fileName : '',
     attemptedAttachmentIds: candidateIds,
     reason: lastAttempt && lastAttempt.reason ? lastAttempt.reason : 'extract_failed'
-  }, Date.now() + (6 * 60 * 60 * 1000));
+  }, Date.now() + contractCacheTtlMs);
   return cachedValue && cachedValue.status === 'ready' ? cachedValue : null;
 }
 
