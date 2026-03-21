@@ -1737,6 +1737,59 @@
       text-align: right;
     }
 
+    .placement-story-bubble {
+      position: relative;
+      z-index: 2;
+      margin: -22px 12px 0;
+      padding: 12px 10px 10px;
+      border-radius: 18px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.34);
+      box-shadow: 0 18px 32px -28px rgba(15, 23, 42, 0.58);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .placement-story-bubble-item {
+      display: grid;
+      justify-items: center;
+      gap: 6px;
+      text-align: center;
+      color: #0f172a;
+    }
+
+    .placement-story-bubble-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.54);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      color: var(--blue);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58);
+    }
+
+    .placement-story-bubble-icon svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .placement-story-bubble-label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #0f172a;
+    }
+
     .placement-practice-contact-card {
       gap: 14px;
       background: rgba(15, 23, 42, 0.9);
@@ -3138,6 +3191,8 @@
 
     body.career-mode-secured .placement-story-card {
       padding: 8px;
+      gap: 0;
+      overflow: visible;
       background: #d9dee7;
       border: 1.5px solid #0f172a;
     }
@@ -3175,21 +3230,27 @@
       line-height: 1.45;
     }
 
-    body.career-mode-secured .placement-story-footer {
-      padding: 4px 4px 0;
+    body.career-mode-secured .placement-story-bubble {
+      margin: -24px 10px 8px;
+      padding: 11px 8px 9px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.24);
+      border-color: rgba(255, 255, 255, 0.36);
     }
 
-    body.career-mode-secured .placement-story-footer .section-link,
-    body.career-mode-secured .placement-inline-link {
-      color: #2563eb;
-      font-size: 11px;
-      font-weight: 800;
+    body.career-mode-secured .placement-story-bubble-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 11px;
+      color: var(--blue);
     }
 
-    body.career-mode-secured .placement-story-hint {
-      margin-top: 4px;
+    body.career-mode-secured .placement-story-bubble-label {
       font-size: 10px;
-      text-align: left;
+    }
+
+    body.career-mode-secured .placement-checklist {
+      margin-top: 18px;
     }
 
     body.career-mode-secured .placement-broker-card,
@@ -3490,9 +3551,25 @@
                   </div>
                 </div>
               </div>
-              <div class="placement-story-footer">
-                <a class="section-link" id="securedMapLink" href="#" target="_blank" rel="noreferrer">View map</a>
-                <span class="placement-story-hint" id="securedMapHint">Exact practice address will unlock in your handover pack.</span>
+              <div class="placement-story-bubble" aria-label="Local support placeholders">
+                <div class="placement-story-bubble-item">
+                  <span class="placement-story-bubble-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path><path d="M9 21v-6h6v6"></path></svg>
+                  </span>
+                  <span class="placement-story-bubble-label">Housing</span>
+                </div>
+                <div class="placement-story-bubble-item">
+                  <span class="placement-story-bubble-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M4 7h16"></path><path d="M6 7V5h12v2"></path><path d="M5 7v12h14V7"></path><path d="M9 11h.01"></path><path d="M12 11h.01"></path><path d="M15 11h.01"></path><path d="M9 15h.01"></path><path d="M12 15h.01"></path><path d="M15 15h.01"></path></svg>
+                  </span>
+                  <span class="placement-story-bubble-label">Schools</span>
+                </div>
+                <div class="placement-story-bubble-item">
+                  <span class="placement-story-bubble-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M2 16l20-8-8 20-2-8-8-2z"></path><path d="M12 20l2-8 8-4"></path></svg>
+                  </span>
+                  <span class="placement-story-bubble-label">Flights</span>
+                </div>
               </div>
             </article>
 
@@ -4991,9 +5068,13 @@
       securedStoryTitleEl.textContent = storyLocationTitle || placement.story.title;
       securedStoryTextEl.textContent = placement.story.text;
       securedStoryChipsEl.innerHTML = "";
-      securedMapLinkEl.href = buildMapsHref(placement.story.mapQuery);
-      securedMapLinkEl.setAttribute("aria-disabled", placement.story.mapQuery ? "false" : "true");
-      securedMapHintEl.textContent = placement.story.mapHint;
+      if (securedMapLinkEl) {
+        securedMapLinkEl.href = buildMapsHref(placement.story.mapQuery);
+        securedMapLinkEl.setAttribute("aria-disabled", placement.story.mapQuery ? "false" : "true");
+      }
+      if (securedMapHintEl) {
+        securedMapHintEl.textContent = placement.story.mapHint;
+      }
       renderPlacementChecklist(placement.checklist);
 
       securedBrokerNameEl.textContent = placement.broker.name;
