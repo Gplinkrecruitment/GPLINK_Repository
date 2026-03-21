@@ -6810,6 +6810,16 @@ async function buildLifestyleSchools(practiceCoords, housingByMarket, locationCo
 
     if (Array.isArray(hints[phase])) {
       hints[phase].forEach((hint) => {
+        const existingByName = Array.from(bySchoolId.values()).find((item) => normalizeCareerHeroCityKey(item && item.name) === normalizeCareerHeroCityKey(hint.key));
+        if (existingByName) {
+          existingByName.sector = existingByName.sector || hint.sector;
+          existingByName.sectorGroup = existingByName.sectorGroup || hint.sectorGroup;
+          existingByName.rating = existingByName.rating && !/pending/i.test(existingByName.rating) ? existingByName.rating : hint.rating;
+          existingByName.rankingScore = Number(existingByName.rankingScore || 0) || Number(hint.rankingScore || 0) || 0;
+          existingByName.eligibilityLabel = existingByName.eligibilityLabel || hint.eligibilityLabel || '';
+          existingByName.eligibilityTone = existingByName.eligibilityTone || hint.eligibilityTone || '';
+          return;
+        }
         const synthetic = normalizeLifestyleSchoolEntry({
           id: hint.key,
           name: hint.key.replace(/\b\w/g, (part) => part.toUpperCase()),
@@ -6900,13 +6910,21 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
       ])
     : [[], []];
 
+  function selectLifestyleHousing(liveRows, fallbackRows, market) {
+    const normalizedFallback = fallbackRows.map((item) => normalizeLifestyleListing(item, practiceCoords, market, locationContext));
+    const filteredLive = (Array.isArray(liveRows) ? liveRows : [])
+      .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
+      .slice(0, 6);
+    if (filteredLive.length) return filteredLive;
+    const filteredFallback = normalizedFallback
+      .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
+      .slice(0, 6);
+    return filteredFallback.length ? filteredFallback : normalizedFallback.slice(0, 6);
+  }
+
   const housingByMarket = {
-    rent: (liveRentListings.length ? liveRentListings : fallbackHousing.rent.map((item) => normalizeLifestyleListing(item, practiceCoords, 'rent', locationContext)))
-      .filter((item) => item.bedrooms >= household.recommendedBedrooms)
-      .slice(0, 6),
-    buy: (liveBuyListings.length ? liveBuyListings : fallbackHousing.buy.map((item) => normalizeLifestyleListing(item, practiceCoords, 'buy', locationContext)))
-      .filter((item) => item.bedrooms >= household.recommendedBedrooms)
-      .slice(0, 6)
+    rent: selectLifestyleHousing(liveRentListings, fallbackHousing.rent, 'rent'),
+    buy: selectLifestyleHousing(liveBuyListings, fallbackHousing.buy, 'buy')
   };
 
   const schools = practiceCoords

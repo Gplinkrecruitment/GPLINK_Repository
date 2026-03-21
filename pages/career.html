@@ -1820,6 +1820,13 @@
       transition: border-radius .28s ease;
     }
 
+    .practice-lifestyle-google-map {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background: #08111d;
+    }
+
     .practice-lifestyle-explorer.is-open .practice-lifestyle-map-shell {
       border-radius: 20px 20px 0 0;
     }
@@ -1994,6 +2001,72 @@
       stroke-width: 2;
       stroke-linecap: round;
       stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-map-marker {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      color: #1e293b;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 16px 32px -22px rgba(2, 6, 23, 0.96);
+      transition: transform .18s ease, box-shadow .18s ease, background .18s ease, color .18s ease;
+    }
+
+    .practice-lifestyle-map-marker svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-map-marker.is-selected {
+      background: #2563eb;
+      color: #fff;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.5), 0 16px 28px -18px rgba(37, 99, 235, 0.86);
+      transform: scale(1.04);
+    }
+
+    .practice-lifestyle-map-marker.is-schools {
+      background: rgba(168, 85, 247, 0.94);
+      color: #fff;
+      box-shadow: 0 0 18px rgba(168, 85, 247, 0.3), 0 12px 26px -20px rgba(76, 29, 149, 0.86);
+    }
+
+    .practice-lifestyle-map-marker.is-flights {
+      background: rgba(34, 197, 94, 0.94);
+      color: #fff;
+      box-shadow: 0 0 18px rgba(34, 197, 94, 0.25), 0 12px 26px -20px rgba(20, 83, 45, 0.86);
+    }
+
+    .practice-lifestyle-map-marker.is-practice {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      color: #fff;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.4), 0 0 40px rgba(59, 130, 246, 0.15);
+      overflow: visible;
+    }
+
+    .practice-lifestyle-map-marker.is-practice::before {
+      content: "";
+      position: absolute;
+      inset: -14px;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.2);
+      animation: lifestylePracticePulse 2s ease-out infinite;
+      z-index: -1;
+    }
+
+    .practice-lifestyle-map-marker.is-practice svg {
+      width: 20px;
+      height: 20px;
     }
 
     .practice-lifestyle-point {
@@ -2417,6 +2490,10 @@
 
     .practice-lifestyle-school-badge.is-catchment {
       color: #4ade80;
+    }
+
+    .practice-lifestyle-school-badge.is-open {
+      color: #93c5fd;
     }
 
     .practice-lifestyle-school-badge.is-outside {
@@ -4721,19 +4798,29 @@
         key: "tweed_heads_nsw",
         title: "Tweed Heads, NSW",
         subtitle: "Established mixed-billing centre with strong demand",
+        map: {
+          center: { lat: -28.1883, lng: 153.5375 },
+          zoom: 12,
+          googleMaps: { enabled: false, apiKey: "", mapId: "" }
+        },
         mapImageUrl: "../media/images/account-header.webp",
         housing: {
           defaultMode: "rent",
           defaultRadiusKm: 5,
+          partySummary: "1 adult",
+          recommendedBedrooms: 1,
           rent: [
             {
               id: "tweed-rent-1",
               price: "$680/wk",
               beds: "3 bed",
+              bedrooms: 3,
               distanceKm: 2.1,
               driveTime: "5 min drive",
               imageUrl: "../media/images/account-header-sunset-exact.jpg",
               imagePosition: "center 38%",
+              lat: -28.1781,
+              lng: 153.5261,
               x: 30,
               y: 46
             },
@@ -4741,10 +4828,13 @@
               id: "tweed-rent-2",
               price: "$820/wk",
               beds: "4 bed",
+              bedrooms: 4,
               distanceKm: 4.8,
               driveTime: "8 min drive",
               imageUrl: "../media/images/account-header.webp",
               imagePosition: "center 52%",
+              lat: -28.2075,
+              lng: 153.5554,
               x: 68,
               y: 34
             },
@@ -4752,10 +4842,13 @@
               id: "tweed-rent-3",
               price: "$740/wk",
               beds: "3 bed",
+              bedrooms: 3,
               distanceKm: 3.2,
               driveTime: "6 min drive",
               imageUrl: "../media/images/australian-landscape-illustration-vector-design-600nw-2188905367.webp",
               imagePosition: "center",
+              lat: -28.2018,
+              lng: 153.53,
               x: 74,
               y: 66
             }
@@ -4765,10 +4858,13 @@
               id: "tweed-buy-1",
               price: "$1.18m",
               beds: "4 bed",
+              bedrooms: 4,
               distanceKm: 2.6,
               driveTime: "6 min drive",
               imageUrl: "../media/images/account-header-sunset-exact.jpg",
               imagePosition: "center 26%",
+              lat: -28.1759,
+              lng: 153.5277,
               x: 28,
               y: 48
             },
@@ -4776,10 +4872,13 @@
               id: "tweed-buy-2",
               price: "$1.34m",
               beds: "5 bed",
+              bedrooms: 5,
               distanceKm: 5.4,
               driveTime: "10 min drive",
               imageUrl: "../media/images/account-header.webp",
               imagePosition: "center 44%",
+              lat: -28.2109,
+              lng: 153.5619,
               x: 70,
               y: 35
             },
@@ -4787,10 +4886,13 @@
               id: "tweed-buy-3",
               price: "$1.06m",
               beds: "3 bed",
+              bedrooms: 3,
               distanceKm: 3.8,
               driveTime: "7 min drive",
               imageUrl: "../media/images/australian-landscape-illustration-vector-design-600nw-2188905367.webp",
               imagePosition: "center",
+              lat: -28.2047,
+              lng: 153.5258,
               x: 73,
               y: 67
             }
@@ -4807,7 +4909,10 @@
               sectorGroup: "public",
               distanceKm: 1.4,
               rating: "Above Average",
+              rankingScore: 78,
               catchment: true,
+              lat: -28.1758,
+              lng: 153.5429,
               x: 30,
               y: 44
             },
@@ -4818,7 +4923,12 @@
               sectorGroup: "private",
               distanceKm: 2.1,
               rating: "Above Average",
-              catchment: true,
+              rankingScore: 82,
+              catchment: false,
+              eligibilityLabel: "Application",
+              eligibilityTone: "open",
+              lat: -28.1914,
+              lng: 153.5312,
               x: 66,
               y: 31
             },
@@ -4829,7 +4939,12 @@
               sectorGroup: "private",
               distanceKm: 4.2,
               rating: "Excellent",
+              rankingScore: 90,
               catchment: false,
+              eligibilityLabel: "Application",
+              eligibilityTone: "open",
+              lat: -28.2034,
+              lng: 153.5157,
               x: 74,
               y: 58
             },
@@ -4840,7 +4955,10 @@
               sectorGroup: "public",
               distanceKm: 3.6,
               rating: "Above Average",
+              rankingScore: 74,
               catchment: true,
+              lat: -28.2082,
+              lng: 153.5341,
               x: 27,
               y: 66
             }
@@ -4853,7 +4971,12 @@
               sectorGroup: "private",
               distanceKm: 3.8,
               rating: "Top 15% ATAR",
+              rankingScore: 95,
               catchment: false,
+              eligibilityLabel: "Application",
+              eligibilityTone: "open",
+              lat: -28.2034,
+              lng: 153.5157,
               x: 66,
               y: 31
             },
@@ -4864,7 +4987,10 @@
               sectorGroup: "public",
               distanceKm: 6.2,
               rating: "Top 25% ATAR",
+              rankingScore: 87,
               catchment: false,
+              lat: -28.1199,
+              lng: 153.4667,
               x: 29,
               y: 65
             },
@@ -4875,7 +5001,10 @@
               sectorGroup: "public",
               distanceKm: 2.9,
               rating: "Above Average",
+              rankingScore: 80,
               catchment: true,
+              lat: -28.1778,
+              lng: 153.5386,
               x: 31,
               y: 43
             },
@@ -4886,7 +5015,12 @@
               sectorGroup: "private",
               distanceKm: 4.4,
               rating: "Strong pastoral support",
+              rankingScore: 76,
               catchment: false,
+              eligibilityLabel: "Application",
+              eligibilityTone: "open",
+              lat: -28.2124,
+              lng: 153.5369,
               x: 74,
               y: 57
             }
@@ -4899,6 +5033,8 @@
             distanceLabel: "8 km",
             travelTime: "12 min",
             type: "airport",
+            lat: -28.1644,
+            lng: 153.5052,
             x: 24,
             y: 22
           },
@@ -4908,6 +5044,8 @@
             distanceLabel: "105 km",
             travelTime: "1h 15 min",
             type: "airport",
+            lat: -27.3842,
+            lng: 153.1175,
             x: 78,
             y: 22
           },
@@ -4917,6 +5055,8 @@
             distanceLabel: "25 km",
             travelTime: "28 min",
             type: "destination",
+            lat: -28.0021,
+            lng: 153.4303,
             x: 71,
             y: 66
           },
@@ -4926,6 +5066,8 @@
             distanceLabel: "32 km",
             travelTime: "35 min",
             type: "destination",
+            lat: -28.6474,
+            lng: 153.602,
             x: 29,
             y: 72
           }
@@ -5268,6 +5410,15 @@
         buy: ""
       }
     };
+    let practiceLifestyleMapRuntime = {
+      apiPromise: null,
+      scriptKey: "",
+      map: null,
+      mapEl: null,
+      practiceMarker: null,
+      activeMarkers: [],
+      activeOverlays: []
+    };
 
     function persistCareerState() {
       careerState.updatedAt = new Date().toISOString();
@@ -5366,6 +5517,7 @@
       const base = clone(PRACTICE_LIFESTYLE_SEEDS[seedKey] || PRACTICE_LIFESTYLE_SEEDS.tweed_heads_nsw);
       const housingPayload = lifestylePayload.housing && typeof lifestylePayload.housing === "object" ? lifestylePayload.housing : {};
       const schoolsPayload = lifestylePayload.schools && typeof lifestylePayload.schools === "object" ? lifestylePayload.schools : {};
+      const mapPayload = lifestylePayload.map && typeof lifestylePayload.map === "object" ? lifestylePayload.map : {};
       return {
         ...base,
         key: lifestylePayload.key || base.key,
@@ -5374,9 +5526,21 @@
         heading: lifestylePayload.heading || "Life Around This Practice",
         intro: lifestylePayload.intro || "Explore housing, schooling and travel around the practice before you relocate.",
         mapImageUrl: lifestylePayload.mapImageUrl || base.mapImageUrl,
+        map: {
+          ...(base.map && typeof base.map === "object" ? base.map : {}),
+          ...mapPayload,
+          center: mapPayload.center && typeof mapPayload.center === "object"
+            ? mapPayload.center
+            : (base.map && base.map.center ? base.map.center : null),
+          googleMaps: mapPayload.googleMaps && typeof mapPayload.googleMaps === "object"
+            ? mapPayload.googleMaps
+            : (base.map && base.map.googleMaps ? base.map.googleMaps : {})
+        },
         housing: {
           ...base.housing,
           ...housingPayload,
+          partySummary: housingPayload.partySummary || base.housing.partySummary || "",
+          recommendedBedrooms: Number(housingPayload.recommendedBedrooms || base.housing.recommendedBedrooms || 0) || 0,
           rent: Array.isArray(housingPayload.rent) && housingPayload.rent.length ? housingPayload.rent : base.housing.rent,
           buy: Array.isArray(housingPayload.buy) && housingPayload.buy.length ? housingPayload.buy : base.housing.buy
         },
@@ -5396,9 +5560,98 @@
       return Array.isArray(lifestyle.housing[key]) ? lifestyle.housing[key] : [];
     }
 
+    function parsePracticeLifestyleCoordinate(value) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    }
+
+    function getPracticeLifestyleMapConfig(lifestyle) {
+      return lifestyle && lifestyle.map && typeof lifestyle.map === "object"
+        ? lifestyle.map
+        : {};
+    }
+
+    function canRenderPracticeLifestyleGoogleMap(lifestyle) {
+      const mapConfig = getPracticeLifestyleMapConfig(lifestyle);
+      const googleMaps = mapConfig.googleMaps && typeof mapConfig.googleMaps === "object"
+        ? mapConfig.googleMaps
+        : {};
+      const center = mapConfig.center && typeof mapConfig.center === "object" ? mapConfig.center : {};
+      return !!(
+        googleMaps.enabled &&
+        googleMaps.apiKey &&
+        Number.isFinite(parsePracticeLifestyleCoordinate(center.lat)) &&
+        Number.isFinite(parsePracticeLifestyleCoordinate(center.lng))
+      );
+    }
+
     function getPracticeLifestyleVisibleHousing(lifestyle) {
       const listings = getPracticeLifestyleHousingListings(lifestyle, practiceLifestyleState.housingMode);
       return listings.filter((item) => Number(item && item.distanceKm || 0) <= Number(practiceLifestyleState.radiusKm || 5));
+    }
+
+    function getPracticeLifestyleSelectedHousingId(lifestyle) {
+      const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      const selectedId = String(practiceLifestyleState.selectedHousingIds[market] || "").trim();
+      if (selectedId) return selectedId;
+      const visibleListings = getPracticeLifestyleVisibleHousing(lifestyle);
+      return visibleListings[0] && visibleListings[0].id ? visibleListings[0].id : "";
+    }
+
+    function getPracticeLifestyleSelectedHousingListing(lifestyle) {
+      const selectedId = getPracticeLifestyleSelectedHousingId(lifestyle);
+      const activeMarketListings = getPracticeLifestyleHousingListings(lifestyle, practiceLifestyleState.housingMode);
+      return activeMarketListings.find((item) => item && item.id === selectedId)
+        || activeMarketListings[0]
+        || null;
+    }
+
+    function buildPracticeLifestyleSchoolEligibility(school, selectedListingId) {
+      const eligibilityByListing = school && school.eligibilityByListing && typeof school.eligibilityByListing === "object"
+        ? school.eligibilityByListing
+        : {};
+      const explicitEligibility = selectedListingId ? eligibilityByListing[selectedListingId] : "";
+      if (explicitEligibility === "catchment") {
+        return { tone: "catchment", label: "Catchment" };
+      }
+      if (explicitEligibility === "outside") {
+        return { tone: "outside", label: "Outside" };
+      }
+      if (school && school.eligibilityLabel) {
+        return {
+          tone: school.eligibilityTone || "open",
+          label: school.eligibilityLabel
+        };
+      }
+      if (school && school.catchment === true) {
+        return { tone: "catchment", label: "Catchment" };
+      }
+      return { tone: "outside", label: "Outside" };
+    }
+
+    function getPracticeLifestyleVisibleSchools(lifestyle) {
+      const groups = lifestyle && lifestyle.schools ? lifestyle.schools : {};
+      const sourceList = Array.isArray(groups[practiceLifestyleState.schoolPhase]) ? groups[practiceLifestyleState.schoolPhase] : [];
+      const selectedListingId = getPracticeLifestyleSelectedHousingId(lifestyle);
+      return sourceList
+        .filter((item) => practiceLifestyleState.schoolSector === "all" || item.sectorGroup === practiceLifestyleState.schoolSector)
+        .map((item) => {
+          const eligibility = buildPracticeLifestyleSchoolEligibility(item, selectedListingId);
+          return {
+            ...item,
+            eligibilityTone: eligibility.tone,
+            eligibilityLabel: eligibility.label
+          };
+        })
+        .sort((left, right) => {
+          const leftCatchment = left.eligibilityTone === "catchment" ? 1 : 0;
+          const rightCatchment = right.eligibilityTone === "catchment" ? 1 : 0;
+          if (rightCatchment !== leftCatchment) return rightCatchment - leftCatchment;
+          const leftRank = Number(left.rankingScore || 0);
+          const rightRank = Number(right.rankingScore || 0);
+          if (rightRank !== leftRank) return rightRank - leftRank;
+          return Number(left.distanceKm || 0) - Number(right.distanceKm || 0);
+        });
     }
 
     function syncPracticeLifestyleState(lifestyle) {
@@ -5468,6 +5721,257 @@
         return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 16H3L12 3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>';
       }
       return "";
+    }
+
+    const PRACTICE_LIFESTYLE_GOOGLE_DARK_STYLES = [
+      { elementType: "geometry", stylers: [{ color: "#0a1320" }] },
+      { elementType: "labels.text.fill", stylers: [{ color: "#8ca0b3" }] },
+      { elementType: "labels.text.stroke", stylers: [{ color: "#07101a" }] },
+      { featureType: "administrative", elementType: "geometry.stroke", stylers: [{ color: "#162131" }] },
+      { featureType: "poi", elementType: "geometry", stylers: [{ color: "#0d1622" }] },
+      { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#0d1a18" }] },
+      { featureType: "road", elementType: "geometry", stylers: [{ color: "#131d2b" }] },
+      { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#0c1420" }] },
+      { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#1c2b40" }] },
+      { featureType: "transit", elementType: "geometry", stylers: [{ color: "#111a28" }] },
+      { featureType: "water", elementType: "geometry", stylers: [{ color: "#08111d" }] }
+    ];
+
+    function clearPracticeLifestyleMapScene() {
+      practiceLifestyleMapRuntime.activeMarkers.forEach((marker) => {
+        if (!marker) return;
+        if ("map" in marker) {
+          marker.map = null;
+        } else if (typeof marker.setMap === "function") {
+          marker.setMap(null);
+        }
+      });
+      practiceLifestyleMapRuntime.activeOverlays.forEach((overlay) => {
+        if (!overlay) return;
+        if (typeof overlay.setMap === "function") {
+          overlay.setMap(null);
+        }
+      });
+      if (practiceLifestyleMapRuntime.practiceMarker) {
+        if ("map" in practiceLifestyleMapRuntime.practiceMarker) {
+          practiceLifestyleMapRuntime.practiceMarker.map = null;
+        } else if (typeof practiceLifestyleMapRuntime.practiceMarker.setMap === "function") {
+          practiceLifestyleMapRuntime.practiceMarker.setMap(null);
+        }
+      }
+      practiceLifestyleMapRuntime.activeMarkers = [];
+      practiceLifestyleMapRuntime.activeOverlays = [];
+      practiceLifestyleMapRuntime.practiceMarker = null;
+    }
+
+    function resetPracticeLifestyleMapRuntime() {
+      clearPracticeLifestyleMapScene();
+      practiceLifestyleMapRuntime.map = null;
+      practiceLifestyleMapRuntime.mapEl = null;
+    }
+
+    function createPracticeLifestyleMarkerElement(iconName, className) {
+      const marker = document.createElement("div");
+      marker.className = `practice-lifestyle-map-marker ${className}`.trim();
+      marker.innerHTML = buildPracticeLifestyleIcon(iconName);
+      return marker;
+    }
+
+    function createPracticeLifestyleGoogleMarker(map, position, options = {}) {
+      if (!window.google || !window.google.maps || !window.google.maps.marker || !window.google.maps.marker.AdvancedMarkerElement) {
+        return null;
+      }
+      return new window.google.maps.marker.AdvancedMarkerElement({
+        map,
+        position,
+        title: options.title || "",
+        content: createPracticeLifestyleMarkerElement(options.icon || "home", options.className || "")
+      });
+    }
+
+    function loadPracticeLifestyleGoogleMaps(lifestyle) {
+      const mapConfig = getPracticeLifestyleMapConfig(lifestyle);
+      const googleMaps = mapConfig.googleMaps && typeof mapConfig.googleMaps === "object" ? mapConfig.googleMaps : {};
+      const apiKey = String(googleMaps.apiKey || "").trim();
+      if (!apiKey) return Promise.resolve(null);
+      if (window.google && window.google.maps && window.google.maps.marker && window.google.maps.marker.AdvancedMarkerElement) {
+        return Promise.resolve(window.google.maps);
+      }
+      if (practiceLifestyleMapRuntime.apiPromise && practiceLifestyleMapRuntime.scriptKey === apiKey) {
+        return practiceLifestyleMapRuntime.apiPromise;
+      }
+      practiceLifestyleMapRuntime.scriptKey = apiKey;
+      practiceLifestyleMapRuntime.apiPromise = new Promise((resolve, reject) => {
+        const existing = document.querySelector('script[data-practice-lifestyle-google="true"]');
+        if (existing) {
+          existing.addEventListener("load", () => resolve(window.google && window.google.maps ? window.google.maps : null), { once: true });
+          existing.addEventListener("error", () => reject(new Error("google_maps_failed")), { once: true });
+          return;
+        }
+        const callbackName = "__gpPracticeLifestyleMapsReady";
+        window[callbackName] = () => {
+          resolve(window.google && window.google.maps ? window.google.maps : null);
+        };
+        const script = document.createElement("script");
+        script.async = true;
+        script.defer = true;
+        script.dataset.practiceLifestyleGoogle = "true";
+        script.src = "https://maps.googleapis.com/maps/api/js?key="
+          + encodeURIComponent(apiKey)
+          + "&v=weekly&libraries=marker,geometry&callback="
+          + encodeURIComponent(callbackName);
+        script.onerror = () => reject(new Error("google_maps_failed"));
+        document.head.appendChild(script);
+      });
+      return practiceLifestyleMapRuntime.apiPromise;
+    }
+
+    function getPracticeLifestyleMapCenter(lifestyle) {
+      const mapConfig = getPracticeLifestyleMapConfig(lifestyle);
+      const center = mapConfig.center && typeof mapConfig.center === "object" ? mapConfig.center : {};
+      const lat = parsePracticeLifestyleCoordinate(center.lat);
+      const lng = parsePracticeLifestyleCoordinate(center.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return { lat, lng };
+    }
+
+    function fitPracticeLifestyleMapBounds(map, points) {
+      if (!window.google || !window.google.maps || !Array.isArray(points) || points.length < 2) return;
+      const bounds = new window.google.maps.LatLngBounds();
+      points.forEach((point) => {
+        const lat = parsePracticeLifestyleCoordinate(point && point.lat);
+        const lng = parsePracticeLifestyleCoordinate(point && point.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) bounds.extend({ lat, lng });
+      });
+      if (bounds.isEmpty()) return;
+      map.fitBounds(bounds, 56);
+      const listener = window.google.maps.event.addListenerOnce(map, "idle", () => {
+        if (map.getZoom() > 13) map.setZoom(13);
+      });
+      void listener;
+    }
+
+    async function renderPracticeLifestyleGoogleMap(lifestyle) {
+      const mapHost = securedLifestyleExplorerEl
+        ? securedLifestyleExplorerEl.querySelector("[data-practice-map]")
+        : null;
+      if (!mapHost || !canRenderPracticeLifestyleGoogleMap(lifestyle)) return;
+
+      try {
+        const maps = await loadPracticeLifestyleGoogleMaps(lifestyle);
+        if (!maps || !mapHost.isConnected) return;
+        const center = getPracticeLifestyleMapCenter(lifestyle);
+        if (!center) return;
+        const mapConfig = getPracticeLifestyleMapConfig(lifestyle);
+        const googleMaps = mapConfig.googleMaps && typeof mapConfig.googleMaps === "object" ? mapConfig.googleMaps : {};
+        resetPracticeLifestyleMapRuntime();
+        practiceLifestyleMapRuntime.mapEl = mapHost;
+        practiceLifestyleMapRuntime.map = new maps.Map(mapHost, {
+          center,
+          zoom: Number(mapConfig.zoom || 12),
+          disableDefaultUI: true,
+          clickableIcons: false,
+          keyboardShortcuts: false,
+          gestureHandling: "greedy",
+          streetViewControl: false,
+          fullscreenControl: false,
+          mapId: googleMaps.mapId || undefined,
+          styles: googleMaps.mapId ? undefined : PRACTICE_LIFESTYLE_GOOGLE_DARK_STYLES
+        });
+
+        practiceLifestyleMapRuntime.practiceMarker = createPracticeLifestyleGoogleMarker(practiceLifestyleMapRuntime.map, center, {
+          icon: "map-pin",
+          className: "is-practice",
+          title: lifestyle.title || "Practice"
+        });
+
+        const mode = practiceLifestyleState.mode;
+        const markerPoints = [center];
+
+        if (mode === "housing") {
+          const circle = new maps.Circle({
+            map: practiceLifestyleMapRuntime.map,
+            center,
+            radius: Math.max(2, Number(practiceLifestyleState.radiusKm || 5)) * 1000,
+            strokeColor: "#3b82f6",
+            strokeOpacity: 0.3,
+            strokeWeight: 1,
+            fillColor: "#3b82f6",
+            fillOpacity: 0.2
+          });
+          practiceLifestyleMapRuntime.activeOverlays.push(circle);
+          const selectedId = getPracticeLifestyleSelectedHousingId(lifestyle);
+          getPracticeLifestyleVisibleHousing(lifestyle).forEach((listing) => {
+            const point = {
+              lat: parsePracticeLifestyleCoordinate(listing && listing.lat),
+              lng: parsePracticeLifestyleCoordinate(listing && listing.lng)
+            };
+            if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return;
+            markerPoints.push(point);
+            const marker = createPracticeLifestyleGoogleMarker(practiceLifestyleMapRuntime.map, point, {
+              icon: "home",
+              className: selectedId === listing.id ? "is-selected" : "",
+              title: listing.address || listing.price || "Housing option"
+            });
+            if (marker) practiceLifestyleMapRuntime.activeMarkers.push(marker);
+          });
+        }
+
+        if (mode === "schools") {
+          getPracticeLifestyleVisibleSchools(lifestyle).forEach((school) => {
+            const point = {
+              lat: parsePracticeLifestyleCoordinate(school && school.lat),
+              lng: parsePracticeLifestyleCoordinate(school && school.lng)
+            };
+            if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return;
+            markerPoints.push(point);
+            const marker = createPracticeLifestyleGoogleMarker(practiceLifestyleMapRuntime.map, point, {
+              icon: "graduation",
+              className: "is-schools",
+              title: school.name || "School"
+            });
+            if (marker) practiceLifestyleMapRuntime.activeMarkers.push(marker);
+          });
+        }
+
+        if (mode === "flights") {
+          const items = Array.isArray(lifestyle && lifestyle.flights) ? lifestyle.flights : [];
+          items.forEach((item) => {
+            const point = {
+              lat: parsePracticeLifestyleCoordinate(item && item.lat),
+              lng: parsePracticeLifestyleCoordinate(item && item.lng)
+            };
+            if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return;
+            markerPoints.push(point);
+            const route = new maps.Polyline({
+              map: practiceLifestyleMapRuntime.map,
+              path: [center, point],
+              geodesic: true,
+              strokeColor: "#22c55e",
+              strokeOpacity: 0.6,
+              strokeWeight: 2,
+              icons: [{
+                icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
+                offset: "0",
+                repeat: "12px"
+              }]
+            });
+            practiceLifestyleMapRuntime.activeOverlays.push(route);
+            const marker = createPracticeLifestyleGoogleMarker(practiceLifestyleMapRuntime.map, point, {
+              icon: "plane",
+              className: "is-flights",
+              title: item.name || "Travel destination"
+            });
+            if (marker) practiceLifestyleMapRuntime.activeMarkers.push(marker);
+          });
+        }
+
+        if (markerPoints.length > 1) {
+          fitPracticeLifestyleMapBounds(practiceLifestyleMapRuntime.map, markerPoints);
+        }
+      } catch (error) {
+        resetPracticeLifestyleMapRuntime();
+      }
     }
 
     function buildPracticeLifestyleDockHtml(activeMode) {
@@ -5544,6 +6048,8 @@
     function buildPracticeLifestyleHousingDrawerHtml(lifestyle) {
       const visibleListings = getPracticeLifestyleVisibleHousing(lifestyle);
       const selectedId = practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode];
+      const recommendedBedrooms = Number(lifestyle && lifestyle.housing && lifestyle.housing.recommendedBedrooms || 0) || 0;
+      const partySummary = String(lifestyle && lifestyle.housing && lifestyle.housing.partySummary || "").trim();
       return `
         <div class="practice-lifestyle-drawer" data-lifestyle-drawer="housing">
           <div class="practice-lifestyle-segmented" role="tablist" aria-label="Housing type">
@@ -5558,6 +6064,11 @@
               </button>
             `).join("")}
           </div>
+          ${(partySummary || recommendedBedrooms) ? `
+            <p class="practice-lifestyle-drawer-subtitle">
+              Curated for ${escapeHtml(partySummary || "your move")}${recommendedBedrooms ? ` · ${escapeHtml(String(recommendedBedrooms))}+ bedroom${recommendedBedrooms === 1 ? "" : "s"}` : ""}
+            </p>
+          ` : ""}
           <div class="practice-lifestyle-radius-head">
             <span>Search radius</span>
             <span class="practice-lifestyle-radius-value">${Math.round(practiceLifestyleState.radiusKm)} km</span>
@@ -5601,9 +6112,8 @@
     }
 
     function buildPracticeLifestyleSchoolsDrawerHtml(lifestyle) {
-      const groups = lifestyle && lifestyle.schools ? lifestyle.schools : {};
-      const sourceList = Array.isArray(groups[practiceLifestyleState.schoolPhase]) ? groups[practiceLifestyleState.schoolPhase] : [];
-      const visibleSchools = sourceList.filter((item) => practiceLifestyleState.schoolSector === "all" || item.sectorGroup === practiceLifestyleState.schoolSector);
+      const visibleSchools = getPracticeLifestyleVisibleSchools(lifestyle);
+      const selectedListing = getPracticeLifestyleSelectedHousingListing(lifestyle);
       return `
         <div class="practice-lifestyle-drawer" data-lifestyle-drawer="schools">
           <div class="practice-lifestyle-segmented is-schools" role="tablist" aria-label="School phase">
@@ -5618,6 +6128,9 @@
               </button>
             `).join("")}
           </div>
+          ${selectedListing ? `
+            <p class="practice-lifestyle-drawer-subtitle">Catchment checked against ${escapeHtml(selectedListing.address || "your selected home")}</p>
+          ` : ""}
           <div class="practice-lifestyle-filter-row" role="group" aria-label="School sector filter">
             ${[
               { key: "all", label: "All" },
@@ -5646,9 +6159,9 @@
                       <strong>${escapeHtml(school.rating)}</strong>
                     </div>
                   </div>
-                  <span class="practice-lifestyle-school-badge ${school.catchment ? "is-catchment" : "is-outside"}">
-                    ${buildPracticeLifestyleIcon(school.catchment ? "check" : "alert")}
-                    <span>${school.catchment ? "Catchment" : "Outside"}</span>
+                  <span class="practice-lifestyle-school-badge ${school.eligibilityTone === "catchment" ? "is-catchment" : (school.eligibilityTone === "open" ? "is-open" : "is-outside")}">
+                    ${buildPracticeLifestyleIcon(school.eligibilityTone === "catchment" ? "check" : (school.eligibilityTone === "open" ? "graduation" : "alert"))}
+                    <span>${escapeHtml(school.eligibilityLabel || "Outside")}</span>
                   </span>
                 </div>
               </article>
@@ -5697,29 +6210,30 @@
     function buildPracticeLifestyleMapMarkup(lifestyle) {
       const activeMode = practiceLifestyleState.mode;
       const visibleHousing = getPracticeLifestyleVisibleHousing(lifestyle);
-      const schools = Array.isArray(lifestyle && lifestyle.schools && lifestyle.schools[practiceLifestyleState.schoolPhase])
-        ? lifestyle.schools[practiceLifestyleState.schoolPhase].filter((item) => practiceLifestyleState.schoolSector === "all" || item.sectorGroup === practiceLifestyleState.schoolSector)
-        : [];
+      const schools = getPracticeLifestyleVisibleSchools(lifestyle);
       const flights = Array.isArray(lifestyle && lifestyle.flights) ? lifestyle.flights : [];
       const radiusSizePx = 112 + ((Number(practiceLifestyleState.radiusKm || 5) - 2) / 23) * 136;
+      const useGoogleMap = canRenderPracticeLifestyleGoogleMap(lifestyle);
       return `
-        <div class="practice-lifestyle-map-shell">
-          <div class="practice-lifestyle-map-bg" style="--practice-lifestyle-map-image:url('${escapeHtml(lifestyle.mapImageUrl || "../media/images/account-header.webp")}');"></div>
+        <div class="practice-lifestyle-map-shell${useGoogleMap ? " is-google" : ""}">
+          ${useGoogleMap
+            ? '<div class="practice-lifestyle-google-map" data-practice-map="true" aria-label="Interactive map around this practice"></div>'
+            : `
+              <div class="practice-lifestyle-map-bg" style="--practice-lifestyle-map-image:url('${escapeHtml(lifestyle.mapImageUrl || "../media/images/account-header.webp")}');"></div>
+              <div class="practice-lifestyle-stage">
+                ${activeMode === "housing" ? `<div class="practice-lifestyle-radius" style="--radius-size:${radiusSizePx.toFixed(0)}px;"></div>${buildPracticeLifestyleHousingPinsHtml(visibleHousing)}` : ""}
+                ${activeMode === "schools" ? `<div class="practice-lifestyle-catchment"></div>${buildPracticeLifestyleSchoolPinsHtml(schools)}` : ""}
+                ${activeMode === "flights" ? `${buildPracticeLifestyleFlightRoutesHtml(flights)}${buildPracticeLifestyleFlightPinsHtml(flights)}` : ""}
+              </div>
+              <div class="practice-lifestyle-practice-pin" aria-hidden="true">
+                <span class="practice-lifestyle-practice-pulse"></span>
+                <span class="practice-lifestyle-practice-core">${buildPracticeLifestyleIcon("map-pin")}</span>
+              </div>
+            `}
           <div class="practice-lifestyle-map-grid"></div>
           <div class="practice-lifestyle-map-glow"></div>
           <div class="practice-lifestyle-map-vignette"></div>
           <div class="practice-lifestyle-map-topfade"></div>
-
-          <div class="practice-lifestyle-stage">
-            ${activeMode === "housing" ? `<div class="practice-lifestyle-radius" style="--radius-size:${radiusSizePx.toFixed(0)}px;"></div>${buildPracticeLifestyleHousingPinsHtml(visibleHousing)}` : ""}
-            ${activeMode === "schools" ? `<div class="practice-lifestyle-catchment"></div>${buildPracticeLifestyleSchoolPinsHtml(schools)}` : ""}
-            ${activeMode === "flights" ? `${buildPracticeLifestyleFlightRoutesHtml(flights)}${buildPracticeLifestyleFlightPinsHtml(flights)}` : ""}
-          </div>
-
-          <div class="practice-lifestyle-practice-pin" aria-hidden="true">
-            <span class="practice-lifestyle-practice-pulse"></span>
-            <span class="practice-lifestyle-practice-core">${buildPracticeLifestyleIcon("map-pin")}</span>
-          </div>
 
           <div class="practice-lifestyle-overlay">
             <div class="practice-lifestyle-topcopy">
@@ -5739,6 +6253,12 @@
       const isOpen = practiceLifestyleState.mode !== "overview";
       securedLifestyleExplorerEl.classList.toggle("is-open", isOpen);
       securedLifestyleExplorerEl.innerHTML = `${buildPracticeLifestyleMapMarkup(lifestyle)}${buildPracticeLifestyleDrawerHtml(lifestyle)}`;
+      if (!canRenderPracticeLifestyleGoogleMap(lifestyle)) {
+        resetPracticeLifestyleMapRuntime();
+      }
+      window.requestAnimationFrame(() => {
+        renderPracticeLifestyleGoogleMap(lifestyle);
+      });
     }
 
     function resolveSecuredPlacement() {
