@@ -41,7 +41,7 @@ Add these in Vercel Project Settings -> Environment Variables:
 - `ZOHO_RECRUIT_CLIENT_ID=<your-zoho-client-id>` (server-side only)
 - `ZOHO_RECRUIT_CLIENT_SECRET=<your-zoho-client-secret>` (server-side only)
 - `ZOHO_RECRUIT_ACCOUNTS_SERVER=https://accounts.zoho.com` (or your Zoho data-center accounts server)
-- `ZOHO_RECRUIT_REDIRECT_URI=https://admin.mygplink.com.au/api/admin/integrations/zoho-recruit/callback`
+- `ZOHO_RECRUIT_REDIRECT_URI=https://app.mygplink.com.au/api/integrations/zoho-recruit/callback`
 - `ZOHO_RECRUIT_SCOPES=ZohoRecruit.modules.jobopening.READ,ZohoRecruit.modules.candidate.ALL,ZohoRecruit.modules.application.ALL,ZohoRecruit.modules.client.READ,ZohoRecruit.modules.contact.READ,ZohoRecruit.modules.attachments.ALL,ZohoRecruit.search.READ`
 - `ZOHO_RECRUIT_SYNC_CRON_SECRET=<strong-random-secret>` (recommended if using scheduled sync)
 - `ADMIN_ALLOWED_HOSTS=admin.mygplink.com.au` (required in production; employee admin hostnames)
@@ -133,11 +133,11 @@ This applies required schema, including `public.runtime_kv`, and deploys the Sup
 ## 11. Connect Zoho Recruit
 1. In Zoho API Console, create a server-based OAuth client.
 2. Set the redirect URI to your live app callback:
-   - `https://admin.mygplink.com.au/api/admin/integrations/zoho-recruit/callback`
+   - `https://app.mygplink.com.au/api/integrations/zoho-recruit/callback`
 3. Add the Zoho env vars above to Vercel.
 4. Sign in to the employee admin portal with an account assigned `staff`, `admin`, or `super_admin`, then open:
    - `https://admin.mygplink.com.au/pages/admin.html`
-5. If Zoho was already connected with older scopes, click `Reconnect Zoho Recruit` once after deploy so Zoho issues a refresh token with the expanded permissions required for applications, contacts, search, and contract attachments.
+5. If Zoho was already connected with older scopes, click `Reconnect Zoho Recruit` from the admin dashboard once after deploy so Zoho issues a refresh token with the expanded permissions required for applications, contacts, search, and contract attachments.
 6. After consent, GP Link stores the refresh token in Supabase table `public.integration_connections`.
 7. GP Link syncs Zoho `JobOpenings` into `public.career_roles`.
 8. Candidate-facing Career UI reads from GP Link `/api/career/roles`, not from Zoho directly.

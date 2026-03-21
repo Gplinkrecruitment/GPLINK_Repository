@@ -1975,6 +1975,7 @@
         </div>
         <div class="integration-note">
           <span>Redirect URI: <span class="mono-inline">${escapeHtml(data.redirectUri || "-")}</span></span>
+          ${data.configuredRedirectUri && data.configuredRedirectUri !== data.redirectUri ? `<span>Configured Redirect: <span class="mono-inline">${escapeHtml(data.configuredRedirectUri)}</span></span>` : ""}
           <span>Requested Scopes: <span class="mono-inline">${escapeHtml(Array.isArray(data.scopes) && data.scopes.length ? data.scopes.join(", ") : "-")}</span></span>
           <span>Granted Scopes: <span class="mono-inline">${escapeHtml(Array.isArray(data.grantedScopes) && data.grantedScopes.length ? data.grantedScopes.join(", ") : "-")}</span></span>
         </div>
@@ -2009,6 +2010,7 @@
           cronConfigured: false,
           cronPath: "/api/integrations/zoho-recruit/cron-sync",
           redirectUri: "",
+          configuredRedirectUri: "",
           accountsServer: "",
           scopes: [],
           grantedScopes: [],

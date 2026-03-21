@@ -4189,6 +4189,28 @@ function getZohoRecruitAccountsServer() {
   return normalizeUrlBase(ZOHO_RECRUIT_ACCOUNTS_SERVER, 'https://accounts.zoho.com');
 }
 
+function getZohoRecruitLegacyAppRedirectUri() {
+  const configured = String(ZOHO_RECRUIT_REDIRECT_URI || '').trim();
+  if (!configured) return '';
+  try {
+    const url = new URL(configured);
+    if (/^(?:ceo\.)?admin\.mygplink\.com\.au$/i.test(url.hostname)) {
+      url.hostname = 'app.mygplink.com.au';
+      url.pathname = '/api/integrations/zoho-recruit/callback';
+      url.search = '';
+      url.hash = '';
+      return url.toString();
+    }
+  } catch (err) {}
+  return '';
+}
+
+function getZohoRecruitOauthRedirectUri() {
+  const legacyAppRedirect = getZohoRecruitLegacyAppRedirectUri();
+  if (legacyAppRedirect) return legacyAppRedirect;
+  return String(ZOHO_RECRUIT_REDIRECT_URI || '').trim();
+}
+
 function normalizeZohoRecruitScope(scope) {
   const value = String(scope || '').trim();
   if (!value) return '';
@@ -4297,11 +4319,13 @@ function getZohoOauthStateKey(state) {
   return `zoho_recruit_oauth:${String(state || '').trim()}`;
 }
 
-async function createZohoOauthState(adminEmail) {
+async function createZohoOauthState(adminEmail, options = {}) {
   const state = crypto.randomBytes(24).toString('hex');
   const expiresAt = Date.now() + (10 * 60 * 1000);
   await setRuntimeKv(getZohoOauthStateKey(state), {
     email: String(adminEmail || '').trim().toLowerCase(),
+    redirectUri: String(options.redirectUri || '').trim(),
+    returnPath: String(options.returnPath || '').trim(),
     createdAt: new Date().toISOString()
   }, expiresAt);
   return state;
@@ -4432,12 +4456,12 @@ async function upsertZohoRecruitConnection(patch = {}) {
   return mapZohoConnectionRow(result.data[0]);
 }
 
-async function exchangeZohoRecruitAuthorizationCode(code, accountsServer) {
+async function exchangeZohoRecruitAuthorizationCode(code, accountsServer, redirectUri = '') {
   return zohoFormRequest(accountsServer, {
     grant_type: 'authorization_code',
     client_id: ZOHO_RECRUIT_CLIENT_ID,
     client_secret: ZOHO_RECRUIT_CLIENT_SECRET,
-    redirect_uri: ZOHO_RECRUIT_REDIRECT_URI,
+    redirect_uri: String(redirectUri || getZohoRecruitOauthRedirectUri()).trim(),
     code: String(code || '').trim()
   });
 }
@@ -7364,7 +7388,8 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, {
       ok: true,
       configured: isZohoRecruitConfigured(),
-      redirectUri: ZOHO_RECRUIT_REDIRECT_URI,
+      redirectUri: getZohoRecruitOauthRedirectUri(),
+      configuredRedirectUri: ZOHO_RECRUIT_REDIRECT_URI,
       accountsServer: getZohoRecruitAccountsServer(),
       scopes: scopeStatus.requestedScopes,
       grantedScopes: scopeStatus.grantedScopes,
@@ -7388,12 +7413,16 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const oauthState = await createZohoOauthState(adminCtx.email);
+    const oauthRedirectUri = getZohoRecruitOauthRedirectUri();
+    const oauthState = await createZohoOauthState(adminCtx.email, {
+      redirectUri: oauthRedirectUri,
+      returnPath: '/pages/account.html'
+    });
     const authUrl = new URL(`${getZohoRecruitAccountsServer()}/oauth/v2/auth`);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('client_id', ZOHO_RECRUIT_CLIENT_ID);
     authUrl.searchParams.set('scope', getZohoRecruitScopes().join(','));
-    authUrl.searchParams.set('redirect_uri', ZOHO_RECRUIT_REDIRECT_URI);
+    authUrl.searchParams.set('redirect_uri', oauthRedirectUri);
     authUrl.searchParams.set('access_type', 'offline');
     authUrl.searchParams.set('prompt', 'consent');
     authUrl.searchParams.set('state', oauthState);
@@ -7435,12 +7464,14 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 403, { ok: false, message: 'Invalid Zoho Recruit OAuth state.' });
       return;
     }
+    const oauthRedirectUri = String(statePayload.redirectUri || getZohoRecruitOauthRedirectUri()).trim();
+    const successReturnPath = String(statePayload.returnPath || '/pages/account.html').trim() || '/pages/account.html';
 
-    const exchanged = await exchangeZohoRecruitAuthorizationCode(code, callbackAccountsServer);
+    const exchanged = await exchangeZohoRecruitAuthorizationCode(code, callbackAccountsServer, oauthRedirectUri);
     if (!exchanged.ok) {
       const errorMessage = getZohoErrorMessage(exchanged.data, 'Failed to connect Zoho Recruit.');
       res.writeHead(302, {
-        Location: `/pages/account.html?zohoRecruit=error&message=${encodeURIComponent(errorMessage)}`
+        Location: `${successReturnPath}?zohoRecruit=error&message=${encodeURIComponent(errorMessage)}`
       });
       res.end();
       return;
@@ -7472,14 +7503,14 @@ async function handleApi(req, res, pathname) {
     const syncResult = await syncZohoRecruitRoles();
     if (!syncResult.ok) {
       res.writeHead(302, {
-        Location: `/pages/account.html?zohoRecruit=connected&sync=error&message=${encodeURIComponent(syncResult.message || 'Sync failed')}`
+        Location: `${successReturnPath}?zohoRecruit=connected&sync=error&message=${encodeURIComponent(syncResult.message || 'Sync failed')}`
       });
       res.end();
       return;
     }
 
     res.writeHead(302, {
-      Location: `/pages/account.html?zohoRecruit=connected&sync=success&roles=${encodeURIComponent(String(syncResult.syncedRoleCount || 0))}`
+      Location: `${successReturnPath}?zohoRecruit=connected&sync=success&roles=${encodeURIComponent(String(syncResult.syncedRoleCount || 0))}`
     });
     res.end();
     return;
@@ -7540,7 +7571,8 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, {
       ok: true,
       configured: isZohoRecruitConfigured(),
-      redirectUri: ZOHO_RECRUIT_REDIRECT_URI,
+      redirectUri: getZohoRecruitOauthRedirectUri(),
+      configuredRedirectUri: ZOHO_RECRUIT_REDIRECT_URI,
       accountsServer: getZohoRecruitAccountsServer(),
       scopes: scopeStatus.requestedScopes,
       grantedScopes: scopeStatus.grantedScopes,
@@ -7564,12 +7596,16 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const oauthState = await createZohoOauthState(adminCtx.email);
+    const oauthRedirectUri = getZohoRecruitOauthRedirectUri();
+    const oauthState = await createZohoOauthState(adminCtx.email, {
+      redirectUri: oauthRedirectUri,
+      returnPath: '/pages/admin.html'
+    });
     const authUrl = new URL(`${getZohoRecruitAccountsServer()}/oauth/v2/auth`);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('client_id', ZOHO_RECRUIT_CLIENT_ID);
     authUrl.searchParams.set('scope', getZohoRecruitScopes().join(','));
-    authUrl.searchParams.set('redirect_uri', ZOHO_RECRUIT_REDIRECT_URI);
+    authUrl.searchParams.set('redirect_uri', oauthRedirectUri);
     authUrl.searchParams.set('access_type', 'offline');
     authUrl.searchParams.set('prompt', 'consent');
     authUrl.searchParams.set('state', oauthState);
@@ -7613,12 +7649,14 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 403, { ok: false, message: 'Invalid Zoho Recruit OAuth state.' });
       return;
     }
+    const oauthRedirectUri = String(statePayload.redirectUri || getZohoRecruitOauthRedirectUri()).trim();
+    const successReturnPath = String(statePayload.returnPath || '/pages/admin.html').trim() || '/pages/admin.html';
 
-    const exchanged = await exchangeZohoRecruitAuthorizationCode(code, callbackAccountsServer);
+    const exchanged = await exchangeZohoRecruitAuthorizationCode(code, callbackAccountsServer, oauthRedirectUri);
     if (!exchanged.ok) {
       const errorMessage = getZohoErrorMessage(exchanged.data, 'Failed to connect Zoho Recruit.');
       res.writeHead(302, {
-        Location: `/pages/admin.html?zohoRecruit=error&message=${encodeURIComponent(errorMessage)}`
+        Location: `${successReturnPath}?zohoRecruit=error&message=${encodeURIComponent(errorMessage)}`
       });
       res.end();
       return;
@@ -7647,14 +7685,14 @@ async function handleApi(req, res, pathname) {
     const syncResult = await syncZohoRecruitRoles();
     if (!syncResult.ok) {
       res.writeHead(302, {
-        Location: `/pages/admin.html?zohoRecruit=connected&sync=error&message=${encodeURIComponent(syncResult.message || 'Sync failed')}`
+        Location: `${successReturnPath}?zohoRecruit=connected&sync=error&message=${encodeURIComponent(syncResult.message || 'Sync failed')}`
       });
       res.end();
       return;
     }
 
     res.writeHead(302, {
-      Location: `/pages/admin.html?zohoRecruit=connected&sync=success&roles=${encodeURIComponent(String(syncResult.syncedRoleCount || 0))}`
+      Location: `${successReturnPath}?zohoRecruit=connected&sync=success&roles=${encodeURIComponent(String(syncResult.syncedRoleCount || 0))}`
     });
     res.end();
     return;
