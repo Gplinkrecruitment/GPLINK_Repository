@@ -5583,24 +5583,152 @@ function sortZohoRecordsByRecent(left, right) {
   return rightTs - leftTs;
 }
 
-function selectBestZohoContractAttachment(records) {
+function getZohoAttachmentId(record) {
+  return sanitizeZohoText(record && record.id);
+}
+
+function getZohoAttachmentFileName(record) {
+  return getZohoField(record, ['File_Name', 'Name', 'file_name']);
+}
+
+function getZohoAttachmentCategory(record) {
+  return getZohoField(record, ['Attachment_Category', 'Category', 'category']);
+}
+
+function scoreZohoContractAttachment(record) {
+  const fileName = getZohoAttachmentFileName(record).toLowerCase();
+  const category = getZohoAttachmentCategory(record).toLowerCase();
+  const value = `${fileName} ${category}`.trim();
+  let total = 0;
+  if (/contract|contracts/.test(category)) total += 8;
+  if (/contract|agreement|employment|offer/.test(value)) total += 5;
+  if (/signed|executed|final|version/.test(value)) total += 2;
+  if (/\.(pdf|docx|doc|rtf|txt)\b/.test(fileName) || /(pdf|word|document)/.test(value)) total += 2;
+  return total;
+}
+
+function selectZohoContractAttachmentCandidates(records, maxCandidates = 4) {
   const list = Array.isArray(records) ? records.slice() : [];
-  const score = (record) => {
-    const value = `${getZohoField(record, ['File_Name'])} ${getZohoField(record, ['Attachment_Category', 'Category'])}`.toLowerCase();
-    let total = 0;
-    if (/contract|agreement|employment|offer/.test(value)) total += 5;
-    if (/signed|executed|final/.test(value)) total += 2;
-    if (/pdf/.test(value)) total += 1;
-    return total;
-  };
   list.sort((left, right) => {
-    const diff = score(right) - score(left);
+    const diff = scoreZohoContractAttachment(right) - scoreZohoContractAttachment(left);
     if (diff !== 0) return diff;
     return sortZohoRecordsByRecent(left, right);
   });
-  if (list.length === 0) return null;
-  if (score(list[0]) <= 0) return null;
-  return list[0];
+  return list.filter((record) => scoreZohoContractAttachment(record) > 0).slice(0, Math.max(1, maxCandidates));
+}
+
+function decodeXmlEntities(value) {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#xA;/gi, '\n')
+    .replace(/&#x9;/gi, '\t');
+}
+
+function extractDocxXmlText(xmlValue) {
+  const xml = String(xmlValue || '');
+  if (!xml) return '';
+  return decodeXmlEntities(
+    xml
+      .replace(/<w:tab\b[^>]*\/>/gi, '\t')
+      .replace(/<w:(?:br|cr)\b[^>]*\/>/gi, '\n')
+      .replace(/<\/w:p>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+  ).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function unzipBufferEntries(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 22) return [];
+  const eocdSignature = 0x06054b50;
+  const centralSignature = 0x02014b50;
+  const localSignature = 0x04034b50;
+  const searchStart = Math.max(0, buffer.length - 65557);
+  let eocdOffset = -1;
+
+  for (let offset = buffer.length - 22; offset >= searchStart; offset -= 1) {
+    if (buffer.readUInt32LE(offset) === eocdSignature) {
+      eocdOffset = offset;
+      break;
+    }
+  }
+  if (eocdOffset < 0) return [];
+
+  const totalEntries = buffer.readUInt16LE(eocdOffset + 10);
+  const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
+  const entries = [];
+  let pointer = centralDirectoryOffset;
+
+  for (let index = 0; index < totalEntries && pointer + 46 <= buffer.length; index += 1) {
+    if (buffer.readUInt32LE(pointer) !== centralSignature) break;
+    const compressionMethod = buffer.readUInt16LE(pointer + 10);
+    const compressedSize = buffer.readUInt32LE(pointer + 20);
+    const fileNameLength = buffer.readUInt16LE(pointer + 28);
+    const extraLength = buffer.readUInt16LE(pointer + 30);
+    const commentLength = buffer.readUInt16LE(pointer + 32);
+    const localHeaderOffset = buffer.readUInt32LE(pointer + 42);
+    const fileName = buffer.slice(pointer + 46, pointer + 46 + fileNameLength).toString('utf8');
+    pointer += 46 + fileNameLength + extraLength + commentLength;
+
+    if (localHeaderOffset + 30 > buffer.length || buffer.readUInt32LE(localHeaderOffset) !== localSignature) continue;
+    const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    const compressedBuffer = buffer.slice(dataStart, dataStart + compressedSize);
+
+    try {
+      let content = null;
+      if (compressionMethod === 0) content = compressedBuffer;
+      if (compressionMethod === 8) content = zlib.inflateRawSync(compressedBuffer);
+      if (content) entries.push({ fileName, content });
+    } catch (err) {}
+  }
+
+  return entries;
+}
+
+function extractDocxText(buffer) {
+  const entries = unzipBufferEntries(buffer);
+  if (!entries.length) return '';
+  const xmlChunks = entries
+    .filter((entry) => /^word\/(?:document|header\d+|footer\d+)\.xml$/i.test(entry.fileName))
+    .sort((left, right) => left.fileName.localeCompare(right.fileName))
+    .map((entry) => extractDocxXmlText(entry.content.toString('utf8')))
+    .filter(Boolean);
+  return xmlChunks.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function extractRtfText(value) {
+  return String(value || '')
+    .replace(/\\par[d]?/gi, '\n')
+    .replace(/\\tab/gi, '\t')
+    .replace(/\\'[0-9a-f]{2}/gi, ' ')
+    .replace(/\\[a-z]+-?\d* ?/gi, '')
+    .replace(/[{}]/g, '')
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractStructuredContractText(fileName, fileBuffer, mimeType) {
+  if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length === 0) return '';
+  const lowerName = String(fileName || '').trim().toLowerCase();
+  const lowerMime = String(mimeType || '').trim().toLowerCase();
+  if (/\.docx$/i.test(lowerName) || lowerMime.includes('wordprocessingml')) {
+    return extractDocxText(fileBuffer);
+  }
+  if (/\.rtf$/i.test(lowerName) || lowerMime.includes('rtf')) {
+    return extractRtfText(fileBuffer.toString('utf8'));
+  }
+  if (/\.txt$/i.test(lowerName) || lowerMime.startsWith('text/')) {
+    return fileBuffer.toString('utf8').trim();
+  }
+  if (/\.html?$/i.test(lowerName) || lowerMime.includes('html') || lowerMime.includes('xml')) {
+    return stripHtml(fileBuffer.toString('utf8')).trim();
+  }
+  return '';
 }
 
 function heuristicExtractCareerContractTerms(textValue) {
@@ -5618,14 +5746,14 @@ function heuristicExtractCareerContractTerms(textValue) {
   };
 }
 
-async function extractCareerContractTermsWithAi(fileName, fileBuffer, mimeType) {
+async function extractCareerContractTermsWithAi(fileName, fileBuffer, mimeType, extractedText = '') {
   if (!ANTHROPIC_API_KEY || !checkAnthropicBudget()) return null;
   if (!fileBuffer || !Buffer.isBuffer(fileBuffer) || fileBuffer.length === 0) return null;
 
   const resolvedMime = String(mimeType || '').trim().toLowerCase();
   const isPdf = resolvedMime.includes('pdf') || /\.pdf$/i.test(String(fileName || ''));
   const textContent = !isPdf
-    ? fileBuffer.toString('utf8').slice(0, 30000)
+    ? String(extractedText || '').slice(0, 30000)
     : '';
 
   const prompt = `You are extracting relocation and remuneration terms from an employment contract for a GP placement.
@@ -5714,8 +5842,8 @@ async function resolveCareerContractTerms(zoho, applicationId) {
   const cachedValue = cached && cached.value && typeof cached.value === 'object' ? cached.value : null;
 
   const attachments = await listZohoRecruitApplicationAttachments(zoho, appId);
-  const selected = selectBestZohoContractAttachment(attachments);
-  if (!selected) {
+  const candidates = selectZohoContractAttachmentCandidates(attachments);
+  if (candidates.length === 0) {
     if (!cachedValue || cachedValue.status !== 'unavailable') {
       await setRuntimeKv(cacheKey, {
         status: 'unavailable',
@@ -5725,45 +5853,68 @@ async function resolveCareerContractTerms(zoho, applicationId) {
     return null;
   }
 
-  const attachmentId = sanitizeZohoText(selected.id);
-  if (cachedValue && cachedValue.status === 'ready' && cachedValue.attachmentId === attachmentId) {
+  const candidateIds = candidates.map((record) => getZohoAttachmentId(record)).filter(Boolean);
+  if (cachedValue && cachedValue.status === 'ready' && candidateIds.includes(String(cachedValue.attachmentId || '').trim())) {
     return cachedValue;
   }
 
-  const downloaded = await downloadZohoRecruitApplicationAttachment(zoho, appId, attachmentId);
-  if (!downloaded || !downloaded.buffer || downloaded.buffer.length === 0) {
-    return cachedValue && cachedValue.status === 'ready' ? cachedValue : null;
-  }
+  let lastAttempt = null;
+  for (const candidate of candidates) {
+    const attachmentId = getZohoAttachmentId(candidate);
+    if (!attachmentId) continue;
+    const downloaded = await downloadZohoRecruitApplicationAttachment(zoho, appId, attachmentId);
+    if (!downloaded || !downloaded.buffer || downloaded.buffer.length === 0) {
+      lastAttempt = {
+        attachmentId,
+        fileName: getZohoAttachmentFileName(candidate),
+        reason: 'download_failed'
+      };
+      continue;
+    }
 
-  const heuristic = !/pdf/i.test(String(downloaded.mimeType || '')) ? heuristicExtractCareerContractTerms(downloaded.buffer.toString('utf8')) : null;
-  const extracted = heuristic && (heuristic.splitDisplay || heuristic.relocationPackageDisplay || heuristic.contractLengthDisplay)
-    ? heuristic
-    : await extractCareerContractTermsWithAi(
-      getZohoField(selected, ['File_Name']) || downloaded.fileName || 'contract.pdf',
-      downloaded.buffer,
-      downloaded.mimeType
-    );
+    const fileName = getZohoAttachmentFileName(candidate) || downloaded.fileName || 'contract.pdf';
+    const extractedText = extractStructuredContractText(fileName, downloaded.buffer, downloaded.mimeType);
+    const heuristic = extractedText ? heuristicExtractCareerContractTerms(extractedText) : null;
+    const extracted = heuristic && (heuristic.splitDisplay || heuristic.relocationPackageDisplay || heuristic.contractLengthDisplay)
+      ? heuristic
+      : await extractCareerContractTermsWithAi(
+        fileName,
+        downloaded.buffer,
+        downloaded.mimeType,
+        extractedText
+      );
 
-  if (!extracted || (!extracted.splitDisplay && !extracted.relocationPackageDisplay && !extracted.contractLengthDisplay)) {
-    await setRuntimeKv(cacheKey, {
-      status: 'unavailable',
+    if (!extracted || (!extracted.splitDisplay && !extracted.relocationPackageDisplay && !extracted.contractLengthDisplay)) {
+      lastAttempt = {
+        attachmentId,
+        fileName,
+        reason: extractedText ? 'extract_failed' : 'unsupported_document_format'
+      };
+      continue;
+    }
+
+    const value = {
+      status: 'ready',
       attachmentId,
-      reason: 'extract_failed'
-    }, Date.now() + (6 * 60 * 60 * 1000));
-    return null;
+      fileName,
+      splitDisplay: extracted.splitDisplay || '',
+      relocationPackageDisplay: extracted.relocationPackageDisplay || '',
+      contractLengthDisplay: extracted.contractLengthDisplay || '',
+      notes: extracted.notes || '',
+      extractedAt: new Date().toISOString()
+    };
+    await setRuntimeKv(cacheKey, value, Date.now() + (30 * 24 * 60 * 60 * 1000));
+    return value;
   }
 
-  const value = {
-    status: 'ready',
-    attachmentId,
-    splitDisplay: extracted.splitDisplay || '',
-    relocationPackageDisplay: extracted.relocationPackageDisplay || '',
-    contractLengthDisplay: extracted.contractLengthDisplay || '',
-    notes: extracted.notes || '',
-    extractedAt: new Date().toISOString()
-  };
-  await setRuntimeKv(cacheKey, value, Date.now() + (30 * 24 * 60 * 60 * 1000));
-  return value;
+  await setRuntimeKv(cacheKey, {
+    status: 'unavailable',
+    attachmentId: lastAttempt && lastAttempt.attachmentId ? lastAttempt.attachmentId : candidateIds[0] || '',
+    fileName: lastAttempt && lastAttempt.fileName ? lastAttempt.fileName : '',
+    attemptedAttachmentIds: candidateIds,
+    reason: lastAttempt && lastAttempt.reason ? lastAttempt.reason : 'extract_failed'
+  }, Date.now() + (6 * 60 * 60 * 1000));
+  return cachedValue && cachedValue.status === 'ready' ? cachedValue : null;
 }
 
 function getZohoApplicationStatus(record) {
@@ -5897,7 +6048,7 @@ async function buildCareerPlacementPayload({
     || normalizeCareerBillingLabel(roleRow && roleRow.billing_model)
     || 'Billing pending';
   const splitDisplay = (contractTerms && contractTerms.splitDisplay) || fallbackTerms.splitDisplay || 'Pending';
-  const relocationDisplay = (contractTerms && contractTerms.relocationPackageDisplay) || fallbackTerms.relocationPackageDisplay || '$10,000AUD';
+  const relocationDisplay = (contractTerms && contractTerms.relocationPackageDisplay) || fallbackTerms.relocationPackageDisplay || 'Pending';
   const contractLengthDisplay = (contractTerms && contractTerms.contractLengthDisplay) || fallbackTerms.contractLengthDisplay || 'Pending';
   const roleClient = roleRow ? mapCareerRoleRowToClient(roleRow) : null;
   const practiceContactRecord = Array.isArray(practiceContacts) && practiceContacts.length > 0

@@ -4350,12 +4350,6 @@
       return (Array.isArray(items) ? items : []).map((item, index) => {
         const label = String(item && item.label || "").trim();
         const value = String(item && item.value || "").trim();
-        if (index === 2 || /contract/i.test(label) || /2\s*years?/i.test(value)) {
-          return {
-            label: "Relocation Package",
-            value: "$10,000AUD"
-          };
-        }
         return {
           label: label || `Metric ${index + 1}`,
           value: value || "TBC"
