@@ -155,9 +155,13 @@
 
   function getProfileName() {
     // Try to get name from session profile
-    if (window.gpSessionProfile && window.gpSessionProfile.full_name) return window.gpSessionProfile.full_name;
-    if (window.gpSessionProfile && window.gpSessionProfile.name) return window.gpSessionProfile.name;
-    if (window.gpSessionProfile && window.gpSessionProfile.email) return window.gpSessionProfile.email.split("@")[0];
+    if (window.gpSessionProfile) {
+      if (window.gpSessionProfile.full_name) return window.gpSessionProfile.full_name;
+      if (window.gpSessionProfile.name) return window.gpSessionProfile.name;
+      var fn = (window.gpSessionProfile.firstName || "") + " " + (window.gpSessionProfile.lastName || "");
+      if (fn.trim()) return fn.trim();
+      if (window.gpSessionProfile.email) return window.gpSessionProfile.email.split("@")[0];
+    }
     return "";
   }
 

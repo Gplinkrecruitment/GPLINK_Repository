@@ -406,7 +406,7 @@
       fileToBase64(file).then(function (base64) {
         var profileName = "";
         if (window.gpSessionProfile) {
-          profileName = window.gpSessionProfile.full_name || window.gpSessionProfile.name || "";
+          profileName = window.gpSessionProfile.full_name || window.gpSessionProfile.name || ((window.gpSessionProfile.firstName || "") + " " + (window.gpSessionProfile.lastName || "")).trim() || "";
         }
 
         return fetch("/api/ai/verify-qualification", {
@@ -488,7 +488,7 @@
       fileToBase64(file).then(function (base64) {
         var profileName = "";
         if (window.gpSessionProfile) {
-          profileName = window.gpSessionProfile.full_name || window.gpSessionProfile.name || "";
+          profileName = window.gpSessionProfile.full_name || window.gpSessionProfile.name || ((window.gpSessionProfile.firstName || "") + " " + (window.gpSessionProfile.lastName || "")).trim() || "";
         }
 
         return fetch("/api/ai/verify-qualification", {

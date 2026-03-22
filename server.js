@@ -9069,7 +9069,11 @@ async function handleApi(req, res, pathname) {
     const { imageBase64, mimeType } = body || {};
     const expectedCountry = sanitizeUserString(body.expectedCountry, 20);
     const documentType = sanitizeUserString(body.documentType, 200);
-    const profileName = sanitizeUserString(body.profileName, 200);
+    let profileName = sanitizeUserString(body.profileName, 200);
+    // Fallback: derive profile name from session token if not provided by client
+    if (!profileName && session && session.userProfile) {
+      profileName = ((session.userProfile.firstName || '') + ' ' + (session.userProfile.lastName || '')).trim();
+    }
     if (!imageBase64 || !documentType || !expectedCountry) {
       sendJson(res, 400, { ok: false, message: 'Missing required fields: imageBase64, documentType, expectedCountry.' });
       return;
@@ -9632,7 +9636,10 @@ Classify this document.`;
 
     const { imageBase64, mimeType } = body || {};
     const qualificationName = sanitizeUserString(body.qualificationName, 200);
-    const profileName = sanitizeUserString(body.profileName, 200);
+    let profileName = sanitizeUserString(body.profileName, 200);
+    if (!profileName && session && session.userProfile) {
+      profileName = ((session.userProfile.firstName || '') + ' ' + (session.userProfile.lastName || '')).trim();
+    }
     if (!imageBase64) {
       sendJson(res, 400, { ok: false, message: 'Missing image data.' });
       return;
