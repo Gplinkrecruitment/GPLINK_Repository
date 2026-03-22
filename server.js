@@ -102,8 +102,9 @@ const GOOGLE_MAPS_SERVER_API_KEY = String(
 const GOOGLE_MAPS_MAP_ID = String(process.env.GOOGLE_MAPS_MAP_ID || DEFAULT_GOOGLE_MAPS_MAP_ID || '').trim();
 const DOMAIN_API_BASE = normalizeUrlBase(process.env.DOMAIN_API_BASE, 'https://api.domain.com.au');
 const DOMAIN_API_KEY = String(process.env.DOMAIN_API_KEY || '').trim();
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 3;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
-const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 8);
+const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const NSW_SCHOOL_FINDER_SQL_ENDPOINT = 'https://cesensw.carto.com/api/v2/sql';
 const SCHOOL_FINDER_TABLE_SCHOOLS = 'dec_schools_2020';
 const SCHOOL_FINDER_TABLE_CATCHMENTS = 'catchments_2020';
@@ -6433,6 +6434,7 @@ function formatLifestyleDriveTime(distanceKm) {
 function buildCareerLifestyleCacheKey(applicationId, practiceName, location, household) {
   const signature = crypto.createHash('sha1')
     .update(JSON.stringify({
+      version: CAREER_LIFESTYLE_EXPERIENCE_VERSION,
       applicationId: String(applicationId || '').trim(),
       practiceName: String(practiceName || '').trim().toLowerCase(),
       location: String(location || '').trim().toLowerCase(),
@@ -6563,6 +6565,8 @@ function normalizeLifestyleListing(seed, practiceCoords, market, locationContext
     price: String(seed && seed.price || (market === 'buy' ? '$1.10m' : '$700/wk')),
     priceValue: parseLifestylePriceValue(seed && seed.price, market),
     bedrooms,
+    bathrooms: parseWholeNumber(seed && seed.bathrooms, 2),
+    carSpaces: parseWholeNumber(seed && seed.carSpaces, 1),
     beds: formatBedroomsLabel(bedrooms),
     distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
     driveTime: formatLifestyleDriveTime(distanceKm || 0),
@@ -6570,6 +6574,9 @@ function normalizeLifestyleListing(seed, practiceCoords, market, locationContext
     imagePosition: String(seed && seed.imagePosition || 'center'),
     address: String(seed && seed.address || `${locationContext && locationContext.suburb ? locationContext.suburb : 'Practice'} property option`),
     title: String(seed && seed.title || seed && seed.address || `${locationContext && locationContext.suburb ? locationContext.suburb : 'Practice'} property option`),
+    suburb: String(seed && seed.suburb || locationContext && locationContext.suburb || ''),
+    propertyType: String(seed && seed.propertyType || 'House'),
+    summary: String(seed && seed.summary || ''),
     sourceLabel: String(seed && seed.sourceLabel || 'Domain'),
     sourceUrl: normalizeDomainSourceUrl(seed && seed.sourceUrl),
     lat: coords ? coords.lat : null,
@@ -6658,6 +6665,26 @@ function normalizeDomainListing(record, practiceCoords, market) {
       record && record.propertyDetails && record.propertyDetails.bedrooms
     )
   );
+  const bathrooms = parseWholeNumber(
+    pickFirstDefined(
+      record && record.bathrooms,
+      record && record.bathroomCount,
+      record && record.features && record.features.bathrooms,
+      record && record.propertyDetails && record.propertyDetails.bathrooms
+    ),
+    0
+  );
+  const carSpaces = parseWholeNumber(
+    pickFirstDefined(
+      record && record.carspaces,
+      record && record.carSpaces,
+      record && record.parking,
+      record && record.features && record.features.parking,
+      record && record.features && record.features.carspaces,
+      record && record.propertyDetails && record.propertyDetails.carspaces
+    ),
+    0
+  );
   const priceLabel = String(
     pickFirstDefined(
       record && record.priceDetails && record.priceDetails.displayPrice,
@@ -6699,6 +6726,28 @@ function normalizeDomainListing(record, practiceCoords, market) {
       record && record.listing && record.listing.publicUrl
     )
   );
+  const propertyType = String(
+    pickFirstDefined(
+      record && record.propertyType,
+      record && record.propertyTypes && record.propertyTypes[0],
+      record && record.listing && record.listing.propertyType
+    ) || ''
+  ).trim();
+  const suburb = String(
+    pickFirstDefined(
+      record && record.addressParts && record.addressParts.suburb,
+      record && record.suburb,
+      record && record.listing && record.listing.addressParts && record.listing.addressParts.suburb
+    ) || ''
+  ).trim();
+  const summary = String(
+    pickFirstDefined(
+      record && record.summaryDescription,
+      record && record.summary,
+      record && record.description,
+      record && record.listing && record.listing.summaryDescription
+    ) || ''
+  ).trim();
   const distanceKm = calculateDistanceKm(practiceCoords, coords);
   return {
     id: String(pickFirstDefined(record && record.id, record && record.listing && record.listing.id, crypto.randomUUID())),
@@ -6715,6 +6764,8 @@ function normalizeDomainListing(record, practiceCoords, market) {
       market
     ),
     bedrooms,
+    bathrooms,
+    carSpaces,
     beds: formatBedroomsLabel(bedrooms),
     distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
     driveTime: formatLifestyleDriveTime(distanceKm || 0),
@@ -6722,6 +6773,9 @@ function normalizeDomainListing(record, practiceCoords, market) {
     imagePosition: 'center',
     address: address || 'Property option',
     title: title || address || 'Property option',
+    suburb,
+    propertyType,
+    summary,
     sourceLabel: 'Domain',
     sourceUrl,
     lat: coords.lat,
@@ -7012,12 +7066,12 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
     const normalizedFallback = fallbackRows.map((item) => normalizeLifestyleListing(item, practiceCoords, market, locationContext));
     const filteredLive = (Array.isArray(liveRows) ? liveRows : [])
       .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
-      .slice(0, 6);
+      .slice(0, 18);
     if (filteredLive.length) return filteredLive;
     const filteredFallback = normalizedFallback
       .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
-      .slice(0, 6);
-    return filteredFallback.length ? filteredFallback : normalizedFallback.slice(0, 6);
+      .slice(0, 18);
+    return filteredFallback.length ? filteredFallback : normalizedFallback.slice(0, 18);
   }
 
   const housingByMarket = {
