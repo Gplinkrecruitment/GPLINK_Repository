@@ -102,7 +102,7 @@ const GOOGLE_MAPS_SERVER_API_KEY = String(
 const GOOGLE_MAPS_MAP_ID = String(process.env.GOOGLE_MAPS_MAP_ID || DEFAULT_GOOGLE_MAPS_MAP_ID || '').trim();
 const DOMAIN_API_BASE = normalizeUrlBase(process.env.DOMAIN_API_BASE, 'https://api.domain.com.au');
 const DOMAIN_API_KEY = String(process.env.DOMAIN_API_KEY || '').trim();
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 3;
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 4;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const NSW_SCHOOL_FINDER_SQL_ENDPOINT = 'https://cesensw.carto.com/api/v2/sql';
@@ -6355,19 +6355,68 @@ function hydrateCareerLifestylePayload(payload) {
   };
 }
 
+function normalizeAustralianStateAbbreviation(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const key = raw.toLowerCase().replace(/[^a-z]/g, '');
+  const direct = raw.toUpperCase();
+  if (['NSW', 'QLD', 'VIC', 'SA', 'WA', 'TAS', 'NT', 'ACT'].includes(direct)) return direct;
+  const aliases = {
+    newsouthwales: 'NSW',
+    queensland: 'QLD',
+    victoria: 'VIC',
+    southaustralia: 'SA',
+    westernaustralia: 'WA',
+    tasmania: 'TAS',
+    northerterritory: 'NT',
+    australiancapitalterritory: 'ACT'
+  };
+  return aliases[key] || '';
+}
+
 function parsePlacementLocationContext(locationValue) {
   const value = String(locationValue || '').trim().replace(/,\s*Australia\s*$/i, '');
   const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
-  const suburb = parts[0] || '';
   const second = parts[1] || '';
-  const stateMatch = second.match(/\b(NSW|QLD|VIC|SA|WA|TAS|NT|ACT)\b/i);
-  const postcodeMatch = second.match(/\b(\d{4})\b/);
+  const secondState = normalizeAustralianStateAbbreviation(second);
+  const suburb = secondState && parts[2]
+    ? parts[2]
+    : (parts[0] || '');
+  const state = normalizeAustralianStateAbbreviation(second || parts.find((part) => normalizeAustralianStateAbbreviation(part)) || '');
+  const postcodeMatch = value.match(/\b(\d{4})\b/);
   return {
     suburb,
-    state: stateMatch ? stateMatch[1].toUpperCase() : '',
+    state,
     postcode: postcodeMatch ? postcodeMatch[1] : '',
     country: 'Australia',
     label: value
+  };
+}
+
+function buildLifestyleLocationContext(locationValue, roleMeta, roleRow) {
+  const parsed = parsePlacementLocationContext(locationValue);
+  const suburb = String(
+    roleMeta && roleMeta.suburb
+    || roleRow && roleRow.location_city
+    || parsed.suburb
+    || ''
+  ).trim();
+  const state = normalizeAustralianStateAbbreviation(
+    roleRow && roleRow.location_state
+    || parsed.state
+    || ''
+  );
+  const postcode = String(roleRow && roleRow.location_postcode || parsed.postcode || '').trim();
+  return {
+    ...parsed,
+    suburb,
+    state,
+    postcode,
+    label: buildLocationLabel([
+      suburb || parsed.suburb,
+      buildLocationLabel([state, postcode]),
+      'Australia'
+    ]) || parsed.label || String(locationValue || '').trim()
   };
 }
 
@@ -6512,6 +6561,13 @@ function normalizeDomainSourceUrl(value) {
   return `https://www.domain.com.au/${source.replace(/^\/+/, '')}`;
 }
 
+function resizeDomainImageUrl(value, width = 720, height = 540) {
+  const source = String(value || '').trim();
+  if (!source || !/^https:\/\/bucket-api\.domain\.com\.au\/v1\//i.test(source)) return source;
+  if (/\/\d+x\d+\/?$/i.test(source)) return source;
+  return `${source.replace(/\/+$/, '')}/${width}x${height}`;
+}
+
 function buildTweedLifestyleHousingSeeds(practiceCoords) {
   return {
     rent: [
@@ -6570,7 +6626,7 @@ function normalizeLifestyleListing(seed, practiceCoords, market, locationContext
     beds: formatBedroomsLabel(bedrooms),
     distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
     driveTime: formatLifestyleDriveTime(distanceKm || 0),
-    imageUrl: String(seed && seed.imageUrl || buildLifestyleImage(0)),
+    imageUrl: resizeDomainImageUrl(String(seed && seed.imageUrl || buildLifestyleImage(0))),
     imagePosition: String(seed && seed.imagePosition || 'center'),
     address: String(seed && seed.address || `${locationContext && locationContext.suburb ? locationContext.suburb : 'Practice'} property option`),
     title: String(seed && seed.title || seed && seed.address || `${locationContext && locationContext.suburb ? locationContext.suburb : 'Practice'} property option`),
@@ -6605,6 +6661,12 @@ async function domainApiRequest(resourcePath, options = {}) {
   } catch (err) {
     return null;
   }
+}
+
+async function fetchDomainListingDetail(listingId) {
+  const normalizedId = String(listingId || '').trim();
+  if (!normalizedId) return null;
+  return domainApiRequest(`/v1/listings/${encodeURIComponent(normalizedId)}`);
 }
 
 function buildDomainResidentialSearchPayload(locationContext, market, household) {
@@ -6694,9 +6756,11 @@ function normalizeDomainListing(record, practiceCoords, market) {
   ).trim();
   const imageUrl = String(
     pickFirstDefined(
+      record && record.propertyDetails && record.propertyDetails.images && record.propertyDetails.images[0] && record.propertyDetails.images[0].url,
       record && record.media && record.media[0] && record.media[0].url,
       record && record.media && record.media[0] && record.media[0].imageUrl,
       record && record.photos && record.photos[0] && record.photos[0].url,
+      record && record.images && record.images[0] && record.images[0].url,
       record && record.listing && record.listing.media && record.listing.media[0] && record.listing.media[0].url
     ) || ''
   ).trim();
@@ -6769,7 +6833,7 @@ function normalizeDomainListing(record, practiceCoords, market) {
     beds: formatBedroomsLabel(bedrooms),
     distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
     driveTime: formatLifestyleDriveTime(distanceKm || 0),
-    imageUrl: imageUrl || buildLifestyleImage(0),
+    imageUrl: resizeDomainImageUrl(imageUrl || ''),
     imagePosition: 'center',
     address: address || 'Property option',
     title: title || address || 'Property option',
@@ -6794,9 +6858,19 @@ async function fetchDomainLifestyleListings(locationContext, practiceCoords, mar
   const rows = Array.isArray(response)
     ? response
     : (Array.isArray(response && response.searchResults) ? response.searchResults : []);
-  return rows
+  const hydratedRows = await Promise.all(
+    rows.slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT).map(async (item) => {
+      const listingId = String(pickFirstDefined(item && item.id, item && item.listing && item.listing.id) || '').trim();
+      const detail = listingId ? await fetchDomainListingDetail(listingId) : null;
+      return detail && typeof detail === 'object'
+        ? { ...item, ...detail }
+        : item;
+    })
+  );
+  return hydratedRows
     .map((item) => normalizeDomainListing(item, practiceCoords, market))
     .filter(Boolean)
+    .filter((item) => !!item.sourceUrl && !!item.imageUrl)
     .filter((item) => item.distanceKm <= 25)
     .sort((left, right) => left.distanceKm - right.distanceKm)
     .slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
@@ -7041,8 +7115,8 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
     return hydratedCachedPayload;
   }
 
-  const locationContext = parsePlacementLocationContext(location);
   const roleMeta = getCareerRoleGpLinkMeta(roleRow);
+  const locationContext = buildLifestyleLocationContext(location, roleMeta, roleRow);
   const geocoded = await resolveCareerSuburbCoordinates({
     suburb: roleMeta && roleMeta.suburb ? roleMeta.suburb : locationContext.suburb,
     state: roleRow && roleRow.location_state ? roleRow.location_state : locationContext.state,
@@ -7051,6 +7125,8 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
   const practiceCoords = buildLifestyleCoordinate(geocoded && geocoded.latitude, geocoded && geocoded.longitude)
     || (normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads' ? { lat: -28.1883, lng: 153.5375 } : null);
 
+  const liveDomainEnabled = isDomainLifestyleConfigured();
+  const allowLifestyleHousingFallback = !liveDomainEnabled && NODE_ENV !== 'production';
   const fallbackHousing = normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads'
     ? buildTweedLifestyleHousingSeeds(practiceCoords)
     : buildGenericLifestyleHousingSeeds(practiceCoords, locationContext);
@@ -7068,6 +7144,7 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
       .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
       .slice(0, 18);
     if (filteredLive.length) return filteredLive;
+    if (!allowLifestyleHousingFallback) return [];
     const filteredFallback = normalizedFallback
       .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
       .slice(0, 18);
@@ -7100,6 +7177,8 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
       defaultRadiusKm: 5,
       recommendedBedrooms: household.recommendedBedrooms,
       partySummary: household.partySummary,
+      liveSource: 'domain',
+      liveEnabled: liveDomainEnabled,
       rent: housingByMarket.rent,
       buy: housingByMarket.buy
     },

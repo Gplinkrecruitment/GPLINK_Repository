@@ -7146,6 +7146,7 @@
       const recommendedBedrooms = Number(lifestyle && lifestyle.housing && lifestyle.housing.recommendedBedrooms || 0) || 0;
       const partySummary = String(lifestyle && lifestyle.housing && lifestyle.housing.partySummary || "").trim();
       const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      const liveEnabled = !!(lifestyle && lifestyle.housing && lifestyle.housing.liveEnabled);
       return `
         <div class="practice-lifestyle-drawer" data-lifestyle-drawer="housing">
           <div class="practice-lifestyle-results-head">
@@ -7257,7 +7258,9 @@
               `).join("")}
             </div>
           ` : `
-            <div class="practice-lifestyle-empty">No housing options are currently inside this radius. Increase the search radius to view more homes around the practice.</div>
+            <div class="practice-lifestyle-empty">${liveEnabled
+              ? "No live Domain listings matched this search yet. Try widening the radius, clearing filters, or searching another nearby suburb."
+              : "Live Domain listings are not connected yet for this environment, so no real homes can be shown."}</div>
           `}
         </div>
       `;
