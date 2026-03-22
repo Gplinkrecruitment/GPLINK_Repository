@@ -86,9 +86,12 @@ const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini'
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
 const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6').trim() || 'claude-sonnet-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
+const DEFAULT_GOOGLE_MAPS_BROWSER_API_KEY = 'AIzaSyBZRYsKgvz0k7p6xPMAUQDcWgVU2rzlIDo';
+const DEFAULT_GOOGLE_MAPS_MAP_ID = '9c8f47c5b858f789f88a4e4b';
 const GOOGLE_MAPS_BROWSER_API_KEY = String(
   process.env.GOOGLE_MAPS_BROWSER_API_KEY
   || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+  || DEFAULT_GOOGLE_MAPS_BROWSER_API_KEY
   || ''
 ).trim();
 const GOOGLE_MAPS_SERVER_API_KEY = String(
@@ -96,7 +99,7 @@ const GOOGLE_MAPS_SERVER_API_KEY = String(
   || GOOGLE_MAPS_BROWSER_API_KEY
   || ''
 ).trim();
-const GOOGLE_MAPS_MAP_ID = String(process.env.GOOGLE_MAPS_MAP_ID || '').trim();
+const GOOGLE_MAPS_MAP_ID = String(process.env.GOOGLE_MAPS_MAP_ID || DEFAULT_GOOGLE_MAPS_MAP_ID || '').trim();
 const DOMAIN_API_BASE = normalizeUrlBase(process.env.DOMAIN_API_BASE, 'https://api.domain.com.au');
 const DOMAIN_API_KEY = String(process.env.DOMAIN_API_KEY || '').trim();
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
