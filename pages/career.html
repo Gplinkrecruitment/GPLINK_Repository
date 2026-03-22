@@ -5413,6 +5413,7 @@
     let practiceLifestyleMapRuntime = {
       apiPromise: null,
       scriptKey: "",
+      failedKey: "",
       map: null,
       mapEl: null,
       practiceMarker: null,
@@ -5518,6 +5519,17 @@
       const housingPayload = lifestylePayload.housing && typeof lifestylePayload.housing === "object" ? lifestylePayload.housing : {};
       const schoolsPayload = lifestylePayload.schools && typeof lifestylePayload.schools === "object" ? lifestylePayload.schools : {};
       const mapPayload = lifestylePayload.map && typeof lifestylePayload.map === "object" ? lifestylePayload.map : {};
+      const baseMap = base.map && typeof base.map === "object" ? base.map : {};
+      const baseGoogleMaps = baseMap.googleMaps && typeof baseMap.googleMaps === "object" ? baseMap.googleMaps : {};
+      const payloadGoogleMaps = mapPayload.googleMaps && typeof mapPayload.googleMaps === "object" ? mapPayload.googleMaps : {};
+      const resolvedGoogleMaps = {
+        ...PRACTICE_LIFESTYLE_DEFAULT_GOOGLE_MAPS,
+        ...baseGoogleMaps,
+        ...payloadGoogleMaps
+      };
+      resolvedGoogleMaps.apiKey = String(resolvedGoogleMaps.apiKey || "").trim();
+      resolvedGoogleMaps.mapId = String(resolvedGoogleMaps.mapId || "").trim();
+      resolvedGoogleMaps.enabled = resolvedGoogleMaps.enabled !== false && !!resolvedGoogleMaps.apiKey;
       return {
         ...base,
         key: lifestylePayload.key || base.key,
@@ -5527,14 +5539,12 @@
         intro: lifestylePayload.intro || "Explore housing, schooling and travel around the practice before you relocate.",
         mapImageUrl: lifestylePayload.mapImageUrl || base.mapImageUrl,
         map: {
-          ...(base.map && typeof base.map === "object" ? base.map : {}),
+          ...baseMap,
           ...mapPayload,
           center: mapPayload.center && typeof mapPayload.center === "object"
             ? mapPayload.center
-            : (base.map && base.map.center ? base.map.center : null),
-          googleMaps: mapPayload.googleMaps && typeof mapPayload.googleMaps === "object"
-            ? mapPayload.googleMaps
-            : (base.map && base.map.googleMaps ? base.map.googleMaps : {})
+            : (baseMap.center ? baseMap.center : null),
+          googleMaps: resolvedGoogleMaps
         },
         housing: {
           ...base.housing,
@@ -5576,10 +5586,12 @@
       const googleMaps = mapConfig.googleMaps && typeof mapConfig.googleMaps === "object"
         ? mapConfig.googleMaps
         : {};
+      const apiKey = String(googleMaps.apiKey || "").trim();
       const center = mapConfig.center && typeof mapConfig.center === "object" ? mapConfig.center : {};
       return !!(
         googleMaps.enabled &&
-        googleMaps.apiKey &&
+        apiKey &&
+        practiceLifestyleMapRuntime.failedKey !== apiKey &&
         Number.isFinite(parsePracticeLifestyleCoordinate(center.lat)) &&
         Number.isFinite(parsePracticeLifestyleCoordinate(center.lng))
       );
@@ -5723,6 +5735,12 @@
       return "";
     }
 
+    const PRACTICE_LIFESTYLE_DEFAULT_GOOGLE_MAPS = {
+      enabled: true,
+      apiKey: "AIzaSyBZRYsKgvz0k7p6xPMAUQDcWgVU2rzlIDo",
+      mapId: "9c8f47c5b858f789f88a4e4b"
+    };
+
     const PRACTICE_LIFESTYLE_GOOGLE_DARK_STYLES = [
       { elementType: "geometry", stylers: [{ color: "#0a1320" }] },
       { elementType: "labels.text.fill", stylers: [{ color: "#8ca0b3" }] },
@@ -5810,6 +5828,7 @@
         }
         const callbackName = "__gpPracticeLifestyleMapsReady";
         window[callbackName] = () => {
+          practiceLifestyleMapRuntime.failedKey = "";
           resolve(window.google && window.google.maps ? window.google.maps : null);
         };
         const script = document.createElement("script");
@@ -5970,7 +5989,15 @@
           fitPracticeLifestyleMapBounds(practiceLifestyleMapRuntime.map, markerPoints);
         }
       } catch (error) {
+        const mapConfig = getPracticeLifestyleMapConfig(lifestyle);
+        const googleMaps = mapConfig.googleMaps && typeof mapConfig.googleMaps === "object" ? mapConfig.googleMaps : {};
+        practiceLifestyleMapRuntime.failedKey = String(googleMaps.apiKey || "").trim();
         resetPracticeLifestyleMapRuntime();
+        window.requestAnimationFrame(() => {
+          if (securedLifestyleExplorerEl && securedLifestyleExplorerEl.isConnected) {
+            renderPracticeLifestyleExplorer(lifestyle);
+          }
+        });
       }
     }
 

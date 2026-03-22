@@ -908,6 +908,9 @@ function crossCheckDocumentName(docName, profileName, verifiedNames) {
 }
 
 const CSP_SUPABASE_ORIGIN = SUPABASE_URL ? new URL(SUPABASE_URL).origin : '';
+const GOOGLE_MAPS_CSP_SCRIPT_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com';
+const GOOGLE_MAPS_CSP_CONNECT_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com';
+const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
@@ -915,11 +918,11 @@ const SECURITY_HEADERS = {
   'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
   'Content-Security-Policy': [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}`,
+    `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_SCRIPT_SOURCES}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
-    `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}`,
+    `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
+    `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
@@ -6333,6 +6336,22 @@ function getCareerLifestyleGoogleMapsPayload() {
   };
 }
 
+function hydrateCareerLifestylePayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const map = payload.map && typeof payload.map === 'object' ? payload.map : {};
+  const googleMaps = map.googleMaps && typeof map.googleMaps === 'object' ? map.googleMaps : {};
+  return {
+    ...payload,
+    map: {
+      ...map,
+      googleMaps: {
+        ...googleMaps,
+        ...getCareerLifestyleGoogleMapsPayload()
+      }
+    }
+  };
+}
+
 function parsePlacementLocationContext(locationValue) {
   const value = String(locationValue || '').trim().replace(/,\s*Australia\s*$/i, '');
   const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
@@ -6889,7 +6908,14 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
   const cacheKey = buildCareerLifestyleCacheKey(applicationId, practiceName, location, household);
   const cached = await getRuntimeKv(cacheKey);
   if (cached && cached.value && typeof cached.value === 'object' && cached.value.status === 'ready' && cached.value.payload) {
-    return cached.value.payload;
+    const hydratedCachedPayload = hydrateCareerLifestylePayload(cached.value.payload);
+    if (JSON.stringify(hydratedCachedPayload) !== JSON.stringify(cached.value.payload)) {
+      await setRuntimeKv(cacheKey, {
+        status: 'ready',
+        payload: hydratedCachedPayload
+      }, Date.now() + CAREER_LIFESTYLE_CACHE_TTL_MS);
+    }
+    return hydratedCachedPayload;
   }
 
   const locationContext = parsePlacementLocationContext(location);
@@ -6935,7 +6961,7 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
     : { defaultPhase: 'primary', defaultSector: 'all', primary: [], secondary: [] };
   const flights = practiceCoords ? buildLifestyleFlights(practiceCoords, locationContext) : [];
 
-  const payload = {
+  const payload = hydrateCareerLifestylePayload({
     key: normalizeCareerHeroCityKey(`${locationContext.suburb}-${locationContext.state}`) || 'practice_lifestyle',
     heading: 'Life Around This Practice',
     intro: `Curated housing, schooling and travel planning for ${household.partySummary || 'your move'}.`,
@@ -6956,7 +6982,7 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
     },
     schools,
     flights
-  };
+  });
 
   await setRuntimeKv(cacheKey, {
     status: 'ready',
