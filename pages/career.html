@@ -2093,6 +2093,114 @@
       height: 20px;
     }
 
+    .practice-lifestyle-google-map .gm-style .gm-style-iw-c {
+      padding: 0 !important;
+      border-radius: 18px !important;
+      box-shadow: 0 24px 40px -28px rgba(15, 23, 42, 0.42) !important;
+    }
+
+    .practice-lifestyle-google-map .gm-style .gm-style-iw-d {
+      overflow: hidden !important;
+    }
+
+    .practice-lifestyle-google-map .gm-style .gm-style-iw-chr {
+      display: none !important;
+    }
+
+    .practice-lifestyle-map-popup {
+      width: 194px;
+      display: grid;
+      overflow: hidden;
+      background: #fff;
+      color: #0f172a;
+    }
+
+    .practice-lifestyle-map-popup-thumb {
+      height: 96px;
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.28)),
+        var(--thumb-image, linear-gradient(135deg, #e2e8f0, #cbd5e1));
+      background-size: cover;
+      background-position: var(--thumb-position, center);
+    }
+
+    .practice-lifestyle-map-popup-body {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+    }
+
+    .practice-lifestyle-map-popup-source,
+    .practice-lifestyle-property-source {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.1);
+      color: #1d4ed8;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .practice-lifestyle-map-popup-title,
+    .practice-lifestyle-property-title {
+      margin: 0;
+      color: #0f172a;
+      font-size: 13px;
+      line-height: 1.35;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .practice-lifestyle-map-popup-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-map-popup-meta strong {
+      color: #0f172a;
+      font-size: 13px;
+      letter-spacing: -0.02em;
+    }
+
+    .practice-lifestyle-map-popup-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .practice-lifestyle-map-popup-meta svg {
+      width: 12px;
+      height: 12px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .practice-lifestyle-map-popup-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0 10px;
+      border-radius: 10px;
+      background: #0f172a;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
     .practice-lifestyle-point {
       position: absolute;
       left: var(--x, 50%);
@@ -2332,6 +2440,69 @@
       font-weight: 600;
     }
 
+    .practice-lifestyle-housing-tools {
+      display: grid;
+      gap: 10px;
+    }
+
+    .practice-lifestyle-price-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .practice-lifestyle-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .practice-lifestyle-field span {
+      color: #94a3b8;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .practice-lifestyle-input,
+    .practice-lifestyle-select {
+      width: 100%;
+      min-height: 40px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      color: #e2e8f0;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 0 12px;
+      outline: none;
+      box-shadow: none;
+    }
+
+    .practice-lifestyle-input::placeholder {
+      color: #64748b;
+    }
+
+    .practice-lifestyle-input:focus-visible,
+    .practice-lifestyle-select:focus-visible {
+      border-color: rgba(59, 130, 246, 0.35);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+    }
+
+    .practice-lifestyle-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+        linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+      background-position:
+        calc(100% - 18px) calc(50% - 2px),
+        calc(100% - 12px) calc(50% - 2px);
+      background-size: 6px 6px, 6px 6px;
+      background-repeat: no-repeat;
+      padding-right: 34px;
+    }
+
     .practice-lifestyle-card-rail {
       display: grid;
       grid-auto-flow: column;
@@ -2402,6 +2573,12 @@
       font-size: 11px;
       font-weight: 600;
       letter-spacing: -0.01em;
+    }
+
+    .practice-lifestyle-property-title {
+      color: #e2e8f0;
+      font-size: 12px;
+      line-height: 1.4;
     }
 
     .practice-lifestyle-property-drive {
@@ -5427,8 +5604,12 @@
       mode: "overview",
       housingMode: "rent",
       radiusKm: 5,
+      priceMin: "",
+      priceMax: "",
+      sortOrder: "price_asc",
       schoolPhase: "primary",
       schoolSector: "all",
+      activeHousingPopupId: "",
       selectedHousingIds: {
         rent: "",
         buy: ""
@@ -5441,6 +5622,10 @@
       map: null,
       mapEl: null,
       resizeObserver: null,
+      directionsService: null,
+      infoWindow: null,
+      routeCache: {},
+      renderToken: 0,
       practiceMarker: null,
       activeMarkers: [],
       activeOverlays: []
@@ -5522,6 +5707,37 @@
 
     function clampNumber(value, minimum, maximum) {
       return Math.min(maximum, Math.max(minimum, Number(value) || minimum));
+    }
+
+    function sanitizePracticeLifestylePriceInput(value) {
+      return String(value == null ? "" : value).replace(/[^\d]/g, "").slice(0, 9);
+    }
+
+    function parsePracticeLifestylePriceValue(value, market) {
+      const explicit = Number(value);
+      if (Number.isFinite(explicit) && explicit > 0) return explicit;
+      const source = String(value || "").trim().toLowerCase();
+      if (!source) return 0;
+      const normalized = source.replace(/,/g, "").replace(/\s+/g, " ");
+      const millionMatch = normalized.match(/\$?\s*(\d+(?:\.\d+)?)\s*m\b/);
+      if (millionMatch) return Math.round(Number(millionMatch[1]) * 1000000);
+      const thousandMatch = normalized.match(/\$?\s*(\d+(?:\.\d+)?)\s*k\b/);
+      if (thousandMatch) return Math.round(Number(thousandMatch[1]) * 1000);
+      const matches = [...normalized.matchAll(/\$?\s*(\d+(?:\.\d+)?)/g)]
+        .map((match) => Number(match[1]))
+        .filter((entry) => Number.isFinite(entry) && entry > 0);
+      if (!matches.length) return 0;
+      const candidate = Math.max(...matches);
+      if (market === "rent" && candidate < 10000) return Math.round(candidate);
+      return Math.round(candidate);
+    }
+
+    function formatPracticeLifestylePriceInput(value, market) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return market === "buy" ? "Any price" : "Any rent";
+      return market === "buy"
+        ? `$${numeric.toLocaleString()}`
+        : `$${numeric.toLocaleString()}/wk`;
     }
 
     function buildPracticeLifestyleSeedKey(placementPayload, storyPayload, placementLocation) {
@@ -5624,7 +5840,30 @@
 
     function getPracticeLifestyleVisibleHousing(lifestyle) {
       const listings = getPracticeLifestyleHousingListings(lifestyle, practiceLifestyleState.housingMode);
-      return listings.filter((item) => Number(item && item.distanceKm || 0) <= Number(practiceLifestyleState.radiusKm || 5));
+      const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      const minPrice = Number(practiceLifestyleState.priceMin || 0);
+      const maxPrice = Number(practiceLifestyleState.priceMax || 0);
+      return listings
+        .filter((item) => Number(item && item.distanceKm || 0) <= Number(practiceLifestyleState.radiusKm || 5))
+        .filter((item) => {
+          const numericPrice = parsePracticeLifestylePriceValue(item && item.priceValue, market)
+            || parsePracticeLifestylePriceValue(item && item.price, market);
+          if (minPrice > 0 && numericPrice > 0 && numericPrice < minPrice) return false;
+          if (maxPrice > 0 && numericPrice > 0 && numericPrice > maxPrice) return false;
+          return true;
+        })
+        .sort((left, right) => {
+          const leftPrice = parsePracticeLifestylePriceValue(left && left.priceValue, market)
+            || parsePracticeLifestylePriceValue(left && left.price, market);
+          const rightPrice = parsePracticeLifestylePriceValue(right && right.priceValue, market)
+            || parsePracticeLifestylePriceValue(right && right.price, market);
+          if (practiceLifestyleState.sortOrder === "price_desc") {
+            if (rightPrice !== leftPrice) return rightPrice - leftPrice;
+          } else {
+            if (leftPrice !== rightPrice) return leftPrice - rightPrice;
+          }
+          return Number(left && left.distanceKm || 0) - Number(right && right.distanceKm || 0);
+        });
     }
 
     function getPracticeLifestyleSelectedHousingId(lifestyle) {
@@ -5641,6 +5880,18 @@
       return activeMarketListings.find((item) => item && item.id === selectedId)
         || activeMarketListings[0]
         || null;
+    }
+
+    function getPracticeLifestyleActiveHousingId(lifestyle) {
+      const activeId = String(practiceLifestyleState.activeHousingPopupId || "").trim();
+      if (!activeId) return "";
+      return getPracticeLifestyleVisibleHousing(lifestyle).some((item) => item && item.id === activeId) ? activeId : "";
+    }
+
+    function getPracticeLifestyleActiveHousingListing(lifestyle) {
+      const activeId = getPracticeLifestyleActiveHousingId(lifestyle);
+      if (!activeId) return null;
+      return getPracticeLifestyleVisibleHousing(lifestyle).find((item) => item && item.id === activeId) || null;
     }
 
     function buildPracticeLifestyleSchoolEligibility(school, selectedListingId) {
@@ -5699,8 +5950,12 @@
           mode: "overview",
           housingMode: lifestyle.housing && lifestyle.housing.defaultMode === "buy" ? "buy" : "rent",
           radiusKm: clampNumber(lifestyle.housing && lifestyle.housing.defaultRadiusKm || 5, 2, 25),
+          priceMin: "",
+          priceMax: "",
+          sortOrder: "price_asc",
           schoolPhase: lifestyle.schools && lifestyle.schools.defaultPhase === "secondary" ? "secondary" : "primary",
           schoolSector: lifestyle.schools && lifestyle.schools.defaultSector === "private" ? "private" : "all",
+          activeHousingPopupId: "",
           selectedHousingIds: {
             rent: "",
             buy: ""
@@ -5713,6 +5968,16 @@
         : "overview";
       practiceLifestyleState.housingMode = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
       practiceLifestyleState.radiusKm = clampNumber(practiceLifestyleState.radiusKm, 2, 25);
+      practiceLifestyleState.priceMin = sanitizePracticeLifestylePriceInput(practiceLifestyleState.priceMin);
+      practiceLifestyleState.priceMax = sanitizePracticeLifestylePriceInput(practiceLifestyleState.priceMax);
+      if (
+        practiceLifestyleState.priceMin &&
+        practiceLifestyleState.priceMax &&
+        Number(practiceLifestyleState.priceMin) > Number(practiceLifestyleState.priceMax)
+      ) {
+        practiceLifestyleState.priceMax = practiceLifestyleState.priceMin;
+      }
+      practiceLifestyleState.sortOrder = practiceLifestyleState.sortOrder === "price_desc" ? "price_desc" : "price_asc";
       practiceLifestyleState.schoolPhase = practiceLifestyleState.schoolPhase === "secondary" ? "secondary" : "primary";
       practiceLifestyleState.schoolSector = ["all", "public", "private"].includes(practiceLifestyleState.schoolSector)
         ? practiceLifestyleState.schoolSector
@@ -5726,6 +5991,12 @@
         practiceLifestyleState.selectedHousingIds[market] = visibleListings[0] && visibleListings[0].id
           ? visibleListings[0].id
           : (marketListings[0] && marketListings[0].id ? marketListings[0].id : "");
+      }
+      if (!visibleListings.some((item) => item && item.id === practiceLifestyleState.activeHousingPopupId)) {
+        practiceLifestyleState.activeHousingPopupId = "";
+      }
+      if (practiceLifestyleState.mode !== "housing") {
+        practiceLifestyleState.activeHousingPopupId = "";
       }
     }
 
@@ -5809,12 +6080,77 @@
 
     function resetPracticeLifestyleMapRuntime() {
       clearPracticeLifestyleMapScene();
+      if (practiceLifestyleMapRuntime.infoWindow && typeof practiceLifestyleMapRuntime.infoWindow.close === "function") {
+        practiceLifestyleMapRuntime.infoWindow.close();
+      }
       if (practiceLifestyleMapRuntime.resizeObserver && typeof practiceLifestyleMapRuntime.resizeObserver.disconnect === "function") {
         practiceLifestyleMapRuntime.resizeObserver.disconnect();
       }
       practiceLifestyleMapRuntime.resizeObserver = null;
+      practiceLifestyleMapRuntime.infoWindow = null;
+      practiceLifestyleMapRuntime.directionsService = null;
       practiceLifestyleMapRuntime.map = null;
       practiceLifestyleMapRuntime.mapEl = null;
+    }
+
+    function buildPracticeLifestylePopupHtml(listing, routeSummary) {
+      if (!listing) return "";
+      const linkHref = String(listing.sourceUrl || "").trim();
+      const provider = String(listing.sourceLabel || "Domain").trim() || "Domain";
+      const driveLabel = routeSummary && routeSummary.duration ? routeSummary.duration : (listing.driveTime || "");
+      return `
+        <article class="practice-lifestyle-map-popup">
+          <div
+            class="practice-lifestyle-map-popup-thumb"
+            style="--thumb-image:url('${escapeHtml(listing.imageUrl || "")}'); --thumb-position:${escapeHtml(listing.imagePosition || "center")}"></div>
+          <div class="practice-lifestyle-map-popup-body">
+            <span class="practice-lifestyle-map-popup-source">${escapeHtml(provider)}</span>
+            <p class="practice-lifestyle-map-popup-title">${escapeHtml(listing.title || listing.address || listing.price || "Property option")}</p>
+            <div class="practice-lifestyle-map-popup-meta">
+              <strong>${escapeHtml(listing.price || "")}</strong>
+              ${driveLabel ? `<span>${buildPracticeLifestyleIcon("clock")}<span>${escapeHtml(driveLabel)}</span></span>` : ""}
+            </div>
+            ${linkHref ? `
+              <a class="practice-lifestyle-map-popup-link" href="${escapeHtml(linkHref)}" target="_blank" rel="noopener noreferrer">
+                View listing on ${escapeHtml(provider)}
+              </a>
+            ` : ""}
+          </div>
+        </article>
+      `;
+    }
+
+    function requestPracticeLifestyleRoute(maps, origin, destination, cacheKey) {
+      if (!maps || !origin || !destination) return Promise.resolve(null);
+      if (practiceLifestyleMapRuntime.routeCache[cacheKey]) {
+        return Promise.resolve(practiceLifestyleMapRuntime.routeCache[cacheKey]);
+      }
+      if (!practiceLifestyleMapRuntime.directionsService && maps.DirectionsService) {
+        practiceLifestyleMapRuntime.directionsService = new maps.DirectionsService();
+      }
+      const service = practiceLifestyleMapRuntime.directionsService;
+      if (!service || typeof service.route !== "function") return Promise.resolve(null);
+      return new Promise((resolve) => {
+        service.route({
+          origin,
+          destination,
+          travelMode: maps.TravelMode ? maps.TravelMode.DRIVING : "DRIVING",
+          provideRouteAlternatives: false
+        }, (response, status) => {
+          if (status !== "OK" || !response || !Array.isArray(response.routes) || !response.routes[0]) {
+            resolve(null);
+            return;
+          }
+          const leg = Array.isArray(response.routes[0].legs) ? response.routes[0].legs[0] : null;
+          const summary = {
+            response,
+            duration: leg && leg.duration && leg.duration.text ? leg.duration.text : "",
+            distance: leg && leg.distance && leg.distance.text ? leg.distance.text : ""
+          };
+          practiceLifestyleMapRuntime.routeCache[cacheKey] = summary;
+          resolve(summary);
+        });
+      });
     }
 
     function createPracticeLifestyleMarkerElement(iconName, className) {
@@ -5828,11 +6164,21 @@
       if (!window.google || !window.google.maps || !window.google.maps.marker || !window.google.maps.marker.AdvancedMarkerElement) {
         return null;
       }
+      const content = createPracticeLifestyleMarkerElement(options.icon || "home", options.className || "");
+      if (options.listingId) content.dataset.listingId = String(options.listingId);
+      if (typeof options.onClick === "function") {
+        content.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          options.onClick();
+        });
+      }
       return new window.google.maps.marker.AdvancedMarkerElement({
         map,
         position,
         title: options.title || "",
-        content: createPracticeLifestyleMarkerElement(options.icon || "home", options.className || "")
+        gmpClickable: true,
+        content
       });
     }
 
@@ -5866,7 +6212,7 @@
         script.dataset.practiceLifestyleGoogle = "true";
         script.src = "https://maps.googleapis.com/maps/api/js?key="
           + encodeURIComponent(apiKey)
-          + "&v=weekly&libraries=marker,geometry&callback="
+          + "&v=weekly&libraries=marker,geometry,routes&callback="
           + encodeURIComponent(callbackName);
         script.onerror = () => reject(new Error("google_maps_failed"));
         document.head.appendChild(script);
@@ -5944,11 +6290,12 @@
         ? securedLifestyleExplorerEl.querySelector("[data-practice-map]")
         : null;
       if (!mapHost || !canRenderPracticeLifestyleGoogleMap(lifestyle)) return;
+      const renderToken = ++practiceLifestyleMapRuntime.renderToken;
 
       try {
         await waitForPracticeLifestyleMapViewport(mapHost);
         const maps = await loadPracticeLifestyleGoogleMaps(lifestyle);
-        if (!maps || !mapHost.isConnected) return;
+        if (!maps || !mapHost.isConnected || renderToken !== practiceLifestyleMapRuntime.renderToken) return;
         const center = getPracticeLifestyleMapCenter(lifestyle);
         if (!center) return;
         const mapConfig = getPracticeLifestyleMapConfig(lifestyle);
@@ -5982,6 +6329,13 @@
           });
           practiceLifestyleMapRuntime.resizeObserver.observe(mapHost);
         }
+        if (mode === "housing" && practiceLifestyleState.activeHousingPopupId && typeof practiceLifestyleMapRuntime.map.addListener === "function") {
+          practiceLifestyleMapRuntime.map.addListener("click", () => {
+            if (!practiceLifestyleState.activeHousingPopupId) return;
+            practiceLifestyleState.activeHousingPopupId = "";
+            renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+          });
+        }
 
         if (mode === "housing") {
           const circle = new maps.Circle({
@@ -5996,7 +6350,9 @@
           });
           practiceLifestyleMapRuntime.activeOverlays.push(circle);
           const selectedId = getPracticeLifestyleSelectedHousingId(lifestyle);
-          getPracticeLifestyleVisibleHousing(lifestyle).forEach((listing) => {
+          const activeListing = getPracticeLifestyleActiveHousingListing(lifestyle);
+          const housingRows = activeListing ? [activeListing] : getPracticeLifestyleVisibleHousing(lifestyle);
+          housingRows.forEach((listing) => {
             const point = {
               lat: parsePracticeLifestyleCoordinate(listing && listing.lat),
               lng: parsePracticeLifestyleCoordinate(listing && listing.lng)
@@ -6005,11 +6361,59 @@
             markerPoints.push(point);
             const marker = createPracticeLifestyleGoogleMarker(practiceLifestyleMapRuntime.map, point, {
               icon: "home",
-              className: selectedId === listing.id ? "is-selected" : "",
-              title: listing.address || listing.price || "Housing option"
+              className: selectedId === listing.id || activeListing && activeListing.id === listing.id ? "is-selected" : "",
+              title: listing.address || listing.price || "Housing option",
+              listingId: listing.id,
+              onClick: () => {
+                practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode] = listing.id || "";
+                practiceLifestyleState.activeHousingPopupId = listing.id || "";
+                renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+              }
             });
             if (marker) practiceLifestyleMapRuntime.activeMarkers.push(marker);
           });
+          if (activeListing) {
+            const origin = {
+              lat: parsePracticeLifestyleCoordinate(activeListing.lat),
+              lng: parsePracticeLifestyleCoordinate(activeListing.lng)
+            };
+            if (Number.isFinite(origin.lat) && Number.isFinite(origin.lng)) {
+              if (!practiceLifestyleMapRuntime.infoWindow && maps.InfoWindow) {
+                practiceLifestyleMapRuntime.infoWindow = new maps.InfoWindow();
+              }
+              if (practiceLifestyleMapRuntime.infoWindow && practiceLifestyleMapRuntime.activeMarkers[0]) {
+                practiceLifestyleMapRuntime.infoWindow.setContent(buildPracticeLifestylePopupHtml(activeListing, null));
+                practiceLifestyleMapRuntime.infoWindow.open({
+                  map: practiceLifestyleMapRuntime.map,
+                  anchor: practiceLifestyleMapRuntime.activeMarkers[0],
+                  shouldFocus: false
+                });
+              }
+              const cacheKey = `${activeListing.id}:${center.lat},${center.lng}`;
+              const routeSummary = await requestPracticeLifestyleRoute(maps, origin, center, cacheKey);
+              if (renderToken !== practiceLifestyleMapRuntime.renderToken) return;
+              if (routeSummary && routeSummary.response && Array.isArray(routeSummary.response.routes) && routeSummary.response.routes[0]) {
+                const routePath = routeSummary.response.routes[0].overview_path;
+                const polyline = new maps.Polyline({
+                  map: practiceLifestyleMapRuntime.map,
+                  path: routePath,
+                  geodesic: false,
+                  strokeColor: "#2563eb",
+                  strokeOpacity: 0.92,
+                  strokeWeight: 4
+                });
+                practiceLifestyleMapRuntime.activeOverlays.push(polyline);
+              }
+              if (practiceLifestyleMapRuntime.infoWindow && practiceLifestyleMapRuntime.activeMarkers[0]) {
+                practiceLifestyleMapRuntime.infoWindow.setContent(buildPracticeLifestylePopupHtml(activeListing, routeSummary));
+                practiceLifestyleMapRuntime.infoWindow.open({
+                  map: practiceLifestyleMapRuntime.map,
+                  anchor: practiceLifestyleMapRuntime.activeMarkers[0],
+                  shouldFocus: false
+                });
+              }
+            }
+          }
         }
 
         if (mode === "schools") {
@@ -6110,7 +6514,9 @@
 
     function buildPracticeLifestyleHousingPinsHtml(listings) {
       const selectedId = practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode];
-      return listings.map((listing, index) => `
+      const activeId = String(practiceLifestyleState.activeHousingPopupId || "").trim();
+      const visibleListings = activeId ? listings.filter((listing) => listing && listing.id === activeId) : listings;
+      return visibleListings.map((listing, index) => `
         <button
           class="practice-lifestyle-point practice-lifestyle-point-housing${selectedId === listing.id ? " is-selected" : ""}"
           type="button"
@@ -6159,6 +6565,7 @@
       const selectedId = practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode];
       const recommendedBedrooms = Number(lifestyle && lifestyle.housing && lifestyle.housing.recommendedBedrooms || 0) || 0;
       const partySummary = String(lifestyle && lifestyle.housing && lifestyle.housing.partySummary || "").trim();
+      const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
       return `
         <div class="practice-lifestyle-drawer" data-lifestyle-drawer="housing">
           <div class="practice-lifestyle-segmented" role="tablist" aria-label="Housing type">
@@ -6195,6 +6602,41 @@
             <span>2 km</span>
             <span>25 km</span>
           </div>
+          <div class="practice-lifestyle-housing-tools">
+            <div class="practice-lifestyle-price-grid">
+              <label class="practice-lifestyle-field">
+                <span>Min price</span>
+                <input
+                  class="practice-lifestyle-input"
+                  type="number"
+                  min="0"
+                  step="${market === "buy" ? "50000" : "50"}"
+                  inputmode="numeric"
+                  placeholder="${escapeHtml(formatPracticeLifestylePriceInput("", market))}"
+                  value="${escapeHtml(practiceLifestyleState.priceMin)}"
+                  data-housing-price-min="true">
+              </label>
+              <label class="practice-lifestyle-field">
+                <span>Max price</span>
+                <input
+                  class="practice-lifestyle-input"
+                  type="number"
+                  min="0"
+                  step="${market === "buy" ? "50000" : "50"}"
+                  inputmode="numeric"
+                  placeholder="${escapeHtml(formatPracticeLifestylePriceInput("", market))}"
+                  value="${escapeHtml(practiceLifestyleState.priceMax)}"
+                  data-housing-price-max="true">
+              </label>
+            </div>
+            <label class="practice-lifestyle-field practice-lifestyle-field-select">
+              <span>Sort</span>
+              <select class="practice-lifestyle-select" data-housing-sort="true">
+                <option value="price_asc"${practiceLifestyleState.sortOrder === "price_asc" ? " selected" : ""}>Price: Low to high</option>
+                <option value="price_desc"${practiceLifestyleState.sortOrder === "price_desc" ? " selected" : ""}>Price: High to low</option>
+              </select>
+            </label>
+          </div>
           ${visibleListings.length ? `
             <div class="practice-lifestyle-card-rail" aria-label="Housing results">
               ${visibleListings.map((listing) => `
@@ -6206,7 +6648,9 @@
                     class="practice-lifestyle-property-thumb"
                     style="--thumb-image:url('${escapeHtml(listing.imageUrl || "")}'); --thumb-position:${escapeHtml(listing.imagePosition || "center")}"></div>
                   <div class="practice-lifestyle-property-body">
+                    <span class="practice-lifestyle-property-source">${escapeHtml(listing.sourceLabel || "Domain")}</span>
                     <p class="practice-lifestyle-property-price">${escapeHtml(listing.price)}</p>
+                    <p class="practice-lifestyle-property-title">${escapeHtml(listing.title || listing.address || "Property option")}</p>
                     <div class="practice-lifestyle-property-meta">${escapeHtml(listing.beds)} · ${escapeHtml(formatLifestyleDistance(listing.distanceKm))}</div>
                     <span class="practice-lifestyle-property-drive">${buildPracticeLifestyleIcon("clock")}<span>${escapeHtml(listing.driveTime)}</span></span>
                   </div>
@@ -7248,6 +7692,16 @@
     });
 
     document.addEventListener("click", (event) => {
+      if (
+        practiceLifestyleState.activeHousingPopupId &&
+        !event.target.closest(".practice-lifestyle-map-popup") &&
+        !event.target.closest(".practice-lifestyle-map-marker") &&
+        !event.target.closest("[data-housing-select]")
+      ) {
+        practiceLifestyleState.activeHousingPopupId = "";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+      }
+
       const saveBtn = event.target.closest("[data-save-role]");
       if (saveBtn) {
         toggleSavedJob(saveBtn.getAttribute("data-save-role"));
@@ -7276,6 +7730,7 @@
       if (lifestyleModeBtn) {
         const nextMode = lifestyleModeBtn.getAttribute("data-lifestyle-mode") || "overview";
         practiceLifestyleState.mode = practiceLifestyleState.mode === nextMode ? "overview" : nextMode;
+        if (practiceLifestyleState.mode !== "housing") practiceLifestyleState.activeHousingPopupId = "";
         renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
         return;
       }
@@ -7283,6 +7738,9 @@
       const housingMarketBtn = event.target.closest("[data-housing-market]");
       if (housingMarketBtn) {
         practiceLifestyleState.housingMode = housingMarketBtn.getAttribute("data-housing-market") === "buy" ? "buy" : "rent";
+        practiceLifestyleState.priceMin = "";
+        practiceLifestyleState.priceMax = "";
+        practiceLifestyleState.activeHousingPopupId = "";
         renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
         return;
       }
@@ -7327,8 +7785,34 @@
 
     document.addEventListener("input", (event) => {
       const radiusInput = event.target.closest("[data-housing-radius]");
-      if (!radiusInput) return;
-      practiceLifestyleState.radiusKm = clampNumber(radiusInput.value, 2, 25);
+      if (radiusInput) {
+        practiceLifestyleState.radiusKm = clampNumber(radiusInput.value, 2, 25);
+        practiceLifestyleState.activeHousingPopupId = "";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
+      const minPriceInput = event.target.closest("[data-housing-price-min]");
+      if (minPriceInput) {
+        practiceLifestyleState.priceMin = sanitizePracticeLifestylePriceInput(minPriceInput.value);
+        practiceLifestyleState.activeHousingPopupId = "";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
+      const maxPriceInput = event.target.closest("[data-housing-price-max]");
+      if (maxPriceInput) {
+        practiceLifestyleState.priceMax = sanitizePracticeLifestylePriceInput(maxPriceInput.value);
+        practiceLifestyleState.activeHousingPopupId = "";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+      }
+    });
+
+    document.addEventListener("change", (event) => {
+      const sortInput = event.target.closest("[data-housing-sort]");
+      if (!sortInput) return;
+      practiceLifestyleState.sortOrder = sortInput.value === "price_desc" ? "price_desc" : "price_asc";
+      practiceLifestyleState.activeHousingPopupId = "";
       renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
     });
 

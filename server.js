@@ -6481,17 +6481,46 @@ function formatBedroomsLabel(value) {
   return `${Math.max(1, numeric)} bed`;
 }
 
+function parseLifestylePriceValue(rawValue, market = 'rent') {
+  const source = String(rawValue || '').trim().toLowerCase();
+  if (!source) return 0;
+  const normalized = source.replace(/,/g, '').replace(/\s+/g, ' ');
+  const millionMatch = normalized.match(/\$?\s*(\d+(?:\.\d+)?)\s*m\b/);
+  if (millionMatch) {
+    return Math.round(Number(millionMatch[1]) * 1000000);
+  }
+  const thousandMatch = normalized.match(/\$?\s*(\d+(?:\.\d+)?)\s*k\b/);
+  if (thousandMatch) {
+    return Math.round(Number(thousandMatch[1]) * 1000);
+  }
+  const rangeMatches = [...normalized.matchAll(/\$?\s*(\d+(?:\.\d+)?)/g)]
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (!rangeMatches.length) return 0;
+  const candidate = Math.max(...rangeMatches);
+  if (market === 'rent' && candidate < 10000) return Math.round(candidate);
+  return Math.round(candidate);
+}
+
+function normalizeDomainSourceUrl(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  if (/^https?:\/\//i.test(source)) return source;
+  if (source.startsWith('/')) return `https://www.domain.com.au${source}`;
+  return `https://www.domain.com.au/${source.replace(/^\/+/, '')}`;
+}
+
 function buildTweedLifestyleHousingSeeds(practiceCoords) {
   return {
     rent: [
-      { id: 'tweed-rent-1', price: '$680/wk', bedrooms: 3, imageUrl: buildLifestyleImage(0), coords: offsetCoordinate(practiceCoords, 0.0102, -0.0114) },
-      { id: 'tweed-rent-2', price: '$820/wk', bedrooms: 4, imageUrl: buildLifestyleImage(1), coords: offsetCoordinate(practiceCoords, -0.0192, 0.0181) },
-      { id: 'tweed-rent-3', price: '$740/wk', bedrooms: 3, imageUrl: buildLifestyleImage(2), coords: offsetCoordinate(practiceCoords, -0.0135, -0.0075) }
+      { id: 'tweed-rent-1', price: '$680/wk', bedrooms: 3, imageUrl: buildLifestyleImage(0), coords: offsetCoordinate(practiceCoords, 0.0102, -0.0114), address: 'Marine Parade, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' },
+      { id: 'tweed-rent-2', price: '$820/wk', bedrooms: 4, imageUrl: buildLifestyleImage(1), coords: offsetCoordinate(practiceCoords, -0.0192, 0.0181), address: 'Kennedy Drive, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' },
+      { id: 'tweed-rent-3', price: '$740/wk', bedrooms: 3, imageUrl: buildLifestyleImage(2), coords: offsetCoordinate(practiceCoords, -0.0135, -0.0075), address: 'Minjungbal Drive, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' }
     ],
     buy: [
-      { id: 'tweed-buy-1', price: '$1.18m', bedrooms: 4, imageUrl: buildLifestyleImage(0), coords: offsetCoordinate(practiceCoords, 0.0124, -0.0098) },
-      { id: 'tweed-buy-2', price: '$1.34m', bedrooms: 5, imageUrl: buildLifestyleImage(1), coords: offsetCoordinate(practiceCoords, -0.0226, 0.0244) },
-      { id: 'tweed-buy-3', price: '$1.06m', bedrooms: 3, imageUrl: buildLifestyleImage(2), coords: offsetCoordinate(practiceCoords, -0.0164, -0.0117) }
+      { id: 'tweed-buy-1', price: '$1.18m', bedrooms: 4, imageUrl: buildLifestyleImage(0), coords: offsetCoordinate(practiceCoords, 0.0124, -0.0098), address: 'Brett Street, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' },
+      { id: 'tweed-buy-2', price: '$1.34m', bedrooms: 5, imageUrl: buildLifestyleImage(1), coords: offsetCoordinate(practiceCoords, -0.0226, 0.0244), address: 'Phillip Street, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' },
+      { id: 'tweed-buy-3', price: '$1.06m', bedrooms: 3, imageUrl: buildLifestyleImage(2), coords: offsetCoordinate(practiceCoords, -0.0164, -0.0117), address: 'Myles Avenue, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' }
     ]
   };
 }
@@ -6517,7 +6546,9 @@ function buildGenericLifestyleHousingSeeds(practiceCoords, locationContext) {
       imageUrl: buildLifestyleImage(index),
       imagePosition: 'center',
       coords: offsetCoordinate(practiceCoords, item.delta[0], item.delta[1]),
-      address: `${suburb} home option ${index + 1}`
+      address: `${suburb} home option ${index + 1}`,
+      sourceUrl: 'https://www.domain.com.au/',
+      sourceLabel: 'Domain'
     }));
   };
   return { rent: build('rent'), buy: build('buy') };
@@ -6530,6 +6561,7 @@ function normalizeLifestyleListing(seed, practiceCoords, market, locationContext
   return {
     id: String(seed && seed.id || crypto.randomUUID()),
     price: String(seed && seed.price || (market === 'buy' ? '$1.10m' : '$700/wk')),
+    priceValue: parseLifestylePriceValue(seed && seed.price, market),
     bedrooms,
     beds: formatBedroomsLabel(bedrooms),
     distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
@@ -6537,6 +6569,9 @@ function normalizeLifestyleListing(seed, practiceCoords, market, locationContext
     imageUrl: String(seed && seed.imageUrl || buildLifestyleImage(0)),
     imagePosition: String(seed && seed.imagePosition || 'center'),
     address: String(seed && seed.address || `${locationContext && locationContext.suburb ? locationContext.suburb : 'Practice'} property option`),
+    title: String(seed && seed.title || seed && seed.address || `${locationContext && locationContext.suburb ? locationContext.suburb : 'Practice'} property option`),
+    sourceLabel: String(seed && seed.sourceLabel || 'Domain'),
+    sourceUrl: normalizeDomainSourceUrl(seed && seed.sourceUrl),
     lat: coords ? coords.lat : null,
     lng: coords ? coords.lng : null,
     market
@@ -6646,10 +6681,39 @@ function normalizeDomainListing(record, practiceCoords, market) {
       record && record.listing && record.listing.addressParts && record.listing.addressParts.displayAddress
     )
   ]);
+  const title = String(
+    pickFirstDefined(
+      record && record.headline,
+      record && record.title,
+      record && record.displayAddress,
+      record && record.addressParts && record.addressParts.displayAddress,
+      record && record.listing && record.listing.headline,
+      record && record.listing && record.listing.title
+    ) || ''
+  ).trim();
+  const sourceUrl = normalizeDomainSourceUrl(
+    pickFirstDefined(
+      record && record.seoUrl,
+      record && record.publicUrl,
+      record && record.listing && record.listing.seoUrl,
+      record && record.listing && record.listing.publicUrl
+    )
+  );
   const distanceKm = calculateDistanceKm(practiceCoords, coords);
   return {
     id: String(pickFirstDefined(record && record.id, record && record.listing && record.listing.id, crypto.randomUUID())),
     price: priceLabel || (market === 'buy' ? '$1.10m' : '$700/wk'),
+    priceValue: parseLifestylePriceValue(
+      pickFirstDefined(
+        record && record.priceDetails && record.priceDetails.displayPrice,
+        record && record.price,
+        record && record.priceDetails && record.priceDetails.price,
+        record && record.priceDetails && record.priceDetails.priceFrom,
+        record && record.priceDetails && record.priceDetails.rentPerWeek,
+        record && record.listing && record.listing.priceDetails && record.listing.priceDetails.displayPrice
+      ),
+      market
+    ),
     bedrooms,
     beds: formatBedroomsLabel(bedrooms),
     distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
@@ -6657,6 +6721,9 @@ function normalizeDomainListing(record, practiceCoords, market) {
     imageUrl: imageUrl || buildLifestyleImage(0),
     imagePosition: 'center',
     address: address || 'Property option',
+    title: title || address || 'Property option',
+    sourceLabel: 'Domain',
+    sourceUrl,
     lat: coords.lat,
     lng: coords.lng,
     market
