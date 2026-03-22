@@ -908,9 +908,9 @@ function crossCheckDocumentName(docName, profileName, verifiedNames) {
 }
 
 const CSP_SUPABASE_ORIGIN = SUPABASE_URL ? new URL(SUPABASE_URL).origin : '';
-const GOOGLE_MAPS_CSP_SCRIPT_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com';
-const GOOGLE_MAPS_CSP_CONNECT_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com https://tile.googleapis.com https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.googleusercontent.com';
-const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com https://tile.googleapis.com https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.googleusercontent.com https://*.ggpht.com';
+const GOOGLE_MAPS_CSP_SCRIPT_SOURCES = " https://*.googleapis.com https://*.gstatic.com *.google.com https://*.ggpht.com *.googleusercontent.com blob: 'unsafe-eval'";
+const GOOGLE_MAPS_CSP_CONNECT_SOURCES = " https://*.googleapis.com *.google.com https://*.gstatic.com data: blob:";
+const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com data:';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
@@ -924,6 +924,8 @@ const SECURITY_HEADERS = {
     `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
+    "frame-src *.google.com",
+    "worker-src blob:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'"
