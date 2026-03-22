@@ -1823,8 +1823,24 @@
     .practice-lifestyle-google-map {
       position: absolute;
       inset: 0;
+      width: 100%;
+      height: 100%;
+      min-height: 100%;
       z-index: 0;
       background: #08111d;
+      overflow: hidden;
+      border-radius: inherit;
+    }
+
+    .practice-lifestyle-google-map .gm-style,
+    .practice-lifestyle-google-map .gm-style > div {
+      width: 100%;
+      height: 100%;
+    }
+
+    .practice-lifestyle-google-map img,
+    .practice-lifestyle-google-map .gm-style img {
+      max-width: none !important;
     }
 
     .practice-lifestyle-explorer.is-open .practice-lifestyle-map-shell {
@@ -5416,6 +5432,7 @@
       failedKey: "",
       map: null,
       mapEl: null,
+      resizeObserver: null,
       practiceMarker: null,
       activeMarkers: [],
       activeOverlays: []
@@ -5784,6 +5801,10 @@
 
     function resetPracticeLifestyleMapRuntime() {
       clearPracticeLifestyleMapScene();
+      if (practiceLifestyleMapRuntime.resizeObserver && typeof practiceLifestyleMapRuntime.resizeObserver.disconnect === "function") {
+        practiceLifestyleMapRuntime.resizeObserver.disconnect();
+      }
+      practiceLifestyleMapRuntime.resizeObserver = null;
       practiceLifestyleMapRuntime.map = null;
       practiceLifestyleMapRuntime.mapEl = null;
     }
@@ -5870,6 +5891,23 @@
       void listener;
     }
 
+    function refreshPracticeLifestyleGoogleMapLayout(center, markerPoints) {
+      const map = practiceLifestyleMapRuntime.map;
+      const mapEl = practiceLifestyleMapRuntime.mapEl;
+      if (!map || !mapEl || !mapEl.isConnected) return;
+      if (mapEl.clientWidth < 40 || mapEl.clientHeight < 40) return;
+      if (window.google && window.google.maps && window.google.maps.event) {
+        window.google.maps.event.trigger(map, "resize");
+      }
+      if (Array.isArray(markerPoints) && markerPoints.length > 1) {
+        fitPracticeLifestyleMapBounds(map, markerPoints);
+        return;
+      }
+      if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng) && typeof map.setCenter === "function") {
+        map.setCenter(center);
+      }
+    }
+
     async function renderPracticeLifestyleGoogleMap(lifestyle) {
       const mapHost = securedLifestyleExplorerEl
         ? securedLifestyleExplorerEl.querySelector("[data-practice-map]")
@@ -5906,6 +5944,12 @@
 
         const mode = practiceLifestyleState.mode;
         const markerPoints = [center];
+        if (typeof ResizeObserver === "function") {
+          practiceLifestyleMapRuntime.resizeObserver = new ResizeObserver(() => {
+            refreshPracticeLifestyleGoogleMapLayout(center, markerPoints);
+          });
+          practiceLifestyleMapRuntime.resizeObserver.observe(mapHost);
+        }
 
         if (mode === "housing") {
           const circle = new maps.Circle({
@@ -5988,6 +6032,12 @@
         if (markerPoints.length > 1) {
           fitPracticeLifestyleMapBounds(practiceLifestyleMapRuntime.map, markerPoints);
         }
+        window.requestAnimationFrame(() => {
+          refreshPracticeLifestyleGoogleMapLayout(center, markerPoints);
+          window.requestAnimationFrame(() => {
+            refreshPracticeLifestyleGoogleMapLayout(center, markerPoints);
+          });
+        });
       } catch (error) {
         const mapConfig = getPracticeLifestyleMapConfig(lifestyle);
         const googleMaps = mapConfig.googleMaps && typeof mapConfig.googleMaps === "object" ? mapConfig.googleMaps : {};

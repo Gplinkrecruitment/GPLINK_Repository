@@ -909,8 +909,8 @@ function crossCheckDocumentName(docName, profileName, verifiedNames) {
 
 const CSP_SUPABASE_ORIGIN = SUPABASE_URL ? new URL(SUPABASE_URL).origin : '';
 const GOOGLE_MAPS_CSP_SCRIPT_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com';
-const GOOGLE_MAPS_CSP_CONNECT_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com';
-const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.gstatic.com';
+const GOOGLE_MAPS_CSP_CONNECT_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com https://tile.googleapis.com https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.googleusercontent.com';
+const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://maps.googleapis.com https://maps.gstatic.com https://tile.googleapis.com https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.googleusercontent.com https://*.ggpht.com';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
