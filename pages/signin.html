@@ -591,6 +591,7 @@
 
     const signInFormEl = document.getElementById("signInForm");
     const signUpFormEl = document.getElementById("signUpForm");
+    const signInEmailEl = document.getElementById("signinEmail");
 
     const signInStatusEl = document.getElementById("signInStatus");
     const signUpStatusEl = document.getElementById("signUpStatus");
@@ -601,6 +602,33 @@
     const signupCountryDialEl = document.getElementById("signupCountryDial");
     const oauthButtonIds = ["appleSigninBtn", "googleSigninBtn", "appleSignupBtn", "googleSignupBtn"];
     const oauthButtons = oauthButtonIds.map((id) => document.getElementById(id)).filter(Boolean);
+    const BOOTSTRAP_STATE_KEYS = [
+      "gp_epic_progress",
+      "gp_amc_progress",
+      "gp_ahpra_progress",
+      "gp_epic_tutorial_seen",
+      "gp_amc_tutorial_seen",
+      "gp_ahpra_tutorial_seen",
+      "gp_documents_prep",
+      "gp_prepared_docs",
+      "gp_selected_country",
+      "gp_link_updates",
+      "gp_link_updates_read",
+      "gpLinkSupportCases",
+      "gpLinkMessageDB",
+      "gpLinkSupportDraft",
+      "gp_account_profile",
+      "gp_career_state",
+      "gp_onboarding_complete",
+      "gp_onboarding"
+    ];
+    const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
+    const SESSION_OWNER_KEY = "gp_state_owner";
+    const SESSION_PROFILE_CACHE_KEY = "gp_session_profile_cache";
+    const PROFILE_CACHE_KEY = "gp_profile_cache";
+    const ACCOUNT_STATUS_CACHE_KEY = "gp_account_status_cache";
+    let authPrewarmTimer = 0;
+    let lastPrewarmedEmail = "";
 
     function setStatus(el, message, type = "") {
       el.textContent = message;
@@ -633,6 +661,101 @@
       oauthButtons.forEach((button) => {
         button.disabled = !!disabled;
       });
+    }
+
+    function normalizeEmail(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function isLikelyEmail(value) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
+    }
+
+    function safeSetStorage(storage, key, value) {
+      try {
+        storage.setItem(key, value);
+      } catch (err) {}
+    }
+
+    function safeRemoveStorage(storage, key) {
+      try {
+        storage.removeItem(key);
+      } catch (err) {}
+    }
+
+    safeRemoveStorage(sessionStorage, SESSION_PROFILE_CACHE_KEY);
+    safeRemoveStorage(sessionStorage, PROFILE_CACHE_KEY);
+    safeRemoveStorage(sessionStorage, ACCOUNT_STATUS_CACHE_KEY);
+    safeRemoveStorage(localStorage, "gp_account_under_review");
+
+    function applyAuthBootstrap(bootstrap, email) {
+      const payload = bootstrap && typeof bootstrap === "object" ? bootstrap : {};
+      const normalizedEmail = normalizeEmail(
+        email
+        || (payload.sessionProfile && payload.sessionProfile.email)
+        || (payload.profile && payload.profile.email)
+      );
+
+      if (normalizedEmail) {
+        safeSetStorage(localStorage, SESSION_OWNER_KEY, normalizedEmail);
+      }
+
+      const state = payload.state && typeof payload.state === "object" ? payload.state : {};
+      BOOTSTRAP_STATE_KEYS.forEach((key) => {
+        if (typeof state[key] === "string") {
+          safeSetStorage(localStorage, key, state[key]);
+        } else {
+          safeRemoveStorage(localStorage, key);
+          safeRemoveStorage(localStorage, key + SAVE_BATCH_META_SUFFIX);
+        }
+      });
+
+      if (payload.sessionProfile && typeof payload.sessionProfile === "object") {
+        safeSetStorage(sessionStorage, SESSION_PROFILE_CACHE_KEY, JSON.stringify(payload.sessionProfile));
+      } else {
+        safeRemoveStorage(sessionStorage, SESSION_PROFILE_CACHE_KEY);
+      }
+      if (payload.profile && typeof payload.profile === "object") {
+        safeSetStorage(sessionStorage, PROFILE_CACHE_KEY, JSON.stringify(payload.profile));
+      } else {
+        safeRemoveStorage(sessionStorage, PROFILE_CACHE_KEY);
+      }
+
+      if (typeof payload.accountStatus === "string" && payload.accountStatus) {
+        safeSetStorage(sessionStorage, ACCOUNT_STATUS_CACHE_KEY, payload.accountStatus);
+        if (payload.accountStatus === "under_review") {
+          safeSetStorage(localStorage, "gp_account_under_review", "true");
+        } else {
+          safeRemoveStorage(localStorage, "gp_account_under_review");
+        }
+      } else {
+        safeRemoveStorage(sessionStorage, ACCOUNT_STATUS_CACHE_KEY);
+        safeRemoveStorage(localStorage, "gp_account_under_review");
+      }
+    }
+
+    async function sendAuthPrewarm(email) {
+      try {
+        await fetch("/api/auth/prewarm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ email })
+        });
+      } catch (err) {}
+    }
+
+    function scheduleAuthPrewarm(immediate) {
+      const email = normalizeEmail(signInEmailEl && signInEmailEl.value);
+      if (!isLikelyEmail(email)) return;
+      if (!immediate && email === lastPrewarmedEmail) return;
+      window.clearTimeout(authPrewarmTimer);
+      authPrewarmTimer = window.setTimeout(() => {
+        authPrewarmTimer = 0;
+        if (email === lastPrewarmedEmail) return;
+        lastPrewarmedEmail = email;
+        sendAuthPrewarm(email);
+      }, immediate ? 0 : 220);
     }
 
     async function initSupabaseClient() {
@@ -786,6 +909,7 @@
           return;
         }
 
+        applyAuthBootstrap(result.bootstrap, (result.bootstrap && result.bootstrap.sessionProfile && result.bootstrap.sessionProfile.email) || "");
         const cleanUrl = `${window.location.origin}${window.location.pathname}`;
         window.history.replaceState({}, "", cleanUrl);
         window.location.href = result.redirectTo || "/pages/index.html";
@@ -845,6 +969,7 @@
           return;
         }
 
+        applyAuthBootstrap(data.bootstrap, payload.email);
         setStatus(signInStatusEl, "Signed in successfully. Redirecting...", "ok");
         window.location.href = data.redirectTo || "/pages/index.html";
       } catch (err) {
@@ -891,6 +1016,7 @@
         }
 
         if (data.redirectTo) {
+          applyAuthBootstrap(data.bootstrap, payload.email);
           window.location.href = data.redirectTo;
           return;
         }
@@ -909,6 +1035,15 @@
     signInToggleBtnEl.addEventListener("click", () => setPanel("signin"));
 
     forgotPasswordBtnEl.addEventListener("click", requestPasswordReset);
+
+    if (signInEmailEl) {
+      signInEmailEl.addEventListener("input", function() {
+        scheduleAuthPrewarm(false);
+      });
+      signInEmailEl.addEventListener("blur", function() {
+        scheduleAuthPrewarm(true);
+      });
+    }
 
     document.getElementById("appleSigninBtn").addEventListener("click", () => startOAuth("apple"));
     document.getElementById("googleSigninBtn").addEventListener("click", () => startOAuth("google"));

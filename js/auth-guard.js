@@ -5,6 +5,57 @@
     isSignInPage ||
     pathname === "/pages/privacy.html" ||
     pathname === "/pages/terms.html";
+  const SESSION_PROFILE_CACHE_KEY = "gp_session_profile_cache";
+  const PROFILE_CACHE_KEY = "gp_profile_cache";
+  const ACCOUNT_STATUS_CACHE_KEY = "gp_account_status_cache";
+
+  function safeSessionGet(key) {
+    try {
+      return sessionStorage.getItem(key);
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function safeSessionSet(key, value) {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch (err) {}
+  }
+
+  function safeSessionRemove(key) {
+    try {
+      sessionStorage.removeItem(key);
+    } catch (err) {}
+  }
+
+  function readCachedSessionProfile() {
+    const raw = safeSessionGet(SESSION_PROFILE_CACHE_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function clearClientAuthCaches() {
+    safeSessionRemove(SESSION_PROFILE_CACHE_KEY);
+    safeSessionRemove(PROFILE_CACHE_KEY);
+    safeSessionRemove(ACCOUNT_STATUS_CACHE_KEY);
+    try { localStorage.removeItem("gp_account_under_review"); } catch (err) {}
+  }
+
+  const cachedSessionProfile = readCachedSessionProfile();
+  if (cachedSessionProfile) {
+    window.gpSessionProfile = cachedSessionProfile;
+  }
+
+  const cachedAccountStatus = safeSessionGet(ACCOUNT_STATUS_CACHE_KEY);
+  if (cachedAccountStatus === "under_review") {
+    try { localStorage.setItem("gp_account_under_review", "true"); } catch (err) {}
+  }
 
   const sessionPromise = fetch("/api/auth/session", { credentials: "same-origin" })
     .then(async (response) => {
@@ -29,28 +80,44 @@
 
   sessionPromise.then((session) => {
     if (session && session.ok) {
-      window.gpSessionProfile = session.profile || null;
+      window.gpSessionProfile = session.profile || window.gpSessionProfile || null;
+      if (window.gpSessionProfile) {
+        safeSessionSet(SESSION_PROFILE_CACHE_KEY, JSON.stringify(window.gpSessionProfile));
+      }
 
       if (isSignInPage) {
         window.location.replace("/pages/index.html");
         return;
       }
 
-      // Check account status from server
-      fetch("/api/account/status", { credentials: "same-origin" })
-        .then((r) => r.json())
-        .then((statusData) => {
-          if (statusData && statusData.accountStatus === "under_review") {
-            localStorage.setItem("gp_account_under_review", "true");
-            enforceRestrictedUI();
-          } else {
-            localStorage.removeItem("gp_account_under_review");
-          }
-        })
-        .catch(() => {});
+      if (cachedAccountStatus) {
+        if (cachedAccountStatus === "under_review") {
+          try { localStorage.setItem("gp_account_under_review", "true"); } catch (err) {}
+          enforceRestrictedUI();
+        } else {
+          try { localStorage.removeItem("gp_account_under_review"); } catch (err) {}
+        }
+      } else {
+        fetch("/api/account/status", { credentials: "same-origin" })
+          .then((r) => r.json())
+          .then((statusData) => {
+            const accountStatus = statusData && typeof statusData.accountStatus === "string"
+              ? statusData.accountStatus
+              : "active";
+            safeSessionSet(ACCOUNT_STATUS_CACHE_KEY, accountStatus);
+            if (accountStatus === "under_review") {
+              localStorage.setItem("gp_account_under_review", "true");
+              enforceRestrictedUI();
+            } else {
+              localStorage.removeItem("gp_account_under_review");
+            }
+          })
+          .catch(() => {});
+      }
 
       return;
     }
+    clearClientAuthCaches();
     if (!isPublicPage && !isOnboardingPage) {
       window.location.replace("/pages/signin.html");
     }

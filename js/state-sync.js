@@ -21,6 +21,9 @@
   ];
   const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
   const SESSION_OWNER_KEY = 'gp_state_owner';
+  const SESSION_PROFILE_CACHE_KEY = 'gp_session_profile_cache';
+  const PROFILE_CACHE_KEY = 'gp_profile_cache';
+  const ACCOUNT_STATUS_CACHE_KEY = 'gp_account_status_cache';
   const AUTO_PUSH_DEBOUNCE_MS = 450;
   const PROGRESS_STATE_KEYS = ['gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress'];
 
@@ -286,6 +289,10 @@
     hydrated = false;
     clearTrackedLocalState();
     try { localStorage.removeItem(SESSION_OWNER_KEY); } catch (e) {}
+    try { localStorage.removeItem('gp_account_under_review'); } catch (e) {}
+    try { sessionStorage.removeItem(SESSION_PROFILE_CACHE_KEY); } catch (e) {}
+    try { sessionStorage.removeItem(PROFILE_CACHE_KEY); } catch (e) {}
+    try { sessionStorage.removeItem(ACCOUNT_STATUS_CACHE_KEY); } catch (e) {}
   }
 
   window.gpLinkStateSync = {

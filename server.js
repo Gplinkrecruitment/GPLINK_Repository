@@ -17,6 +17,8 @@ const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 12 * 1024 
 const ADMIN_DASHBOARD_CACHE_TTL_MS = Number(process.env.ADMIN_DASHBOARD_CACHE_TTL_MS || 8000);
 const AUTH_RATE_WINDOW_MS = Number(process.env.AUTH_RATE_WINDOW_MS || 10 * 60 * 1000);
 const AUTH_RATE_MAX_ATTEMPTS = Number(process.env.AUTH_RATE_MAX_ATTEMPTS || 12);
+const AUTH_PREWARM_RATE_MAX = Number(process.env.AUTH_PREWARM_RATE_MAX || 40);
+const AUTH_BOOTSTRAP_CACHE_TTL_MS = Number(process.env.AUTH_BOOTSTRAP_CACHE_TTL_MS || 2 * 60 * 1000);
 const SECRET = process.env.AUTH_SECRET || 'replace-me-in-production';
 const COOKIE_NAME = 'gp_session';
 const ADMIN_COOKIE_NAME = process.env.ADMIN_COOKIE_NAME || 'gp_admin_session';
@@ -66,6 +68,8 @@ const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAG
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
 let _zohoRolesCache = null; // { roles: [], ts: 0 } — 5 min in-memory cache for live Zoho roles
 let _zohoRolesFetchPromise = null; // promise coalescing for concurrent requests
+const _authBootstrapWarmCache = new Map(); // email -> { expiresAt, value }
+const _authBootstrapInFlight = new Map(); // email -> Promise
 const _careerHeroLookupCache = new Map(); // normalized location key -> { ts, value }
 let _careerHeroCityLibraryCache = { ts: 0, value: null };
 const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limiting apply endpoint
@@ -7740,6 +7744,187 @@ async function getSupabaseUserProfile(email, sessionUserId = null) {
   return byId.data[0];
 }
 
+function filterUserStateForClient(source) {
+  const filtered = {};
+  const state = source && typeof source === 'object' ? source : {};
+  for (const key of USER_STATE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(state, key)) {
+      filtered[key] = state[key];
+    }
+  }
+  return filtered;
+}
+
+function buildFallbackApiProfile(email, sessionProfile = null) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const stored = dbState.userProfiles[normalizedEmail] || {};
+  const user = dbState.users[normalizedEmail] || {};
+  const sessionData = sessionProfile && typeof sessionProfile === 'object' ? sessionProfile : {};
+  const phone = stored.phone || [
+    sessionData.countryDial || user.countryDial || '',
+    sessionData.phoneNumber || user.phoneNumber || ''
+  ].filter(Boolean).join(' ').trim();
+
+  return {
+    firstName: stored.firstName || user.firstName || sessionData.firstName || '',
+    lastName: stored.lastName || user.lastName || sessionData.lastName || '',
+    email: stored.email || user.email || sessionData.email || normalizedEmail,
+    phone,
+    registrationNumber: stored.registrationNumber || '',
+    gmcNumber: stored.gmcNumber || '',
+    specialistCountry: user.registrationCountry || stored.specialistCountry || sessionData.registrationCountry || '',
+    hasPassword: true,
+    profilePhotoName: stored.profilePhotoName || '',
+    profilePhotoDataUrl: stored.profilePhotoDataUrl || '',
+    idCopyName: stored.idCopyName || '',
+    idCopyDataUrl: stored.idCopyDataUrl || '',
+    cvFileName: stored.cvFileName || '',
+    updatedAt: stored.updatedAt || null
+  };
+}
+
+function buildBootstrapProfilePayload(profile) {
+  const source = profile && typeof profile === 'object' ? profile : {};
+  return {
+    ...source,
+    profilePhotoDataUrl: '',
+    idCopyDataUrl: ''
+  };
+}
+
+async function buildAuthBootstrapForEmail(email, options = {}) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const sessionUserId = String(options.sessionUserId || '').trim() || null;
+  const sessionProfile = options.sessionProfile && typeof options.sessionProfile === 'object'
+    ? options.sessionProfile
+    : null;
+
+  if (!normalizedEmail) {
+    return {
+      sessionProfile,
+      state: {},
+      stateUpdatedAt: null,
+      profile: buildBootstrapProfilePayload(buildFallbackApiProfile('', sessionProfile)),
+      accountStatus: 'active',
+      cachedAt: new Date().toISOString()
+    };
+  }
+
+  let profile = buildFallbackApiProfile(normalizedEmail, sessionProfile);
+  let filteredState = {};
+  let stateUpdatedAt = null;
+  let accountStatus = 'active';
+
+  if (isSupabaseDbConfigured()) {
+    const [remoteState, remoteProfile] = await Promise.all([
+      getSupabaseUserStateByEmail(normalizedEmail),
+      getSupabaseUserProfile(normalizedEmail, sessionUserId)
+    ]);
+    if (remoteState && remoteState.state && typeof remoteState.state === 'object') {
+      filteredState = filterUserStateForClient(remoteState.state);
+      stateUpdatedAt = remoteState.updatedAt || null;
+      if (typeof remoteState.state.account_status === 'string' && remoteState.state.account_status.trim()) {
+        accountStatus = remoteState.state.account_status.trim();
+      }
+    }
+    if (remoteProfile) {
+      profile = mapSupabaseProfileRowToApiProfile(remoteProfile, normalizedEmail);
+    }
+  } else {
+    const localState = dbState.userState[normalizedEmail] && typeof dbState.userState[normalizedEmail] === 'object'
+      ? dbState.userState[normalizedEmail]
+      : {};
+    filteredState = filterUserStateForClient(localState);
+    stateUpdatedAt = typeof localState.updatedAt === 'string' ? localState.updatedAt : null;
+    if (typeof localState.account_status === 'string' && localState.account_status.trim()) {
+      accountStatus = localState.account_status.trim();
+    }
+  }
+
+  return {
+    sessionProfile,
+    state: filteredState,
+    stateUpdatedAt,
+    profile: buildBootstrapProfilePayload(profile),
+    accountStatus,
+    cachedAt: new Date().toISOString()
+  };
+}
+
+function getWarmAuthBootstrap(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return null;
+  const cached = _authBootstrapWarmCache.get(normalizedEmail);
+  if (!cached) return null;
+  if (Number(cached.expiresAt || 0) <= Date.now()) {
+    _authBootstrapWarmCache.delete(normalizedEmail);
+    return null;
+  }
+  return cached.value && typeof cached.value === 'object' ? cached.value : null;
+}
+
+function setWarmAuthBootstrap(email, bootstrap) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail || !bootstrap || typeof bootstrap !== 'object') return;
+  _authBootstrapWarmCache.set(normalizedEmail, {
+    expiresAt: Date.now() + AUTH_BOOTSTRAP_CACHE_TTL_MS,
+    value: bootstrap
+  });
+}
+
+function queueAuthBootstrapWarm(email, options = {}) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail || !isValidEmail(normalizedEmail)) return Promise.resolve(null);
+
+  const cached = getWarmAuthBootstrap(normalizedEmail);
+  if (cached) {
+    return Promise.resolve({
+      ...cached,
+      sessionProfile: options.sessionProfile || cached.sessionProfile || null
+    });
+  }
+
+  if (_authBootstrapInFlight.has(normalizedEmail)) {
+    return _authBootstrapInFlight.get(normalizedEmail);
+  }
+
+  const inFlight = buildAuthBootstrapForEmail(normalizedEmail, options)
+    .then((bootstrap) => {
+      if (bootstrap) setWarmAuthBootstrap(normalizedEmail, bootstrap);
+      return bootstrap;
+    })
+    .catch(() => null)
+    .finally(() => {
+      _authBootstrapInFlight.delete(normalizedEmail);
+    });
+
+  _authBootstrapInFlight.set(normalizedEmail, inFlight);
+  return inFlight;
+}
+
+async function resolveAuthBootstrap(email, options = {}) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const sessionProfile = options.sessionProfile && typeof options.sessionProfile === 'object'
+    ? options.sessionProfile
+    : null;
+
+  const cached = getWarmAuthBootstrap(normalizedEmail);
+  if (cached) {
+    const merged = { ...cached, sessionProfile: sessionProfile || cached.sessionProfile || null };
+    setWarmAuthBootstrap(normalizedEmail, merged);
+    return merged;
+  }
+
+  const warmed = await queueAuthBootstrapWarm(normalizedEmail, options);
+  if (warmed) {
+    const merged = { ...warmed, sessionProfile: sessionProfile || warmed.sessionProfile || null };
+    setWarmAuthBootstrap(normalizedEmail, merged);
+    return merged;
+  }
+
+  return buildAuthBootstrapForEmail(normalizedEmail, options);
+}
+
 async function upsertSupabaseUserProfile(userId, email, clean, existingRow = null) {
   if (!userId) return null;
   const current = existingRow && typeof existingRow === 'object' ? existingRow : {};
@@ -8017,6 +8202,28 @@ async function handleApi(req, res, pathname) {
 
   if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
+    return;
+  }
+
+  if (pathname === '/api/auth/prewarm' && req.method === 'POST') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const email = String(body && body.email ? body.email : '').trim().toLowerCase();
+    if (isValidEmail(email)) {
+      const rateKey = `auth:prewarm:${getClientIp(req)}`;
+      const allowed = await checkRateLimitWindow(rateKey, AUTH_PREWARM_RATE_MAX, AUTH_RATE_WINDOW_MS);
+      if (allowed) {
+        queueAuthBootstrapWarm(email).catch(() => {});
+      }
+    }
+
+    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -8327,8 +8534,13 @@ async function handleApi(req, res, pathname) {
 
     const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : signupUser;
     await ensureSupabaseUserProfile(loginUser);
-    setSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
-    sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/index.html' });
+    const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
+    setSession(res, sessionProfile);
+    const bootstrap = await resolveAuthBootstrap(email, {
+      sessionUserId: sessionProfile.supabaseUserId,
+      sessionProfile
+    });
+    sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/index.html', bootstrap });
     return;
   }
 
@@ -8364,8 +8576,13 @@ async function handleApi(req, res, pathname) {
       const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
       upsertLocalUserFromSupabaseUser(loginUser);
       await ensureSupabaseUserProfile(loginUser);
-      setSession(res, getSessionProfileFromSupabaseUser(loginUser, email));
-      sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
+      const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
+      setSession(res, sessionProfile);
+      const bootstrap = await resolveAuthBootstrap(email, {
+        sessionUserId: sessionProfile.supabaseUserId,
+        sessionProfile
+      });
+      sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html', bootstrap });
       return;
     }
 
@@ -8376,8 +8593,10 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    setSession(res, getSessionProfileFromUser(email));
-    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
+    const sessionProfile = getSessionProfileFromUser(email);
+    setSession(res, sessionProfile);
+    const bootstrap = await resolveAuthBootstrap(email, { sessionProfile });
+    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html', bootstrap });
     return;
   }
 
@@ -8431,8 +8650,13 @@ async function handleApi(req, res, pathname) {
     }
     await ensureSupabaseUserProfile(userData);
 
-    setSession(res, getSessionProfileFromSupabaseUser(userData, email));
-    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
+    const sessionProfile = getSessionProfileFromSupabaseUser(userData, email);
+    setSession(res, sessionProfile);
+    const bootstrap = await resolveAuthBootstrap(email, {
+      sessionUserId: sessionProfile.supabaseUserId,
+      sessionProfile
+    });
+    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html', bootstrap });
     return;
   }
 
@@ -8523,7 +8747,8 @@ async function handleApi(req, res, pathname) {
     saveDbState();
     setSession(res, userProfile);
 
-    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html' });
+    const bootstrap = await resolveAuthBootstrap(userProfile.email, { sessionProfile: userProfile });
+    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html', bootstrap });
     return;
   }
 
