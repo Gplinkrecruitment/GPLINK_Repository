@@ -279,7 +279,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 4px;
       min-height: 62px;
       border-radius: 16px;
       text-decoration: none;
@@ -289,7 +289,7 @@
       padding: 6px 4px;
       line-height: 1.1;
       cursor: pointer;
-      transition: color .2s ease;
+      transition: color .2s ease, transform .2s ease;
     }
 
     .mobile-tab-icon {
@@ -300,6 +300,7 @@
       height: 30px;
       border-radius: 12px;
       color: currentColor;
+      transition: color .2s ease, transform .24s ease;
     }
 
     .mobile-tab-icon svg {
@@ -312,18 +313,79 @@
       stroke-linejoin: round;
     }
 
+    .mobile-tab-label {
+      display: none;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .01em;
+      white-space: nowrap;
+    }
+
     .mobile-tab-active {
       color: #0f172a;
+      transform: translateY(-1px);
     }
 
     .mobile-tab-active .mobile-tab-icon {
       color: #145bc4;
+      transform: translateY(-1px);
+    }
+
+    .mobile-tab-active .mobile-tab-label {
+      display: block;
     }
 
     .mobile-tab-scan {
       color: #ffffff;
       background: linear-gradient(135deg, var(--blue), var(--blue2));
+      width: 58px;
+      min-width: 58px;
+      height: 58px;
+      min-height: 58px;
+      padding: 0;
+      gap: 0;
+      border-radius: 999px;
+      justify-self: center;
+      align-self: center;
       box-shadow: 0 16px 26px -18px rgba(37, 99, 235, 0.88);
+      animation: scanPulse 1.9s ease-out infinite;
+    }
+
+    .mobile-tab-scan .mobile-tab-icon {
+      width: 58px;
+      height: 58px;
+      border-radius: inherit;
+      color: #ffffff;
+    }
+
+    .mobile-tab-scan .mobile-tab-icon svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .mobile-tab-scan .mobile-tab-label {
+      display: none !important;
+    }
+
+    @keyframes scanPulse {
+      0% {
+        transform: scale(1);
+        box-shadow:
+          0 0 0 0 rgba(37, 99, 235, 0.34),
+          0 16px 26px -18px rgba(37, 99, 235, 0.88);
+      }
+      65% {
+        transform: scale(1.04);
+        box-shadow:
+          0 0 0 14px rgba(37, 99, 235, 0),
+          0 18px 30px -18px rgba(37, 99, 235, 0.92);
+      }
+      100% {
+        transform: scale(1);
+        box-shadow:
+          0 0 0 0 rgba(37, 99, 235, 0),
+          0 16px 26px -18px rgba(37, 99, 235, 0.88);
+      }
     }
 
     @media (max-width: 859px) {
