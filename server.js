@@ -921,7 +921,7 @@ const GOOGLE_MAPS_CSP_CONNECT_SOURCES = " https://*.googleapis.com *.google.com 
 const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com data:';
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'DENY',
+  'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
   'Content-Security-Policy': [
@@ -932,9 +932,9 @@ const SECURITY_HEADERS = {
     `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
-    "frame-src *.google.com",
+    "frame-src 'self' *.google.com",
     "worker-src blob:",
-    "frame-ancestors 'none'",
+    "frame-ancestors 'self'",
     "base-uri 'self'",
     "form-action 'self'"
   ].join('; '),
