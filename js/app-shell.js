@@ -21,9 +21,9 @@
     "/pages/myinthealth.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/amc.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/ahpra.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
-    "/pages/my-documents.html": { desktop: "documents", mobile: "" },
+    "/pages/my-documents.html": { desktop: "documents", mobile: "/pages/myinthealth.html" },
     "/pages/career.html": { desktop: "career", mobile: "/pages/career.html" },
-    "/pages/messages.html": { desktop: "messages", mobile: "" },
+    "/pages/messages.html": { desktop: "messages", mobile: "/pages/index.html" },
     "/pages/account.html": { desktop: "account", mobile: "/pages/account.html" }
   };
 
