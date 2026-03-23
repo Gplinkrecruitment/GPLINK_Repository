@@ -42,6 +42,7 @@
     var style = document.createElement("style");
     style.id = EMBED_STYLE_ID;
     style.textContent = [
+      "html.gp-shell-embedded .app-header,",
       "html.gp-shell-embedded .desktop-topbar,",
       "html.gp-shell-embedded .topbar,",
       "html.gp-shell-embedded .mobile-nav{display:none!important;}",
