@@ -33,6 +33,7 @@
   var mobileNavEl = document.querySelector(".mobile-nav");
   var navGlassEl = document.getElementById("navGlass");
   var desktopHostEl = document.getElementById("appShellDesktop");
+  var EMBED_STYLE_ID = "gp-shell-parent-embed-style";
   var currentRoute = "";
   var activeDesktopItem = null;
   var hoveredDesktopItem = null;
@@ -176,6 +177,27 @@
     if (trimmed) document.title = trimmed;
   }
 
+  function enforceEmbeddedChrome(childDoc) {
+    if (!childDoc || !childDoc.documentElement) return;
+
+    childDoc.documentElement.classList.add("gp-shell-embedded");
+    if (childDoc.body) childDoc.body.classList.add("gp-shell-embedded");
+
+    if (childDoc.getElementById(EMBED_STYLE_ID)) return;
+
+    var style = childDoc.createElement("style");
+    style.id = EMBED_STYLE_ID;
+    style.textContent = [
+      "html.gp-shell-embedded .desktop-topbar,",
+      "html.gp-shell-embedded .topbar,",
+      "html.gp-shell-embedded .mobile-nav{display:none!important;}",
+      "html.gp-shell-embedded .shell,",
+      "html.gp-shell-embedded .dash-wrap{padding-bottom:32px!important;}",
+      "html.gp-shell-embedded body{overflow-x:hidden;}"
+    ].join("");
+    childDoc.head.appendChild(style);
+  }
+
   function navigateTo(input, options) {
     var routeUrl = toRouteUrl(input);
     var opts = options || {};
@@ -288,6 +310,9 @@
       var childHref = frameEl.contentWindow.location.href;
       var childUrl = new URL(childHref);
       var childPath = normalizePath(childUrl.pathname);
+      var childDoc = frameEl.contentDocument;
+
+      enforceEmbeddedChrome(childDoc);
 
       if (!isSupportedPath(childPath)) {
         childUrl.searchParams.delete(EMBED_PARAM);
@@ -295,7 +320,7 @@
         return;
       }
 
-      syncFromChildRoute(childUrl, frameEl.contentDocument ? frameEl.contentDocument.title : "");
+      syncFromChildRoute(childUrl, childDoc ? childDoc.title : "");
     } catch (err) {
       // Same-origin access is expected; ignore transient load errors.
     }
