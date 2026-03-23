@@ -6299,6 +6299,11 @@
       resolvedGoogleMaps.apiKey = String(resolvedGoogleMaps.apiKey || "").trim();
       resolvedGoogleMaps.mapId = String(resolvedGoogleMaps.mapId || "").trim();
       resolvedGoogleMaps.enabled = resolvedGoogleMaps.enabled !== false && !!resolvedGoogleMaps.apiKey;
+      const hasExplicitRentListings = Array.isArray(housingPayload.rent);
+      const hasExplicitBuyListings = Array.isArray(housingPayload.buy);
+      const hasExplicitPrimarySchools = Array.isArray(schoolsPayload.primary);
+      const hasExplicitSecondarySchools = Array.isArray(schoolsPayload.secondary);
+      const hasExplicitFlights = Array.isArray(lifestylePayload.flights);
       return {
         ...base,
         key: lifestylePayload.key || base.key,
@@ -6320,16 +6325,17 @@
           ...housingPayload,
           partySummary: housingPayload.partySummary || base.housing.partySummary || "",
           recommendedBedrooms: Number(housingPayload.recommendedBedrooms || base.housing.recommendedBedrooms || 0) || 0,
-          rent: Array.isArray(housingPayload.rent) && housingPayload.rent.length ? housingPayload.rent : base.housing.rent,
-          buy: Array.isArray(housingPayload.buy) && housingPayload.buy.length ? housingPayload.buy : base.housing.buy
+          // Preserve explicit empty arrays from the server so fake seeded homes do not reappear.
+          rent: hasExplicitRentListings ? housingPayload.rent : base.housing.rent,
+          buy: hasExplicitBuyListings ? housingPayload.buy : base.housing.buy
         },
         schools: {
           ...base.schools,
           ...schoolsPayload,
-          primary: Array.isArray(schoolsPayload.primary) && schoolsPayload.primary.length ? schoolsPayload.primary : base.schools.primary,
-          secondary: Array.isArray(schoolsPayload.secondary) && schoolsPayload.secondary.length ? schoolsPayload.secondary : base.schools.secondary
+          primary: hasExplicitPrimarySchools ? schoolsPayload.primary : base.schools.primary,
+          secondary: hasExplicitSecondarySchools ? schoolsPayload.secondary : base.schools.secondary
         },
-        flights: Array.isArray(lifestylePayload.flights) && lifestylePayload.flights.length ? lifestylePayload.flights : base.flights
+        flights: hasExplicitFlights ? lifestylePayload.flights : base.flights
       };
     }
 

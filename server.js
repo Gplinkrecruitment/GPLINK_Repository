@@ -102,7 +102,13 @@ const GOOGLE_MAPS_SERVER_API_KEY = String(
 const GOOGLE_MAPS_MAP_ID = String(process.env.GOOGLE_MAPS_MAP_ID || DEFAULT_GOOGLE_MAPS_MAP_ID || '').trim();
 const DOMAIN_API_BASE = normalizeUrlBase(process.env.DOMAIN_API_BASE, 'https://api.domain.com.au');
 const DOMAIN_API_KEY = String(process.env.DOMAIN_API_KEY || '').trim();
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 4;
+const DOMAIN_API_ACCESS_TOKEN = String(process.env.DOMAIN_API_ACCESS_TOKEN || '').trim();
+const DOMAIN_API_CLIENT_ID = String(process.env.DOMAIN_API_CLIENT_ID || '').trim();
+const DOMAIN_API_CLIENT_SECRET = String(process.env.DOMAIN_API_CLIENT_SECRET || '').trim();
+const DOMAIN_API_SCOPE = String(process.env.DOMAIN_API_SCOPE || 'api_listings_read').trim() || 'api_listings_read';
+const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https://auth.domain.com.au/v1/connect/token').trim() || 'https://auth.domain.com.au/v1/connect/token';
+const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK === 'true';
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 5;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const NSW_SCHOOL_FINDER_SQL_ENDPOINT = 'https://cesensw.carto.com/api/v2/sql';
@@ -120,6 +126,7 @@ const SUPER_ADMIN_EMAILS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
+let _domainApiAccessTokenCache = { token: '', expiresAt: 0 };
 
 function validateRuntimeConfig() {
   if (NODE_ENV !== 'production') return;
@@ -6328,7 +6335,91 @@ function extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow) {
 }
 
 function isDomainLifestyleConfigured() {
-  return !!(DOMAIN_API_BASE && DOMAIN_API_KEY);
+  return !!(
+    DOMAIN_API_BASE
+    && (
+      DOMAIN_API_KEY
+      || DOMAIN_API_ACCESS_TOKEN
+      || (DOMAIN_API_CLIENT_ID && DOMAIN_API_CLIENT_SECRET)
+    )
+  );
+}
+
+function logDomainApiWarning(message, detail = '') {
+  if (NODE_ENV === 'test') return;
+  const suffix = String(detail || '').trim();
+  console.warn(`[DOMAIN] ${message}${suffix ? ` ${suffix}` : ''}`);
+}
+
+async function getDomainClientCredentialsAccessToken() {
+  if (!DOMAIN_API_CLIENT_ID || !DOMAIN_API_CLIENT_SECRET) return '';
+  if (_domainApiAccessTokenCache.token && _domainApiAccessTokenCache.expiresAt > (Date.now() + 60 * 1000)) {
+    return _domainApiAccessTokenCache.token;
+  }
+
+  const authHeader = Buffer.from(`${DOMAIN_API_CLIENT_ID}:${DOMAIN_API_CLIENT_SECRET}`).toString('base64');
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    scope: DOMAIN_API_SCOPE
+  });
+
+  try {
+    const response = await fetch(DOMAIN_AUTH_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Basic ${authHeader}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: body.toString()
+    });
+    if (!response.ok) {
+      const failureText = await response.text().catch(() => '');
+      logDomainApiWarning(
+        `OAuth token request failed with status ${response.status}.`,
+        failureText ? failureText.slice(0, 240) : ''
+      );
+      return '';
+    }
+    const payload = await response.json().catch(() => null);
+    const accessToken = String(payload && payload.access_token || '').trim();
+    const expiresInSeconds = Math.max(60, Number(payload && payload.expires_in || 0) || 0);
+    if (!accessToken) {
+      logDomainApiWarning('OAuth token response did not include an access token.');
+      return '';
+    }
+    _domainApiAccessTokenCache = {
+      token: accessToken,
+      expiresAt: Date.now() + Math.max(60, expiresInSeconds - 60) * 1000
+    };
+    return accessToken;
+  } catch (err) {
+    logDomainApiWarning('OAuth token request threw an error.', err && err.message ? String(err.message) : '');
+    return '';
+  }
+}
+
+async function buildDomainApiHeaders(method = 'GET') {
+  const headers = {
+    Accept: 'application/json'
+  };
+  if (method !== 'GET') headers['Content-Type'] = 'application/json';
+
+  if (DOMAIN_API_KEY) {
+    headers['X-API-Key'] = DOMAIN_API_KEY;
+    return headers;
+  }
+
+  const staticAccessToken = String(DOMAIN_API_ACCESS_TOKEN || '').trim();
+  if (staticAccessToken) {
+    headers.Authorization = `Bearer ${staticAccessToken}`;
+    return headers;
+  }
+
+  const clientCredentialsToken = await getDomainClientCredentialsAccessToken();
+  if (!clientCredentialsToken) return null;
+  headers.Authorization = `Bearer ${clientCredentialsToken}`;
+  return headers;
 }
 
 function getCareerLifestyleGoogleMapsPayload() {
@@ -6565,7 +6656,8 @@ function resizeDomainImageUrl(value, width = 720, height = 540) {
   const source = String(value || '').trim();
   if (!source || !/^https:\/\/bucket-api\.domain\.com\.au\/v1\//i.test(source)) return source;
   if (/\/\d+x\d+\/?$/i.test(source)) return source;
-  return `${source.replace(/\/+$/, '')}/${width}x${height}`;
+  if (/\bw\d+-h\d+\b/i.test(source) || /-w\d+-h\d+$/i.test(source)) return source;
+  return source;
 }
 
 function buildTweedLifestyleHousingSeeds(practiceCoords) {
@@ -6645,28 +6737,27 @@ async function domainApiRequest(resourcePath, options = {}) {
   if (!isDomainLifestyleConfigured()) return null;
   const method = String(options.method || 'GET').toUpperCase();
   const url = resourcePath.startsWith('http') ? resourcePath : `${DOMAIN_API_BASE}${resourcePath}`;
-  const headers = {
-    Accept: 'application/json',
-    'X-API-Key': DOMAIN_API_KEY
-  };
-  if (method !== 'GET') headers['Content-Type'] = 'application/json';
+  const headers = await buildDomainApiHeaders(method);
+  if (!headers) return null;
   try {
     const response = await fetch(url, {
       method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body)
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const failureText = await response.text().catch(() => '');
+      logDomainApiWarning(
+        `${method} ${resourcePath} failed with status ${response.status}.`,
+        failureText ? failureText.slice(0, 240) : ''
+      );
+      return null;
+    }
     return await response.json().catch(() => null);
   } catch (err) {
+    logDomainApiWarning(`${method} ${resourcePath} threw an error.`, err && err.message ? String(err.message) : '');
     return null;
   }
-}
-
-async function fetchDomainListingDetail(listingId) {
-  const normalizedId = String(listingId || '').trim();
-  if (!normalizedId) return null;
-  return domainApiRequest(`/v1/listings/${encodeURIComponent(normalizedId)}`);
 }
 
 function buildDomainResidentialSearchPayload(locationContext, market, household) {
@@ -6693,30 +6784,180 @@ function pickFirstDefined(...values) {
   return '';
 }
 
+function getDomainListingNode(record) {
+  return record && record.listing && typeof record.listing === 'object'
+    ? record.listing
+    : (record && typeof record === 'object' ? record : null);
+}
+
+function getDomainPropertyDetails(record) {
+  const listing = getDomainListingNode(record);
+  if (listing && listing.propertyDetails && typeof listing.propertyDetails === 'object') return listing.propertyDetails;
+  if (record && record.propertyDetails && typeof record.propertyDetails === 'object') return record.propertyDetails;
+  return {};
+}
+
+function collectDomainResidentialSearchListingsFromItem(item) {
+  if (!item || typeof item !== 'object') return [];
+  if (item.listing && typeof item.listing === 'object') return [item];
+  if (
+    item.propertyDetails && typeof item.propertyDetails === 'object'
+    && (item.priceDetails || item.id || item.headline || item.listingSlug)
+  ) {
+    return [item];
+  }
+
+  const nestedCollections = [
+    item.listings,
+    item.projectListings,
+    item.results,
+    item.children,
+    item.childListings,
+    item.project && item.project.listings
+  ].filter(Array.isArray);
+
+  if (!nestedCollections.length) return [];
+
+  return nestedCollections.flatMap((collection) => (
+    collection.flatMap((entry) => collectDomainResidentialSearchListingsFromItem(entry))
+  ));
+}
+
+function collectDomainResidentialSearchListings(response) {
+  const rows = Array.isArray(response)
+    ? response
+    : (Array.isArray(response && response.searchResults) ? response.searchResults : []);
+  return rows.flatMap((item) => collectDomainResidentialSearchListingsFromItem(item));
+}
+
 function extractDomainListingCoordinates(record) {
+  const listing = getDomainListingNode(record);
+  const propertyDetails = getDomainPropertyDetails(record);
   const lat = parseCareerCoordinate(
     pickFirstDefined(
       record && record.latitude,
+      propertyDetails && propertyDetails.latitude,
+      propertyDetails && propertyDetails.lat,
       record && record.geoLocation && record.geoLocation.latitude,
       record && record.geoLocation && record.geoLocation.lat,
-      record && record.listing && record.listing.geoLocation && record.listing.geoLocation.latitude,
-      record && record.listing && record.listing.geoLocation && record.listing.geoLocation.lat
+      listing && listing.latitude,
+      listing && listing.geoLocation && listing.geoLocation.latitude,
+      listing && listing.geoLocation && listing.geoLocation.lat
     )
   );
   const lng = parseCareerCoordinate(
     pickFirstDefined(
       record && record.longitude,
+      propertyDetails && propertyDetails.longitude,
+      propertyDetails && propertyDetails.lon,
       record && record.geoLocation && record.geoLocation.longitude,
       record && record.geoLocation && record.geoLocation.lon,
-      record && record.listing && record.listing.geoLocation && record.listing.geoLocation.longitude,
-      record && record.listing && record.listing.geoLocation && record.listing.geoLocation.lon
+      listing && listing.longitude,
+      listing && listing.geoLocation && listing.geoLocation.longitude,
+      listing && listing.geoLocation && listing.geoLocation.lon
     )
   );
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   return { lat, lng };
 }
 
+function buildDomainListingAddress(record) {
+  const listing = getDomainListingNode(record);
+  const propertyDetails = getDomainPropertyDetails(record);
+  const explicitAddress = buildLocationLabel([
+    pickFirstDefined(
+      record && record.addressParts && record.addressParts.displayAddress,
+      record && record.displayAddress,
+      record && record.address,
+      propertyDetails && propertyDetails.displayableAddress,
+      listing && listing.addressParts && listing.addressParts.displayAddress,
+      listing && listing.displayAddress
+    )
+  ]);
+  if (explicitAddress) return explicitAddress;
+
+  const unitNumber = String(
+    pickFirstDefined(
+      propertyDetails && propertyDetails.unitNumber,
+      record && record.addressParts && record.addressParts.unitNumber,
+      listing && listing.addressParts && listing.addressParts.unitNumber
+    ) || ''
+  ).trim();
+  const streetNumber = String(
+    pickFirstDefined(
+      propertyDetails && propertyDetails.streetNumber,
+      record && record.addressParts && record.addressParts.streetNumber,
+      listing && listing.addressParts && listing.addressParts.streetNumber
+    ) || ''
+  ).trim();
+  const street = String(
+    pickFirstDefined(
+      propertyDetails && propertyDetails.street,
+      record && record.addressParts && record.addressParts.street,
+      listing && listing.addressParts && listing.addressParts.street
+    ) || ''
+  ).trim();
+  const suburb = String(
+    pickFirstDefined(
+      propertyDetails && propertyDetails.suburb,
+      record && record.addressParts && record.addressParts.suburb,
+      record && record.suburb,
+      listing && listing.addressParts && listing.addressParts.suburb
+    ) || ''
+  ).trim();
+  const state = String(
+    pickFirstDefined(
+      propertyDetails && propertyDetails.state,
+      propertyDetails && propertyDetails.stateAbbreviation,
+      record && record.addressParts && record.addressParts.state,
+      record && record.addressParts && record.addressParts.stateAbbreviation,
+      listing && listing.addressParts && listing.addressParts.state,
+      listing && listing.addressParts && listing.addressParts.stateAbbreviation
+    ) || ''
+  ).trim().toUpperCase();
+  const postcode = String(
+    pickFirstDefined(
+      propertyDetails && propertyDetails.postcode,
+      record && record.addressParts && record.addressParts.postcode,
+      listing && listing.addressParts && listing.addressParts.postcode
+    ) || ''
+  ).trim();
+  const streetLabelCore = buildLocationLabel([streetNumber, street]).replace(/,\s+/g, ' ').trim();
+  const streetLabel = unitNumber && streetLabelCore ? `${unitNumber}/${streetLabelCore}` : (unitNumber || streetLabelCore);
+  return buildLocationLabel([
+    streetLabel,
+    buildLocationLabel([suburb, state, postcode])
+  ]);
+}
+
+function pickDomainImageUrl(record) {
+  const listing = getDomainListingNode(record);
+  const propertyDetails = getDomainPropertyDetails(record);
+  const collections = [
+    propertyDetails && propertyDetails.images,
+    record && record.media,
+    record && record.photos,
+    record && record.images,
+    listing && listing.media,
+    listing && listing.images
+  ];
+  for (const collection of collections) {
+    if (!Array.isArray(collection)) continue;
+    const preferred = collection.find((item) => {
+      const url = String(item && (item.url || item.imageUrl) || '').trim();
+      const category = String(item && item.category || '').trim();
+      return !!url && (!category || /image/i.test(category));
+    });
+    if (preferred) return String(preferred.url || preferred.imageUrl || '').trim();
+    const fallback = collection.find((item) => String(item && (item.url || item.imageUrl) || '').trim());
+    if (fallback) return String(fallback.url || fallback.imageUrl || '').trim();
+  }
+  return '';
+}
+
 function normalizeDomainListing(record, practiceCoords, market) {
+  const listing = getDomainListingNode(record);
+  const propertyDetails = getDomainPropertyDetails(record);
   const coords = extractDomainListingCoordinates(record);
   if (!coords) return null;
   const bedrooms = parseBedroomsCount(
@@ -6724,7 +6965,8 @@ function normalizeDomainListing(record, practiceCoords, market) {
       record && record.bedrooms,
       record && record.bedroomCount,
       record && record.features && record.features.bedrooms,
-      record && record.propertyDetails && record.propertyDetails.bedrooms
+      record && record.propertyDetails && record.propertyDetails.bedrooms,
+      propertyDetails && propertyDetails.bedrooms
     )
   );
   const bathrooms = parseWholeNumber(
@@ -6732,7 +6974,8 @@ function normalizeDomainListing(record, practiceCoords, market) {
       record && record.bathrooms,
       record && record.bathroomCount,
       record && record.features && record.features.bathrooms,
-      record && record.propertyDetails && record.propertyDetails.bathrooms
+      record && record.propertyDetails && record.propertyDetails.bathrooms,
+      propertyDetails && propertyDetails.bathrooms
     ),
     0
   );
@@ -6743,7 +6986,8 @@ function normalizeDomainListing(record, practiceCoords, market) {
       record && record.parking,
       record && record.features && record.features.parking,
       record && record.features && record.features.carspaces,
-      record && record.propertyDetails && record.propertyDetails.carspaces
+      record && record.propertyDetails && record.propertyDetails.carspaces,
+      propertyDetails && propertyDetails.carspaces
     ),
     0
   );
@@ -6751,35 +6995,23 @@ function normalizeDomainListing(record, practiceCoords, market) {
     pickFirstDefined(
       record && record.priceDetails && record.priceDetails.displayPrice,
       record && record.price,
-      record && record.listing && record.listing.priceDetails && record.listing.priceDetails.displayPrice
+      record && record.listing && record.listing.priceDetails && record.listing.priceDetails.displayPrice,
+      listing && listing.priceDetails && listing.priceDetails.displayPrice
     ) || ''
   ).trim();
-  const imageUrl = String(
-    pickFirstDefined(
-      record && record.propertyDetails && record.propertyDetails.images && record.propertyDetails.images[0] && record.propertyDetails.images[0].url,
-      record && record.media && record.media[0] && record.media[0].url,
-      record && record.media && record.media[0] && record.media[0].imageUrl,
-      record && record.photos && record.photos[0] && record.photos[0].url,
-      record && record.images && record.images[0] && record.images[0].url,
-      record && record.listing && record.listing.media && record.listing.media[0] && record.listing.media[0].url
-    ) || ''
-  ).trim();
-  const address = buildLocationLabel([
-    pickFirstDefined(
-      record && record.addressParts && record.addressParts.displayAddress,
-      record && record.displayAddress,
-      record && record.address,
-      record && record.listing && record.listing.addressParts && record.listing.addressParts.displayAddress
-    )
-  ]);
+  const imageUrl = pickDomainImageUrl(record);
+  const address = buildDomainListingAddress(record);
   const title = String(
     pickFirstDefined(
       record && record.headline,
+      listing && listing.headline,
       record && record.title,
       record && record.displayAddress,
       record && record.addressParts && record.addressParts.displayAddress,
       record && record.listing && record.listing.headline,
-      record && record.listing && record.listing.title
+      record && record.listing && record.listing.title,
+      propertyDetails && propertyDetails.displayableAddress,
+      address
     ) || ''
   ).trim();
   const sourceUrl = normalizeDomainSourceUrl(
@@ -6787,35 +7019,43 @@ function normalizeDomainListing(record, practiceCoords, market) {
       record && record.seoUrl,
       record && record.publicUrl,
       record && record.listing && record.listing.seoUrl,
-      record && record.listing && record.listing.publicUrl
+      record && record.listing && record.listing.publicUrl,
+      listing && listing.listingSlug
     )
   );
   const propertyType = String(
     pickFirstDefined(
       record && record.propertyType,
       record && record.propertyTypes && record.propertyTypes[0],
-      record && record.listing && record.listing.propertyType
+      record && record.listing && record.listing.propertyType,
+      propertyDetails && propertyDetails.propertyType,
+      propertyDetails && propertyDetails.allPropertyTypes && propertyDetails.allPropertyTypes[0]
     ) || ''
   ).trim();
   const suburb = String(
     pickFirstDefined(
+      propertyDetails && propertyDetails.suburb,
       record && record.addressParts && record.addressParts.suburb,
       record && record.suburb,
       record && record.listing && record.listing.addressParts && record.listing.addressParts.suburb
     ) || ''
   ).trim();
-  const summary = String(
+  const summary = stripHtml(String(
     pickFirstDefined(
       record && record.summaryDescription,
       record && record.summary,
       record && record.description,
-      record && record.listing && record.listing.summaryDescription
+      record && record.listing && record.listing.summaryDescription,
+      listing && listing.summaryDescription,
+      listing && listing.description
     ) || ''
-  ).trim();
+  )).slice(0, 280);
   const distanceKm = calculateDistanceKm(practiceCoords, coords);
+  const safeAddress = address || suburb || 'Domain listing';
+  const safeTitle = title || address || suburb || 'Domain listing';
   return {
-    id: String(pickFirstDefined(record && record.id, record && record.listing && record.listing.id, crypto.randomUUID())),
-    price: priceLabel || (market === 'buy' ? '$1.10m' : '$700/wk'),
+    id: String(pickFirstDefined(record && record.id, record && record.listing && record.listing.id, listing && listing.id, crypto.randomUUID())),
+    price: priceLabel || (market === 'buy' ? 'Price on request' : 'Rent on request'),
     priceValue: parseLifestylePriceValue(
       pickFirstDefined(
         record && record.priceDetails && record.priceDetails.displayPrice,
@@ -6823,7 +7063,11 @@ function normalizeDomainListing(record, practiceCoords, market) {
         record && record.priceDetails && record.priceDetails.price,
         record && record.priceDetails && record.priceDetails.priceFrom,
         record && record.priceDetails && record.priceDetails.rentPerWeek,
-        record && record.listing && record.listing.priceDetails && record.listing.priceDetails.displayPrice
+        record && record.listing && record.listing.priceDetails && record.listing.priceDetails.displayPrice,
+        listing && listing.priceDetails && listing.priceDetails.displayPrice,
+        listing && listing.priceDetails && listing.priceDetails.price,
+        listing && listing.priceDetails && listing.priceDetails.priceFrom,
+        listing && listing.priceDetails && listing.priceDetails.rentPerWeek
       ),
       market
     ),
@@ -6835,8 +7079,8 @@ function normalizeDomainListing(record, practiceCoords, market) {
     driveTime: formatLifestyleDriveTime(distanceKm || 0),
     imageUrl: resizeDomainImageUrl(imageUrl || ''),
     imagePosition: 'center',
-    address: address || 'Property option',
-    title: title || address || 'Property option',
+    address: safeAddress,
+    title: safeTitle,
     suburb,
     propertyType,
     summary,
@@ -6855,19 +7099,10 @@ async function fetchDomainLifestyleListings(locationContext, practiceCoords, mar
     method: 'POST',
     body: payload
   });
-  const rows = Array.isArray(response)
-    ? response
-    : (Array.isArray(response && response.searchResults) ? response.searchResults : []);
-  const hydratedRows = await Promise.all(
-    rows.slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT).map(async (item) => {
-      const listingId = String(pickFirstDefined(item && item.id, item && item.listing && item.listing.id) || '').trim();
-      const detail = listingId ? await fetchDomainListingDetail(listingId) : null;
-      return detail && typeof detail === 'object'
-        ? { ...item, ...detail }
-        : item;
-    })
-  );
-  return hydratedRows
+  // Residential search already includes the fields we need for cards and map pins.
+  // Avoid secondary listing-detail calls because those can require agency-linked auth.
+  const rows = collectDomainResidentialSearchListings(response);
+  return rows
     .map((item) => normalizeDomainListing(item, practiceCoords, market))
     .filter(Boolean)
     .filter((item) => !!item.sourceUrl && !!item.imageUrl)
@@ -7126,7 +7361,7 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
     || (normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads' ? { lat: -28.1883, lng: 153.5375 } : null);
 
   const liveDomainEnabled = isDomainLifestyleConfigured();
-  const allowLifestyleHousingFallback = !liveDomainEnabled && NODE_ENV !== 'production';
+  const allowLifestyleHousingFallback = !liveDomainEnabled && ALLOW_DOMAIN_LIFESTYLE_FALLBACK;
   const fallbackHousing = normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads'
     ? buildTweedLifestyleHousingSeeds(practiceCoords)
     : buildGenericLifestyleHousingSeeds(practiceCoords, locationContext);
@@ -11279,3 +11514,12 @@ if (process.env.VERCEL) {
 }
 
 module.exports.createServer = createServer;
+module.exports.__testUtils = {
+  buildDomainResidentialSearchPayload,
+  collectDomainResidentialSearchListings,
+  extractDomainListingCoordinates,
+  normalizeDomainListing,
+  normalizeDomainSourceUrl,
+  parseLifestylePriceValue,
+  resizeDomainImageUrl
+};
