@@ -9,7 +9,7 @@
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260322a" defer></script>
   <script src="../js/account-dropdown.js?v=20260323a" defer></script>
-  <script src="../js/app-shell.js?v=20260323c" defer></script>
+  <script src="../js/app-shell.js?v=20260323e" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -235,6 +235,8 @@
       grid-template-columns: repeat(5, 1fr);
       gap: 8px;
       padding: 10px;
+      overflow: hidden;
+      isolation: isolate;
       border-radius: 22px;
       border: 1px solid rgba(255, 255, 255, 0.72);
       background: rgba(255, 255, 255, 0.88);
@@ -244,7 +246,32 @@
       z-index: 1200;
     }
 
+    .mobile-nav-glass {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 0;
+      height: 0;
+      opacity: 0;
+      border-radius: 16px;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      pointer-events: none;
+      transition:
+        left .34s cubic-bezier(.22,.9,.18,1.05),
+        top .34s cubic-bezier(.22,.9,.18,1.05),
+        width .34s cubic-bezier(.22,.9,.18,1.05),
+        height .34s cubic-bezier(.22,.9,.18,1.05),
+        opacity .18s ease;
+      z-index: 1;
+    }
+
     .mobile-tab {
+      position: relative;
+      z-index: 2;
       border: 0;
       background: transparent;
       color: #475569;
@@ -262,6 +289,7 @@
       padding: 6px 4px;
       line-height: 1.1;
       cursor: pointer;
+      transition: color .2s ease;
     }
 
     .mobile-tab-icon {
@@ -286,8 +314,10 @@
 
     .mobile-tab-active {
       color: #0f172a;
-      background: rgba(255, 255, 255, 0.95);
-      box-shadow: inset 0 0 0 1px rgba(191, 220, 255, 0.95), 0 12px 18px -16px rgba(37, 99, 235, 0.58);
+    }
+
+    .mobile-tab-active .mobile-tab-icon {
+      color: #145bc4;
     }
 
     .mobile-tab-scan {
@@ -357,6 +387,7 @@
   <iframe id="appShellFrame" class="app-shell-frame" title="GP Link content" allow="camera; microphone"></iframe>
 
   <nav class="mobile-nav" aria-label="Mobile navigation">
+    <span class="mobile-nav-glass" id="mobileNavGlass" aria-hidden="true"></span>
     <a class="mobile-tab" href="app-shell.html?route=%2Fpages%2Findex.html" data-route="/pages/index.html">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
       <span class="mobile-tab-label">Home</span>

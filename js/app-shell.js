@@ -6,7 +6,7 @@
   var EMBED_PARAM = "gp_shell";
   var EMBED_VALUE = "embedded";
   var DEFAULT_ROUTE = "/pages/index.html";
-  var SUPPORTED_PATHS = {
+  var PAGE_PATHS = {
     "/pages/index.html": true,
     "/pages/myinthealth.html": true,
     "/pages/amc.html": true,
@@ -32,12 +32,15 @@
   var desktopNavEl = document.querySelector(".nav-menu");
   var mobileNavEl = document.querySelector(".mobile-nav");
   var navGlassEl = document.getElementById("navGlass");
+  var mobileNavGlassEl = document.getElementById("mobileNavGlass");
   var desktopHostEl = document.getElementById("appShellDesktop");
   var EMBED_STYLE_ID = "gp-shell-parent-embed-style";
   var currentRoute = "";
   var activeDesktopItem = null;
+  var activeMobileTab = null;
   var hoveredDesktopItem = null;
   var navGlassInitialized = false;
+  var mobileGlassInitialized = false;
 
   function normalizePath(pathname) {
     if (typeof pathname !== "string" || !pathname) return "";
@@ -48,8 +51,22 @@
     }
   }
 
+  function resolveSupportedPath(pathname) {
+    var normalized = normalizePath(pathname);
+    if (Object.prototype.hasOwnProperty.call(PAGE_PATHS, normalized)) return normalized;
+
+    var parts = normalized.split("/").filter(Boolean);
+    if (parts.length < 2 || parts[0] !== "registration") return "";
+
+    var step = String(parts[1] || "").toLowerCase();
+    if (step === "myintealth" || step === "myinthealth") return "/pages/myinthealth.html";
+    if (step === "amc") return "/pages/amc.html";
+    if (step === "ahpra" || step === "specialist-registration") return "/pages/ahpra.html";
+    return "";
+  }
+
   function isSupportedPath(pathname) {
-    return Object.prototype.hasOwnProperty.call(SUPPORTED_PATHS, normalizePath(pathname));
+    return !!resolveSupportedPath(pathname);
   }
 
   function routeFromUrl(input) {
@@ -139,6 +156,30 @@
     navGlassEl.style.height = rect.height + "px";
   }
 
+  function moveMobileGlass(target, animate) {
+    if (!target || !mobileNavGlassEl || !mobileNavEl || !isVisible(target) || !isVisible(mobileNavEl)) return;
+    var parentRect = mobileNavEl.getBoundingClientRect();
+    var rect = target.getBoundingClientRect();
+    if (animate === false || !mobileGlassInitialized) {
+      var previousTransition = mobileNavGlassEl.style.transition;
+      mobileNavGlassEl.style.transition = "none";
+      mobileNavGlassEl.style.left = (rect.left - parentRect.left) + "px";
+      mobileNavGlassEl.style.top = (rect.top - parentRect.top) + "px";
+      mobileNavGlassEl.style.width = rect.width + "px";
+      mobileNavGlassEl.style.height = rect.height + "px";
+      mobileNavGlassEl.style.opacity = "1";
+      void mobileNavGlassEl.offsetWidth;
+      mobileNavGlassEl.style.transition = previousTransition;
+      mobileGlassInitialized = true;
+      return;
+    }
+    mobileNavGlassEl.style.left = (rect.left - parentRect.left) + "px";
+    mobileNavGlassEl.style.top = (rect.top - parentRect.top) + "px";
+    mobileNavGlassEl.style.width = rect.width + "px";
+    mobileNavGlassEl.style.height = rect.height + "px";
+    mobileNavGlassEl.style.opacity = "1";
+  }
+
   function setDesktopActive(navKey, animate) {
     var items = getDesktopItems();
     var nextActive = null;
@@ -156,24 +197,32 @@
     if (nextActive) moveNavGlass(nextActive, animate);
   }
 
-  function setMobileActive(pathname) {
+  function setMobileActive(pathname, animate) {
     var tabs = getMobileTabs();
+    var nextActive = null;
     tabs.forEach(function (tab) {
       var resolved = toRouteUrl(getLinkRouteTarget(tab));
       var isActive = !!pathname && !!resolved && normalizePath(resolved.pathname) === pathname;
       tab.classList.toggle("mobile-tab-active", isActive);
       if (isActive) {
         tab.setAttribute("aria-current", "page");
+        nextActive = tab;
       } else {
         tab.removeAttribute("aria-current");
       }
     });
+    activeMobileTab = nextActive;
+    if (nextActive) {
+      moveMobileGlass(nextActive, animate);
+    } else if (mobileNavGlassEl) {
+      mobileNavGlassEl.style.opacity = "0";
+    }
   }
 
   function syncActiveNav(routeUrl, animate) {
-    var group = NAV_GROUPS[normalizePath(routeUrl.pathname)] || NAV_GROUPS[DEFAULT_ROUTE];
+    var group = NAV_GROUPS[resolveSupportedPath(routeUrl.pathname) || DEFAULT_ROUTE] || NAV_GROUPS[DEFAULT_ROUTE];
     setDesktopActive(group.desktop, animate);
-    setMobileActive(group.mobile ? normalizePath(group.mobile) : "");
+    setMobileActive(group.mobile ? normalizePath(group.mobile) : "", animate);
   }
 
   function updateTitle(nextTitle) {
@@ -239,7 +288,7 @@
   }
 
   function prefetchSupportedRoutes() {
-    Object.keys(SUPPORTED_PATHS).forEach(function (pathname) {
+    Object.keys(PAGE_PATHS).forEach(function (pathname) {
       var linkId = "gp-prefetch-" + pathname.replace(/[^a-z0-9]/gi, "-");
       if (document.getElementById(linkId)) return;
       var link = document.createElement("link");
@@ -307,6 +356,12 @@
     updateTitle(nextTitle);
   }
 
+  function handleResize() {
+    updateFrameOffsets();
+    if (activeDesktopItem) moveNavGlass(activeDesktopItem, false);
+    if (activeMobileTab) moveMobileGlass(activeMobileTab, false);
+  }
+
   function handleFrameLoad() {
     setLoading(false);
     updateFrameOffsets();
@@ -366,7 +421,7 @@
     frameEl.addEventListener("load", handleFrameLoad);
     window.addEventListener("message", handleMessage);
     window.addEventListener("popstate", handlePopState);
-    window.addEventListener("resize", updateFrameOffsets);
+    window.addEventListener("resize", handleResize);
 
     handleDesktopHoverEvents();
     prefetchSupportedRoutes();
@@ -375,8 +430,7 @@
     navigateTo(initialRoute, { historyMode: "replace", animate: false });
 
     window.requestAnimationFrame(function () {
-      updateFrameOffsets();
-      if (activeDesktopItem) moveNavGlass(activeDesktopItem, false);
+      handleResize();
     });
   }
 

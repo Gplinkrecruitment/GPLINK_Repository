@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>MyIntealth - GP Link</title>
-  <script src="../js/nav-shell-bridge.js?v=20260323c"></script>
-  <script src="../js/auth-guard.js?v=20260311f" defer></script>
-  <script src="../js/state-sync.js?v=20260314b" defer></script>
-  <script src="../js/updates-sync.js?v=20260309c" defer></script>
-  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260322a" defer></script>
-  <script src="../js/account-dropdown.js" defer></script>
+  <script src="/js/nav-shell-bridge.js?v=20260323e"></script>
+  <script src="/js/auth-guard.js?v=20260311f" defer></script>
+  <script src="/js/state-sync.js?v=20260314b" defer></script>
+  <script src="/js/updates-sync.js?v=20260309c" defer></script>
+  <script src="/js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="/js/qualification-scan.js?v=20260322a" defer></script>
+  <script src="/js/account-dropdown.js" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -784,7 +784,7 @@
       </div>
       <p class="tutorial-desc" id="tutorialDesc">Create your MyIntealth account by following this walkthrough.</p>
       <video class="tutorial-video" id="tutorialVideo" controls playsinline preload="metadata">
-        <source id="tutorialSource" src="../media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
+        <source id="tutorialSource" src="/media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
         Your browser does not support the video tag.
       </video>
     </div>
@@ -981,9 +981,9 @@
     const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([k, v]) => [v, k]));
 
     const tutorialByStage = {
-      create_account: { text: "Create your MyIntealth account by following this walkthrough.", src: "../media/videos/myintealth-tutorial-1.mp4" },
-      account_establishment: { text: "Establish your EPIC account and complete your NotaryCam session.", src: "../media/videos/myintealth-tutorial-3.mp4" },
-      upload_qualifications: { text: "Upload your specialist qualifications by following this walkthrough.", src: "../media/videos/myintealth-tutorial-2.mp4" }
+      create_account: { text: "Create your MyIntealth account by following this walkthrough.", src: "/media/videos/myintealth-tutorial-1.mp4" },
+      account_establishment: { text: "Establish your EPIC account and complete your NotaryCam session.", src: "/media/videos/myintealth-tutorial-3.mp4" },
+      upload_qualifications: { text: "Upload your specialist qualifications by following this walkthrough.", src: "/media/videos/myintealth-tutorial-2.mp4" }
     };
 
     // ─── STATE MANAGEMENT ────────────────────────────────────────

@@ -7,7 +7,7 @@
   var EMBED_PARAM = "gp_shell";
   var EMBED_VALUE = "embedded";
   var EMBED_STYLE_ID = "gp-shell-embedded-style";
-  var SUPPORTED_PATHS = {
+  var PAGE_PATHS = {
     "/pages/index.html": true,
     "/pages/myinthealth.html": true,
     "/pages/amc.html": true,
@@ -27,8 +27,22 @@
     }
   }
 
+  function resolveSupportedPath(pathname) {
+    var normalized = normalizePath(pathname);
+    if (Object.prototype.hasOwnProperty.call(PAGE_PATHS, normalized)) return normalized;
+
+    var parts = normalized.split("/").filter(Boolean);
+    if (parts.length < 2 || parts[0] !== "registration") return "";
+
+    var step = String(parts[1] || "").toLowerCase();
+    if (step === "myintealth" || step === "myinthealth") return "/pages/myinthealth.html";
+    if (step === "amc") return "/pages/amc.html";
+    if (step === "ahpra" || step === "specialist-registration") return "/pages/ahpra.html";
+    return "";
+  }
+
   function isSupportedPath(pathname) {
-    return Object.prototype.hasOwnProperty.call(SUPPORTED_PATHS, normalizePath(pathname));
+    return !!resolveSupportedPath(pathname);
   }
 
   function cleanRoute(input) {
