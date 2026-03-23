@@ -5792,9 +5792,17 @@
         .join(" ");
     }
 
+    function normalizeEmail(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
     function isConfidentialText(value) {
       return /confidential/i.test(String(value || ""));
     }
+
+    const SECURED_CAREER_EMAILS = new Set([
+      "hello@mygplink.com.au"
+    ]);
 
     function getApplicationStatusMeta(statusValue) {
       const key = normalizeStatusKey(statusValue);
@@ -5953,32 +5961,44 @@
       const roleMap = new Map(roles.filter((role) => role && role.id).map((role) => [role.id, role]));
       const fallback = getDefaultCareerState({ dataSource: context.dataSource || careerDataSource, roles });
       const source = raw && typeof raw === "object" ? raw : {};
+      const applications = Array.isArray(source.applications)
+        ? source.applications
+            .filter((job) => job && roleIds.has(job.roleId))
+            .map((job) => {
+              const liveRole = roleMap.get(job.roleId);
+              return normalizeCareerApplication(liveRole ? { ...job, practiceName: liveRole.practiceName, location: liveRole.location } : job);
+            })
+        : fallback.applications;
+      const hasLockedPlacement = applications.some((application) => application && application.isPlacementSecured);
       return {
         updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : fallback.updatedAt,
-        activeView: ["browse", "applications", "secured"].includes(source.activeView) ? source.activeView : fallback.activeView,
+        activeView: hasLockedPlacement
+          ? "secured"
+          : (["browse", "applications", "secured"].includes(source.activeView) ? source.activeView : fallback.activeView),
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
         filterBilling: typeof source.filterBilling === "string" ? source.filterBilling : fallback.filterBilling,
-        showSavedOnly: source.showSavedOnly === true,
+        showSavedOnly: hasLockedPlacement ? false : source.showSavedOnly === true,
         savedJobs: Array.isArray(source.savedJobs)
           ? source.savedJobs
               .filter((job) => job && roleIds.has(job.id))
               .map((job) => createSavedSnapshot(roleMap.get(job.id) || job))
           : fallback.savedJobs,
-        applications: Array.isArray(source.applications)
-          ? source.applications
-              .filter((job) => job && roleIds.has(job.roleId))
-              .map((job) => {
-                const liveRole = roleMap.get(job.roleId);
-                return normalizeCareerApplication(liveRole ? { ...job, practiceName: liveRole.practiceName, location: liveRole.location } : job);
-              })
-          : fallback.applications
+        applications
       };
     }
 
+    let careerSessionEmail = normalizeEmail(localStorage.getItem("gp_state_owner") || "");
+
+    function isSecuredCareerAccount(email = careerSessionEmail) {
+      return SECURED_CAREER_EMAILS.has(normalizeEmail(email));
+    }
+
     function replaceCareerUrlState(view, roleId) {
-      const nextView = ["browse", "applications", "secured"].includes(view) ? view : "browse";
+      const nextView = shouldLockCareerToSecuredView()
+        ? "secured"
+        : (["browse", "applications", "secured"].includes(view) ? view : "browse");
       const url = new URL(window.location.href);
-      if (roleId) {
+      if (roleId && !shouldLockCareerToSecuredView()) {
         url.searchParams.set("role", roleId);
       } else {
         url.searchParams.delete("role");
@@ -6111,6 +6131,7 @@
     };
 
     function persistCareerState() {
+      enforceLockedCareerView();
       careerState.updatedAt = new Date().toISOString();
       localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(careerState));
       window.dispatchEvent(new Event("gp-career-updated"));
@@ -6171,6 +6192,59 @@
 
     function hasSecuredPlacement() {
       return careerState.applications.some((application) => application && application.isPlacementSecured);
+    }
+
+    function shouldLockCareerToSecuredView() {
+      return isSecuredCareerAccount() || hasSecuredPlacement();
+    }
+
+    function enforceLockedCareerView() {
+      if (!shouldLockCareerToSecuredView()) return false;
+      careerState.activeView = "secured";
+      careerState.showSavedOnly = false;
+      return true;
+    }
+
+    async function hydrateCareerSessionEmail() {
+      if (window.gpSessionProfile && typeof window.gpSessionProfile === "object") {
+        careerSessionEmail = normalizeEmail(window.gpSessionProfile.email || careerSessionEmail);
+        return careerSessionEmail;
+      }
+
+      try {
+        const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+        if (!response.ok) return careerSessionEmail;
+        const payload = await response.json().catch(() => null);
+        const profile = payload && payload.profile && typeof payload.profile === "object" ? payload.profile : null;
+        if (profile) {
+          window.gpSessionProfile = profile;
+          careerSessionEmail = normalizeEmail(profile.email || careerSessionEmail);
+        }
+      } catch (err) {
+        return careerSessionEmail;
+      }
+
+      return careerSessionEmail;
+    }
+
+    function syncCareerViewFromLocation() {
+      if (enforceLockedCareerView()) return;
+      const hashView = window.location.hash.replace("#", "");
+      if (["browse", "applications", "secured"].includes(hashView)) {
+        careerState.activeView = hashView;
+      }
+    }
+
+    function handleRequestedRoleRedirect() {
+      const requestedRoleId = new URL(window.location.href).searchParams.get("role");
+      if (!requestedRoleId) return false;
+      if (shouldLockCareerToSecuredView()) {
+        replaceCareerUrlState("secured", null);
+        return false;
+      }
+      cacheRolePreview(requestedRoleId);
+      window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
+      return true;
     }
 
     function normalizeSecuredQuickStats(items) {
@@ -7913,7 +7987,8 @@
       });
     }
 
-    async function loadRemoteRoles() {
+    async function loadRemoteRoles(options = {}) {
+      const shouldRender = options.render !== false;
       try {
         const response = await fetch("/api/career/roles", { credentials: "same-origin" });
         if (!response.ok) {
@@ -7933,12 +8008,8 @@
           careerDataSource = "api";
           careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
           persistCareerState();
-          renderPage();
-          const requestedRoleId = new URL(window.location.href).searchParams.get("role");
-          if (requestedRoleId) {
-            window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
-            return;
-          }
+          if (shouldRender) renderPage();
+          if (shouldRender && handleRequestedRoleRedirect()) return;
         }
       } catch (err) {
         showRolesError("Network error — please check your connection and refresh.");
@@ -7963,7 +8034,8 @@
       if (banner) banner.hidden = true;
     }
 
-    async function loadRemoteApplications() {
+    async function loadRemoteApplications(options = {}) {
+      const shouldRender = options.render !== false;
       try {
         const response = await fetch("/api/career/applications", { credentials: "same-origin" });
         if (!response.ok) return;
@@ -7992,7 +8064,7 @@
             careerState.activeView = "secured";
           }
           persistCareerState();
-          renderPage();
+          if (shouldRender) renderPage();
         }
       } catch (err) {
         // Fallback to localStorage applications
@@ -8122,6 +8194,10 @@
     }
 
     async function renderRoleModal(roleId) {
+      if (shouldLockCareerToSecuredView()) {
+        setView("secured");
+        return;
+      }
       const role = findRole(roleId);
       if (!role) return;
       currentRoleId = roleId;
@@ -8180,16 +8256,23 @@
     }
 
     function setView(view) {
-      const nextView = ["browse", "applications", "secured"].includes(view) ? view : "browse";
+      const nextView = shouldLockCareerToSecuredView()
+        ? "secured"
+        : (["browse", "applications", "secured"].includes(view) ? view : "browse");
       careerState.activeView = nextView;
+      if (nextView === "secured") careerState.showSavedOnly = false;
       syncActiveViewUi();
       replaceCareerUrlState(nextView, currentRoleId);
       persistCareerState();
     }
 
     function renderPage() {
-      if (careerState.activeView === "secured" && !hasSecuredPlacement()) {
+      const isLockedToSecured = enforceLockedCareerView();
+      if (careerState.activeView === "secured" && !hasSecuredPlacement() && !isLockedToSecured) {
         careerState.activeView = careerState.applications.length ? "applications" : "browse";
+      }
+      if (isLockedToSecured) {
+        replaceCareerUrlState("secured", null);
       }
       renderSearchFilterControls();
       renderHeroShortcuts();
@@ -8348,6 +8431,10 @@
 
       const openBtn = event.target.closest("[data-open-role]");
       if (openBtn) {
+        if (shouldLockCareerToSecuredView()) {
+          setView("secured");
+          return;
+        }
         const roleId = openBtn.getAttribute("data-open-role");
         cacheRolePreview(roleId);
         window.location.href = "job.html?id=" + encodeURIComponent(roleId);
@@ -8418,37 +8505,25 @@
     });
 
     window.addEventListener("hashchange", () => {
-      const hashView = window.location.hash.replace("#", "");
-      if (["browse", "applications", "secured"].includes(hashView) && hashView !== careerState.activeView) {
-        careerState.activeView = hashView;
+      const previousView = careerState.activeView;
+      syncCareerViewFromLocation();
+      if (careerState.activeView !== previousView || shouldLockCareerToSecuredView()) {
         renderPage();
       }
     });
 
     window.addEventListener("gp-state-hydrated", () => {
       careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
-      const hashView = window.location.hash.replace("#", "");
-      if (["browse", "applications", "secured"].includes(hashView)) {
-        careerState.activeView = hashView;
-      } else if (hasSecuredPlacement()) {
-        careerState.activeView = "secured";
-      }
+      syncCareerViewFromLocation();
       renderPage();
-      const requestedRoleId = new URL(window.location.href).searchParams.get("role");
-      if (requestedRoleId) {
-        cacheRolePreview(requestedRoleId);
-        window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
-        return;
-      }
+      if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
     });
 
     window.addEventListener("storage", (event) => {
       if (event.key === CAREER_STATE_KEY) {
         careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
-        if (!window.location.hash && hasSecuredPlacement()) {
-          careerState.activeView = "secured";
-        }
+        syncCareerViewFromLocation();
         renderPage();
       }
       if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases") {
@@ -8470,25 +8545,17 @@
 
     (async function init() {
       const hadStoredCareerState = !!localStorage.getItem(CAREER_STATE_KEY);
-      const hashView = window.location.hash.replace("#", "");
-      if (["browse", "applications", "secured"].includes(hashView)) {
-        careerState.activeView = hashView;
-      } else if (hasSecuredPlacement()) {
-        careerState.activeView = "secured";
-      }
+      await hydrateCareerSessionEmail();
+      syncCareerViewFromLocation();
       moveNavGlass(activeNavItem);
       if (!hadStoredCareerState) {
         persistCareerState();
       }
+      await loadRemoteRoles({ render: false });
+      await loadRemoteApplications({ render: false });
+      syncCareerViewFromLocation();
       renderPage();
-      await loadRemoteRoles();
-      await loadRemoteApplications();
-      const requestedRoleId = new URL(window.location.href).searchParams.get("role");
-      if (requestedRoleId) {
-        cacheRolePreview(requestedRoleId);
-        window.location.href = "job.html?id=" + encodeURIComponent(requestedRoleId);
-        return;
-      }
+      if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
     })();
   </script>
