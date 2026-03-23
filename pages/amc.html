@@ -428,33 +428,40 @@
       display: flex; gap: 6px; align-items: center;
       justify-content: center; position: relative; padding: 4px; border-radius: 14px;
     }
-    .nav-item { position: relative; z-index: 2; }
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
     .nav-link, .nav-action, .account-pill {
-      text-decoration: none; border: 0; background: transparent; color: #64748b;
-      padding: 8px 14px; font-size: 13px; font-weight: 600; white-space: nowrap;
-      display: inline-flex; align-items: center; gap: 6px; line-height: 1.15;
-      border-radius: 12px; cursor: pointer; font-family: inherit; transition: color .15s ease;
+      text-decoration: none; border: 0; background: transparent; color: #111827;
+      padding: 8px 12px; font-size: 13px; font-weight: 500; white-space: nowrap;
+      display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; line-height: 1.15;
+      min-width: 92px; border-radius: 12px; cursor: pointer;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
     }
-    .nav-link:hover, .nav-action:hover, .account-pill:hover { color: var(--text); }
-    .nav-link.active, .nav-action.active, .account-pill.active { color: var(--text); font-weight: 700; }
+    .nav-link.active, .nav-action.active, .account-pill.active { color: #0f172a; font-weight: 700; }
     .nav-icon {
-      width: 16px; height: 16px; stroke: currentColor;
+      width: 17px; height: 17px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+      color: #334155;
     }
-    .nav-icon-wrap { position: relative; display: inline-grid; place-items: center; }
+    .nav-icon-wrap { position: relative; display: inline-grid; place-items: center; line-height: 1; }
     .nav-alert {
-      position: absolute; top: -6px; right: -8px;
+      position: absolute; top: -8px; right: -8px;
       width: 14px; height: 14px; border-radius: 50%;
       display: inline-flex; align-items: center; justify-content: center;
-      font-size: 9px; font-weight: 900; color: #fff;
+      font-size: 10px; font-weight: 900; color: #fff;
       background: #dc2626; pointer-events: none; z-index: 2;
-      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.6);
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
     }
     .nav-glass {
       position: absolute; top: 0; left: 0;
-      width: 100px; height: 40px; border-radius: 12px;
-      background: rgba(37, 99, 235, 0.06);
-      border: 1px solid rgba(37, 99, 235, 0.1);
+      width: 96px; height: 44px; border-radius: 12px;
+      background: rgba(255,255,255,0.58);
+      border: 1px solid rgba(191,220,255,0.95);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 10px 16px -14px rgba(37,99,235,0.45);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       z-index: 1; pointer-events: none;
       transition: left .3s cubic-bezier(.22,.9,.18,1.05), top .3s cubic-bezier(.22,.9,.18,1.05), width .3s cubic-bezier(.22,.9,.18,1.05), height .3s cubic-bezier(.22,.9,.18,1.05);
     }
@@ -559,38 +566,41 @@
     .mobile-reg-table .reg-row { grid-template-columns: 1fr auto; }
     .mobile-reg-table .reg-btn { grid-column: 1 / -1; width: 100%; text-align: center; margin-top: 2px; }
 
-    /* ---- BOTTOM NAV ---- */
-    .bottom-nav {
+    /* ---- MOBILE NAV ---- */
+    .mobile-nav {
       position: fixed; left: 50%; bottom: 0; transform: translateX(-50%);
       width: 100%; max-width: 560px;
       background: rgba(255, 255, 255, 0.92);
       backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border-top: 1px solid #e2e8f0;
       padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
-      display: none; grid-template-columns: repeat(6, 1fr); gap: 4px; z-index: 50; overflow: visible;
+      display: none; grid-template-columns: repeat(5, 1fr); gap: 4px; z-index: 50; overflow: visible;
     }
-    .bottom-tab {
+    .mobile-tab {
       text-decoration: none; border: 0; background: transparent; color: #94a3b8;
       border-radius: 12px; min-height: 46px; padding: 6px 4px;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 0; cursor: pointer; font: inherit; transition: all .15s ease;
     }
-    .bottom-tab svg {
+    .mobile-tab-icon {
+      position: relative; display: inline-grid; place-items: center; color: #64748b;
+    }
+    .mobile-tab-icon svg {
       width: 22px; height: 22px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-    .bottom-tab-label { display: none; }
-    .bottom-tab-active { color: var(--blue); background: rgba(37, 99, 235, 0.08); }
-    .bottom-tab-icon { position: relative; display: inline-grid; place-items: center; }
-    .bottom-tab-scan { transform: none; }
-    .bottom-tab-scan .bottom-tab-icon {
+    .mobile-tab-label { display: none; }
+    .mobile-tab-active { background: rgba(20, 91, 196, 0.11); color: #145bc4; }
+    .mobile-tab-active .mobile-tab-icon { color: #145bc4; }
+    .mobile-tab-scan { transform: none; }
+    .mobile-tab-scan .mobile-tab-icon {
       width: 36px; height: 36px; border-radius: 999px;
       background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
       color: #fff;
       box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
       animation: scanHaloPulse 2.8s ease-in-out infinite;
     }
-    .bottom-tab-scan .bottom-tab-icon svg { width: 19px; height: 19px; }
+    .mobile-tab-scan .mobile-tab-icon svg { width: 19px; height: 19px; }
     @keyframes scanHaloPulse {
       0%, 100% {
         box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
@@ -599,14 +609,7 @@
         box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78);
       }
     }
-    .bottom-tab-badge {
-      position: absolute; top: -5px; right: -8px;
-      width: 16px; height: 16px; border-radius: 50%;
-      background: #dc2626; color: #fff;
-      font-size: 9px; font-weight: 800;
-      display: inline-flex; align-items: center; justify-content: center;
-      border: 2px solid #fff;
-    }
+    .mobile-tab-alert { position: absolute; top: -3px; right: -6px; }
 
     /* ---- MODALS ---- */
     .modal {
@@ -661,13 +664,13 @@
     @media (min-width: 768px) {
       .app-header { display: none; }
       .desktop-topbar { display: block; }
-      .bottom-nav { display: none; }
+      .mobile-nav { display: none; }
       .dash-wrap { padding-bottom: 40px; }
       .step-actions { justify-content: center; }
     }
     @media (max-width: 767px) {
       .desktop-topbar { display: none; }
-      .bottom-nav { display: grid; }
+      .mobile-nav { display: grid; }
       .app-header { display: flex; }
       .step-info-grid { grid-template-columns: 1fr; }
       .btn-action { width: 100%; justify-content: center; }
@@ -718,10 +721,10 @@
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
             <span>Home</span>
           </a>
-          <button class="nav-action nav-item active" id="registrationMenuBtn" type="button" data-nav="registration">
+          <a class="nav-link nav-item active" href="/pages/myinthealth.html" data-nav="registration" aria-current="page">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
             <span>Registration</span>
-          </button>
+          </a>
           <a class="nav-link nav-item" href="/pages/my-documents.html" data-nav="documents">
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
             <span>My Documents</span>
@@ -730,10 +733,10 @@
             <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
             <span>Career</span>
           </a>
-          <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
+          <a class="nav-link nav-item" href="/pages/messages.html" data-nav="messages">
             <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
             <span>Messages</span>
-          </button>
+          </a>
           <a class="account-pill nav-item" href="/pages/account.html" data-nav="account">
             <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
             <span>Account</span>
@@ -830,34 +833,26 @@
     </div>
   </div>
 
-  <!-- BOTTOM NAV (Mobile) -->
-  <nav class="bottom-nav" aria-label="Mobile navigation">
-    <a class="bottom-tab" href="/pages/index.html">
-      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
-      <span class="bottom-tab-label">Home</span>
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="/pages/index.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
+      <span class="mobile-tab-label">Home</span>
     </a>
-    <button class="bottom-tab bottom-tab-active" id="mobileRegistrationBtn" type="button">
-      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
-      <span class="bottom-tab-label">Registration</span>
-    </button>
-    <button class="bottom-tab bottom-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
-      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
-      <span class="bottom-tab-label">Scan</span>
-    </button>
-    <a class="bottom-tab" href="/pages/career.html">
-      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
-      <span class="bottom-tab-label">Career</span>
+    <a class="mobile-tab mobile-tab-active" href="/pages/myinthealth.html" aria-current="page">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
+      <span class="mobile-tab-label">Registration</span>
     </a>
-    <button class="bottom-tab" id="mobileSupportBtn" type="button">
-      <span class="bottom-tab-icon">
-        <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
-        <span class="bottom-tab-badge" data-inbox-alert hidden aria-hidden="true">!</span>
-      </span>
-      <span class="bottom-tab-label">Messages</span>
+    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="mobile-tab-label">Scan</span>
     </button>
-    <a class="bottom-tab" href="/pages/account.html">
-      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
-      <span class="bottom-tab-label">Account</span>
+    <a class="mobile-tab" href="/pages/career.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
+      <span class="mobile-tab-label">Career</span>
+    </a>
+    <a class="mobile-tab" href="/pages/account.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
+      <span class="mobile-tab-label">Account</span>
     </a>
   </nav>
 
@@ -1692,34 +1687,42 @@
 
     let registrationHoverCloseTimer = null;
     function openRegistrationDropdown() {
+      if (!registrationDropdown) return;
       if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
       renderRegistrationRows();
       registrationDropdown.classList.add("show");
-      navGlassEl.classList.add("engulf");
-      moveNavGlass(registrationMenuBtn, true);
+      if (navGlassEl) navGlassEl.classList.add("engulf");
+      if (registrationMenuBtn) moveNavGlass(registrationMenuBtn, true);
     }
     function closeRegistrationDropdown(immediate) {
-      const doClose = () => { registrationDropdown.classList.remove("show"); navGlassEl.classList.remove("engulf"); };
+      const doClose = () => {
+        if (!registrationDropdown) return;
+        registrationDropdown.classList.remove("show");
+        if (navGlassEl) navGlassEl.classList.remove("engulf");
+      };
       if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
       if (immediate) { doClose(); return; }
       registrationHoverCloseTimer = setTimeout(doClose, 140);
     }
 
-    registrationMenuBtn.addEventListener("click", () => {
-      setActiveNav(registrationMenuBtn);
-      if (registrationDropdown.classList.contains("show")) closeRegistrationDropdown(true);
-      else openRegistrationDropdown();
-    });
-    registrationMenuBtn.addEventListener("mouseenter", () => openRegistrationDropdown());
-    registrationDropdown.addEventListener("mouseenter", () => {
-      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
-      navGlassEl.classList.add("engulf"); moveNavGlass(registrationMenuBtn, true);
-    });
-    registrationMenuBtn.addEventListener("mouseleave", () => closeRegistrationDropdown());
-    registrationDropdown.addEventListener("mouseleave", () => closeRegistrationDropdown());
-    document.addEventListener("click", e => {
-      if (!registrationDropdown.contains(e.target) && !registrationMenuBtn.contains(e.target)) closeRegistrationDropdown(true);
-    });
+    if (registrationMenuBtn && registrationDropdown) {
+      registrationMenuBtn.addEventListener("click", () => {
+        setActiveNav(registrationMenuBtn);
+        if (registrationDropdown.classList.contains("show")) closeRegistrationDropdown(true);
+        else openRegistrationDropdown();
+      });
+      registrationMenuBtn.addEventListener("mouseenter", () => openRegistrationDropdown());
+      registrationDropdown.addEventListener("mouseenter", () => {
+        if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+        if (navGlassEl) navGlassEl.classList.add("engulf");
+        moveNavGlass(registrationMenuBtn, true);
+      });
+      registrationMenuBtn.addEventListener("mouseleave", () => closeRegistrationDropdown());
+      registrationDropdown.addEventListener("mouseleave", () => closeRegistrationDropdown());
+      document.addEventListener("click", e => {
+        if (!registrationDropdown.contains(e.target) && !registrationMenuBtn.contains(e.target)) closeRegistrationDropdown(true);
+      });
+    }
 
     function openMobileRegistration() {
       renderRegistrationRows();
@@ -1733,7 +1736,7 @@
       mobileRegSheet.classList.remove("show");
     }
 
-    mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
+    if (mobileRegistrationBtn) mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
     mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
     mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
 

@@ -49,9 +49,137 @@
       padding: 0 16px 120px;
     }
 
+    .topbar {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      border: 1px solid #e8edf5;
+      background: #ffffff;
+      box-shadow: var(--shadow2);
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      min-height: 56px;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+
+    .brand-logo img {
+      display: block;
+      width: 178px;
+      height: auto;
+    }
+
+    .nav-menu {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 4px;
+      border-radius: 14px;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
+
+    .nav-link,
+    .account-pill {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #111827;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      line-height: 1.15;
+      min-width: 92px;
+      border-radius: 12px;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+
+    .nav-link.active,
+    .account-pill.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #334155;
+    }
+
+    .nav-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-alert {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 96px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
+    }
+
     /* ─── HEADER ─── */
     .app-header {
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: space-between;
       padding: 18px 0 14px;
@@ -933,7 +1061,11 @@
     /* ─── RESPONSIVE ─── */
     @media (max-width: 767px) {
       .dash-wrap { padding: 0 12px 110px; }
-      .app-header { padding: 14px 0 10px; }
+      .topbar { display: none; }
+      .app-header {
+        display: flex;
+        padding: 14px 0 10px;
+      }
       .mobile-nav { display: grid; }
       .desktop-back { display: none; }
 
@@ -1005,10 +1137,40 @@
       </div>
     </header>
 
-    <a class="desktop-back" href="index.html">
-      <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
-      Back to Dashboard
-    </a>
+    <header class="topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item" href="index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg>
+            <span>Home</span>
+          </a>
+          <a class="nav-link nav-item" href="myinthealth.html" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
+            <span>Registration</span>
+          </a>
+          <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+            <span>My Documents</span>
+          </a>
+          <a class="nav-link nav-item" href="career.html" data-nav="career">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
+            <span>Career</span>
+          </a>
+          <a class="nav-link nav-item" href="messages.html" data-nav="messages">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span>Messages</span>
+          </a>
+          <a class="account-pill nav-item active" href="account.html" data-nav="account" aria-current="page">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg>
+            <span>Account</span>
+          </a>
+        </nav>
+      </div>
+    </header>
 
     <!-- Hero -->
     <section class="account-hero">
@@ -1344,7 +1506,7 @@
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
       <span class="mobile-tab-label">Career</span>
     </a>
-    <a class="mobile-tab mobile-tab-active" href="account.html">
+    <a class="mobile-tab mobile-tab-active" href="account.html" aria-current="page">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
       <span class="mobile-tab-label">Account</span>
     </a>
@@ -1395,6 +1557,12 @@
     const headerAvatarEl = document.getElementById("headerAvatar");
     const headerNameEl = document.getElementById("headerName");
     const docAvatarImgEl = document.getElementById("docAvatarImg");
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+    let navGlassInitialized = false;
 
     const tabSliderEl = document.getElementById("tabSlider");
     const tabBtns = [...document.querySelectorAll("[data-tab]")];
@@ -1436,6 +1604,69 @@
     let activeTab = "home";
     let tabAnimating = false;
     const tabOrder = ["home", "personal", "security", "documents"];
+
+    function moveNavGlass(target, animate) {
+      if (!target || !navGlassEl) return;
+      var parentRect = target.parentElement.getBoundingClientRect();
+      var rect = target.getBoundingClientRect();
+      if (animate === false || !navGlassInitialized) {
+        var prevTransition = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = (rect.left - parentRect.left) + "px";
+        navGlassEl.style.top = (rect.top - parentRect.top) + "px";
+        navGlassEl.style.width = rect.width + "px";
+        navGlassEl.style.height = rect.height + "px";
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prevTransition;
+        navGlassInitialized = true;
+        return;
+      }
+      navGlassEl.style.left = (rect.left - parentRect.left) + "px";
+      navGlassEl.style.top = (rect.top - parentRect.top) + "px";
+      navGlassEl.style.width = rect.width + "px";
+      navGlassEl.style.height = rect.height + "px";
+    }
+
+    function setActiveNav(target, animate) {
+      navItems.forEach(function(item) { item.classList.remove("active"); });
+      if (target) {
+        target.classList.add("active");
+        activeNavItem = target;
+      }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    navItems.forEach(function(item) {
+      item.addEventListener("mouseenter", function() {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      item.addEventListener("focus", function() {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      item.addEventListener("click", function() {
+        setActiveNav(item, true);
+      });
+    });
+
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", function(event) {
+        var hit = event.target instanceof Element ? event.target.closest(".nav-item") : null;
+        if (hit && hit !== hoveredNavItem) {
+          hoveredNavItem = hit;
+          moveNavGlass(hit, true);
+        }
+      });
+      navMenuEl.addEventListener("mouseleave", function() {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
 
     function positionSlider(animate) {
       const activeBtn = tabBtns.find(b => b.getAttribute("data-tab") === activeTab);
@@ -1508,7 +1739,10 @@
       });
     });
 
-    window.addEventListener("resize", function() { positionSlider(false); });
+    window.addEventListener("resize", function() {
+      positionSlider(false);
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+    });
 
     /* ─── CONFIG ─── */
     const countryConfig = {
@@ -2083,6 +2317,8 @@
       }
       renderSavedJobs();
       positionSlider(false);
+      activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+      if (activeNavItem) setActiveNav(activeNavItem, false);
     })();
 
     window.addEventListener("gp-state-hydrated", renderSavedJobs, { once: true });
