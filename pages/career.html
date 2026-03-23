@@ -2473,6 +2473,48 @@
       gap: 10px;
     }
 
+    .practice-lifestyle-results-heading-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .practice-lifestyle-count-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 22px;
+      padding: 0 7px;
+      margin-left: 8px;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      font-size: 11px;
+      font-weight: 700;
+      vertical-align: middle;
+    }
+
+    .practice-lifestyle-filter-bar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .practice-lifestyle-filter-compact {
+      display: grid;
+      gap: 4px;
+    }
+
+    .practice-lifestyle-filter-compact span {
+      color: #94a3b8;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
     .practice-lifestyle-price-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3023,25 +3065,25 @@
 
     .practice-lifestyle-results-head {
       display: grid;
-      gap: 12px;
-    }
-
-    .practice-lifestyle-results-eyebrow {
-      margin: 0 0 6px;
-      color: #2563eb;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      gap: 8px;
     }
 
     .practice-lifestyle-results-title {
       margin: 0;
       color: #0f172a;
-      font-size: 20px;
+      font-size: 17px;
       line-height: 1.1;
-      letter-spacing: -0.03em;
-      font-weight: 800;
+      letter-spacing: -0.02em;
+      font-weight: 700;
+    }
+
+    .practice-lifestyle-count-badge {
+      background: rgba(37, 99, 235, 0.1);
+      color: #2563eb;
+    }
+
+    .practice-lifestyle-filter-compact span {
+      color: #64748b;
     }
 
     .practice-lifestyle-segmented {
@@ -3063,19 +3105,6 @@
       color: #64748b;
       font-size: 12px;
       line-height: 1.5;
-    }
-
-    .practice-lifestyle-radius-head {
-      color: #64748b;
-    }
-
-    .practice-lifestyle-radius-value {
-      color: #0f172a;
-    }
-
-    .practice-lifestyle-range::-webkit-slider-runnable-track,
-    .practice-lifestyle-range::-moz-range-track {
-      background: #cbd5e1;
     }
 
     .practice-lifestyle-field span {
@@ -7154,80 +7183,67 @@
       const partySummary = String(lifestyle && lifestyle.housing && lifestyle.housing.partySummary || "").trim();
       const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
       const liveEnabled = !!(lifestyle && lifestyle.housing && lifestyle.housing.liveEnabled);
+      const radiusVal = Math.round(practiceLifestyleState.radiusKm);
       return `
         <div class="practice-lifestyle-drawer" data-lifestyle-drawer="housing">
           <div class="practice-lifestyle-results-head">
-            <div>
-              <p class="practice-lifestyle-results-eyebrow">Domain Homes Near The Practice</p>
-              <h4 class="practice-lifestyle-results-title">${escapeHtml(String(visibleListings.length))} results ready to review</h4>
-              ${(partySummary || recommendedBedrooms) ? `
-                <p class="practice-lifestyle-drawer-subtitle">
-                  Curated for ${escapeHtml(partySummary || "your move")}${recommendedBedrooms ? ` · ${escapeHtml(String(recommendedBedrooms))}+ bedroom${recommendedBedrooms === 1 ? "" : "s"}` : ""}
-                </p>
-              ` : ""}
+            <div class="practice-lifestyle-results-heading-row">
+              <h4 class="practice-lifestyle-results-title">Nearby Homes <span class="practice-lifestyle-count-badge">${escapeHtml(String(visibleListings.length))}</span></h4>
+              <div class="practice-lifestyle-segmented" role="tablist" aria-label="Housing type">
+                ${["rent", "buy"].map((item) => `
+                  <button
+                    class="${practiceLifestyleState.housingMode === item ? "is-active" : ""}"
+                    type="button"
+                    role="tab"
+                    aria-selected="${practiceLifestyleState.housingMode === item ? "true" : "false"}"
+                    data-housing-market="${item}">
+                    ${item === "rent" ? "Rent" : "Buy"}
+                  </button>
+                `).join("")}
+              </div>
             </div>
-            <div class="practice-lifestyle-segmented" role="tablist" aria-label="Housing type">
-              ${["rent", "buy"].map((item) => `
-                <button
-                  class="${practiceLifestyleState.housingMode === item ? "is-active" : ""}"
-                  type="button"
-                  role="tab"
-                  aria-selected="${practiceLifestyleState.housingMode === item ? "true" : "false"}"
-                  data-housing-market="${item}">
-                  ${item === "rent" ? "Rent" : "Buy"}
-                </button>
-              `).join("")}
-            </div>
+            ${(partySummary || recommendedBedrooms) ? `
+              <p class="practice-lifestyle-drawer-subtitle">
+                Curated for ${escapeHtml(partySummary || "your move")}${recommendedBedrooms ? ` · ${escapeHtml(String(recommendedBedrooms))}+ bed${recommendedBedrooms === 1 ? "" : "s"}` : ""}
+              </p>
+            ` : ""}
           </div>
-          <div class="practice-lifestyle-housing-tools">
-            <div class="practice-lifestyle-radius-head">
-              <span>Search radius</span>
-              <span class="practice-lifestyle-radius-value">${Math.round(practiceLifestyleState.radiusKm)} km</span>
-            </div>
-            <input
-              class="practice-lifestyle-range"
-              type="range"
-              min="2"
-              max="25"
-              step="1"
-              value="${Math.round(practiceLifestyleState.radiusKm)}"
-              aria-label="Housing search radius in kilometres"
-              data-housing-radius="true">
-            <div class="practice-lifestyle-range-scale">
-              <span>2 km</span>
-              <span>25 km</span>
-            </div>
-            <div class="practice-lifestyle-price-grid">
-              <label class="practice-lifestyle-field">
-                <span>Min price</span>
-                <input
-                  class="practice-lifestyle-input"
-                  type="number"
-                  min="0"
-                  step="${market === "buy" ? "50000" : "50"}"
-                  inputmode="numeric"
-                  placeholder="${escapeHtml(formatPracticeLifestylePriceInput("", market))}"
-                  value="${escapeHtml(practiceLifestyleState.priceMin)}"
-                  data-housing-price-min="true">
-              </label>
-              <label class="practice-lifestyle-field">
-                <span>Max price</span>
-                <input
-                  class="practice-lifestyle-input"
-                  type="number"
-                  min="0"
-                  step="${market === "buy" ? "50000" : "50"}"
-                  inputmode="numeric"
-                  placeholder="${escapeHtml(formatPracticeLifestylePriceInput("", market))}"
-                  value="${escapeHtml(practiceLifestyleState.priceMax)}"
-                  data-housing-price-max="true">
-              </label>
-            </div>
-            <label class="practice-lifestyle-field practice-lifestyle-field-select">
+          <div class="practice-lifestyle-filter-bar">
+            <label class="practice-lifestyle-filter-compact">
+              <span>Radius</span>
+              <select class="practice-lifestyle-select" data-housing-radius="true">
+                ${[2, 5, 10, 15, 20, 25].map((km) => `<option value="${km}"${radiusVal === km ? " selected" : ""}>${km} km</option>`).join("")}
+              </select>
+            </label>
+            <label class="practice-lifestyle-filter-compact">
+              <span>Min price</span>
+              <input
+                class="practice-lifestyle-input"
+                type="number"
+                min="0"
+                step="${market === "buy" ? "50000" : "50"}"
+                inputmode="numeric"
+                placeholder="${escapeHtml(formatPracticeLifestylePriceInput("", market))}"
+                value="${escapeHtml(practiceLifestyleState.priceMin)}"
+                data-housing-price-min="true">
+            </label>
+            <label class="practice-lifestyle-filter-compact">
+              <span>Max price</span>
+              <input
+                class="practice-lifestyle-input"
+                type="number"
+                min="0"
+                step="${market === "buy" ? "50000" : "50"}"
+                inputmode="numeric"
+                placeholder="${escapeHtml(formatPracticeLifestylePriceInput("", market))}"
+                value="${escapeHtml(practiceLifestyleState.priceMax)}"
+                data-housing-price-max="true">
+            </label>
+            <label class="practice-lifestyle-filter-compact">
               <span>Sort</span>
               <select class="practice-lifestyle-select" data-housing-sort="true">
-                <option value="price_asc"${practiceLifestyleState.sortOrder === "price_asc" ? " selected" : ""}>Price: Low to high</option>
-                <option value="price_desc"${practiceLifestyleState.sortOrder === "price_desc" ? " selected" : ""}>Price: High to low</option>
+                <option value="price_asc"${practiceLifestyleState.sortOrder === "price_asc" ? " selected" : ""}>Low to high</option>
+                <option value="price_desc"${practiceLifestyleState.sortOrder === "price_desc" ? " selected" : ""}>High to low</option>
               </select>
             </label>
           </div>
@@ -8397,14 +8413,6 @@
     });
 
     document.addEventListener("input", (event) => {
-      const radiusInput = event.target.closest("[data-housing-radius]");
-      if (radiusInput) {
-        practiceLifestyleState.radiusKm = clampNumber(radiusInput.value, 2, 25);
-        practiceLifestyleState.activeHousingPopupId = "";
-        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
-        return;
-      }
-
       const minPriceInput = event.target.closest("[data-housing-price-min]");
       if (minPriceInput) {
         practiceLifestyleState.priceMin = sanitizePracticeLifestylePriceInput(minPriceInput.value);
@@ -8430,11 +8438,20 @@
     });
 
     document.addEventListener("change", (event) => {
+      const radiusSelect = event.target.closest("[data-housing-radius]");
+      if (radiusSelect) {
+        practiceLifestyleState.radiusKm = clampNumber(radiusSelect.value, 2, 25);
+        practiceLifestyleState.activeHousingPopupId = "";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
       const sortInput = event.target.closest("[data-housing-sort]");
-      if (!sortInput) return;
-      practiceLifestyleState.sortOrder = sortInput.value === "price_desc" ? "price_desc" : "price_asc";
-      practiceLifestyleState.activeHousingPopupId = "";
-      renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+      if (sortInput) {
+        practiceLifestyleState.sortOrder = sortInput.value === "price_desc" ? "price_desc" : "price_asc";
+        practiceLifestyleState.activeHousingPopupId = "";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+      }
     });
 
     roleModalCloseBtnEl.addEventListener("click", closeRoleModal);
