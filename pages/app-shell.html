@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>GP Link</title>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260322a" defer></script>
+  <script src="../js/account-dropdown.js?v=20260323a" defer></script>
+  <script src="../js/app-shell.js?v=20260323a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f0f4fa;
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --shadow-soft: 0 18px 40px -28px rgba(15, 23, 42, 0.5);
+      --glass-bg: rgba(255, 255, 255, 0.58);
+      --glass-border: rgba(191, 220, 255, 0.95);
+      --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      --radius-lg: 20px;
+      --app-shell-top-offset: 0px;
+      --app-shell-bottom-offset: 0px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+    }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(880px 520px at 10% -10%, rgba(10, 132, 255, 0.12), transparent 56%),
+        radial-gradient(760px 460px at 100% 0%, rgba(29, 78, 216, 0.12), transparent 58%),
+        var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .app-shell-desktop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1200;
+      padding: 0 16px;
+      pointer-events: none;
+    }
+
+    .app-shell-desktop-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      pointer-events: auto;
+    }
+
+    .topbar {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 14px;
+      min-height: 56px;
+    }
+
+    .brand-logo {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+
+    .brand-logo img {
+      display: block;
+      width: 178px;
+      height: auto;
+    }
+
+    .nav-menu {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 4px;
+      border-radius: 14px;
+    }
+
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
+
+    .nav-link,
+    .account-pill {
+      min-width: 92px;
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      color: #111827;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.15;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .nav-link.active,
+    .account-pill.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #334155;
+    }
+
+    .nav-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-alert,
+    .mobile-tab-alert {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 96px;
+      height: 44px;
+      border-radius: 12px;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
+      z-index: 1;
+    }
+
+    .app-shell-frame {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: var(--app-shell-top-offset);
+      bottom: var(--app-shell-bottom-offset);
+      width: 100%;
+      height: calc(100dvh - var(--app-shell-top-offset) - var(--app-shell-bottom-offset));
+      border: 0;
+      background: #f0f4fa;
+      z-index: 1;
+    }
+
+    .app-shell-loader {
+      position: fixed;
+      inset: var(--app-shell-top-offset) 0 var(--app-shell-bottom-offset);
+      display: grid;
+      place-items: center;
+      background: linear-gradient(180deg, rgba(240, 244, 250, 0.82), rgba(240, 244, 250, 0.94));
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .01em;
+      z-index: 2;
+    }
+
+    .app-shell-loading .app-shell-loader {
+      display: grid;
+    }
+
+    .app-shell-loader[hidden] {
+      display: none;
+    }
+
+    .mobile-nav {
+      position: fixed;
+      left: 50%;
+      bottom: 12px;
+      transform: translateX(-50%);
+      width: min(520px, calc(100vw - 24px));
+      display: none;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      padding: 10px;
+      border-radius: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(18px) saturate(1.25);
+      -webkit-backdrop-filter: blur(18px) saturate(1.25);
+      box-shadow: 0 24px 38px -24px rgba(15, 23, 42, 0.55);
+      z-index: 1200;
+    }
+
+    .mobile-tab {
+      border: 0;
+      background: transparent;
+      color: #475569;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 62px;
+      border-radius: 16px;
+      text-decoration: none;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 6px 4px;
+      line-height: 1.1;
+      cursor: pointer;
+    }
+
+    .mobile-tab-icon {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 12px;
+      color: currentColor;
+    }
+
+    .mobile-tab-icon svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mobile-tab-active {
+      color: #0f172a;
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: inset 0 0 0 1px rgba(191, 220, 255, 0.95), 0 12px 18px -16px rgba(37, 99, 235, 0.58);
+    }
+
+    .mobile-tab-scan {
+      color: #ffffff;
+      background: linear-gradient(135deg, var(--blue), var(--blue2));
+      box-shadow: 0 16px 26px -18px rgba(37, 99, 235, 0.88);
+    }
+
+    @media (max-width: 859px) {
+      .app-shell-desktop {
+        display: none;
+      }
+
+      .mobile-nav {
+        display: grid;
+      }
+    }
+
+    @media (min-width: 860px) {
+      .mobile-nav {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body class="app-shell-loading">
+  <div class="app-shell-desktop" id="appShellDesktop">
+    <div class="app-shell-desktop-inner">
+      <header class="topbar">
+        <div class="topbar-row">
+          <a class="brand-logo" href="index.html" aria-label="GP Link Home">
+            <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+          </a>
+          <nav class="nav-menu" aria-label="Main navigation">
+            <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+            <a class="nav-link nav-item" href="index.html" data-nav="home">
+              <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg>
+              <span>Home</span>
+            </a>
+            <a class="nav-link nav-item" href="myinthealth.html" data-nav="registration">
+              <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
+              <span>Registration</span>
+            </a>
+            <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
+              <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+              <span>My Documents</span>
+            </a>
+            <a class="nav-link nav-item" href="career.html" data-nav="career">
+              <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
+              <span>Career</span>
+            </a>
+            <a class="nav-link nav-item" href="messages.html" data-nav="messages">
+              <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+              <span>Messages</span>
+            </a>
+            <a class="account-pill nav-item" href="account.html" data-nav="account">
+              <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg>
+              <span>Account</span>
+            </a>
+          </nav>
+        </div>
+      </header>
+    </div>
+  </div>
+
+  <div class="app-shell-loader" id="appShellLoader">Loading page…</div>
+  <iframe id="appShellFrame" class="app-shell-frame" title="GP Link content" allow="camera; microphone"></iframe>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
+      <span class="mobile-tab-label">Home</span>
+    </a>
+    <a class="mobile-tab" href="myinthealth.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
+      <span class="mobile-tab-label">Registration</span>
+    </a>
+    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="mobile-tab-label">Scan</span>
+    </button>
+    <a class="mobile-tab" href="career.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
+      <span class="mobile-tab-label">Career</span>
+    </a>
+    <a class="mobile-tab" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
+      <span class="mobile-tab-label">Account</span>
+    </a>
+  </nav>
+</body>
+</html>

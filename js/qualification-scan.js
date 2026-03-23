@@ -627,7 +627,12 @@
       if (name === "remove") { clearFile(); return; }
       if (name === "submit") { submitScan(); return; }
       if (name === "certdone") { closeModal(); certContext = null; return; }
-      if (name === "viewdocs") { closeModal(); window.location.href = "/pages/my-documents.html"; return; }
+      if (name === "viewdocs") {
+        closeModal();
+        if (window.gpShellNavigate) window.gpShellNavigate("/pages/my-documents.html");
+        else window.location.href = "/pages/my-documents.html";
+        return;
+      }
       if (name === "another") { resetModal(); return; }
       return;
     }
