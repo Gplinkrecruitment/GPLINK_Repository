@@ -85,6 +85,11 @@
     return Array.prototype.slice.call(document.querySelectorAll(".mobile-nav a.mobile-tab[href]"));
   }
 
+  function getLinkRouteTarget(link) {
+    if (!link) return "";
+    return link.getAttribute("data-route") || link.getAttribute("href") || "";
+  }
+
   function isVisible(el) {
     if (!el) return false;
     var style = window.getComputedStyle(el);
@@ -154,7 +159,7 @@
   function setMobileActive(pathname) {
     var tabs = getMobileTabs();
     tabs.forEach(function (tab) {
-      var resolved = toRouteUrl(tab.getAttribute("href"));
+      var resolved = toRouteUrl(getLinkRouteTarget(tab));
       var isActive = !!pathname && !!resolved && normalizePath(resolved.pathname) === pathname;
       tab.classList.toggle("mobile-tab-active", isActive);
       if (isActive) {
@@ -188,7 +193,6 @@
     var style = childDoc.createElement("style");
     style.id = EMBED_STYLE_ID;
     style.textContent = [
-      "html.gp-shell-embedded .app-header,",
       "html.gp-shell-embedded .desktop-topbar,",
       "html.gp-shell-embedded .topbar,",
       "html.gp-shell-embedded .mobile-nav{display:none!important;}",
@@ -258,7 +262,7 @@
     if (link.target && link.target !== "_self") return;
     if (link.hasAttribute("download")) return;
 
-    var routeUrl = toRouteUrl(link.getAttribute("href"));
+    var routeUrl = toRouteUrl(getLinkRouteTarget(link));
     if (!routeUrl) return;
 
     event.preventDefault();
