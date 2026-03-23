@@ -885,47 +885,6 @@
       </div>
     </header>
 
-    <!-- DESKTOP TOPBAR -->
-    <header class="desktop-topbar">
-      <div class="topbar-row">
-        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
-          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
-        </a>
-        <nav class="nav-menu" aria-label="Main navigation">
-          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
-          <a class="nav-link nav-item active" href="index.html" data-nav="home" aria-current="page">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
-            <span>Home</span>
-          </a>
-          <a class="nav-link nav-item" href="myinthealth.html" data-nav="registration">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
-            <span>Registration</span>
-          </a>
-          <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-            <span>My Documents</span>
-          </a>
-          <a class="nav-link nav-item" href="career.html" data-nav="career">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
-            <span>Career</span>
-          </a>
-          <a class="nav-link nav-item" href="messages.html" data-nav="messages">
-            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
-            <span>Messages</span>
-          </a>
-          <a class="account-pill nav-item" href="account.html" data-nav="account">
-            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-            <span>Account</span>
-          </a>
-
-          <div class="reg-dropdown" id="registrationDropdown">
-            <p class="reg-head">Registration Process</p>
-            <div class="reg-table" id="regTable"></div>
-          </div>
-        </nav>
-      </div>
-    </header>
-
     <!-- PROGRESS CARDS -->
     <div class="progress-carousel" id="progressCarousel">
       <a class="progress-card progress-card-1" id="mainProgressCard" href="myinthealth.html">
@@ -1063,29 +1022,6 @@
       <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
     </div>
   </div>
-
-  <nav class="mobile-nav" aria-label="Mobile navigation">
-    <a class="mobile-tab mobile-tab-active" href="index.html" aria-current="page">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
-      <span class="mobile-tab-label">Home</span>
-    </a>
-    <a class="mobile-tab" href="myinthealth.html">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
-      <span class="mobile-tab-label">Registration</span>
-    </a>
-    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
-      <span class="mobile-tab-label">Scan</span>
-    </button>
-    <a class="mobile-tab" href="career.html">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
-      <span class="mobile-tab-label">Career</span>
-    </a>
-    <a class="mobile-tab" href="account.html">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
-      <span class="mobile-tab-label">Account</span>
-    </a>
-  </nav>
 
   <!-- MOBILE REGISTRATION SHEET -->
   <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
@@ -1668,8 +1604,8 @@
 
     function renderRegistrationRows() {
       const rows = getRegistrationRows();
-      regTableEl.innerHTML = "";
-      mobileRegTable.innerHTML = "";
+      if (regTableEl) regTableEl.innerHTML = "";
+      if (mobileRegTable) mobileRegTable.innerHTML = "";
       rows.forEach((row) => {
         const statusClass = row.done ? "done" : row.locked ? "locked" : "";
         const actionDisabled = row.locked || (row.done && !row.returnable);
@@ -1692,14 +1628,14 @@
           actionEl.href = row.href;
         }
         rowEl.appendChild(actionEl);
-        regTableEl.appendChild(rowEl);
+        if (regTableEl) regTableEl.appendChild(rowEl);
       });
 
       if (!rows.length) {
         const doneEl = document.createElement("div");
         doneEl.className = "mobile-step-card";
         doneEl.innerHTML = `<div class="mobile-step-head"><span class="mobile-step-title">All visible steps are complete.</span></div>`;
-        mobileRegTable.appendChild(doneEl);
+        if (mobileRegTable) mobileRegTable.appendChild(doneEl);
         return;
       }
 
@@ -1757,7 +1693,7 @@
             }
           });
         }
-        mobileRegTable.appendChild(cardEl);
+        if (mobileRegTable) mobileRegTable.appendChild(cardEl);
       });
     }
 
@@ -1881,8 +1817,8 @@
       window.saveGpLinkUpdates(window.gpLinkUpdates);
     }
     renderRegistrationRows();
-    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
-    setActiveNav(activeNavItem, false);
+    activeNavItem = navMenuEl ? (document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null) : null;
+    if (activeNavItem) setActiveNav(activeNavItem, false);
     function getClosestNavItemByX(clientX) {
       let closest = null;
       let minDistance = Number.POSITIVE_INFINITY;

@@ -710,46 +710,6 @@
       </div>
     </header>
 
-    <!-- DESKTOP TOPBAR -->
-    <header class="desktop-topbar">
-      <div class="topbar-row">
-        <a class="brand-logo" href="/pages/index.html" aria-label="GP Link Home">
-          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
-        </a>
-        <nav class="nav-menu" aria-label="Main navigation">
-          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
-          <a class="nav-link nav-item" href="/pages/index.html" data-nav="home">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
-            <span>Home</span>
-          </a>
-          <a class="nav-link nav-item active" href="/pages/myinthealth.html" data-nav="registration" aria-current="page">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
-            <span>Registration</span>
-          </a>
-          <a class="nav-link nav-item" href="/pages/my-documents.html" data-nav="documents">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-            <span>My Documents</span>
-          </a>
-          <a class="nav-link nav-item" href="/pages/career.html" data-nav="career">
-            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"/><path d="M6 8h12v11H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>
-            <span>Career</span>
-          </a>
-          <a class="nav-link nav-item" href="/pages/messages.html" data-nav="messages">
-            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
-            <span>Messages</span>
-          </a>
-          <a class="account-pill nav-item" href="/pages/account.html" data-nav="account">
-            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-            <span>Account</span>
-          </a>
-          <div class="reg-dropdown" id="registrationDropdown">
-            <p class="reg-head">Registration Process</p>
-            <div class="reg-table" id="regTable"></div>
-          </div>
-        </nav>
-      </div>
-    </header>
-
     <!-- HORIZONTAL STEP TABS -->
     <nav class="step-tabs" id="stepTabs" aria-label="Step navigation">
       <div class="step-tab-glass" id="stepTabGlass"></div>
@@ -833,29 +793,6 @@
       <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
     </div>
   </div>
-
-  <nav class="mobile-nav" aria-label="Mobile navigation">
-    <a class="mobile-tab" href="/pages/index.html">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
-      <span class="mobile-tab-label">Home</span>
-    </a>
-    <a class="mobile-tab mobile-tab-active" href="/pages/myinthealth.html" aria-current="page">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
-      <span class="mobile-tab-label">Registration</span>
-    </a>
-    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
-      <span class="mobile-tab-label">Scan</span>
-    </button>
-    <a class="mobile-tab" href="/pages/career.html">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
-      <span class="mobile-tab-label">Career</span>
-    </a>
-    <a class="mobile-tab" href="/pages/account.html">
-      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
-      <span class="mobile-tab-label">Account</span>
-    </a>
-  </nav>
 
   <!-- MOBILE REGISTRATION SHEET -->
   <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
@@ -1629,8 +1566,8 @@
     }
 
     function renderRegistrationRows() {
-      regTableEl.innerHTML = "";
-      mobileRegTable.innerHTML = "";
+      if (regTableEl) regTableEl.innerHTML = "";
+      if (mobileRegTable) mobileRegTable.innerHTML = "";
       getRegistrationRows().forEach(row => {
         const sc = row.done ? "done" : row.locked ? "locked" : "";
         const actionDisabled = row.locked || (row.done && !row.returnable);
@@ -1653,8 +1590,8 @@
         el.appendChild(textWrap);
         el.appendChild(pill);
         el.appendChild(ctaEl);
-        regTableEl.appendChild(el);
-        mobileRegTable.appendChild(el.cloneNode(true));
+        if (regTableEl) regTableEl.appendChild(el);
+        if (mobileRegTable) mobileRegTable.appendChild(el.cloneNode(true));
       });
     }
 
@@ -1842,8 +1779,8 @@
     });
 
     // ─── INIT ───────────────────────────────────────────────────
-    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
-    setActiveNav(activeNavItem, false);
+    activeNavItem = navMenuEl ? (document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null) : null;
+    if (activeNavItem) setActiveNav(activeNavItem, false);
     function getClosestNavItemByX(clientX) {
       let closest = null;
       let minDistance = Number.POSITIVE_INFINITY;
