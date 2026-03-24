@@ -10,29 +10,52 @@
   <script>
     (function () {
       var initialView = "";
+      var initialPlacementState = "";
       try {
         var owner = String(localStorage.getItem("gp_state_owner") || "").trim().toLowerCase();
         var rawCareerState = localStorage.getItem("gp_career_state");
         var careerState = rawCareerState ? JSON.parse(rawCareerState) : null;
         var applications = careerState && Array.isArray(careerState.applications) ? careerState.applications : [];
-        var hasSecuredPlacement = applications.some(function (application) {
+        var hasSecuredPlacement = false;
+        var hasConcretePlacement = false;
+        applications.forEach(function (application) {
           if (!application || typeof application !== "object") return false;
-          if (application.isPlacementSecured === true) return true;
+          if (application.isPlacementSecured === true) {
+            hasSecuredPlacement = true;
+          }
           var status = String(application.rawStatus || application.status || "")
             .trim()
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "_")
             .replace(/^_+|_+$/g, "");
-          return status === "secured" || status === "placement_secured" || status === "practice_secured";
+          if (status === "secured" || status === "placement_secured" || status === "practice_secured") {
+            hasSecuredPlacement = true;
+          }
+          var placement = application.placement && typeof application.placement === "object" ? application.placement : null;
+          if (placement && Object.keys(placement).length) {
+            hasConcretePlacement = true;
+            return;
+          }
+          var practiceName = String(application.practiceName || "").trim();
+          if (practiceName && !/confidential/i.test(practiceName)) {
+            hasConcretePlacement = true;
+          }
         });
         if (owner === "hello@mygplink.com.au" || hasSecuredPlacement) {
           initialView = "secured";
         }
+        if (initialView === "secured" && !hasConcretePlacement) {
+          initialPlacementState = "loading";
+        }
       } catch (err) {
         initialView = "";
+        initialPlacementState = "";
       }
       if (initialView === "secured") {
         document.documentElement.setAttribute("data-career-initial-view", "secured");
+      }
+      if (initialPlacementState) {
+        document.documentElement.setAttribute("data-career-placement-state", initialPlacementState);
       }
     })();
   </script>
@@ -566,6 +589,68 @@
     }
 
     html[data-career-initial-view="secured"] [data-view-panel="secured"] {
+      display: grid !important;
+    }
+
+    .secured-loading-state {
+      display: none;
+      gap: 14px;
+      padding: 22px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, #131c2c 0%, #162238 100%);
+      color: #fff;
+      box-shadow: 0 28px 44px -30px rgba(15, 23, 42, 0.6);
+    }
+
+    .secured-loading-state.is-visible {
+      display: grid;
+    }
+
+    .secured-loading-title {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+    }
+
+    .secured-loading-copy {
+      margin: 0;
+      color: rgba(226, 232, 240, 0.82);
+      font-size: 14px;
+      line-height: 1.5;
+      font-weight: 600;
+    }
+
+    .secured-loading-bars {
+      display: grid;
+      gap: 10px;
+    }
+
+    .secured-loading-bar {
+      height: 14px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(148, 163, 184, 0.16), rgba(96, 165, 250, 0.34), rgba(148, 163, 184, 0.16));
+      background-size: 220% 100%;
+      animation: securedPlacementPulse 1.2s ease-in-out infinite;
+    }
+
+    .secured-loading-bar:nth-child(1) { width: 72%; }
+    .secured-loading-bar:nth-child(2) { width: 58%; }
+    .secured-loading-bar:nth-child(3) { width: 86%; }
+
+    @keyframes securedPlacementPulse {
+      0% { background-position: 0% 50%; opacity: 0.7; }
+      50% { background-position: 100% 50%; opacity: 1; }
+      100% { background-position: 0% 50%; opacity: 0.7; }
+    }
+
+    html[data-career-placement-state="loading"] .secured-grid,
+    html[data-career-placement-state="empty"] .secured-grid {
+      display: none !important;
+    }
+
+    html[data-career-placement-state="loading"] .secured-loading-state,
+    html[data-career-placement-state="empty"] .secured-loading-state {
       display: grid !important;
     }
 
@@ -5080,6 +5165,15 @@
       </section>
 
       <section class="view-panel" data-view-panel="secured">
+        <div class="secured-loading-state" id="securedLoadingState" hidden>
+          <p class="secured-loading-title" id="securedLoadingTitle">Loading your placement details</p>
+          <p class="secured-loading-copy" id="securedLoadingCopy">Fetching the latest placement information now so only the confirmed clinic details appear here.</p>
+          <div class="secured-loading-bars" aria-hidden="true">
+            <span class="secured-loading-bar"></span>
+            <span class="secured-loading-bar"></span>
+            <span class="secured-loading-bar"></span>
+          </div>
+        </div>
         <div class="secured-grid">
           <article class="placement-hero-card">
             <div class="placement-hero-top">
@@ -6133,6 +6227,9 @@
     const securedNextStepTextEl = document.getElementById("securedNextStepText");
     const securedContinueBtnEl = document.getElementById("securedContinueBtn");
     const securedApplicationsBtnEl = document.getElementById("securedApplicationsBtn");
+    const securedLoadingStateEl = document.getElementById("securedLoadingState");
+    const securedLoadingTitleEl = document.getElementById("securedLoadingTitle");
+    const securedLoadingCopyEl = document.getElementById("securedLoadingCopy");
     const placementDockInitialsEl = document.getElementById("placementDockInitials");
     const placementDockTitleEl = document.getElementById("placementDockTitle");
     const placementDockStatusEl = document.getElementById("placementDockStatus");
@@ -6172,6 +6269,53 @@
       activeMarkers: [],
       activeOverlays: []
     };
+    let remoteApplicationsSettled = false;
+
+    function getSecuredPlacementApp() {
+      return careerState.applications.find((application) => application && application.isPlacementSecured) || null;
+    }
+
+    function hasConcreteSecuredPlacementData() {
+      const placementApp = getSecuredPlacementApp();
+      if (!placementApp) return false;
+      if (placementApp.placement && typeof placementApp.placement === "object" && Object.keys(placementApp.placement).length) {
+        return true;
+      }
+      const practiceName = String(placementApp.practiceName || "").trim();
+      if (practiceName && !isConfidentialText(practiceName)) return true;
+      const placementRole = findRole(placementApp.roleId);
+      const rolePracticeName = String(placementRole && placementRole.practiceName || "").trim();
+      return !!(rolePracticeName && !isConfidentialText(rolePracticeName));
+    }
+
+    function getSecuredPlacementUiState() {
+      if (careerState.activeView !== "secured" || !shouldLockCareerToSecuredView()) return "ready";
+      if (hasConcreteSecuredPlacementData()) return "ready";
+      return remoteApplicationsSettled ? "empty" : "loading";
+    }
+
+    function syncSecuredPlacementUiState() {
+      const uiState = getSecuredPlacementUiState();
+      if (uiState === "ready") {
+        document.documentElement.removeAttribute("data-career-placement-state");
+      } else {
+        document.documentElement.setAttribute("data-career-placement-state", uiState);
+      }
+      if (!securedLoadingStateEl) return uiState;
+      securedLoadingStateEl.hidden = uiState === "ready";
+      securedLoadingStateEl.classList.toggle("is-visible", uiState !== "ready");
+      if (securedLoadingTitleEl) {
+        securedLoadingTitleEl.textContent = uiState === "empty"
+          ? "Placement details are temporarily unavailable"
+          : "Loading your placement details";
+      }
+      if (securedLoadingCopyEl) {
+        securedLoadingCopyEl.textContent = uiState === "empty"
+          ? "We could not confirm the latest placement information just now. Refresh the page and we will try again without showing placeholder data."
+          : "Fetching the latest placement information now so only the confirmed clinic details appear here.";
+      }
+      return uiState;
+    }
 
     function persistCareerState() {
       enforceLockedCareerView();
@@ -7501,7 +7645,7 @@
     }
 
     function resolveSecuredPlacement() {
-      const placementApp = careerState.applications.find((application) => application && application.isPlacementSecured) || null;
+      const placementApp = getSecuredPlacementApp();
       const placementRole = placementApp ? findRole(placementApp.roleId) : null;
       const placementPayload = placementApp && placementApp.placement && typeof placementApp.placement === "object"
         ? placementApp.placement
@@ -8111,6 +8255,8 @@
         }
       } catch (err) {
         // Fallback to localStorage applications
+      } finally {
+        remoteApplicationsSettled = true;
       }
     }
 
@@ -8161,6 +8307,8 @@
     }
 
     function renderSecuredPlacement() {
+      const securedUiState = syncSecuredPlacementUiState();
+      if (securedUiState !== "ready") return;
       const placement = resolveSecuredPlacement();
       const startDateLabel = formatMonthYearLabel(placement.startDateIso);
       const daysUntilStart = getDaysUntil(placement.startDateIso);
@@ -8322,6 +8470,7 @@
       renderRoles();
       renderApplications();
       renderSecuredPlacement();
+      syncSecuredPlacementUiState();
       syncActiveViewUi();
     }
 
@@ -8588,6 +8737,7 @@
 
     (async function init() {
       const hadStoredCareerState = !!localStorage.getItem(CAREER_STATE_KEY);
+      remoteApplicationsSettled = hasConcreteSecuredPlacementData();
       await hydrateCareerSessionEmail();
       syncCareerViewFromLocation();
       renderPage();
