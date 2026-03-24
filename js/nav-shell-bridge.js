@@ -51,19 +51,34 @@
     return url.pathname + url.search + url.hash;
   }
 
+  function getParentMobileNavClearance() {
+    try {
+      if (window.parent === window || !window.parent || !window.parent.document) return 0;
+      var parentNav = window.parent.document.querySelector(".mobile-nav");
+      if (!parentNav) return 0;
+      var style = window.parent.getComputedStyle(parentNav);
+      if (style.display === "none" || style.visibility === "hidden" || parentNav.getClientRects().length === 0) {
+        return 0;
+      }
+      return Math.max(0, Math.ceil(window.parent.innerHeight - parentNav.getBoundingClientRect().top));
+    } catch (err) {
+      return 0;
+    }
+  }
+
   function injectEmbeddedStyles() {
-    if (document.getElementById(EMBED_STYLE_ID)) return;
-    var style = document.createElement("style");
-    style.id = EMBED_STYLE_ID;
+    var style = document.getElementById(EMBED_STYLE_ID);
+    if (!style) {
+      style = document.createElement("style");
+      style.id = EMBED_STYLE_ID;
+      (document.head || document.documentElement).appendChild(style);
+    }
+    var bottomClearance = getParentMobileNavClearance();
     style.textContent = [
-      "html.gp-shell-embedded .desktop-topbar,",
-      "html.gp-shell-embedded .topbar,",
-      "html.gp-shell-embedded .mobile-nav{display:none!important;}",
-      "html.gp-shell-embedded .shell,",
+      "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav{display:none!important;}",
       "html.gp-shell-embedded .dash-wrap{padding-bottom:32px!important;}",
-      "html.gp-shell-embedded body{overflow-x:hidden;}"
+      "html.gp-shell-embedded body{overflow-x:hidden;padding-bottom:" + bottomClearance + "px!important;}"
     ].join("");
-    document.head.appendChild(style);
   }
 
   function setEmbeddedClass() {
@@ -90,6 +105,7 @@
 
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", setEmbeddedClass, { once: true });
+      document.addEventListener("DOMContentLoaded", injectEmbeddedStyles, { once: true });
       document.addEventListener("DOMContentLoaded", notifyParent, { once: true });
     } else {
       notifyParent();
@@ -113,6 +129,8 @@
     window.addEventListener("hashchange", notifyParent);
     window.addEventListener("popstate", notifyParent);
     window.addEventListener("pageshow", notifyParent);
+    window.addEventListener("resize", injectEmbeddedStyles);
+    window.addEventListener("pageshow", injectEmbeddedStyles);
   }
 
   var currentUrl = new URL(window.location.href);

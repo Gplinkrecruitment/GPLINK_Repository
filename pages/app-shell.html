@@ -9,7 +9,7 @@
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260322a" defer></script>
   <script src="../js/account-dropdown.js?v=20260323a" defer></script>
-  <script src="../js/app-shell.js?v=20260323e" defer></script>
+  <script src="../js/app-shell.js?v=20260324a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -196,9 +196,9 @@
       left: 0;
       right: 0;
       top: var(--app-shell-top-offset);
-      bottom: var(--app-shell-bottom-offset);
+      bottom: 0;
       width: 100%;
-      height: calc(100dvh - var(--app-shell-top-offset) - var(--app-shell-bottom-offset));
+      height: calc(100dvh - var(--app-shell-top-offset));
       border: 0;
       background: #f0f4fa;
       z-index: 1;
@@ -206,7 +206,7 @@
 
     .app-shell-loader {
       position: fixed;
-      inset: var(--app-shell-top-offset) 0 var(--app-shell-bottom-offset);
+      inset: var(--app-shell-top-offset) 0 0;
       display: grid;
       place-items: center;
       background: linear-gradient(180deg, rgba(240, 244, 250, 0.82), rgba(240, 244, 250, 0.94));

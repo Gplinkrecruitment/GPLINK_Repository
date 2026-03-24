@@ -7,7 +7,36 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Career - GP Link</title>
-  <script src="../js/nav-shell-bridge.js?v=20260323e"></script>
+  <script>
+    (function () {
+      var initialView = "";
+      try {
+        var owner = String(localStorage.getItem("gp_state_owner") || "").trim().toLowerCase();
+        var rawCareerState = localStorage.getItem("gp_career_state");
+        var careerState = rawCareerState ? JSON.parse(rawCareerState) : null;
+        var applications = careerState && Array.isArray(careerState.applications) ? careerState.applications : [];
+        var hasSecuredPlacement = applications.some(function (application) {
+          if (!application || typeof application !== "object") return false;
+          if (application.isPlacementSecured === true) return true;
+          var status = String(application.rawStatus || application.status || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "");
+          return status === "secured" || status === "placement_secured" || status === "practice_secured";
+        });
+        if (owner === "hello@mygplink.com.au" || hasSecuredPlacement) {
+          initialView = "secured";
+        }
+      } catch (err) {
+        initialView = "";
+      }
+      if (initialView === "secured") {
+        document.documentElement.setAttribute("data-career-initial-view", "secured");
+      }
+    })();
+  </script>
+  <script src="../js/nav-shell-bridge.js?v=20260324a"></script>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
   <script src="../js/state-sync.js?v=20260315a" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
@@ -529,6 +558,15 @@
 
     .view-panel.is-active {
       display: grid;
+    }
+
+    html[data-career-initial-view="secured"] [data-view-panel="browse"],
+    html[data-career-initial-view="secured"] [data-view-panel="applications"] {
+      display: none !important;
+    }
+
+    html[data-career-initial-view="secured"] [data-view-panel="secured"] {
+      display: grid !important;
     }
 
     .search-launch-btn {
@@ -4943,6 +4981,11 @@
   </style>
 </head>
 <body>
+  <script>
+    if (document.documentElement.getAttribute("data-career-initial-view") === "secured") {
+      document.body.classList.add("career-mode-secured");
+    }
+  </script>
 <div id="career-live-region" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;"></div>
   <div class="shell">
     <header class="app-header">
@@ -8547,10 +8590,12 @@
       const hadStoredCareerState = !!localStorage.getItem(CAREER_STATE_KEY);
       await hydrateCareerSessionEmail();
       syncCareerViewFromLocation();
+      renderPage();
       moveNavGlass(activeNavItem);
       if (!hadStoredCareerState) {
         persistCareerState();
       }
+      if (handleRequestedRoleRedirect()) return;
       await loadRemoteRoles({ render: false });
       await loadRemoteApplications({ render: false });
       syncCareerViewFromLocation();

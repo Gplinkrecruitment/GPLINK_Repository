@@ -113,6 +113,11 @@
     return style.display !== "none" && style.visibility !== "hidden" && el.getClientRects().length > 0;
   }
 
+  function getMobileNavClearance() {
+    if (!mobileNavEl || !isVisible(mobileNavEl)) return 0;
+    return Math.max(0, Math.ceil(window.innerHeight - mobileNavEl.getBoundingClientRect().top));
+  }
+
   function setLoading(loading) {
     document.body.classList.toggle("app-shell-loading", !!loading);
     if (loaderEl) loaderEl.hidden = !loading;
@@ -120,18 +125,17 @@
 
   function updateFrameOffsets() {
     var topOffset = 0;
-    var bottomOffset = 0;
+    var navClearance = 0;
 
     if (desktopHostEl && isVisible(desktopHostEl)) {
       topOffset = Math.ceil(desktopHostEl.getBoundingClientRect().bottom + 8);
     }
 
-    if (mobileNavEl && isVisible(mobileNavEl)) {
-      bottomOffset = Math.ceil(window.innerHeight - mobileNavEl.getBoundingClientRect().top);
-    }
+    navClearance = getMobileNavClearance();
 
     document.documentElement.style.setProperty("--app-shell-top-offset", Math.max(topOffset, 0) + "px");
-    document.documentElement.style.setProperty("--app-shell-bottom-offset", Math.max(bottomOffset, 0) + "px");
+    document.documentElement.style.setProperty("--app-shell-bottom-offset", "0px");
+    document.documentElement.style.setProperty("--app-shell-nav-clearance", navClearance + "px");
   }
 
   function moveNavGlass(target, animate) {
@@ -237,19 +241,19 @@
     childDoc.documentElement.classList.add("gp-shell-embedded");
     if (childDoc.body) childDoc.body.classList.add("gp-shell-embedded");
 
-    if (childDoc.getElementById(EMBED_STYLE_ID)) return;
+    var style = childDoc.getElementById(EMBED_STYLE_ID);
+    if (!style) {
+      style = childDoc.createElement("style");
+      style.id = EMBED_STYLE_ID;
+      (childDoc.head || childDoc.documentElement).appendChild(style);
+    }
 
-    var style = childDoc.createElement("style");
-    style.id = EMBED_STYLE_ID;
+    var bottomClearance = getMobileNavClearance();
     style.textContent = [
-      "html.gp-shell-embedded .desktop-topbar,",
-      "html.gp-shell-embedded .topbar,",
-      "html.gp-shell-embedded .mobile-nav{display:none!important;}",
-      "html.gp-shell-embedded .shell,",
+      "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav{display:none!important;}",
       "html.gp-shell-embedded .dash-wrap{padding-bottom:32px!important;}",
-      "html.gp-shell-embedded body{overflow-x:hidden;}"
+      "html.gp-shell-embedded body{overflow-x:hidden;padding-bottom:" + bottomClearance + "px!important;}"
     ].join("");
-    childDoc.head.appendChild(style);
   }
 
   function navigateTo(input, options) {
@@ -358,6 +362,11 @@
 
   function handleResize() {
     updateFrameOffsets();
+    try {
+      if (frameEl && frameEl.contentDocument) enforceEmbeddedChrome(frameEl.contentDocument);
+    } catch (err) {
+      // Ignore same-origin race conditions during frame resize.
+    }
     if (activeDesktopItem) moveNavGlass(activeDesktopItem, false);
     if (activeMobileTab) moveMobileGlass(activeMobileTab, false);
   }
