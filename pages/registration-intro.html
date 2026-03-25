@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#ffffff" />
   <title>Registration Pathway - GP Link</title>
-  <script src="/js/nav-shell-bridge.js?v=20260326a"></script>
+  <script src="/js/nav-shell-bridge.js?v=20260326b"></script>
   <script src="/js/auth-guard.js?v=20260311f" defer></script>
   <script src="/js/state-sync.js?v=20260314b" defer></script>
   <script src="/js/updates-sync.js?v=20260309c" defer></script>
@@ -19,80 +19,87 @@
       padding: 0;
     }
 
-    html, body {
+    html {
       min-height: 100%;
-      font-family: "Manrope", "Segoe UI", sans-serif;
-      color: #111111;
       background: #ffffff;
     }
 
     body {
       min-height: 100dvh;
-      display: grid;
-      place-items: center;
-      padding: 28px 18px 40px;
+      font-family: "Manrope", "Segoe UI", sans-serif;
+      color: #111111;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px 48px;
     }
 
     .intro-page {
-      width: min(100%, 440px);
-      display: grid;
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       gap: 0;
-      justify-items: center;
+      background: #ffffff;
     }
 
+    /* ── Title ── */
     .intro-copy {
       text-align: center;
-      padding: 0 12px;
     }
 
     .intro-copy h1 {
       font-family: "Baloo 2", "Manrope", sans-serif;
-      font-size: clamp(2.4rem, 10vw, 3.2rem);
-      line-height: 0.92;
+      font-size: 2.6rem;
+      line-height: 0.95;
       letter-spacing: -0.03em;
       color: #111111;
     }
 
     .intro-lead {
-      margin: 16px auto 0;
-      max-width: 20ch;
-      font-size: 1.15rem;
-      line-height: 1.35;
+      margin-top: 18px;
+      font-size: 1.12rem;
+      line-height: 1.38;
       font-weight: 700;
       font-style: italic;
       color: #333333;
+      text-align: center;
     }
 
+    /* ── Hero images ── */
     .hero-stage {
       position: relative;
       width: 100%;
-      min-height: clamp(260px, 52vw, 360px);
-      margin: 12px 0 0;
+      margin-top: 16px;
+      background: #ffffff;
     }
 
     .flag-art {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: min(100%, 420px);
-      transform: translate(-50%, -50%);
-      filter: drop-shadow(0 10px 20px rgba(20, 32, 69, 0.1));
-      z-index: 1;
+      display: block;
+      width: 100%;
+      max-width: 400px;
+      margin: 0 auto;
+      filter: drop-shadow(0 8px 16px rgba(20, 32, 69, 0.08));
     }
 
     .kangaroo-art {
       position: absolute;
-      left: 54%;
-      bottom: 6px;
-      width: min(48%, 200px);
-      transform: translateX(-30%);
-      filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.12));
+      right: 12%;
+      bottom: 0;
+      width: 42%;
+      max-width: 170px;
+      filter: drop-shadow(0 4px 8px rgba(15, 23, 42, 0.1));
       z-index: 2;
     }
 
+    /* ── Button ── */
     .actions {
-      width: min(100%, 320px);
-      margin-top: 8px;
+      width: 100%;
+      max-width: 300px;
+      margin-top: 28px;
     }
 
     .start-btn {
@@ -128,19 +135,15 @@
 
     @media (max-width: 420px) {
       body {
-        padding: 20px 14px 32px;
+        padding: 32px 16px 40px;
       }
 
       .intro-copy h1 {
-        font-size: clamp(2.2rem, 12vw, 2.8rem);
+        font-size: 2.3rem;
       }
 
       .intro-lead {
-        font-size: 1.05rem;
-      }
-
-      .hero-stage {
-        min-height: 240px;
+        font-size: 1.02rem;
       }
     }
   </style>
@@ -152,18 +155,18 @@
       <p class="intro-lead">Step by step guidance,<br>Tailored just for you.</p>
     </header>
 
-    <div class="hero-stage" aria-hidden="true">
+    <div class="hero-stage">
       <img
         class="flag-art"
-        src="/media/images/registration-intro/specialist-pathway-flag.png"
-        alt=""
+        src="/media/images/registration-intro/specialist-pathway-flag.png?v=20260326b"
+        alt="Australian flag"
         loading="eager"
         decoding="async"
       />
       <img
         class="kangaroo-art"
-        src="/media/images/registration-intro/specialist-pathway-kangaroo.png"
-        alt=""
+        src="/media/images/registration-intro/specialist-pathway-kangaroo.png?v=20260326b"
+        alt="Kangaroo silhouette"
         loading="eager"
         decoding="async"
       />
