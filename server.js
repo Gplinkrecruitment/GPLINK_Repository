@@ -175,6 +175,19 @@ function isCompressibleType(ext) {
   return ext === '.html' || ext === '.css' || ext === '.js' || ext === '.json' || ext === '.svg';
 }
 
+const APP_SHELL_EMBED_PARAM = 'gp_shell';
+const APP_SHELL_EMBED_VALUE = 'embedded';
+const APP_SHELL_SUPPORTED_PATHS = new Set([
+  '/pages/index.html',
+  '/pages/myinthealth.html',
+  '/pages/amc.html',
+  '/pages/ahpra.html',
+  '/pages/my-documents.html',
+  '/pages/career.html',
+  '/pages/messages.html',
+  '/pages/account.html'
+]);
+
 const USER_STATE_KEYS = [
   'gp_epic_progress',
   'gp_amc_progress',
@@ -1608,6 +1621,63 @@ function mapRegistrationPath(pathname) {
   return null;
 }
 
+function isAppShellSupportedPath(pathname) {
+  return APP_SHELL_SUPPORTED_PATHS.has(String(pathname || ''));
+}
+
+function shouldServeAppShell(requestUrl, pathname) {
+  if (!isAppShellSupportedPath(pathname)) return false;
+  if (pathname === '/pages/app-shell.html') return false;
+  return requestUrl.searchParams.get(APP_SHELL_EMBED_PARAM) !== APP_SHELL_EMBED_VALUE;
+}
+
+function buildStaticEtag(stat) {
+  return `W/"${Number(stat.size || 0).toString(16)}-${Math.floor(Number(stat.mtimeMs || 0)).toString(16)}"`;
+}
+
+function hasMatchingEtag(headerValue, etag) {
+  if (typeof headerValue !== 'string' || !headerValue || !etag) return false;
+  if (headerValue.trim() === '*') return true;
+  return headerValue
+    .split(',')
+    .map((value) => value.trim())
+    .some((value) => value === etag);
+}
+
+function isNotModified(req, etag, stat) {
+  if (hasMatchingEtag(req.headers['if-none-match'], etag)) {
+    return true;
+  }
+
+  const ifModifiedSince = req.headers['if-modified-since'];
+  if (typeof ifModifiedSince !== 'string' || !ifModifiedSince) {
+    return false;
+  }
+
+  const sinceMs = Date.parse(ifModifiedSince);
+  if (!Number.isFinite(sinceMs)) {
+    return false;
+  }
+
+  return Math.floor(Number(stat.mtimeMs || 0) / 1000) * 1000 <= sinceMs;
+}
+
+function getStaticCacheControl(req, pathname, ext) {
+  if (ext === '.html') return 'private, no-cache';
+  if (pathname.startsWith('/media/')) return 'public, max-age=31536000, immutable';
+
+  const requestUrl = String(req.url || '');
+  if ((ext === '.js' || ext === '.css' || ext === '.json' || ext === '.svg') && /[?&]v=[^&]+/i.test(requestUrl)) {
+    return 'public, max-age=31536000, immutable';
+  }
+
+  if (ext === '.js' || ext === '.css' || ext === '.json' || ext === '.svg') {
+    return 'public, max-age=3600, must-revalidate';
+  }
+
+  return 'public, max-age=3600';
+}
+
 function sanitizeFilePath(pathname) {
   const decoded = decodeURIComponent(pathname.split('?')[0]);
   const target = decoded === '/' ? '/pages/index.html' : decoded;
@@ -1639,11 +1709,10 @@ function serveStatic(req, res, pathname) {
 
     const ext = path.extname(filePath).toLowerCase();
     const mime = MIME[ext] || 'application/octet-stream';
-    const isMedia = pathname.startsWith('/media/');
     const isVideo = ext === '.mp4';
-    const cacheControl = (ext === '.html' || ext === '.js')
-      ? 'no-cache'
-      : (isMedia ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+    const cacheControl = getStaticCacheControl(req, pathname, ext);
+    const etag = buildStaticEtag(stat);
+    const lastModified = stat.mtime.toUTCString();
     const range = req.headers.range;
 
     if (isVideo && typeof range === 'string') {
@@ -1666,6 +1735,8 @@ function serveStatic(req, res, pathname) {
           'Content-Range': `bytes ${start}-${end}/${stat.size}`,
           'Accept-Ranges': 'bytes',
           'Cache-Control': cacheControl,
+          ETag: etag,
+          'Last-Modified': lastModified,
           ...SECURITY_HEADERS,
           ...(NODE_ENV === 'production' ? { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload' } : {})
         });
@@ -1683,18 +1754,27 @@ function serveStatic(req, res, pathname) {
       'Content-Type': mime,
       'Content-Length': stat.size,
       'Cache-Control': cacheControl,
+      ETag: etag,
+      'Last-Modified': lastModified,
       ...SECURITY_HEADERS
     };
     if (NODE_ENV === 'production') headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload';
     if (isVideo) headers['Accept-Ranges'] = 'bytes';
+    if (!pathname.startsWith('/media/') && isCompressibleType(ext)) headers['Vary'] = 'Accept-Encoding';
+
+    if (!range && isNotModified(req, etag, stat)) {
+      delete headers['Content-Length'];
+      res.writeHead(304, headers);
+      res.end();
+      return;
+    }
 
     const acceptsGzip = typeof req.headers['accept-encoding'] === 'string' && req.headers['accept-encoding'].includes('gzip');
-    const shouldGzip = !isMedia && !range && acceptsGzip && isCompressibleType(ext) && stat.size > 1024;
+    const shouldGzip = !pathname.startsWith('/media/') && !range && acceptsGzip && isCompressibleType(ext) && stat.size > 1024;
 
     if (shouldGzip) {
       delete headers['Content-Length'];
       headers['Content-Encoding'] = 'gzip';
-      headers['Vary'] = 'Accept-Encoding';
       res.writeHead(200, headers);
 
       const stream = fs.createReadStream(filePath);
@@ -11705,11 +11785,20 @@ async function handleRequest(req, res) {
 
   if (pathname !== '/pages/admin.html' && !isPublic && !session && (pathname.endsWith('.html') || pathname === '/')) {
     if (AUTH_DISABLED) {
+      if (shouldServeAppShell(url, pathname)) {
+        serveStatic(req, res, '/pages/app-shell.html');
+        return;
+      }
       serveStatic(req, res, pathname);
       return;
     }
     res.writeHead(302, { Location: '/pages/signin.html' });
     res.end();
+    return;
+  }
+
+  if (shouldServeAppShell(url, pathname)) {
+    serveStatic(req, res, '/pages/app-shell.html');
     return;
   }
 

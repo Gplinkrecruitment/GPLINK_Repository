@@ -293,13 +293,15 @@
 
   function prefetchSupportedRoutes() {
     Object.keys(PAGE_PATHS).forEach(function (pathname) {
+      var embeddedRoute = toEmbeddedRoute(pathname);
+      if (!embeddedRoute) return;
       var linkId = "gp-prefetch-" + pathname.replace(/[^a-z0-9]/gi, "-");
       if (document.getElementById(linkId)) return;
       var link = document.createElement("link");
       link.id = linkId;
       link.rel = "prefetch";
       link.as = "document";
-      link.href = pathname;
+      link.href = embeddedRoute;
       document.head.appendChild(link);
     });
   }
@@ -410,7 +412,12 @@
 
   function resolveInitialRoute() {
     var currentUrl = new URL(window.location.href);
-    var initialRoute = currentUrl.searchParams.get("route") || DEFAULT_ROUTE;
+    var routed = currentUrl.searchParams.get("route");
+    if (!routed && isSupportedPath(currentUrl.pathname)) {
+      currentUrl.searchParams.delete(EMBED_PARAM);
+      return routeFromUrl(currentUrl);
+    }
+    var initialRoute = routed || DEFAULT_ROUTE;
     var routeUrl = toRouteUrl(initialRoute);
     return routeUrl ? routeFromUrl(routeUrl) : DEFAULT_ROUTE;
   }
