@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#ffffff" />
+  <title>Registration Pathway - GP Link</title>
+  <script src="/js/nav-shell-bridge.js?v=20260326c"></script>
+  <script src="/js/auth-guard.js?v=20260311f" defer></script>
+  <script src="/js/state-sync.js?v=20260314b" defer></script>
+  <script src="/js/updates-sync.js?v=20260309c" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      min-height: 100%;
+      font-family: "Manrope", "Segoe UI", sans-serif;
+      color: #111;
+      background: #fff;
+    }
+
+    body {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px 56px;
+    }
+
+    .intro {
+      width: 100%;
+      max-width: 380px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .intro h1 {
+      font-family: "Baloo 2", "Manrope", sans-serif;
+      font-size: 2.65rem;
+      line-height: 0.94;
+      letter-spacing: -0.03em;
+      text-align: center;
+      color: #111;
+    }
+
+    .intro-sub {
+      margin-top: 18px;
+      text-align: center;
+      font-size: 1.1rem;
+      line-height: 1.4;
+      font-weight: 700;
+      font-style: italic;
+      color: #333;
+    }
+
+    .hero {
+      position: relative;
+      width: 100%;
+      max-width: 360px;
+      margin: 20px auto 0;
+    }
+
+    .hero-flag {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .hero-roo {
+      position: absolute;
+      right: 8%;
+      bottom: 0;
+      width: 44%;
+      height: auto;
+    }
+
+    .start-btn {
+      display: block;
+      width: 100%;
+      max-width: 300px;
+      margin-top: 32px;
+      border: 0;
+      border-radius: 14px;
+      padding: 16px 20px;
+      font: inherit;
+      font-size: 1.06rem;
+      font-weight: 800;
+      color: #fff;
+      background: linear-gradient(180deg, #4a63e8, #3152d9);
+      box-shadow: 0 14px 24px -14px rgba(49, 82, 217, 0.65);
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+
+    .start-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 18px 28px -14px rgba(49, 82, 217, 0.75);
+    }
+
+    .start-btn:active { transform: translateY(0); }
+    .start-btn:disabled { cursor: wait; opacity: .78; transform: none; }
+
+    @media (max-width: 420px) {
+      body { padding: 36px 18px 44px; }
+      .intro h1 { font-size: 2.3rem; }
+      .intro-sub { font-size: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <main class="intro">
+    <h1>Specialist<br>Pathway</h1>
+    <p class="intro-sub">Step by step guidance,<br>Tailored just for you.</p>
+
+    <div class="hero">
+      <img class="hero-flag" src="/media/images/registration-intro/specialist-pathway-flag.png?v=20260326c" alt="Australian flag" />
+      <img class="hero-roo" src="/media/images/registration-intro/specialist-pathway-kangaroo.png?v=20260326c" alt="Kangaroo" />
+    </div>
+
+    <button class="start-btn" id="startBtn" type="button">Get Started</button>
+  </main>
+
+  <script>
+    (function () {
+      var INTRO_SEEN_KEY = "gp_registration_intro_seen";
+      var INTRO_BYPASS_KEY = "gp_registration_intro_bypass_once";
+      var SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
+      var ALWAYS_SHOW_EMAILS = ["hello@mygplink.com.au"];
+      var TARGET = "/pages/myinthealth.html";
+      var btn = document.getElementById("startBtn");
+
+      var RESET_KEYS = [
+        "gp_epic_progress", "gp_amc_progress", "gp_ahpra_progress",
+        "gp_epic_tutorial_seen", "gp_amc_tutorial_seen", "gp_ahpra_tutorial_seen"
+      ];
+
+      function clearProgress() {
+        try { RESET_KEYS.forEach(function (k) { localStorage.removeItem(k); localStorage.removeItem(k + SAVE_BATCH_META_SUFFIX); }); } catch (e) {}
+      }
+
+      function isAlwaysShowAccount() {
+        try {
+          var p = window.gpSessionProfile;
+          if (p && typeof p.email === "string" && ALWAYS_SHOW_EMAILS.indexOf(p.email.toLowerCase().trim()) !== -1) return true;
+        } catch (e) {}
+        return false;
+      }
+
+      function nav(route, opts) {
+        if (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === "function") {
+          window.parent.gpShellNavigate(route, opts || {});
+          return;
+        }
+        if (typeof window.gpShellNavigate === "function") {
+          window.gpShellNavigate(route, opts || {});
+          return;
+        }
+        window.location.assign(route);
+      }
+
+      async function go() {
+        if (!btn) return;
+        btn.disabled = true;
+        btn.textContent = "Opening MyIntealth\u2026";
+
+        clearProgress();
+
+        if (!isAlwaysShowAccount()) {
+          try { localStorage.setItem(INTRO_SEEN_KEY, new Date().toISOString()); } catch (e) {}
+        }
+
+        try { sessionStorage.setItem(INTRO_BYPASS_KEY, "1"); } catch (e) {}
+        try { localStorage.setItem(INTRO_BYPASS_KEY, "1"); } catch (e) {}
+
+        try {
+          if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === "function") {
+            await window.gpLinkStateSync.push();
+          }
+        } catch (e) {}
+
+        nav(TARGET, { replace: true });
+      }
+
+      if (btn) btn.addEventListener("click", go);
+    })();
+  </script>
+</body>
+</html>

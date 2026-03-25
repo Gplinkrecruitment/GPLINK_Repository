@@ -903,6 +903,26 @@
   <div class="toast" id="toast">Progress saved</div>
 
   <script>
+    // ─── REGISTRATION INTRO GATE ────────────────────────────────
+    (function () {
+      var INTRO_SEEN_KEY = "gp_registration_intro_seen";
+      var INTRO_BYPASS_KEY = "gp_registration_intro_bypass_once";
+      try {
+        var bypassed = sessionStorage.getItem(INTRO_BYPASS_KEY) || localStorage.getItem(INTRO_BYPASS_KEY);
+        if (bypassed) {
+          sessionStorage.removeItem(INTRO_BYPASS_KEY);
+          localStorage.removeItem(INTRO_BYPASS_KEY);
+        } else if (!localStorage.getItem(INTRO_SEEN_KEY)) {
+          var nav = (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === "function")
+            ? window.parent.gpShellNavigate
+            : (typeof window.gpShellNavigate === "function" ? window.gpShellNavigate : null);
+          if (nav) { nav("/pages/registration-intro.html", { replace: true }); }
+          else { window.location.replace("/pages/registration-intro.html"); }
+          return;
+        }
+      } catch (e) {}
+    })();
+
     // ─── CONSTANTS ───────────────────────────────────────────────
     const STORAGE_KEY = "gp_epic_progress";
     const TUTORIAL_SEEN_KEY = "gp_epic_tutorial_seen";

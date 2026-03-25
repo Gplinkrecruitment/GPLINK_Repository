@@ -15,7 +15,8 @@
     "/pages/my-documents.html": true,
     "/pages/career.html": true,
     "/pages/messages.html": true,
-    "/pages/account.html": true
+    "/pages/account.html": true,
+    "/pages/registration-intro.html": true
   };
 
   function normalizePath(pathname) {

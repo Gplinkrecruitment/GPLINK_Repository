@@ -185,7 +185,8 @@ const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/my-documents.html',
   '/pages/career.html',
   '/pages/messages.html',
-  '/pages/account.html'
+  '/pages/account.html',
+  '/pages/registration-intro.html'
 ]);
 
 const USER_STATE_KEYS = [
