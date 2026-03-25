@@ -6,8 +6,12 @@
   var EMBED_PARAM = "gp_shell";
   var EMBED_VALUE = "embedded";
   var DEFAULT_ROUTE = "/pages/index.html";
+  var REGISTRATION_ENTRY_ROUTE = "/pages/myinthealth.html";
+  var REGISTRATION_INTRO_ROUTE = "/pages/registration-intro.html";
+  var REGISTRATION_INTRO_SEEN_KEY = "gp_registration_intro_seen";
   var PAGE_PATHS = {
     "/pages/index.html": true,
+    "/pages/registration-intro.html": true,
     "/pages/myinthealth.html": true,
     "/pages/amc.html": true,
     "/pages/ahpra.html": true,
@@ -18,6 +22,7 @@
   };
   var NAV_GROUPS = {
     "/pages/index.html": { desktop: "home", mobile: "/pages/index.html" },
+    "/pages/registration-intro.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/myinthealth.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/amc.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/ahpra.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
@@ -105,6 +110,24 @@
   function getLinkRouteTarget(link) {
     if (!link) return "";
     return link.getAttribute("data-route") || link.getAttribute("href") || "";
+  }
+
+  function safeStorageGet(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function hasSeenRegistrationIntro() {
+    return !!safeStorageGet(REGISTRATION_INTRO_SEEN_KEY);
+  }
+
+  function shouldRouteThroughRegistrationIntro(routeUrl) {
+    if (!routeUrl) return false;
+    if (resolveSupportedPath(routeUrl.pathname) !== REGISTRATION_ENTRY_ROUTE) return false;
+    return !hasSeenRegistrationIntro();
   }
 
   function isVisible(el) {
@@ -263,6 +286,11 @@
     if (!routeUrl) {
       if (typeof input === "string" && input) window.location.href = input;
       return;
+    }
+
+    if (shouldRouteThroughRegistrationIntro(routeUrl)) {
+      routeUrl = toRouteUrl(REGISTRATION_INTRO_ROUTE);
+      if (!routeUrl) return;
     }
 
     var route = routeFromUrl(routeUrl);

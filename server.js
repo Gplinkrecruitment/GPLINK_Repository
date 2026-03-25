@@ -179,6 +179,7 @@ const APP_SHELL_EMBED_PARAM = 'gp_shell';
 const APP_SHELL_EMBED_VALUE = 'embedded';
 const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/index.html',
+  '/pages/registration-intro.html',
   '/pages/myinthealth.html',
   '/pages/amc.html',
   '/pages/ahpra.html',
@@ -192,6 +193,7 @@ const USER_STATE_KEYS = [
   'gp_epic_progress',
   'gp_amc_progress',
   'gp_ahpra_progress',
+  'gp_registration_intro_seen',
   'gp_epic_tutorial_seen',
   'gp_amc_tutorial_seen',
   'gp_ahpra_tutorial_seen',
@@ -1601,6 +1603,7 @@ function shouldProtectPath(pathname) {
   return (
     pathname === '/' ||
     pathname === '/pages/index.html' ||
+    pathname === '/pages/registration-intro.html' ||
     pathname === '/pages/myinthealth.html' ||
     pathname === '/pages/amc.html' ||
     pathname === '/pages/my-documents.html' ||

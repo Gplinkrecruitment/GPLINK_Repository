@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Registration Pathway - GP Link</title>
+  <script src="/js/nav-shell-bridge.js?v=20260326a"></script>
+  <script src="/js/auth-guard.js?v=20260311f" defer></script>
+  <script src="/js/state-sync.js?v=20260314b" defer></script>
+  <script src="/js/updates-sync.js?v=20260309c" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #eef4fb;
+      --card: rgba(255, 255, 255, 0.9);
+      --card-border: rgba(216, 226, 240, 0.9);
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue-dark: #1d4ed8;
+      --green: #10b981;
+      --gold: #f59e0b;
+      --shadow: 0 32px 60px -38px rgba(15, 23, 42, 0.42);
+      --radius: 28px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      min-height: 100%;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(760px 360px at -10% -10%, rgba(110, 231, 183, 0.32), transparent 58%),
+        radial-gradient(620px 320px at 110% 0%, rgba(147, 197, 253, 0.42), transparent 58%),
+        radial-gradient(520px 300px at 50% 10%, rgba(245, 158, 11, 0.16), transparent 62%),
+        var(--bg);
+    }
+
+    body {
+      padding: 28px 18px 40px;
+      min-height: 100dvh;
+    }
+
+    .intro-shell {
+      width: min(980px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .hero-card,
+    .copy-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--radius);
+      border: 1px solid var(--card-border);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .hero-card {
+      padding: 30px 24px 24px;
+      min-height: 280px;
+      display: grid;
+      align-items: end;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.9), rgba(240,247,255,0.84)),
+        var(--card);
+    }
+
+    .hero-card::before,
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      filter: blur(6px);
+      pointer-events: none;
+    }
+
+    .hero-card::before {
+      width: 220px;
+      height: 220px;
+      top: -70px;
+      right: -30px;
+      background: radial-gradient(circle, rgba(37, 99, 235, 0.18), rgba(37, 99, 235, 0));
+    }
+
+    .hero-card::after {
+      width: 180px;
+      height: 180px;
+      left: -40px;
+      bottom: -70px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.16), rgba(16, 185, 129, 0));
+    }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.1);
+      border: 1px solid rgba(37, 99, 235, 0.16);
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .hero-eyebrow-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--green), var(--blue));
+      box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.08);
+    }
+
+    .hero-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 24px;
+      align-items: end;
+    }
+
+    .hero-copy h1 {
+      margin-top: 18px;
+      font-size: clamp(32px, 7vw, 54px);
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+      max-width: 10ch;
+    }
+
+    .hero-copy p {
+      margin-top: 16px;
+      max-width: 38rem;
+      color: #334155;
+      font-size: 15px;
+      line-height: 1.65;
+      font-weight: 500;
+    }
+
+    .hero-metrics {
+      display: grid;
+      gap: 12px;
+    }
+
+    .metric-card {
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(203, 213, 225, 0.82);
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .metric-copy {
+      margin-top: 6px;
+      color: #475569;
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 500;
+    }
+
+    .copy-card {
+      padding: 24px;
+      display: grid;
+      gap: 22px;
+    }
+
+    .copy-topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .copy-topline h2 {
+      font-size: 22px;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    .support-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(16, 185, 129, 0.1);
+      color: #047857;
+      border: 1px solid rgba(16, 185, 129, 0.18);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .step-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .step-card {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: rgba(248, 250, 252, 0.9);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+    }
+
+    .step-index {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      font-size: 15px;
+      font-weight: 900;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-dark));
+      box-shadow: 0 12px 20px -16px rgba(37, 99, 235, 0.9);
+    }
+
+    .step-card:nth-child(2) .step-index {
+      background: linear-gradient(135deg, #0f766e, var(--green));
+    }
+
+    .step-card:nth-child(3) .step-index {
+      background: linear-gradient(135deg, #b45309, var(--gold));
+    }
+
+    .step-card h3 {
+      font-size: 18px;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    .step-card p {
+      margin-top: 8px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.55;
+      font-weight: 500;
+    }
+
+    .support-card {
+      padding: 18px 18px 18px 56px;
+      position: relative;
+      border-radius: 22px;
+      background: linear-gradient(145deg, rgba(37, 99, 235, 0.08), rgba(16, 185, 129, 0.08));
+      border: 1px solid rgba(191, 219, 254, 0.9);
+    }
+
+    .support-card::before {
+      content: "?";
+      position: absolute;
+      left: 18px;
+      top: 18px;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      color: var(--blue);
+      font-size: 15px;
+      font-weight: 900;
+      border: 1px solid rgba(191, 219, 254, 0.9);
+    }
+
+    .support-card h3 {
+      font-size: 16px;
+      letter-spacing: -0.02em;
+    }
+
+    .support-card p {
+      margin-top: 8px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.6;
+      font-weight: 500;
+    }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .start-btn {
+      border: 0;
+      border-radius: 18px;
+      padding: 16px 18px;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-dark));
+      box-shadow: 0 22px 35px -24px rgba(37, 99, 235, 0.9);
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+    }
+
+    .start-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 24px 36px -24px rgba(37, 99, 235, 0.92);
+    }
+
+    .start-btn:active {
+      transform: translateY(0);
+    }
+
+    .start-btn:disabled {
+      opacity: .7;
+      cursor: wait;
+      transform: none;
+    }
+
+    .action-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    @media (min-width: 900px) {
+      body {
+        padding-top: 34px;
+      }
+
+      .intro-shell {
+        grid-template-columns: minmax(0, 1.08fr) minmax(360px, .92fr);
+      }
+
+      .hero-card,
+      .copy-card {
+        min-height: calc(100dvh - 96px);
+      }
+
+      .hero-card {
+        padding: 38px 32px 30px;
+      }
+
+      .copy-card {
+        padding: 30px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="intro-shell">
+    <section class="hero-card" aria-labelledby="registrationIntroHeading">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="hero-eyebrow">
+            <span class="hero-eyebrow-dot" aria-hidden="true"></span>
+            Expedited Registration Pathway
+          </div>
+          <h1 id="registrationIntroHeading">Welcome to your registration journey</h1>
+          <p>
+            We’ll guide you through each step of the expedited pathway, starting with MyIntealth and moving through AMC and AHPRA. You’ll get clear actions, walkthroughs, and support from GP Link the whole way through.
+          </p>
+        </div>
+
+        <div class="hero-metrics" aria-label="Pathway highlights">
+          <div class="metric-card">
+            <div class="metric-label">First Step</div>
+            <div class="metric-value">MyIntealth</div>
+            <div class="metric-copy">Set up your EPIC account and upload your specialist qualifications.</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">How We Help</div>
+            <div class="metric-value">Guided + Supported</div>
+            <div class="metric-copy">If anything is unclear, delayed, or blocked, our team is here to help you move forward.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="copy-card" aria-labelledby="pathwayOverviewHeading">
+      <div class="copy-topline">
+        <h2 id="pathwayOverviewHeading">What happens next</h2>
+        <div class="support-pill">We’re here if you need us</div>
+      </div>
+
+      <div class="step-grid" aria-label="Registration steps">
+        <article class="step-card">
+          <div class="step-index">1</div>
+          <div>
+            <h3>MyIntealth</h3>
+            <p>Create your account, establish EPIC, and upload your qualifications for the expedited pathway.</p>
+          </div>
+        </article>
+        <article class="step-card">
+          <div class="step-index">2</div>
+          <div>
+            <h3>AMC Portfolio</h3>
+            <p>Once MyIntealth is complete, you’ll continue into AMC to keep the pathway moving without delay.</p>
+          </div>
+        </article>
+        <article class="step-card">
+          <div class="step-index">3</div>
+          <div>
+            <h3>AHPRA Registration</h3>
+            <p>After AMC, you’ll progress into the AHPRA submission and final registration steps.</p>
+          </div>
+        </article>
+      </div>
+
+      <section class="support-card" aria-labelledby="supportHeading">
+        <h3 id="supportHeading">Questions or stuck on a step?</h3>
+        <p>
+          Reach out at any point. We know the pathway can feel complex, and GP Link is here to help with uploads, next actions, and anything that needs clarification.
+        </p>
+      </section>
+
+      <div class="actions">
+        <button class="start-btn" id="startRegistrationBtn" type="button">Get Started</button>
+        <p class="action-note">You’ll be taken straight into MyIntealth, the first step of your registration pathway.</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var INTRO_SEEN_KEY = "gp_registration_intro_seen";
+      var SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
+      var RESET_KEYS = [
+        "gp_epic_progress",
+        "gp_amc_progress",
+        "gp_ahpra_progress",
+        "gp_epic_tutorial_seen",
+        "gp_amc_tutorial_seen",
+        "gp_ahpra_tutorial_seen"
+      ];
+      var TARGET_ROUTE = "/pages/myinthealth.html";
+      var button = document.getElementById("startRegistrationBtn");
+
+      function clearRegistrationProgress() {
+        try {
+          RESET_KEYS.forEach(function (key) {
+            localStorage.removeItem(key);
+            localStorage.removeItem(key + SAVE_BATCH_META_SUFFIX);
+          });
+        } catch (err) {}
+      }
+
+      function navigateToRegistration() {
+        if (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === "function") {
+          window.parent.gpShellNavigate(TARGET_ROUTE, { replace: true });
+          return;
+        }
+        if (typeof window.gpShellNavigate === "function") {
+          window.gpShellNavigate(TARGET_ROUTE, { replace: true });
+          return;
+        }
+        window.location.assign(TARGET_ROUTE);
+      }
+
+      async function markSeenAndContinue() {
+        if (!button) return;
+        button.disabled = true;
+        button.textContent = "Opening MyIntealth...";
+
+        clearRegistrationProgress();
+
+        try {
+          localStorage.setItem(INTRO_SEEN_KEY, new Date().toISOString());
+        } catch (err) {}
+
+        try {
+          if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === "function") {
+            await window.gpLinkStateSync.push();
+          }
+        } catch (err) {
+          // Best-effort state sync only.
+        }
+
+        navigateToRegistration();
+      }
+
+      if (button) {
+        button.addEventListener("click", function () {
+          markSeenAndContinue();
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -9,6 +9,7 @@
   var EMBED_STYLE_ID = "gp-shell-embedded-style";
   var PAGE_PATHS = {
     "/pages/index.html": true,
+    "/pages/registration-intro.html": true,
     "/pages/myinthealth.html": true,
     "/pages/amc.html": true,
     "/pages/ahpra.html": true,
