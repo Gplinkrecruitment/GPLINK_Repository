@@ -9,6 +9,12 @@
   var REGISTRATION_ENTRY_ROUTE = "/pages/myinthealth.html";
   var REGISTRATION_INTRO_ROUTE = "/pages/registration-intro.html";
   var REGISTRATION_INTRO_SEEN_KEY = "gp_registration_intro_seen";
+  var REGISTRATION_INTRO_BYPASS_KEY = "gp_registration_intro_bypass_once";
+  var SESSION_PROFILE_CACHE_KEY = "gp_session_profile_cache";
+  var SESSION_OWNER_KEY = "gp_state_owner";
+  var REGISTRATION_INTRO_ALWAYS_EMAILS = {
+    "hello@mygplink.com.au": true
+  };
   var PAGE_PATHS = {
     "/pages/index.html": true,
     "/pages/registration-intro.html": true,
@@ -120,13 +126,77 @@
     }
   }
 
+  function safeStorageRemove(key) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (err) {}
+  }
+
+  function safeSessionGet(key) {
+    try {
+      return window.sessionStorage.getItem(key);
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function safeSessionRemove(key) {
+    try {
+      window.sessionStorage.removeItem(key);
+    } catch (err) {}
+  }
+
+  function normalizeEmail(value) {
+    return typeof value === "string" ? value.trim().toLowerCase() : "";
+  }
+
+  function readCachedSessionProfile() {
+    if (window.gpSessionProfile && typeof window.gpSessionProfile === "object") {
+      return window.gpSessionProfile;
+    }
+
+    var raw = safeSessionGet(SESSION_PROFILE_CACHE_KEY);
+    if (!raw) return null;
+
+    try {
+      var parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function getCurrentUserEmail() {
+    var cachedProfile = readCachedSessionProfile();
+    if (cachedProfile && cachedProfile.email) {
+      return normalizeEmail(cachedProfile.email);
+    }
+    return normalizeEmail(safeStorageGet(SESSION_OWNER_KEY));
+  }
+
   function hasSeenRegistrationIntro() {
     return !!safeStorageGet(REGISTRATION_INTRO_SEEN_KEY);
+  }
+
+  function shouldAlwaysShowRegistrationIntro() {
+    return !!REGISTRATION_INTRO_ALWAYS_EMAILS[getCurrentUserEmail()];
+  }
+
+  function consumeRegistrationIntroBypass() {
+    var bypassSession = safeSessionGet(REGISTRATION_INTRO_BYPASS_KEY);
+    var bypassLocal = safeStorageGet(REGISTRATION_INTRO_BYPASS_KEY);
+    var shouldBypass = bypassSession === "1" || bypassLocal === "1";
+    if (!shouldBypass) return false;
+    safeSessionRemove(REGISTRATION_INTRO_BYPASS_KEY);
+    safeStorageRemove(REGISTRATION_INTRO_BYPASS_KEY);
+    return true;
   }
 
   function shouldRouteThroughRegistrationIntro(routeUrl) {
     if (!routeUrl) return false;
     if (resolveSupportedPath(routeUrl.pathname) !== REGISTRATION_ENTRY_ROUTE) return false;
+    if (consumeRegistrationIntroBypass()) return false;
+    if (shouldAlwaysShowRegistrationIntro()) return true;
     return !hasSeenRegistrationIntro();
   }
 
