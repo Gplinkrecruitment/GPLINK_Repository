@@ -49,15 +49,16 @@
     }
 
     .intro-shell {
-      width: min(100%, 440px);
+      width: min(100%, 420px);
     }
 
     .intro-card {
-      min-height: min(760px, calc(100dvh - 58px));
+      min-height: min(620px, calc(100dvh - 130px));
       display: grid;
-      grid-template-rows: 1fr auto;
-      gap: 24px;
-      padding: 28px 24px;
+      align-content: center;
+      justify-items: center;
+      gap: 28px;
+      padding: 52px 34px 34px;
       border-radius: 32px;
       background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
@@ -70,8 +71,10 @@
 
     .intro-body {
       display: grid;
-      align-content: end;
-      gap: 18px;
+      align-content: center;
+      justify-items: center;
+      gap: 22px;
+      width: 100%;
     }
 
     .eyebrow {
@@ -85,6 +88,9 @@
 
     .copy {
       text-align: center;
+      display: grid;
+      gap: 16px;
+      justify-items: center;
     }
 
     .copy h1 {
@@ -98,7 +104,6 @@
     }
 
     .lead {
-      margin: 12px auto 0;
       max-width: 16ch;
       font-size: 1.24rem;
       line-height: 1.28;
@@ -108,8 +113,10 @@
     }
 
     .actions {
-      width: min(100%, 320px);
+      width: min(100%, 300px);
       margin: 0 auto;
+      display: grid;
+      gap: 12px;
     }
 
     .start-btn {
@@ -172,12 +179,12 @@
     }
 
     .action-note {
-      margin-top: 12px;
       text-align: center;
       font-size: 0.82rem;
       line-height: 1.45;
       font-weight: 700;
       color: rgba(255, 255, 255, 0.72);
+      max-width: 28ch;
     }
 
     @media (max-width: 480px) {
@@ -192,6 +199,9 @@
 
       .intro-card {
         min-height: calc(100dvh - var(--gp-shell-bottom-clearance, 0px));
+        align-content: stretch;
+        justify-items: stretch;
+        gap: 24px;
         padding:
           max(34px, calc(env(safe-area-inset-top, 0px) + 28px))
           22px
@@ -209,7 +219,12 @@
       .intro-body {
         align-content: center;
         align-self: center;
+        justify-items: center;
         min-height: 100%;
+      }
+
+      .actions {
+        width: min(100%, 320px);
       }
 
       .copy h1 {
