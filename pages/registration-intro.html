@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#ffffff" />
+  <meta name="theme-color" content="#142b63" />
   <title>Registration Pathway - GP Link</title>
   <script src="/js/nav-shell-bridge.js?v=20260326c"></script>
   <script src="/js/auth-guard.js?v=20260311f" defer></script>
@@ -13,180 +13,261 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet" />
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --text: #ffffff;
+      --muted: rgba(255, 255, 255, 0.86);
+      --button: #3152d9;
+      --button-hover: #2745c0;
+      --panel-bg: rgba(9, 20, 46, 0.36);
+      --panel-border: rgba(255, 255, 255, 0.18);
+      --shadow: 0 28px 48px -32px rgba(0, 0, 0, 0.55);
+    }
 
-    html, body {
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
       min-height: 100%;
       font-family: "Manrope", "Segoe UI", sans-serif;
-      color: #111;
-      background: #fff;
+      color: var(--text);
+      background:
+        linear-gradient(180deg, rgba(8, 17, 38, 0.18) 0%, rgba(8, 17, 38, 0.5) 52%, rgba(8, 17, 38, 0.82) 100%),
+        radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.14), transparent 28%),
+        url("/media/images/gp%20link%20reg%20app%20bg.png") center / cover no-repeat;
     }
 
     body {
       min-height: 100dvh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 48px 24px 56px;
+      display: grid;
+      place-items: center;
+      padding: 24px 18px 34px;
     }
 
-    .intro {
-      width: 100%;
-      max-width: 380px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    .intro-shell {
+      width: min(100%, 440px);
     }
 
-    .intro h1 {
+    .intro-card {
+      min-height: min(760px, calc(100dvh - 58px));
+      display: grid;
+      align-content: end;
+      gap: 18px;
+      padding: 28px 24px;
+      border-radius: 32px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
+        var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .eyebrow {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.72);
+      text-align: center;
+    }
+
+    .copy {
+      text-align: center;
+    }
+
+    .copy h1 {
       font-family: "Baloo 2", "Manrope", sans-serif;
-      font-size: 2.65rem;
-      line-height: 0.94;
-      letter-spacing: -0.03em;
-      text-align: center;
-      color: #111;
+      font-size: clamp(3rem, 10vw, 4.4rem);
+      line-height: 0.84;
+      letter-spacing: -0.04em;
+      max-width: 7ch;
+      margin: 0 auto;
+      text-wrap: balance;
     }
 
-    .intro-sub {
-      margin-top: 18px;
-      text-align: center;
-      font-size: 1.1rem;
-      line-height: 1.4;
+    .lead {
+      margin: 12px auto 0;
+      max-width: 16ch;
+      font-size: 1.24rem;
+      line-height: 1.28;
+      font-weight: 800;
+      color: var(--muted);
+      text-wrap: balance;
+    }
+
+    .support-copy {
+      margin: 14px auto 0;
+      max-width: 28ch;
+      font-size: 0.98rem;
+      line-height: 1.5;
       font-weight: 700;
-      font-style: italic;
-      color: #333;
+      color: rgba(255, 255, 255, 0.84);
+      text-wrap: balance;
     }
 
-    .hero {
-      position: relative;
-      width: 100%;
-      max-width: 360px;
-      margin: 20px auto 0;
+    .path-chip {
+      width: fit-content;
+      margin: 0 auto;
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
 
-    .hero-flag {
-      display: block;
-      width: 100%;
-      height: auto;
-    }
-
-    .hero-roo {
-      position: absolute;
-      right: 8%;
-      bottom: 0;
-      width: 44%;
-      height: auto;
+    .actions {
+      width: min(100%, 320px);
+      margin: 0 auto;
     }
 
     .start-btn {
-      display: block;
       width: 100%;
-      max-width: 300px;
-      margin-top: 32px;
       border: 0;
-      border-radius: 14px;
-      padding: 16px 20px;
+      border-radius: 16px;
+      padding: 17px 18px;
       font: inherit;
-      font-size: 1.06rem;
+      font-size: 1.05rem;
       font-weight: 800;
-      color: #fff;
-      background: linear-gradient(180deg, #4a63e8, #3152d9);
-      box-shadow: 0 14px 24px -14px rgba(49, 82, 217, 0.65);
+      color: #ffffff;
+      background: linear-gradient(180deg, #4263ec 0%, var(--button) 100%);
+      box-shadow: 0 18px 30px -18px rgba(49, 82, 217, 0.82);
       cursor: pointer;
-      transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, opacity 0.18s ease;
     }
 
     .start-btn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 18px 28px -14px rgba(49, 82, 217, 0.75);
+      background: linear-gradient(180deg, #4d6df3 0%, var(--button-hover) 100%);
+      box-shadow: 0 20px 32px -18px rgba(49, 82, 217, 0.9);
     }
 
-    .start-btn:active { transform: translateY(0); }
-    .start-btn:disabled { cursor: wait; opacity: .78; transform: none; }
+    .start-btn:active {
+      transform: translateY(0);
+    }
 
-    @media (max-width: 420px) {
-      body { padding: 36px 18px 44px; }
-      .intro h1 { font-size: 2.3rem; }
-      .intro-sub { font-size: 1rem; }
+    .start-btn:disabled {
+      cursor: wait;
+      opacity: 0.82;
+      transform: none;
+    }
+
+    .action-note {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding-inline: 12px;
+      }
+
+      .intro-card {
+        min-height: min(700px, calc(100dvh - 44px));
+        padding: 24px 18px;
+        border-radius: 26px;
+      }
+
+      .copy h1 {
+        font-size: clamp(2.55rem, 12vw, 3.3rem);
+      }
+
+      .lead {
+        font-size: 1.08rem;
+      }
+
+      .support-copy {
+        font-size: 0.92rem;
+      }
     }
   </style>
 </head>
 <body>
-  <main class="intro">
-    <h1>Specialist<br>Pathway</h1>
-    <p class="intro-sub">Step by step guidance,<br>Tailored just for you.</p>
+  <main class="intro-shell">
+    <section class="intro-card" aria-labelledby="registrationIntroHeading">
+      <p class="eyebrow">Registration Pathway</p>
 
-    <div class="hero">
-      <img class="hero-flag" src="/media/images/registration-intro/specialist-pathway-flag.png?v=20260326c" alt="Australian flag" />
-      <img class="hero-roo" src="/media/images/registration-intro/specialist-pathway-kangaroo.png?v=20260326c" alt="Kangaroo" />
-    </div>
+      <header class="copy">
+        <h1 id="registrationIntroHeading">Specialist Pathway</h1>
+        <p class="lead">Step by step guidance, tailored just for you.</p>
+        <p class="support-copy">
+          You will follow the expedited pathway starting with MyIntealth, and if you have any questions we are here to help.
+        </p>
+      </header>
 
-    <button class="start-btn" id="startBtn" type="button">Get Started</button>
+      <p class="path-chip">First step: MyIntealth</p>
+
+      <div class="actions">
+        <button class="start-btn" id="startRegistrationBtn" type="button">Get Started</button>
+        <p class="action-note">We will take you straight into MyIntealth and support you through every step.</p>
+      </div>
+    </section>
   </main>
 
   <script>
     (function () {
       var INTRO_SEEN_KEY = "gp_registration_intro_seen";
       var INTRO_BYPASS_KEY = "gp_registration_intro_bypass_once";
-      var SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
-      var ALWAYS_SHOW_EMAILS = ["hello@mygplink.com.au"];
-      var TARGET = "/pages/myinthealth.html";
-      var btn = document.getElementById("startBtn");
+      var TARGET_ROUTE = "/pages/myinthealth.html";
+      var button = document.getElementById("startRegistrationBtn");
 
-      var RESET_KEYS = [
-        "gp_epic_progress", "gp_amc_progress", "gp_ahpra_progress",
-        "gp_epic_tutorial_seen", "gp_amc_tutorial_seen", "gp_ahpra_tutorial_seen"
-      ];
-
-      function clearProgress() {
-        try { RESET_KEYS.forEach(function (k) { localStorage.removeItem(k); localStorage.removeItem(k + SAVE_BATCH_META_SUFFIX); }); } catch (e) {}
-      }
-
-      function isAlwaysShowAccount() {
-        try {
-          var p = window.gpSessionProfile;
-          if (p && typeof p.email === "string" && ALWAYS_SHOW_EMAILS.indexOf(p.email.toLowerCase().trim()) !== -1) return true;
-        } catch (e) {}
-        return false;
-      }
-
-      function nav(route, opts) {
+      function navigateToRegistration() {
         if (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === "function") {
-          window.parent.gpShellNavigate(route, opts || {});
+          window.parent.gpShellNavigate(TARGET_ROUTE, { replace: true });
           return;
         }
         if (typeof window.gpShellNavigate === "function") {
-          window.gpShellNavigate(route, opts || {});
+          window.gpShellNavigate(TARGET_ROUTE, { replace: true });
           return;
         }
-        window.location.assign(route);
+        window.location.assign(TARGET_ROUTE);
       }
 
-      async function go() {
-        if (!btn) return;
-        btn.disabled = true;
-        btn.textContent = "Opening MyIntealth\u2026";
+      async function markSeenAndContinue() {
+        if (!button) return;
+        button.disabled = true;
+        button.textContent = "Opening MyIntealth...";
 
-        clearProgress();
+        try {
+          localStorage.setItem(INTRO_SEEN_KEY, new Date().toISOString());
+        } catch (err) {}
 
-        if (!isAlwaysShowAccount()) {
-          try { localStorage.setItem(INTRO_SEEN_KEY, new Date().toISOString()); } catch (e) {}
-        }
+        try {
+          sessionStorage.setItem(INTRO_BYPASS_KEY, "1");
+        } catch (err) {}
 
-        try { sessionStorage.setItem(INTRO_BYPASS_KEY, "1"); } catch (e) {}
-        try { localStorage.setItem(INTRO_BYPASS_KEY, "1"); } catch (e) {}
+        try {
+          localStorage.setItem(INTRO_BYPASS_KEY, "1");
+        } catch (err) {}
 
         try {
           if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === "function") {
             await window.gpLinkStateSync.push();
           }
-        } catch (e) {}
+        } catch (err) {
+          // Best-effort state sync only.
+        }
 
-        nav(TARGET, { replace: true });
+        navigateToRegistration();
       }
 
-      if (btn) btn.addEventListener("click", go);
+      if (button) {
+        button.addEventListener("click", function () {
+          markSeenAndContinue();
+        });
+      }
     })();
   </script>
 </body>

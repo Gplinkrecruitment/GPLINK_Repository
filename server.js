@@ -193,6 +193,7 @@ const USER_STATE_KEYS = [
   'gp_epic_progress',
   'gp_amc_progress',
   'gp_ahpra_progress',
+  'gp_registration_intro_seen',
   'gp_epic_tutorial_seen',
   'gp_amc_tutorial_seen',
   'gp_ahpra_tutorial_seen',
