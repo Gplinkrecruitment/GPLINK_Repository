@@ -9,7 +9,7 @@
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260322a" defer></script>
   <script src="../js/account-dropdown.js?v=20260323a" defer></script>
-  <script src="../js/app-shell.js?v=20260326i" defer></script>
+  <script src="../js/app-shell.js?v=20260326j" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -193,7 +193,7 @@
       z-index: 1;
     }
 
-    .app-shell-frame {
+    .app-shell-frame-stack {
       position: fixed;
       left: 0;
       right: 0;
@@ -201,9 +201,27 @@
       bottom: 0;
       width: 100%;
       height: calc(100dvh - var(--app-shell-top-offset));
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    .app-shell-frame {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       border: 0;
       background: #f0f4fa;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .16s ease;
       z-index: 1;
+    }
+
+    .app-shell-frame.is-active {
+      opacity: 1;
+      pointer-events: auto;
+      z-index: 2;
     }
 
     .app-shell-loader {
@@ -216,7 +234,7 @@
       font-size: 14px;
       font-weight: 700;
       letter-spacing: .01em;
-      z-index: 2;
+      z-index: 3;
     }
 
     .app-shell-loading .app-shell-loader {
@@ -448,7 +466,10 @@
   </div>
 
   <div class="app-shell-loader" id="appShellLoader">Loading page…</div>
-  <iframe id="appShellFrame" class="app-shell-frame" title="GP Link content" allow="camera; microphone"></iframe>
+  <div class="app-shell-frame-stack" id="appShellFrameStack" aria-live="polite">
+    <iframe id="appShellFramePrimary" class="app-shell-frame is-active" title="GP Link content" allow="camera; microphone"></iframe>
+    <iframe id="appShellFrameSecondary" class="app-shell-frame" title="GP Link preloaded content" allow="camera; microphone" aria-hidden="true" tabindex="-1"></iframe>
+  </div>
 
   <nav class="mobile-nav" aria-label="Mobile navigation">
     <span class="mobile-nav-glass" id="mobileNavGlass" aria-hidden="true"></span>

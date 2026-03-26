@@ -38,7 +38,7 @@
     "/pages/account.html": { desktop: "account", mobile: "/pages/account.html" }
   };
 
-  var frameEl = document.getElementById("appShellFrame");
+  var frameEls = Array.prototype.slice.call(document.querySelectorAll(".app-shell-frame"));
   var loaderEl = document.getElementById("appShellLoader");
   var desktopNavEl = document.querySelector(".nav-menu");
   var mobileNavEl = document.querySelector(".mobile-nav");
@@ -46,12 +46,23 @@
   var mobileNavGlassEl = document.getElementById("mobileNavGlass");
   var desktopHostEl = document.getElementById("appShellDesktop");
   var EMBED_STYLE_ID = "gp-shell-parent-embed-style";
+  var WARM_ROUTE_ORDER = [
+    "/pages/index.html",
+    "/pages/myinthealth.html",
+    "/pages/my-documents.html",
+    "/pages/career.html",
+    "/pages/messages.html",
+    "/pages/account.html"
+  ];
   var currentRoute = "";
+  var activeFrameEl = document.querySelector(".app-shell-frame.is-active") || frameEls[0] || null;
   var activeDesktopItem = null;
   var activeMobileTab = null;
   var hoveredDesktopItem = null;
   var navGlassInitialized = false;
   var mobileGlassInitialized = false;
+  var pendingNavigation = null;
+  var warmRouteTimer = 0;
 
   function normalizePath(pathname) {
     if (typeof pathname !== "string" || !pathname) return "";
@@ -103,6 +114,99 @@
     if (!routeUrl) return "";
     routeUrl.searchParams.set(EMBED_PARAM, EMBED_VALUE);
     return routeUrl.pathname + routeUrl.search + routeUrl.hash;
+  }
+
+  function getFrameState(frame) {
+    if (!frame) return null;
+    if (!frame.__gpShellState) {
+      frame.__gpShellState = {
+        loadedRoute: "",
+        pendingRoute: "",
+        title: ""
+      };
+    }
+    return frame.__gpShellState;
+  }
+
+  function getInactiveFrame() {
+    for (var i = 0; i < frameEls.length; i += 1) {
+      if (frameEls[i] !== activeFrameEl) return frameEls[i];
+    }
+    return null;
+  }
+
+  function findLoadedFrameForRoute(route) {
+    for (var i = 0; i < frameEls.length; i += 1) {
+      var frame = frameEls[i];
+      var state = getFrameState(frame);
+      if (state && state.loadedRoute === route && !state.pendingRoute) return frame;
+    }
+    return null;
+  }
+
+  function isFrameShowingRoute(frame, route) {
+    var state = getFrameState(frame);
+    return !!state && state.loadedRoute === route && !state.pendingRoute;
+  }
+
+  function activateFrame(frame) {
+    if (!frame) return;
+    frameEls.forEach(function (candidate) {
+      var isActive = candidate === frame;
+      candidate.classList.toggle("is-active", isActive);
+      if (isActive) {
+        candidate.removeAttribute("aria-hidden");
+        candidate.removeAttribute("tabindex");
+      } else {
+        candidate.setAttribute("aria-hidden", "true");
+        candidate.setAttribute("tabindex", "-1");
+      }
+    });
+    activeFrameEl = frame;
+  }
+
+  function loadRouteIntoFrame(frame, embeddedRoute, route) {
+    if (!frame) return;
+    var state = getFrameState(frame);
+    state.pendingRoute = route;
+    state.title = "";
+    if (frame.getAttribute("src") !== embeddedRoute) {
+      frame.setAttribute("src", embeddedRoute);
+    }
+  }
+
+  function getPrimaryWarmRoute(pathname) {
+    var resolved = resolveSupportedPath(pathname) || DEFAULT_ROUTE;
+    if (resolved === REGISTRATION_INTRO_ROUTE || resolved === REGISTRATION_ENTRY_ROUTE || resolved === "/pages/amc.html" || resolved === "/pages/ahpra.html") {
+      return "/pages/myinthealth.html";
+    }
+    return resolved;
+  }
+
+  function getWarmRouteCandidates(pathname) {
+    var primary = getPrimaryWarmRoute(pathname);
+    var candidates = [];
+    var index = WARM_ROUTE_ORDER.indexOf(primary);
+
+    if (index !== -1) {
+      if (index + 1 < WARM_ROUTE_ORDER.length) candidates.push(WARM_ROUTE_ORDER[index + 1]);
+      if (index - 1 >= 0) candidates.push(WARM_ROUTE_ORDER[index - 1]);
+    }
+
+    WARM_ROUTE_ORDER.forEach(function (route) {
+      if (route !== primary && candidates.indexOf(route) === -1) candidates.push(route);
+    });
+
+    return candidates;
+  }
+
+  function resolveRouteUrlForNavigation(input) {
+    var routeUrl = toRouteUrl(input);
+    if (!routeUrl) return null;
+    if (shouldRouteThroughRegistrationIntro(routeUrl)) {
+      routeUrl = toRouteUrl(REGISTRATION_INTRO_ROUTE);
+    }
+    return routeUrl;
   }
 
   function getDesktopItems() {
@@ -357,33 +461,31 @@
   }
 
   function navigateTo(input, options) {
-    var routeUrl = toRouteUrl(input);
+    var routeUrl = resolveRouteUrlForNavigation(input);
     var opts = options || {};
+    var activeState = getFrameState(activeFrameEl);
+    var targetFrame = null;
+    var cachedFrame = null;
 
     if (!routeUrl) {
       if (typeof input === "string" && input) window.location.href = input;
       return;
     }
 
-    if (shouldRouteThroughRegistrationIntro(routeUrl)) {
-      routeUrl = toRouteUrl(REGISTRATION_INTRO_ROUTE);
-      if (!routeUrl) return;
-    }
-
     var route = routeFromUrl(routeUrl);
     var embeddedRoute = toEmbeddedRoute(routeUrl);
     if (!embeddedRoute) return;
 
-    if (route === currentRoute && frameEl.getAttribute("src") === embeddedRoute) {
+    if (route === currentRoute && activeFrameEl && activeFrameEl.getAttribute("src") === embeddedRoute && isFrameShowingRoute(activeFrameEl, route)) {
       if (opts.historyMode === "replace" && window.location.pathname + window.location.search + window.location.hash !== route) {
         history.replaceState({ route: route }, "", route);
       }
+      scheduleRouteWarmup(route);
       return;
     }
 
     currentRoute = route;
     syncActiveNav(routeUrl, opts.animate !== false);
-    setLoading(true);
 
     if (opts.historyMode === "push") {
       history.pushState({ route: route }, "", route);
@@ -391,9 +493,40 @@
       history.replaceState({ route: route }, "", route);
     }
 
-    if (frameEl.getAttribute("src") !== embeddedRoute) {
-      frameEl.setAttribute("src", embeddedRoute);
+    if (isFrameShowingRoute(activeFrameEl, route)) {
+      setLoading(false);
+      scheduleRouteWarmup(route);
+      return;
     }
+
+    cachedFrame = findLoadedFrameForRoute(route);
+    if (cachedFrame) {
+      activateFrame(cachedFrame);
+      setLoading(false);
+      try {
+        if (cachedFrame.contentDocument) enforceEmbeddedChrome(cachedFrame.contentDocument);
+      } catch (err) {}
+      syncFromChildRoute(routeUrl, getFrameState(cachedFrame).title || "");
+      scheduleRouteWarmup(route);
+      return;
+    }
+
+    targetFrame = activeState && activeState.loadedRoute ? getInactiveFrame() : activeFrameEl;
+    if (!targetFrame) return;
+
+    if (pendingNavigation && pendingNavigation.route === route && getFrameState(targetFrame).pendingRoute === route) {
+      if (!activeState || !activeState.loadedRoute) setLoading(true);
+      return;
+    }
+
+    pendingNavigation = { route: route };
+    if (!activeState || !activeState.loadedRoute) {
+      setLoading(true);
+    } else {
+      setLoading(false);
+    }
+
+    loadRouteIntoFrame(targetFrame, embeddedRoute, route);
   }
 
   function prefetchSupportedRoutes() {
@@ -409,6 +542,44 @@
       link.href = embeddedRoute;
       document.head.appendChild(link);
     });
+  }
+
+  function warmRoute(input) {
+    var routeUrl = resolveRouteUrlForNavigation(input);
+    var route = "";
+    var embeddedRoute = "";
+    var warmFrame = null;
+    var warmState = null;
+
+    if (!routeUrl) return;
+    route = routeFromUrl(routeUrl);
+    embeddedRoute = toEmbeddedRoute(routeUrl);
+    if (!embeddedRoute || route === currentRoute || findLoadedFrameForRoute(route)) return;
+
+    warmFrame = getInactiveFrame();
+    warmState = getFrameState(warmFrame);
+    if (!warmFrame || !warmState) return;
+    if (warmState.pendingRoute === route || warmState.loadedRoute === route) return;
+    if (pendingNavigation && pendingNavigation.route === route) return;
+
+    loadRouteIntoFrame(warmFrame, embeddedRoute, route);
+  }
+
+  function scheduleRouteWarmup(route) {
+    var candidates = getWarmRouteCandidates(route);
+    clearTimeout(warmRouteTimer);
+    warmRouteTimer = window.setTimeout(function () {
+      for (var i = 0; i < candidates.length; i += 1) {
+        var before = getInactiveFrame();
+        var beforeState = getFrameState(before);
+        var warmedRoute = beforeState ? beforeState.loadedRoute || beforeState.pendingRoute : "";
+        warmRoute(candidates[i]);
+        var after = getInactiveFrame();
+        var afterState = getFrameState(after);
+        var afterRoute = afterState ? afterState.loadedRoute || afterState.pendingRoute : "";
+        if (afterRoute && afterRoute !== warmedRoute) break;
+      }
+    }, 140);
   }
 
   function handleDocumentClick(event) {
@@ -427,6 +598,20 @@
 
     event.preventDefault();
     navigateTo(routeUrl, { historyMode: "push" });
+  }
+
+  function handleRouteWarmIntent(event) {
+    var target = event.target;
+    var link = null;
+
+    if (!(target instanceof Element)) return;
+
+    link = target.closest("a[href]");
+    if (!link) return;
+    if (link.target && link.target !== "_self") return;
+    if (link.hasAttribute("download")) return;
+
+    warmRoute(getLinkRouteTarget(link));
   }
 
   function handleDesktopHoverEvents() {
@@ -458,8 +643,14 @@
 
   function syncFromChildRoute(input, nextTitle) {
     var routeUrl = toRouteUrl(input);
+    var state = getFrameState(activeFrameEl);
     if (!routeUrl) return;
     currentRoute = routeFromUrl(routeUrl);
+    if (state) {
+      state.loadedRoute = currentRoute;
+      state.pendingRoute = "";
+      state.title = typeof nextTitle === "string" ? nextTitle : state.title;
+    }
     syncActiveNav(routeUrl, false);
     if (window.location.pathname + window.location.search + window.location.hash !== currentRoute) {
       history.replaceState({ route: currentRoute }, "", currentRoute);
@@ -469,24 +660,27 @@
 
   function handleResize() {
     updateFrameOffsets();
-    try {
-      if (frameEl && frameEl.contentDocument) enforceEmbeddedChrome(frameEl.contentDocument);
-    } catch (err) {
-      // Ignore same-origin race conditions during frame resize.
-    }
+    frameEls.forEach(function (frame) {
+      try {
+        if (frame && frame.contentDocument) enforceEmbeddedChrome(frame.contentDocument);
+      } catch (err) {
+        // Ignore same-origin race conditions during frame resize.
+      }
+    });
     if (activeDesktopItem) moveNavGlass(activeDesktopItem, false);
     if (activeMobileTab) moveMobileGlass(activeMobileTab, false);
   }
 
-  function handleFrameLoad() {
-    setLoading(false);
-    updateFrameOffsets();
+  function handleFrameLoad(event) {
+    var frame = event && event.currentTarget;
+    var frameState = getFrameState(frame);
 
     try {
-      var childHref = frameEl.contentWindow.location.href;
+      var childHref = frame.contentWindow.location.href;
       var childUrl = new URL(childHref);
       var childPath = normalizePath(childUrl.pathname);
-      var childDoc = frameEl.contentDocument;
+      var childDoc = frame.contentDocument;
+      var nextRoute = routeFromUrl(childUrl);
 
       enforceEmbeddedChrome(childDoc);
 
@@ -496,16 +690,45 @@
         return;
       }
 
-      syncFromChildRoute(childUrl, childDoc ? childDoc.title : "");
+      if (frameState) {
+        frameState.loadedRoute = nextRoute;
+        frameState.pendingRoute = "";
+        frameState.title = childDoc ? childDoc.title : "";
+      }
+
+      if (pendingNavigation && pendingNavigation.route === nextRoute) {
+        if (frame !== activeFrameEl) activateFrame(frame);
+        setLoading(false);
+        updateFrameOffsets();
+        syncFromChildRoute(childUrl, childDoc ? childDoc.title : "");
+        pendingNavigation = null;
+        scheduleRouteWarmup(nextRoute);
+        return;
+      }
+
+      if (frame === activeFrameEl && !pendingNavigation) {
+        setLoading(false);
+        updateFrameOffsets();
+        syncFromChildRoute(childUrl, childDoc ? childDoc.title : "");
+        scheduleRouteWarmup(nextRoute);
+      }
     } catch (err) {
       // Same-origin access is expected; ignore transient load errors.
     }
   }
 
   function handleMessage(event) {
+    var activeWindow = activeFrameEl && activeFrameEl.contentWindow;
+    var routeUrl = null;
+    var route = "";
     if (event.origin !== window.location.origin) return;
     if (!event.data || event.data.type !== "gp-shell-route") return;
-    syncFromChildRoute(event.data.href, event.data.title);
+    if (!activeWindow || event.source !== activeWindow) return;
+    routeUrl = toRouteUrl(event.data.href);
+    if (!routeUrl) return;
+    route = routeFromUrl(routeUrl);
+    if (pendingNavigation && route !== currentRoute) return;
+    syncFromChildRoute(routeUrl, event.data.title);
   }
 
   function handlePopState(event) {
@@ -528,7 +751,7 @@
   }
 
   function init() {
-    if (!frameEl) return;
+    if (!frameEls.length || !activeFrameEl) return;
 
     window.gpShellNavigate = function (route, options) {
       var opts = options || {};
@@ -539,13 +762,20 @@
     };
 
     document.addEventListener("click", handleDocumentClick);
-    frameEl.addEventListener("load", handleFrameLoad);
+    document.addEventListener("mouseover", handleRouteWarmIntent, { passive: true });
+    document.addEventListener("focusin", handleRouteWarmIntent);
+    document.addEventListener("touchstart", handleRouteWarmIntent, { passive: true });
+    frameEls.forEach(function (frame) {
+      frame.addEventListener("load", handleFrameLoad);
+      getFrameState(frame);
+    });
     window.addEventListener("message", handleMessage);
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("resize", handleResize);
 
     handleDesktopHoverEvents();
     prefetchSupportedRoutes();
+    activateFrame(activeFrameEl);
 
     var initialRoute = resolveInitialRoute();
     navigateTo(initialRoute, { historyMode: "replace", animate: false });
