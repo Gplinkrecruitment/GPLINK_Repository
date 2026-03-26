@@ -907,20 +907,53 @@
     (function () {
       var INTRO_SEEN_KEY = "gp_registration_intro_seen";
       var INTRO_BYPASS_KEY = "gp_registration_intro_bypass_once";
+      var ALWAYS_SHOW_EMAILS = ["hello@mygplink.com.au"];
+
+      function goToIntro() {
+        var nav = (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === "function")
+          ? window.parent.gpShellNavigate
+          : (typeof window.gpShellNavigate === "function" ? window.gpShellNavigate : null);
+        if (nav) { nav("/pages/registration-intro.html", { replace: true }); }
+        else { window.location.replace("/pages/registration-intro.html"); }
+      }
+
+      function isAlwaysShow() {
+        try {
+          var p = window.gpSessionProfile;
+          if (p && typeof p.email === "string" && ALWAYS_SHOW_EMAILS.indexOf(p.email.toLowerCase().trim()) !== -1) return true;
+        } catch (e) {}
+        return false;
+      }
+
+      // Immediate check for first-time users (no seen key)
       try {
         var bypassed = sessionStorage.getItem(INTRO_BYPASS_KEY) || localStorage.getItem(INTRO_BYPASS_KEY);
         if (bypassed) {
           sessionStorage.removeItem(INTRO_BYPASS_KEY);
           localStorage.removeItem(INTRO_BYPASS_KEY);
         } else if (!localStorage.getItem(INTRO_SEEN_KEY)) {
-          var nav = (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === "function")
-            ? window.parent.gpShellNavigate
-            : (typeof window.gpShellNavigate === "function" ? window.gpShellNavigate : null);
-          if (nav) { nav("/pages/registration-intro.html", { replace: true }); }
-          else { window.location.replace("/pages/registration-intro.html"); }
+          goToIntro();
           return;
         }
       } catch (e) {}
+
+      // Deferred check for always-show accounts (poll for gpSessionProfile from auth-guard)
+      var pollCount = 0;
+      var pollTimer = setInterval(function () {
+        pollCount++;
+        if (pollCount > 40) { clearInterval(pollTimer); return; } // stop after ~4s
+        if (!window.gpSessionProfile) return;
+        clearInterval(pollTimer);
+        try {
+          var byp = sessionStorage.getItem(INTRO_BYPASS_KEY) || localStorage.getItem(INTRO_BYPASS_KEY);
+          if (byp) {
+            sessionStorage.removeItem(INTRO_BYPASS_KEY);
+            localStorage.removeItem(INTRO_BYPASS_KEY);
+            return;
+          }
+        } catch (e) {}
+        if (isAlwaysShow()) goToIntro();
+      }, 100);
     })();
 
     // ─── CONSTANTS ───────────────────────────────────────────────
