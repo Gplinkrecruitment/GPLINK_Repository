@@ -275,10 +275,8 @@
         window.location.assign(TARGET_ROUTE);
       }
 
-      async function markSeenAndContinue() {
+      function markSeenAndContinue() {
         if (!button) return;
-        button.disabled = true;
-        button.textContent = "Opening MyIntealth...";
 
         try {
           localStorage.setItem(INTRO_SEEN_KEY, new Date().toISOString());
@@ -291,14 +289,6 @@
         try {
           localStorage.setItem(INTRO_BYPASS_KEY, "1");
         } catch (err) {}
-
-        try {
-          if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === "function") {
-            await window.gpLinkStateSync.push();
-          }
-        } catch (err) {
-          // Best-effort state sync only.
-        }
 
         navigateToRegistration();
       }
