@@ -8007,6 +8007,27 @@ async function resolveAuthBootstrap(email, options = {}) {
   return buildAuthBootstrapForEmail(normalizedEmail, options);
 }
 
+function resolveFastAuthBootstrap(email, options = {}) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const sessionProfile = options.sessionProfile && typeof options.sessionProfile === 'object'
+    ? options.sessionProfile
+    : null;
+
+  if (!normalizedEmail) {
+    return { bootstrap: null, bootstrapPending: false };
+  }
+
+  const cached = getWarmAuthBootstrap(normalizedEmail);
+  if (cached) {
+    const merged = { ...cached, sessionProfile: sessionProfile || cached.sessionProfile || null };
+    setWarmAuthBootstrap(normalizedEmail, merged);
+    return { bootstrap: merged, bootstrapPending: false };
+  }
+
+  queueAuthBootstrapWarm(normalizedEmail, options).catch(() => {});
+  return { bootstrap: null, bootstrapPending: true };
+}
+
 async function upsertSupabaseUserProfile(userId, email, clean, existingRow = null) {
   if (!userId) return null;
   const current = existingRow && typeof existingRow === 'object' ? existingRow : {};
@@ -8657,14 +8678,21 @@ async function handleApi(req, res, pathname) {
 
       const loginUser = loginResult.data && loginResult.data.user ? loginResult.data.user : { email };
       upsertLocalUserFromSupabaseUser(loginUser);
-      await ensureSupabaseUserProfile(loginUser);
+      ensureSupabaseUserProfile(loginUser).catch(() => {});
       const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
       setSession(res, sessionProfile);
-      const bootstrap = await resolveAuthBootstrap(email, {
+      const bootstrapResult = resolveFastAuthBootstrap(email, {
         sessionUserId: sessionProfile.supabaseUserId,
         sessionProfile
       });
-      sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html', bootstrap });
+      sendJson(res, 200, {
+        ok: true,
+        message: 'Authenticated',
+        redirectTo: '/pages/index.html',
+        bootstrap: bootstrapResult.bootstrap,
+        bootstrapPending: bootstrapResult.bootstrapPending,
+        sessionProfile
+      });
       return;
     }
 
@@ -8677,8 +8705,15 @@ async function handleApi(req, res, pathname) {
 
     const sessionProfile = getSessionProfileFromUser(email);
     setSession(res, sessionProfile);
-    const bootstrap = await resolveAuthBootstrap(email, { sessionProfile });
-    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html', bootstrap });
+    const bootstrapResult = resolveFastAuthBootstrap(email, { sessionProfile });
+    sendJson(res, 200, {
+      ok: true,
+      message: 'Authenticated',
+      redirectTo: '/pages/index.html',
+      bootstrap: bootstrapResult.bootstrap,
+      bootstrapPending: bootstrapResult.bootstrapPending,
+      sessionProfile
+    });
     return;
   }
 
@@ -8730,15 +8765,22 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 400, { ok: false, message: 'Supabase user has no email address.' });
       return;
     }
-    await ensureSupabaseUserProfile(userData);
+    ensureSupabaseUserProfile(userData).catch(() => {});
 
     const sessionProfile = getSessionProfileFromSupabaseUser(userData, email);
     setSession(res, sessionProfile);
-    const bootstrap = await resolveAuthBootstrap(email, {
+    const bootstrapResult = resolveFastAuthBootstrap(email, {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
     });
-    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html', bootstrap });
+    sendJson(res, 200, {
+      ok: true,
+      message: 'Authenticated',
+      redirectTo: '/pages/index.html',
+      bootstrap: bootstrapResult.bootstrap,
+      bootstrapPending: bootstrapResult.bootstrapPending,
+      sessionProfile
+    });
     return;
   }
 

@@ -684,6 +684,50 @@
       } catch (err) {}
     }
 
+    function safeGetStorage(storage, key) {
+      try {
+        return storage.getItem(key);
+      } catch (err) {
+        return "";
+      }
+    }
+
+    function clearBootstrapStateCache() {
+      BOOTSTRAP_STATE_KEYS.forEach((key) => {
+        safeRemoveStorage(localStorage, key);
+        safeRemoveStorage(localStorage, key + SAVE_BATCH_META_SUFFIX);
+      });
+      safeRemoveStorage(sessionStorage, PROFILE_CACHE_KEY);
+      safeRemoveStorage(sessionStorage, ACCOUNT_STATUS_CACHE_KEY);
+      safeRemoveStorage(localStorage, "gp_account_under_review");
+    }
+
+    function primeAuthSession(sessionProfile, fallbackEmail) {
+      const normalizedEmail = normalizeEmail(
+        (sessionProfile && sessionProfile.email)
+        || fallbackEmail
+      );
+      const previousOwner = normalizeEmail(safeGetStorage(localStorage, SESSION_OWNER_KEY));
+
+      if (normalizedEmail && previousOwner && previousOwner !== normalizedEmail) {
+        clearBootstrapStateCache();
+      }
+
+      if (normalizedEmail) {
+        safeSetStorage(localStorage, SESSION_OWNER_KEY, normalizedEmail);
+      }
+
+      if (sessionProfile && typeof sessionProfile === "object") {
+        safeSetStorage(sessionStorage, SESSION_PROFILE_CACHE_KEY, JSON.stringify(sessionProfile));
+      } else if (normalizedEmail) {
+        safeSetStorage(sessionStorage, SESSION_PROFILE_CACHE_KEY, JSON.stringify({ email: normalizedEmail }));
+      }
+
+      safeRemoveStorage(sessionStorage, PROFILE_CACHE_KEY);
+      safeRemoveStorage(sessionStorage, ACCOUNT_STATUS_CACHE_KEY);
+      safeRemoveStorage(localStorage, "gp_account_under_review");
+    }
+
     safeRemoveStorage(sessionStorage, SESSION_PROFILE_CACHE_KEY);
     safeRemoveStorage(sessionStorage, PROFILE_CACHE_KEY);
     safeRemoveStorage(sessionStorage, ACCOUNT_STATUS_CACHE_KEY);
@@ -910,10 +954,14 @@
           return;
         }
 
-        applyAuthBootstrap(result.bootstrap, (result.bootstrap && result.bootstrap.sessionProfile && result.bootstrap.sessionProfile.email) || "");
+        if (result.bootstrap) {
+          applyAuthBootstrap(result.bootstrap, (result.bootstrap && result.bootstrap.sessionProfile && result.bootstrap.sessionProfile.email) || "");
+        } else {
+          primeAuthSession(result.sessionProfile, "");
+        }
         const cleanUrl = `${window.location.origin}${window.location.pathname}`;
         window.history.replaceState({}, "", cleanUrl);
-        window.location.href = result.redirectTo || "/pages/index.html";
+        window.location.replace(result.redirectTo || "/pages/index.html");
       } catch (err) {
         setStatus(signInStatusEl, "OAuth sign-in failed. Please try again.", "error");
       }
@@ -970,9 +1018,12 @@
           return;
         }
 
-        applyAuthBootstrap(data.bootstrap, payload.email);
-        setStatus(signInStatusEl, "Signed in successfully. Redirecting...", "ok");
-        window.location.href = data.redirectTo || "/pages/index.html";
+        if (data.bootstrap) {
+          applyAuthBootstrap(data.bootstrap, payload.email);
+        } else {
+          primeAuthSession(data.sessionProfile, payload.email);
+        }
+        window.location.replace(data.redirectTo || "/pages/index.html");
       } catch (err) {
         setStatus(signInStatusEl, "Network error. Please try again.", "error");
       } finally {
@@ -1017,8 +1068,12 @@
         }
 
         if (data.redirectTo) {
-          applyAuthBootstrap(data.bootstrap, payload.email);
-          window.location.href = data.redirectTo;
+          if (data.bootstrap) {
+            applyAuthBootstrap(data.bootstrap, payload.email);
+          } else {
+            primeAuthSession(data.sessionProfile, payload.email);
+          }
+          window.location.replace(data.redirectTo);
           return;
         }
 
@@ -1042,6 +1097,13 @@
         scheduleAuthPrewarm(false);
       });
       signInEmailEl.addEventListener("blur", function() {
+        scheduleAuthPrewarm(true);
+      });
+    }
+
+    const signInPasswordEl = document.getElementById("signinPassword");
+    if (signInPasswordEl) {
+      signInPasswordEl.addEventListener("focus", function() {
         scheduleAuthPrewarm(true);
       });
     }
@@ -1073,6 +1135,8 @@
     setOAuthButtonsDisabled(true);
     ensureSupabaseClient().catch(() => {});
     finalizeSupabaseOAuthSessionIfPresent();
+    window.requestAnimationFrame(() => scheduleAuthPrewarm(true));
+    window.setTimeout(() => scheduleAuthPrewarm(true), 400);
   </script>
 </body>
 </html>
