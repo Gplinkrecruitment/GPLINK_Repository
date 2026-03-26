@@ -235,11 +235,10 @@
     if (!target || !navGlassEl || !desktopNavEl || !isVisible(target)) return;
     var parentRect = desktopNavEl.getBoundingClientRect();
     var rect = target.getBoundingClientRect();
-    var inset = 2;
-    var left = rect.left - parentRect.left + inset;
-    var top = rect.top - parentRect.top + inset;
-    var width = Math.max(0, rect.width - inset * 2);
-    var height = Math.max(0, rect.height - inset * 2);
+    var left = rect.left - parentRect.left;
+    var top = rect.top - parentRect.top;
+    var width = rect.width;
+    var height = rect.height;
     if (animate === false || !navGlassInitialized) {
       var previousTransition = navGlassEl.style.transition;
       navGlassEl.style.transition = "none";
