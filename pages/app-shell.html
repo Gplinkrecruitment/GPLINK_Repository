@@ -9,7 +9,7 @@
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260322a" defer></script>
   <script src="../js/account-dropdown.js?v=20260323a" defer></script>
-  <script src="../js/app-shell.js?v=20260326f" defer></script>
+  <script src="../js/app-shell.js?v=20260326g" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -27,6 +27,7 @@
       --radius-lg: 20px;
       --app-shell-top-offset: 0px;
       --app-shell-bottom-offset: 0px;
+      --app-shell-nav-clearance: 0px;
     }
 
     * { box-sizing: border-box; }
@@ -227,29 +228,29 @@
 
     .mobile-nav {
       position: fixed;
-      left: 50%;
-      bottom: 12px;
-      transform: translateX(-50%);
-      width: min(520px, calc(100vw - 24px));
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
       display: none;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 8px;
-      padding: 10px;
+      padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
       overflow: hidden;
       isolation: isolate;
-      border-radius: 22px;
-      border: 1px solid rgba(255, 255, 255, 0.72);
-      background: rgba(255, 255, 255, 0.88);
+      border-radius: 24px 24px 0 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.82);
+      background: rgba(255, 255, 255, 0.94);
       backdrop-filter: blur(18px) saturate(1.25);
       -webkit-backdrop-filter: blur(18px) saturate(1.25);
-      box-shadow: 0 24px 38px -24px rgba(15, 23, 42, 0.55);
+      box-shadow: 0 -8px 26px -22px rgba(15, 23, 42, 0.42);
       z-index: 1200;
     }
 
     .mobile-nav-glass {
       position: absolute;
       top: 10px;
-      left: 10px;
+      left: 14px;
       width: 0;
       height: 0;
       opacity: 0;

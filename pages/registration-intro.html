@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#142b63" />
   <title>Registration Pathway - GP Link</title>
-  <script src="/js/nav-shell-bridge.js?v=20260326c"></script>
+  <script src="/js/nav-shell-bridge.js?v=20260326d"></script>
   <script src="/js/auth-guard.js?v=20260311f" defer></script>
   <script src="/js/state-sync.js?v=20260314b" defer></script>
   <script src="/js/updates-sync.js?v=20260309c" defer></script>
@@ -21,6 +21,7 @@
       --panel-bg: rgba(9, 20, 46, 0.36);
       --panel-border: rgba(255, 255, 255, 0.18);
       --shadow: 0 28px 48px -32px rgba(0, 0, 0, 0.55);
+      --screen-gap: 24px;
     }
 
     * {
@@ -44,7 +45,7 @@
       min-height: 100dvh;
       display: grid;
       place-items: center;
-      padding: 24px 18px 34px;
+      padding: var(--screen-gap) 18px 34px;
     }
 
     .intro-shell {
@@ -97,16 +98,6 @@
       line-height: 1.28;
       font-weight: 800;
       color: var(--muted);
-      text-wrap: balance;
-    }
-
-    .support-copy {
-      margin: 14px auto 0;
-      max-width: 28ch;
-      font-size: 0.98rem;
-      line-height: 1.5;
-      font-weight: 700;
-      color: rgba(255, 255, 255, 0.84);
       text-wrap: balance;
     }
 
@@ -171,13 +162,28 @@
 
     @media (max-width: 480px) {
       body {
-        padding-inline: 12px;
+        display: block;
+        padding: 0;
+      }
+
+      .intro-shell {
+        width: 100%;
       }
 
       .intro-card {
-        min-height: min(700px, calc(100dvh - 44px));
-        padding: 24px 18px;
-        border-radius: 26px;
+        min-height: calc(100dvh - var(--gp-shell-bottom-clearance, 0px));
+        padding:
+          max(34px, calc(env(safe-area-inset-top, 0px) + 28px))
+          22px
+          calc(24px + env(safe-area-inset-bottom, 0px));
+        border-radius: 0;
+        border: 0;
+        box-shadow: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        background:
+          linear-gradient(180deg, rgba(7, 18, 43, 0.08) 0%, rgba(7, 18, 43, 0.32) 55%, rgba(7, 18, 43, 0.74) 100%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
       }
 
       .copy h1 {
@@ -186,10 +192,6 @@
 
       .lead {
         font-size: 1.08rem;
-      }
-
-      .support-copy {
-        font-size: 0.92rem;
       }
     }
   </style>
@@ -202,9 +204,6 @@
       <header class="copy">
         <h1 id="registrationIntroHeading">Specialist Pathway</h1>
         <p class="lead">Step by step guidance, tailored just for you.</p>
-        <p class="support-copy">
-          You will follow the expedited pathway starting with MyIntealth, and if you have any questions we are here to help.
-        </p>
       </header>
 
       <p class="path-chip">First step: MyIntealth</p>

@@ -76,6 +76,7 @@
     }
     var bottomClearance = getParentMobileNavClearance();
     style.textContent = [
+      ":root{--gp-shell-bottom-clearance:" + bottomClearance + "px;}",
       "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav{display:none!important;}",
       "html.gp-shell-embedded .dash-wrap{padding-bottom:32px!important;}",
       "html.gp-shell-embedded body{overflow-x:hidden;padding-bottom:" + bottomClearance + "px!important;}"
