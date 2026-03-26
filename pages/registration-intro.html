@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#142b63" />
   <title>Registration Pathway - GP Link</title>
   <script src="/js/nav-shell-bridge.js?v=20260326d"></script>
@@ -55,8 +55,8 @@
     .intro-card {
       min-height: min(760px, calc(100dvh - 58px));
       display: grid;
-      align-content: end;
-      gap: 18px;
+      grid-template-rows: 1fr auto;
+      gap: 24px;
       padding: 28px 24px;
       border-radius: 32px;
       background:
@@ -66,6 +66,12 @@
       box-shadow: var(--shadow);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
+    }
+
+    .intro-body {
+      display: grid;
+      align-content: end;
+      gap: 18px;
     }
 
     .eyebrow {
@@ -101,20 +107,6 @@
       text-wrap: balance;
     }
 
-    .path-chip {
-      width: fit-content;
-      margin: 0 auto;
-      padding: 10px 16px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.14);
-      border: 1px solid rgba(255, 255, 255, 0.22);
-      font-size: 0.8rem;
-      font-weight: 800;
-      color: rgba(255, 255, 255, 0.92);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
-
     .actions {
       width: min(100%, 320px);
       margin: 0 auto;
@@ -133,22 +125,39 @@
       box-shadow: 0 18px 30px -18px rgba(49, 82, 217, 0.82);
       cursor: pointer;
       transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+      animation: buttonPulse 2.2s ease-in-out infinite;
+      will-change: transform, box-shadow;
     }
 
     .start-btn:hover {
+      animation-play-state: paused;
       transform: translateY(-1px);
       background: linear-gradient(180deg, #4d6df3 0%, var(--button-hover) 100%);
       box-shadow: 0 20px 32px -18px rgba(49, 82, 217, 0.9);
     }
 
     .start-btn:active {
-      transform: translateY(0);
+      animation: none;
+      transform: translateY(0) scale(0.99);
     }
 
     .start-btn:disabled {
+      animation: none;
       cursor: wait;
       opacity: 0.82;
       transform: none;
+    }
+
+    @keyframes buttonPulse {
+      0%,
+      100% {
+        transform: scale(1);
+        box-shadow: 0 18px 30px -18px rgba(49, 82, 217, 0.82);
+      }
+      50% {
+        transform: scale(1.035);
+        box-shadow: 0 24px 40px -18px rgba(66, 99, 236, 0.96);
+      }
     }
 
     .action-note {
@@ -186,6 +195,12 @@
           linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
       }
 
+      .intro-body {
+        align-content: center;
+        align-self: center;
+        min-height: 100%;
+      }
+
       .copy h1 {
         font-size: clamp(2.55rem, 12vw, 3.3rem);
       }
@@ -199,14 +214,14 @@
 <body>
   <main class="intro-shell">
     <section class="intro-card" aria-labelledby="registrationIntroHeading">
-      <p class="eyebrow">Registration Pathway</p>
+      <div class="intro-body">
+        <p class="eyebrow">Registration Pathway</p>
 
-      <header class="copy">
-        <h1 id="registrationIntroHeading">Specialist Pathway</h1>
-        <p class="lead">Step by step guidance, tailored just for you.</p>
-      </header>
-
-      <p class="path-chip">First step: MyIntealth</p>
+        <header class="copy">
+          <h1 id="registrationIntroHeading">Specialist Pathway</h1>
+          <p class="lead">Step by step guidance, tailored just for you.</p>
+        </header>
+      </div>
 
       <div class="actions">
         <button class="start-btn" id="startRegistrationBtn" type="button">Get Started</button>

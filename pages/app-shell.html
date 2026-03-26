@@ -9,7 +9,7 @@
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260322a" defer></script>
   <script src="../js/account-dropdown.js?v=20260323a" defer></script>
-  <script src="../js/app-shell.js?v=20260326g" defer></script>
+  <script src="../js/app-shell.js?v=20260326h" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -112,7 +112,7 @@
 
     .nav-link,
     .account-pill {
-      min-width: 92px;
+      min-width: 0;
       border: 0;
       border-radius: 12px;
       background: transparent;
@@ -122,7 +122,7 @@
       align-items: center;
       justify-content: center;
       gap: 4px;
-      padding: 8px 12px;
+      padding: 8px 14px;
       font-family: inherit;
       font-size: 13px;
       font-weight: 500;
@@ -179,16 +179,17 @@
       position: absolute;
       top: 0;
       left: 0;
-      width: 96px;
-      height: 44px;
-      border-radius: 12px;
+      width: 0;
+      height: 0;
+      opacity: 0;
+      border-radius: 14px;
       background: var(--glass-bg);
       border: 1px solid var(--glass-border);
       box-shadow: var(--glass-shadow);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
       pointer-events: none;
-      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05), opacity .18s ease;
       z-index: 1;
     }
 

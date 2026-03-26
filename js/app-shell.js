@@ -235,22 +235,29 @@
     if (!target || !navGlassEl || !desktopNavEl || !isVisible(target)) return;
     var parentRect = desktopNavEl.getBoundingClientRect();
     var rect = target.getBoundingClientRect();
+    var inset = 2;
+    var left = rect.left - parentRect.left + inset;
+    var top = rect.top - parentRect.top + inset;
+    var width = Math.max(0, rect.width - inset * 2);
+    var height = Math.max(0, rect.height - inset * 2);
     if (animate === false || !navGlassInitialized) {
       var previousTransition = navGlassEl.style.transition;
       navGlassEl.style.transition = "none";
-      navGlassEl.style.left = (rect.left - parentRect.left) + "px";
-      navGlassEl.style.top = (rect.top - parentRect.top) + "px";
-      navGlassEl.style.width = rect.width + "px";
-      navGlassEl.style.height = rect.height + "px";
+      navGlassEl.style.left = left + "px";
+      navGlassEl.style.top = top + "px";
+      navGlassEl.style.width = width + "px";
+      navGlassEl.style.height = height + "px";
+      navGlassEl.style.opacity = "1";
       void navGlassEl.offsetWidth;
       navGlassEl.style.transition = previousTransition;
       navGlassInitialized = true;
       return;
     }
-    navGlassEl.style.left = (rect.left - parentRect.left) + "px";
-    navGlassEl.style.top = (rect.top - parentRect.top) + "px";
-    navGlassEl.style.width = rect.width + "px";
-    navGlassEl.style.height = rect.height + "px";
+    navGlassEl.style.left = left + "px";
+    navGlassEl.style.top = top + "px";
+    navGlassEl.style.width = width + "px";
+    navGlassEl.style.height = height + "px";
+    navGlassEl.style.opacity = "1";
   }
 
   function moveMobileGlass(target, animate) {
