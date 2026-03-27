@@ -560,7 +560,7 @@
 
   function shouldRouteThroughRegistrationIntro(routeUrl) {
     if (!routeUrl) return false;
-    if (resolveSupportedPath(routeUrl.pathname) !== REGISTRATION_ENTRY_ROUTE) return false;
+    if (normalizePath(routeUrl.pathname) !== REGISTRATION_ENTRY_ROUTE) return false;
     if (consumeRegistrationIntroBypass()) return false;
     if (shouldAlwaysShowRegistrationIntro()) return true;
     return !hasSeenRegistrationIntro();
