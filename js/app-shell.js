@@ -10,6 +10,7 @@
   var REGISTRATION_INTRO_ROUTE = "/pages/registration-intro.html";
   var REGISTRATION_INTRO_SEEN_KEY = "gp_registration_intro_seen";
   var REGISTRATION_INTRO_BYPASS_KEY = "gp_registration_intro_bypass_once";
+  var REGISTRATION_CONTINUE_PARAM = "gp_registration_continue";
   var EPIC_PROGRESS_KEY = "gp_epic_progress";
   var AMC_PROGRESS_KEY = "gp_amc_progress";
   var AHPRA_PROGRESS_KEY = "gp_ahpra_progress";
@@ -359,7 +360,7 @@
         mobileDetail: "EPIC verification is set up and moving forward.",
         mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
         done: snap.epicDone,
-        href: "/pages/myinthealth.html"
+        href: "/pages/myinthealth.html?" + REGISTRATION_CONTINUE_PARAM + "=1"
       }),
       buildRegistrationRow("amc", {
         title: "2. AMC Portfolio",
@@ -382,31 +383,17 @@
     ];
   }
 
-  function setRegistrationIntroBypass() {
-    try {
-      window.sessionStorage.setItem(REGISTRATION_INTRO_BYPASS_KEY, "1");
-    } catch (err) {}
-    try {
-      window.localStorage.setItem(REGISTRATION_INTRO_BYPASS_KEY, "1");
-    } catch (err) {}
-  }
-
   function buildRegistrationAction(row) {
     var actionDisabled = row.locked || (row.done && !row.returnable);
-    var actionEl = document.createElement("button");
+    var actionEl = document.createElement(actionDisabled ? "button" : "a");
     actionEl.className = ("reg-btn " + (row.done ? "done" : row.locked ? "locked" : "")).trim();
     actionEl.textContent = row.cta;
-    actionEl.type = "button";
     if (actionDisabled) {
+      actionEl.type = "button";
       actionEl.disabled = true;
     } else {
+      actionEl.href = row.href;
       actionEl.setAttribute("data-route", row.href);
-      actionEl.addEventListener("click", function (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (row.stepKey === "myinthealth") setRegistrationIntroBypass();
-        navigateTo(row.href, { historyMode: "push" });
-      });
     }
     return actionEl;
   }
@@ -418,7 +405,6 @@
     if (mobileRegTableEl) mobileRegTableEl.innerHTML = "";
 
     rows.forEach(function (row) {
-      var rowNavigable = !row.locked && (!row.done || row.returnable);
       var rowEl = document.createElement("div");
       rowEl.className = ("reg-row " + (row.done ? "done" : "")).trim();
       rowEl.innerHTML = [
@@ -427,13 +413,6 @@
         "<div class=\"reg-sub\">" + row.sub + "</div>",
         "</div>"
       ].join("");
-      if (rowNavigable) {
-        rowEl.style.cursor = "pointer";
-        rowEl.addEventListener("click", function () {
-          if (row.stepKey === "myinthealth") setRegistrationIntroBypass();
-          navigateTo(row.href, { historyMode: "push" });
-        });
-      }
       rowEl.appendChild(buildRegistrationAction(row));
       if (registrationRowsEl) registrationRowsEl.appendChild(rowEl);
     });
@@ -544,6 +523,7 @@
 
   function shouldRouteThroughRegistrationIntro(routeUrl) {
     if (!routeUrl) return false;
+    if (routeUrl.searchParams.get(REGISTRATION_CONTINUE_PARAM) === "1") return false;
     if (normalizePath(routeUrl.pathname) !== REGISTRATION_ENTRY_ROUTE) return false;
     if (consumeRegistrationIntroBypass()) return false;
     if (shouldAlwaysShowRegistrationIntro()) return true;
