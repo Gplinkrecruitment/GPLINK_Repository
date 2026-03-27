@@ -123,6 +123,12 @@
     }
   }
 
+  function getEventElement(target) {
+    if (target instanceof Element) return target;
+    if (target && target.nodeType === 3 && target.parentElement) return target.parentElement;
+    return null;
+  }
+
   function resolveSupportedPath(pathname) {
     var normalized = normalizePath(pathname);
     if (Object.prototype.hasOwnProperty.call(PAGE_PATHS, normalized)) return normalized;
@@ -624,6 +630,16 @@
     mobileRegistrationToggleEl.setAttribute("aria-expanded", "false");
   }
 
+  function handleMobileRegistrationToggle(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (mobileRegistrationSheetOpen) {
+      closeMobileRegistrationSheet();
+    } else {
+      openMobileRegistrationSheet();
+    }
+  }
+
   function updateFrameOffsets() {
     var topOffset = 0;
     var navClearance = 0;
@@ -890,13 +906,13 @@
   }
 
   function handleDocumentClick(event) {
-    var clickTarget = event.target;
+    var clickTarget = getEventElement(event.target);
     var mobileToggle = null;
     var desktopToggle = null;
     var link = null;
     var routeUrl = null;
 
-    if (!(clickTarget instanceof Element)) return;
+    if (!clickTarget) return;
 
     desktopToggle = clickTarget.closest("#registrationMenuBtn");
     mobileToggle = clickTarget.closest("[data-mobile-registration-toggle]");
@@ -939,10 +955,10 @@
   }
 
   function handleRouteWarmIntent(event) {
-    var target = event.target;
+    var target = getEventElement(event.target);
     var link = null;
 
-    if (!(target instanceof Element)) return;
+    if (!target) return;
 
     link = target.closest("a[href]");
     if (!link) return;
@@ -1168,6 +1184,7 @@
     document.addEventListener("mouseover", handleRouteWarmIntent, { passive: true });
     document.addEventListener("focusin", handleRouteWarmIntent);
     document.addEventListener("touchstart", handleRouteWarmIntent, { passive: true });
+    if (mobileRegistrationToggleEl) mobileRegistrationToggleEl.addEventListener("click", handleMobileRegistrationToggle);
     if (mobileRegBackdropEl) mobileRegBackdropEl.addEventListener("click", closeMobileRegistrationSheet);
     if (mobileRegCloseBtnEl) mobileRegCloseBtnEl.addEventListener("click", closeMobileRegistrationSheet);
     if (mobileRegSheetEl) {
