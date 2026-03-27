@@ -51,7 +51,7 @@
     }
 
     /* ─── VIEW SYSTEM ─── */
-    .view { display: none; flex-direction: column; min-height: calc(100dvh - 64px); padding-bottom: 80px; animation: viewIn .26s ease; }
+    .view { display: none; flex-direction: column; min-height: calc(100dvh - 64px); padding-bottom: 140px; animation: viewIn .26s ease; }
     .view.active { display: flex; }
     @keyframes viewIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
 
@@ -132,7 +132,7 @@
 
     /* ─── FAB ─── */
     .fab {
-      position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%);
       background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff; border: 0;
       border-radius: 999px; padding: 14px 28px; font: inherit; font-size: 15px; font-weight: 700;
       cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
@@ -273,12 +273,14 @@
     }
     .resolve-btn.primary { border-color: transparent; background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff; }
 
-    /* ─── BOTTOM TABS ─── */
+    /* ─── BOTTOM TABS (view switcher — always visible) ─── */
     .bottom-tabs {
-      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
+      position: fixed; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
       background: rgba(255,255,255,.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-      border-top: 1px solid var(--line); display: flex; z-index: 50;
-      padding: 0 0 env(safe-area-inset-bottom, 0px);
+      border-top: 1px solid var(--line); display: flex; z-index: 51;
+      /* Default: sit above the mobile-nav */
+      bottom: 58px;
+      padding: 0;
     }
     .bottom-tab {
       flex: 1; border: 0; background: transparent; padding: 10px 0 8px;
@@ -354,8 +356,26 @@
       transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
     }
 
-    @media (max-width: 767px) { .topbar { display: none; } .mobile-nav { display: grid; } }
-    @media (min-width: 768px) { .app-shell { max-width: 960px; } .bottom-tabs { display: none; } }
+    @media (max-width: 767px) {
+      .topbar { display: none; }
+      .mobile-nav { display: grid; }
+      /* Bottom-tabs sit above the mobile-nav (~58px tall) */
+      .bottom-tabs { bottom: 58px; max-width: 560px; }
+      .fab { bottom: 130px; }
+      .view { padding-bottom: 140px; }
+    }
+    @media (min-width: 768px) {
+      .app-shell { max-width: 960px; }
+      /* No mobile-nav on desktop, bottom-tabs sit at the bottom */
+      .bottom-tabs { bottom: 0; max-width: 960px; padding-bottom: env(safe-area-inset-bottom, 0px); }
+      .fab { bottom: 74px; }
+      .view { padding-bottom: 80px; }
+    }
+    /* When embedded in app-shell, parent provides mobile-nav so ours is hidden.
+       Bottom-tabs should go to bottom: 0 since there's no local mobile-nav. */
+    html.gp-shell-embedded .bottom-tabs { bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+    html.gp-shell-embedded .fab { bottom: 74px; }
+    html.gp-shell-embedded .view { padding-bottom: 80px; }
 
     .legal-footer { text-align: center; font-size: 12px; color: var(--muted); margin: 14px 0 8px; line-height: 1.45; }
     .legal-footer a { color: #334155; text-decoration: underline; }
