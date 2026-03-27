@@ -278,8 +278,8 @@
       position: fixed; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
       background: rgba(255,255,255,.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
       border-top: 1px solid var(--line); display: flex; z-index: 51;
-      /* Default: sit above the mobile-nav */
-      bottom: 58px;
+      /* Default: sit above the mobile-nav (height + safe-area) */
+      bottom: calc(58px + env(safe-area-inset-bottom, 0px));
       padding: 0;
     }
     .bottom-tab {
@@ -359,20 +359,25 @@
     @media (max-width: 767px) {
       .topbar { display: none; }
       .mobile-nav { display: grid; }
-      /* Bottom-tabs sit above the mobile-nav (~58px tall) */
-      .bottom-tabs { bottom: 58px; max-width: 560px; }
-      .fab { bottom: 130px; }
+      /* Bottom-tabs sit above the mobile-nav (nav height + safe-area) */
+      .bottom-tabs { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); max-width: 560px; }
+      .fab { bottom: calc(130px + env(safe-area-inset-bottom, 0px)); }
       .view { padding-bottom: 140px; }
     }
     @media (min-width: 768px) {
       .app-shell { max-width: 960px; }
-      /* No mobile-nav on desktop, bottom-tabs sit at the bottom */
-      .bottom-tabs { bottom: 0; max-width: 960px; padding-bottom: env(safe-area-inset-bottom, 0px); }
-      .fab { bottom: 74px; }
-      .view { padding-bottom: 80px; }
+      /* Desktop: sticky below the topbar instead of fixed at the bottom */
+      .bottom-tabs {
+        position: sticky; top: 0; z-index: 51;
+        left: auto; transform: none; max-width: 100%;
+        bottom: auto; border-top: none; border-bottom: 1px solid var(--line);
+        padding-bottom: 0;
+      }
+      .fab { bottom: 28px; }
+      .view { padding-bottom: 48px; }
     }
-    /* When embedded in app-shell, parent provides mobile-nav so ours is hidden.
-       Bottom-tabs should go to bottom: 0 since there's no local mobile-nav. */
+    /* When embedded in app-shell iframe, parent provides mobile-nav so ours is hidden.
+       On mobile the tabs go to bottom: 0; on desktop they stay sticky. */
     html.gp-shell-embedded .bottom-tabs { bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
     html.gp-shell-embedded .fab { bottom: 74px; }
     html.gp-shell-embedded .view { padding-bottom: 80px; }
@@ -383,6 +388,18 @@
 </head>
 <body>
   <div class="app-shell">
+    <!-- ═══ BOTTOM TABS (Support / FAQ switcher) ═══ -->
+    <nav class="bottom-tabs" id="bottomTabs">
+      <button class="bottom-tab active" type="button" data-view="viewMyTickets">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Support</span>
+      </button>
+      <button class="bottom-tab" type="button" data-view="viewHelpCenter">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>FAQ</span>
+      </button>
+    </nav>
+
     <!-- ═══ VIEW: MY TICKETS ═══ -->
     <div class="view active" id="viewMyTickets">
       <header class="view-header">
@@ -414,7 +431,7 @@
     <div class="view" id="viewHelpCenter">
       <header class="view-header">
         <div class="view-header-left">
-          <h1 class="view-title">Help Center</h1>
+          <h1 class="view-title">FAQ</h1>
         </div>
         <button class="icon-btn" type="button" aria-label="Filter">
           <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -437,18 +454,6 @@
       </div>
       <p class="section-label" style="margin-top:16px;">Popular articles</p>
     </div>
-
-    <!-- ═══ BOTTOM TABS ═══ -->
-    <nav class="bottom-tabs" id="bottomTabs">
-      <button class="bottom-tab active" type="button" data-view="viewMyTickets">
-        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <span>Help center</span>
-      </button>
-      <button class="bottom-tab" type="button" data-view="viewHelpCenter">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        <span>Help center</span>
-      </button>
-    </nav>
   </div>
 
   <!-- ═══ SLIDE: NEW TICKET ═══ -->
