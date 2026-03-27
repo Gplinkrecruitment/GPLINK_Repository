@@ -28,7 +28,7 @@
   };
   var NAV_GROUPS = {
     "/pages/index.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/registration-intro.html": { desktop: "registration", mobile: "/pages/registration-intro.html" },
+    "/pages/registration-intro.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/myinthealth.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/amc.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/ahpra.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
