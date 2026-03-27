@@ -93,26 +93,6 @@
     qualifications_pending: "Qualifications pending ECFMG verification",
     qualifications_verified: "Qualifications verified"
   };
-  var MYINTEALTH_ROUTE_MAP = {
-    create_account: "/registration/myintealth/account",
-    account_establishment: "/registration/myintealth/establish",
-    upload_qualifications: "/registration/myintealth/upload",
-    waiting_verification: "/registration/myintealth/upload",
-    verification_issued: "/registration/myintealth/complete"
-  };
-  var AMC_ROUTE_MAP = {
-    create_portfolio: "/registration/amc/account",
-    upload_credentials: "/registration/amc/upload",
-    waiting_verification: "/registration/amc/verify",
-    qualifications_verified: "/registration/amc/complete"
-  };
-  var AHPRA_ROUTE_MAP = {
-    create_account: "/registration/ahpra/account",
-    account_establishment: "/registration/ahpra/establish",
-    upload_qualifications: "/registration/ahpra/upload",
-    waiting_verification: "/registration/ahpra/verify",
-    verification_issued: "/registration/ahpra/complete"
-  };
 
   function normalizePath(pathname) {
     if (typeof pathname !== "string" || !pathname) return "";
@@ -330,6 +310,7 @@
     var done = !!config.done;
     var returnable = done && isRegistrationReturnAllowed(stepKey);
     return {
+      stepKey: stepKey,
       title: config.title,
       sub: config.sub,
       mobileDetail: config.mobileDetail,
@@ -344,13 +325,6 @@
     };
   }
 
-  function resolveStageRoute(routeMap, stage, fallback) {
-    if (stage && Object.prototype.hasOwnProperty.call(routeMap, stage)) {
-      return routeMap[stage];
-    }
-    return fallback;
-  }
-
   function getProgressSnapshot() {
     var epic = parseStorage(EPIC_PROGRESS_KEY);
     var amc = parseStorage(AMC_PROGRESS_KEY);
@@ -359,26 +333,19 @@
     var epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
     var epicStage = epic && typeof epic.stage === "string" ? epic.stage : "create_account";
     var epicCurrentLabel = EPIC_STAGE_LABELS[epicStage] || EPIC_STAGE_LABELS.create_account;
-    var epicRoute = resolveStageRoute(MYINTEALTH_ROUTE_MAP, epicStage, "/registration/myintealth/account");
 
     var amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
     var amcStage = amc && typeof amc.stage === "string" ? amc.stage : "create_portfolio";
     var amcCurrentLabel = AMC_STAGE_LABELS[amcStage] || AMC_STAGE_LABELS.create_portfolio;
-    var amcRoute = resolveStageRoute(AMC_ROUTE_MAP, amcStage, "/registration/amc/account");
 
     var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
-    var ahpraStage = ahpra && typeof ahpra.stage === "string" ? ahpra.stage : "create_account";
-    var ahpraRoute = resolveStageRoute(AHPRA_ROUTE_MAP, ahpraStage, "/registration/ahpra/account");
 
     return {
       epicDone: epicDone,
       epicCurrentLabel: epicCurrentLabel,
       amcDone: amcDone,
       amcCurrentLabel: amcCurrentLabel,
-      ahpraDone: ahpraDone,
-      epicRoute: epicRoute,
-      amcRoute: amcRoute,
-      ahpraRoute: ahpraRoute
+      ahpraDone: ahpraDone
     };
   }
 
@@ -392,7 +359,7 @@
         mobileDetail: "EPIC verification is set up and moving forward.",
         mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
         done: snap.epicDone,
-        href: snap.epicRoute
+        href: "/pages/myinthealth.html"
       }),
       buildRegistrationRow("amc", {
         title: "2. AMC Portfolio",
@@ -401,7 +368,7 @@
         mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
         locked: !snap.epicDone,
         done: snap.amcDone,
-        href: snap.amcRoute
+        href: "/pages/amc.html"
       }),
       buildRegistrationRow("ahpra", {
         title: "3. AHPRA Registration",
@@ -410,25 +377,34 @@
         mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : snap.ahpraDone ? "Completed" : "In progress",
         locked: !snap.amcDone,
         done: snap.ahpraDone,
-        href: snap.ahpraRoute
+        href: "/pages/ahpra.html"
       })
     ];
   }
 
+  function setRegistrationIntroBypass() {
+    try {
+      window.sessionStorage.setItem(REGISTRATION_INTRO_BYPASS_KEY, "1");
+    } catch (err) {}
+    try {
+      window.localStorage.setItem(REGISTRATION_INTRO_BYPASS_KEY, "1");
+    } catch (err) {}
+  }
+
   function buildRegistrationAction(row) {
     var actionDisabled = row.locked || (row.done && !row.returnable);
-    var actionEl = document.createElement(actionDisabled ? "button" : "a");
+    var actionEl = document.createElement("button");
     actionEl.className = ("reg-btn " + (row.done ? "done" : row.locked ? "locked" : "")).trim();
     actionEl.textContent = row.cta;
+    actionEl.type = "button";
     if (actionDisabled) {
-      actionEl.type = "button";
       actionEl.disabled = true;
     } else {
-      actionEl.href = row.href;
       actionEl.setAttribute("data-route", row.href);
       actionEl.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
+        if (row.stepKey === "myinthealth") setRegistrationIntroBypass();
         navigateTo(row.href, { historyMode: "push" });
       });
     }
@@ -442,6 +418,7 @@
     if (mobileRegTableEl) mobileRegTableEl.innerHTML = "";
 
     rows.forEach(function (row) {
+      var rowNavigable = !row.locked && (!row.done || row.returnable);
       var rowEl = document.createElement("div");
       rowEl.className = ("reg-row " + (row.done ? "done" : "")).trim();
       rowEl.innerHTML = [
@@ -450,6 +427,13 @@
         "<div class=\"reg-sub\">" + row.sub + "</div>",
         "</div>"
       ].join("");
+      if (rowNavigable) {
+        rowEl.style.cursor = "pointer";
+        rowEl.addEventListener("click", function () {
+          if (row.stepKey === "myinthealth") setRegistrationIntroBypass();
+          navigateTo(row.href, { historyMode: "push" });
+        });
+      }
       rowEl.appendChild(buildRegistrationAction(row));
       if (registrationRowsEl) registrationRowsEl.appendChild(rowEl);
     });
