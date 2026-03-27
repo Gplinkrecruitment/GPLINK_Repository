@@ -455,7 +455,7 @@
       bottom: 0;
       max-height: 74vh;
       overflow: auto;
-      padding: 10px 14px calc(18px + env(safe-area-inset-bottom, 0px));
+      padding: 8px 12px calc(14px + env(safe-area-inset-bottom, 0px));
       border-top: 1px solid #e2e8f0;
       border-radius: 20px 20px 0 0;
       background: #ffffff;
@@ -476,7 +476,7 @@
     .mobile-reg-grab {
       width: 40px;
       height: 4px;
-      margin: 4px auto 12px;
+      margin: 4px auto 10px;
       border-radius: 999px;
       background: #d1d5db;
     }
@@ -485,12 +485,12 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     .mobile-reg-title {
       margin: 0;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 800;
     }
 
@@ -510,24 +510,27 @@
 
     .mobile-reg-table {
       display: grid;
-      gap: 8px;
+      gap: 6px;
     }
 
     .mobile-reg-table .reg-row {
       grid-template-columns: 1fr auto;
     }
 
-    .mobile-reg-table .reg-btn {
+    .mobile-reg-table .reg-btn,
+    .mobile-step-body .reg-btn {
       grid-column: 1 / -1;
       width: 100%;
-      margin-top: 2px;
+      margin-top: 0;
+      padding: 7px 12px;
+      font-size: 11px;
       text-align: center;
     }
 
     .mobile-step-card {
       overflow: hidden;
       border: 1px solid #e8edf5;
-      border-radius: 14px;
+      border-radius: 12px;
       background: #ffffff;
     }
 
@@ -536,7 +539,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 14px;
+      padding: 11px 12px;
       border: 0;
       background: transparent;
       color: var(--text);
@@ -546,13 +549,13 @@
     }
 
     .mobile-step-title {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
     }
 
     .mobile-step-caret {
       color: #94a3b8;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 800;
       transition: transform .2s ease;
     }
@@ -563,20 +566,20 @@
 
     .mobile-step-body {
       display: grid;
-      gap: 8px;
-      padding: 12px 14px;
+      gap: 6px;
+      padding: 10px 12px;
       border-top: 1px solid #e8edf5;
     }
 
     .mobile-step-copy {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
-      line-height: 1.4;
+      line-height: 1.35;
       color: #334155;
     }
 
     .mobile-step-status {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       color: #334155;
     }
