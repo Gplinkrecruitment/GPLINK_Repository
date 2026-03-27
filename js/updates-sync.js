@@ -437,6 +437,10 @@
 
     function bindTriggerEl(el) {
       if (!el || el.__gpAlertTriggerBound) return;
+      if (el.hasAttribute("data-message-nav")) {
+        el.__gpAlertTriggerBound = true;
+        return;
+      }
       el.__gpAlertTriggerBound = true;
       el.addEventListener("click", (event) => {
         if (Date.now() < suppressClickUntil) return;
