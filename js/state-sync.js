@@ -318,9 +318,17 @@
   installLocalStorageObserver();
 
   document.addEventListener('visibilitychange', () => {
-    if (!shuttingDown && document.visibilityState === 'hidden') pushState();
+    if (!shuttingDown && document.visibilityState === 'hidden') {
+      if (pushTimer) { window.clearTimeout(pushTimer); pushTimer = null; }
+      pendingTrackedChange = false;
+      pushState();
+    }
   });
   window.addEventListener('beforeunload', () => {
-    if (!shuttingDown) pushState();
+    if (!shuttingDown) {
+      if (pushTimer) { window.clearTimeout(pushTimer); pushTimer = null; }
+      pendingTrackedChange = false;
+      pushState();
+    }
   });
 })();

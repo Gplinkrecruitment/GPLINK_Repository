@@ -406,6 +406,10 @@
     } else {
       actionEl.href = row.href;
       actionEl.setAttribute("data-route", row.href);
+      actionEl.addEventListener("click", function (e) {
+        e.preventDefault();
+        navigateTo(row.href, { historyMode: "push" });
+      });
     }
     return actionEl;
   }

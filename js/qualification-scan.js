@@ -167,6 +167,7 @@
   }
 
   function resetModal() {
+    scanInProgress = false;
     selectedFile = null;
     var input = document.getElementById("gpScanFile");
     if (input) input.value = "";
@@ -192,6 +193,7 @@
   function closeModal() {
     if (!isOpen) return;
     isOpen = false;
+    scanInProgress = false;
     var modal = document.getElementById(MODAL_ID);
     if (modal) modal.classList.remove("open");
   }
@@ -236,8 +238,10 @@
   }
 
   /* ── Submit scan (uses Claude AI verification) ── */
+  var scanInProgress = false;
   function submitScan() {
-    if (!selectedFile) return;
+    if (!selectedFile || scanInProgress) return;
+    scanInProgress = true;
     var file = selectedFile;
 
     showStep("scanning");
@@ -567,6 +571,7 @@
   }
 
   function showScanError(msg) {
+    scanInProgress = false;
     var resultEl = document.getElementById("gpScanResult");
     if (resultEl) {
       resultEl.innerHTML =

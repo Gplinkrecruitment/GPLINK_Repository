@@ -748,6 +748,7 @@
     idVerifyFileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      if (idVerifyInProgress) return;
       if (file.size > MAX_FILE_SIZE) { showError("docsError", "File must be under 10MB."); return; }
       handleIdVerification(file, file.name);
     });
@@ -996,21 +997,37 @@
     saveState();
   }
 
+  let navInProgress = false;
   nextBtn.addEventListener("click", () => {
+    if (navInProgress) return;
     triggerButtonHaptic(14);
     if (!validateStep(currentStep)) return;
     if (currentStep === TOTAL_STEPS - 1) { submitOnboarding(); return; }
+    navInProgress = true;
     goToStep(currentStep + 1);
+    requestAnimationFrame(() => { navInProgress = false; });
   });
 
-  skipBtn.addEventListener("click", () => goToStep(currentStep + 1));
+  skipBtn.addEventListener("click", () => {
+    if (navInProgress) return;
+    navInProgress = true;
+    goToStep(currentStep + 1);
+    requestAnimationFrame(() => { navInProgress = false; });
+  });
   backBtn.addEventListener("click", () => {
+    if (navInProgress) return;
     triggerButtonHaptic(10);
+    navInProgress = true;
     goToStep(currentStep - 1);
+    requestAnimationFrame(() => { navInProgress = false; });
   });
 
   // ── Submit ─────────────────────────────────
+  let isSubmitting = false;
   async function submitOnboarding() {
+    if (isSubmitting) return;
+    isSubmitting = true;
+    nextBtn.disabled = true;
     loadingText.textContent = "Setting up your dashboard...";
     loadingOverlay.classList.add("show");
 
