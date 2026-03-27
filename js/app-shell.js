@@ -134,6 +134,11 @@
     return url.pathname + url.search + url.hash;
   }
 
+  function getResolvedRoutePath(input) {
+    var routeUrl = toRouteUrl(input);
+    return routeUrl ? (resolveSupportedPath(routeUrl.pathname) || "") : "";
+  }
+
   function routesShareSupportedPage(first, second) {
     var firstUrl = toRouteUrl(first);
     var secondUrl = toRouteUrl(second);
@@ -611,15 +616,20 @@
 
   function updateFrameOffsets() {
     var topOffset = 0;
+    var frameTop = 0;
     var navClearance = 0;
+    var resolvedPath = getResolvedRoutePath(currentRoute || window.location.pathname);
 
     if (desktopHostEl && isVisible(desktopHostEl)) {
       topOffset = Math.ceil(desktopHostEl.getBoundingClientRect().bottom + 8);
     }
 
+    frameTop = resolvedPath === REGISTRATION_INTRO_ROUTE ? 0 : topOffset;
+
     navClearance = getMobileNavClearance();
 
     document.documentElement.style.setProperty("--app-shell-top-offset", Math.max(topOffset, 0) + "px");
+    document.documentElement.style.setProperty("--app-shell-frame-top", Math.max(frameTop, 0) + "px");
     document.documentElement.style.setProperty("--app-shell-bottom-offset", "0px");
     document.documentElement.style.setProperty("--app-shell-nav-clearance", navClearance + "px");
   }
