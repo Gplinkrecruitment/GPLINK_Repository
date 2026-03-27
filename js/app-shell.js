@@ -93,6 +93,26 @@
     qualifications_pending: "Qualifications pending ECFMG verification",
     qualifications_verified: "Qualifications verified"
   };
+  var MYINTEALTH_ROUTE_MAP = {
+    create_account: "/registration/myintealth/account",
+    account_establishment: "/registration/myintealth/establish",
+    upload_qualifications: "/registration/myintealth/upload",
+    waiting_verification: "/registration/myintealth/upload",
+    verification_issued: "/registration/myintealth/complete"
+  };
+  var AMC_ROUTE_MAP = {
+    create_portfolio: "/registration/amc/account",
+    upload_credentials: "/registration/amc/upload",
+    waiting_verification: "/registration/amc/verify",
+    qualifications_verified: "/registration/amc/complete"
+  };
+  var AHPRA_ROUTE_MAP = {
+    create_account: "/registration/ahpra/account",
+    account_establishment: "/registration/ahpra/establish",
+    upload_qualifications: "/registration/ahpra/upload",
+    waiting_verification: "/registration/ahpra/verify",
+    verification_issued: "/registration/ahpra/complete"
+  };
 
   function normalizePath(pathname) {
     if (typeof pathname !== "string" || !pathname) return "";
@@ -318,30 +338,46 @@
     };
   }
 
+  function resolveStageRoute(routeMap, stage, fallback) {
+    if (stage && Object.prototype.hasOwnProperty.call(routeMap, stage)) {
+      return routeMap[stage];
+    }
+    return fallback;
+  }
+
   function getProgressSnapshot() {
     var epic = parseStorage(EPIC_PROGRESS_KEY);
     var amc = parseStorage(AMC_PROGRESS_KEY);
+    var ahpra = parseStorage(AHPRA_PROGRESS_KEY);
 
     var epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
     var epicStage = epic && typeof epic.stage === "string" ? epic.stage : "create_account";
     var epicCurrentLabel = EPIC_STAGE_LABELS[epicStage] || EPIC_STAGE_LABELS.create_account;
+    var epicRoute = resolveStageRoute(MYINTEALTH_ROUTE_MAP, epicStage, "/registration/myintealth/account");
 
     var amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
     var amcStage = amc && typeof amc.stage === "string" ? amc.stage : "create_portfolio";
     var amcCurrentLabel = AMC_STAGE_LABELS[amcStage] || AMC_STAGE_LABELS.create_portfolio;
+    var amcRoute = resolveStageRoute(AMC_ROUTE_MAP, amcStage, "/registration/amc/account");
+
+    var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+    var ahpraStage = ahpra && typeof ahpra.stage === "string" ? ahpra.stage : "create_account";
+    var ahpraRoute = resolveStageRoute(AHPRA_ROUTE_MAP, ahpraStage, "/registration/ahpra/account");
 
     return {
       epicDone: epicDone,
       epicCurrentLabel: epicCurrentLabel,
       amcDone: amcDone,
-      amcCurrentLabel: amcCurrentLabel
+      amcCurrentLabel: amcCurrentLabel,
+      ahpraDone: ahpraDone,
+      epicRoute: epicRoute,
+      amcRoute: amcRoute,
+      ahpraRoute: ahpraRoute
     };
   }
 
   function getRegistrationRows() {
     var snap = getProgressSnapshot();
-    var ahpra = parseStorage(AHPRA_PROGRESS_KEY);
-    var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
 
     return [
       buildRegistrationRow("myinthealth", {
@@ -350,7 +386,7 @@
         mobileDetail: "EPIC verification is set up and moving forward.",
         mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
         done: snap.epicDone,
-        href: "/pages/myinthealth.html"
+        href: snap.epicRoute
       }),
       buildRegistrationRow("amc", {
         title: "2. AMC Portfolio",
@@ -359,16 +395,16 @@
         mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
         locked: !snap.epicDone,
         done: snap.amcDone,
-        href: "/pages/amc.html"
+        href: snap.amcRoute
       }),
       buildRegistrationRow("ahpra", {
         title: "3. AHPRA Registration",
         sub: "Prepare and submit your specialist registration application.",
         mobileDetail: "Specialist registration application is prepared and submitted correctly.",
-        mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : ahpraDone ? "Completed" : "In progress",
+        mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : snap.ahpraDone ? "Completed" : "In progress",
         locked: !snap.amcDone,
-        done: ahpraDone,
-        href: "/pages/ahpra.html"
+        done: snap.ahpraDone,
+        href: snap.ahpraRoute
       })
     ];
   }
@@ -384,6 +420,11 @@
     } else {
       actionEl.href = row.href;
       actionEl.setAttribute("data-route", row.href);
+      actionEl.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        navigateTo(row.href, { historyMode: "push" });
+      });
     }
     return actionEl;
   }
@@ -422,18 +463,12 @@
       var isCurrent = row.current;
       var cardEl = document.createElement("div");
       var bodyId = "mobileStepBody" + idx;
-      var pillMarkup = row.locked
-        ? "<span class=\"mobile-step-pill locked\">Locked</span>"
-        : row.status === "Done"
-          ? "<span class=\"mobile-step-pill done\">Done</span>"
-          : "<span class=\"mobile-step-pill current\">Continue</span>";
 
       cardEl.className = ("mobile-step-card " + (row.locked ? "locked" : "unlocked") + " " + (isCurrent ? "current open" : "")).trim();
       cardEl.innerHTML = [
         "<button class=\"mobile-step-head\" type=\"button\" " + (isCurrent ? "disabled" : "") + " aria-expanded=\"" + (isCurrent ? "true" : "false") + "\" aria-controls=\"" + bodyId + "\">",
         "<span class=\"mobile-step-title\">" + row.title + "</span>",
         "<span style=\"display:flex; align-items:center; gap:8px;\">",
-        pillMarkup,
         "<span class=\"mobile-step-caret\">" + (isCurrent ? "" : "\u2304") + "</span>",
         "</span>",
         "</button>",
@@ -569,9 +604,14 @@
     if (!mobileRegSheetEl || !mobileRegBackdropEl || !mobileRegistrationToggleEl) return;
     renderRegistrationRows();
     mobileRegistrationSheetOpen = true;
+    mobileRegSheetEl.scrollTop = 0;
     mobileRegSheetEl.style.transform = "";
     mobileRegBackdropEl.classList.add("show");
-    mobileRegSheetEl.classList.add("show");
+    window.requestAnimationFrame(function () {
+      if (mobileRegistrationSheetOpen && mobileRegSheetEl) {
+        mobileRegSheetEl.classList.add("show");
+      }
+    });
     mobileRegistrationToggleEl.setAttribute("aria-expanded", "true");
   }
 
