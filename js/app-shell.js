@@ -442,15 +442,13 @@
     if (mobileRegTableEl) mobileRegTableEl.innerHTML = "";
 
     rows.forEach(function (row) {
-      var statusClass = row.done ? "done" : row.locked ? "locked" : "";
       var rowEl = document.createElement("div");
       rowEl.className = ("reg-row " + (row.done ? "done" : "")).trim();
       rowEl.innerHTML = [
         "<div>",
         "<div class=\"reg-name\">" + row.title + "</div>",
         "<div class=\"reg-sub\">" + row.sub + "</div>",
-        "</div>",
-        "<span class=\"reg-pill " + statusClass + "\">" + row.status + "</span>"
+        "</div>"
       ].join("");
       rowEl.appendChild(buildRegistrationAction(row));
       if (registrationRowsEl) registrationRowsEl.appendChild(rowEl);

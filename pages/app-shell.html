@@ -9,7 +9,7 @@
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260322a" defer></script>
   <script src="../js/account-dropdown.js?v=20260323a" defer></script>
-  <script src="../js/app-shell.js?v=20260328b" defer></script>
+  <script src="../js/app-shell.js?v=20260328c" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -252,7 +252,7 @@
     .reg-row {
       position: relative;
       display: grid;
-      grid-template-columns: 1.2fr auto auto;
+      grid-template-columns: 1fr auto;
       align-items: center;
       gap: 10px;
       overflow: hidden;
@@ -305,29 +305,6 @@
 
     .reg-row.done::after {
       transform: rotate(-6deg);
-    }
-
-    .reg-pill {
-      padding: 4px 10px;
-      border-radius: 999px;
-      border: 1px solid #bfdbfe;
-      background: #eff6ff;
-      color: #1d4ed8;
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-    }
-
-    .reg-pill.done {
-      border-color: #16a34a;
-      background: #16a34a;
-      color: #ffffff;
-    }
-
-    .reg-pill.locked {
-      border-color: #e2e8f0;
-      background: #f1f5f9;
-      color: #64748b;
     }
 
     .reg-btn {
