@@ -111,10 +111,19 @@ const DOMAIN_API_CLIENT_ID = String(process.env.DOMAIN_API_CLIENT_ID || '').trim
 const DOMAIN_API_CLIENT_SECRET = String(process.env.DOMAIN_API_CLIENT_SECRET || '').trim();
 const DOMAIN_API_SCOPE = String(process.env.DOMAIN_API_SCOPE || 'api_listings_read').trim() || 'api_listings_read';
 const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https://auth.domain.com.au/v1/connect/token').trim() || 'https://auth.domain.com.au/v1/connect/token';
-const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK === 'true';
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 5;
+const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = String(process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK || 'false').trim().toLowerCase() === 'true';
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 7;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
+const DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE = Math.max(10, Number(process.env.DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE || 40) || 40);
+const DOMAIN_LIFESTYLE_MAX_RADIUS_KM = 25;
+const DOMAIN_AGENCIES_READ_SCOPE = 'api_agencies_read';
+const DOMAIN_LIFESTYLE_AGENCY_BRANDS = Array.from(new Set(
+  String(process.env.DOMAIN_LIFESTYLE_AGENCY_BRANDS || 'Ray White,LJ Hooker,Harcourts,Raine & Horne')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+)).slice(0, 8);
 const NSW_SCHOOL_FINDER_SQL_ENDPOINT = 'https://cesensw.carto.com/api/v2/sql';
 const SCHOOL_FINDER_TABLE_SCHOOLS = 'dec_schools_2020';
 const SCHOOL_FINDER_TABLE_CATCHMENTS = 'catchments_2020';
@@ -130,7 +139,7 @@ const SUPER_ADMIN_EMAILS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
-let _domainApiAccessTokenCache = { token: '', expiresAt: 0 };
+let _domainApiAccessTokenCache = new Map();
 
 function validateRuntimeConfig() {
   if (NODE_ENV !== 'production') return;
@@ -6431,22 +6440,50 @@ function isDomainLifestyleConfigured() {
   );
 }
 
+function isDomainLifestyleFallbackEnabled() {
+  return !!ALLOW_DOMAIN_LIFESTYLE_FALLBACK;
+}
+
+function clampDomainLifestyleRadiusKm(value, fallback = DOMAIN_LIFESTYLE_MAX_RADIUS_KM) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(DOMAIN_LIFESTYLE_MAX_RADIUS_KM, Math.max(2, Math.round(numeric)));
+}
+
+function sanitizeDomainLifestyleSearchQuery(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+function buildDomainLifestyleKeywords(value) {
+  const query = sanitizeDomainLifestyleSearchQuery(value).toLowerCase();
+  if (!query) return [];
+  return Array.from(new Set(
+    query
+      .split(/\s+/)
+      .map((item) => item.replace(/[^a-z0-9-]+/g, '').trim())
+      .filter((item) => item.length > 1)
+  )).slice(0, 8);
+}
+
 function logDomainApiWarning(message, detail = '') {
   if (NODE_ENV === 'test') return;
   const suffix = String(detail || '').trim();
   console.warn(`[DOMAIN] ${message}${suffix ? ` ${suffix}` : ''}`);
 }
 
-async function getDomainClientCredentialsAccessToken() {
+async function getDomainClientCredentialsAccessToken(scopeOverride = '') {
   if (!DOMAIN_API_CLIENT_ID || !DOMAIN_API_CLIENT_SECRET) return '';
-  if (_domainApiAccessTokenCache.token && _domainApiAccessTokenCache.expiresAt > (Date.now() + 60 * 1000)) {
-    return _domainApiAccessTokenCache.token;
+  const requestedScope = String(scopeOverride || DOMAIN_API_SCOPE || '').trim() || DOMAIN_API_SCOPE;
+  const cacheKey = requestedScope || '__default__';
+  const cachedToken = _domainApiAccessTokenCache.get(cacheKey);
+  if (cachedToken && cachedToken.token && cachedToken.expiresAt > (Date.now() + 60 * 1000)) {
+    return cachedToken.token;
   }
 
   const authHeader = Buffer.from(`${DOMAIN_API_CLIENT_ID}:${DOMAIN_API_CLIENT_SECRET}`).toString('base64');
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
-    scope: DOMAIN_API_SCOPE
+    scope: requestedScope
   });
 
   try {
@@ -6474,10 +6511,11 @@ async function getDomainClientCredentialsAccessToken() {
       logDomainApiWarning('OAuth token response did not include an access token.');
       return '';
     }
-    _domainApiAccessTokenCache = {
+    const cacheEntry = {
       token: accessToken,
       expiresAt: Date.now() + Math.max(60, expiresInSeconds - 60) * 1000
     };
+    _domainApiAccessTokenCache.set(cacheKey, cacheEntry);
     return accessToken;
   } catch (err) {
     logDomainApiWarning('OAuth token request threw an error.', err && err.message ? String(err.message) : '');
@@ -6485,7 +6523,7 @@ async function getDomainClientCredentialsAccessToken() {
   }
 }
 
-async function buildDomainApiHeaders(method = 'GET') {
+async function buildDomainApiHeaders(method = 'GET', scopeOverride = '') {
   const headers = {
     Accept: 'application/json'
   };
@@ -6502,7 +6540,7 @@ async function buildDomainApiHeaders(method = 'GET') {
     return headers;
   }
 
-  const clientCredentialsToken = await getDomainClientCredentialsAccessToken();
+  const clientCredentialsToken = await getDomainClientCredentialsAccessToken(scopeOverride);
   if (!clientCredentialsToken) return null;
   headers.Authorization = `Bearer ${clientCredentialsToken}`;
   return headers;
@@ -6597,6 +6635,34 @@ function buildLifestyleLocationContext(locationValue, roleMeta, roleRow) {
   };
 }
 
+function normalizeLifestyleSearchLocationContext(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const suburb = String(source.suburb || '').trim();
+  const state = normalizeAustralianStateAbbreviation(source.state || '');
+  const postcode = String(source.postcode || source.postCode || '').trim();
+  const country = String(source.country || 'Australia').trim() || 'Australia';
+  const label = String(source.label || '').trim() || buildLocationLabel([
+    suburb,
+    buildLocationLabel([state, postcode]),
+    country
+  ]);
+  return {
+    suburb,
+    state,
+    postcode,
+    country,
+    label
+  };
+}
+
+function normalizeLifestyleSearchHousehold(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    recommendedBedrooms: Math.max(1, parseWholeNumber(source.recommendedBedrooms, 1)),
+    partySummary: String(source.partySummary || '').trim()
+  };
+}
+
 function parseWholeNumber(value, fallback = 0) {
   const numeric = Number(String(value ?? '').replace(/[^\d.-]+/g, ''));
   if (!Number.isFinite(numeric)) return fallback;
@@ -6666,7 +6732,9 @@ function buildCareerLifestyleCacheKey(applicationId, practiceName, location, hou
       location: String(location || '').trim().toLowerCase(),
       bedrooms: household && household.recommendedBedrooms ? household.recommendedBedrooms : 1,
       whoMoving: household && household.whoMoving ? household.whoMoving : '',
-      childrenCount: household && Number.isFinite(household.childrenCount) ? household.childrenCount : 0
+      childrenCount: household && Number.isFinite(household.childrenCount) ? household.childrenCount : 0,
+      domainConfigured: isDomainLifestyleConfigured(),
+      housingFallbackEnabled: isDomainLifestyleFallbackEnabled()
     }))
     .digest('hex')
     .slice(0, 20);
@@ -6823,7 +6891,7 @@ async function domainApiRequest(resourcePath, options = {}) {
   if (!isDomainLifestyleConfigured()) return null;
   const method = String(options.method || 'GET').toUpperCase();
   const url = resourcePath.startsWith('http') ? resourcePath : `${DOMAIN_API_BASE}${resourcePath}`;
-  const headers = await buildDomainApiHeaders(method);
+  const headers = await buildDomainApiHeaders(method, options.scope || '');
   if (!headers) return null;
   try {
     const response = await fetch(url, {
@@ -6846,21 +6914,256 @@ async function domainApiRequest(resourcePath, options = {}) {
   }
 }
 
-function buildDomainResidentialSearchPayload(locationContext, market, household) {
+function buildDomainResidentialSearchPayload(locationContext, market, household, options = {}) {
   const suburb = String(locationContext && locationContext.suburb || '').trim();
   const state = String(locationContext && locationContext.state || '').trim().toUpperCase();
-  if (!suburb || !state) return null;
-  return {
+  const postcode = String(locationContext && (locationContext.postcode || locationContext.postCode) || '').trim();
+  const label = String(locationContext && locationContext.label || '').trim();
+  const radiusKm = clampDomainLifestyleRadiusKm(options.radiusKm, DOMAIN_LIFESTYLE_MAX_RADIUS_KM);
+  const keywords = buildDomainLifestyleKeywords(options.searchQuery);
+  const minPrice = parseWholeNumber(options.priceMin, 0);
+  let maxPrice = parseWholeNumber(options.priceMax, 0);
+  if (minPrice > 0 && maxPrice > 0 && maxPrice < minPrice) maxPrice = minPrice;
+  const payload = {
     listingType: market === 'buy' ? 'Sale' : 'Rent',
+    propertyEstablishedType: 'Any',
     minBedrooms: Math.max(1, household && household.recommendedBedrooms ? household.recommendedBedrooms : 1),
-    locations: [
-      {
-        suburb,
-        state,
-        includeSurroundingSuburbs: true
-      }
-    ]
+    pageSize: DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE,
+    pageNumber: 1
   };
+  if (minPrice > 0) payload.minPrice = minPrice;
+  if (maxPrice > 0) payload.maxPrice = maxPrice;
+  if (keywords.length) payload.keywords = keywords;
+  if (suburb || state || postcode) {
+    payload.locations = [
+      {
+        state,
+        region: '',
+        area: '',
+        suburb,
+        postCode: postcode,
+        includeSurroundingSuburbs: true,
+        surroundingRadiusInMeters: radiusKm * 1000
+      }
+    ];
+  }
+  if (!payload.locations && label) {
+    payload.locationTerms = label;
+  }
+  if (!payload.locations && !payload.locationTerms) return null;
+  return payload;
+}
+
+function applyLifestyleHousingFilters(listings, options = {}, market = 'rent') {
+  const radiusKm = clampDomainLifestyleRadiusKm(options.radiusKm, DOMAIN_LIFESTYLE_MAX_RADIUS_KM);
+  const query = sanitizeDomainLifestyleSearchQuery(options.searchQuery).toLowerCase();
+  const minPrice = parseWholeNumber(options.priceMin, 0);
+  let maxPrice = parseWholeNumber(options.priceMax, 0);
+  if (minPrice > 0 && maxPrice > 0 && maxPrice < minPrice) maxPrice = minPrice;
+  const sortOrder = String(options.sortOrder || '').trim() === 'price_desc'
+    ? 'price_desc'
+    : (String(options.sortOrder || '').trim() === 'price_asc' ? 'price_asc' : '');
+  return (Array.isArray(listings) ? listings : [])
+    .filter((item) => {
+      const distanceKm = Number(item && item.distanceKm);
+      return !Number.isFinite(distanceKm) || distanceKm <= radiusKm;
+    })
+    .filter((item) => {
+      if (!query) return true;
+      const haystack = [
+        item && item.title,
+        item && item.address,
+        item && item.suburb,
+        item && item.propertyType,
+        item && item.summary
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    })
+    .filter((item) => {
+      const priceValue = parseLifestylePriceValue(item && item.priceValue, market)
+        || parseLifestylePriceValue(item && item.price, market);
+      if (minPrice > 0 && priceValue > 0 && priceValue < minPrice) return false;
+      if (maxPrice > 0 && priceValue > 0 && priceValue > maxPrice) return false;
+      return true;
+    })
+    .sort((left, right) => {
+      const leftDistance = Number(left && left.distanceKm || 0);
+      const rightDistance = Number(right && right.distanceKm || 0);
+      if (sortOrder) {
+        const leftPrice = parseLifestylePriceValue(left && left.priceValue, market)
+          || parseLifestylePriceValue(left && left.price, market);
+        const rightPrice = parseLifestylePriceValue(right && right.priceValue, market)
+          || parseLifestylePriceValue(right && right.price, market);
+        if (leftPrice !== rightPrice) {
+          return sortOrder === 'price_desc'
+            ? rightPrice - leftPrice
+            : leftPrice - rightPrice;
+        }
+      }
+      return leftDistance - rightDistance;
+    });
+}
+
+function normalizeDomainAgencyBrand(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function buildDomainAgencyBrandSearchQueries(locationContext, brand) {
+  const brandLabel = String(brand || '').trim();
+  const suburb = String(locationContext && locationContext.suburb || '').trim();
+  const state = String(locationContext && locationContext.state || '').trim().toUpperCase();
+  const label = String(locationContext && locationContext.label || '').trim().replace(/,\s*Australia\s*$/i, '');
+  const queries = [
+    `name:"${brandLabel}" accountType:residential ${suburb} ${state}`.trim(),
+    `${brandLabel} ${suburb} ${state}`.trim(),
+    `${brandLabel} ${suburb}`.trim(),
+    `${brandLabel} ${label}`.trim(),
+    brandLabel
+  ];
+  return Array.from(new Set(queries.map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean))).slice(0, 5);
+}
+
+function scoreDomainAgencySearchMatch(agency, brand, locationContext, market) {
+  if (!agency || typeof agency !== 'object') return -1;
+  const agencyName = normalizeDomainAgencyBrand(agency.name);
+  const brandKey = normalizeDomainAgencyBrand(brand);
+  if (!agencyName || !brandKey || !agencyName.includes(brandKey)) return -1;
+  const suburb = normalizeDomainAgencyBrand(locationContext && locationContext.suburb);
+  const state = String(locationContext && locationContext.state || '').trim().toUpperCase();
+  let score = 100;
+  if (suburb && normalizeDomainAgencyBrand(agency.suburb) === suburb) score += 50;
+  if (suburb && agencyName.includes(suburb)) score += 20;
+  if (state && String(agency.state || '').trim().toUpperCase() === state) score += 15;
+  if (agency.inSuburb === true) score += 10;
+  if (market === 'rent') score += Math.min(30, Number(agency.numberForRent || 0) || 0);
+  if (market === 'buy') score += Math.min(30, Number(agency.numberForSale || 0) || 0);
+  if (agency.hasRecentlySold) score += 5;
+  return score;
+}
+
+async function searchDomainAgenciesForBrand(locationContext, brand, market) {
+  const queries = buildDomainAgencyBrandSearchQueries(locationContext, brand);
+  const matches = [];
+  const seenAgencyIds = new Set();
+  for (const query of queries) {
+    const searchParams = new URLSearchParams({
+      q: query,
+      pageNumber: '1',
+      pageSize: '12'
+    });
+    const response = await domainApiRequest(`/v1/agencies?${searchParams.toString()}`, {
+      scope: DOMAIN_AGENCIES_READ_SCOPE
+    });
+    const rows = Array.isArray(response) ? response : [];
+    rows.forEach((agency) => {
+      const score = scoreDomainAgencySearchMatch(agency, brand, locationContext, market);
+      const agencyId = String(agency && agency.id || '').trim();
+      if (!agencyId || score < 0 || seenAgencyIds.has(agencyId)) return;
+      seenAgencyIds.add(agencyId);
+      matches.push({ ...agency, score, brand });
+    });
+    if (matches.length >= 3) break;
+  }
+  return matches
+    .sort((left, right) => Number(right.score || 0) - Number(left.score || 0))
+    .slice(0, 3);
+}
+
+async function collectDomainSelectedAgencyMatches(locationContext, market) {
+  const brands = DOMAIN_LIFESTYLE_AGENCY_BRANDS.filter(Boolean);
+  if (!brands.length) return [];
+  const byBrand = await Promise.all(brands.map((brand) => searchDomainAgenciesForBrand(locationContext, brand, market)));
+  const matches = byBrand.flat();
+  const deduped = [];
+  const seen = new Set();
+  matches
+    .sort((left, right) => Number(right.score || 0) - Number(left.score || 0))
+    .forEach((agency) => {
+      const agencyId = String(agency && agency.id || '').trim();
+      if (!agencyId || seen.has(agencyId)) return;
+      seen.add(agencyId);
+      deduped.push(agency);
+    });
+  return deduped.slice(0, 8);
+}
+
+function matchesDomainAgencyListingMarket(record, market) {
+  const value = String(
+    pickFirstDefined(
+      record && record.objective,
+      record && record.saleMode,
+      record && record.listingType
+    ) || ''
+  ).trim().toLowerCase();
+  if (!value) return true;
+  if (market === 'rent') return /(rent|lease)/i.test(value);
+  return /(buy|sale|auction)/i.test(value);
+}
+
+function normalizeDomainAgencyListing(record, practiceCoords, market, agency) {
+  const normalized = normalizeDomainListing(record, practiceCoords, market);
+  if (!normalized) return null;
+  const agencyName = String(
+    pickFirstDefined(
+      agency && agency.name,
+      record && record.advertiser && record.advertiser.name,
+      record && record.advertiserName,
+      normalized.sourceLabel
+    ) || 'Domain'
+  ).trim();
+  return {
+    ...normalized,
+    sourceLabel: agencyName
+  };
+}
+
+async function fetchDomainSelectedAgencyLifestyleListings(locationContext, practiceCoords, market, household, options = {}) {
+  const agencies = await collectDomainSelectedAgencyMatches(locationContext, market);
+  if (!agencies.length) return [];
+  const listingResponses = await Promise.all(agencies.map(async (agency) => {
+    const searchParams = new URLSearchParams({
+      listingStatusFilter: 'live',
+      pageNumber: '1',
+      pageSize: '80'
+    });
+    const response = await domainApiRequest(`/v1/agencies/${encodeURIComponent(String(agency.id))}/listings?${searchParams.toString()}`);
+    const rows = Array.isArray(response) ? response : [];
+    return rows
+      .filter((item) => String(item && item.channel || '').trim().toLowerCase() === 'residential')
+      .filter((item) => matchesDomainAgencyListingMarket(item, market))
+      .map((item) => normalizeDomainAgencyListing(item, practiceCoords, market, agency))
+      .filter(Boolean);
+  }));
+  const deduped = [];
+  const seenIds = new Set();
+  listingResponses.flat().forEach((item) => {
+    const listingId = String(item && item.id || '').trim();
+    if (!listingId || seenIds.has(listingId)) return;
+    seenIds.add(listingId);
+    deduped.push(item);
+  });
+  const bedroomFiltered = deduped.filter((item) => (
+    Number(item && item.bedrooms || 0) >= (household && household.recommendedBedrooms ? household.recommendedBedrooms : 1)
+  ));
+  const candidateRows = bedroomFiltered.length ? bedroomFiltered : deduped;
+  return applyLifestyleHousingFilters(candidateRows, options, market)
+    .slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
+}
+
+function buildLifestyleHousingFallbackCatalog(locationContext, practiceCoords) {
+  return normalizeCareerHeroCityKey(locationContext && locationContext.suburb) === 'tweed_heads'
+    ? buildTweedLifestyleHousingSeeds(practiceCoords)
+    : buildGenericLifestyleHousingSeeds(practiceCoords, locationContext);
+}
+
+function buildLifestyleFallbackListings(fallbackRows, practiceCoords, market, locationContext, household, options = {}) {
+  const normalizedFallback = (Array.isArray(fallbackRows) ? fallbackRows : [])
+    .map((item) => normalizeLifestyleListing(item, practiceCoords, market, locationContext));
+  const bedroomFiltered = normalizedFallback.filter((item) => (
+    Number(item && item.bedrooms || 0) >= (household && household.recommendedBedrooms ? household.recommendedBedrooms : 1)
+  ));
+  const candidateRows = bedroomFiltered.length ? bedroomFiltered : normalizedFallback;
+  return applyLifestyleHousingFilters(candidateRows, options, market).slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
 }
 
 function pickFirstDefined(...values) {
@@ -7178,8 +7481,8 @@ function normalizeDomainListing(record, practiceCoords, market) {
   };
 }
 
-async function fetchDomainLifestyleListings(locationContext, practiceCoords, market, household) {
-  const payload = buildDomainResidentialSearchPayload(locationContext, market, household);
+async function fetchDomainLifestyleListings(locationContext, practiceCoords, market, household, options = {}) {
+  const payload = buildDomainResidentialSearchPayload(locationContext, market, household, options);
   if (!payload) return [];
   const response = await domainApiRequest('/v1/listings/residential/_search', {
     method: 'POST',
@@ -7188,13 +7491,11 @@ async function fetchDomainLifestyleListings(locationContext, practiceCoords, mar
   // Residential search already includes the fields we need for cards and map pins.
   // Avoid secondary listing-detail calls because those can require agency-linked auth.
   const rows = collectDomainResidentialSearchListings(response);
-  return rows
+  return applyLifestyleHousingFilters(rows
     .map((item) => normalizeDomainListing(item, practiceCoords, market))
     .filter(Boolean)
     .filter((item) => !!item.sourceUrl && !!item.imageUrl)
-    .filter((item) => item.distanceKm <= 25)
-    .sort((left, right) => left.distanceKm - right.distanceKm)
-    .slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
+  , options, market).slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
 }
 
 async function querySchoolFinderSql(query) {
@@ -7447,34 +7748,61 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
     || (normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads' ? { lat: -28.1883, lng: 153.5375 } : null);
 
   const liveDomainEnabled = isDomainLifestyleConfigured();
-  const allowLifestyleHousingFallback = !liveDomainEnabled && ALLOW_DOMAIN_LIFESTYLE_FALLBACK;
-  const fallbackHousing = normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads'
-    ? buildTweedLifestyleHousingSeeds(practiceCoords)
-    : buildGenericLifestyleHousingSeeds(practiceCoords, locationContext);
+  const allowLifestyleHousingFallback = isDomainLifestyleFallbackEnabled();
+  const fallbackHousing = buildLifestyleHousingFallbackCatalog(locationContext, practiceCoords);
 
-  const [liveRentListings, liveBuyListings] = practiceCoords
+  const [liveRentListings, liveBuyListings] = liveDomainEnabled
     ? await Promise.all([
-        fetchDomainLifestyleListings(locationContext, practiceCoords, 'rent', household),
-        fetchDomainLifestyleListings(locationContext, practiceCoords, 'buy', household)
+        fetchDomainLifestyleListings(locationContext, practiceCoords, 'rent', household, {
+          radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
+        }),
+        fetchDomainLifestyleListings(locationContext, practiceCoords, 'buy', household, {
+          radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
+        })
+      ])
+    : [[], []];
+  const [agencyRentListings, agencyBuyListings] = liveDomainEnabled
+    ? await Promise.all([
+        liveRentListings.length
+          ? Promise.resolve([])
+          : fetchDomainSelectedAgencyLifestyleListings(locationContext, practiceCoords, 'rent', household, {
+              radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
+            }),
+        liveBuyListings.length
+          ? Promise.resolve([])
+          : fetchDomainSelectedAgencyLifestyleListings(locationContext, practiceCoords, 'buy', household, {
+              radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
+            })
       ])
     : [[], []];
 
-  function selectLifestyleHousing(liveRows, fallbackRows, market) {
-    const normalizedFallback = fallbackRows.map((item) => normalizeLifestyleListing(item, practiceCoords, market, locationContext));
+  function selectLifestyleHousing(liveRows, agencyRows, fallbackRows, market) {
     const filteredLive = (Array.isArray(liveRows) ? liveRows : [])
       .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
       .slice(0, 18);
     if (filteredLive.length) return filteredLive;
-    if (!allowLifestyleHousingFallback) return [];
-    const filteredFallback = normalizedFallback
+    const filteredAgency = (Array.isArray(agencyRows) ? agencyRows : [])
       .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
       .slice(0, 18);
-    return filteredFallback.length ? filteredFallback : normalizedFallback.slice(0, 18);
+    if (filteredAgency.length) return filteredAgency;
+    if (!allowLifestyleHousingFallback) return [];
+    return buildLifestyleFallbackListings(
+      fallbackRows,
+      practiceCoords,
+      market,
+      locationContext,
+      household,
+      { radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM }
+    );
   }
 
   const housingByMarket = {
-    rent: selectLifestyleHousing(liveRentListings, fallbackHousing.rent, 'rent'),
-    buy: selectLifestyleHousing(liveBuyListings, fallbackHousing.buy, 'buy')
+    rent: selectLifestyleHousing(liveRentListings, agencyRentListings, fallbackHousing.rent, 'rent'),
+    buy: selectLifestyleHousing(liveBuyListings, agencyBuyListings, fallbackHousing.buy, 'buy')
+  };
+  const housingSources = {
+    rent: liveRentListings.length ? 'domain' : (agencyRentListings.length ? 'selected_agencies' : (allowLifestyleHousingFallback ? 'fallback' : 'none')),
+    buy: liveBuyListings.length ? 'domain' : (agencyBuyListings.length ? 'selected_agencies' : (allowLifestyleHousingFallback ? 'fallback' : 'none'))
   };
 
   const schools = practiceCoords
@@ -7498,8 +7826,12 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
       defaultRadiusKm: 5,
       recommendedBedrooms: household.recommendedBedrooms,
       partySummary: household.partySummary,
-      liveSource: 'domain',
+      liveSource: housingSources.rent === 'domain' || housingSources.buy === 'domain' ? 'domain' : 'selected_agencies',
       liveEnabled: liveDomainEnabled,
+      fallbackEnabled: allowLifestyleHousingFallback,
+      selectedAgencyBrands: DOMAIN_LIFESTYLE_AGENCY_BRANDS,
+      searchContext: locationContext,
+      sources: housingSources,
       rent: housingByMarket.rent,
       buy: housingByMarket.buy
     },
@@ -9081,6 +9413,87 @@ async function handleApi(req, res, pathname) {
       heroImageSourceUrl: resolved.heroImageSourceUrl,
       heroImageCredit: resolved.heroImageCredit,
       status: resolved.heroImageStatus
+    });
+    return;
+  }
+
+  if (pathname === '/api/career/housing-search' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const market = body && body.market === 'buy' ? 'buy' : 'rent';
+    const locationContext = normalizeLifestyleSearchLocationContext(body && body.locationContext);
+    if (!locationContext.label && !locationContext.suburb && !locationContext.state && !locationContext.postcode) {
+      sendJson(res, 400, { ok: false, message: 'Missing housing search location.' });
+      return;
+    }
+
+    const household = normalizeLifestyleSearchHousehold(body && body.household);
+    const practiceCoords = buildLifestyleCoordinate(
+      body && body.practiceCoords && body.practiceCoords.lat,
+      pickFirstDefined(
+        body && body.practiceCoords && body.practiceCoords.lng,
+        body && body.practiceCoords && body.practiceCoords.lon,
+        body && body.practiceCoords && body.practiceCoords.longitude
+      )
+    );
+    const searchOptions = {
+      radiusKm: body && body.radiusKm,
+      searchQuery: body && body.searchQuery,
+      priceMin: body && body.priceMin,
+      priceMax: body && body.priceMax,
+      sortOrder: body && body.sortOrder
+    };
+    const liveEnabled = isDomainLifestyleConfigured();
+    const fallbackEnabled = isDomainLifestyleFallbackEnabled();
+    const liveListings = liveEnabled
+      ? await fetchDomainLifestyleListings(locationContext, practiceCoords, market, household, searchOptions)
+      : [];
+    const agencyListings = liveEnabled && !liveListings.length
+      ? await fetchDomainSelectedAgencyLifestyleListings(locationContext, practiceCoords, market, household, searchOptions)
+      : [];
+    let source = 'none';
+    let listings = liveListings;
+    let liveUsed = liveListings.length > 0;
+
+    if (!listings.length && agencyListings.length) {
+      listings = agencyListings;
+      source = 'selected_agencies';
+      liveUsed = false;
+    } else if (!listings.length && fallbackEnabled) {
+      const fallbackCatalog = buildLifestyleHousingFallbackCatalog(locationContext, practiceCoords);
+      listings = buildLifestyleFallbackListings(
+        fallbackCatalog[market],
+        practiceCoords,
+        market,
+        locationContext,
+        household,
+        searchOptions
+      );
+      source = 'fallback';
+      liveUsed = false;
+    } else if (listings.length) {
+      source = 'domain';
+    } else if (liveEnabled) {
+      source = 'domain';
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      market,
+      liveEnabled,
+      fallbackEnabled,
+      liveUsed,
+      source,
+      listings
     });
     return;
   }
@@ -10669,6 +11082,364 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ─── SUPPORT TICKET CRUD ───────────────────────────────────────────
+  // GET /api/support/tickets — list current user's tickets
+  if (pathname === '/api/support/tickets' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session.' }); return; }
+
+    let cases = [];
+    if (isSupabaseDbConfigured()) {
+      try {
+        const remote = await getSupabaseUserStateByEmail(email);
+        const st = remote && remote.state ? remote.state : {};
+        const parsed = parseJsonLike(st.gpLinkSupportCases);
+        cases = Array.isArray(parsed) ? parsed : [];
+      } catch (e) { console.error('[SupportTickets] Supabase read error:', e.message); }
+    } else {
+      const dbState = loadDbState();
+      const userState = dbState.userState[email] || {};
+      const parsed = parseJsonLike(userState.gpLinkSupportCases);
+      cases = Array.isArray(parsed) ? parsed : [];
+    }
+    sendJson(res, 200, { ok: true, tickets: cases });
+    return;
+  }
+
+  // POST /api/support/tickets — create a new ticket
+  if (pathname === '/api/support/tickets' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request.' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const ticket = {
+      id: typeof body.id === 'string' && body.id ? body.id : ('case_' + Date.now() + '_' + Math.floor(Math.random() * 1000)),
+      caseCode: typeof body.caseCode === 'string' && body.caseCode ? body.caseCode : ('Case GP-' + now.slice(0, 10).replace(/-/g, '') + '-' + String(Math.floor(Math.random() * 1000)).padStart(3, '0')),
+      title: String(body.title || 'Support request').slice(0, 200),
+      category: ['EPIC', 'AMC', 'Documents', 'AHPRA', 'Provider', 'Contract', 'Other'].includes(body.category) ? body.category : 'Other',
+      priority: ['normal', 'blocked', 'time_sensitive'].includes(body.priority) ? body.priority : 'normal',
+      status: 'open',
+      unread: false,
+      createdAt: now,
+      updatedAt: now,
+      thread: Array.isArray(body.thread) ? body.thread.slice(0, 1).map(e => ({
+        from: 'me',
+        text: String(e && e.text || '').slice(0, 5000),
+        ts: now,
+        attachments: []
+      })) : []
+    };
+
+    if (isSupabaseDbConfigured()) {
+      try {
+        const remote = await getSupabaseUserStateByEmail(email);
+        const st = remote && remote.state ? remote.state : {};
+        const parsed = parseJsonLike(st.gpLinkSupportCases);
+        const cases = Array.isArray(parsed) ? parsed : [];
+        cases.unshift(ticket);
+        const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
+        await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+      } catch (e) { console.error('[SupportTickets] Supabase write error:', e.message); }
+    } else {
+      const dbState = loadDbState();
+      const userState = dbState.userState[email] || {};
+      const parsed = parseJsonLike(userState.gpLinkSupportCases);
+      const cases = Array.isArray(parsed) ? parsed : [];
+      cases.unshift(ticket);
+      userState.gpLinkSupportCases = JSON.stringify(cases);
+      userState.updatedAt = now;
+      dbState.userState[email] = userState;
+      saveDbState(dbState);
+    }
+
+    invalidateAdminDashboardCache();
+    console.log(`[SupportTickets] Created ticket ${ticket.id} for ${email}`);
+    sendJson(res, 200, { ok: true, ticket });
+    return;
+  }
+
+  // POST /api/support/tickets/:id/messages — add a message to a ticket
+  const ticketMsgMatch = pathname.match(/^\/api\/support\/tickets\/([^/]+)\/messages$/);
+  if (ticketMsgMatch && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session.' }); return; }
+
+    const ticketId = decodeURIComponent(ticketMsgMatch[1] || '').trim();
+    if (!ticketId) { sendJson(res, 400, { ok: false, message: 'Invalid ticket id.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request.' });
+      return;
+    }
+
+    const text = String(body.text || '').trim().slice(0, 5000);
+    if (!text) { sendJson(res, 400, { ok: false, message: 'Message text required.' }); return; }
+    const from = body.from === 'gp' ? 'gp' : 'me';
+    const now = new Date().toISOString();
+
+    function addMessageToCase(cases) {
+      const idx = cases.findIndex(c => c && String(c.id || '') === ticketId);
+      if (idx === -1) return null;
+      if (!Array.isArray(cases[idx].thread)) cases[idx].thread = [];
+      cases[idx].thread.push({ from, text, ts: now, attachments: [] });
+      cases[idx].updatedAt = now;
+      if (from === 'gp') cases[idx].unread = true;
+      return cases[idx];
+    }
+
+    let updatedCase = null;
+    if (isSupabaseDbConfigured()) {
+      try {
+        const remote = await getSupabaseUserStateByEmail(email);
+        const st = remote && remote.state ? remote.state : {};
+        const parsed = parseJsonLike(st.gpLinkSupportCases);
+        const cases = Array.isArray(parsed) ? parsed : [];
+        updatedCase = addMessageToCase(cases);
+        if (updatedCase) {
+          const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
+          await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+        }
+      } catch (e) { console.error('[SupportTickets] Message add error:', e.message); }
+    } else {
+      const dbState = loadDbState();
+      const userState = dbState.userState[email] || {};
+      const parsed = parseJsonLike(userState.gpLinkSupportCases);
+      const cases = Array.isArray(parsed) ? parsed : [];
+      updatedCase = addMessageToCase(cases);
+      if (updatedCase) {
+        userState.gpLinkSupportCases = JSON.stringify(cases);
+        userState.updatedAt = now;
+        dbState.userState[email] = userState;
+        saveDbState(dbState);
+      }
+    }
+
+    if (!updatedCase) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, ticket: updatedCase });
+    return;
+  }
+
+  // PUT /api/support/tickets/:id/status — update ticket status
+  const ticketStatusMatch = pathname.match(/^\/api\/support\/tickets\/([^/]+)\/status$/);
+  if (ticketStatusMatch && req.method === 'PUT') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'No session.' }); return; }
+
+    const ticketId = decodeURIComponent(ticketStatusMatch[1] || '').trim();
+    if (!ticketId) { sendJson(res, 400, { ok: false, message: 'Invalid ticket id.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request.' });
+      return;
+    }
+
+    const status = body.status === 'closed' ? 'closed' : 'open';
+    const now = new Date().toISOString();
+
+    function updateCaseStatus(cases) {
+      const idx = cases.findIndex(c => c && String(c.id || '') === ticketId);
+      if (idx === -1) return null;
+      cases[idx].status = status;
+      cases[idx].updatedAt = now;
+      return cases[idx];
+    }
+
+    let updatedCase = null;
+    if (isSupabaseDbConfigured()) {
+      try {
+        const remote = await getSupabaseUserStateByEmail(email);
+        const st = remote && remote.state ? remote.state : {};
+        const parsed = parseJsonLike(st.gpLinkSupportCases);
+        const cases = Array.isArray(parsed) ? parsed : [];
+        updatedCase = updateCaseStatus(cases);
+        if (updatedCase) {
+          const nextState = { ...st, gpLinkSupportCases: JSON.stringify(cases), updatedAt: now };
+          await upsertSupabaseUserState(remote ? (remote.userId || session.user_id) : session.user_id, nextState, now);
+        }
+      } catch (e) { console.error('[SupportTickets] Status update error:', e.message); }
+    } else {
+      const dbState = loadDbState();
+      const userState = dbState.userState[email] || {};
+      const parsed = parseJsonLike(userState.gpLinkSupportCases);
+      const cases = Array.isArray(parsed) ? parsed : [];
+      updatedCase = updateCaseStatus(cases);
+      if (updatedCase) {
+        userState.gpLinkSupportCases = JSON.stringify(cases);
+        userState.updatedAt = now;
+        dbState.userState[email] = userState;
+        saveDbState(dbState);
+      }
+    }
+
+    if (!updatedCase) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, ticket: updatedCase });
+    return;
+  }
+
+  // ─── ADMIN TICKET ENDPOINTS ────────────────────────────────────────
+  // GET /api/admin/tickets — list ALL tickets across all users (admin only)
+  if (pathname === '/api/admin/tickets' && req.method === 'GET') {
+    const adminSession = requireAdminSession(req, res);
+    if (!adminSession) return;
+
+    const tickets = [];
+    if (isSupabaseDbConfigured()) {
+      try {
+        const allStatesRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?select=user_id,state,updated_at`, {
+          headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }
+        });
+        const allStates = await allStatesRes.json().catch(() => []);
+        if (Array.isArray(allStates)) {
+          allStates.forEach(row => {
+            const st = row && row.state && typeof row.state === 'object' ? row.state : {};
+            const email = st.email || st.owner || row.user_id || '';
+            const parsed = parseJsonLike(st.gpLinkSupportCases);
+            if (Array.isArray(parsed)) {
+              parsed.forEach(c => {
+                if (c && typeof c === 'object') {
+                  tickets.push({ ...c, candidateEmail: email, candidateId: row.user_id || email });
+                }
+              });
+            }
+          });
+        }
+      } catch (e) { console.error('[AdminTickets] Supabase error:', e.message); }
+    } else {
+      const dbState = loadDbState();
+      Object.entries(dbState.userState || {}).forEach(([email, userState]) => {
+        const parsed = parseJsonLike(userState.gpLinkSupportCases);
+        if (Array.isArray(parsed)) {
+          parsed.forEach(c => {
+            if (c && typeof c === 'object') {
+              tickets.push({ ...c, candidateEmail: email, candidateId: email });
+            }
+          });
+        }
+      });
+    }
+
+    tickets.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+    sendJson(res, 200, { ok: true, tickets });
+    return;
+  }
+
+  // POST /api/admin/tickets/:id/reply — admin replies to a ticket
+  const adminTicketReplyMatch = pathname.match(/^\/api\/admin\/tickets\/([^/]+)\/reply$/);
+  if (adminTicketReplyMatch && req.method === 'POST') {
+    const adminSession = requireAdminSession(req, res);
+    if (!adminSession) return;
+
+    const ticketId = decodeURIComponent(adminTicketReplyMatch[1] || '').trim();
+    if (!ticketId) { sendJson(res, 400, { ok: false, message: 'Invalid ticket id.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request.' });
+      return;
+    }
+
+    const text = String(body.text || '').trim().slice(0, 5000);
+    const candidateEmail = String(body.candidateEmail || '').trim();
+    if (!text) { sendJson(res, 400, { ok: false, message: 'Reply text required.' }); return; }
+    if (!candidateEmail) { sendJson(res, 400, { ok: false, message: 'Candidate email required.' }); return; }
+
+    const now = new Date().toISOString();
+    const updatedTicket = await persistSupportCaseUpdate(ticketId, (item) => {
+      if (!Array.isArray(item.thread)) item.thread = [];
+      item.thread.push({ from: 'gp', text, ts: now, attachments: [] });
+      item.updatedAt = now;
+      item.unread = true;
+      return item;
+    }, { candidateEmail });
+
+    if (!updatedTicket) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, ticket: updatedTicket });
+    return;
+  }
+
+  // PUT /api/admin/tickets/:id/status — admin changes ticket status
+  const adminTicketStatusMatch = pathname.match(/^\/api\/admin\/tickets\/([^/]+)\/status$/);
+  if (adminTicketStatusMatch && req.method === 'PUT') {
+    const adminSession = requireAdminSession(req, res);
+    if (!adminSession) return;
+
+    const ticketId = decodeURIComponent(adminTicketStatusMatch[1] || '').trim();
+    if (!ticketId) { sendJson(res, 400, { ok: false, message: 'Invalid ticket id.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request.' });
+      return;
+    }
+
+    const status = body.status === 'closed' ? 'closed' : 'open';
+    const candidateEmail = String(body.candidateEmail || '').trim();
+    if (!candidateEmail) { sendJson(res, 400, { ok: false, message: 'Candidate email required.' }); return; }
+
+    const now = new Date().toISOString();
+    const updatedTicket = await persistSupportCaseUpdate(ticketId, (item) => {
+      item.status = status;
+      item.updatedAt = now;
+      return item;
+    }, { candidateEmail });
+
+    if (!updatedTicket) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, ticket: updatedTicket });
+    return;
+  }
+
+  // PUT /api/admin/tickets/:id/assign — admin assigns a ticket
+  const adminTicketAssignMatch = pathname.match(/^\/api\/admin\/tickets\/([^/]+)\/assign$/);
+  if (adminTicketAssignMatch && req.method === 'PUT') {
+    const adminSession = requireAdminSession(req, res);
+    if (!adminSession) return;
+
+    const ticketId = decodeURIComponent(adminTicketAssignMatch[1] || '').trim();
+    if (!ticketId) { sendJson(res, 400, { ok: false, message: 'Invalid ticket id.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request.' });
+      return;
+    }
+
+    const assignee = String(body.assignee || '').trim().slice(0, 200);
+    const candidateEmail = String(body.candidateEmail || '').trim();
+    if (!candidateEmail) { sendJson(res, 400, { ok: false, message: 'Candidate email required.' }); return; }
+
+    const now = new Date().toISOString();
+    const updatedTicket = await persistSupportCaseUpdate(ticketId, (item) => {
+      item.assignedTo = assignee;
+      item.updatedAt = now;
+      return item;
+    }, { candidateEmail });
+
+    if (!updatedTicket) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, ticket: updatedTicket });
+    return;
+  }
+
   if (pathname === '/api/account/update-name' && req.method === 'POST') {
     const session = requireSession(req, res);
     if (!session) return;
@@ -11873,9 +12644,12 @@ if (process.env.VERCEL) {
 
 module.exports.createServer = createServer;
 module.exports.__testUtils = {
+  buildDomainAgencyBrandSearchQueries,
   buildDomainResidentialSearchPayload,
   collectDomainResidentialSearchListings,
   extractDomainListingCoordinates,
+  matchesDomainAgencyListingMarket,
+  normalizeDomainAgencyListing,
   normalizeDomainListing,
   normalizeDomainSourceUrl,
   parseLifestylePriceValue,

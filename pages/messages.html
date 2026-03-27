@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Messages - GP Link</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Support - GP Link</title>
   <script src="../js/nav-shell-bridge.js?v=20260324a"></script>
-  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/auth-guard.js?v=20260328a" defer></script>
   <script src="../js/state-sync.js" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
@@ -22,945 +23,626 @@
       --line: #e8edf5;
       --blue: #2563eb;
       --blue2: #1d4ed8;
+      --green: #10b981;
+      --orange: #f59e0b;
+      --red: #ef4444;
       --shadow-soft: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
       --radius-lg: 20px;
       --radius-md: 14px;
       --radius-sm: 10px;
     }
-
-    * { box-sizing: border-box; }
-    h1, h2, h3, p { overflow-wrap: anywhere; }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    h1,h2,h3,h4,p { overflow-wrap: anywhere; }
     body {
-      margin: 0;
       font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--bg);
       color: var(--text);
-      padding: 0;
+      min-height: 100dvh;
+      overflow-x: hidden;
     }
 
-    .shell {
-      max-width: 960px;
+    /* ─── APP SHELL ─── */
+    .app-shell {
+      max-width: 480px;
       margin: 0 auto;
-      background: transparent;
-      border: 0;
-      border-radius: 0;
-      box-shadow: none;
-      overflow: visible;
-      padding: 0 16px 120px;
-    }
-
-    .topbar {
-      margin-top: 18px;
-      padding: 14px 16px;
-      border-radius: var(--radius-lg);
-      border: 1px solid #e8edf5;
-      background: #ffffff;
-      box-shadow: var(--shadow-soft);
-    }
-
-    .topbar-row {
-      display: grid;
-      grid-template-columns: auto 1fr auto;
-      align-items: center;
-      min-height: 56px;
-      gap: 14px;
-    }
-
-    .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
-    .brand-logo img { display: block; width: 178px; height: auto; }
-
-    .nav-menu {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      justify-content: center;
+      min-height: 100dvh;
       position: relative;
-      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
-      padding: 4px;
-      border-radius: 14px;
+      background: var(--bg);
     }
 
-    .nav-item { position: relative; z-index: 2; transition: color .18s ease, font-weight .18s ease; }
+    /* ─── VIEW SYSTEM ─── */
+    .view { display: none; flex-direction: column; min-height: calc(100dvh - 64px); padding-bottom: 80px; animation: viewIn .26s ease; }
+    .view.active { display: flex; }
+    @keyframes viewIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
 
-    .nav-link,
-    .account-pill {
-      text-decoration: none;
-      border: 0;
-      background: transparent;
-      color: #111827;
-      padding: 8px 12px;
-      font-size: 13px;
-      font-weight: 500;
-      white-space: nowrap;
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      line-height: 1.15;
-      min-width: 92px;
-      border-radius: 12px;
-      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    .slide-view {
+      position: fixed; inset: 0; z-index: 100; background: var(--bg);
+      transform: translateX(100%); transition: transform .3s cubic-bezier(.22,.9,.18,1.02);
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    .slide-view.open { transform: translateX(0); }
+    .slide-inner { max-width: 480px; margin: 0 auto; padding: 0 16px 100px; }
+
+    /* ─── HEADERS ─── */
+    .view-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 16px 14px; position: sticky; top: 0; background: var(--bg); z-index: 10;
+    }
+    .view-header-left { display: flex; align-items: center; gap: 12px; }
+    .view-title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+
+    .icon-btn {
+      width: 40px; height: 40px; border: 0; background: transparent; border-radius: 12px;
+      display: grid; place-items: center; cursor: pointer; color: var(--text); transition: background .15s;
+    }
+    .icon-btn:hover { background: rgba(0,0,0,.05); }
+    .icon-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ─── SEARCH ─── */
+    .search-wrap { padding: 0 16px 12px; }
+    .search-bar {
+      display: flex; align-items: center; gap: 10px; background: #fff;
+      border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; box-shadow: var(--shadow-soft);
+    }
+    .search-bar svg { width: 18px; height: 18px; color: #94a3b8; stroke: currentColor; fill: none; stroke-width: 2; flex-shrink: 0; }
+    .search-bar input { border: 0; background: transparent; font: inherit; font-size: 14px; color: var(--text); width: 100%; outline: none; }
+    .search-bar input::placeholder { color: #94a3b8; }
+
+    .section-label { padding: 10px 16px 6px; font-size: 14px; font-weight: 700; color: var(--text); }
+
+    /* ─── TICKET LIST ─── */
+    .ticket-list { padding: 0 16px; display: grid; gap: 10px; }
+    .ticket-card {
+      background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 14px;
+      display: grid; gap: 10px; cursor: pointer; transition: box-shadow .18s, border-color .18s;
+      box-shadow: 0 2px 8px -4px rgba(2,6,23,.08);
+    }
+    .ticket-card:hover { border-color: #bfdbfe; box-shadow: 0 8px 20px -10px rgba(37,99,235,.15); }
+    .ticket-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .ticket-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; }
+    .badge-status { background: #dbeafe; color: #1d4ed8; }
+    .badge-status.new { background: #dbeafe; color: #1d4ed8; }
+    .badge-status.in-progress { background: #d1fae5; color: #065f46; }
+    .badge-status.closed { background: #f1f5f9; color: #475569; }
+    .badge-priority.high { background: #fee2e2; color: #dc2626; }
+    .badge-priority.medium { background: #fef3c7; color: #b45309; }
+    .badge-priority.low { background: #e0f2fe; color: #0369a1; }
+
+    .ticket-time { font-size: 12px; color: var(--muted); font-weight: 500; white-space: nowrap; }
+    .ticket-name { font-size: 15px; font-weight: 700; color: var(--text); }
+    .ticket-preview { font-size: 13px; color: var(--muted); font-weight: 500; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ticket-footer { display: flex; align-items: center; justify-content: space-between; }
+    .ticket-assigned { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
+
+    .avatar-stack { display: flex; }
+    .avatar-dot {
+      width: 22px; height: 22px; border-radius: 999px; border: 2px solid #fff; margin-left: -6px;
+      display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff;
+    }
+    .avatar-dot:first-child { margin-left: 0; }
+    .avatar-dot.purple { background: linear-gradient(135deg, #7c3aed, #6366f1); }
+    .avatar-dot.blue { background: linear-gradient(135deg, #2563eb, #0ea5e9); }
+    .avatar-dot.green { background: linear-gradient(135deg, #10b981, #34d399); }
+
+    .ticket-stats { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+    .ticket-stats span { display: inline-flex; align-items: center; gap: 3px; }
+    .ticket-stats svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+    /* ─── FAB ─── */
+    .fab {
+      position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%);
+      background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff; border: 0;
+      border-radius: 999px; padding: 14px 28px; font: inherit; font-size: 15px; font-weight: 700;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+      box-shadow: 0 12px 32px -10px rgba(37,99,235,.6); z-index: 20;
+      transition: transform .18s, box-shadow .18s; white-space: nowrap;
+    }
+    .fab:hover { transform: translateX(-50%) scale(1.03); box-shadow: 0 16px 36px -10px rgba(37,99,235,.7); }
+    .fab svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.5; }
+
+    /* ─── ARTICLES ─── */
+    .articles-list { padding: 0 16px; display: grid; gap: 8px; }
+    .article-item { background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; transition: border-color .15s; }
+    .article-item.expanded { border-color: #bfdbfe; }
+    .article-header {
+      display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+      cursor: pointer; border: 0; background: transparent; width: 100%; text-align: left; font: inherit;
+    }
+    .article-icon { width: 36px; height: 36px; border-radius: 10px; background: #eff6ff; display: grid; place-items: center; flex-shrink: 0; }
+    .article-icon svg { width: 18px; height: 18px; stroke: #2563eb; fill: none; stroke-width: 2; }
+    .article-info { flex: 1; min-width: 0; }
+    .article-title { font-size: 14px; font-weight: 700; color: var(--text); margin: 0; }
+    .article-views { font-size: 12px; color: var(--muted); font-weight: 500; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+    .article-views svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 2; }
+    .article-chevron { width: 20px; height: 20px; color: #94a3b8; transition: transform .2s; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 2; }
+    .article-item.expanded .article-chevron { transform: rotate(180deg); }
+    .article-body { display: none; padding: 0 16px 16px; font-size: 13px; color: #475569; line-height: 1.6; font-weight: 500; }
+    .article-item.expanded .article-body { display: block; }
+    .article-feedback { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--muted); font-weight: 600; }
+    .feedback-btn {
+      width: 32px; height: 32px; border: 1px solid var(--line); background: #fff; border-radius: 8px;
+      display: grid; place-items: center; cursor: pointer; transition: background .15s, border-color .15s;
+    }
+    .feedback-btn:hover { background: #eff6ff; border-color: #bfdbfe; }
+    .feedback-btn.selected { background: #dbeafe; border-color: #93c5fd; }
+    .feedback-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+    /* ─── HELP CTA ─── */
+    .help-cta {
+      margin: 16px 16px 0; background: linear-gradient(135deg, #2563eb, #7c3aed); border-radius: 18px;
+      padding: 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      color: #fff; box-shadow: 0 12px 30px -14px rgba(37,99,235,.5);
+    }
+    .help-cta-text h3 { font-size: 18px; font-weight: 800; margin: 0 0 4px; }
+    .help-cta-text p { font-size: 13px; font-weight: 500; opacity: .9; margin: 0; }
+    .help-cta-btn {
+      background: #fff; color: var(--blue); border: 0; border-radius: 12px; padding: 10px 18px;
+      font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: transform .15s;
+    }
+    .help-cta-btn:hover { transform: scale(1.03); }
+
+    /* ─── NEW TICKET FORM ─── */
+    .form-group { display: grid; gap: 6px; margin-bottom: 18px; }
+    .form-label { font-size: 14px; font-weight: 700; color: var(--text); }
+    .form-input, .form-select, .form-textarea {
+      width: 100%; border: 1px solid #d7e3f6; border-radius: 12px; padding: 12px 14px;
+      font: inherit; font-size: 14px; color: var(--text); background: #fff; outline: none; transition: border-color .15s;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--blue); }
+    .form-input::placeholder, .form-textarea::placeholder { color: #94a3b8; }
+    .form-textarea { resize: vertical; min-height: 100px; }
+    .form-select {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
     }
 
-    .nav-icon {
-      width: 17px;
-      height: 17px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      color: #334155;
+    .upload-zone {
+      border: 2px dashed #d7e3f6; border-radius: 14px; padding: 24px; text-align: center;
+      cursor: pointer; transition: border-color .15s, background .15s; background: #fafcff;
     }
+    .upload-zone:hover, .upload-zone.dragover { border-color: var(--blue); background: #eff6ff; }
+    .upload-zone svg { width: 32px; height: 32px; stroke: #94a3b8; fill: none; stroke-width: 1.5; margin: 0 auto 8px; display: block; }
+    .upload-zone p { font-size: 13px; color: var(--muted); font-weight: 500; }
+    .upload-zone .upload-hint { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+    .upload-zone .file-name { font-size: 13px; color: var(--blue); font-weight: 600; margin-top: 6px; }
 
-    .nav-text { line-height: 1; }
-
-    .nav-icon-wrap {
-      position: relative;
-      display: inline-grid;
-      place-items: center;
-      line-height: 1;
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; margin-bottom: 18px; }
+    .toggle-label { font-size: 14px; font-weight: 700; color: var(--text); }
+    .toggle {
+      position: relative; width: 48px; height: 28px; border: 0; border-radius: 999px;
+      background: #cbd5e1; cursor: pointer; transition: background .2s; padding: 0;
     }
-
-    .nav-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      line-height: 1;
+    .toggle.on { background: var(--blue); }
+    .toggle::after {
+      content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px;
+      border-radius: 999px; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.15); transition: transform .2s;
     }
+    .toggle.on::after { transform: translateX(20px); }
 
-    .nav-alert {
-      position: absolute;
-      top: -8px;
-      right: -8px;
-      width: 14px;
-      height: 14px;
-      border-radius: 999px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-weight: 900;
-      color: #ffffff;
-      background: #dc2626;
-      line-height: 1;
-      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
-      pointer-events: none;
-      z-index: 2;
+    .submit-btn {
+      width: 100%; border: 0; border-radius: 14px; padding: 16px;
+      background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff;
+      font: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      box-shadow: 0 10px 28px -10px rgba(37,99,235,.5); transition: transform .15s, box-shadow .15s;
     }
+    .submit-btn:hover { transform: scale(1.01); box-shadow: 0 14px 32px -10px rgba(37,99,235,.6); }
+    .submit-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    .submit-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.5; }
 
-    .nav-link.active,
-    .account-pill.active {
-      color: #0f172a;
-      font-weight: 700;
+    /* ─── TICKET DETAIL ─── */
+    .detail-header { display: flex; align-items: center; gap: 12px; padding: 18px 0 14px; }
+    .detail-title { font-size: 18px; font-weight: 800; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .detail-meta { padding: 0 0 12px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+    .detail-meta span { font-weight: 600; }
+
+    .thread-container { display: grid; gap: 10px; padding: 12px 0; min-height: 200px; }
+    .bubble { max-width: 85%; border-radius: 16px; padding: 10px 14px; display: grid; gap: 4px; }
+    .bubble.me { margin-left: auto; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; border-bottom-right-radius: 4px; }
+    .bubble.gp { margin-right: auto; background: #fff; border: 1px solid var(--line); color: var(--text); border-bottom-left-radius: 4px; }
+    .bubble p { margin: 0; font-size: 13.5px; font-weight: 500; line-height: 1.45; }
+    .bubble .bubble-time { font-size: 11px; opacity: .7; font-weight: 500; margin-top: 2px; }
+    .bubble.gp .bubble-time { color: var(--muted); }
+    .bubble .bubble-attachment { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; text-decoration: none; margin-top: 4px; }
+    .bubble.me .bubble-attachment { color: rgba(255,255,255,.85); }
+    .bubble.gp .bubble-attachment { color: var(--blue); }
+
+    .reply-bar { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0 16px; display: grid; gap: 8px; }
+    .reply-input-wrap { display: flex; gap: 8px; align-items: flex-end; }
+    .reply-input-wrap textarea {
+      flex: 1; border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px;
+      font: inherit; font-size: 13px; color: var(--text); background: #fff; resize: none; outline: none;
+      min-height: 42px; max-height: 120px;
     }
-
-    .nav-glass {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 96px;
-      height: 44px;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.58);
-      border: 1px solid rgba(191, 220, 255, 0.95);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      z-index: 1;
-      pointer-events: none;
-      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
+    .reply-input-wrap textarea:focus { border-color: var(--blue); }
+    .send-btn {
+      width: 42px; height: 42px; border: 0; border-radius: 12px;
+      background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff;
+      cursor: pointer; display: grid; place-items: center; flex-shrink: 0;
+      box-shadow: 0 4px 12px -4px rgba(37,99,235,.4);
     }
+    .send-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.5; }
 
-    .main { padding: 14px 0 0; display: grid; gap: 12px; }
-
-    .heading h2 { margin: 0; font-size: 22px; letter-spacing: -0.02em; font-weight: 800; }
-    .heading p { margin: 4px 0 0; color: var(--muted); font-size: 13px; font-weight: 560; }
-
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-soft);
-      padding: 18px;
+    .resolve-row { display: flex; gap: 8px; }
+    .resolve-btn {
+      flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 10px;
+      font: inherit; font-size: 13px; font-weight: 700; color: var(--text); cursor: pointer; text-align: center;
     }
+    .resolve-btn.primary { border-color: transparent; background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff; }
 
-    .toolbar {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 10px;
+    /* ─── BOTTOM TABS ─── */
+    .bottom-tabs {
+      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
+      background: rgba(255,255,255,.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid var(--line); display: flex; z-index: 50;
+      padding: 0 0 env(safe-area-inset-bottom, 0px);
     }
-
-    .tabs {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
+    .bottom-tab {
+      flex: 1; border: 0; background: transparent; padding: 10px 0 8px;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      cursor: pointer; font: inherit; color: #94a3b8; transition: color .15s;
     }
+    .bottom-tab.active { color: var(--blue); }
+    .bottom-tab svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .bottom-tab span { font-size: 10px; font-weight: 600; }
 
-    .tab {
-      position: relative;
-      border: 1px solid #dbe4ef;
-      background: #f8fafc;
-      color: #1e3a8a;
-      border-radius: 12px;
-      padding: 9px 14px;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    .tab.active {
-      background: linear-gradient(135deg, var(--blue), var(--blue2));
-      color: #fff;
-      border-color: transparent;
-      box-shadow: 0 10px 24px -14px rgba(37, 99, 235, 0.8);
-    }
-
-    .tab-alert {
-      position: absolute;
-      top: -8px;
-      right: 10px;
-      width: 14px;
-      height: 14px;
-      border-radius: 999px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-weight: 900;
-      color: #ffffff;
-      background: #dc2626;
-      line-height: 1;
-      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
-      pointer-events: none;
-    }
-
-    .case-toolbar {
-      display: grid;
-      grid-template-columns: 1fr auto auto;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-
-    .input,
-    .select,
-    .textarea {
-      width: 100%;
-      border: 1px solid #d7e3f6;
-      border-radius: 10px;
-      padding: 10px;
-      font: inherit;
-      font-size: 13px;
-      background: #fff;
-      color: #0f172a;
-    }
-
-    .layout {
-      display: grid;
-      grid-template-columns: 0.95fr 1.05fr;
-      gap: 12px;
-      align-items: start;
-      min-height: 520px;
-    }
-
-    .master-list {
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      overflow: hidden;
-      background: #fff;
-      max-height: 620px;
-      overflow-y: auto;
-    }
-
-    .msg-item {
-      width: 100%;
-      border: 0;
-      border-bottom: 1px solid #edf2f7;
-      background: #fff;
-      text-align: left;
-      padding: 10px;
-      cursor: pointer;
-      display: grid;
-      gap: 6px;
-    }
-
-    .msg-item:last-child { border-bottom: 0; }
-    .msg-item:hover { background: #f8fbff; }
-    .msg-item.active { background: #eff6ff; }
-
-    .msg-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 999px;
-      padding: 3px 8px;
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-      border: 1px solid #dbe4ef;
-      background: #f8fafc;
-      color: #334155;
-    }
-
-    .badge.success { background: #ecfdf3; border-color: #bbf7d0; color: #166534; }
-    .badge.info { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
-    .badge.action { background: #fffbeb; border-color: #fde68a; color: #92400e; }
-    .badge.case { background: #f1f5f9; border-color: #dbe4ef; color: #334155; }
-
-    .msg-meta {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: #2563eb;
-      display: inline-block;
-    }
-
-    .ts { font-size: 11px; color: #64748b; font-weight: 560; }
-    .msg-title { margin: 0; font-size: 13px; font-weight: 700; color: #0f172a; }
-    .msg-preview {
-      margin: 0;
-      font-size: 12px;
-      color: #64748b;
-      font-weight: 560;
-      line-height: 1.35;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .detail {
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      background: #fff;
-      padding: 12px;
-      min-height: 420px;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: 12px;
-    }
-
-    .detail h3 { margin: 0; font-size: 18px; font-weight: 750; }
-    .detail-sub { margin: 0; font-size: 12px; color: #64748b; font-weight: 560; }
-
-    .detail-body {
-      border: 1px solid #edf2f7;
-      background: #f8fbff;
-      border-radius: 12px;
-      padding: 10px;
-      overflow: auto;
-    }
-
-    .detail-text {
-      margin: 0;
-      font-size: 13px;
-      color: #0f172a;
-      line-height: 1.5;
-      font-weight: 560;
-    }
-
-    .todo {
-      margin: 10px 0 0;
-      padding-left: 18px;
-      font-size: 12px;
-      color: #1f2937;
-      font-weight: 560;
-      display: grid;
-      gap: 4px;
-    }
-
-    .btn {
-      border: 1px solid #dbe4ef;
-      background: #f8fafc;
-      color: #1e3a8a;
-      box-shadow: 0 2px 8px -4px rgba(15, 23, 42, 0.15);
-      border-radius: 12px;
-      padding: 10px 16px;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 7px;
-      width: fit-content;
-    }
-
-    .btn-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .case-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 8px;
-    }
-
-    .case-status {
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 11px;
-      font-weight: 700;
-      border: 1px solid #d9e4f6;
-    }
-
-    .case-status.open { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
-    .case-status.closed { background: #f1f5f9; color: #475569; border-color: #dbe4ef; }
-
-    .case-contact-note {
-      margin: 4px 0 0;
-      font-size: 12px;
-      font-weight: 650;
-      color: #166534;
-    }
-
-    .thread {
-      display: grid;
-      gap: 8px;
-    }
-
-    .bubble {
-      max-width: 86%;
-      border-radius: 12px;
-      padding: 8px 10px;
-      display: grid;
-      gap: 4px;
-      border: 1px solid #dbe4ef;
-      background: #fff;
-    }
-
-    .bubble.me {
-      margin-left: auto;
-      background: #eff6ff;
-      border-color: #bfdbfe;
-    }
-
-    .bubble.gp {
-      margin-right: auto;
-      background: #f8fafc;
-      border-color: #e2e8f0;
-    }
-
-    .bubble p { margin: 0; font-size: 12.5px; font-weight: 560; color: #0f172a; line-height: 1.4; }
-    .bubble span { font-size: 10.5px; color: #64748b; font-weight: 560; }
-
-    .composer {
-      display: grid;
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .category-chip {
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 10px;
-      font-weight: 700;
-      color: #334155;
-      border: 1px solid #d9e4f6;
-      background: #f8fafc;
-    }
-
-    .case-detail-meta {
-      display: grid;
-      gap: 4px;
-      margin-top: 2px;
-    }
-
-    .modal {
-      position: fixed;
-      inset: 0;
-      background: rgba(240, 244, 250, 0.34);
-      backdrop-filter: blur(0px) saturate(1.02);
-      -webkit-backdrop-filter: blur(0px) saturate(1.02);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-      z-index: 70;
-      opacity: 0;
-      visibility: hidden;
-      pointer-events: none;
-      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
-    }
-
-    .modal.show {
-      opacity: 1;
-      visibility: visible;
-      pointer-events: auto;
-      backdrop-filter: blur(16px) saturate(1.05);
-      -webkit-backdrop-filter: blur(16px) saturate(1.05);
-    }
-
-    .modal-card {
-      width: min(680px, 100%);
-      background: rgba(255, 255, 255, 0.9);
-      border-radius: var(--radius-lg);
-      border: 1px solid rgba(191, 220, 255, 0.75);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 26px 56px -24px rgba(15, 23, 42, 0.35);
-      padding: 14px;
-      display: grid;
-      gap: 10px;
-      max-height: 86vh;
-      overflow: auto;
-      transform: translateY(20px) scale(0.92);
-      opacity: 0;
-      transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
-      transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
-    }
-    .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
-
-    .modal-card h4 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 900;
-      letter-spacing: -0.01em;
-    }
-
-    .modal-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-    }
-
-    .modal-field {
-      display: grid;
-      gap: 6px;
-      font-size: 12px;
-      color: #334155;
-      font-weight: 650;
-    }
-
-    .modal-field.full { grid-column: 1 / -1; }
-
-    .upload-help {
-      margin: 0;
-      font-size: 11px;
-      color: #64748b;
-      font-weight: 560;
-      line-height: 1.35;
-    }
-
-    .empty {
-      border: 1px dashed #d7e3f6;
-      border-radius: 12px;
-      background: #f8fbff;
-      padding: 12px;
-      font-size: 12.5px;
-      color: #64748b;
-      font-weight: 560;
-      line-height: 1.45;
-      text-align: center;
-    }
-
+    /* ─── MOBILE NAV ─── */
     .mobile-nav {
-      position: fixed;
-      left: 50%;
-      bottom: 0;
-      transform: translateX(-50%);
-      width: 100%;
-      max-width: 560px;
-      background: rgba(255, 255, 255, 0.92);
-      border-top: 1px solid #e2e8f0;
+      position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; max-width: 560px;
+      background: rgba(255,255,255,.92); border-top: 1px solid #e2e8f0;
       padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
-      display: none;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 4px;
-      z-index: 50;
-      overflow: visible;
-      box-shadow: none;
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
+      display: none; grid-template-columns: repeat(5, 1fr); gap: 4px; z-index: 50;
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     }
-
     .mobile-tab {
-      text-decoration: none;
-      border: 0;
-      background: transparent;
-      color: #94a3b8;
-      border-radius: 12px;
-      min-height: 46px;
-      padding: 6px 4px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 0;
-      cursor: pointer;
-      font: inherit;
+      text-decoration: none; border: 0; background: transparent; color: #94a3b8; border-radius: 12px;
+      min-height: 46px; padding: 6px 4px; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 0; cursor: pointer; font: inherit;
     }
-
     .mobile-tab-icon { position: relative; display: inline-grid; place-items: center; color: #64748b; }
-
-    .mobile-icon-wrap {
-      position: relative;
-      display: inline-grid;
-      place-items: center;
-      line-height: 1;
-    }
-
-    .mobile-tab-alert { top: -3px; right: -6px; transform: none; }
+    .mobile-icon-wrap { position: relative; display: inline-grid; place-items: center; line-height: 1; }
+    .mobile-tab-alert { position: absolute; top: -3px; right: -6px; width: 14px; height: 14px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; color: #fff; background: #dc2626; line-height: 1; pointer-events: none; }
     .mobile-tab-label { display: none; }
-    .mobile-tab-active { background: rgba(20, 91, 196, 0.11); color: #145bc4; }
+    .mobile-tab-active { background: rgba(20,91,196,.11); color: #145bc4; }
     .mobile-tab-active .mobile-tab-icon { color: #145bc4; }
     .mobile-tab-icon svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     .mobile-tab-scan { transform: none; }
     .mobile-tab-scan .mobile-tab-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 999px;
-      color: #ffffff;
+      width: 36px; height: 36px; border-radius: 999px; color: #fff;
       background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
-      animation: scanHaloPulse 2.8s ease-in-out infinite;
+      box-shadow: 0 0 0 4px rgba(147,197,253,.34), 0 8px 18px -14px rgba(37,99,235,.7);
     }
     .mobile-tab-scan .mobile-tab-icon svg { width: 19px; height: 19px; }
-    @keyframes scanHaloPulse {
-      0%, 100% {
-        box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
-      }
-      50% {
-        box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78);
-      }
+
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+    .empty-state svg { width: 48px; height: 48px; stroke: #cbd5e1; fill: none; stroke-width: 1.5; margin: 0 auto 12px; display: block; }
+    .empty-state h3 { font-size: 16px; font-weight: 700; color: var(--text); margin: 0 0 4px; }
+    .empty-state p { font-size: 13px; margin: 0; }
+
+    /* ─── TOPBAR (desktop) ─── */
+    .topbar {
+      margin: 18px 16px 0; padding: 14px 16px; border-radius: var(--radius-lg);
+      border: 1px solid var(--line); background: #fff; box-shadow: var(--shadow-soft);
+    }
+    .topbar-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; min-height: 56px; gap: 14px; }
+    .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
+    .brand-logo img { display: block; width: 178px; height: auto; }
+    .nav-menu {
+      display: flex; gap: 8px; align-items: center; justify-content: center; position: relative;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif; padding: 4px; border-radius: 14px;
+    }
+    .nav-item { position: relative; z-index: 2; transition: color .18s ease, font-weight .18s ease; }
+    .nav-link, .account-pill {
+      text-decoration: none; border: 0; background: transparent; color: #111827; padding: 8px 12px;
+      font-size: 13px; font-weight: 500; white-space: nowrap; display: inline-flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 4px; line-height: 1.15; min-width: 92px;
+      border-radius: 12px; font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+    .nav-link.active, .account-pill.active { color: #0f172a; font-weight: 700; }
+    .nav-icon { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: #334155; }
+    .nav-icon-wrap { position: relative; display: inline-grid; place-items: center; line-height: 1; }
+    .nav-alert { position: absolute; top: -8px; right: -8px; width: 14px; height: 14px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; color: #fff; background: #dc2626; line-height: 1; pointer-events: none; }
+    .nav-glass {
+      position: absolute; top: 0; left: 0; width: 96px; height: 44px; border-radius: 12px;
+      background: rgba(255,255,255,.58); border: 1px solid rgba(191,220,255,.95);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 10px 16px -14px rgba(37,99,235,.45);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      z-index: 1; pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
     }
 
-    @media (max-width: 980px) {
-      .layout { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 767px) { .topbar { display: none; } .mobile-nav { display: grid; } }
+    @media (min-width: 768px) { .app-shell { max-width: 960px; } .bottom-tabs { display: none; } }
 
-    @media (max-width: 767px) {
-      body { padding-bottom: 96px; }
-      .mobile-nav { display: grid; }
-      .topbar { display: none; }
-      .main { padding: 10px; }
-      .toolbar { grid-template-columns: 1fr; }
-      .case-toolbar { grid-template-columns: 1fr; }
-      .case-toolbar .select { width: 100%; }
-      .modal-grid { grid-template-columns: 1fr; }
-    }
-
-    @media (max-width: 560px) {
-      .shell { border-radius: 0; padding: 0 10px 100px; }
-      .card { padding: 12px; }
-      .heading h2 { font-size: 20px; }
-      .btn { width: 100%; }
-      .bubble { max-width: 100%; }
-    }
+    .legal-footer { text-align: center; font-size: 12px; color: var(--muted); margin: 14px 0 8px; line-height: 1.45; }
+    .legal-footer a { color: #334155; text-decoration: underline; }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <main class="main">
-      <section class="heading card">
-        <h2>Support</h2>
-        <p>Message us here - we'll reply in this thread. Updates also appear in Messages.</p>
-      </section>
-
-      <section class="card">
-        <div class="toolbar">
-          <div class="tabs" role="tablist" aria-label="Message filters">
-            <button class="tab active" type="button" data-tab="action">Action required <span class="tab-alert" data-tab-alert="action" hidden aria-hidden="true">!</span></button>
-            <button class="tab" type="button" data-tab="cases">Support cases <span class="tab-alert" data-tab-alert="cases" hidden aria-hidden="true">!</span></button>
-            <button class="tab" type="button" data-tab="updates">Updates <span class="tab-alert" data-tab-alert="updates" hidden aria-hidden="true">!</span></button>
-          </div>
+  <div class="app-shell">
+    <!-- ═══ VIEW: MY TICKETS ═══ -->
+    <div class="view active" id="viewMyTickets">
+      <header class="view-header">
+        <div class="view-header-left">
+          <button class="icon-btn" type="button" aria-label="Menu">
+            <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <h1 class="view-title">My ticket</h1>
         </div>
-
-        <div class="case-toolbar" id="caseToolbar" hidden>
-          <input class="input" id="caseSearchInput" type="search" placeholder="Search cases" aria-label="Search support cases" />
-          <select class="select" id="sortSelect" aria-label="Sort messages">
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-            <option value="unread">Unread first</option>
-          </select>
-          <button class="btn" id="newCaseToggleTab" type="button">New support case</button>
+        <button class="icon-btn" type="button" id="filterBtn" aria-label="Filter">
+          <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        </button>
+      </header>
+      <div class="search-wrap">
+        <div class="search-bar">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="search" id="ticketSearch" placeholder="Search conversation" aria-label="Search tickets" />
         </div>
+      </div>
+      <p class="section-label" id="ticketSectionLabel">New conversation</p>
+      <div class="ticket-list" id="ticketList"></div>
+      <button class="fab" id="fabCreateTicket" type="button">
+        Create New Ticket
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      </button>
+    </div>
 
-        <div class="layout">
-          <section>
-            <div class="master-list" id="messageList"></div>
-          </section>
-          <section class="detail" id="detailView">
-            <div>
-              <h3>Select a message</h3>
-              <p class="detail-sub">Choose an item from the list to view full details.</p>
-            </div>
-            <div class="detail-body"><div class="empty">No message selected yet.</div></div>
-            <div></div>
-          </section>
+    <!-- ═══ VIEW: HELP CENTER ═══ -->
+    <div class="view" id="viewHelpCenter">
+      <header class="view-header">
+        <div class="view-header-left">
+          <h1 class="view-title">Help Center</h1>
         </div>
-      </section>
-    </main>
+        <button class="icon-btn" type="button" aria-label="Filter">
+          <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        </button>
+      </header>
+      <div class="search-wrap">
+        <div class="search-bar">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="search" id="articleSearch" placeholder="Search conversation" aria-label="Search articles" />
+        </div>
+      </div>
+      <p class="section-label">Popular articles</p>
+      <div class="articles-list" id="articlesList"></div>
+      <div class="help-cta">
+        <div class="help-cta-text">
+          <h3>Need help?</h3>
+          <p>Contact our team for help</p>
+        </div>
+        <button class="help-cta-btn" id="ctaCreateTicket" type="button">Create Ticket</button>
+      </div>
+      <p class="section-label" style="margin-top:16px;">Popular articles</p>
+    </div>
+
+    <!-- ═══ BOTTOM TABS ═══ -->
+    <nav class="bottom-tabs" id="bottomTabs">
+      <button class="bottom-tab active" type="button" data-view="viewMyTickets">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Help center</span>
+      </button>
+      <button class="bottom-tab" type="button" data-view="viewHelpCenter">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Help center</span>
+      </button>
+    </nav>
   </div>
 
-  <div class="modal" id="newCaseModal" aria-hidden="true">
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="newCaseTitle">
-      <h4 id="newCaseTitle">New support case</h4>
-      <div class="modal-grid">
-        <label class="modal-field" for="ticketCategory">
-          What is this about?
-          <select class="select" id="ticketCategory">
-            <option value="EPIC">EPIC</option>
-            <option value="AMC">AMC</option>
-            <option value="Documents">Documents</option>
-            <option value="AHPRA">AHPRA</option>
-            <option value="Provider">Provider</option>
-            <option value="Contract">Contract</option>
-            <option value="Other">Other</option>
-          </select>
-        </label>
-        <label class="modal-field" for="ticketPriority">
-          Priority
-          <select class="select" id="ticketPriority">
-            <option value="normal">Normal</option>
-            <option value="blocked">I'm blocked</option>
-            <option value="time_sensitive">Time-sensitive</option>
-          </select>
-        </label>
-        <label class="modal-field full" for="ticketSummary">
-          Brief summary
-          <input class="input" id="ticketSummary" type="text" maxlength="120" placeholder="Short summary of your issue" />
-        </label>
-        <label class="modal-field full" for="ticketDescription">
-          Describe the issue
-          <textarea class="textarea" id="ticketDescription" rows="5" maxlength="2000" placeholder="What happened and what do you need help with?"></textarea>
-        </label>
-        <label class="modal-field full" for="ticketAttachment">
-          Attach screenshot / PDF (optional)
-          <input class="input" id="ticketAttachment" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" />
-          <p class="upload-help">Attachment is stored securely in your browser for this MVP.</p>
-        </label>
+  <!-- ═══ SLIDE: NEW TICKET ═══ -->
+  <div class="slide-view" id="slideNewTicket">
+    <div class="slide-inner">
+      <header class="detail-header">
+        <button class="icon-btn" type="button" id="newTicketBack" aria-label="Back">
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2 class="detail-title">New ticket</h2>
+        <button class="icon-btn" type="button" aria-label="Settings">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </header>
+      <div class="form-group">
+        <label class="form-label" for="newCategory">Category</label>
+        <select class="form-select" id="newCategory">
+          <option value="" disabled selected>Select a category</option>
+          <option value="EPIC">EPIC / MyIntealth</option>
+          <option value="AMC">AMC Portfolio</option>
+          <option value="Documents">Documents</option>
+          <option value="AHPRA">AHPRA Registration</option>
+          <option value="Provider">Provider / Practice</option>
+          <option value="Contract">Contract</option>
+          <option value="Other">Other</option>
+        </select>
       </div>
-      <div class="btn-row">
-        <button class="btn" id="createCaseBtn" type="button">Create case</button>
-        <button class="btn" id="cancelCaseBtn" type="button">Cancel</button>
+      <div class="form-group">
+        <label class="form-label" for="newSubject">Subject</label>
+        <input class="form-input" id="newSubject" type="text" maxlength="120" placeholder="E.g. Payment not going through" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="newDescription">Describe your issue</label>
+        <textarea class="form-textarea" id="newDescription" rows="4" maxlength="2000" placeholder="Please provide as much details as possible"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Upload file</label>
+        <div class="upload-zone" id="uploadZone">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <p>Add a screenshot / file</p>
+          <p class="upload-hint">Max 10 Mb</p>
+          <p class="file-name" id="uploadFileName" hidden></p>
+          <input type="file" id="newAttachment" accept=".png,.jpg,.jpeg,.webp,.pdf" hidden />
+        </div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Mark as urgent</span>
+        <button class="toggle" id="urgentToggle" type="button" role="switch" aria-checked="false" aria-label="Mark as urgent"></button>
+      </div>
+      <button class="submit-btn" id="submitTicketBtn" type="button">
+        Submit Ticket
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 16 16 12 12 8"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══ SLIDE: TICKET DETAIL ═══ -->
+  <div class="slide-view" id="slideTicketDetail">
+    <div class="slide-inner">
+      <header class="detail-header">
+        <button class="icon-btn" type="button" id="detailBack" aria-label="Back">
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2 class="detail-title" id="detailTitle">Ticket</h2>
+        <span class="badge badge-status" id="detailStatus">Open</span>
+      </header>
+      <div class="detail-meta" id="detailMeta"></div>
+      <div class="thread-container" id="detailThread"></div>
+      <div class="reply-bar" id="replyBar">
+        <div class="reply-input-wrap">
+          <textarea id="replyInput" rows="1" placeholder="Write your message..." maxlength="2000"></textarea>
+          <button class="send-btn" id="sendReplyBtn" type="button" aria-label="Send">
+            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <div class="resolve-row" id="resolveRow">
+          <button class="resolve-btn" id="resolveBtn" type="button">Mark Resolved</button>
+        </div>
       </div>
     </div>
   </div>
 
   <script>
+    /* ═══ STORAGE KEYS ═══ */
     const SUPPORT_CASES_KEY = "gpLinkSupportCases";
     const SUPPORT_DRAFT_KEY = "gpLinkSupportDraft";
     const MESSAGE_DB_KEY = "gpLinkMessageDB";
     const UPDATES_READ_KEY = "gp_link_updates_read";
     const DOC_KEY = "gp_documents_prep";
-    const PREPARED_BY_YOU_DOCS = [
-      { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree (MBBS/MBChB)" },
-      { key: "mrcgp_certified", title: "Certified copy of MRCGP (issued from August 2007 onward)" },
-      { key: "cct_certified", title: "Certified copy of CCT (General Practice) issued by GMC or PMETB" },
-      { key: "cv_signed_dated", title: "CV (Signed and dated)" }
+
+    const HELP_ARTICLES = [
+      { id:"a1", title:"Getting started guide", views:234, content:"Welcome to GP Link! Start by completing your registration in the onboarding wizard. You'll need to verify your qualifications, set up your MyIntealth account, and upload your documents. Each step is guided \u2013 follow the prompts and you'll be set up in no time." },
+      { id:"a2", title:"Troubleshooting payment issue", views:534, content:"Common causes of payment issues include:\n\n\u2022 Expired credit card\n\u2022 Insufficient funds\n\u2022 Bank security blocks on international transactions\n\u2022 Incorrect billing details\n\nIf you continue to experience issues, contact your bank first, then reach out to our support team with your transaction reference number." },
+      { id:"a3", title:"How to upload documents", views:412, content:"Navigate to My Documents from the main menu. Click on the document you need to upload, then either take a photo using your camera or select a file from your device. Supported formats: PDF, JPG, PNG, WEBP. Maximum file size is 10MB. Ensure documents are clear and all text is legible." },
+      { id:"a4", title:"Understanding your registration steps", views:328, content:"Your registration follows four main stages: 1) MyIntealth/EPIC account setup, 2) AMC Portfolio submission, 3) Document collection and verification, 4) AHPRA registration. Each stage has sub-steps that you can track from your dashboard. Green means complete, blue means in progress, and grey means pending." },
+      { id:"a5", title:"Contacting your GP Link advisor", views:189, content:"Your GP Link advisor is assigned once you complete the onboarding process. You can reach them through the Support section by creating a ticket, or check your Messages for any updates they've sent. For urgent matters, mark your ticket as urgent and our team will prioritise your request." }
     ];
 
-    const navGlassEl = document.getElementById("navGlass");
-    const navMenuEl = document.querySelector(".nav-menu");
-    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
-    let activeNavItem = null;
-    let hoveredNavItem = null;
-    const tabs = [...document.querySelectorAll("[data-tab]")];
-    const messageListEl = document.getElementById("messageList");
-    const detailViewEl = document.getElementById("detailView");
-    const caseSearchInputEl = document.getElementById("caseSearchInput");
-    const sortSelectEl = document.getElementById("sortSelect");
-    const caseToolbarEl = document.getElementById("caseToolbar");
-    const newCaseToggleTabEl = document.getElementById("newCaseToggleTab");
-    const newCaseModalEl = document.getElementById("newCaseModal");
-    const ticketCategoryEl = document.getElementById("ticketCategory");
-    const ticketPriorityEl = document.getElementById("ticketPriority");
-    const ticketSummaryEl = document.getElementById("ticketSummary");
-    const ticketDescriptionEl = document.getElementById("ticketDescription");
-    const ticketAttachmentEl = document.getElementById("ticketAttachment");
-    const createCaseBtnEl = document.getElementById("createCaseBtn");
-    const cancelCaseBtnEl = document.getElementById("cancelCaseBtn");
+    const PREPARED_BY_YOU_DOCS = [
+      { key:"primary_medical_degree", title:"Certified copy of Primary Medical Degree (MBBS/MBChB)" },
+      { key:"mrcgp_certified", title:"Certified copy of MRCGP (issued from August 2007 onward)" },
+      { key:"cct_certified", title:"Certified copy of CCT (General Practice) issued by GMC or PMETB" },
+      { key:"cv_signed_dated", title:"CV (Signed and dated)" }
+    ];
 
-    let navGlassInitialized = false;
-    let activeTab = "action";
-    let selectedId = "";
-    let caseModalOpen = false;
+    /* ═══ DOM REFS ═══ */
+    const ticketListEl = document.getElementById("ticketList");
+    const ticketSearchEl = document.getElementById("ticketSearch");
+    const ticketSectionLabel = document.getElementById("ticketSectionLabel");
+    const articleSearchEl = document.getElementById("articleSearch");
+    const articlesListEl = document.getElementById("articlesList");
+    const fabEl = document.getElementById("fabCreateTicket");
+    const ctaCreateEl = document.getElementById("ctaCreateTicket");
+    const bottomTabs = [...document.querySelectorAll(".bottom-tab")];
+    const views = { viewMyTickets: document.getElementById("viewMyTickets"), viewHelpCenter: document.getElementById("viewHelpCenter") };
+    const slideNewTicket = document.getElementById("slideNewTicket");
+    const newTicketBackBtn = document.getElementById("newTicketBack");
+    const newCategoryEl = document.getElementById("newCategory");
+    const newSubjectEl = document.getElementById("newSubject");
+    const newDescriptionEl = document.getElementById("newDescription");
+    const newAttachmentEl = document.getElementById("newAttachment");
+    const uploadZoneEl = document.getElementById("uploadZone");
+    const uploadFileNameEl = document.getElementById("uploadFileName");
+    const urgentToggleEl = document.getElementById("urgentToggle");
+    const submitTicketBtnEl = document.getElementById("submitTicketBtn");
+    const slideTicketDetail = document.getElementById("slideTicketDetail");
+    const detailBackBtn = document.getElementById("detailBack");
+    const detailTitleEl = document.getElementById("detailTitle");
+    const detailStatusEl = document.getElementById("detailStatus");
+    const detailMetaEl = document.getElementById("detailMeta");
+    const detailThreadEl = document.getElementById("detailThread");
+    const replyInputEl = document.getElementById("replyInput");
+    const sendReplyBtnEl = document.getElementById("sendReplyBtn");
+    const resolveRowEl = document.getElementById("resolveRow");
+    const replyBarEl = document.getElementById("replyBar");
+    let currentView = "viewMyTickets";
+    let selectedTicketId = null;
+    let isUrgent = false;
 
-    function parseStorage(key) {
-      const raw = localStorage.getItem(key);
-      if (!raw) return null;
-      try { return JSON.parse(raw); } catch (err) { return null; }
-    }
+    /* ═══ UTILITIES ═══ */
+    function parseStorage(key) { const r = localStorage.getItem(key); if (!r) return null; try { return JSON.parse(r); } catch { return null; } }
+    function saveStorage(key, data) { localStorage.setItem(key, JSON.stringify(data)); }
+    function escapeHtml(v) { return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-    function saveStorage(key, data) {
-      localStorage.setItem(key, JSON.stringify(data));
-    }
-
-    function loadDraft() {
-      const draft = parseStorage(SUPPORT_DRAFT_KEY);
-      return draft && typeof draft === "object" ? draft : {};
-    }
-
-    function saveDraft(nextDraft) {
-      saveStorage(SUPPORT_DRAFT_KEY, nextDraft || {});
-    }
-
-    function clearDraft() {
-      localStorage.removeItem(SUPPORT_DRAFT_KEY);
-    }
-
-    function formatTs(tsValue) {
-      if (!tsValue) return "";
-      const d = new Date(tsValue);
-      if (Number.isNaN(d.getTime())) return String(tsValue);
-      const now = new Date();
-      const diffMs = now.getTime() - d.getTime();
-      const dayMs = 24 * 60 * 60 * 1000;
-      if (diffMs < dayMs) {
-        return `Today • ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-      }
-      const days = Math.round(diffMs / dayMs);
-      if (days <= 1) return "1 day ago";
-      if (days < 7) return `${days} days ago`;
+    function formatTs(ts) {
+      if (!ts) return "";
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return String(ts);
+      const now = new Date(), diff = now - d, dayMs = 864e5;
+      if (diff < dayMs) return d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
+      const days = Math.round(diff / dayMs);
+      if (days <= 1) return "Yesterday";
+      if (days < 7) return `${days}d ago`;
       return d.toLocaleDateString();
     }
 
-    function moveNavGlass(target, animate = true) {
-      if (!target || !navGlassEl) return;
-      const parentRect = target.parentElement.getBoundingClientRect();
-      const rect = target.getBoundingClientRect();
-      if (!animate || !navGlassInitialized) {
-        const prevTransition = navGlassEl.style.transition;
-        navGlassEl.style.transition = "none";
-        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
-        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
-        navGlassEl.style.width = `${rect.width}px`;
-        navGlassEl.style.height = `${rect.height}px`;
-        void navGlassEl.offsetWidth;
-        navGlassEl.style.transition = prevTransition;
-        navGlassInitialized = true;
-        return;
-      }
-      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
-      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
-      navGlassEl.style.width = `${rect.width}px`;
-      navGlassEl.style.height = `${rect.height}px`;
-    }
+    function priorityLabel(p) { return p==="blocked"||p==="time_sensitive"?"High":p==="normal"?"Medium":"Low"; }
+    function priorityClass(p) { return p==="blocked"||p==="time_sensitive"?"high":p==="normal"?"medium":"low"; }
+    function statusText(s) { return s==="closed"?"Closed":"In progress"; }
+    function statusClass(s) { return s==="closed"?"closed":"in-progress"; }
 
-    function setActiveNav(target, animate = true) {
-      navItems.forEach((item) => item.classList.remove("active"));
-      if (target) {
-        target.classList.add("active");
-        activeNavItem = target;
-      }
-      moveNavGlass(target || activeNavItem, animate);
-    }
-
-    navItems.forEach((item) => {
-      item.addEventListener("mouseenter", () => {
-        if (hoveredNavItem !== item) {
-          hoveredNavItem = item;
-          moveNavGlass(item, true);
-        }
-      });
-      item.addEventListener("focus", () => {
-        if (hoveredNavItem !== item) {
-          hoveredNavItem = item;
-          moveNavGlass(item, true);
-        }
-      });
-      item.addEventListener("click", () => setActiveNav(item));
-    });
-
-    function loadUpdateReadMap() {
-      const parsed = parseStorage(UPDATES_READ_KEY);
-      return parsed && typeof parsed === "object" ? parsed : {};
-    }
-
-    function saveUpdateReadMap(map) {
-      saveStorage(UPDATES_READ_KEY, map);
-      syncMessageDatabase();
-    }
-
-    function updateId(item) {
-      const title = item && item.title ? String(item.title) : "";
-      const ts = item && item.ts ? String(item.ts) : "";
-      const source = item && item.source ? String(item.source) : "gp-link";
-      const sourceKey = item && item.sourceKey ? String(item.sourceKey) : "";
-      return `u:${source}:${sourceKey}:${title}:${ts}`;
-    }
-
-    function normalizeCase(rawCase) {
-      if (!rawCase || typeof rawCase !== "object") return null;
-      const createdAt = typeof rawCase.createdAt === "string" ? rawCase.createdAt : (typeof rawCase.updatedAt === "string" ? rawCase.updatedAt : new Date().toISOString());
-      const updatedAt = typeof rawCase.updatedAt === "string" ? rawCase.updatedAt : createdAt;
-      const id = typeof rawCase.id === "string" && rawCase.id ? rawCase.id : `case_${Date.now()}`;
-      const caseCode = typeof rawCase.caseCode === "string" && rawCase.caseCode
-        ? rawCase.caseCode
-        : `Case GP-${createdAt.slice(0, 10).replace(/-/g, "")}-${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
-      const status = rawCase.status === "closed" ? "closed" : "open";
-      const category = ["EPIC", "AMC", "Documents", "AHPRA", "Provider", "Contract", "Other"].includes(rawCase.category) ? rawCase.category : "Other";
-      const priority = ["normal", "blocked", "time_sensitive"].includes(rawCase.priority) ? rawCase.priority : "normal";
-      const thread = Array.isArray(rawCase.thread) ? rawCase.thread.map((entry) => ({
-        from: entry && entry.from === "gp" ? "gp" : "me",
-        text: entry && typeof entry.text === "string" ? entry.text : "",
-        ts: entry && typeof entry.ts === "string" ? entry.ts : updatedAt,
-        attachments: Array.isArray(entry && entry.attachments) ? entry.attachments : []
-      })) : [];
-      return {
-        id,
-        caseCode,
-        title: typeof rawCase.title === "string" && rawCase.title ? rawCase.title : "Support request",
-        category,
-        priority,
-        status,
-        unread: !!rawCase.unread,
-        createdAt,
-        updatedAt,
-        thread
-      };
+    /* ═══ CASE MODEL ═══ */
+    function normalizeCase(raw) {
+      if (!raw || typeof raw !== "object") return null;
+      const createdAt = typeof raw.createdAt==="string"?raw.createdAt:(typeof raw.updatedAt==="string"?raw.updatedAt:new Date().toISOString());
+      const updatedAt = typeof raw.updatedAt==="string"?raw.updatedAt:createdAt;
+      const id = typeof raw.id==="string"&&raw.id?raw.id:`case_${Date.now()}`;
+      const caseCode = typeof raw.caseCode==="string"&&raw.caseCode?raw.caseCode:`Case GP-${createdAt.slice(0,10).replace(/-/g,"")}-${String(Math.floor(Math.random()*1000)).padStart(3,"0")}`;
+      const status = raw.status==="closed"?"closed":"open";
+      const category = ["EPIC","AMC","Documents","AHPRA","Provider","Contract","Other"].includes(raw.category)?raw.category:"Other";
+      const priority = ["normal","blocked","time_sensitive"].includes(raw.priority)?raw.priority:"normal";
+      const thread = Array.isArray(raw.thread)?raw.thread.map(e=>({ from:e&&e.from==="gp"?"gp":"me", text:e&&typeof e.text==="string"?e.text:"", ts:e&&typeof e.ts==="string"?e.ts:updatedAt, attachments:Array.isArray(e&&e.attachments)?e.attachments:[] })):[];
+      return { id, caseCode, title:typeof raw.title==="string"&&raw.title?raw.title:"Support request", category, priority, status, unread:!!raw.unread, createdAt, updatedAt, thread };
     }
 
     function loadSupportCases() {
       const stored = parseStorage(SUPPORT_CASES_KEY);
-      if (Array.isArray(stored) && stored.length) {
-        const normalized = stored.map(normalizeCase).filter(Boolean);
-        window.gpLinkSupportCases = normalized;
-        return normalized;
-      }
+      if (Array.isArray(stored) && stored.length) { const n = stored.map(normalizeCase).filter(Boolean); window.gpLinkSupportCases = n; return n; }
       window.gpLinkSupportCases = [];
       return [];
     }
 
     function saveSupportCases(cases) {
-      const normalized = cases.map(normalizeCase).filter(Boolean);
-      saveStorage(SUPPORT_CASES_KEY, normalized);
-      window.gpLinkSupportCases = normalized;
-      syncMessageDatabase(normalized);
+      const n = cases.map(normalizeCase).filter(Boolean);
+      saveStorage(SUPPORT_CASES_KEY, n);
+      window.gpLinkSupportCases = n;
+      syncMessageDatabase(n);
+    }
+
+    /* ═══ MESSAGE DB SYNC ═══ */
+    function loadUpdateReadMap() { const p = parseStorage(UPDATES_READ_KEY); return p&&typeof p==="object"?p:{}; }
+    function saveUpdateReadMap(m) { saveStorage(UPDATES_READ_KEY, m); syncMessageDatabase(); }
+
+    function getUpdates() {
+      if (typeof window.getGpLinkUpdates==="function") return window.getGpLinkUpdates().slice();
+      if (Array.isArray(window.gpLinkUpdates)) return window.gpLinkUpdates.slice();
+      return [];
+    }
+
+    function getPreparedDocReviewUpdates() {
+      const p = parseStorage(DOC_KEY);
+      if (!p||typeof p!=="object"||p.country!=="uk"||!p.docs) return [];
+      const updatedAt = typeof p.updatedAt==="string"?p.updatedAt:new Date().toISOString();
+      return PREPARED_BY_YOU_DOCS.map(doc=>{
+        const e = p.docs[doc.key];
+        if (!e||(e.status!=="accepted"&&e.status!=="rejected")) return null;
+        const reason = typeof e.rejectionReason==="string"&&e.rejectionReason.trim()?e.rejectionReason.trim():(typeof e.reviewNote==="string"&&e.reviewNote.trim()?e.reviewNote.trim():"");
+        if (e.status==="accepted") return { type:"info", title:`${doc.title} was accepted by GP Link review.`, detail:"No further action needed for this document.", ts:updatedAt, source:"prepared-doc-review", sourceKey:doc.key };
+        return { type:"action", title:`${doc.title} needs re-upload after review.`, detail:`Reason: ${reason||"The uploaded copy did not meet certification or clarity requirements."} Action required: Upload a corrected certified copy in My Documents.`, ts:updatedAt, source:"prepared-doc-review", sourceKey:doc.key };
+      }).filter(Boolean);
     }
 
     function buildMessageDatabase(cases) {
-      return {
-        version: 1,
-        updatedAt: new Date().toISOString(),
-        supportCases: Array.isArray(cases) ? cases : loadSupportCases(),
-        updates: [...getUpdates(), ...getPreparedDocReviewUpdates()],
-        updateReadMap: loadUpdateReadMap()
-      };
+      return { version:1, updatedAt:new Date().toISOString(), supportCases:Array.isArray(cases)?cases:loadSupportCases(), updates:[...getUpdates(),...getPreparedDocReviewUpdates()], updateReadMap:loadUpdateReadMap() };
     }
 
     function syncMessageDatabase(cases) {
@@ -970,559 +652,301 @@
       return db;
     }
 
-    function getUpdates() {
-      if (typeof window.getGpLinkUpdates === "function") {
-        return window.getGpLinkUpdates().slice();
-      }
-      if (Array.isArray(window.gpLinkUpdates)) {
-        return window.gpLinkUpdates.slice();
-      }
-      return [];
+    /* ═══ SERVER SYNC ═══ */
+    async function fetchTicketsFromServer() {
+      try { const r = await fetch("/api/support/tickets",{credentials:"same-origin"}); if(!r.ok) return null; const d = await r.json(); return Array.isArray(d.tickets)?d.tickets:null; } catch { return null; }
+    }
+    async function createTicketOnServer(ticket) {
+      try { const r = await fetch("/api/support/tickets",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(ticket)}); if(!r.ok) return null; return await r.json(); } catch { return null; }
+    }
+    async function sendReplyToServer(ticketId, text) {
+      try { const r = await fetch(`/api/support/tickets/${encodeURIComponent(ticketId)}/messages`,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,from:"me"})}); if(!r.ok) return null; return await r.json(); } catch { return null; }
+    }
+    async function updateTicketStatusOnServer(ticketId, status) {
+      try { const r = await fetch(`/api/support/tickets/${encodeURIComponent(ticketId)}/status`,{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})}); if(!r.ok) return null; return await r.json(); } catch { return null; }
+    }
+    async function mergeServerTickets() {
+      const srv = await fetchTicketsFromServer();
+      if (!srv) return;
+      const local = loadSupportCases();
+      const map = new Map(local.map(c=>[c.id,c]));
+      let changed = false;
+      srv.forEach(st=>{ const n=normalizeCase(st); if(!n) return; const ex=map.get(n.id); if(!ex||new Date(n.updatedAt)>new Date(ex.updatedAt)){map.set(n.id,n);changed=true;} });
+      if (changed) { const merged=[...map.values()].sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt)); saveSupportCases(merged); }
     }
 
-    function getPreparedDocReviewUpdates() {
-      const parsed = parseStorage(DOC_KEY);
-      if (!parsed || typeof parsed !== "object" || parsed.country !== "uk" || !parsed.docs) return [];
-      const updatedAt = typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString();
-
-      return PREPARED_BY_YOU_DOCS.map((doc) => {
-        const entry = parsed.docs[doc.key];
-        if (!entry || (entry.status !== "accepted" && entry.status !== "rejected")) return null;
-
-        const reviewReason = typeof entry.rejectionReason === "string" && entry.rejectionReason.trim()
-          ? entry.rejectionReason.trim()
-          : (typeof entry.reviewNote === "string" && entry.reviewNote.trim() ? entry.reviewNote.trim() : "");
-
-        if (entry.status === "accepted") {
-          return {
-            type: "info",
-            title: `${doc.title} was accepted by GP Link review.`,
-            detail: "No further action needed for this document.",
-            ts: updatedAt,
-            source: "prepared-doc-review",
-            sourceKey: doc.key
-          };
-        }
-
-        const reasonText = reviewReason || "The uploaded copy did not meet AHPRA certification or clarity requirements.";
-        return {
-          type: "action",
-          title: `${doc.title} needs re-upload after review.`,
-          detail: `Reason: ${reasonText} Action required: Upload a corrected certified copy in My Documents.`,
-          ts: updatedAt,
-          source: "prepared-doc-review",
-          sourceKey: doc.key
-        };
-      }).filter(Boolean);
-    }
-
-    function buildItems() {
-      const updates = [...getUpdates(), ...getPreparedDocReviewUpdates()];
-      const updateReadMap = loadUpdateReadMap();
-      const cases = loadSupportCases();
-
-      const updateItems = updates.map((u) => {
-        const id = updateId(u);
-        const type = typeof u.type === "string" ? u.type : "info";
-        return {
-          id,
-          kind: "update",
-          badge: type === "action" ? "ACTION REQUIRED" : type === "success" ? "SUCCESS" : "INFO",
-          badgeClass: type,
-          title: typeof u.title === "string" ? u.title : "Update available",
-          preview: typeof u.detail === "string" && u.detail ? u.detail : "GP Link has posted an update.",
-          body: typeof u.detail === "string" && u.detail ? u.detail : "",
-          ts: typeof u.ts === "string" ? u.ts : new Date().toISOString(),
-          unread: !updateReadMap[id],
-          actionRequired: type === "action",
-          raw: u
-        };
-      });
-
-      const caseItems = cases.map((c) => {
-        const latest = Array.isArray(c.thread) && c.thread.length ? c.thread[c.thread.length - 1] : null;
-        const preview = latest && typeof latest.text === "string" ? latest.text : "Support conversation";
-        const threadText = Array.isArray(c.thread) ? c.thread.map((entry) => (entry && typeof entry.text === "string" ? entry.text : "")).join(" ") : "";
-        return {
-          id: `c:${c.id}`,
-          kind: "case",
-          badge: "CASE",
-          badgeClass: "case",
-          title: typeof c.title === "string" ? c.title : "Support case",
-          category: c.category || "Other",
-          preview,
-          body: threadText || preview,
-          ts: typeof c.updatedAt === "string" ? c.updatedAt : new Date().toISOString(),
-          unread: !!c.unread,
-          actionRequired: false,
-          raw: c
-        };
-      });
-
-      return [...updateItems, ...caseItems];
-    }
-
-    function filterItems(items) {
-      let out = items.slice();
-
-      if (activeTab === "updates") out = out.filter((item) => item.kind === "update" && !item.actionRequired);
-      if (activeTab === "cases") out = out.filter((item) => item.kind === "case");
-      if (activeTab === "action") out = out.filter((item) => item.kind === "update" && item.actionRequired);
-
-      if (activeTab === "cases") {
-        const query = caseSearchInputEl.value.trim().toLowerCase();
-        if (query) {
-          out = out.filter((item) => {
-            const haystack = `${item.title} ${item.preview} ${item.body} ${item.category || ""}`.toLowerCase();
-            return haystack.includes(query);
-          });
-        }
-      }
-
-      const sortMode = sortSelectEl.value;
-      out.sort((a, b) => {
-        const aTime = new Date(a.ts).getTime() || 0;
-        const bTime = new Date(b.ts).getTime() || 0;
-        if (sortMode === "oldest") return aTime - bTime;
-        if (sortMode === "unread") {
-          if (a.unread !== b.unread) return a.unread ? -1 : 1;
-          return bTime - aTime;
-        }
-        return bTime - aTime;
-      });
-
-      return out;
-    }
-
-    function updateTabAlerts() {
-      const items = buildItems();
-      const hasUpdatesUnread = items.some((item) => item.kind === "update" && !item.actionRequired && item.unread);
-      const hasCasesUnread = items.some((item) => item.kind === "case" && item.unread);
-      const hasActionUnread = items.some((item) => item.kind === "update" && item.actionRequired && item.unread);
-
-      document.querySelectorAll("[data-tab-alert]").forEach((badge) => {
-        const key = badge.getAttribute("data-tab-alert");
-        const show = (key === "updates" && hasUpdatesUnread) ||
-          (key === "cases" && hasCasesUnread) ||
-          (key === "action" && hasActionUnread);
-        badge.hidden = !show;
-        badge.setAttribute("aria-hidden", show ? "false" : "true");
-      });
-    }
-
-    function syncCaseUIVisibility() {
-      const showCaseUI = activeTab === "cases";
-      caseToolbarEl.hidden = !showCaseUI;
-      caseToolbarEl.style.display = showCaseUI ? "grid" : "none";
-      if (!showCaseUI) {
-        caseModalOpen = false;
-        newCaseModalEl.classList.remove("show");
-        newCaseModalEl.setAttribute("aria-hidden", "true");
-      }
-    }
-
-    function renderList() {
-      const items = filterItems(buildItems());
-      messageListEl.innerHTML = "";
-      updateTabAlerts();
-      syncCaseUIVisibility();
-
-      if (!items.length) {
-        const empty = document.createElement("div");
-        empty.className = "empty";
-        empty.textContent = "No messages to show in this section yet.";
-        messageListEl.appendChild(empty);
-        selectedId = "";
-        renderDetail(null);
-        return;
-      }
-
-      if (!selectedId || !items.some((i) => i.id === selectedId)) {
-        selectedId = items[0].id;
-      }
-
-      items.forEach((item) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = `msg-item${selectedId === item.id ? " active" : ""}`;
-        btn.setAttribute("aria-label", `${item.title} ${item.badge}`);
-        btn.innerHTML = `
-          <div class="msg-top">
-            <span class="msg-meta"><span class="badge ${item.badgeClass}">${item.badge}</span>${item.kind === "case" ? `<span class="category-chip">${item.category}</span>` : ""}</span>
-            <span class="msg-meta">${item.unread ? '<span class="dot" aria-label="Unread"></span>' : ""}<span class="ts">${formatTs(item.ts)}</span></span>
-          </div>
-          <p class="msg-title">${item.title}</p>
-          <p class="msg-preview">${item.preview}</p>
-        `;
-        btn.addEventListener("click", () => {
-          selectedId = item.id;
-          renderList();
-        });
-        messageListEl.appendChild(btn);
-      });
-
-      const selected = items.find((i) => i.id === selectedId) || null;
-      renderDetail(selected);
-    }
-
-    function applyHashRouting() {
-      const hash = window.location.hash || "";
-      if (!hash) return;
-      if (hash === "#tab-action") {
-        activeTab = "action";
-      } else if (hash === "#tab-updates") {
-        activeTab = "updates";
-      } else if (hash.startsWith("#case-")) {
-        activeTab = "cases";
-        const caseId = decodeURIComponent(hash.replace("#case-", ""));
-        if (caseId) selectedId = `c:${caseId}`;
-      }
-      tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === activeTab));
-    }
-
-    function markUpdateRead(item) {
-      const map = loadUpdateReadMap();
-      map[item.id] = true;
-      saveUpdateReadMap(map);
-      renderList();
-    }
-
-    function markCaseRead(caseId) {
-      const cases = loadSupportCases();
-      const idx = cases.findIndex((c) => c.id === caseId);
-      if (idx === -1) return;
-      cases[idx].unread = false;
-      saveSupportCases(cases);
-      renderList();
-    }
-
+    /* ═══ CASE OPS ═══ */
     function setCaseStatus(caseId, status) {
-      const cases = loadSupportCases();
-      const idx = cases.findIndex((c) => c.id === caseId);
-      if (idx === -1) return;
-      cases[idx].status = status === "closed" ? "closed" : "open";
+      const cases = loadSupportCases(), idx = cases.findIndex(c=>c.id===caseId);
+      if (idx===-1) return;
+      cases[idx].status = status==="closed"?"closed":"open";
       cases[idx].updatedAt = new Date().toISOString();
       saveSupportCases(cases);
-      renderList();
+      updateTicketStatusOnServer(caseId, cases[idx].status);
     }
 
     function sendCaseMessage(caseId, text) {
-      const cases = loadSupportCases();
-      const idx = cases.findIndex((c) => c.id === caseId);
-      if (idx === -1) return;
+      const cases = loadSupportCases(), idx = cases.findIndex(c=>c.id===caseId);
+      if (idx===-1) return;
       const now = new Date().toISOString();
-      if (!Array.isArray(cases[idx].thread)) cases[idx].thread = [];
-      cases[idx].thread.push({ from: "me", text, ts: now });
+      if (!Array.isArray(cases[idx].thread)) cases[idx].thread=[];
+      cases[idx].thread.push({from:"me",text,ts:now});
       cases[idx].updatedAt = now;
       cases[idx].unread = false;
       saveSupportCases(cases);
-      renderList();
+      sendReplyToServer(caseId, text);
     }
 
     function addTeamReply(caseId, text, attachments) {
-      const cases = loadSupportCases();
-      const idx = cases.findIndex((c) => c.id === caseId);
-      if (idx === -1) return null;
+      const cases = loadSupportCases(), idx = cases.findIndex(c=>c.id===caseId);
+      if (idx===-1) return null;
       const now = new Date().toISOString();
-      if (!Array.isArray(cases[idx].thread)) cases[idx].thread = [];
-      const normalizedAttachments = Array.isArray(attachments)
-        ? attachments.filter((att) => att && typeof att === "object" && typeof att.name === "string" && typeof att.type === "string" && typeof att.dataUrl === "string")
-        : [];
-      cases[idx].thread.push({ from: "gp", text: typeof text === "string" ? text : "", ts: now, attachments: normalizedAttachments });
+      if (!Array.isArray(cases[idx].thread)) cases[idx].thread=[];
+      const normAtt = Array.isArray(attachments)?attachments.filter(a=>a&&typeof a==="object"&&typeof a.name==="string"&&typeof a.type==="string"&&typeof a.dataUrl==="string"):[];
+      cases[idx].thread.push({from:"gp",text:typeof text==="string"?text:"",ts:now,attachments:normAtt});
       cases[idx].updatedAt = now;
       cases[idx].unread = true;
       saveSupportCases(cases);
       return cases[idx];
     }
 
-    function renderDetail(item) {
-      if (!item) {
-        detailViewEl.innerHTML = `
-          <div>
-            <h3>Select a message</h3>
-            <p class="detail-sub">Choose an item from the list to view full details.</p>
-          </div>
-          <div class="detail-body"><div class="empty">No message selected yet.</div></div>
-          <div></div>
-        `;
+    function markCaseRead(caseId) {
+      const cases = loadSupportCases(), idx = cases.findIndex(c=>c.id===caseId);
+      if (idx===-1) return;
+      cases[idx].unread = false;
+      saveSupportCases(cases);
+    }
+
+    /* ═══ VIEW SWITCHING ═══ */
+    function switchView(viewId) {
+      currentView = viewId;
+      Object.values(views).forEach(v=>v.classList.remove("active"));
+      if (views[viewId]) views[viewId].classList.add("active");
+      bottomTabs.forEach(t=>t.classList.toggle("active", t.dataset.view===viewId));
+      fabEl.style.display = viewId==="viewMyTickets"?"":"none";
+    }
+    bottomTabs.forEach(tab=>tab.addEventListener("click",()=>switchView(tab.dataset.view)));
+
+    /* ═══ RENDER TICKET LIST ═══ */
+    function renderTicketList() {
+      const cases = loadSupportCases();
+      const q = ticketSearchEl.value.trim().toLowerCase();
+      let filtered = cases;
+      if (q) filtered = cases.filter(c=>`${c.title} ${c.category} ${c.caseCode} ${c.priority}`.toLowerCase().includes(q));
+      filtered.sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt));
+      ticketSectionLabel.textContent = filtered.length?(q?`${filtered.length} result${filtered.length===1?"":"s"}`:"New conversation"):"No tickets yet";
+
+      if (!filtered.length) {
+        ticketListEl.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><h3>${q?"No matching tickets":"No tickets yet"}</h3><p>${q?"Try a different search term":"Create a ticket to get help from our team"}</p></div>`;
         return;
       }
 
-      if (item.kind === "update") {
-        detailViewEl.innerHTML = `
-          <div>
-            <h3>${item.title}</h3>
-            <p class="detail-sub">${item.badge} • ${formatTs(item.ts)}</p>
+      const colors = ["purple","blue","green"];
+      ticketListEl.innerHTML = filtered.map((c,i)=>{
+        const latest = c.thread.length?c.thread[c.thread.length-1]:null;
+        const preview = latest?latest.text:"No messages yet";
+        const msgCount = c.thread.length;
+        const avatarColor = colors[i%colors.length];
+        const initials = (c.title||"S").charAt(0).toUpperCase();
+        const isNew = !c.thread.some(e=>e.from==="gp");
+        return `<article class="ticket-card" data-ticket-id="${escapeHtml(c.id)}">
+          <div class="ticket-top">
+            <div class="ticket-badges">
+              <span class="badge badge-status ${isNew&&c.status!=="closed"?"new":statusClass(c.status)}">${isNew&&c.status!=="closed"?"New":statusText(c.status)}</span>
+              <span class="badge badge-priority ${priorityClass(c.priority)}">${priorityLabel(c.priority)}</span>
+            </div>
+            <span class="ticket-time">${formatTs(c.updatedAt)}</span>
           </div>
-          <div class="detail-body">
-            <p class="detail-text">${item.body || item.preview}</p>
-            ${item.actionRequired ? `<ul class="todo"><li>Review this update carefully.</li><li>Complete the required action in your current registration step.</li></ul>` : ""}
-          </div>
-          <div class="btn-row">
-            ${item.unread ? '<button class="btn" id="markReadBtn" type="button">Mark as read</button>' : ""}
-          </div>
-        `;
-
-        const markReadBtn = document.getElementById("markReadBtn");
-        if (markReadBtn) {
-          markReadBtn.addEventListener("click", () => markUpdateRead(item));
-        }
-        return;
-      }
-
-      const c = item.raw;
-      const caseStatus = c.status === "closed" ? "closed" : "open";
-      const threadHtml = Array.isArray(c.thread)
-        ? c.thread.map((entry) => {
-            const from = entry.from === "gp" ? "gp" : "me";
-            const who = from === "gp" ? "GP Link" : "You";
-            const text = typeof entry.text === "string" ? entry.text : "";
-            const ts = typeof entry.ts === "string" ? entry.ts : new Date().toISOString();
-            const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
-            const attachmentMarkup = attachments.map((att) => {
-              const name = att && att.name ? att.name : "Attachment";
-              const dataUrl = att && att.dataUrl ? att.dataUrl : "";
-              if (!dataUrl) return `<span>${name}</span>`;
-              return `<a href="${dataUrl}" download="${name}" style="font-size:11px; color:#1d4ed8; text-decoration:none;">${name}</a>`;
-            }).join("");
-            return `<div class="bubble ${from}"><p>${text}</p>${attachmentMarkup ? `<div style="display:grid; gap:4px;">${attachmentMarkup}</div>` : ""}<span>${who} • ${formatTs(ts)}</span></div>`;
-          }).join("")
-        : "";
-
-      detailViewEl.innerHTML = `
-        <div>
-          <div class="case-head">
-            <h3>${c.title}</h3>
-            <div class="btn-row" style="gap:6px;">
-              <span class="case-status ${caseStatus}">${caseStatus === "open" ? "Open" : "Closed"}</span>
+          <p class="ticket-name">${escapeHtml(c.title)}</p>
+          <p class="ticket-preview">${escapeHtml(preview)}</p>
+          <div class="ticket-footer">
+            <div class="ticket-assigned">
+              <div class="avatar-stack"><span class="avatar-dot ${avatarColor}">${initials}</span></div>
+              Assigned to
+            </div>
+            <div class="ticket-stats">
+              <span><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>${msgCount}</span>
             </div>
           </div>
-          <div class="case-detail-meta">
-            <p class="detail-sub">${c.caseCode} • Updated ${formatTs(c.updatedAt)}</p>
-            <p class="detail-sub">Category: ${c.category} • Priority: ${c.priority.replace("_", " ")}</p>
-          </div>
-        </div>
-        <div class="detail-body">
-          <div class="thread">${threadHtml || '<div class="empty">No messages yet.</div>'}</div>
-          ${caseStatus === "open" ? `
-            <div class="composer">
-              <textarea class="textarea" id="caseReply" rows="3" maxlength="2000" placeholder="Write your message"></textarea>
-              <div class="btn-row">
-                <button class="btn" id="sendReplyBtn" type="button">Send message</button>
-                ${c.unread ? '<button class="btn" id="markCaseReadBtn" type="button">Mark as read</button>' : ""}
-              </div>
-            </div>
-          ` : '<div class="empty" style="margin-top:10px;">This case is closed. Start a new case if you need more help.</div>'}
-        </div>
-        <div>${caseStatus === "open"
-          ? `<div class="btn-row"><button class="btn" id="markResolvedBtn" type="button">Mark as resolved</button></div>${Array.isArray(c.thread) && c.thread.some((entry) => entry && entry.from === "gp") ? "" : '<p class="case-contact-note">Team will contact you within the next few hours</p>'}`
-          : '<div class="btn-row"><button class="btn" id="reopenCaseBtn" type="button">Reopen</button></div>'}</div>
-      `;
+        </article>`;
+      }).join("");
 
-      const sendReplyBtn = document.getElementById("sendReplyBtn");
-      if (sendReplyBtn) {
-        sendReplyBtn.addEventListener("click", () => {
-          const replyEl = document.getElementById("caseReply");
-          const text = replyEl.value.trim();
-          if (!text) return;
-          sendCaseMessage(c.id, text);
-        });
-      }
-
-      const markCaseReadBtn = document.getElementById("markCaseReadBtn");
-      if (markCaseReadBtn) {
-        markCaseReadBtn.addEventListener("click", () => markCaseRead(c.id));
-      }
-      const markResolvedBtn = document.getElementById("markResolvedBtn");
-      if (markResolvedBtn) markResolvedBtn.addEventListener("click", () => setCaseStatus(c.id, "closed"));
-      const reopenCaseBtn = document.getElementById("reopenCaseBtn");
-      if (reopenCaseBtn) reopenCaseBtn.addEventListener("click", () => setCaseStatus(c.id, "open"));
-    }
-
-    function closeCaseModal() {
-      caseModalOpen = false;
-      newCaseModalEl.classList.remove("show");
-      newCaseModalEl.setAttribute("aria-hidden", "true");
-    }
-
-    function openCaseModal() {
-      const draft = loadDraft();
-      ticketCategoryEl.value = draft.category || "EPIC";
-      ticketPriorityEl.value = draft.priority || "normal";
-      ticketSummaryEl.value = draft.title || "";
-      ticketDescriptionEl.value = draft.description || "";
-      ticketAttachmentEl.value = "";
-      caseModalOpen = true;
-      newCaseModalEl.classList.add("show");
-      newCaseModalEl.setAttribute("aria-hidden", "false");
-    }
-
-    function persistCaseDraft() {
-      saveDraft({
-        category: ticketCategoryEl.value,
-        priority: ticketPriorityEl.value,
-        title: ticketSummaryEl.value,
-        description: ticketDescriptionEl.value
+      ticketListEl.querySelectorAll(".ticket-card").forEach(card=>{
+        card.addEventListener("click",()=>openTicketDetail(card.dataset.ticketId));
       });
     }
+    ticketSearchEl.addEventListener("input", renderTicketList);
 
-    function readAttachmentAsDataUrl(file) {
-      return new Promise((resolve) => {
-        if (!file) {
-          resolve(null);
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => resolve({
-          name: file.name,
-          type: file.type || "application/octet-stream",
-          dataUrl: String(reader.result || "")
-        });
-        reader.onerror = () => resolve(null);
+    /* ═══ RENDER ARTICLES ═══ */
+    function renderArticles() {
+      const q = articleSearchEl.value.trim().toLowerCase();
+      let filtered = HELP_ARTICLES;
+      if (q) filtered = HELP_ARTICLES.filter(a=>`${a.title} ${a.content}`.toLowerCase().includes(q));
+      articlesListEl.innerHTML = filtered.map(a=>`
+        <div class="article-item" data-article-id="${a.id}">
+          <button class="article-header" type="button">
+            <div class="article-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
+            <div class="article-info">
+              <p class="article-title">${escapeHtml(a.title)}</p>
+              <p class="article-views"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${a.views} views</p>
+            </div>
+            <svg class="article-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="article-body">
+            <p>${escapeHtml(a.content).replace(/\n/g,"<br>")}</p>
+            <div class="article-feedback">Was that helpful?
+              <button class="feedback-btn" type="button" data-feedback="up" aria-label="Helpful"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
+              <button class="feedback-btn" type="button" data-feedback="down" aria-label="Not helpful"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
+            </div>
+          </div>
+        </div>
+      `).join("");
+      articlesListEl.querySelectorAll(".article-header").forEach(h=>h.addEventListener("click",()=>h.closest(".article-item").classList.toggle("expanded")));
+      articlesListEl.querySelectorAll(".feedback-btn").forEach(btn=>btn.addEventListener("click",e=>{e.stopPropagation();btn.parentElement.querySelectorAll(".feedback-btn").forEach(s=>s.classList.remove("selected"));btn.classList.add("selected");}));
+    }
+    articleSearchEl.addEventListener("input", renderArticles);
+
+    /* ═══ SLIDE PANELS ═══ */
+    function openNewTicket() {
+      const draft = parseStorage(SUPPORT_DRAFT_KEY);
+      if (draft&&typeof draft==="object"){newCategoryEl.value=draft.category||"";newSubjectEl.value=draft.title||"";newDescriptionEl.value=draft.description||"";}
+      isUrgent=false; urgentToggleEl.classList.remove("on"); urgentToggleEl.setAttribute("aria-checked","false");
+      uploadFileNameEl.hidden=true; newAttachmentEl.value="";
+      slideNewTicket.classList.add("open");
+    }
+    function closeNewTicket() { slideNewTicket.classList.remove("open"); }
+
+    function openTicketDetail(ticketId) {
+      const cases = loadSupportCases(), c = cases.find(x=>x.id===ticketId);
+      if (!c) return;
+      selectedTicketId = ticketId;
+      if (c.unread) markCaseRead(ticketId);
+      detailTitleEl.textContent = c.title;
+      detailStatusEl.textContent = c.status==="closed"?"Closed":"Open";
+      detailStatusEl.className = `badge badge-status ${statusClass(c.status)}`;
+      detailMetaEl.innerHTML = `<span>${escapeHtml(c.caseCode)}</span><span>${escapeHtml(c.category)}</span><span>${formatTs(c.updatedAt)}</span>`;
+
+      detailThreadEl.innerHTML = c.thread.length ? c.thread.map(e=>{
+        const from=e.from==="gp"?"gp":"me", who=from==="gp"?"GP Link":"You";
+        const atts=Array.isArray(e.attachments)?e.attachments:[];
+        const attHtml=atts.map(a=>a&&a.dataUrl?`<a class="bubble-attachment" href="${escapeHtml(a.dataUrl)}" download="${escapeHtml(a.name||"file")}">${escapeHtml(a.name||"Attachment")}</a>`:"").join("");
+        return `<div class="bubble ${from}"><p>${escapeHtml(e.text)}</p>${attHtml}<span class="bubble-time">${who} &middot; ${formatTs(e.ts)}</span></div>`;
+      }).join("") : '<div class="empty-state"><p>No messages yet. Send the first message below.</p></div>';
+
+      const isClosed = c.status==="closed";
+      replyBarEl.style.display = isClosed?"none":"";
+      resolveRowEl.innerHTML = isClosed
+        ? '<button class="resolve-btn primary" id="reopenBtn" type="button">Reopen Ticket</button>'
+        : '<button class="resolve-btn" id="resolveBtn2" type="button">Mark Resolved</button>';
+
+      const reopenBtn = document.getElementById("reopenBtn");
+      if (reopenBtn) reopenBtn.addEventListener("click",()=>{setCaseStatus(ticketId,"open");openTicketDetail(ticketId);renderTicketList();});
+      const resolveBtn2 = document.getElementById("resolveBtn2");
+      if (resolveBtn2) resolveBtn2.addEventListener("click",()=>{setCaseStatus(ticketId,"closed");openTicketDetail(ticketId);renderTicketList();});
+
+      replyInputEl.value = "";
+      slideTicketDetail.classList.add("open");
+      setTimeout(()=>{detailThreadEl.scrollTop=detailThreadEl.scrollHeight;},50);
+    }
+    function closeTicketDetail() { slideTicketDetail.classList.remove("open"); selectedTicketId=null; }
+
+    /* ═══ EVENT HANDLERS ═══ */
+    fabEl.addEventListener("click", openNewTicket);
+    ctaCreateEl.addEventListener("click", openNewTicket);
+    newTicketBackBtn.addEventListener("click", closeNewTicket);
+    detailBackBtn.addEventListener("click", closeTicketDetail);
+
+    urgentToggleEl.addEventListener("click",()=>{isUrgent=!isUrgent;urgentToggleEl.classList.toggle("on",isUrgent);urgentToggleEl.setAttribute("aria-checked",String(isUrgent));});
+
+    uploadZoneEl.addEventListener("click",()=>newAttachmentEl.click());
+    uploadZoneEl.addEventListener("dragover",e=>{e.preventDefault();uploadZoneEl.classList.add("dragover");});
+    uploadZoneEl.addEventListener("dragleave",()=>uploadZoneEl.classList.remove("dragover"));
+    uploadZoneEl.addEventListener("drop",e=>{e.preventDefault();uploadZoneEl.classList.remove("dragover");if(e.dataTransfer.files.length){newAttachmentEl.files=e.dataTransfer.files;showFileName(e.dataTransfer.files[0]);}});
+    newAttachmentEl.addEventListener("change",()=>{if(newAttachmentEl.files.length)showFileName(newAttachmentEl.files[0]);});
+
+    function showFileName(file){
+      if(!file) return;
+      if(file.size>10*1024*1024){uploadFileNameEl.textContent="File too large (max 10MB)";uploadFileNameEl.style.color="var(--red)";uploadFileNameEl.hidden=false;newAttachmentEl.value="";return;}
+      uploadFileNameEl.textContent=file.name;uploadFileNameEl.style.color="";uploadFileNameEl.hidden=false;
+    }
+
+    [newCategoryEl,newSubjectEl,newDescriptionEl].forEach(el=>el.addEventListener("input",()=>saveStorage(SUPPORT_DRAFT_KEY,{category:newCategoryEl.value,title:newSubjectEl.value,description:newDescriptionEl.value})));
+
+    function readAttachmentAsDataUrl(file){
+      return new Promise(resolve=>{
+        if(!file){resolve(null);return;}
+        const reader=new FileReader();
+        reader.onload=()=>resolve({name:file.name,type:file.type||"application/octet-stream",dataUrl:String(reader.result||"")});
+        reader.onerror=()=>resolve(null);
         reader.readAsDataURL(file);
       });
     }
 
-    async function createCase() {
-      const category = ticketCategoryEl.value;
-      const priority = ticketPriorityEl.value;
-      const title = ticketSummaryEl.value.trim();
-      const description = ticketDescriptionEl.value.trim();
-      const attachmentFile = ticketAttachmentEl.files && ticketAttachmentEl.files[0] ? ticketAttachmentEl.files[0] : null;
-      if (!title || !description) return;
-
-      const cases = loadSupportCases();
-      const now = new Date().toISOString();
-      const dayCode = now.slice(0, 10).replace(/-/g, "");
-      const nextNo = cases.filter((c) => typeof c.caseCode === "string" && c.caseCode.includes(`GP-${dayCode}`)).length + 1;
-      const caseCode = `Case GP-${dayCode}-${String(nextNo).padStart(3, "0")}`;
-      const attachment = await readAttachmentAsDataUrl(attachmentFile);
-
-      const createdCase = normalizeCase({
-        id: `case_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-        caseCode,
-        title,
-        category,
-        priority,
-        status: "open",
-        unread: false,
-        createdAt: now,
-        updatedAt: now,
-        thread: [{
-          from: "me",
-          text: description,
-          ts: now,
-          attachments: attachment ? [attachment] : []
-        }]
-      });
-
+    submitTicketBtnEl.addEventListener("click", async()=>{
+      const category=newCategoryEl.value, title=newSubjectEl.value.trim(), description=newDescriptionEl.value.trim();
+      if(!title||!description) return;
+      submitTicketBtnEl.disabled=true;
+      const attachmentFile=newAttachmentEl.files&&newAttachmentEl.files[0]?newAttachmentEl.files[0]:null;
+      const attachment=await readAttachmentAsDataUrl(attachmentFile);
+      const cases=loadSupportCases(), now=new Date().toISOString();
+      const dayCode=now.slice(0,10).replace(/-/g,"");
+      const nextNo=cases.filter(c=>typeof c.caseCode==="string"&&c.caseCode.includes(`GP-${dayCode}`)).length+1;
+      const caseCode=`Case GP-${dayCode}-${String(nextNo).padStart(3,"0")}`;
+      const priority=isUrgent?"blocked":"normal";
+      const ticketData={id:`case_${Date.now()}_${Math.floor(Math.random()*1000)}`,caseCode,title,category:category||"Other",priority,status:"open",unread:false,createdAt:now,updatedAt:now,thread:[{from:"me",text:description,ts:now,attachments:attachment?[attachment]:[]}]};
+      const createdCase=normalizeCase(ticketData);
       cases.unshift(createdCase);
       saveSupportCases(cases);
-      clearDraft();
-      ticketCategoryEl.value = "EPIC";
-      ticketPriorityEl.value = "normal";
-      ticketSummaryEl.value = "";
-      ticketDescriptionEl.value = "";
-      ticketAttachmentEl.value = "";
-      closeCaseModal();
-      selectedId = `c:${createdCase.id}`;
-      activeTab = "cases";
-      tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === activeTab));
-      renderList();
+      createTicketOnServer(ticketData);
+      localStorage.removeItem(SUPPORT_DRAFT_KEY);
+      newCategoryEl.value="";newSubjectEl.value="";newDescriptionEl.value="";newAttachmentEl.value="";uploadFileNameEl.hidden=true;
+      isUrgent=false;urgentToggleEl.classList.remove("on");urgentToggleEl.setAttribute("aria-checked","false");
+      submitTicketBtnEl.disabled=false;
+      closeNewTicket();switchView("viewMyTickets");renderTicketList();openTicketDetail(createdCase.id);
+    });
+
+    sendReplyBtnEl.addEventListener("click",()=>{
+      const text=replyInputEl.value.trim();
+      if(!text||!selectedTicketId) return;
+      sendCaseMessage(selectedTicketId,text);
+      openTicketDetail(selectedTicketId);
+      renderTicketList();
+    });
+
+    /* ═══ HASH ROUTING ═══ */
+    function applyHashRouting(){
+      const h=window.location.hash||"";
+      if(h==="#help-center") switchView("viewHelpCenter");
+      else if(h==="#new-ticket"){switchView("viewMyTickets");openNewTicket();}
+      else if(h.startsWith("#ticket-")){const id=decodeURIComponent(h.replace("#ticket-",""));switchView("viewMyTickets");if(id)setTimeout(()=>openTicketDetail(id),100);}
+      else switchView("viewMyTickets");
     }
 
-    tabs.forEach((tab) => {
-      tab.addEventListener("click", () => {
-        activeTab = tab.dataset.tab;
-        tabs.forEach((t) => t.classList.toggle("active", t === tab));
-        renderList();
-      });
-    });
-
-    caseSearchInputEl.addEventListener("input", renderList);
-    sortSelectEl.addEventListener("change", renderList);
-
-    cancelCaseBtnEl.addEventListener("click", () => {
-      closeCaseModal();
-    });
-
-    newCaseToggleTabEl.addEventListener("click", () => {
-      if (activeTab !== "cases") return;
-      openCaseModal();
-    });
-
-    [ticketCategoryEl, ticketPriorityEl, ticketSummaryEl, ticketDescriptionEl].forEach((field) => {
-      field.addEventListener("input", persistCaseDraft);
-      field.addEventListener("change", persistCaseDraft);
-    });
-
-    newCaseModalEl.addEventListener("click", (e) => {
-      if (e.target === newCaseModalEl) closeCaseModal();
-    });
-
-    createCaseBtnEl.addEventListener("click", createCase);
-
+    /* ═══ EXPOSED API ═══ */
     window.gpLinkSupportDB = {
-      getDatabase: () => parseStorage(MESSAGE_DB_KEY) || syncMessageDatabase(),
-      getCases: () => loadSupportCases(),
-      addTeamReply: (caseId, text, attachments) => {
-        const updated = addTeamReply(caseId, text, attachments);
-        renderList();
-        return updated;
-      },
-      setCaseStatus: (caseId, status) => {
-        setCaseStatus(caseId, status);
-        return loadSupportCases().find((c) => c.id === caseId) || null;
-      },
-      markCaseRead: (caseId) => {
-        markCaseRead(caseId);
-        return loadSupportCases().find((c) => c.id === caseId) || null;
-      }
+      getDatabase:()=>parseStorage(MESSAGE_DB_KEY)||syncMessageDatabase(),
+      getCases:()=>loadSupportCases(),
+      addTeamReply:(caseId,text,attachments)=>{const u=addTeamReply(caseId,text,attachments);renderTicketList();return u;},
+      setCaseStatus:(caseId,status)=>{setCaseStatus(caseId,status);renderTicketList();return loadSupportCases().find(c=>c.id===caseId)||null;},
+      markCaseRead:(caseId)=>{markCaseRead(caseId);renderTicketList();return loadSupportCases().find(c=>c.id===caseId)||null;}
     };
 
-    activeNavItem = navMenuEl ? (document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null) : null;
-    if (activeNavItem) setActiveNav(activeNavItem, false);
-    if (navMenuEl) {
-      navMenuEl.addEventListener("mousemove", (event) => {
-        const hit = event.target instanceof Element ? event.target.closest(".nav-item") : null;
-        if (hit && hit !== hoveredNavItem) {
-          hoveredNavItem = hit;
-          moveNavGlass(hit, true);
-        }
-      });
-      navMenuEl.addEventListener("mouseleave", () => {
-        hoveredNavItem = null;
-        if (activeNavItem) moveNavGlass(activeNavItem, true);
-      });
-    }
-    window.addEventListener("resize", () => {
-      if (activeNavItem) moveNavGlass(activeNavItem, false);
-    });
-
-    function initializeMessagesPage() {
+    /* ═══ INIT ═══ */
+    function init(){
+      syncMessageDatabase();
+      renderTicketList();
+      renderArticles();
       applyHashRouting();
-      syncMessageDatabase();
-      renderList();
-      if (typeof window.refreshInboxBadges === "function") {
-        window.refreshInboxBadges();
-      }
+      mergeServerTickets().then(()=>renderTicketList());
+      if(typeof window.refreshInboxBadges==="function") window.refreshInboxBadges();
     }
-
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", initializeMessagesPage, { once: true });
-    } else {
-      initializeMessagesPage();
-    }
-
-    // Re-render after state-sync hydrates the current user's data from the server
-    window.addEventListener("gp-state-hydrated", function () {
-      syncMessageDatabase();
-      renderList();
-    }, { once: true });
+    if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init,{once:true});
+    else init();
+    window.addEventListener("gp-state-hydrated",()=>{syncMessageDatabase();renderTicketList();},{once:true});
   </script>
-  <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
-    <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
-    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+  <div class="legal-footer">
+    <div style="margin-bottom:4px;"><a href="privacy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
+    <div>&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
   </div>
 </body>
 </html>

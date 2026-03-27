@@ -2166,23 +2166,33 @@
         return;
       }
 
+      const priorityBadge = (p) => {
+        if (p === "urgent" || p === "blocked" || p === "time_sensitive") return `<span class="badge action_required">Urgent</span>`;
+        if (p === "high") return `<span class="badge stalled">High</span>`;
+        return `<span class="badge active">Normal</span>`;
+      };
+
       contentEl.innerHTML = list.map((ticket) => `
-        <article class="row">
+        <article class="row" data-ticket-row="${escapeHtml(ticket.id)}">
           <div class="row-top">
             <div>
-              <h3 class="name">${ticket.title}</h3>
+              <h3 class="name">${escapeHtml(ticket.title)}</h3>
               <div class="meta">
-                <span>${ticket.candidateName} • ${ticket.candidateEmail}</span>
-                <span>${ticket.category} • Priority: ${ticket.priority}</span>
+                <span>${escapeHtml(ticket.candidateName || "Unknown")} &bull; ${escapeHtml(ticket.candidateEmail || "-")}</span>
+                <span>${escapeHtml(ticket.category || "Other")} &bull; ${escapeHtml(String(ticket.messagesCount || 0))} messages</span>
                 <span>Updated: ${new Date(ticket.updatedAt).toLocaleString()}</span>
               </div>
             </div>
-            <span class="badge ticket-${ticket.status}">${ticket.status}</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              ${priorityBadge(ticket.priority)}
+              <span class="badge ticket-${escapeHtml(ticket.status)}">${escapeHtml(ticket.status)}</span>
+            </div>
           </div>
-          <div class="meta">${ticket.lastMessage || "No messages yet."}</div>
+          <div class="meta" style="font-style:italic;">${escapeHtml(ticket.lastMessage || "No messages yet.")}</div>
           <div class="row-actions">
-            <button class="btn" data-reply-ticket="${ticket.id}" data-candidate-email="${ticket.candidateEmail || ""}" data-candidate-user-id="${ticket.candidateUserId || ""}" type="button">Reply</button>
-            <button class="btn primary" data-toggle-ticket="${ticket.id}" data-candidate-email="${ticket.candidateEmail || ""}" data-candidate-user-id="${ticket.candidateUserId || ""}" data-next-status="${ticket.status === "closed" ? "open" : "closed"}" type="button">${ticket.status === "closed" ? "Reopen" : "Close"}</button>
+            <button class="btn" data-reply-ticket="${escapeHtml(ticket.id)}" data-candidate-email="${escapeHtml(ticket.candidateEmail || "")}" data-candidate-user-id="${escapeHtml(ticket.candidateUserId || "")}" data-ticket-title="${escapeHtml(ticket.title || "")}" type="button">Reply</button>
+            <button class="btn" data-view-thread="${escapeHtml(ticket.id)}" data-candidate-email="${escapeHtml(ticket.candidateEmail || "")}" type="button">View Thread</button>
+            <button class="btn primary" data-toggle-ticket="${escapeHtml(ticket.id)}" data-candidate-email="${escapeHtml(ticket.candidateEmail || "")}" data-candidate-user-id="${escapeHtml(ticket.candidateUserId || "")}" data-next-status="${ticket.status === "closed" ? "open" : "closed"}" type="button">${ticket.status === "closed" ? "Reopen" : "Close"}</button>
           </div>
         </article>
       `).join("");
@@ -2255,6 +2265,45 @@
     }
 
     async function updateTicket(ticketId, payload) {
+      // Use new granular endpoints when possible
+      if (payload.adminReply && payload.candidateEmail) {
+        const res = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}/reply`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ text: payload.adminReply, candidateEmail: payload.candidateEmail })
+        });
+        if (!res.ok) {
+          // Fallback to old endpoint
+          const fallback = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(payload)
+          });
+          if (!fallback.ok) { const d = await fallback.json().catch(() => ({})); throw new Error(d.message || "Unable to reply."); }
+        }
+        return;
+      }
+      if (payload.status && payload.candidateEmail) {
+        const res = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}/status`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ status: payload.status, candidateEmail: payload.candidateEmail })
+        });
+        if (!res.ok) {
+          const fallback = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(payload)
+          });
+          if (!fallback.ok) { const d = await fallback.json().catch(() => ({})); throw new Error(d.message || "Unable to update."); }
+        }
+        return;
+      }
+      // Legacy fallback
       const response = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -2265,6 +2314,98 @@
         const data = await response.json().catch(() => ({}));
         throw new Error(data.message || "Unable to update ticket.");
       }
+    }
+
+    // ─── TICKET THREAD VIEWER ───
+    async function viewTicketThread(ticketId, candidateEmail) {
+      const tickets = state.dashboard && Array.isArray(state.dashboard.tickets) ? state.dashboard.tickets : [];
+      const ticket = tickets.find((t) => t.id === ticketId);
+      if (!ticket) return;
+
+      const thread = Array.isArray(ticket.thread) ? ticket.thread : [];
+      const threadHtml = thread.length
+        ? thread.map((entry) => {
+            const from = entry.from === "gp" ? "gp" : "user";
+            const who = from === "gp" ? "GP Link Team" : (ticket.candidateName || "User");
+            const bg = from === "gp" ? "background:#eff6ff;border-color:#bfdbfe;" : "background:#fff;";
+            return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;${bg}margin-bottom:6px;">
+              <div style="font-size:12px;font-weight:700;color:#334155;">${escapeHtml(who)}</div>
+              <div style="font-size:13px;color:#1f2937;margin:4px 0;line-height:1.4;">${escapeHtml(entry.text || "")}</div>
+              <div style="font-size:11px;color:#64748b;">${new Date(entry.ts || Date.now()).toLocaleString()}</div>
+            </div>`;
+          }).join("")
+        : `<div class="empty">No messages in this thread.</div>`;
+
+      candidateModalBodyEl.innerHTML = `
+        <section class="candidate-top">
+          <div class="candidate-top-row">
+            <h3 class="candidate-name">${escapeHtml(ticket.title || "Support Ticket")}</h3>
+            <span class="badge ticket-${escapeHtml(ticket.status)}">${escapeHtml(ticket.status)}</span>
+          </div>
+          <div class="candidate-grid">
+            <div><p class="field-label">Candidate</p><p class="field-value">${escapeHtml(ticket.candidateName || "-")}</p></div>
+            <div><p class="field-label">Email</p><p class="field-value">${escapeHtml(ticket.candidateEmail || "-")}</p></div>
+            <div><p class="field-label">Category</p><p class="field-value">${escapeHtml(ticket.category || "-")}</p></div>
+            <div><p class="field-label">Priority</p><p class="field-value">${escapeHtml(ticket.priority || "normal")}</p></div>
+            <div><p class="field-label">Created</p><p class="field-value">${new Date(ticket.createdAt || Date.now()).toLocaleString()}</p></div>
+            <div><p class="field-label">Last Updated</p><p class="field-value">${new Date(ticket.updatedAt || Date.now()).toLocaleString()}</p></div>
+          </div>
+        </section>
+        <section class="info-section">
+          <h5>Conversation Thread (${thread.length} message${thread.length === 1 ? "" : "s"})</h5>
+          <div style="max-height:340px;overflow-y:auto;padding:4px;">
+            ${threadHtml}
+          </div>
+        </section>
+        <section class="info-section">
+          <h5>Quick Reply</h5>
+          <textarea id="threadReplyInput" class="input" rows="3" placeholder="Type your reply..." style="width:100%;resize:vertical;min-height:60px;margin-bottom:8px;"></textarea>
+          <div class="modal-actions" style="border:0;padding:0;">
+            <button class="btn primary" id="threadReplyBtn" type="button">Send Reply</button>
+            <button class="btn" id="threadToggleBtn" type="button" data-ticket-status="${ticket.status === "closed" ? "open" : "closed"}">${ticket.status === "closed" ? "Reopen Ticket" : "Close Ticket"}</button>
+            <button class="btn ghost" type="button" data-close-modal="true">Close</button>
+          </div>
+        </section>
+      `;
+
+      const replyBtn = document.getElementById("threadReplyBtn");
+      if (replyBtn) {
+        replyBtn.addEventListener("click", async () => {
+          const input = document.getElementById("threadReplyInput");
+          const text = input ? input.value.trim() : "";
+          if (!text) return;
+          replyBtn.disabled = true;
+          replyBtn.textContent = "Sending...";
+          try {
+            await updateTicket(ticketId, { adminReply: text, candidateEmail: candidateEmail || ticket.candidateEmail });
+            await loadDashboard();
+            viewTicketThread(ticketId, candidateEmail);
+          } catch (err) {
+            window.alert(err.message);
+            replyBtn.disabled = false;
+            replyBtn.textContent = "Send Reply";
+          }
+        });
+      }
+
+      const toggleBtn = document.getElementById("threadToggleBtn");
+      if (toggleBtn) {
+        toggleBtn.addEventListener("click", async () => {
+          const nextStatus = toggleBtn.getAttribute("data-ticket-status");
+          toggleBtn.disabled = true;
+          try {
+            await updateTicket(ticketId, { status: nextStatus, candidateEmail: candidateEmail || ticket.candidateEmail });
+            await loadDashboard();
+            viewTicketThread(ticketId, candidateEmail);
+          } catch (err) {
+            window.alert(err.message);
+            toggleBtn.disabled = false;
+          }
+        });
+      }
+
+      candidateModalEl.classList.add("open");
+      document.body.style.overflow = "hidden";
     }
 
     function exportCurrentTab() {
@@ -2386,22 +2527,15 @@
         if (replyBtn) {
           const ticketId = replyBtn.getAttribute("data-reply-ticket");
           const candidateEmail = replyBtn.getAttribute("data-candidate-email") || "";
-          const candidateUserId = replyBtn.getAttribute("data-candidate-user-id") || "";
-          const message = window.prompt("Send reply to candidate:");
-          if (!message || !message.trim()) return;
-          replyBtn.disabled = true;
-          try {
-            await updateTicket(ticketId, {
-              adminReply: message.trim(),
-              candidateEmail,
-              candidateUserId
-            });
-            await loadDashboard();
-          } catch (err) {
-            window.alert(err.message);
-          } finally {
-            replyBtn.disabled = false;
-          }
+          viewTicketThread(ticketId, candidateEmail);
+          return;
+        }
+
+        const viewThreadBtn = event.target.closest("[data-view-thread]");
+        if (viewThreadBtn) {
+          const ticketId = viewThreadBtn.getAttribute("data-view-thread");
+          const candidateEmail = viewThreadBtn.getAttribute("data-candidate-email") || "";
+          viewTicketThread(ticketId, candidateEmail);
           return;
         }
 
@@ -2438,11 +2572,12 @@
 
     function startAutoRefresh() {
       if (state.refreshTimer) clearInterval(state.refreshTimer);
+      // Real-time polling: refresh every 10 seconds when visible
       state.refreshTimer = setInterval(() => {
         if (document.visibilityState !== "visible") return;
         loadDashboard();
         loadZohoRecruitStatus();
-      }, 15000);
+      }, 10000);
     }
 
     bindEvents();
