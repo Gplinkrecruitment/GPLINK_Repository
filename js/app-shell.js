@@ -134,6 +134,13 @@
     return url.pathname + url.search + url.hash;
   }
 
+  function routesShareSupportedPage(first, second) {
+    var firstUrl = toRouteUrl(first);
+    var secondUrl = toRouteUrl(second);
+    if (!firstUrl || !secondUrl) return false;
+    return resolveSupportedPath(firstUrl.pathname) === resolveSupportedPath(secondUrl.pathname);
+  }
+
   function toRouteUrl(input) {
     try {
       var url = input instanceof URL ? new URL(input.toString()) : new URL(String(input || DEFAULT_ROUTE), window.location.href);
@@ -1077,7 +1084,7 @@
         frameState.title = childDoc ? childDoc.title : "";
       }
 
-      if (pendingNavigation && pendingNavigation.route === nextRoute) {
+      if (pendingNavigation && (pendingNavigation.route === nextRoute || routesShareSupportedPage(pendingNavigation.route, nextRoute))) {
         if (frame !== activeFrameEl) activateFrame(frame);
         setLoading(false);
         updateFrameOffsets();

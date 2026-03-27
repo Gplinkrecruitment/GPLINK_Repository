@@ -36,24 +36,27 @@
       font-family: "Manrope", "Segoe UI", sans-serif;
       color: var(--text);
       background:
-        linear-gradient(180deg, rgba(8, 17, 38, 0.18) 0%, rgba(8, 17, 38, 0.5) 52%, rgba(8, 17, 38, 0.82) 100%),
-        radial-gradient(circle at 50% 10%, rgba(255, 255, 255, 0.14), transparent 28%),
-        url("/media/images/gp%20link%20reg%20app%20bg.png") center / cover no-repeat;
+        linear-gradient(180deg, rgba(8, 17, 38, 0.14) 0%, rgba(8, 17, 38, 0.46) 52%, rgba(8, 17, 38, 0.82) 100%),
+        url("/media/images/gp%20link%20reg%20app%20bg.png") center top / cover no-repeat;
     }
 
     body {
       min-height: 100dvh;
-      display: grid;
-      place-items: center;
-      padding: var(--screen-gap) 18px 34px;
+      margin: 0;
+      padding: 0;
     }
 
     .intro-shell {
-      width: min(100%, 420px);
+      min-height: 100dvh;
+      width: 100%;
+      display: grid;
+      place-items: center;
+      padding: 0 18px 34px;
     }
 
     .intro-card {
-      min-height: min(620px, calc(100dvh - 130px));
+      width: min(100%, 420px);
+      min-height: min(620px, calc(100dvh - 34px));
       display: grid;
       align-content: center;
       justify-items: center;
@@ -196,6 +199,8 @@
 
       .intro-shell {
         width: 100%;
+        min-height: calc(100dvh - var(--gp-shell-bottom-clearance, 0px));
+        padding: 0;
       }
 
       .intro-card {
@@ -234,6 +239,12 @@
 
       .lead {
         font-size: 1.08rem;
+      }
+    }
+
+    @media (min-width: 481px) {
+      .intro-shell {
+        padding-top: 0;
       }
     }
   </style>
