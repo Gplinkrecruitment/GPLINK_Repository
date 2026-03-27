@@ -205,78 +205,159 @@
       z-index: 1;
     }
 
-    .nav-dropdown-menu {
+    .nav-glass.engulf {
+      background: rgba(37, 99, 235, 0.1);
+    }
+
+    .reg-dropdown {
       position: absolute;
-      top: calc(100% + 10px);
+      top: calc(100% + 8px);
       left: 50%;
-      min-width: 196px;
-      padding: 8px;
+      width: min(540px, 78vw);
+      padding: 14px;
       border-radius: 18px;
-      border: 1px solid rgba(255, 255, 255, 0.72);
-      background: rgba(255, 255, 255, 0.9);
-      box-shadow: 0 24px 48px -32px rgba(15, 23, 42, 0.38);
-      backdrop-filter: blur(18px) saturate(1.2);
-      -webkit-backdrop-filter: blur(18px) saturate(1.2);
+      border: 1px solid #e8edf5;
+      background: #ffffff;
+      box-shadow: 0 20px 40px -16px rgba(15, 23, 42, 0.18);
       opacity: 0;
       pointer-events: none;
-      transform: translate(-50%, -12px) scale(0.96);
+      visibility: hidden;
+      transform: translate(-50%, 6px);
       transform-origin: top center;
       transition:
-        opacity .22s ease,
-        transform .28s cubic-bezier(.22,.9,.18,1.05);
+        opacity .16s ease,
+        transform .16s ease,
+        visibility .16s ease;
       z-index: 20;
     }
 
-    .nav-dropdown.is-open .nav-dropdown-menu {
+    .nav-dropdown.is-open .reg-dropdown {
       opacity: 1;
       pointer-events: auto;
-      transform: translate(-50%, 0) scale(1);
+      visibility: visible;
+      transform: translate(-50%, 0);
     }
 
-    .nav-dropdown-menu::before {
+    .reg-head {
+      margin: 0 0 10px;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .reg-table {
+      display: grid;
+      gap: 8px;
+    }
+
+    .reg-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.2fr auto auto;
+      align-items: center;
+      gap: 10px;
+      overflow: hidden;
+      padding: 10px 12px;
+      border: 1px solid #e8edf5;
+      border-radius: 14px;
+      background: #fafbfd;
+    }
+
+    .reg-name {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .reg-sub {
+      margin-top: 2px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    .reg-row.done {
+      border-color: #86efac;
+      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+    }
+
+    .reg-row.done .reg-name,
+    .reg-row.done .reg-sub {
+      color: #166534;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+    }
+
+    .reg-row.done::before,
+    .reg-row.done::after {
       content: "";
       position: absolute;
-      top: -7px;
-      left: 50%;
-      width: 14px;
-      height: 14px;
-      background: rgba(255, 255, 255, 0.9);
-      border-top: 1px solid rgba(255, 255, 255, 0.72);
-      border-left: 1px solid rgba(255, 255, 255, 0.72);
-      transform: translateX(-50%) rotate(45deg);
-      border-top-left-radius: 4px;
+      top: 50%;
+      left: 14px;
+      right: 14px;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+      pointer-events: none;
     }
 
-    .nav-dropdown-link {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      width: 100%;
-      padding: 12px 14px;
-      border-radius: 14px;
-      color: #0f172a;
-      font-size: 14px;
-      font-weight: 700;
-      line-height: 1.2;
-      text-decoration: none;
-      transition: background-color .18s ease, color .18s ease, transform .18s ease;
+    .reg-row.done::before {
+      transform: rotate(6deg);
     }
 
-    .nav-dropdown-link:hover,
-    .nav-dropdown-link:focus-visible {
-      background: rgba(37, 99, 235, 0.1);
-      color: #145bc4;
-      transform: translateY(-1px);
-      outline: none;
+    .reg-row.done::after {
+      transform: rotate(-6deg);
     }
 
-    .nav-dropdown-link small {
-      color: #64748b;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .02em;
+    .reg-pill {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 10px;
+      font-weight: 800;
       text-transform: uppercase;
+    }
+
+    .reg-pill.done {
+      border-color: #16a34a;
+      background: #16a34a;
+      color: #ffffff;
+    }
+
+    .reg-pill.locked {
+      border-color: #e2e8f0;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .reg-btn {
+      padding: 8px 14px;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      background: #eff6ff;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      text-decoration: none;
+      transition: all .15s ease;
+    }
+
+    .reg-btn:hover {
+      background: #dbeafe;
+    }
+
+    .reg-btn.done {
+      border-color: #86efac;
+      background: #dcfce7;
+      color: #166534;
+      cursor: not-allowed;
+    }
+
+    .reg-btn.locked {
+      border-color: #e2e8f0;
+      background: #f1f5f9;
+      color: #64748b;
     }
 
     .app-shell-frame-stack {
@@ -352,66 +433,178 @@
       z-index: 1200;
     }
 
-    .mobile-registration-menu {
-      position: absolute;
-      left: 14px;
-      right: 14px;
-      bottom: calc(100% + 10px);
-      display: grid;
-      gap: 8px;
-      padding: 12px;
-      border-radius: 22px;
-      border: 1px solid rgba(255, 255, 255, 0.82);
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(18px) saturate(1.22);
-      -webkit-backdrop-filter: blur(18px) saturate(1.22);
-      box-shadow: 0 24px 46px -30px rgba(15, 23, 42, 0.45);
+    .mobile-reg-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.4);
       opacity: 0;
       pointer-events: none;
-      transform: translateY(18px) scale(0.97);
-      transform-origin: bottom center;
-      transition:
-        opacity .22s ease,
-        transform .3s cubic-bezier(.22,.9,.18,1.05);
-      z-index: 5;
+      transition: opacity .2s ease;
+      z-index: 1240;
     }
 
-    .mobile-nav.registration-menu-open .mobile-registration-menu {
+    .mobile-reg-backdrop.show {
       opacity: 1;
       pointer-events: auto;
-      transform: translateY(0) scale(1);
     }
 
-    .mobile-registration-link {
+    .mobile-reg-sheet {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      max-height: 74vh;
+      overflow: auto;
+      padding: 10px 14px calc(18px + env(safe-area-inset-bottom, 0px));
+      border-top: 1px solid #e2e8f0;
+      border-radius: 20px 20px 0 0;
+      background: #ffffff;
+      box-shadow: 0 -16px 40px -20px rgba(15, 23, 42, 0.3);
+      transform: translateY(100%);
+      transition: transform .25s ease;
+      touch-action: pan-y;
+      z-index: 1241;
+    }
+
+    .mobile-reg-sheet.show {
+      transform: translateY(0);
+    }
+
+    .mobile-reg-grab {
+      width: 40px;
+      height: 4px;
+      margin: 4px auto 12px;
+      border-radius: 999px;
+      background: #d1d5db;
+    }
+
+    .mobile-reg-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
-      padding: 14px 16px;
-      border-radius: 16px;
-      background: rgba(248, 250, 252, 0.88);
-      color: #0f172a;
+      margin-bottom: 10px;
+    }
+
+    .mobile-reg-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .mobile-reg-close {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .mobile-reg-table {
+      display: grid;
+      gap: 8px;
+    }
+
+    .mobile-reg-table .reg-row {
+      grid-template-columns: 1fr auto;
+    }
+
+    .mobile-reg-table .reg-btn {
+      grid-column: 1 / -1;
+      width: 100%;
+      margin-top: 2px;
+      text-align: center;
+    }
+
+    .mobile-step-card {
+      overflow: hidden;
+      border: 1px solid #e8edf5;
+      border-radius: 14px;
+      background: #ffffff;
+    }
+
+    .mobile-step-head {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .mobile-step-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .mobile-step-caret {
+      color: #94a3b8;
       font-size: 14px;
       font-weight: 800;
-      line-height: 1.2;
-      text-decoration: none;
-      transition: transform .18s ease, background-color .18s ease, color .18s ease;
+      transition: transform .2s ease;
     }
 
-    .mobile-registration-link:active,
-    .mobile-registration-link:focus-visible {
-      background: rgba(37, 99, 235, 0.1);
-      color: #145bc4;
-      transform: translateY(-1px);
-      outline: none;
+    .mobile-step-card.open .mobile-step-caret {
+      transform: rotate(180deg);
     }
 
-    .mobile-registration-link small {
-      color: #64748b;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .02em;
+    .mobile-step-pill {
+      padding: 3px 8px;
+      border: 1px solid #c7d2fe;
+      border-radius: 999px;
+      background: #e0e7ff;
+      color: #1d4ed8;
+      font-size: 10px;
+      font-weight: 800;
       text-transform: uppercase;
+    }
+
+    .mobile-step-pill.done {
+      border-color: #86efac;
+      background: #ecfdf5;
+      color: #166534;
+    }
+
+    .mobile-step-pill.locked {
+      border-color: #e2e8f0;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .mobile-step-pill.current {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .mobile-step-body {
+      display: grid;
+      gap: 8px;
+      padding: 12px 14px;
+      border-top: 1px solid #e8edf5;
+    }
+
+    .mobile-step-copy {
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.4;
+      color: #334155;
+    }
+
+    .mobile-step-status {
+      font-size: 13px;
+      font-weight: 500;
+      color: #334155;
     }
 
     .mobile-nav-glass {
@@ -588,23 +781,13 @@
               <span>Home</span>
             </a>
             <div class="nav-dropdown" data-dropdown="registration">
-              <a class="nav-link nav-item nav-dropdown-trigger" href="/pages/myinthealth.html" data-route="/pages/myinthealth.html" data-nav="registration" aria-haspopup="true" aria-expanded="false">
+              <a class="nav-link nav-item nav-dropdown-trigger" id="registrationMenuBtn" href="/pages/myinthealth.html" data-route="/pages/myinthealth.html" data-nav="registration" aria-haspopup="true" aria-expanded="false">
                 <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>
                 <span>Registration</span>
               </a>
-              <div class="nav-dropdown-menu" data-dropdown-menu="registration" aria-label="Registration options">
-                <a class="nav-dropdown-link" href="/pages/myinthealth.html" data-route="/pages/myinthealth.html">
-                  <span>MyIntealth</span>
-                  <small>Step 1</small>
-                </a>
-                <a class="nav-dropdown-link" href="/pages/amc.html" data-route="/pages/amc.html">
-                  <span>AMC</span>
-                  <small>Step 2</small>
-                </a>
-                <a class="nav-dropdown-link" href="/pages/ahpra.html" data-route="/pages/ahpra.html">
-                  <span>AHPRA</span>
-                  <small>Step 3</small>
-                </a>
+              <div class="reg-dropdown" id="registrationDropdown" aria-label="Registration progress">
+                <div class="reg-head">Registration Process</div>
+                <div class="reg-table" id="regTable"></div>
               </div>
             </div>
             <a class="nav-link nav-item" href="/pages/my-documents.html" data-route="/pages/my-documents.html" data-nav="documents">
@@ -641,24 +824,10 @@
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
       <span class="mobile-tab-label">Home</span>
     </a>
-    <a class="mobile-tab" href="/pages/myinthealth.html" data-route="/pages/myinthealth.html" data-mobile-registration-toggle aria-haspopup="true" aria-expanded="false">
+    <a class="mobile-tab" id="mobileRegistrationBtn" href="/pages/myinthealth.html" data-route="/pages/myinthealth.html" data-mobile-registration-toggle aria-haspopup="true" aria-expanded="false">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
       <span class="mobile-tab-label">Registration</span>
     </a>
-    <div class="mobile-registration-menu" data-mobile-registration-menu aria-label="Registration options">
-      <a class="mobile-registration-link" href="/pages/myinthealth.html" data-route="/pages/myinthealth.html">
-        <span>MyIntealth</span>
-        <small>Step 1</small>
-      </a>
-      <a class="mobile-registration-link" href="/pages/amc.html" data-route="/pages/amc.html">
-        <span>AMC</span>
-        <small>Step 2</small>
-      </a>
-      <a class="mobile-registration-link" href="/pages/ahpra.html" data-route="/pages/ahpra.html">
-        <span>AHPRA</span>
-        <small>Step 3</small>
-      </a>
-    </div>
     <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
       <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
       <span class="mobile-tab-label">Scan</span>
@@ -672,5 +841,15 @@
       <span class="mobile-tab-label">Account</span>
     </a>
   </nav>
+
+  <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
+  <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
+    <div class="mobile-reg-grab" aria-hidden="true"></div>
+    <div class="mobile-reg-head">
+      <p class="mobile-reg-title">Registration Process</p>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button" aria-label="Close registration steps">&times;</button>
+    </div>
+    <div class="mobile-reg-table" id="mobileRegTable"></div>
+  </aside>
 </body>
 </html>

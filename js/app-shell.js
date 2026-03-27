@@ -10,6 +10,10 @@
   var REGISTRATION_INTRO_ROUTE = "/pages/registration-intro.html";
   var REGISTRATION_INTRO_SEEN_KEY = "gp_registration_intro_seen";
   var REGISTRATION_INTRO_BYPASS_KEY = "gp_registration_intro_bypass_once";
+  var EPIC_PROGRESS_KEY = "gp_epic_progress";
+  var AMC_PROGRESS_KEY = "gp_amc_progress";
+  var AHPRA_PROGRESS_KEY = "gp_ahpra_progress";
+  var REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
   var SESSION_PROFILE_CACHE_KEY = "gp_session_profile_cache";
   var SESSION_OWNER_KEY = "gp_state_owner";
   var REGISTRATION_INTRO_ALWAYS_EMAILS = {
@@ -47,8 +51,12 @@
   var desktopHostEl = document.getElementById("appShellDesktop");
   var desktopRegistrationDropdownEl = document.querySelector('[data-dropdown="registration"]');
   var desktopRegistrationTriggerEl = desktopRegistrationDropdownEl ? desktopRegistrationDropdownEl.querySelector('[data-nav="registration"]') : null;
+  var registrationRowsEl = document.getElementById("regTable");
   var mobileRegistrationToggleEl = document.querySelector("[data-mobile-registration-toggle]");
-  var mobileRegistrationMenuEl = document.querySelector("[data-mobile-registration-menu]");
+  var mobileRegBackdropEl = document.getElementById("mobileRegBackdrop");
+  var mobileRegSheetEl = document.getElementById("mobileRegSheet");
+  var mobileRegTableEl = document.getElementById("mobileRegTable");
+  var mobileRegCloseBtnEl = document.getElementById("mobileRegCloseBtn");
   var EMBED_STYLE_ID = "gp-shell-parent-embed-style";
   var WARM_ROUTE_ORDER = [
     "/pages/index.html",
@@ -67,7 +75,24 @@
   var mobileGlassInitialized = false;
   var pendingNavigation = null;
   var warmRouteTimer = 0;
-  var mobileRegistrationMenuOpen = false;
+  var desktopRegistrationCloseTimer = 0;
+  var mobileRegistrationSheetOpen = false;
+  var mobileSheetStartY = 0;
+  var mobileSheetDeltaY = 0;
+  var mobileSheetDragging = false;
+  var EPIC_STAGE_LABELS = {
+    create_account: "Create your MyIntealth account",
+    upload_qualifications: "Upload your specialist qualifications",
+    waiting_verification: "EPIC is verifying your documents",
+    account_establishment: "Account Establishment",
+    verification_issued: "Verification issued"
+  };
+  var AMC_STAGE_LABELS = {
+    create_portfolio: "Create an AMC account",
+    upload_credentials: "Upload credentials",
+    qualifications_pending: "Qualifications pending ECFMG verification",
+    qualifications_verified: "Qualifications verified"
+  };
 
   function normalizePath(pathname) {
     if (typeof pathname !== "string" || !pathname) return "";
@@ -255,6 +280,199 @@
     } catch (err) {}
   }
 
+  function parseStorage(key) {
+    var raw = safeStorageGet(key);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function getRegistrationReturnOverrides() {
+    var parsed = parseStorage(REGISTRATION_RETURN_KEY);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  }
+
+  function isRegistrationReturnAllowed(stepKey) {
+    return getRegistrationReturnOverrides()[stepKey] === true;
+  }
+
+  function buildRegistrationRow(stepKey, config) {
+    var locked = !!config.locked;
+    var done = !!config.done;
+    var returnable = done && isRegistrationReturnAllowed(stepKey);
+    return {
+      title: config.title,
+      sub: config.sub,
+      mobileDetail: config.mobileDetail,
+      mobileStatus: config.mobileStatus,
+      status: locked ? "Locked" : done ? "Done" : "Current",
+      locked: locked,
+      done: done,
+      current: !locked && !done,
+      returnable: returnable,
+      href: !locked && (!done || returnable) ? config.href : "#",
+      cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+    };
+  }
+
+  function getProgressSnapshot() {
+    var epic = parseStorage(EPIC_PROGRESS_KEY);
+    var amc = parseStorage(AMC_PROGRESS_KEY);
+
+    var epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+    var epicStage = epic && typeof epic.stage === "string" ? epic.stage : "create_account";
+    var epicCurrentLabel = EPIC_STAGE_LABELS[epicStage] || EPIC_STAGE_LABELS.create_account;
+
+    var amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+    var amcStage = amc && typeof amc.stage === "string" ? amc.stage : "create_portfolio";
+    var amcCurrentLabel = AMC_STAGE_LABELS[amcStage] || AMC_STAGE_LABELS.create_portfolio;
+
+    return {
+      epicDone: epicDone,
+      epicCurrentLabel: epicCurrentLabel,
+      amcDone: amcDone,
+      amcCurrentLabel: amcCurrentLabel
+    };
+  }
+
+  function getRegistrationRows() {
+    var snap = getProgressSnapshot();
+    var ahpra = parseStorage(AHPRA_PROGRESS_KEY);
+    var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+
+    return [
+      buildRegistrationRow("myinthealth", {
+        title: "1. MyIntealth Account",
+        sub: "Create account and complete EPIC verification.",
+        mobileDetail: "EPIC verification is set up and moving forward.",
+        mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
+        done: snap.epicDone,
+        href: "/pages/myinthealth.html"
+      }),
+      buildRegistrationRow("amc", {
+        title: "2. AMC Portfolio",
+        sub: "Create AMC candidate portfolio and upload credentials.",
+        mobileDetail: "AMC portfolio is created and connected to your verification.",
+        mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
+        locked: !snap.epicDone,
+        done: snap.amcDone,
+        href: "/pages/amc.html"
+      }),
+      buildRegistrationRow("ahpra", {
+        title: "3. AHPRA Registration",
+        sub: "Prepare and submit your specialist registration application.",
+        mobileDetail: "Specialist registration application is prepared and submitted correctly.",
+        mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : ahpraDone ? "Completed" : "In progress",
+        locked: !snap.amcDone,
+        done: ahpraDone,
+        href: "/pages/ahpra.html"
+      })
+    ];
+  }
+
+  function buildRegistrationAction(row) {
+    var actionDisabled = row.locked || (row.done && !row.returnable);
+    var actionEl = document.createElement(actionDisabled ? "button" : "a");
+    actionEl.className = ("reg-btn " + (row.done ? "done" : row.locked ? "locked" : "")).trim();
+    actionEl.textContent = row.cta;
+    if (actionDisabled) {
+      actionEl.type = "button";
+      actionEl.disabled = true;
+    } else {
+      actionEl.href = row.href;
+      actionEl.setAttribute("data-route", row.href);
+    }
+    return actionEl;
+  }
+
+  function renderRegistrationRows() {
+    var rows = getRegistrationRows();
+
+    if (registrationRowsEl) registrationRowsEl.innerHTML = "";
+    if (mobileRegTableEl) mobileRegTableEl.innerHTML = "";
+
+    rows.forEach(function (row) {
+      var statusClass = row.done ? "done" : row.locked ? "locked" : "";
+      var rowEl = document.createElement("div");
+      rowEl.className = ("reg-row " + (row.done ? "done" : "")).trim();
+      rowEl.innerHTML = [
+        "<div>",
+        "<div class=\"reg-name\">" + row.title + "</div>",
+        "<div class=\"reg-sub\">" + row.sub + "</div>",
+        "</div>",
+        "<span class=\"reg-pill " + statusClass + "\">" + row.status + "</span>"
+      ].join("");
+      rowEl.appendChild(buildRegistrationAction(row));
+      if (registrationRowsEl) registrationRowsEl.appendChild(rowEl);
+    });
+
+    if (!mobileRegTableEl) return;
+    if (!rows.length) {
+      var doneEl = document.createElement("div");
+      doneEl.className = "mobile-step-card";
+      doneEl.innerHTML = "<div class=\"mobile-step-head\"><span class=\"mobile-step-title\">All visible steps are complete.</span></div>";
+      mobileRegTableEl.appendChild(doneEl);
+      return;
+    }
+
+    rows.forEach(function (row, idx) {
+      var isCurrent = row.current;
+      var cardEl = document.createElement("div");
+      var bodyId = "mobileStepBody" + idx;
+      var pillMarkup = row.locked
+        ? "<span class=\"mobile-step-pill locked\">Locked</span>"
+        : row.status === "Done"
+          ? "<span class=\"mobile-step-pill done\">Done</span>"
+          : "<span class=\"mobile-step-pill current\">Continue</span>";
+
+      cardEl.className = ("mobile-step-card " + (row.locked ? "locked" : "unlocked") + " " + (isCurrent ? "current open" : "")).trim();
+      cardEl.innerHTML = [
+        "<button class=\"mobile-step-head\" type=\"button\" " + (isCurrent ? "disabled" : "") + " aria-expanded=\"" + (isCurrent ? "true" : "false") + "\" aria-controls=\"" + bodyId + "\">",
+        "<span class=\"mobile-step-title\">" + row.title + "</span>",
+        "<span style=\"display:flex; align-items:center; gap:8px;\">",
+        pillMarkup,
+        "<span class=\"mobile-step-caret\">" + (isCurrent ? "" : "\u2304") + "</span>",
+        "</span>",
+        "</button>",
+        "<div class=\"mobile-step-body\" id=\"" + bodyId + "\" " + (isCurrent ? "" : "hidden") + ">",
+        "<p class=\"mobile-step-copy\">" + (row.mobileDetail || row.sub) + "</p>",
+        "<p class=\"mobile-step-status\"><b>Status:</b> " + (row.mobileStatus || row.status) + "</p>",
+        "</div>"
+      ].join("");
+
+      var headBtn = cardEl.querySelector(".mobile-step-head");
+      var bodyEl = cardEl.querySelector(".mobile-step-body");
+      var autoCloseTimer = null;
+      bodyEl.appendChild(buildRegistrationAction(row));
+
+      if (headBtn && bodyEl && !isCurrent) {
+        headBtn.addEventListener("click", function () {
+          var isOpen = !bodyEl.hidden;
+          if (autoCloseTimer) {
+            clearTimeout(autoCloseTimer);
+            autoCloseTimer = null;
+          }
+          bodyEl.hidden = isOpen;
+          headBtn.setAttribute("aria-expanded", isOpen ? "false" : "true");
+          cardEl.classList.toggle("open", !isOpen);
+          if (!isOpen) {
+            autoCloseTimer = window.setTimeout(function () {
+              bodyEl.hidden = true;
+              headBtn.setAttribute("aria-expanded", "false");
+              cardEl.classList.remove("open");
+              autoCloseTimer = null;
+            }, 5000);
+          }
+        });
+      }
+
+      mobileRegTableEl.appendChild(cardEl);
+    });
+  }
+
   function normalizeEmail(value) {
     return typeof value === "string" ? value.trim().toLowerCase() : "";
   }
@@ -325,17 +543,45 @@
     if (loaderEl) loaderEl.hidden = !loading;
   }
 
-  function setDesktopRegistrationOpen(open) {
-    if (!desktopRegistrationDropdownEl || !desktopRegistrationTriggerEl) return;
-    desktopRegistrationDropdownEl.classList.toggle("is-open", !!open);
-    desktopRegistrationTriggerEl.setAttribute("aria-expanded", open ? "true" : "false");
+  function clearDesktopRegistrationCloseTimer() {
+    if (!desktopRegistrationCloseTimer) return;
+    window.clearTimeout(desktopRegistrationCloseTimer);
+    desktopRegistrationCloseTimer = 0;
   }
 
-  function setMobileRegistrationOpen(open) {
-    if (!mobileNavEl || !mobileRegistrationToggleEl) return;
-    mobileRegistrationMenuOpen = !!open;
-    mobileNavEl.classList.toggle("registration-menu-open", mobileRegistrationMenuOpen);
-    mobileRegistrationToggleEl.setAttribute("aria-expanded", mobileRegistrationMenuOpen ? "true" : "false");
+  function setDesktopRegistrationOpen(open) {
+    if (!desktopRegistrationDropdownEl || !desktopRegistrationTriggerEl) return;
+    if (open) clearDesktopRegistrationCloseTimer();
+    if (open) renderRegistrationRows();
+    desktopRegistrationDropdownEl.classList.toggle("is-open", !!open);
+    desktopRegistrationTriggerEl.setAttribute("aria-expanded", open ? "true" : "false");
+    if (navGlassEl) navGlassEl.classList.toggle("engulf", !!open);
+  }
+
+  function scheduleDesktopRegistrationClose() {
+    clearDesktopRegistrationCloseTimer();
+    desktopRegistrationCloseTimer = window.setTimeout(function () {
+      setDesktopRegistrationOpen(false);
+    }, 140);
+  }
+
+  function openMobileRegistrationSheet() {
+    if (!mobileRegSheetEl || !mobileRegBackdropEl || !mobileRegistrationToggleEl) return;
+    renderRegistrationRows();
+    mobileRegistrationSheetOpen = true;
+    mobileRegSheetEl.style.transform = "";
+    mobileRegBackdropEl.classList.add("show");
+    mobileRegSheetEl.classList.add("show");
+    mobileRegistrationToggleEl.setAttribute("aria-expanded", "true");
+  }
+
+  function closeMobileRegistrationSheet() {
+    if (!mobileRegSheetEl || !mobileRegBackdropEl || !mobileRegistrationToggleEl) return;
+    mobileRegistrationSheetOpen = false;
+    mobileRegSheetEl.style.transform = "";
+    mobileRegBackdropEl.classList.remove("show");
+    mobileRegSheetEl.classList.remove("show");
+    mobileRegistrationToggleEl.setAttribute("aria-expanded", "false");
   }
 
   function updateFrameOffsets() {
@@ -491,7 +737,7 @@
     }
 
     setDesktopRegistrationOpen(false);
-    setMobileRegistrationOpen(false);
+    closeMobileRegistrationSheet();
 
     var route = routeFromUrl(routeUrl);
     var embeddedRoute = toEmbeddedRoute(routeUrl);
@@ -606,24 +852,34 @@
   function handleDocumentClick(event) {
     var clickTarget = event.target;
     var mobileToggle = null;
+    var desktopToggle = null;
     var link = null;
     var routeUrl = null;
 
     if (!(clickTarget instanceof Element)) return;
 
+    desktopToggle = clickTarget.closest("#registrationMenuBtn");
     mobileToggle = clickTarget.closest("[data-mobile-registration-toggle]");
+
+    if (desktopToggle && desktopNavEl && isVisible(desktopNavEl)) {
+      event.preventDefault();
+      setDesktopRegistrationOpen(!desktopRegistrationDropdownEl.classList.contains("is-open"));
+      moveNavGlass(desktopRegistrationTriggerEl, true);
+      return;
+    }
+
     if (mobileToggle && mobileNavEl && isVisible(mobileNavEl)) {
       event.preventDefault();
-      setMobileRegistrationOpen(!mobileRegistrationMenuOpen);
+      if (mobileRegistrationSheetOpen) {
+        closeMobileRegistrationSheet();
+      } else {
+        openMobileRegistrationSheet();
+      }
       return;
     }
 
     if (!desktopRegistrationDropdownEl || !desktopRegistrationDropdownEl.contains(clickTarget)) {
       setDesktopRegistrationOpen(false);
-    }
-
-    if ((!mobileRegistrationMenuEl || !mobileRegistrationMenuEl.contains(clickTarget)) && (!mobileToggle || !mobileRegistrationMenuOpen)) {
-      setMobileRegistrationOpen(false);
     }
 
     if (event.defaultPrevented) return;
@@ -661,20 +917,22 @@
 
     if (desktopRegistrationDropdownEl && desktopRegistrationTriggerEl) {
       desktopRegistrationDropdownEl.addEventListener("mouseenter", function () {
+        clearDesktopRegistrationCloseTimer();
         setDesktopRegistrationOpen(true);
         moveNavGlass(desktopRegistrationTriggerEl, true);
       });
       desktopRegistrationDropdownEl.addEventListener("mouseleave", function () {
-        setDesktopRegistrationOpen(false);
+        scheduleDesktopRegistrationClose();
       });
       desktopRegistrationDropdownEl.addEventListener("focusin", function () {
+        clearDesktopRegistrationCloseTimer();
         setDesktopRegistrationOpen(true);
         moveNavGlass(desktopRegistrationTriggerEl, true);
       });
       desktopRegistrationDropdownEl.addEventListener("focusout", function () {
         window.setTimeout(function () {
           if (!desktopRegistrationDropdownEl.contains(document.activeElement)) {
-            setDesktopRegistrationOpen(false);
+            scheduleDesktopRegistrationClose();
           }
         }, 0);
       });
@@ -702,7 +960,7 @@
 
     desktopNavEl.addEventListener("mouseleave", function () {
       hoveredDesktopItem = null;
-      setDesktopRegistrationOpen(false);
+      scheduleDesktopRegistrationClose();
       if (activeDesktopItem) moveNavGlass(activeDesktopItem, true);
     });
   }
@@ -710,7 +968,34 @@
   function handleKeydown(event) {
     if (event.key !== "Escape") return;
     setDesktopRegistrationOpen(false);
-    setMobileRegistrationOpen(false);
+    closeMobileRegistrationSheet();
+  }
+
+  function handleMobileSheetTouchStart(event) {
+    if (!mobileRegSheetEl || !mobileRegSheetEl.classList.contains("show")) return;
+    mobileSheetStartY = event.touches[0].clientY;
+    mobileSheetDeltaY = 0;
+    mobileSheetDragging = true;
+  }
+
+  function handleMobileSheetTouchMove(event) {
+    var currentY = 0;
+    if (!mobileSheetDragging || !mobileRegSheetEl) return;
+    currentY = event.touches[0].clientY;
+    mobileSheetDeltaY = Math.max(0, currentY - mobileSheetStartY);
+    if (mobileSheetDeltaY > 0) {
+      mobileRegSheetEl.style.transform = "translateY(" + mobileSheetDeltaY + "px)";
+    }
+  }
+
+  function handleMobileSheetTouchEnd() {
+    if (!mobileSheetDragging) return;
+    mobileSheetDragging = false;
+    if (mobileSheetDeltaY > 90) {
+      closeMobileRegistrationSheet();
+    } else if (mobileRegSheetEl) {
+      mobileRegSheetEl.style.transform = "";
+    }
   }
 
   function syncFromChildRoute(input, nextTitle) {
@@ -743,7 +1028,7 @@
       setDesktopRegistrationOpen(false);
     }
     if (mobileNavEl && !isVisible(mobileNavEl)) {
-      setMobileRegistrationOpen(false);
+      closeMobileRegistrationSheet();
     }
     if (activeDesktopItem) moveNavGlass(activeDesktopItem, false);
     if (activeMobileTab) moveMobileGlass(activeMobileTab, false);
@@ -843,6 +1128,13 @@
     document.addEventListener("mouseover", handleRouteWarmIntent, { passive: true });
     document.addEventListener("focusin", handleRouteWarmIntent);
     document.addEventListener("touchstart", handleRouteWarmIntent, { passive: true });
+    if (mobileRegBackdropEl) mobileRegBackdropEl.addEventListener("click", closeMobileRegistrationSheet);
+    if (mobileRegCloseBtnEl) mobileRegCloseBtnEl.addEventListener("click", closeMobileRegistrationSheet);
+    if (mobileRegSheetEl) {
+      mobileRegSheetEl.addEventListener("touchstart", handleMobileSheetTouchStart, { passive: true });
+      mobileRegSheetEl.addEventListener("touchmove", handleMobileSheetTouchMove, { passive: true });
+      mobileRegSheetEl.addEventListener("touchend", handleMobileSheetTouchEnd);
+    }
     frameEls.forEach(function (frame) {
       frame.addEventListener("load", handleFrameLoad);
       getFrameState(frame);
