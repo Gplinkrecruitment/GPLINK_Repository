@@ -45,6 +45,10 @@
   var navGlassEl = document.getElementById("navGlass");
   var mobileNavGlassEl = document.getElementById("mobileNavGlass");
   var desktopHostEl = document.getElementById("appShellDesktop");
+  var desktopRegistrationDropdownEl = document.querySelector('[data-dropdown="registration"]');
+  var desktopRegistrationTriggerEl = desktopRegistrationDropdownEl ? desktopRegistrationDropdownEl.querySelector('[data-nav="registration"]') : null;
+  var mobileRegistrationToggleEl = document.querySelector("[data-mobile-registration-toggle]");
+  var mobileRegistrationMenuEl = document.querySelector("[data-mobile-registration-menu]");
   var EMBED_STYLE_ID = "gp-shell-parent-embed-style";
   var WARM_ROUTE_ORDER = [
     "/pages/index.html",
@@ -63,6 +67,7 @@
   var mobileGlassInitialized = false;
   var pendingNavigation = null;
   var warmRouteTimer = 0;
+  var mobileRegistrationMenuOpen = false;
 
   function normalizePath(pathname) {
     if (typeof pathname !== "string" || !pathname) return "";
@@ -320,6 +325,19 @@
     if (loaderEl) loaderEl.hidden = !loading;
   }
 
+  function setDesktopRegistrationOpen(open) {
+    if (!desktopRegistrationDropdownEl || !desktopRegistrationTriggerEl) return;
+    desktopRegistrationDropdownEl.classList.toggle("is-open", !!open);
+    desktopRegistrationTriggerEl.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function setMobileRegistrationOpen(open) {
+    if (!mobileNavEl || !mobileRegistrationToggleEl) return;
+    mobileRegistrationMenuOpen = !!open;
+    mobileNavEl.classList.toggle("registration-menu-open", mobileRegistrationMenuOpen);
+    mobileRegistrationToggleEl.setAttribute("aria-expanded", mobileRegistrationMenuOpen ? "true" : "false");
+  }
+
   function updateFrameOffsets() {
     var topOffset = 0;
     var navClearance = 0;
@@ -472,6 +490,9 @@
       return;
     }
 
+    setDesktopRegistrationOpen(false);
+    setMobileRegistrationOpen(false);
+
     var route = routeFromUrl(routeUrl);
     var embeddedRoute = toEmbeddedRoute(routeUrl);
     if (!embeddedRoute) return;
@@ -583,17 +604,38 @@
   }
 
   function handleDocumentClick(event) {
+    var clickTarget = event.target;
+    var mobileToggle = null;
+    var link = null;
+    var routeUrl = null;
+
+    if (!(clickTarget instanceof Element)) return;
+
+    mobileToggle = clickTarget.closest("[data-mobile-registration-toggle]");
+    if (mobileToggle && mobileNavEl && isVisible(mobileNavEl)) {
+      event.preventDefault();
+      setMobileRegistrationOpen(!mobileRegistrationMenuOpen);
+      return;
+    }
+
+    if (!desktopRegistrationDropdownEl || !desktopRegistrationDropdownEl.contains(clickTarget)) {
+      setDesktopRegistrationOpen(false);
+    }
+
+    if ((!mobileRegistrationMenuEl || !mobileRegistrationMenuEl.contains(clickTarget)) && (!mobileToggle || !mobileRegistrationMenuOpen)) {
+      setMobileRegistrationOpen(false);
+    }
+
     if (event.defaultPrevented) return;
     if (event.button !== 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    if (!(event.target instanceof Element)) return;
 
-    var link = event.target.closest("a[href]");
+    link = clickTarget.closest("a[href]");
     if (!link) return;
     if (link.target && link.target !== "_self") return;
     if (link.hasAttribute("download")) return;
 
-    var routeUrl = toRouteUrl(getLinkRouteTarget(link));
+    routeUrl = toRouteUrl(getLinkRouteTarget(link));
     if (!routeUrl) return;
 
     event.preventDefault();
@@ -617,14 +659,37 @@
   function handleDesktopHoverEvents() {
     if (!desktopNavEl) return;
 
+    if (desktopRegistrationDropdownEl && desktopRegistrationTriggerEl) {
+      desktopRegistrationDropdownEl.addEventListener("mouseenter", function () {
+        setDesktopRegistrationOpen(true);
+        moveNavGlass(desktopRegistrationTriggerEl, true);
+      });
+      desktopRegistrationDropdownEl.addEventListener("mouseleave", function () {
+        setDesktopRegistrationOpen(false);
+      });
+      desktopRegistrationDropdownEl.addEventListener("focusin", function () {
+        setDesktopRegistrationOpen(true);
+        moveNavGlass(desktopRegistrationTriggerEl, true);
+      });
+      desktopRegistrationDropdownEl.addEventListener("focusout", function () {
+        window.setTimeout(function () {
+          if (!desktopRegistrationDropdownEl.contains(document.activeElement)) {
+            setDesktopRegistrationOpen(false);
+          }
+        }, 0);
+      });
+    }
+
     getDesktopItems().forEach(function (item) {
       item.addEventListener("mouseenter", function () {
         hoveredDesktopItem = item;
         moveNavGlass(item, true);
+        if (item !== desktopRegistrationTriggerEl) setDesktopRegistrationOpen(false);
       });
       item.addEventListener("focus", function () {
         hoveredDesktopItem = item;
         moveNavGlass(item, true);
+        if (item !== desktopRegistrationTriggerEl) setDesktopRegistrationOpen(false);
       });
     });
 
@@ -637,8 +702,15 @@
 
     desktopNavEl.addEventListener("mouseleave", function () {
       hoveredDesktopItem = null;
+      setDesktopRegistrationOpen(false);
       if (activeDesktopItem) moveNavGlass(activeDesktopItem, true);
     });
+  }
+
+  function handleKeydown(event) {
+    if (event.key !== "Escape") return;
+    setDesktopRegistrationOpen(false);
+    setMobileRegistrationOpen(false);
   }
 
   function syncFromChildRoute(input, nextTitle) {
@@ -667,6 +739,12 @@
         // Ignore same-origin race conditions during frame resize.
       }
     });
+    if (desktopNavEl && !isVisible(desktopNavEl)) {
+      setDesktopRegistrationOpen(false);
+    }
+    if (mobileNavEl && !isVisible(mobileNavEl)) {
+      setMobileRegistrationOpen(false);
+    }
     if (activeDesktopItem) moveNavGlass(activeDesktopItem, false);
     if (activeMobileTab) moveMobileGlass(activeMobileTab, false);
   }
@@ -772,6 +850,7 @@
     window.addEventListener("message", handleMessage);
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("resize", handleResize);
+    document.addEventListener("keydown", handleKeydown);
 
     handleDesktopHoverEvents();
     prefetchSupportedRoutes();
