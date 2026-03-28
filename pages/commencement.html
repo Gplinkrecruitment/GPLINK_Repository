@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Commencement - GP Link</title>
+  <script src="/js/nav-shell-bridge.js?v=20260329a"></script>
+  <script src="/js/auth-guard.js?v=20260311f" defer></script>
+  <script src="/js/state-sync.js?v=20260315a" defer></script>
+  <script src="/js/updates-sync.js?v=20260309c" defer></script>
+  <script src="/js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="/js/qualification-scan.js?v=20260322a" defer></script>
+  <script src="/js/account-dropdown.js?v=20260329a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --green2: #16a34a;
+      --orange: #f59e0b;
+      --orange2: #f97316;
+      --red: #dc2626;
+      --card: rgba(255, 255, 255, 0.92);
+      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #f0f4fa;
+      min-height: 100dvh;
+    }
+
+    .dash-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 120px;
+    }
+
+    /* ---- HEADER ---- */
+    .app-header {
+      display: flex; align-items: center;
+      justify-content: space-between; padding: 18px 0 14px;
+    }
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+    .header-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0; border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .header-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+    .header-text p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease; color: #475569;
+    }
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+    }
+
+    /* ---- PAGE HERO ---- */
+    .page-hero {
+      padding: 8px 0 16px;
+    }
+    .page-hero h1 {
+      font-size: 24px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
+    }
+    .page-hero p {
+      font-size: 14px; color: var(--muted);
+      font-weight: 500; margin-top: 4px; line-height: 1.5;
+    }
+
+    /* ---- CARD ---- */
+    .card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 20px;
+      margin-bottom: 16px; position: relative; overflow: hidden;
+    }
+    .card::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
+    }
+    .card.pre-arrival::before { background: linear-gradient(90deg, #f59e0b, #f97316); }
+    .card.first-day::before { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .card-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .card-title {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.3; margin-bottom: 4px;
+    }
+    .card-sub {
+      font-size: 13px; color: #475569;
+      font-weight: 500; line-height: 1.5; margin-bottom: 14px;
+    }
+
+    /* ---- COUNTDOWN HERO ---- */
+    .countdown-card {
+      text-align: center; padding: 28px 20px;
+    }
+    .countdown-value {
+      font-size: 48px; font-weight: 900;
+      letter-spacing: -0.03em; color: var(--blue);
+      line-height: 1;
+    }
+    .countdown-label {
+      font-size: 14px; font-weight: 600; color: var(--muted);
+      margin-top: 4px;
+    }
+    .countdown-date {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 10px; padding: 5px 12px; border-radius: 999px;
+      background: #eff6ff; color: #1d4ed8;
+      font-size: 12px; font-weight: 700;
+    }
+
+    /* ---- CHECKLIST ---- */
+    .checklist { display: grid; gap: 6px; }
+    .check-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px; border: 1px solid #e8edf5;
+      border-radius: 14px; background: #fafbfd;
+      cursor: pointer; transition: all .15s ease;
+      user-select: none; -webkit-user-select: none;
+    }
+    .check-item:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .check-item.checked { background: #f0fdf4; border-color: #bbf7d0; }
+    .check-box {
+      width: 24px; height: 24px; border-radius: 8px;
+      border: 2px solid #cbd5e1; display: grid; place-items: center;
+      flex-shrink: 0; transition: all .15s ease;
+      color: transparent;
+    }
+    .check-box svg {
+      width: 14px; height: 14px; stroke: currentColor;
+      fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .check-item.checked .check-box {
+      background: var(--green); border-color: var(--green); color: #fff;
+    }
+    .check-copy { flex: 1; }
+    .check-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .check-due {
+      font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 1px;
+    }
+    .check-item.checked .check-title { color: #166534; text-decoration: line-through; text-decoration-color: #86efac; }
+
+    /* ---- PROGRESS ---- */
+    .progress-row {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+    }
+    .progress-track {
+      flex: 1; height: 8px; border-radius: 999px;
+      background: #e8edf5; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+      transition: width .4s ease;
+    }
+    .progress-text {
+      font-size: 12px; font-weight: 700; color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* ---- TIMELINE ---- */
+    .timeline { display: grid; gap: 0; padding-left: 20px; position: relative; }
+    .timeline::before {
+      content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px;
+      width: 2px; background: #e2e8f0;
+    }
+    .timeline-item {
+      position: relative; padding: 0 0 20px 20px;
+    }
+    .timeline-item:last-child { padding-bottom: 0; }
+    .timeline-dot {
+      position: absolute; left: -20px; top: 4px;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #e8edf5; border: 2px solid #fff;
+      box-shadow: 0 0 0 2px #e2e8f0;
+    }
+    .timeline-item.upcoming .timeline-dot { background: var(--orange); box-shadow: 0 0 0 2px var(--orange); }
+    .timeline-item.done .timeline-dot { background: var(--green); box-shadow: 0 0 0 2px var(--green); }
+    .timeline-date { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+    .timeline-text { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; }
+    .timeline-detail { font-size: 12px; color: #475569; font-weight: 500; margin-top: 2px; }
+
+    /* ---- LOADING ---- */
+    .loading-bars {
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 20px 0;
+    }
+    .loading-bar {
+      height: 14px; border-radius: 8px;
+      background: linear-gradient(90deg, #e8edf5 25%, #f1f5f9 50%, #e8edf5 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+    .loading-bar:nth-child(1) { width: 80%; }
+    .loading-bar:nth-child(2) { width: 60%; }
+    .loading-bar:nth-child(3) { width: 70%; }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ---- RESPONSIVE ---- */
+    @media (min-width: 768px) {
+      .app-header { display: none; }
+    }
+    @media (max-width: 767px) {
+      .app-header { display: flex; }
+      .page-hero h1 { font-size: 20px; }
+      .countdown-value { font-size: 36px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash-wrap">
+    <!-- MOBILE HEADER -->
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar">GP</div>
+        <div class="header-text">
+          <h1>Commencement</h1>
+          <p>Pre-arrival checklist</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+        <a class="header-icon-btn" href="/pages/account.html" aria-label="Account">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <!-- PAGE HERO -->
+    <div class="page-hero">
+      <h1>Commencement</h1>
+      <p>Your pre-arrival and first-day checklist. Complete each item before your practice start date to ensure a smooth transition.</p>
+    </div>
+
+    <!-- COUNTDOWN -->
+    <div class="card countdown-card">
+      <div class="countdown-value" id="countdownValue">--</div>
+      <div class="countdown-label" id="countdownLabel">days until your start</div>
+      <span class="countdown-date" id="countdownDate">Start date loading...</span>
+    </div>
+
+    <!-- PROGRESS -->
+    <div class="progress-row">
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+      <span class="progress-text" id="progressText">0 of 7 complete</span>
+    </div>
+
+    <!-- PRE-ARRIVAL CHECKLIST -->
+    <div class="card pre-arrival">
+      <span class="card-label">Pre-arrival</span>
+      <h2 class="card-title">Before You Arrive</h2>
+      <p class="card-sub">Tasks to complete before travelling to your practice location.</p>
+      <div class="checklist" id="preArrivalChecklist">
+        <div class="check-item" data-key="travel_booked">
+          <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="check-copy">
+            <div class="check-title">Travel booked</div>
+            <div class="check-due" data-due-offset="-14">Due 2 weeks before start</div>
+          </div>
+        </div>
+        <div class="check-item" data-key="accommodation_confirmed">
+          <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="check-copy">
+            <div class="check-title">Accommodation confirmed</div>
+            <div class="check-due" data-due-offset="-14">Due 2 weeks before start</div>
+          </div>
+        </div>
+        <div class="check-item" data-key="medical_indemnity">
+          <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="check-copy">
+            <div class="check-title">Medical indemnity insurance</div>
+            <div class="check-due" data-due-offset="-7">Due 1 week before start</div>
+          </div>
+        </div>
+        <div class="check-item" data-key="bank_account">
+          <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="check-copy">
+            <div class="check-title">Bank account opened</div>
+            <div class="check-due" data-due-offset="-7">Due 1 week before start</div>
+          </div>
+        </div>
+        <div class="check-item" data-key="tfn_obtained">
+          <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="check-copy">
+            <div class="check-title">TFN obtained</div>
+            <div class="check-due" data-due-offset="-7">Due 1 week before start</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FIRST-DAY CHECKLIST -->
+    <div class="card first-day">
+      <span class="card-label">First day</span>
+      <h2 class="card-title">First Day Preparation</h2>
+      <p class="card-sub">Final tasks for your orientation and first day at the practice.</p>
+      <div class="checklist" id="firstDayChecklist">
+        <div class="check-item" data-key="orientation_scheduled">
+          <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="check-copy">
+            <div class="check-title">Practice orientation scheduled</div>
+            <div class="check-due" data-due-offset="-3">Due 3 days before start</div>
+          </div>
+        </div>
+        <div class="check-item" data-key="medicare_registration">
+          <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="check-copy">
+            <div class="check-title">Medicare registration confirmed</div>
+            <div class="check-due" data-due-offset="0">Due on start date</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TIMELINE -->
+    <div class="card">
+      <span class="card-label">Timeline</span>
+      <h2 class="card-title">Key Dates</h2>
+      <p class="card-sub">Important dates relative to your practice start date.</p>
+      <div class="timeline" id="commencementTimeline">
+        <div class="loading-bars">
+          <span class="loading-bar"></span>
+          <span class="loading-bar"></span>
+          <span class="loading-bar"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var STORAGE_KEY = "gp_commencement_checks";
+    var ALL_KEYS = [
+      "travel_booked", "accommodation_confirmed", "medical_indemnity",
+      "bank_account", "tfn_obtained", "orientation_scheduled", "medicare_registration"
+    ];
+
+    function getCheckedState() {
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch (e) { return {}; }
+    }
+
+    function saveCheckedState(state) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* noop */ }
+    }
+
+    function escapeHtml(str) {
+      var div = document.createElement("div");
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+
+    function formatDate(isoStr) {
+      if (!isoStr) return "--";
+      try {
+        var d = new Date(isoStr);
+        return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+      } catch (e) { return isoStr; }
+    }
+
+    function updateProgress() {
+      var state = getCheckedState();
+      var count = 0;
+      ALL_KEYS.forEach(function (key) { if (state[key]) count++; });
+      var total = ALL_KEYS.length;
+      var pct = total > 0 ? Math.round((count / total) * 100) : 0;
+      var fill = document.getElementById("progressFill");
+      var text = document.getElementById("progressText");
+      if (fill) fill.style.width = pct + "%";
+      if (text) text.textContent = count + " of " + total + " complete";
+    }
+
+    function syncCheckItems() {
+      var state = getCheckedState();
+      var items = document.querySelectorAll(".check-item[data-key]");
+      items.forEach(function (item) {
+        var key = item.getAttribute("data-key");
+        if (state[key]) {
+          item.classList.add("checked");
+        } else {
+          item.classList.remove("checked");
+        }
+      });
+      updateProgress();
+    }
+
+    function setupChecklist() {
+      document.addEventListener("click", function (e) {
+        var item = e.target.closest(".check-item[data-key]");
+        if (!item) return;
+        var key = item.getAttribute("data-key");
+        var state = getCheckedState();
+        state[key] = !state[key];
+        saveCheckedState(state);
+        syncCheckItems();
+      });
+    }
+
+    function updateCountdown(startDateIso) {
+      var valueEl = document.getElementById("countdownValue");
+      var labelEl = document.getElementById("countdownLabel");
+      var dateEl = document.getElementById("countdownDate");
+
+      if (!startDateIso) {
+        valueEl.textContent = "--";
+        labelEl.textContent = "Start date not set yet";
+        dateEl.textContent = "Pending";
+        return;
+      }
+
+      var startDate = new Date(startDateIso);
+      var now = new Date();
+      var diff = Math.ceil((startDate - now) / (1000 * 60 * 60 * 24));
+
+      valueEl.textContent = String(Math.max(0, diff));
+      labelEl.textContent = diff > 0 ? "days until your start" : diff === 0 ? "Today is the day!" : "days since you started";
+      dateEl.textContent = "Start: " + formatDate(startDateIso);
+    }
+
+    function renderTimeline(startDateIso) {
+      var container = document.getElementById("commencementTimeline");
+      if (!startDateIso) {
+        container.innerHTML = '<p style="font-size:13px;color:#64748b;font-weight:500;">Timeline will appear once your start date is confirmed.</p>';
+        return;
+      }
+
+      var start = new Date(startDateIso);
+      var now = new Date();
+      var offsets = [
+        { days: -28, label: "4 weeks before", detail: "Begin pre-arrival preparations" },
+        { days: -14, label: "2 weeks before", detail: "Book travel and confirm accommodation" },
+        { days: -7, label: "1 week before", detail: "Finalise bank, TFN and insurance" },
+        { days: -3, label: "3 days before", detail: "Confirm orientation with practice" },
+        { days: 0, label: "Start date", detail: "First day at practice" },
+        { days: 7, label: "1 week after", detail: "Follow-up check with GP Link agent" }
+      ];
+
+      container.innerHTML = offsets.map(function (o) {
+        var d = new Date(start);
+        d.setDate(d.getDate() + o.days);
+        var isPast = d <= now;
+        var isUpcoming = !isPast && (d - now) < 7 * 24 * 60 * 60 * 1000;
+        var cls = isPast ? "done" : isUpcoming ? "upcoming" : "";
+        return [
+          '<div class="timeline-item ' + cls + '">',
+          '<div class="timeline-dot"></div>',
+          '<div class="timeline-date">' + formatDate(d.toISOString()) + '</div>',
+          '<div class="timeline-text">' + escapeHtml(o.label) + '</div>',
+          '<div class="timeline-detail">' + escapeHtml(o.detail) + '</div>',
+          '</div>'
+        ].join("");
+      }).join("");
+    }
+
+    function updateDueDates(startDateIso) {
+      if (!startDateIso) return;
+      var start = new Date(startDateIso);
+      var dueEls = document.querySelectorAll("[data-due-offset]");
+      dueEls.forEach(function (el) {
+        var offset = parseInt(el.getAttribute("data-due-offset"), 10);
+        if (isNaN(offset)) return;
+        var dueDate = new Date(start);
+        dueDate.setDate(dueDate.getDate() + offset);
+        el.textContent = "Due " + formatDate(dueDate.toISOString());
+      });
+    }
+
+    function loadCommencementStatus() {
+      fetch("/api/commencement/status", { credentials: "same-origin" })
+        .then(function (res) {
+          if (!res.ok) throw new Error("Failed to load commencement status");
+          return res.json();
+        })
+        .then(function (data) {
+          var startDate = data.startDate || null;
+          updateCountdown(startDate);
+          renderTimeline(startDate);
+          updateDueDates(startDate);
+
+          if (data.checklist && typeof data.checklist === "object") {
+            var current = getCheckedState();
+            var merged = {};
+            ALL_KEYS.forEach(function (key) {
+              merged[key] = !!(current[key] || data.checklist[key]);
+            });
+            saveCheckedState(merged);
+            syncCheckItems();
+          }
+        })
+        .catch(function () {
+          var container = document.getElementById("commencementTimeline");
+          container.innerHTML = '<p style="font-size:13px;color:#64748b;font-weight:500;">Timeline will appear once your commencement details are confirmed. Check back soon.</p>';
+          updateCountdown(null);
+        });
+    }
+
+    setupChecklist();
+    syncCheckItems();
+    loadCommencementStatus();
+  })();
+  </script>
+</body>
+</html>

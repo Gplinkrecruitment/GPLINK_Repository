@@ -5,6 +5,11 @@
   const STORAGE_KEY = "gp_onboarding";
   const MAX_RETRIES = 5;
 
+  function escHtml(s) {
+    if (typeof s !== "string") return "";
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
   // Allow clearing onboarding state via ?reset=1 query param
   if (new URLSearchParams(window.location.search).get("reset") === "1") {
     localStorage.removeItem(STORAGE_KEY);
@@ -945,7 +950,7 @@
     }
 
     list.innerHTML = rows.map((r) =>
-      `<div class="review-row"><span class="review-label">${r.label}</span><span class="review-value ${r.cls || ""}">${r.value}</span></div>`
+      `<div class="review-row"><span class="review-label">${escHtml(r.label)}</span><span class="review-value ${escHtml(r.cls || "")}">${escHtml(r.value)}</span></div>`
     ).join("");
   }
 

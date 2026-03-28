@@ -9,7 +9,7 @@
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260322a" defer></script>
   <script src="../js/account-dropdown.js?v=20260323a" defer></script>
-  <script src="../js/app-shell.js?v=20260328h" defer></script>
+  <script src="../js/app-shell.js?v=20260329a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -315,6 +315,22 @@
       border-color: #e2e8f0;
       background: #f1f5f9;
       color: #64748b;
+    }
+
+    .reg-row.locked-row {
+      opacity: 0.7;
+    }
+
+    .reg-row.locked-row .reg-name {
+      color: #94a3b8;
+    }
+
+    .reg-locked-hint {
+      font-size: 10px;
+      font-weight: 600;
+      color: #94a3b8;
+      font-style: italic;
+      margin-top: 2px;
     }
 
     .app-shell-frame-stack {

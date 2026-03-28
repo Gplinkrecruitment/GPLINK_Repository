@@ -14,6 +14,9 @@
     "/pages/ahpra.html": true,
     "/pages/my-documents.html": true,
     "/pages/career.html": true,
+    "/pages/visa.html": true,
+    "/pages/pbs.html": true,
+    "/pages/commencement.html": true,
     "/pages/messages.html": true,
     "/pages/account.html": true,
     "/pages/registration-intro.html": true
@@ -39,6 +42,9 @@
     if (step === "myintealth" || step === "myinthealth") return "/pages/myinthealth.html";
     if (step === "amc") return "/pages/amc.html";
     if (step === "ahpra" || step === "specialist-registration") return "/pages/ahpra.html";
+    if (step === "visa") return "/pages/visa.html";
+    if (step === "pbs" || step === "medicare") return "/pages/pbs.html";
+    if (step === "commencement") return "/pages/commencement.html";
     return "";
   }
 

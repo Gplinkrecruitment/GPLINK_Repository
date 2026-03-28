@@ -5121,6 +5121,97 @@
         padding-bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 24px);
       }
     }
+    /* ---- SCHOOLING SEARCH ---- */
+    .schooling-module {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-top: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .schooling-module::before {
+      content: "";
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #8b5cf6, #6366f1);
+    }
+    .schooling-head {
+      margin-bottom: 14px;
+    }
+    .schooling-head .detail-label { margin-bottom: 2px; }
+    .schooling-head .card-title { margin-bottom: 2px; }
+    .schooling-intro {
+      font-size: 13px; color: var(--muted); font-weight: 500; line-height: 1.5;
+    }
+    .schooling-search-bar {
+      display: flex; gap: 8px; margin-bottom: 10px;
+    }
+    .schooling-search-input {
+      flex: 1; padding: 10px 14px;
+      border: 1px solid var(--line); border-radius: var(--radius-sm);
+      background: var(--panel-soft); font-size: 13px; font-weight: 500;
+      color: var(--text); outline: none;
+      transition: border-color .15s ease;
+    }
+    .schooling-search-input:focus { border-color: var(--blue); }
+    .schooling-search-input::placeholder { color: #94a3b8; }
+    .schooling-search-btn {
+      padding: 10px 16px; border: 1px solid var(--blue);
+      border-radius: var(--radius-sm); background: var(--blue);
+      color: #fff; font-size: 13px; font-weight: 700;
+      cursor: pointer; white-space: nowrap;
+      transition: background .15s ease;
+    }
+    .schooling-search-btn:hover { background: var(--blue2); }
+    .schooling-filters {
+      display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px;
+    }
+    .schooling-chip {
+      padding: 6px 12px; border: 1px solid var(--line);
+      border-radius: 999px; background: var(--panel-soft);
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      cursor: pointer; transition: all .15s ease;
+      user-select: none; -webkit-user-select: none;
+    }
+    .schooling-chip:hover { border-color: var(--blue); color: var(--blue); }
+    .schooling-chip.active {
+      background: #eff6ff; color: var(--blue2); border-color: #bfdbfe;
+    }
+    .schooling-results {
+      display: grid; gap: 8px;
+    }
+    .schooling-card {
+      display: grid; grid-template-columns: 1fr auto;
+      align-items: center; gap: 10px;
+      padding: 14px 16px; border: 1px solid var(--line);
+      border-radius: var(--radius-md); background: var(--panel-soft);
+      transition: border-color .15s ease;
+    }
+    .schooling-card:hover { border-color: #bfdbfe; }
+    .schooling-card-name {
+      font-size: 13px; font-weight: 700; color: var(--text);
+    }
+    .schooling-card-meta {
+      font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px;
+    }
+    .schooling-card-meta span + span::before { content: " \00b7 "; }
+    .schooling-card-rating {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 8px; border-radius: 8px;
+      background: #fef3c7; color: #92400e;
+      font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .schooling-empty {
+      text-align: center; padding: 20px;
+      font-size: 13px; color: var(--muted); font-weight: 500;
+    }
+    .schooling-powered {
+      text-align: right; margin-top: 10px;
+      font-size: 10px; color: #94a3b8; font-weight: 500;
+    }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -5315,6 +5406,28 @@
                 <p class="practice-lifestyle-intro" id="practiceLifestyleIntro">Explore housing, schooling and travel around the practice before you relocate.</p>
               </div>
               <div class="practice-lifestyle-explorer" id="securedLifestyleExplorer"></div>
+            </section>
+
+            <section class="schooling-module" id="schoolingModule" aria-labelledby="schoolingHeading">
+              <div class="schooling-head">
+                <span class="detail-label">Schooling search</span>
+                <h3 class="card-title" id="schoolingHeading">Schools Near Your Practice</h3>
+                <p class="schooling-intro">Search for schools around your secured practice location for your family.</p>
+              </div>
+              <div class="schooling-search-bar">
+                <input class="schooling-search-input" id="schoolingSearchInput" type="text" placeholder="Search school name or type..." aria-label="Search schools" />
+                <button class="schooling-search-btn" id="schoolingSearchBtn" type="button">Search</button>
+              </div>
+              <div class="schooling-filters" id="schoolingFilters">
+                <button class="schooling-chip" data-school-type="primary" type="button">Primary</button>
+                <button class="schooling-chip" data-school-type="secondary" type="button">Secondary</button>
+                <button class="schooling-chip" data-school-type="public" type="button">Public</button>
+                <button class="schooling-chip" data-school-type="private" type="button">Private</button>
+              </div>
+              <div class="schooling-results" id="schoolingResults">
+                <div class="schooling-empty">Search for schools near your practice to see results here.</div>
+              </div>
+              <div class="schooling-powered">Powered by GP Link</div>
             </section>
 
             <article class="placement-broker-card">
@@ -9000,6 +9113,89 @@
       renderPage();
       if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
+
+      // ---- Schooling Search ----
+      (function initSchoolingSearch() {
+        const searchInput = document.getElementById("schoolingSearchInput");
+        const searchBtn = document.getElementById("schoolingSearchBtn");
+        const resultsEl = document.getElementById("schoolingResults");
+        const filtersEl = document.getElementById("schoolingFilters");
+        if (!searchInput || !searchBtn || !resultsEl) return;
+
+        let activeFilters = new Set();
+
+        function getPlacementCoords() {
+          const placementApp = getSecuredPlacementApp();
+          if (!placementApp) return null;
+          const placement = placementApp.placement && typeof placementApp.placement === "object" ? placementApp.placement : {};
+          if (placement.lat && placement.lng) return { lat: placement.lat, lng: placement.lng };
+          const role = findRole(placementApp.roleId);
+          if (role && role.lat && role.lng) return { lat: role.lat, lng: role.lng };
+          return null;
+        }
+
+        function renderSchoolResults(schools) {
+          if (!schools || !schools.length) {
+            resultsEl.innerHTML = '<div class="schooling-empty">No schools found matching your search. Try different keywords or filters.</div>';
+            return;
+          }
+          resultsEl.innerHTML = schools.map(function (s) {
+            return [
+              '<div class="schooling-card">',
+              '<div>',
+              '<div class="schooling-card-name">' + escapeHtml(s.name || "Unknown School") + '</div>',
+              '<div class="schooling-card-meta">',
+              '<span>' + escapeHtml(s.type || "") + '</span>',
+              s.distance ? '<span>' + escapeHtml(s.distance) + '</span>' : '',
+              '</div>',
+              '</div>',
+              s.rating ? '<span class="schooling-card-rating">' + escapeHtml(String(s.rating)) + '</span>' : '',
+              '</div>'
+            ].join("");
+          }).join("");
+        }
+
+        function runSchoolSearch() {
+          const query = searchInput.value.trim();
+          const coords = getPlacementCoords();
+          let url = "/api/schools/search?q=" + encodeURIComponent(query);
+          if (coords) { url += "&lat=" + coords.lat + "&lng=" + coords.lng; }
+          activeFilters.forEach(function (f) { url += "&type=" + encodeURIComponent(f); });
+
+          resultsEl.innerHTML = '<div class="schooling-empty">Searching...</div>';
+          fetch(url, { credentials: "same-origin" })
+            .then(function (res) {
+              if (!res.ok) throw new Error("School search failed");
+              return res.json();
+            })
+            .then(function (data) {
+              renderSchoolResults(data.schools || data.results || []);
+            })
+            .catch(function () {
+              resultsEl.innerHTML = '<div class="schooling-empty">Could not load school results. Please try again.</div>';
+            });
+        }
+
+        searchBtn.addEventListener("click", runSchoolSearch);
+        searchInput.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); runSchoolSearch(); }
+        });
+
+        if (filtersEl) {
+          filtersEl.addEventListener("click", function (e) {
+            const chip = e.target.closest("[data-school-type]");
+            if (!chip) return;
+            const type = chip.getAttribute("data-school-type");
+            if (activeFilters.has(type)) {
+              activeFilters.delete(type);
+              chip.classList.remove("active");
+            } else {
+              activeFilters.add(type);
+              chip.classList.add("active");
+            }
+          });
+        }
+      })();
     })();
   </script>
 </body>

@@ -7,11 +7,145 @@ const require = createRequire(import.meta.url);
 const { __testUtils } = require('../server.js');
 
 const {
+  buildDomainAgencyBrandSearchQueries,
+  buildDomainResidentialSearchPayload,
   collectDomainResidentialSearchListings,
+  matchesDomainAgencyListingMarket,
+  normalizeDomainAgencyListing,
   normalizeDomainListing
 } = __testUtils;
 
 describe('Domain lifestyle listing normalization', () => {
+  it('builds brand agency search queries using the placement location', () => {
+    const queries = buildDomainAgencyBrandSearchQueries(
+      {
+        suburb: 'Newtown',
+        state: 'NSW',
+        label: 'Newtown NSW 2042, Australia'
+      },
+      'Ray White'
+    );
+
+    expect(queries[0]).toContain('Ray White');
+    expect(queries.join(' ')).toContain('Newtown');
+    expect(queries.join(' ')).toContain('NSW');
+  });
+
+  it('builds a richer residential search payload for placement housing queries', () => {
+    const payload = buildDomainResidentialSearchPayload(
+      {
+        suburb: 'Newtown',
+        state: 'NSW',
+        postcode: '2042',
+        label: 'Newtown NSW 2042, Australia'
+      },
+      'rent',
+      { recommendedBedrooms: 3 },
+      {
+        radiusKm: 15,
+        searchQuery: 'pet friendly terrace',
+        priceMin: '700',
+        priceMax: '1200'
+      }
+    );
+
+    expect(payload).toMatchObject({
+      listingType: 'Rent',
+      propertyEstablishedType: 'Any',
+      minBedrooms: 3,
+      minPrice: 700,
+      maxPrice: 1200,
+      pageNumber: 1
+    });
+    expect(payload.pageSize).toBeGreaterThan(0);
+    expect(payload.locations).toEqual([
+      {
+        state: 'NSW',
+        region: '',
+        area: '',
+        suburb: 'Newtown',
+        postCode: '2042',
+        includeSurroundingSuburbs: true,
+        surroundingRadiusInMeters: 15000
+      }
+    ]);
+    expect(payload.keywords).toEqual(['pet', 'friendly', 'terrace']);
+  });
+
+  it('falls back to locationTerms when only a display label is available', () => {
+    const payload = buildDomainResidentialSearchPayload(
+      {
+        suburb: '',
+        state: '',
+        postcode: '',
+        label: 'Tweed Heads NSW, Australia'
+      },
+      'buy',
+      { recommendedBedrooms: 2 },
+      {}
+    );
+
+    expect(payload).toMatchObject({
+      listingType: 'Sale',
+      propertyEstablishedType: 'Any',
+      minBedrooms: 2,
+      locationTerms: 'Tweed Heads NSW, Australia',
+      pageNumber: 1
+    });
+    expect(payload.locations).toBeUndefined();
+  });
+
+  it('normalizes agency listing rows and preserves the agency brand label', () => {
+    const listing = normalizeDomainAgencyListing(
+      {
+        objective: 'rent',
+        channel: 'residential',
+        id: 11575249,
+        addressParts: {
+          displayAddress: '502/35 Bowman Street, Pyrmont NSW 2009',
+          suburb: 'Pyrmont',
+          stateAbbreviation: 'nsw',
+          postcode: '2009'
+        },
+        geoLocation: {
+          latitude: -33.8678064,
+          longitude: 151.1892544
+        },
+        media: [
+          {
+            category: 'image',
+            type: 'photo',
+            url: 'https://bucket-api.domain.com.au/v1/bucket/image/11575249_1_pi_170810_122532-w2700-h1800'
+          }
+        ],
+        priceDetails: {
+          displayPrice: '$1,200/wk'
+        },
+        headline: 'Pet Friendly Harbourside lifestyle sanctuary of space & style',
+        seoUrl: 'https://www.domain.com.au/502-35-bowman-street-pyrmont-nsw-2009-11575249',
+        bedrooms: 3,
+        bathrooms: 2,
+        carspaces: 2,
+        propertyTypes: ['apartmentUnitFlat'],
+        description: 'Pet friendly apartment close to the harbour.'
+      },
+      { lat: -33.8688, lng: 151.1841 },
+      'rent',
+      { name: 'Ray White Pyrmont' }
+    );
+
+    expect(listing).toBeTruthy();
+    expect(listing.sourceLabel).toBe('Ray White Pyrmont');
+    expect(listing.address).toBe('502/35 Bowman Street, Pyrmont NSW 2009');
+    expect(listing.priceValue).toBe(1200);
+  });
+
+  it('matches agency listings to the intended market', () => {
+    expect(matchesDomainAgencyListingMarket({ objective: 'rent' }, 'rent')).toBe(true);
+    expect(matchesDomainAgencyListingMarket({ saleMode: 'rent' }, 'buy')).toBe(false);
+    expect(matchesDomainAgencyListingMarket({ listingType: 'Sale' }, 'buy')).toBe(true);
+  });
+
   it('maps Domain residential search rows into listing cards without a secondary detail lookup', () => {
     const record = {
       type: 'PropertyListing',

@@ -9,6 +9,11 @@
   const DEFAULT_READ_STATE = {};
   const memoryStore = Object.create(null);
 
+  function escHtml(s) {
+    if (typeof s !== "string") return "";
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
   function safeGetItem(key) {
     try {
       return localStorage.getItem(key);
@@ -383,8 +388,8 @@
       el.className = `item ${item.kind}${item.unread ? "" : " read"}`;
       el.innerHTML = `
         <span class="bar" aria-hidden="true"></span>
-        <span class="title">${item.title}</span>
-        <span class="tag">${itemTag(item.kind)}</span>
+        <span class="title">${escHtml(item.title)}</span>
+        <span class="tag">${escHtml(itemTag(item.kind))}</span>
       `;
       el.addEventListener("click", () => {
         markRead(item.id);

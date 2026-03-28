@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Visa Application - GP Link</title>
+  <script src="/js/nav-shell-bridge.js?v=20260329a"></script>
+  <script src="/js/auth-guard.js?v=20260311f" defer></script>
+  <script src="/js/state-sync.js?v=20260315a" defer></script>
+  <script src="/js/updates-sync.js?v=20260309c" defer></script>
+  <script src="/js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="/js/qualification-scan.js?v=20260322a" defer></script>
+  <script src="/js/account-dropdown.js?v=20260329a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --green2: #16a34a;
+      --orange: #f59e0b;
+      --orange2: #f97316;
+      --red: #dc2626;
+      --card: rgba(255, 255, 255, 0.92);
+      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #f0f4fa;
+      min-height: 100dvh;
+    }
+
+    .dash-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 120px;
+    }
+
+    /* ---- HEADER ---- */
+    .app-header {
+      display: flex; align-items: center;
+      justify-content: space-between; padding: 18px 0 14px;
+    }
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+    .header-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0; border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .header-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+    .header-text p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease; color: #475569;
+    }
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+    }
+
+    /* ---- PAGE HERO ---- */
+    .page-hero {
+      padding: 8px 0 16px;
+    }
+    .page-hero h1 {
+      font-size: 24px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
+    }
+    .page-hero p {
+      font-size: 14px; color: var(--muted);
+      font-weight: 500; margin-top: 4px; line-height: 1.5;
+    }
+
+    /* ---- PROGRESS STEPPER ---- */
+    .visa-stepper {
+      display: flex; align-items: flex-start;
+      gap: 0; margin-bottom: 24px;
+      position: relative;
+      padding: 0 4px;
+    }
+    .visa-step {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; position: relative; z-index: 2;
+    }
+    .visa-step-dot {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: #e8edf5; color: #94a3b8;
+      font-size: 12px; font-weight: 700;
+      border: 2px solid #e2e8f0;
+      transition: all .25s ease;
+      position: relative; z-index: 2;
+    }
+    .visa-step-dot svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .visa-step.active .visa-step-dot {
+      background: var(--blue); color: #fff;
+      border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.5);
+    }
+    .visa-step.done .visa-step-dot {
+      background: var(--green); color: #fff;
+      border-color: var(--green);
+    }
+    .visa-step-label {
+      margin-top: 8px; font-size: 11px; font-weight: 600;
+      color: #94a3b8; text-align: center; line-height: 1.3;
+    }
+    .visa-step.active .visa-step-label { color: var(--blue); font-weight: 700; }
+    .visa-step.done .visa-step-label { color: var(--green); }
+    .visa-step-connector {
+      position: absolute; top: 18px;
+      left: calc(50% + 18px); right: calc(-50% + 18px);
+      height: 3px; background: #e2e8f0; z-index: 1;
+    }
+    .visa-step.done .visa-step-connector { background: var(--green); }
+    .visa-step.active .visa-step-connector { background: linear-gradient(90deg, var(--blue), #e2e8f0); }
+    .visa-step:last-child .visa-step-connector { display: none; }
+
+    /* ---- CARD ---- */
+    .card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 20px;
+      margin-bottom: 16px; position: relative; overflow: hidden;
+    }
+    .card::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
+    }
+    .card-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .card-title {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.3; margin-bottom: 4px;
+    }
+    .card-sub {
+      font-size: 13px; color: #475569;
+      font-weight: 500; line-height: 1.5; margin-bottom: 14px;
+    }
+
+    /* ---- STATUS BADGE ---- */
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+    }
+    .status-badge.processing { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+    .status-badge.granted { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .status-badge.not-started { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+
+    /* ---- SPONSOR CARD ---- */
+    .sponsor-card {
+      display: flex; gap: 14px; align-items: center;
+      padding: 16px; background: #f8fafc;
+      border: 1px solid #e8edf5; border-radius: 14px;
+      margin-bottom: 14px;
+    }
+    .sponsor-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 16px;
+      flex-shrink: 0;
+    }
+    .sponsor-name { font-size: 14px; font-weight: 700; }
+    .sponsor-role { font-size: 12px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+
+    /* ---- DOCUMENT UPLOAD ---- */
+    .upload-zone {
+      border: 2px dashed #cbd5e1; border-radius: 14px;
+      padding: 24px; text-align: center; cursor: pointer;
+      transition: all .15s ease; margin-bottom: 14px;
+    }
+    .upload-zone:hover { border-color: var(--blue); background: #f8fafc; }
+    .upload-zone-icon {
+      width: 40px; height: 40px; margin: 0 auto 8px;
+      border-radius: 12px; background: #eff6ff;
+      display: grid; place-items: center; color: var(--blue);
+    }
+    .upload-zone-icon svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .upload-zone-text { font-size: 13px; font-weight: 600; color: #334155; }
+    .upload-zone-hint { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+    .upload-list { display: grid; gap: 8px; }
+    .upload-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1px solid #e8edf5;
+      border-radius: 10px; background: #fafbfd;
+    }
+    .upload-item-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: #eff6ff; display: grid; place-items: center; color: var(--blue); flex-shrink: 0;
+    }
+    .upload-item-icon svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .upload-item-name { font-size: 12px; font-weight: 600; flex: 1; }
+    .upload-item-meta { font-size: 11px; color: var(--muted); font-weight: 500; }
+
+    /* ---- TIMELINE ---- */
+    .timeline { display: grid; gap: 0; padding-left: 20px; position: relative; }
+    .timeline::before {
+      content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px;
+      width: 2px; background: #e2e8f0;
+    }
+    .timeline-item {
+      position: relative; padding: 0 0 20px 20px;
+    }
+    .timeline-item:last-child { padding-bottom: 0; }
+    .timeline-dot {
+      position: absolute; left: -20px; top: 4px;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #e8edf5; border: 2px solid #fff;
+      box-shadow: 0 0 0 2px #e2e8f0;
+    }
+    .timeline-item.current .timeline-dot { background: var(--blue); box-shadow: 0 0 0 2px var(--blue); }
+    .timeline-item.done .timeline-dot { background: var(--green); box-shadow: 0 0 0 2px var(--green); }
+    .timeline-date { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+    .timeline-text { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; }
+    .timeline-detail { font-size: 12px; color: #475569; font-weight: 500; margin-top: 2px; }
+
+    /* ---- NOTES/UPDATES ---- */
+    .note-card {
+      padding: 14px; border: 1px solid #e8edf5;
+      border-radius: 12px; background: #fafbfd; margin-bottom: 10px;
+    }
+    .note-author { font-size: 12px; font-weight: 700; color: var(--blue); }
+    .note-date { font-size: 11px; color: var(--muted); font-weight: 500; margin-left: 8px; }
+    .note-text { font-size: 13px; color: #334155; font-weight: 500; line-height: 1.5; margin-top: 4px; }
+
+    /* ---- DETAIL GRID ---- */
+    .detail-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; margin-bottom: 16px;
+    }
+    .detail-item {
+      background: #f8fafc; border-radius: 12px;
+      border: 1px solid #e8edf5; padding: 14px;
+    }
+    .detail-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .detail-value {
+      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
+    }
+
+    /* ---- SECTION HEADING ---- */
+    .section-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .section-title { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+
+    /* ---- LOADING ---- */
+    .loading-bars {
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 20px 0;
+    }
+    .loading-bar {
+      height: 14px; border-radius: 8px;
+      background: linear-gradient(90deg, #e8edf5 25%, #f1f5f9 50%, #e8edf5 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+    .loading-bar:nth-child(1) { width: 80%; }
+    .loading-bar:nth-child(2) { width: 60%; }
+    .loading-bar:nth-child(3) { width: 70%; }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ---- RESPONSIVE ---- */
+    @media (min-width: 768px) {
+      .app-header { display: none; }
+    }
+    @media (max-width: 767px) {
+      .app-header { display: flex; }
+      .page-hero h1 { font-size: 20px; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .visa-step-label { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash-wrap">
+    <!-- MOBILE HEADER -->
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar">GP</div>
+        <div class="header-text">
+          <h1>Visa Application</h1>
+          <p>Track your visa progress</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+        <a class="header-icon-btn" href="/pages/account.html" aria-label="Account">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <!-- PAGE HERO -->
+    <div class="page-hero">
+      <h1>Visa Application</h1>
+      <p>Track your visa from nomination through to grant. Your GP Link agent manages the process and updates you at each stage.</p>
+    </div>
+
+    <!-- VISA PROGRESS STEPPER -->
+    <div class="visa-stepper" id="visaStepper">
+      <div class="visa-step" data-stage="nomination">
+        <div class="visa-step-dot">1</div>
+        <span class="visa-step-label">Nomination</span>
+        <div class="visa-step-connector"></div>
+      </div>
+      <div class="visa-step" data-stage="lodgement">
+        <div class="visa-step-dot">2</div>
+        <span class="visa-step-label">Lodgement</span>
+        <div class="visa-step-connector"></div>
+      </div>
+      <div class="visa-step" data-stage="processing">
+        <div class="visa-step-dot">3</div>
+        <span class="visa-step-label">Processing</span>
+        <div class="visa-step-connector"></div>
+      </div>
+      <div class="visa-step" data-stage="granted">
+        <div class="visa-step-dot">4</div>
+        <span class="visa-step-label">Granted</span>
+      </div>
+    </div>
+
+    <!-- STATUS CARD -->
+    <div class="card" id="visaStatusCard">
+      <span class="card-label">Current status</span>
+      <h2 class="card-title" id="visaStatusTitle">Loading visa status...</h2>
+      <p class="card-sub" id="visaStatusSub">Fetching the latest information from your case.</p>
+      <span class="status-badge" id="visaStatusBadge">Loading</span>
+      <div class="loading-bars" id="visaLoadingBars">
+        <span class="loading-bar"></span>
+        <span class="loading-bar"></span>
+        <span class="loading-bar"></span>
+      </div>
+      <div class="detail-grid" id="visaDetailGrid" hidden>
+        <div class="detail-item">
+          <div class="detail-label">Visa subclass</div>
+          <div class="detail-value" id="visaSubclass">--</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-label">Application date</div>
+          <div class="detail-value" id="visaApplicationDate">--</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-label">Reference number</div>
+          <div class="detail-value" id="visaReferenceNumber">--</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-label">Expected timeline</div>
+          <div class="detail-value" id="visaExpectedTimeline">--</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRACTICE SPONSOR -->
+    <div class="card">
+      <span class="card-label">Sponsoring practice</span>
+      <h2 class="card-title">Practice Sponsor</h2>
+      <p class="card-sub">Your nominated employer sponsor for the visa application.</p>
+      <div class="sponsor-card" id="sponsorCard">
+        <div class="sponsor-avatar" id="sponsorInitials">--</div>
+        <div>
+          <div class="sponsor-name" id="sponsorName">Loading...</div>
+          <div class="sponsor-role" id="sponsorRole">Practice sponsor</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DOCUMENT UPLOAD -->
+    <div class="card">
+      <span class="card-label">Visa documents</span>
+      <h2 class="card-title">Required Documents</h2>
+      <p class="card-sub">Upload supporting documents for your visa application.</p>
+      <div class="upload-zone" id="visaUploadZone" role="button" tabindex="0" aria-label="Upload visa document">
+        <div class="upload-zone-icon">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <div class="upload-zone-text">Tap to upload a document</div>
+        <div class="upload-zone-hint">PDF, JPG or PNG up to 10 MB</div>
+      </div>
+      <input type="file" id="visaFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" multiple />
+      <div class="upload-list" id="visaUploadList"></div>
+    </div>
+
+    <!-- NOTES / UPDATES -->
+    <div class="card">
+      <span class="card-label">Case updates</span>
+      <h2 class="card-title">Notes & Updates</h2>
+      <p class="card-sub">Messages and updates from your GP Link team about your visa.</p>
+      <div id="visaNotes">
+        <div class="loading-bars">
+          <span class="loading-bar"></span>
+          <span class="loading-bar"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- TIMELINE -->
+    <div class="card">
+      <span class="card-label">History</span>
+      <h2 class="card-title">Status Timeline</h2>
+      <p class="card-sub">A complete log of all visa status changes.</p>
+      <div class="timeline" id="visaTimeline">
+        <div class="loading-bars">
+          <span class="loading-bar"></span>
+          <span class="loading-bar"></span>
+          <span class="loading-bar"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var STAGES = ["nomination", "lodgement", "processing", "granted"];
+
+    function updateStepper(currentStage) {
+      var stageIndex = STAGES.indexOf(currentStage);
+      if (stageIndex === -1) stageIndex = 0;
+      var steps = document.querySelectorAll(".visa-step");
+      steps.forEach(function (step, idx) {
+        step.classList.remove("active", "done");
+        var dot = step.querySelector(".visa-step-dot");
+        if (idx < stageIndex) {
+          step.classList.add("done");
+          dot.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>';
+        } else if (idx === stageIndex) {
+          step.classList.add("active");
+          dot.textContent = String(idx + 1);
+        } else {
+          dot.textContent = String(idx + 1);
+        }
+      });
+    }
+
+    function formatDate(isoStr) {
+      if (!isoStr) return "--";
+      try {
+        var d = new Date(isoStr);
+        return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+      } catch (e) { return isoStr; }
+    }
+
+    function getInitials(name) {
+      if (!name) return "--";
+      return name.split(" ").map(function (w) { return w.charAt(0); }).join("").toUpperCase().slice(0, 2);
+    }
+
+    function renderNotes(notes) {
+      var container = document.getElementById("visaNotes");
+      if (!notes || !notes.length) {
+        container.innerHTML = '<p style="font-size:13px;color:#64748b;font-weight:500;">No updates yet. Your agent will post notes here as things progress.</p>';
+        return;
+      }
+      container.innerHTML = notes.map(function (note) {
+        return [
+          '<div class="note-card">',
+          '<span class="note-author">' + escapeHtml(note.author || "GP Link Team") + '</span>',
+          '<span class="note-date">' + formatDate(note.date) + '</span>',
+          '<p class="note-text">' + escapeHtml(note.text || "") + '</p>',
+          '</div>'
+        ].join("");
+      }).join("");
+    }
+
+    function renderTimeline(events) {
+      var container = document.getElementById("visaTimeline");
+      if (!events || !events.length) {
+        container.innerHTML = '<p style="font-size:13px;color:#64748b;font-weight:500;">No status changes recorded yet.</p>';
+        return;
+      }
+      container.innerHTML = events.map(function (evt, idx) {
+        var cls = idx === 0 ? "current" : "done";
+        return [
+          '<div class="timeline-item ' + cls + '">',
+          '<div class="timeline-dot"></div>',
+          '<div class="timeline-date">' + formatDate(evt.date) + '</div>',
+          '<div class="timeline-text">' + escapeHtml(evt.title || "") + '</div>',
+          evt.detail ? '<div class="timeline-detail">' + escapeHtml(evt.detail) + '</div>' : '',
+          '</div>'
+        ].join("");
+      }).join("");
+    }
+
+    function renderDocuments(documents) {
+      var list = document.getElementById("visaUploadList");
+      if (!documents || !documents.length) { list.innerHTML = ""; return; }
+      list.innerHTML = documents.map(function (doc) {
+        return [
+          '<div class="upload-item">',
+          '<div class="upload-item-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>',
+          '<span class="upload-item-name">' + escapeHtml(doc.name || "Document") + '</span>',
+          '<span class="upload-item-meta">' + escapeHtml(doc.status || "Uploaded") + '</span>',
+          '</div>'
+        ].join("");
+      }).join("");
+    }
+
+    function escapeHtml(str) {
+      var div = document.createElement("div");
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+
+    function renderStatus(data) {
+      var loadingBars = document.getElementById("visaLoadingBars");
+      var detailGrid = document.getElementById("visaDetailGrid");
+      if (loadingBars) loadingBars.hidden = true;
+      if (detailGrid) detailGrid.hidden = false;
+
+      var stage = data.stage || "nomination";
+      updateStepper(stage);
+
+      var titleEl = document.getElementById("visaStatusTitle");
+      var subEl = document.getElementById("visaStatusSub");
+      var badgeEl = document.getElementById("visaStatusBadge");
+
+      var stageTitles = {
+        nomination: "Employer Nomination",
+        lodgement: "Visa Lodged",
+        processing: "Application Processing",
+        granted: "Visa Granted"
+      };
+      var stageSubs = {
+        nomination: "Your practice sponsor is preparing the employer nomination application.",
+        lodgement: "Your visa application has been lodged with the Department of Home Affairs.",
+        processing: "Your application is being processed. Average processing times vary by subclass.",
+        granted: "Congratulations! Your visa has been granted."
+      };
+
+      titleEl.textContent = stageTitles[stage] || "Visa Application";
+      subEl.textContent = data.statusMessage || stageSubs[stage] || "";
+
+      badgeEl.textContent = stage === "granted" ? "Granted" : stage === "processing" ? "Processing" : stage === "lodgement" ? "Lodged" : "Nominated";
+      badgeEl.className = "status-badge" + (stage === "granted" ? " granted" : stage === "processing" ? " processing" : "");
+
+      document.getElementById("visaSubclass").textContent = data.subclass || "--";
+      document.getElementById("visaApplicationDate").textContent = formatDate(data.applicationDate);
+      document.getElementById("visaReferenceNumber").textContent = data.referenceNumber || "--";
+      document.getElementById("visaExpectedTimeline").textContent = data.expectedTimeline || "--";
+
+      if (data.sponsor) {
+        document.getElementById("sponsorName").textContent = data.sponsor.name || "Practice Sponsor";
+        document.getElementById("sponsorRole").textContent = data.sponsor.role || "Nominated employer";
+        document.getElementById("sponsorInitials").textContent = getInitials(data.sponsor.name);
+      }
+
+      renderNotes(data.notes || []);
+      renderTimeline(data.events || []);
+      renderDocuments(data.documents || []);
+    }
+
+    function loadVisaStatus() {
+      fetch("/api/visa/status", { credentials: "same-origin" })
+        .then(function (res) {
+          if (!res.ok) throw new Error("Failed to load visa status");
+          return res.json();
+        })
+        .then(function (data) {
+          renderStatus(data);
+        })
+        .catch(function () {
+          var titleEl = document.getElementById("visaStatusTitle");
+          var subEl = document.getElementById("visaStatusSub");
+          var loadingBars = document.getElementById("visaLoadingBars");
+          if (loadingBars) loadingBars.hidden = true;
+          titleEl.textContent = "Visa Application";
+          subEl.textContent = "Your visa case will appear here once your agent initiates the process. Check back soon.";
+          updateStepper("nomination");
+        });
+    }
+
+    // File upload handling
+    var uploadZone = document.getElementById("visaUploadZone");
+    var fileInput = document.getElementById("visaFileInput");
+    if (uploadZone && fileInput) {
+      uploadZone.addEventListener("click", function () { fileInput.click(); });
+      uploadZone.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+      });
+      fileInput.addEventListener("change", function () {
+        var files = Array.prototype.slice.call(fileInput.files);
+        if (!files.length) return;
+        var list = document.getElementById("visaUploadList");
+        files.forEach(function (file) {
+          var item = document.createElement("div");
+          item.className = "upload-item";
+          item.innerHTML = [
+            '<div class="upload-item-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>',
+            '<span class="upload-item-name">' + escapeHtml(file.name) + '</span>',
+            '<span class="upload-item-meta">Uploading...</span>'
+          ].join("");
+          list.appendChild(item);
+        });
+        fileInput.value = "";
+      });
+    }
+
+    loadVisaStatus();
+  })();
+  </script>
+</body>
+</html>

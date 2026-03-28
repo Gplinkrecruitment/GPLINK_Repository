@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>PBS & Medicare - GP Link</title>
+  <script src="/js/nav-shell-bridge.js?v=20260329a"></script>
+  <script src="/js/auth-guard.js?v=20260311f" defer></script>
+  <script src="/js/state-sync.js?v=20260315a" defer></script>
+  <script src="/js/updates-sync.js?v=20260309c" defer></script>
+  <script src="/js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="/js/qualification-scan.js?v=20260322a" defer></script>
+  <script src="/js/account-dropdown.js?v=20260329a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --green2: #16a34a;
+      --orange: #f59e0b;
+      --orange2: #f97316;
+      --red: #dc2626;
+      --card: rgba(255, 255, 255, 0.92);
+      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #f0f4fa;
+      min-height: 100dvh;
+    }
+
+    .dash-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 120px;
+    }
+
+    /* ---- HEADER ---- */
+    .app-header {
+      display: flex; align-items: center;
+      justify-content: space-between; padding: 18px 0 14px;
+    }
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+    .header-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0; border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .header-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+    .header-text p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease; color: #475569;
+    }
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+    }
+
+    /* ---- PAGE HERO ---- */
+    .page-hero {
+      padding: 8px 0 16px;
+    }
+    .page-hero h1 {
+      font-size: 24px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
+    }
+    .page-hero p {
+      font-size: 14px; color: var(--muted);
+      font-weight: 500; margin-top: 4px; line-height: 1.5;
+    }
+
+    /* ---- CARD ---- */
+    .card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 20px;
+      margin-bottom: 16px; position: relative; overflow: hidden;
+    }
+    .card::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
+    }
+    .card.medicare::before { background: linear-gradient(90deg, #2563eb, #0ea5e9); }
+    .card.pbs::before { background: linear-gradient(90deg, #7c3aed, #a855f7); }
+    .card-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .card-title {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.3; margin-bottom: 4px;
+    }
+    .card-sub {
+      font-size: 13px; color: #475569;
+      font-weight: 500; line-height: 1.5; margin-bottom: 14px;
+    }
+
+    /* ---- STATUS BADGE ---- */
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .status-badge.not-started { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+    .status-badge.in-progress { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .status-badge.submitted { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .status-badge.approved { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
+
+    /* ---- DETAIL GRID ---- */
+    .detail-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; margin-bottom: 16px;
+    }
+    .detail-item {
+      background: #f8fafc; border-radius: 12px;
+      border: 1px solid #e8edf5; padding: 14px;
+    }
+    .detail-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .detail-value {
+      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
+    }
+
+    /* ---- DOCUMENT UPLOAD ---- */
+    .upload-zone {
+      border: 2px dashed #cbd5e1; border-radius: 14px;
+      padding: 24px; text-align: center; cursor: pointer;
+      transition: all .15s ease; margin-bottom: 14px;
+    }
+    .upload-zone:hover { border-color: var(--blue); background: #f8fafc; }
+    .upload-zone-icon {
+      width: 40px; height: 40px; margin: 0 auto 8px;
+      border-radius: 12px; background: #eff6ff;
+      display: grid; place-items: center; color: var(--blue);
+    }
+    .upload-zone-icon svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .upload-zone-text { font-size: 13px; font-weight: 600; color: #334155; }
+    .upload-zone-hint { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+    .upload-list { display: grid; gap: 8px; }
+    .upload-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1px solid #e8edf5;
+      border-radius: 10px; background: #fafbfd;
+    }
+    .upload-item-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: #eff6ff; display: grid; place-items: center; color: var(--blue); flex-shrink: 0;
+    }
+    .upload-item-icon svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .upload-item-name { font-size: 12px; font-weight: 600; flex: 1; }
+    .upload-item-meta { font-size: 11px; color: var(--muted); font-weight: 500; }
+
+    /* ---- CHECKLIST ---- */
+    .checklist { display: grid; gap: 8px; }
+    .checklist-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border: 1px solid #e8edf5;
+      border-radius: 12px; background: #fafbfd;
+      font-size: 13px; font-weight: 600; color: #334155;
+    }
+    .checklist-icon {
+      width: 24px; height: 24px; border-radius: 50%;
+      display: grid; place-items: center; flex-shrink: 0;
+      background: #e8edf5; color: #94a3b8;
+    }
+    .checklist-icon svg {
+      width: 13px; height: 13px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .checklist-icon.done { background: var(--green); color: #fff; }
+
+    /* ---- LOADING ---- */
+    .loading-bars {
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 20px 0;
+    }
+    .loading-bar {
+      height: 14px; border-radius: 8px;
+      background: linear-gradient(90deg, #e8edf5 25%, #f1f5f9 50%, #e8edf5 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+    .loading-bar:nth-child(1) { width: 80%; }
+    .loading-bar:nth-child(2) { width: 60%; }
+    .loading-bar:nth-child(3) { width: 70%; }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ---- SECTION HEADING ---- */
+    .section-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .section-title { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+
+    /* ---- RESPONSIVE ---- */
+    @media (min-width: 768px) {
+      .app-header { display: none; }
+    }
+    @media (max-width: 767px) {
+      .app-header { display: flex; }
+      .page-hero h1 { font-size: 20px; }
+      .detail-grid { grid-template-columns: 1fr; }
+      .two-col { grid-template-columns: 1fr !important; }
+    }
+
+    .two-col {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash-wrap">
+    <!-- MOBILE HEADER -->
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar">GP</div>
+        <div class="header-text">
+          <h1>PBS & Medicare</h1>
+          <p>Provider number applications</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+        <a class="header-icon-btn" href="/pages/account.html" aria-label="Account">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <!-- PAGE HERO -->
+    <div class="page-hero">
+      <h1>PBS & Medicare</h1>
+      <p>Track your Medicare provider number and PBS prescriber number applications. Both are required before you can bulk-bill and prescribe PBS medicines.</p>
+    </div>
+
+    <div class="two-col">
+      <!-- MEDICARE PROVIDER NUMBER CARD -->
+      <div class="card medicare" id="medicareCard">
+        <span class="card-label">Medicare</span>
+        <h2 class="card-title">Medicare Provider Number</h2>
+        <p class="card-sub">Required to bill Medicare for consultations and procedures.</p>
+        <span class="status-badge not-started" id="medicareStatusBadge">Not Started</span>
+        <div class="detail-grid" id="medicareDetails" style="margin-top:14px;">
+          <div class="detail-item">
+            <div class="detail-label">Status</div>
+            <div class="detail-value" id="medicareStatus">Not started</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Application date</div>
+            <div class="detail-value" id="medicareAppDate">--</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Reference number</div>
+            <div class="detail-value" id="medicareRefNum">--</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Provider number</div>
+            <div class="detail-value" id="medicareProviderNum">--</div>
+          </div>
+        </div>
+        <div class="upload-zone" id="medicareUploadZone" role="button" tabindex="0" aria-label="Upload Medicare document">
+          <div class="upload-zone-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <div class="upload-zone-text">Upload Medicare document</div>
+          <div class="upload-zone-hint">PDF, JPG or PNG up to 10 MB</div>
+        </div>
+        <input type="file" id="medicareFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" multiple />
+        <div class="upload-list" id="medicareUploadList"></div>
+      </div>
+
+      <!-- PBS PRESCRIBER NUMBER CARD -->
+      <div class="card pbs" id="pbsCard">
+        <span class="card-label">PBS</span>
+        <h2 class="card-title">PBS Prescriber Number</h2>
+        <p class="card-sub">Required to prescribe medicines listed on the Pharmaceutical Benefits Scheme.</p>
+        <span class="status-badge not-started" id="pbsStatusBadge">Not Started</span>
+        <div class="detail-grid" id="pbsDetails" style="margin-top:14px;">
+          <div class="detail-item">
+            <div class="detail-label">Status</div>
+            <div class="detail-value" id="pbsStatus">Not started</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Application date</div>
+            <div class="detail-value" id="pbsAppDate">--</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Reference number</div>
+            <div class="detail-value" id="pbsRefNum">--</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">Prescriber number</div>
+            <div class="detail-value" id="pbsPrescriberNum">--</div>
+          </div>
+        </div>
+        <div class="upload-zone" id="pbsUploadZone" role="button" tabindex="0" aria-label="Upload PBS document">
+          <div class="upload-zone-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <div class="upload-zone-text">Upload PBS document</div>
+          <div class="upload-zone-hint">PDF, JPG or PNG up to 10 MB</div>
+        </div>
+        <input type="file" id="pbsFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" multiple />
+        <div class="upload-list" id="pbsUploadList"></div>
+      </div>
+    </div>
+
+    <!-- REQUIRED DOCUMENTS GUIDE -->
+    <div class="card">
+      <span class="card-label">Guide</span>
+      <h2 class="card-title">Required Documents Checklist</h2>
+      <p class="card-sub">Ensure you have the following documents ready before submitting your applications.</p>
+      <div class="checklist" id="pbsChecklist">
+        <div class="checklist-item" data-doc="ahpra-cert">
+          <span class="checklist-icon" id="checkAhpra"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+          AHPRA registration certificate
+        </div>
+        <div class="checklist-item" data-doc="passport">
+          <span class="checklist-icon" id="checkPassport"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+          Passport (certified copy)
+        </div>
+        <div class="checklist-item" data-doc="visa-grant">
+          <span class="checklist-icon" id="checkVisa"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+          Visa grant notification
+        </div>
+        <div class="checklist-item" data-doc="practice-letter">
+          <span class="checklist-icon" id="checkPractice"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+          Practice employment letter
+        </div>
+        <div class="checklist-item" data-doc="bank-details">
+          <span class="checklist-icon" id="checkBank"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+          Australian bank account details
+        </div>
+        <div class="checklist-item" data-doc="tfn">
+          <span class="checklist-icon" id="checkTfn"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+          Tax File Number (TFN)
+        </div>
+        <div class="checklist-item" data-doc="indemnity">
+          <span class="checklist-icon" id="checkIndemnity"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+          Medical indemnity insurance certificate
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var STATUS_MAP = {
+      not_started: { label: "Not Started", cls: "not-started" },
+      in_progress: { label: "In Progress", cls: "in-progress" },
+      submitted: { label: "Submitted", cls: "submitted" },
+      approved: { label: "Approved", cls: "approved" }
+    };
+
+    function escapeHtml(str) {
+      var div = document.createElement("div");
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+
+    function formatDate(isoStr) {
+      if (!isoStr) return "--";
+      try {
+        var d = new Date(isoStr);
+        return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+      } catch (e) { return isoStr; }
+    }
+
+    function renderCardStatus(prefix, data) {
+      var status = data.status || "not_started";
+      var mapped = STATUS_MAP[status] || STATUS_MAP.not_started;
+
+      var badgeEl = document.getElementById(prefix + "StatusBadge");
+      if (badgeEl) {
+        badgeEl.textContent = mapped.label;
+        badgeEl.className = "status-badge " + mapped.cls;
+      }
+
+      var statusEl = document.getElementById(prefix + "Status");
+      if (statusEl) statusEl.textContent = mapped.label;
+
+      var appDateEl = document.getElementById(prefix + "AppDate");
+      if (appDateEl) appDateEl.textContent = formatDate(data.applicationDate);
+
+      var refNumEl = document.getElementById(prefix + "RefNum");
+      if (refNumEl) refNumEl.textContent = data.referenceNumber || "--";
+
+      var numEl = document.getElementById(prefix + "ProviderNum") || document.getElementById(prefix + "PrescriberNum");
+      if (numEl) numEl.textContent = data.providerNumber || data.prescriberNumber || "--";
+
+      renderDocuments(prefix, data.documents || []);
+    }
+
+    function renderDocuments(prefix, documents) {
+      var list = document.getElementById(prefix + "UploadList");
+      if (!list || !documents.length) return;
+      list.innerHTML = documents.map(function (doc) {
+        return [
+          '<div class="upload-item">',
+          '<div class="upload-item-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>',
+          '<span class="upload-item-name">' + escapeHtml(doc.name || "Document") + '</span>',
+          '<span class="upload-item-meta">' + escapeHtml(doc.status || "Uploaded") + '</span>',
+          '</div>'
+        ].join("");
+      }).join("");
+    }
+
+    function renderChecklist(completedDocs) {
+      if (!completedDocs || !completedDocs.length) return;
+      var items = document.querySelectorAll(".checklist-item");
+      items.forEach(function (item) {
+        var docKey = item.getAttribute("data-doc");
+        if (completedDocs.indexOf(docKey) !== -1) {
+          var icon = item.querySelector(".checklist-icon");
+          if (icon) icon.classList.add("done");
+        }
+      });
+    }
+
+    function setupUpload(prefix) {
+      var zone = document.getElementById(prefix + "UploadZone");
+      var input = document.getElementById(prefix + "FileInput");
+      if (!zone || !input) return;
+      zone.addEventListener("click", function () { input.click(); });
+      zone.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); }
+      });
+      input.addEventListener("change", function () {
+        var files = Array.prototype.slice.call(input.files);
+        if (!files.length) return;
+        var list = document.getElementById(prefix + "UploadList");
+        files.forEach(function (file) {
+          var item = document.createElement("div");
+          item.className = "upload-item";
+          item.innerHTML = [
+            '<div class="upload-item-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>',
+            '<span class="upload-item-name">' + escapeHtml(file.name) + '</span>',
+            '<span class="upload-item-meta">Uploading...</span>'
+          ].join("");
+          list.appendChild(item);
+        });
+        input.value = "";
+      });
+    }
+
+    function loadPbsStatus() {
+      fetch("/api/pbs/status", { credentials: "same-origin" })
+        .then(function (res) {
+          if (!res.ok) throw new Error("Failed to load PBS status");
+          return res.json();
+        })
+        .then(function (data) {
+          if (data.medicare) renderCardStatus("medicare", data.medicare);
+          if (data.pbs) renderCardStatus("pbs", data.pbs);
+          if (data.completedDocs) renderChecklist(data.completedDocs);
+        })
+        .catch(function () {
+          // Graceful fallback - show default not-started state
+        });
+    }
+
+    setupUpload("medicare");
+    setupUpload("pbs");
+    loadPbsStatus();
+  })();
+  </script>
+</body>
+</html>

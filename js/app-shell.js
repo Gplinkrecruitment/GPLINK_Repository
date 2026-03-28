@@ -14,10 +14,14 @@
   var EPIC_PROGRESS_KEY = "gp_epic_progress";
   var AMC_PROGRESS_KEY = "gp_amc_progress";
   var AHPRA_PROGRESS_KEY = "gp_ahpra_progress";
+  var CAREER_STATE_KEY = "gp_career_state";
   var REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
   var SESSION_PROFILE_CACHE_KEY = "gp_session_profile_cache";
   var SESSION_OWNER_KEY = "gp_state_owner";
   var REGISTRATION_INTRO_ALWAYS_EMAILS = {
+    "hello@mygplink.com.au": true
+  };
+  var BYPASS_LOCK_EMAILS = {
     "hello@mygplink.com.au": true
   };
   var PAGE_PATHS = {
@@ -27,6 +31,9 @@
     "/pages/ahpra.html": true,
     "/pages/my-documents.html": true,
     "/pages/career.html": true,
+    "/pages/visa.html": true,
+    "/pages/pbs.html": true,
+    "/pages/commencement.html": true,
     "/pages/messages.html": true,
     "/pages/account.html": true,
     "/pages/registration-intro.html": true
@@ -37,6 +44,9 @@
     "/pages/myinthealth.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/amc.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/ahpra.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
+    "/pages/visa.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
+    "/pages/pbs.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
+    "/pages/commencement.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
     "/pages/my-documents.html": { desktop: "documents", mobile: "/pages/myinthealth.html" },
     "/pages/career.html": { desktop: "career", mobile: "/pages/career.html" },
     "/pages/messages.html": { desktop: "messages", mobile: "/pages/index.html" },
@@ -338,6 +348,20 @@
     };
   }
 
+  function hasCareerSecured() {
+    var careerState = parseStorage(CAREER_STATE_KEY);
+    if (!careerState) return false;
+    var applications = careerState && Array.isArray(careerState.applications) ? careerState.applications : [];
+    for (var i = 0; i < applications.length; i++) {
+      var app = applications[i];
+      if (!app || typeof app !== "object") continue;
+      if (app.isPlacementSecured === true) return true;
+      var status = String(app.rawStatus || app.status || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      if (status === "secured" || status === "placement_secured" || status === "practice_secured") return true;
+    }
+    return false;
+  }
+
   function getProgressSnapshot() {
     var epic = parseStorage(EPIC_PROGRESS_KEY);
     var amc = parseStorage(AMC_PROGRESS_KEY);
@@ -352,18 +376,21 @@
     var amcCurrentLabel = AMC_STAGE_LABELS[amcStage] || AMC_STAGE_LABELS.create_portfolio;
 
     var ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+    var careerSecured = hasCareerSecured();
 
     return {
       epicDone: epicDone,
       epicCurrentLabel: epicCurrentLabel,
       amcDone: amcDone,
       amcCurrentLabel: amcCurrentLabel,
-      ahpraDone: ahpraDone
+      ahpraDone: ahpraDone,
+      careerSecured: careerSecured
     };
   }
 
   function getRegistrationRows() {
     var snap = getProgressSnapshot();
+    var bypassLocks = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
     return [
       buildRegistrationRow("myinthealth", {
@@ -379,18 +406,54 @@
         sub: "Create AMC candidate portfolio and upload credentials.",
         mobileDetail: "AMC portfolio is created and connected to your verification.",
         mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
-        locked: !snap.epicDone,
+        locked: !bypassLocks && !snap.epicDone,
         done: snap.amcDone,
         href: "/pages/amc.html"
       }),
+      buildRegistrationRow("career", {
+        title: "3. Career & Placement",
+        sub: "Secure a practice position through GP Link.",
+        mobileDetail: "Browse roles, apply and secure a placement at a practice.",
+        mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : snap.careerSecured ? "Placement secured" : "Searching",
+        locked: !bypassLocks && !snap.amcDone,
+        done: snap.careerSecured,
+        href: "/pages/career.html"
+      }),
       buildRegistrationRow("ahpra", {
-        title: "3. AHPRA Registration",
+        title: "4. AHPRA Registration",
         sub: "Prepare and submit your specialist registration application.",
         mobileDetail: "Specialist registration application is prepared and submitted correctly.",
-        mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : snap.ahpraDone ? "Completed" : "In progress",
-        locked: !snap.amcDone,
+        mobileStatus: !snap.careerSecured ? "Secure a position to unlock" : snap.ahpraDone ? "Completed" : "In progress",
+        locked: !bypassLocks && !snap.careerSecured,
         done: snap.ahpraDone,
         href: "/pages/ahpra.html"
+      }),
+      buildRegistrationRow("visa", {
+        title: "5. Visa Application",
+        sub: "Track your visa nomination, lodgement and processing.",
+        mobileDetail: "Visa status from nomination through to grant.",
+        mobileStatus: !snap.ahpraDone ? "Unlocked after Step 4 is complete" : "In progress",
+        locked: !bypassLocks && !snap.ahpraDone,
+        done: false,
+        href: "/pages/visa.html"
+      }),
+      buildRegistrationRow("pbs", {
+        title: "6. PBS & Medicare",
+        sub: "Apply for Medicare provider number and PBS prescriber number.",
+        mobileDetail: "Medicare and PBS registration for prescribing authority.",
+        mobileStatus: !snap.ahpraDone ? "Unlocked after Step 4 is complete" : "In progress",
+        locked: !bypassLocks && !snap.ahpraDone,
+        done: false,
+        href: "/pages/pbs.html"
+      }),
+      buildRegistrationRow("commencement", {
+        title: "7. Commencement",
+        sub: "Pre-arrival checklist and first-day preparation.",
+        mobileDetail: "Everything to prepare before your start date.",
+        mobileStatus: !snap.ahpraDone ? "Unlocked after Step 4 is complete" : "In progress",
+        locked: !bypassLocks && !snap.ahpraDone,
+        done: false,
+        href: "/pages/commencement.html"
       })
     ];
   }
@@ -422,11 +485,13 @@
 
     rows.forEach(function (row) {
       var rowEl = document.createElement("div");
-      rowEl.className = ("reg-row " + (row.done ? "done" : "")).trim();
+      rowEl.className = ("reg-row " + (row.done ? "done" : "") + " " + (row.locked ? "locked-row" : "")).trim();
+      var lockedHint = row.locked && row.mobileStatus ? "<div class=\"reg-locked-hint\">" + row.mobileStatus + "</div>" : "";
       rowEl.innerHTML = [
         "<div>",
         "<div class=\"reg-name\">" + row.title + "</div>",
         "<div class=\"reg-sub\">" + row.sub + "</div>",
+        lockedHint,
         "</div>"
       ].join("");
       rowEl.appendChild(buildRegistrationAction(row));

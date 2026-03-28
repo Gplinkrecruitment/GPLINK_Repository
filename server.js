@@ -75,6 +75,15 @@ let _careerHeroCityLibraryCache = { ts: 0, value: null };
 const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limiting apply endpoint
 const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
+const GOOGLE_PLACES_API_KEY = String(process.env.GOOGLE_PLACES_API_KEY || '').trim();
+const _schoolsSearchCache = new Map(); // cacheKey -> { ts, value }
+const SCHOOLS_SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const API_RATE_WINDOW_MS = 60 * 1000; // 1 minute window for general API rate limiting
+const API_RATE_MAX_REQUESTS = 30; // max 30 requests per minute per user
+const _apiRateLimitStore = new Map(); // userId -> [timestamps]
+const VISA_STAGES = ['nomination', 'lodgement', 'processing', 'granted', 'refused'];
+const PBS_APPLICATION_TYPES = ['medicare_provider', 'pbs_prescriber'];
+const PBS_STATUSES = ['not_started', 'in_progress', 'submitted', 'approved', 'rejected'];
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const CAREER_AI_PROFILE_VERSION = 2;
 const CAREER_HERO_IMAGE_VERSION = 3;
@@ -90,8 +99,8 @@ const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini'
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
 const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6').trim() || 'claude-sonnet-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
-const DEFAULT_GOOGLE_MAPS_BROWSER_API_KEY = 'AIzaSyBZRYsKgvz0k7p6xPMAUQDcWgVU2rzlIDo';
-const DEFAULT_GOOGLE_MAPS_MAP_ID = '9c8f47c5b858f789f88a4e4b';
+const DEFAULT_GOOGLE_MAPS_BROWSER_API_KEY = '';
+const DEFAULT_GOOGLE_MAPS_MAP_ID = '';
 const GOOGLE_MAPS_BROWSER_API_KEY = String(
   process.env.GOOGLE_MAPS_BROWSER_API_KEY
   || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
@@ -704,9 +713,9 @@ function recordAnthropicSpend(inputTokens, outputTokens, cacheReadTokens = 0, ca
 // Per-user rate limiting for AI verification: max 10 calls per user per day
 const aiVerifyUserCalls = new Map(); // email -> { date, count }
 const AI_VERIFY_MAX_PER_USER = 10;
-const AI_VERIFY_UNLIMITED_EMAILS = new Set([
-  'smithmiller1234@gmail.com',
-]);
+const AI_VERIFY_UNLIMITED_EMAILS = new Set(
+  String(process.env.AI_VERIFY_UNLIMITED_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+);
 
 function checkUserAiLimit(email) {
   if (AI_VERIFY_UNLIMITED_EMAILS.has((email || '').toLowerCase())) return true;
@@ -950,6 +959,7 @@ const GOOGLE_MAPS_CSP_IMAGE_SOURCES = ' https://*.googleapis.com https://*.gstat
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
+  'X-XSS-Protection': '1; mode=block',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(self), microphone=(), geolocation=()',
   'Content-Security-Policy': [
@@ -989,7 +999,13 @@ function getCookies(req) {
     if (idx === -1) return acc;
     const key = pair.slice(0, idx).trim();
     const val = pair.slice(idx + 1).trim();
-    if (key) acc[key] = decodeURIComponent(val);
+    if (key) {
+      try {
+        acc[key] = decodeURIComponent(val);
+      } catch (err) {
+        // Skip malformed cookie values
+      }
+    }
     return acc;
   }, {});
 }
@@ -1690,12 +1706,22 @@ function getStaticCacheControl(req, pathname, ext) {
 }
 
 function sanitizeFilePath(pathname) {
-  const decoded = decodeURIComponent(pathname.split('?')[0]);
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname.split('?')[0]);
+  } catch (err) {
+    return null; // Malformed URI encoding
+  }
+  // Reject null bytes (path traversal vector)
+  if (decoded.indexOf('\0') !== -1) return null;
   const target = decoded === '/' ? '/pages/index.html' : decoded;
   const normalized = path.posix.normalize(String(target).replace(/\\/g, '/'));
   const relative = normalized.replace(/^\/+/, '');
   if (!relative || relative.startsWith('..')) return null;
-  return path.resolve(process.cwd(), relative);
+  const resolved = path.resolve(process.cwd(), relative);
+  // Ensure resolved path is within cwd (defense-in-depth)
+  if (!resolved.startsWith(process.cwd() + path.sep) && resolved !== process.cwd()) return null;
+  return resolved;
 }
 
 function serveStatic(req, res, pathname) {
@@ -1705,7 +1731,7 @@ function serveStatic(req, res, pathname) {
     res.end('Forbidden');
     return;
   }
-  if (!filePath.startsWith(process.cwd())) {
+  if (!filePath.startsWith(process.cwd() + path.sep) && filePath !== process.cwd()) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
@@ -7557,6 +7583,20 @@ async function fetchCatchmentSchoolsForListing(listing, phase) {
   return querySchoolFinderSql(sql);
 }
 
+function inferSchoolType(name) {
+  const lower = String(name || '').toLowerCase();
+  if (/secondary|high school|college|grammar/.test(lower)) return 'secondary';
+  if (/primary|infants|elementary/.test(lower)) return 'primary';
+  return 'unknown';
+}
+
+function inferSchoolSector(name) {
+  const lower = String(name || '').toLowerCase();
+  if (/catholic|christian|anglican|lutheran|adventist|islamic|jewish|baptist|methodist/.test(lower)) return 'private';
+  if (/public|state|government/.test(lower)) return 'public';
+  return 'unknown';
+}
+
 function buildTweedSchoolHints() {
   return {
     primary: [
@@ -8700,7 +8740,7 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const code = String(Math.floor(10000000 + Math.random() * 90000000));
+    const code = String(crypto.randomInt(10000000, 100000000));
     dbState.otpChallenges[otpKey] = {
       codeHash: hashOtp(otpKey, code),
       expiresAt: now() + OTP_TTL_MS,
@@ -10199,8 +10239,9 @@ async function handleApi(req, res, pathname) {
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
 
     // Save complete onboarding data and mark as done
+    let userId = null;
     if (isSupabaseDbConfigured()) {
-      const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+      userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
       if (userId) {
         const remote = await getSupabaseUserStateByEmail(email);
         const current = remote && remote.state && typeof remote.state === 'object' ? remote.state : {};
@@ -10776,19 +10817,28 @@ Classify this document.`;
 
   // Admin: set account status (for testing restricted mode)
   if (pathname === '/api/account/set-status' && (req.method === 'POST' || req.method === 'GET')) {
-    const session = requireSession(req, res);
-    if (!session) return;
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
 
     let targetEmail, status;
     if (req.method === 'GET') {
-      targetEmail = url.searchParams.get('email');
-      status = url.searchParams.get('status');
+      const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      targetEmail = requestUrl.searchParams.get('email');
+      status = requestUrl.searchParams.get('status');
     } else {
-      const body = await readBody(req);
+      let body;
+      try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request body.' }); return; }
       targetEmail = body.email;
       status = body.status;
     }
-    if (!targetEmail || !status) {
+    // Validate status value to prevent arbitrary state injection
+    const ALLOWED_STATUSES = ['active', 'under_review', 'suspended'];
+    if (!ALLOWED_STATUSES.includes(status)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid status. Allowed: ' + ALLOWED_STATUSES.join(', ') });
+      return;
+    }
+    targetEmail = String(targetEmail || '').trim().toLowerCase();
+    if (!targetEmail || !isValidEmail(targetEmail) || !status) {
       sendJson(res, 400, { ok: false, message: 'email and status required' });
       return;
     }
@@ -11046,7 +11096,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (isSupabaseDbConfigured()) {
       try {
         const stateRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${encodeURIComponent(session.user_id || '')}`, {
-          headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }
+          headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
         });
         const rows = await stateRes.json();
         const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
@@ -11304,7 +11354,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (isSupabaseDbConfigured()) {
       try {
         const allStatesRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?select=user_id,state,updated_at`, {
-          headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` }
+          headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
         });
         const allStates = await allStatesRes.json().catch(() => []);
         if (Array.isArray(allStates)) {
@@ -11466,8 +11516,8 @@ Return ONLY valid JSON with no markdown formatting:
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
-            apikey: SUPABASE_SERVICE_KEY,
-            Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+            apikey: SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
             Prefer: 'return=minimal'
           },
           body: JSON.stringify({ first_name: firstName, last_name: lastName })
@@ -11626,6 +11676,7 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   if (pathname === '/api/auth/reset-password' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'reset-password'))) return;
     if (isSupabaseConfigured()) {
       sendJson(res, 410, {
         ok: false,
@@ -12325,6 +12376,23 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const incoming = sanitizeUserStateInput(body);
+
+    // ── AHPRA locking: block AHPRA progress unless career is secured ──
+    const BYPASS_LOCK_EMAILS = new Set(['hello@mygplink.com.au']);
+    if (incoming.gp_ahpra_progress && typeof incoming.gp_ahpra_progress === 'object' && !BYPASS_LOCK_EMAILS.has(email)) {
+      // Need to check current state for career_secured
+      const preCheckRemote = isSupabaseDbConfigured() ? await getSupabaseUserStateByEmail(email) : null;
+      const preCheckState = preCheckRemote && preCheckRemote.state && typeof preCheckRemote.state === 'object'
+        ? preCheckRemote.state
+        : (dbState.userState[email] && typeof dbState.userState[email] === 'object' ? dbState.userState[email] : {});
+      const careerState = preCheckState.gp_career_state && typeof preCheckState.gp_career_state === 'object' ? preCheckState.gp_career_state : {};
+      const careerSecured = !!(careerState.career_secured || careerState.secured);
+      if (!careerSecured) {
+        sendJson(res, 403, { ok: false, message: 'Cannot start AHPRA registration until career is secured.' });
+        return;
+      }
+    }
+
     const currentLocal = dbState.userState[email] && typeof dbState.userState[email] === 'object'
       ? dbState.userState[email]
       : {};
@@ -12505,6 +12573,870 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Rate-limit helper for new endpoints ──
+  function enforceApiRateLimit(req, res, session) {
+    const userId = getSessionSupabaseUserId(session) || getSessionEmail(session) || getClientIp(req);
+    const ts = Date.now();
+    const timestamps = (_apiRateLimitStore.get(userId) || []).filter((t) => ts - t < API_RATE_WINDOW_MS);
+    if (timestamps.length >= API_RATE_MAX_REQUESTS) {
+      sendJson(res, 429, { ok: false, message: 'Too many requests. Please try again later.' });
+      return false;
+    }
+    timestamps.push(ts);
+    _apiRateLimitStore.set(userId, timestamps);
+    return true;
+  }
+
+  // ── Registration prerequisite check ──
+  if (pathname === '/api/registration/can-proceed' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Registration API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    // Fetch user state
+    const stateResult = await getSupabaseUserStateByEmail(email);
+    const userState = stateResult && stateResult.state && typeof stateResult.state === 'object' ? stateResult.state : {};
+
+    // Determine career_secured from gp_career_state
+    const careerState = userState.gp_career_state && typeof userState.gp_career_state === 'object' ? userState.gp_career_state : {};
+    const careerSecured = !!(careerState.career_secured || careerState.secured);
+
+    // Check AHPRA progress
+    const ahpraProgress = userState.gp_ahpra_progress && typeof userState.gp_ahpra_progress === 'object' ? userState.gp_ahpra_progress : {};
+    const ahpraCompleted = !!(ahpraProgress.completed || ahpraProgress.status === 'completed' || ahpraProgress.status === 'approved');
+
+    // Check visa status from DB
+    let visaGranted = false;
+    if (isSupabaseDbConfigured()) {
+      const visaResult = await supabaseDbRequest(
+        'visa_applications',
+        `select=stage&user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc&limit=1`
+      );
+      if (visaResult.ok && Array.isArray(visaResult.data) && visaResult.data.length > 0) {
+        visaGranted = visaResult.data[0].stage === 'granted';
+      }
+    }
+
+    // Check PBS status from DB
+    let pbsApproved = false;
+    if (isSupabaseDbConfigured()) {
+      const pbsResult = await supabaseDbRequest(
+        'pbs_applications',
+        `select=status&user_id=eq.${encodeURIComponent(userId)}&status=eq.approved&limit=1`
+      );
+      if (pbsResult.ok && Array.isArray(pbsResult.data) && pbsResult.data.length > 0) {
+        pbsApproved = true;
+      }
+    }
+
+    const BYPASS_LOCK_EMAILS_REG = new Set(['hello@mygplink.com.au']);
+    const bypassAll = BYPASS_LOCK_EMAILS_REG.has(email);
+    const steps = {
+      career: { accessible: true, completed: careerSecured },
+      ahpra: { accessible: bypassAll || careerSecured, completed: ahpraCompleted, locked_reason: (bypassAll || careerSecured) ? null : 'Career must be secured first.' },
+      visa: { accessible: bypassAll || ahpraCompleted, completed: visaGranted, locked_reason: (bypassAll || ahpraCompleted) ? null : 'AHPRA registration must be completed first.' },
+      pbs: { accessible: bypassAll || visaGranted, completed: pbsApproved, locked_reason: (bypassAll || visaGranted) ? null : 'Visa must be granted first.' },
+      commencement: { accessible: bypassAll || pbsApproved, completed: false, locked_reason: (bypassAll || pbsApproved) ? null : 'PBS/Medicare must be approved first.' }
+    };
+
+    sendJson(res, 200, { ok: true, steps });
+    return;
+  }
+
+  // ── Visa Status ──
+  if (pathname === '/api/visa/status' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Visa API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const result = await supabaseDbRequest(
+      'visa_applications',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc&limit=1`
+    );
+    if (!result.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to fetch visa status.' });
+      return;
+    }
+
+    const application = Array.isArray(result.data) && result.data.length > 0 ? result.data[0] : null;
+    sendJson(res, 200, { ok: true, application });
+    return;
+  }
+
+  // ── Visa Update (admin-only) ──
+  if (pathname === '/api/visa/update' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Visa API requires Supabase database configuration.' });
+      return;
+    }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const applicationId = String(body && body.applicationId || '').trim();
+    const targetUserId = String(body && body.userId || '').trim();
+    if (!applicationId && !targetUserId) {
+      sendJson(res, 400, { ok: false, message: 'Missing applicationId or userId.' });
+      return;
+    }
+
+    const stage = body && typeof body.stage === 'string' && VISA_STAGES.includes(body.stage) ? body.stage : null;
+    const sponsorStatus = body && typeof body.sponsorStatus === 'string' ? body.sponsorStatus.trim().slice(0, 200) : undefined;
+    const noteText = body && typeof body.note === 'string' ? body.note.trim().slice(0, 2000) : '';
+
+    const updatePayload = { updated_at: new Date().toISOString() };
+    if (stage) {
+      updatePayload.stage = stage;
+      if (stage === 'nomination' && body.nominationDate) updatePayload.nomination_date = body.nominationDate;
+      if (stage === 'lodgement' && body.lodgementDate) updatePayload.lodgement_date = body.lodgementDate;
+      if (stage === 'granted' && body.grantDate) updatePayload.grant_date = body.grantDate;
+    }
+    if (sponsorStatus !== undefined) updatePayload.sponsor_status = sponsorStatus;
+
+    // If we have an applicationId, update directly
+    let filterQuery;
+    if (applicationId) {
+      filterQuery = `id=eq.${encodeURIComponent(applicationId)}`;
+    } else {
+      // Create or update by userId
+      const existingResult = await supabaseDbRequest(
+        'visa_applications',
+        `select=id,notes&user_id=eq.${encodeURIComponent(targetUserId)}&order=created_at.desc&limit=1`
+      );
+      if (existingResult.ok && Array.isArray(existingResult.data) && existingResult.data.length > 0) {
+        filterQuery = `id=eq.${encodeURIComponent(existingResult.data[0].id)}`;
+        // Append note to existing notes
+        if (noteText) {
+          const existingNotes = Array.isArray(existingResult.data[0].notes) ? existingResult.data[0].notes : [];
+          existingNotes.push({ text: noteText, author: adminCtx.email, ts: new Date().toISOString() });
+          updatePayload.notes = existingNotes;
+        }
+      } else {
+        // Create new application
+        const createPayload = {
+          user_id: targetUserId,
+          stage: stage || 'nomination',
+          visa_subclass: body && typeof body.visaSubclass === 'string' ? body.visaSubclass.trim().slice(0, 100) : null,
+          job_id: body && typeof body.jobId === 'string' ? body.jobId.trim() : null,
+          sponsor_status: sponsorStatus || null,
+          notes: noteText ? [{ text: noteText, author: adminCtx.email, ts: new Date().toISOString() }] : [],
+          nomination_date: body && body.nominationDate || null,
+          lodgement_date: body && body.lodgementDate || null,
+          grant_date: body && body.grantDate || null
+        };
+        const createResult = await supabaseDbRequest('visa_applications', '', {
+          method: 'POST',
+          headers: { Prefer: 'return=representation' },
+          body: [createPayload]
+        });
+        if (!createResult.ok) {
+          sendJson(res, 502, { ok: false, message: 'Failed to create visa application.' });
+          return;
+        }
+        const created = Array.isArray(createResult.data) && createResult.data.length > 0 ? createResult.data[0] : null;
+        sendJson(res, 201, { ok: true, application: created });
+        return;
+      }
+    }
+
+    if (noteText && !updatePayload.notes) {
+      // Fetch existing notes to append
+      const fetchResult = await supabaseDbRequest(
+        'visa_applications',
+        `select=notes&${filterQuery}`
+      );
+      if (fetchResult.ok && Array.isArray(fetchResult.data) && fetchResult.data.length > 0) {
+        const existingNotes = Array.isArray(fetchResult.data[0].notes) ? fetchResult.data[0].notes : [];
+        existingNotes.push({ text: noteText, author: adminCtx.email, ts: new Date().toISOString() });
+        updatePayload.notes = existingNotes;
+      }
+    }
+
+    const updateResult = await supabaseDbRequest('visa_applications', filterQuery, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: updatePayload
+    });
+    if (!updateResult.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to update visa application.' });
+      return;
+    }
+
+    const updated = Array.isArray(updateResult.data) && updateResult.data.length > 0 ? updateResult.data[0] : null;
+    sendJson(res, 200, { ok: true, application: updated });
+    return;
+  }
+
+  // ── Visa Document Upload ──
+  if (pathname === '/api/visa/documents' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Visa API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const visaApplicationId = String(body && body.visaApplicationId || '').trim();
+    const documentType = String(body && body.documentType || '').trim().slice(0, 200);
+    const fileDataUrl = typeof body.fileDataUrl === 'string' ? body.fileDataUrl.trim() : '';
+    const fileName = sanitizeUserString(body && body.fileName, 240);
+    const mimeType = sanitizeUserString(body && body.mimeType, 160);
+
+    if (!visaApplicationId || !documentType || !fileDataUrl || !fileName) {
+      sendJson(res, 400, { ok: false, message: 'Missing required fields: visaApplicationId, documentType, fileDataUrl, fileName.' });
+      return;
+    }
+
+    // Verify the visa application belongs to this user
+    const ownerCheck = await supabaseDbRequest(
+      'visa_applications',
+      `select=id&id=eq.${encodeURIComponent(visaApplicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`
+    );
+    if (!ownerCheck.ok || !Array.isArray(ownerCheck.data) || ownerCheck.data.length === 0) {
+      sendJson(res, 403, { ok: false, message: 'Visa application not found or not owned by user.' });
+      return;
+    }
+
+    // Upload to storage
+    const storagePath = ['users', sanitizeStoragePathSegment(userId, 80), 'visa-documents', sanitizeStoragePathSegment(visaApplicationId, 80), sanitizeStoragePathSegment(documentType, 120), 'current'].join('/');
+    const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, fileDataUrl, mimeType);
+    if (!uploaded) {
+      sendJson(res, 502, { ok: false, message: 'Failed to upload visa document.' });
+      return;
+    }
+
+    // Insert document record
+    const docResult = await supabaseDbRequest('visa_documents', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [{
+        visa_application_id: visaApplicationId,
+        document_type: documentType,
+        file_path: storagePath,
+        verified: false
+      }]
+    });
+    if (!docResult.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save visa document record.' });
+      return;
+    }
+
+    const doc = Array.isArray(docResult.data) && docResult.data.length > 0 ? docResult.data[0] : null;
+    sendJson(res, 201, { ok: true, document: doc });
+    return;
+  }
+
+  // ── Visa Timeline ──
+  if (pathname === '/api/visa/timeline' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Visa API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    // Fetch all visa applications for the user
+    const appsResult = await supabaseDbRequest(
+      'visa_applications',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&order=created_at.asc`
+    );
+    if (!appsResult.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to fetch visa timeline.' });
+      return;
+    }
+
+    const applications = Array.isArray(appsResult.data) ? appsResult.data : [];
+
+    // Build timeline events from notes and stage dates
+    const timeline = [];
+    for (const app of applications) {
+      if (app.created_at) {
+        timeline.push({ type: 'created', date: app.created_at, stage: app.stage, visaSubclass: app.visa_subclass });
+      }
+      if (app.nomination_date) {
+        timeline.push({ type: 'nomination', date: app.nomination_date, applicationId: app.id });
+      }
+      if (app.lodgement_date) {
+        timeline.push({ type: 'lodgement', date: app.lodgement_date, applicationId: app.id });
+      }
+      if (app.grant_date) {
+        timeline.push({ type: 'granted', date: app.grant_date, applicationId: app.id });
+      }
+      if (Array.isArray(app.notes)) {
+        for (const note of app.notes) {
+          if (note && note.ts) {
+            timeline.push({ type: 'note', date: note.ts, text: note.text, author: note.author, applicationId: app.id });
+          }
+        }
+      }
+    }
+
+    // Sort timeline chronologically
+    timeline.sort((a, b) => {
+      const da = new Date(a.date || 0).getTime();
+      const db = new Date(b.date || 0).getTime();
+      return da - db;
+    });
+
+    sendJson(res, 200, { ok: true, timeline });
+    return;
+  }
+
+  // ── PBS Status ──
+  if (pathname === '/api/pbs/status' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'PBS API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const result = await supabaseDbRequest(
+      'pbs_applications',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&order=application_type.asc`
+    );
+    if (!result.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to fetch PBS status.' });
+      return;
+    }
+
+    const rows = Array.isArray(result.data) ? result.data : [];
+    const medicareProvider = rows.find((r) => r.application_type === 'medicare_provider') || null;
+    const pbsPrescriber = rows.find((r) => r.application_type === 'pbs_prescriber') || null;
+
+    sendJson(res, 200, { ok: true, medicareProvider, pbsPrescriber });
+    return;
+  }
+
+  // ── PBS Update ──
+  if (pathname === '/api/pbs/update' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'PBS API requires Supabase database configuration.' });
+      return;
+    }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const targetUserId = String(body && body.userId || '').trim();
+    const applicationType = body && typeof body.applicationType === 'string' && PBS_APPLICATION_TYPES.includes(body.applicationType) ? body.applicationType : null;
+    if (!targetUserId || !applicationType) {
+      sendJson(res, 400, { ok: false, message: 'Missing userId or valid applicationType.' });
+      return;
+    }
+
+    const status = body && typeof body.status === 'string' && PBS_STATUSES.includes(body.status) ? body.status : null;
+    const referenceNumber = body && typeof body.referenceNumber === 'string' ? body.referenceNumber.trim().slice(0, 100) : undefined;
+    const noteText = body && typeof body.note === 'string' ? body.note.trim().slice(0, 2000) : '';
+
+    // Check if application exists
+    const existingResult = await supabaseDbRequest(
+      'pbs_applications',
+      `select=*&user_id=eq.${encodeURIComponent(targetUserId)}&application_type=eq.${encodeURIComponent(applicationType)}&limit=1`
+    );
+
+    if (existingResult.ok && Array.isArray(existingResult.data) && existingResult.data.length > 0) {
+      // Update existing
+      const existing = existingResult.data[0];
+      const updatePayload = { updated_at: new Date().toISOString() };
+      if (status) {
+        updatePayload.status = status;
+        if (status === 'submitted' && !existing.application_date) updatePayload.application_date = new Date().toISOString();
+        if (status === 'approved') updatePayload.approval_date = new Date().toISOString();
+      }
+      if (referenceNumber !== undefined) updatePayload.reference_number = referenceNumber;
+      if (noteText) {
+        const existingNotes = Array.isArray(existing.notes) ? existing.notes : [];
+        existingNotes.push({ text: noteText, author: adminCtx.email, ts: new Date().toISOString() });
+        updatePayload.notes = existingNotes;
+      }
+
+      const updateResult = await supabaseDbRequest(
+        'pbs_applications',
+        `id=eq.${encodeURIComponent(existing.id)}`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: updatePayload
+        }
+      );
+      if (!updateResult.ok) {
+        sendJson(res, 502, { ok: false, message: 'Failed to update PBS application.' });
+        return;
+      }
+      const updated = Array.isArray(updateResult.data) && updateResult.data.length > 0 ? updateResult.data[0] : null;
+      sendJson(res, 200, { ok: true, application: updated });
+    } else {
+      // Create new
+      const createPayload = {
+        user_id: targetUserId,
+        application_type: applicationType,
+        status: status || 'not_started',
+        reference_number: referenceNumber || null,
+        application_date: status === 'submitted' ? new Date().toISOString() : null,
+        approval_date: status === 'approved' ? new Date().toISOString() : null,
+        documents: [],
+        notes: noteText ? [{ text: noteText, author: adminCtx.email, ts: new Date().toISOString() }] : []
+      };
+      const createResult = await supabaseDbRequest('pbs_applications', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [createPayload]
+      });
+      if (!createResult.ok) {
+        sendJson(res, 502, { ok: false, message: 'Failed to create PBS application.' });
+        return;
+      }
+      const created = Array.isArray(createResult.data) && createResult.data.length > 0 ? createResult.data[0] : null;
+      sendJson(res, 201, { ok: true, application: created });
+    }
+    return;
+  }
+
+  // ── PBS Document Upload ──
+  if (pathname === '/api/pbs/documents' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'PBS API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const applicationType = body && typeof body.applicationType === 'string' && PBS_APPLICATION_TYPES.includes(body.applicationType) ? body.applicationType : null;
+    const documentType = String(body && body.documentType || '').trim().slice(0, 200);
+    const fileDataUrl = typeof body.fileDataUrl === 'string' ? body.fileDataUrl.trim() : '';
+    const fileName = sanitizeUserString(body && body.fileName, 240);
+    const mimeType = sanitizeUserString(body && body.mimeType, 160);
+
+    if (!applicationType || !documentType || !fileDataUrl || !fileName) {
+      sendJson(res, 400, { ok: false, message: 'Missing required fields: applicationType, documentType, fileDataUrl, fileName.' });
+      return;
+    }
+
+    // Get or create the PBS application
+    let pbsApp = null;
+    const existingResult = await supabaseDbRequest(
+      'pbs_applications',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&application_type=eq.${encodeURIComponent(applicationType)}&limit=1`
+    );
+    if (existingResult.ok && Array.isArray(existingResult.data) && existingResult.data.length > 0) {
+      pbsApp = existingResult.data[0];
+    } else {
+      // Create the application
+      const createResult = await supabaseDbRequest('pbs_applications', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [{ user_id: userId, application_type: applicationType, status: 'in_progress', documents: [], notes: [] }]
+      });
+      if (createResult.ok && Array.isArray(createResult.data) && createResult.data.length > 0) {
+        pbsApp = createResult.data[0];
+      }
+    }
+    if (!pbsApp) {
+      sendJson(res, 502, { ok: false, message: 'Failed to resolve PBS application.' });
+      return;
+    }
+
+    // Upload to storage
+    const storagePath = ['users', sanitizeStoragePathSegment(userId, 80), 'pbs-documents', sanitizeStoragePathSegment(applicationType, 40), sanitizeStoragePathSegment(documentType, 120), 'current'].join('/');
+    const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, fileDataUrl, mimeType);
+    if (!uploaded) {
+      sendJson(res, 502, { ok: false, message: 'Failed to upload PBS document.' });
+      return;
+    }
+
+    // Update documents array in the PBS application
+    const existingDocs = Array.isArray(pbsApp.documents) ? pbsApp.documents : [];
+    existingDocs.push({
+      documentType,
+      fileName,
+      mimeType,
+      storagePath,
+      uploadedAt: new Date().toISOString()
+    });
+
+    const updateResult = await supabaseDbRequest(
+      'pbs_applications',
+      `id=eq.${encodeURIComponent(pbsApp.id)}`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: { documents: existingDocs, updated_at: new Date().toISOString() }
+      }
+    );
+    if (!updateResult.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to update PBS application with document.' });
+      return;
+    }
+
+    const updated = Array.isArray(updateResult.data) && updateResult.data.length > 0 ? updateResult.data[0] : null;
+    sendJson(res, 201, { ok: true, application: updated });
+    return;
+  }
+
+  // ── Schools Search ──
+  if (pathname === '/api/schools/search' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const lat = parseFloat(url.searchParams.get('lat'));
+    const lng = parseFloat(url.searchParams.get('lng'));
+    const radius = Math.max(1, Math.min(50, Number(url.searchParams.get('radius')) || 10));
+    const type = url.searchParams.get('type') || 'all'; // primary, secondary, all
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      sendJson(res, 400, { ok: false, message: 'Valid lat and lng query parameters are required.' });
+      return;
+    }
+
+    // Check cache
+    const cacheKey = `schools:${lat.toFixed(4)}:${lng.toFixed(4)}:${radius}:${type}`;
+    const cached = _schoolsSearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < SCHOOLS_SEARCH_CACHE_TTL_MS) {
+      sendJson(res, 200, { ok: true, source: 'cache', schools: cached.value });
+      return;
+    }
+
+    let schools = [];
+
+    // Try Google Places API first
+    if (GOOGLE_PLACES_API_KEY) {
+      try {
+        const keyword = type === 'secondary' ? 'secondary school' : type === 'primary' ? 'primary school' : 'school';
+        const placesUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${radius * 1000}&type=school&keyword=${encodeURIComponent(keyword)}&key=${encodeURIComponent(GOOGLE_PLACES_API_KEY)}`;
+        const placesResponse = await fetch(placesUrl).catch(() => null);
+        if (placesResponse && placesResponse.ok) {
+          const placesData = await placesResponse.json().catch(() => null);
+          if (placesData && Array.isArray(placesData.results)) {
+            schools = placesData.results.slice(0, 20).map((place) => {
+              const placeLat = place.geometry && place.geometry.location && place.geometry.location.lat;
+              const placeLng = place.geometry && place.geometry.location && place.geometry.location.lng;
+              const distKm = Number.isFinite(placeLat) && Number.isFinite(placeLng)
+                ? haversineDistanceKm(lat, lng, placeLat, placeLng)
+                : null;
+              return {
+                name: place.name || '',
+                type: inferSchoolType(place.name || ''),
+                sector: inferSchoolSector(place.name || ''),
+                distance_km: distKm !== null ? Math.round(distKm * 100) / 100 : null,
+                rating: place.rating || null,
+                address: place.vicinity || '',
+                lat: placeLat || null,
+                lng: placeLng || null
+              };
+            });
+          }
+        }
+      } catch (err) {
+        // Fall through to NSW School Finder fallback
+      }
+    }
+
+    // Fallback to NSW School Finder (Carto SQL) if no Google results
+    if (!schools.length) {
+      try {
+        const phases = type === 'all' ? ['primary', 'secondary'] : [type];
+        for (const phase of phases) {
+          const rows = await fetchNearbyPublicSchools({ lat, lng }, phase, 10);
+          for (const row of rows) {
+            schools.push({
+              name: row.school_name || '',
+              type: row.type || phase,
+              sector: 'public',
+              distance_km: row.distance_km != null ? Math.round(Number(row.distance_km) * 100) / 100 : null,
+              rating: null,
+              address: '',
+              lat: row.latitude || null,
+              lng: row.longitude || null
+            });
+          }
+        }
+      } catch (err) {
+        // Ignore fallback errors
+      }
+    }
+
+    // Sort by distance
+    schools.sort((a, b) => (a.distance_km || 999) - (b.distance_km || 999));
+
+    // Cache results
+    _schoolsSearchCache.set(cacheKey, { ts: Date.now(), value: schools });
+
+    // Clean expired cache entries periodically
+    if (_schoolsSearchCache.size > 500) {
+      const cutoff = Date.now() - SCHOOLS_SEARCH_CACHE_TTL_MS;
+      for (const [k, v] of _schoolsSearchCache) {
+        if (v.ts < cutoff) _schoolsSearchCache.delete(k);
+      }
+    }
+
+    sendJson(res, 200, { ok: true, source: GOOGLE_PLACES_API_KEY && schools.length ? 'google_places' : 'school_finder', schools });
+    return;
+  }
+
+  // ── Commencement Status ──
+  if (pathname === '/api/commencement/status' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Commencement API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const result = await supabaseDbRequest(
+      'commencement_items',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&order=item_key.asc`
+    );
+    if (!result.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to fetch commencement status.' });
+      return;
+    }
+
+    const items = Array.isArray(result.data) ? result.data : [];
+    sendJson(res, 200, { ok: true, items });
+    return;
+  }
+
+  // ── Commencement Toggle ──
+  if (pathname === '/api/commencement/toggle' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Commencement API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const itemKey = sanitizeUserString(body && body.itemKey, 120);
+    if (!itemKey) {
+      sendJson(res, 400, { ok: false, message: 'Missing itemKey.' });
+      return;
+    }
+
+    // Check if item exists
+    const existingResult = await supabaseDbRequest(
+      'commencement_items',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&item_key=eq.${encodeURIComponent(itemKey)}&limit=1`
+    );
+
+    if (existingResult.ok && Array.isArray(existingResult.data) && existingResult.data.length > 0) {
+      const existing = existingResult.data[0];
+      const nextCompleted = !existing.completed;
+      const updateResult = await supabaseDbRequest(
+        'commencement_items',
+        `id=eq.${encodeURIComponent(existing.id)}`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: {
+            completed: nextCompleted,
+            completed_at: nextCompleted ? new Date().toISOString() : null,
+            updated_at: new Date().toISOString()
+          }
+        }
+      );
+      if (!updateResult.ok) {
+        sendJson(res, 502, { ok: false, message: 'Failed to toggle commencement item.' });
+        return;
+      }
+      const updated = Array.isArray(updateResult.data) && updateResult.data.length > 0 ? updateResult.data[0] : null;
+      sendJson(res, 200, { ok: true, item: updated });
+    } else {
+      // Create with completed = true (first toggle)
+      const createResult = await supabaseDbRequest('commencement_items', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [{
+          user_id: userId,
+          item_key: itemKey,
+          completed: true,
+          completed_at: new Date().toISOString()
+        }]
+      });
+      if (!createResult.ok) {
+        sendJson(res, 502, { ok: false, message: 'Failed to create commencement item.' });
+        return;
+      }
+      const created = Array.isArray(createResult.data) && createResult.data.length > 0 ? createResult.data[0] : null;
+      sendJson(res, 201, { ok: true, item: created });
+    }
+    return;
+  }
+
+  // ── Commencement Update (notes/details) ──
+  if (pathname === '/api/commencement/update' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Commencement API requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const itemKey = sanitizeUserString(body && body.itemKey, 120);
+    const notes = body && typeof body.notes === 'string' ? body.notes.trim().slice(0, 2000) : undefined;
+
+    if (!itemKey) {
+      sendJson(res, 400, { ok: false, message: 'Missing itemKey.' });
+      return;
+    }
+
+    // Check if item exists
+    const existingResult = await supabaseDbRequest(
+      'commencement_items',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&item_key=eq.${encodeURIComponent(itemKey)}&limit=1`
+    );
+
+    if (existingResult.ok && Array.isArray(existingResult.data) && existingResult.data.length > 0) {
+      const existing = existingResult.data[0];
+      const updatePayload = { updated_at: new Date().toISOString() };
+      if (notes !== undefined) updatePayload.notes = notes;
+      if (body && typeof body.completed === 'boolean') {
+        updatePayload.completed = body.completed;
+        updatePayload.completed_at = body.completed ? new Date().toISOString() : null;
+      }
+
+      const updateResult = await supabaseDbRequest(
+        'commencement_items',
+        `id=eq.${encodeURIComponent(existing.id)}`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: updatePayload
+        }
+      );
+      if (!updateResult.ok) {
+        sendJson(res, 502, { ok: false, message: 'Failed to update commencement item.' });
+        return;
+      }
+      const updated = Array.isArray(updateResult.data) && updateResult.data.length > 0 ? updateResult.data[0] : null;
+      sendJson(res, 200, { ok: true, item: updated });
+    } else {
+      // Create new item
+      const createResult = await supabaseDbRequest('commencement_items', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: [{
+          user_id: userId,
+          item_key: itemKey,
+          completed: body && body.completed === true,
+          completed_at: body && body.completed === true ? new Date().toISOString() : null,
+          notes: notes || null
+        }]
+      });
+      if (!createResult.ok) {
+        sendJson(res, 502, { ok: false, message: 'Failed to create commencement item.' });
+        return;
+      }
+      const created = Array.isArray(createResult.data) && createResult.data.length > 0 ? createResult.data[0] : null;
+      sendJson(res, 201, { ok: true, item: created });
+    }
+    return;
+  }
+
   sendJson(res, 404, { ok: false, message: 'Not found' });
 }
 
@@ -12622,13 +13554,29 @@ async function handleRequest(req, res) {
 
 function createServer() {
   return http.createServer(async (req, res) => {
-    await handleRequest(req, res);
+    try {
+      await handleRequest(req, res);
+    } catch (err) {
+      console.error('[SERVER ERROR]', err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Internal Server Error');
+      }
+    }
   });
 }
 
 if (process.env.VERCEL) {
   module.exports = async (req, res) => {
-    await handleRequest(req, res);
+    try {
+      await handleRequest(req, res);
+    } catch (err) {
+      console.error('[SERVER ERROR]', err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Internal Server Error');
+      }
+    }
   };
 } else if (process.env.NODE_ENV !== 'test') {
   const server = createServer();
