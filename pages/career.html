@@ -5082,10 +5082,10 @@
         </div>
       </div>
       <div class="header-actions">
-        <a class="header-icon-btn" href="https://app.mygplink.com.au/pages/messages.html" aria-label="Messages" data-message-nav target="_top">
+        <button class="header-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
           <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
-          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg>
-        </a>
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
       </div>
     </header>
 
@@ -6238,6 +6238,28 @@
     let roleModalMapVisible = false;
     let currentChecklistOpenKey = "";
     let currentPracticeLifestyleKey = "";
+    let practiceLifestyleHousingSearchTimer = 0;
+
+    function createPracticeLifestyleRemoteHousingBucket() {
+      return {
+        status: "idle",
+        signature: "",
+        listings: null,
+        source: "",
+        liveEnabled: null,
+        fallbackEnabled: null,
+        liveUsed: false,
+        error: ""
+      };
+    }
+
+    function createPracticeLifestyleRemoteHousingState() {
+      return {
+        rent: createPracticeLifestyleRemoteHousingBucket(),
+        buy: createPracticeLifestyleRemoteHousingBucket()
+      };
+    }
+
     let practiceLifestyleState = {
       mode: "housing",
       housingMode: "rent",
@@ -6252,7 +6274,8 @@
       selectedHousingIds: {
         rent: "",
         buy: ""
-      }
+      },
+      remoteHousing: createPracticeLifestyleRemoteHousingState()
     };
     let practiceLifestyleMapRuntime = {
       apiPromise: null,
@@ -6573,9 +6596,37 @@
       };
     }
 
-    function getPracticeLifestyleHousingListings(lifestyle, market) {
-      if (!lifestyle || !lifestyle.housing) return [];
+    function getPracticeLifestyleRemoteHousingBucketForMarket(market) {
       const key = market === "buy" ? "buy" : "rent";
+      if (!practiceLifestyleState.remoteHousing || typeof practiceLifestyleState.remoteHousing !== "object") {
+        practiceLifestyleState.remoteHousing = createPracticeLifestyleRemoteHousingState();
+      }
+      if (!practiceLifestyleState.remoteHousing[key] || typeof practiceLifestyleState.remoteHousing[key] !== "object") {
+        practiceLifestyleState.remoteHousing[key] = createPracticeLifestyleRemoteHousingBucket();
+      }
+      return practiceLifestyleState.remoteHousing[key];
+    }
+
+    function getPracticeLifestyleHousingMeta(lifestyle, market) {
+      const key = market === "buy" ? "buy" : "rent";
+      const housing = lifestyle && lifestyle.housing && typeof lifestyle.housing === "object" ? lifestyle.housing : {};
+      const housingSources = housing.sources && typeof housing.sources === "object" ? housing.sources : {};
+      const remote = getPracticeLifestyleRemoteHousingBucketForMarket(key);
+      return {
+        liveEnabled: typeof remote.liveEnabled === "boolean" ? remote.liveEnabled : !!housing.liveEnabled,
+        fallbackEnabled: typeof remote.fallbackEnabled === "boolean" ? remote.fallbackEnabled : !!housing.fallbackEnabled,
+        liveUsed: !!remote.liveUsed,
+        source: String(remote.source || housingSources[key] || housing.liveSource || "").trim(),
+        status: String(remote.status || "idle").trim() || "idle",
+        error: String(remote.error || "").trim()
+      };
+    }
+
+    function getPracticeLifestyleHousingListings(lifestyle, market) {
+      const key = market === "buy" ? "buy" : "rent";
+      const remote = getPracticeLifestyleRemoteHousingBucketForMarket(key);
+      if (Array.isArray(remote.listings)) return remote.listings;
+      if (!lifestyle || !lifestyle.housing) return [];
       return Array.isArray(lifestyle.housing[key]) ? lifestyle.housing[key] : [];
     }
 
@@ -6604,6 +6655,100 @@
         Number.isFinite(parsePracticeLifestyleCoordinate(center.lat)) &&
         Number.isFinite(parsePracticeLifestyleCoordinate(center.lng))
       );
+    }
+
+    function buildPracticeLifestyleHousingSearchPayload(lifestyle, market) {
+      const key = market === "buy" ? "buy" : "rent";
+      const housing = lifestyle && lifestyle.housing && typeof lifestyle.housing === "object" ? lifestyle.housing : {};
+      const searchContext = housing.searchContext && typeof housing.searchContext === "object"
+        ? housing.searchContext
+        : {};
+      const mapConfig = getPracticeLifestyleMapConfig(lifestyle);
+      const center = mapConfig.center && typeof mapConfig.center === "object" ? mapConfig.center : {};
+      const lat = parsePracticeLifestyleCoordinate(center.lat);
+      const lng = parsePracticeLifestyleCoordinate(center.lng);
+      const label = String(searchContext.label || (lifestyle && lifestyle.title) || "").trim();
+      if (
+        !label &&
+        !String(searchContext.suburb || "").trim() &&
+        !String(searchContext.state || "").trim() &&
+        !String(searchContext.postcode || searchContext.postCode || "").trim()
+      ) {
+        return null;
+      }
+      return {
+        market: key,
+        locationContext: {
+          suburb: String(searchContext.suburb || "").trim(),
+          state: String(searchContext.state || "").trim(),
+          postcode: String(searchContext.postcode || searchContext.postCode || "").trim(),
+          country: String(searchContext.country || "Australia").trim() || "Australia",
+          label
+        },
+        practiceCoords: Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null,
+        household: {
+          recommendedBedrooms: Number(housing.recommendedBedrooms || 0) || 0,
+          partySummary: String(housing.partySummary || "").trim()
+        },
+        radiusKm: clampNumber(practiceLifestyleState.radiusKm, 2, 25),
+        searchQuery: sanitizePracticeLifestyleSearchQuery(practiceLifestyleState.searchQuery),
+        priceMin: sanitizePracticeLifestylePriceInput(practiceLifestyleState.priceMin),
+        priceMax: sanitizePracticeLifestylePriceInput(practiceLifestyleState.priceMax),
+        sortOrder: practiceLifestyleState.sortOrder === "price_desc" ? "price_desc" : "price_asc"
+      };
+    }
+
+    async function refreshPracticeLifestyleHousingSearch(lifestyle, market) {
+      const key = market === "buy" ? "buy" : "rent";
+      const requestBody = buildPracticeLifestyleHousingSearchPayload(lifestyle, key);
+      if (!requestBody) return;
+      const bucket = getPracticeLifestyleRemoteHousingBucketForMarket(key);
+      const signature = JSON.stringify(requestBody);
+      if (bucket.signature === signature && (bucket.status === "loading" || bucket.status === "ready")) return;
+      bucket.signature = signature;
+      bucket.status = "loading";
+      bucket.listings = null;
+      bucket.error = "";
+      renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+      try {
+        const response = await fetch("/api/career/housing-search", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody)
+        });
+        const payload = await response.json().catch(() => null);
+        if (bucket.signature !== signature) return;
+        if (!response.ok || !payload || payload.ok !== true) {
+          bucket.status = "error";
+          bucket.error = payload && payload.message ? String(payload.message) : "Housing search failed";
+          renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+          return;
+        }
+        bucket.listings = Array.isArray(payload.listings) ? payload.listings : [];
+        bucket.status = "ready";
+        bucket.source = String(payload.source || "").trim();
+        bucket.liveEnabled = typeof payload.liveEnabled === "boolean" ? payload.liveEnabled : null;
+        bucket.fallbackEnabled = typeof payload.fallbackEnabled === "boolean" ? payload.fallbackEnabled : null;
+        bucket.liveUsed = !!payload.liveUsed;
+        bucket.error = "";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+      } catch (error) {
+        if (bucket.signature !== signature) return;
+        bucket.status = "error";
+        bucket.error = error && error.message ? String(error.message) : "Housing search failed";
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+      }
+    }
+
+    function schedulePracticeLifestyleHousingSearch(lifestyle, delayMs) {
+      window.clearTimeout(practiceLifestyleHousingSearchTimer);
+      const delay = Math.max(0, Number(delayMs) || 0);
+      practiceLifestyleHousingSearchTimer = window.setTimeout(() => {
+        const nextLifestyle = resolveSecuredPlacement().lifestyle;
+        const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+        void refreshPracticeLifestyleHousingSearch(nextLifestyle || lifestyle, market);
+      }, delay);
     }
 
     function getPracticeLifestyleVisibleHousing(lifestyle) {
@@ -6726,6 +6871,7 @@
       if (!lifestyle || typeof lifestyle !== "object") return;
       if (currentPracticeLifestyleKey !== lifestyle.key) {
         currentPracticeLifestyleKey = lifestyle.key;
+        window.clearTimeout(practiceLifestyleHousingSearchTimer);
         practiceLifestyleState = {
           mode: "housing",
           housingMode: lifestyle.housing && lifestyle.housing.defaultMode === "buy" ? "buy" : "rent",
@@ -6740,7 +6886,8 @@
           selectedHousingIds: {
             rent: "",
             buy: ""
-          }
+          },
+          remoteHousing: createPracticeLifestyleRemoteHousingState()
         };
       }
 
@@ -6764,6 +6911,9 @@
       practiceLifestyleState.schoolSector = ["all", "public", "private"].includes(practiceLifestyleState.schoolSector)
         ? practiceLifestyleState.schoolSector
         : "all";
+      if (!practiceLifestyleState.remoteHousing || typeof practiceLifestyleState.remoteHousing !== "object") {
+        practiceLifestyleState.remoteHousing = createPracticeLifestyleRemoteHousingState();
+      }
 
       const market = practiceLifestyleState.housingMode;
       const marketListings = getPracticeLifestyleHousingListings(lifestyle, market);
@@ -7357,7 +7507,14 @@
 
     function buildPracticeLifestyleHousingToolbarHtml(lifestyle) {
       const visibleListings = getPracticeLifestyleVisibleHousing(lifestyle);
-      const marketLabel = practiceLifestyleState.housingMode === "buy" ? "Homes to buy" : "Homes to rent";
+      const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      const marketLabel = market === "buy" ? "Homes to buy" : "Homes to rent";
+      const meta = getPracticeLifestyleHousingMeta(lifestyle, market);
+      const sourceLabel = meta.status === "loading"
+        ? "Updating"
+        : (meta.source === "fallback"
+          ? "Curated"
+          : (meta.source === "selected_agencies" ? "Selected agencies" : "Domain"));
       return `
         <div class="practice-lifestyle-toolbar" aria-label="Housing search controls">
           <label class="practice-lifestyle-searchbar">
@@ -7372,9 +7529,10 @@
               data-housing-query="true">
           </label>
           <div class="practice-lifestyle-toolbar-meta">
-            <span class="practice-lifestyle-toolbar-pill is-count">${escapeHtml(String(visibleListings.length))} live</span>
+            <span class="practice-lifestyle-toolbar-pill is-count">${escapeHtml(String(visibleListings.length))} results</span>
             <span class="practice-lifestyle-toolbar-pill">${escapeHtml(marketLabel)}</span>
             <span class="practice-lifestyle-toolbar-pill">${escapeHtml(Math.round(practiceLifestyleState.radiusKm) + " km radius")}</span>
+            <span class="practice-lifestyle-toolbar-pill">${escapeHtml(sourceLabel)}</span>
           </div>
         </div>
       `;
@@ -7386,8 +7544,11 @@
       const recommendedBedrooms = Number(lifestyle && lifestyle.housing && lifestyle.housing.recommendedBedrooms || 0) || 0;
       const partySummary = String(lifestyle && lifestyle.housing && lifestyle.housing.partySummary || "").trim();
       const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
-      const liveEnabled = !!(lifestyle && lifestyle.housing && lifestyle.housing.liveEnabled);
+      const meta = getPracticeLifestyleHousingMeta(lifestyle, market);
       const radiusVal = Math.round(practiceLifestyleState.radiusKm);
+      const emptyMessage = meta.status === "loading"
+        ? "Searching nearby homes now. Results will update automatically."
+        : "Can't display homes at the moment. Please try again later.";
       return `
         <div class="practice-lifestyle-drawer" data-lifestyle-drawer="housing">
           <div class="practice-lifestyle-results-head">
@@ -7485,9 +7646,7 @@
               `).join("")}
             </div>
           ` : `
-            <div class="practice-lifestyle-empty">${liveEnabled
-              ? "No live Domain listings matched this search yet. Try widening the radius, clearing filters, or searching another nearby suburb."
-              : "Live Domain listings are not connected yet for this environment, so no real homes can be shown."}</div>
+            <div class="practice-lifestyle-empty">${escapeHtml(emptyMessage)}</div>
           `}
         </div>
       `;
@@ -8587,7 +8746,9 @@
         practiceLifestyleState.priceMin = "";
         practiceLifestyleState.priceMax = "";
         practiceLifestyleState.activeHousingPopupId = "";
-        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        const lifestyle = resolveSecuredPlacement().lifestyle;
+        renderPracticeLifestyleExplorer(lifestyle);
+        schedulePracticeLifestyleHousingSearch(lifestyle, 0);
         return;
       }
 
@@ -8639,7 +8800,9 @@
       if (minPriceInput) {
         practiceLifestyleState.priceMin = sanitizePracticeLifestylePriceInput(minPriceInput.value);
         practiceLifestyleState.activeHousingPopupId = "";
-        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        const lifestyle = resolveSecuredPlacement().lifestyle;
+        renderPracticeLifestyleExplorer(lifestyle);
+        schedulePracticeLifestyleHousingSearch(lifestyle, 280);
         return;
       }
 
@@ -8647,7 +8810,9 @@
       if (queryInput) {
         practiceLifestyleState.searchQuery = sanitizePracticeLifestyleSearchQuery(queryInput.value);
         practiceLifestyleState.activeHousingPopupId = "";
-        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        const lifestyle = resolveSecuredPlacement().lifestyle;
+        renderPracticeLifestyleExplorer(lifestyle);
+        schedulePracticeLifestyleHousingSearch(lifestyle, 280);
         return;
       }
 
@@ -8655,7 +8820,9 @@
       if (maxPriceInput) {
         practiceLifestyleState.priceMax = sanitizePracticeLifestylePriceInput(maxPriceInput.value);
         practiceLifestyleState.activeHousingPopupId = "";
-        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        const lifestyle = resolveSecuredPlacement().lifestyle;
+        renderPracticeLifestyleExplorer(lifestyle);
+        schedulePracticeLifestyleHousingSearch(lifestyle, 280);
       }
     });
 
@@ -8664,7 +8831,9 @@
       if (radiusSelect) {
         practiceLifestyleState.radiusKm = clampNumber(radiusSelect.value, 2, 25);
         practiceLifestyleState.activeHousingPopupId = "";
-        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        const lifestyle = resolveSecuredPlacement().lifestyle;
+        renderPracticeLifestyleExplorer(lifestyle);
+        schedulePracticeLifestyleHousingSearch(lifestyle, 0);
         return;
       }
 

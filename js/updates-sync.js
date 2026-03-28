@@ -342,8 +342,17 @@
         <button type="button" data-alert-close aria-label="Close alerts">&times;</button>
       </div>
       <div class="list" id="${PANEL_ID}-list"></div>
-      <a href="/pages/support.html" class="see-all" style="display:block;text-align:center;padding:12px;font-size:13px;font-weight:700;color:#2563eb;text-decoration:none;border-top:1px solid #e8edf5;">See all</a>
+      <a href="/pages/messages.html" class="see-all" style="display:block;text-align:center;padding:12px;font-size:13px;font-weight:700;color:#2563eb;text-decoration:none;border-top:1px solid #e8edf5;">See all</a>
     `;
+    var seeAllLink = root.querySelector(".see-all");
+    if (seeAllLink) {
+      seeAllLink.addEventListener("click", function (e) {
+        e.preventDefault();
+        closePanel();
+        if (window.gpShellNavigate) window.gpShellNavigate("/pages/messages.html");
+        else window.location.href = "/pages/messages.html";
+      });
+    }
     document.body.appendChild(root);
     return root;
   }

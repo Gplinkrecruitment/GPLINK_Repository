@@ -384,7 +384,7 @@
       padding-bottom: 0;
     }
     html.gp-shell-embedded .fab {
-      bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 54px);
+      bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 60px);
       max-width: 100%;
     }
     html.gp-shell-embedded .view {
@@ -413,14 +413,8 @@
     <div class="view active" id="viewMyTickets">
       <header class="view-header">
         <div class="view-header-left">
-          <button class="icon-btn" type="button" aria-label="Menu">
-            <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-          </button>
-          <h1 class="view-title">My ticket</h1>
+          <h1 class="view-title">Support</h1>
         </div>
-        <button class="icon-btn" type="button" id="filterBtn" aria-label="Filter">
-          <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-        </button>
       </header>
       <div class="search-wrap">
         <div class="search-bar">
@@ -442,9 +436,6 @@
         <div class="view-header-left">
           <h1 class="view-title">FAQ</h1>
         </div>
-        <button class="icon-btn" type="button" aria-label="Filter">
-          <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-        </button>
       </header>
       <div class="search-wrap">
         <div class="search-bar">
@@ -786,8 +777,7 @@
         return `<article class="ticket-card" data-ticket-id="${escapeHtml(c.id)}">
           <div class="ticket-top">
             <div class="ticket-badges">
-              <span class="badge badge-status ${isNew&&c.status!=="closed"?"new":statusClass(c.status)}">${isNew&&c.status!=="closed"?"New":statusText(c.status)}</span>
-              <span class="badge badge-priority ${priorityClass(c.priority)}">${priorityLabel(c.priority)}</span>
+              <span class="badge badge-status in-progress">In Progress</span>
             </div>
             <span class="ticket-time">${formatTs(c.updatedAt)}</span>
           </div>
