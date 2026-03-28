@@ -132,7 +132,7 @@
 
     /* ─── FAB ─── */
     .fab {
-      position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%);
       background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff; border: 0;
       border-radius: 999px; padding: 14px 28px; font: inherit; font-size: 15px; font-weight: 700;
       cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
@@ -361,7 +361,7 @@
       .mobile-nav { display: grid; }
       /* Bottom-tabs sit above the mobile-nav (nav height + safe-area) */
       .bottom-tabs { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); max-width: 560px; }
-      .fab { bottom: calc(130px + env(safe-area-inset-bottom, 0px)); }
+      .fab { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
       .view { padding-bottom: 140px; }
     }
     @media (min-width: 768px) {
@@ -384,7 +384,7 @@
       padding-bottom: 0;
     }
     html.gp-shell-embedded .fab {
-      bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 60px);
+      bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 80px);
       max-width: 100%;
     }
     html.gp-shell-embedded .view {

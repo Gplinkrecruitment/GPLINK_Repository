@@ -135,39 +135,48 @@
       border-color: rgba(15, 23, 42, 0.6);
     }
 
-    /* Glass dream card in hero */
+    /* Glass dream card in hero — purple premium tint */
     .hero-section .dream-card {
-      background: rgba(255, 255, 255, 0.1);
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.18) 0%, rgba(99, 102, 241, 0.14) 50%, rgba(139, 92, 246, 0.1) 100%);
       backdrop-filter: blur(24px) saturate(180%);
       -webkit-backdrop-filter: blur(24px) saturate(180%);
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.25),
-                  inset 0 1px 0 rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(167, 139, 250, 0.25);
+      box-shadow: 0 8px 32px -8px rgba(124, 58, 237, 0.2),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.12);
       margin-bottom: 0;
     }
 
     .hero-section .dream-card::before {
-      background: radial-gradient(circle at 90% 10%, rgba(167, 139, 250, 0.15), transparent 60%);
+      background: radial-gradient(circle at 90% 10%, rgba(167, 139, 250, 0.2), transparent 60%),
+                  radial-gradient(circle at 10% 90%, rgba(124, 58, 237, 0.12), transparent 50%);
     }
 
     .hero-section .dream-card-badge {
-      background: rgba(255, 255, 255, 0.12);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: rgba(255, 255, 255, 0.85);
+      background: rgba(167, 139, 250, 0.2);
+      border: 1px solid rgba(167, 139, 250, 0.3);
+      color: #e9d5ff;
+    }
+
+    .hero-section .dream-card h3 {
+      color: #fff;
+    }
+
+    .hero-section .dream-card p {
+      color: rgba(255, 255, 255, 0.8);
     }
 
     .hero-section .dream-card-cta {
-      background: rgba(255, 255, 255, 0.95);
-      color: #1e293b;
-      box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.2);
+      background: linear-gradient(135deg, #7c3aed, #6366f1);
+      color: #fff;
+      box-shadow: 0 4px 14px -4px rgba(124, 58, 237, 0.45);
     }
 
     .hero-section .dream-card-cta:hover {
-      background: #fff;
+      background: linear-gradient(135deg, #6d28d9, #4f46e5);
     }
 
     .hero-section .dream-card-cta svg {
-      stroke: #1e293b;
+      stroke: #fff;
     }
 
     .dash-wrap {
@@ -981,7 +990,7 @@
       overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
     }
 
-    /* ─── FAQ SECTION ─── */
+    /* ─── FAQ SECTION (article style) ─── */
     .faq-section {
       margin-top: 24px;
     }
@@ -993,73 +1002,98 @@
       display: block;
     }
 
-    .faq-list { display: grid; gap: 0; }
+    .faq-list { display: grid; gap: 8px; }
 
     .faq-item {
       background: #fff;
       border: 1px solid #e8edf5;
+      border-radius: 14px;
       overflow: hidden;
+      transition: border-color 0.15s ease;
     }
-    .faq-item:first-child { border-radius: 16px 16px 0 0; }
-    .faq-item:last-child { border-radius: 0 0 16px 16px; }
-    .faq-item:only-child { border-radius: 16px; }
-    .faq-item + .faq-item { border-top: none; }
+    .faq-item.open { border-color: #bfdbfe; }
 
     .faq-head {
-      display: flex; align-items: center;
-      justify-content: space-between; gap: 14px;
-      padding: 16px 18px;
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px;
       cursor: pointer; border: none;
-      background: none; width: 100%;
+      background: transparent; width: 100%;
       text-align: left; font: inherit;
-      color: var(--text);
-      transition: background 0.15s ease;
-    }
-    .faq-head:hover { background: #f8fafc; }
-
-    .faq-question {
-      font-size: 14px; font-weight: 700;
-      line-height: 1.4; flex: 1;
     }
 
-    .faq-icon {
-      width: 24px; height: 24px; flex-shrink: 0;
+    .faq-icon-box {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: #eff6ff;
       display: grid; place-items: center;
-      border-radius: 50%;
-      background: #f1f5f9;
-      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-                  background 0.2s ease;
+      flex-shrink: 0;
     }
-    .faq-icon svg {
-      width: 14px; height: 14px; stroke: #64748b;
-      fill: none; stroke-width: 2.5;
+    .faq-icon-box svg {
+      width: 18px; height: 18px; stroke: #2563eb;
+      fill: none; stroke-width: 2;
       stroke-linecap: round; stroke-linejoin: round;
     }
 
-    .faq-item.open .faq-icon {
-      transform: rotate(180deg);
-      background: #eff6ff;
+    .faq-info { flex: 1; min-width: 0; }
+
+    .faq-question {
+      font-size: 14px; font-weight: 700;
+      color: var(--text); margin: 0; line-height: 1.4;
     }
-    .faq-item.open .faq-icon svg { stroke: var(--blue); }
+
+    .faq-meta {
+      font-size: 12px; color: #64748b; font-weight: 500;
+      display: flex; align-items: center; gap: 4px;
+      margin-top: 2px;
+    }
+    .faq-meta svg {
+      width: 13px; height: 13px; stroke: currentColor;
+      fill: none; stroke-width: 2;
+    }
+
+    .faq-chevron {
+      width: 20px; height: 20px; color: #94a3b8;
+      flex-shrink: 0;
+      stroke: currentColor; fill: none; stroke-width: 2;
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .faq-item.open .faq-chevron { transform: rotate(180deg); }
 
     .faq-answer {
       max-height: 0;
       overflow: hidden;
       opacity: 0;
       transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-                  opacity 0.3s ease,
-                  padding 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-      padding: 0 18px;
+                  opacity 0.3s ease;
+      padding: 0 16px;
     }
     .faq-item.open .faq-answer {
       max-height: 300px;
       opacity: 1;
-      padding: 0 18px 16px;
+      padding: 0 16px 16px;
     }
 
     .faq-answer p {
       font-size: 13px; color: #475569;
       font-weight: 500; line-height: 1.6;
+    }
+
+    .faq-feedback {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 12px; font-size: 13px;
+      color: #64748b; font-weight: 600;
+    }
+    .faq-feedback-btn {
+      width: 32px; height: 32px;
+      border: 1px solid #e8edf5; background: #fff;
+      border-radius: 8px; display: grid; place-items: center;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .faq-feedback-btn:hover { background: #eff6ff; border-color: #bfdbfe; }
+    .faq-feedback-btn.selected { background: #dbeafe; border-color: #93c5fd; }
+    .faq-feedback-btn svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2;
     }
 
     /* ─── RESPONSIVE ─── */
@@ -1076,7 +1110,6 @@
       .desktop-topbar { display: none; }
       .mobile-nav { display: grid; }
       .hero-section .app-header { display: flex; }
-      .trust-grid { grid-template-columns: 1fr; }
     }
 
     /* (480px carousel breakpoint removed) */
@@ -1147,59 +1180,104 @@
       <div class="faq-list" id="faqList">
         <div class="faq-item">
           <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-question">How long does the GP registration process take?</span>
-            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+            <div class="faq-info">
+              <p class="faq-question">How long does the GP registration process take?</p>
+              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 328 views</span>
+            </div>
+            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-answer">
             <p>The full process typically takes 12 to 18 months from initial application to commencement. Timelines vary based on your country of qualification, document readiness, and processing times for EPIC verification, AMC portfolio assessment, and AHPRA registration. GP Link coordinates each stage to minimise delays.</p>
+            <div class="faq-feedback">
+              Helpful?
+              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
+              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
+            </div>
           </div>
         </div>
         <div class="faq-item">
           <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-question">Can I apply for jobs before my registration is complete?</span>
-            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
+            <div class="faq-info">
+              <p class="faq-question">Can I apply for jobs before registration is complete?</p>
+              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 412 views</span>
+            </div>
+            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-answer">
             <p>Yes. We encourage you to explore and apply for positions early through Find My Dream Practice. Securing a placement early helps with visa sponsorship and ensures you have a role lined up when your registration is finalised. Many practices are happy to offer positions to candidates in progress.</p>
+            <div class="faq-feedback">
+              Helpful?
+              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
+              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
+            </div>
           </div>
         </div>
         <div class="faq-item">
           <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-question">What documents do I need to prepare?</span>
-            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+            <div class="faq-info">
+              <p class="faq-question">What documents do I need to prepare?</p>
+              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 534 views</span>
+            </div>
+            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-answer">
             <p>Required documents depend on your country of qualification. Generally you will need certified copies of your primary medical degree, specialist qualification certificates (e.g. MRCGP, MICGP, FRNZCGP), a current CV, certificate of good standing, and proof of training completion. Each step in The Journey will guide you through exactly what is needed.</p>
+            <div class="faq-feedback">
+              Helpful?
+              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
+              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
+            </div>
           </div>
         </div>
         <div class="faq-item">
           <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-question">How does visa sponsorship work?</span>
-            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+            <div class="faq-info">
+              <p class="faq-question">How does visa sponsorship work?</p>
+              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 234 views</span>
+            </div>
+            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-answer">
             <p>Once you secure a practice placement, your employer will act as your visa sponsor. GP Link works with both you and the practice to prepare the nomination, lodge your visa application, and track it through to grant. The Visa Application step in The Journey provides full visibility into each stage of this process.</p>
+            <div class="faq-feedback">
+              Helpful?
+              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
+              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
+            </div>
           </div>
         </div>
         <div class="faq-item">
           <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-question">What support does GP Link provide throughout the process?</span>
-            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            <div class="faq-info">
+              <p class="faq-question">What support does GP Link provide?</p>
+              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 189 views</span>
+            </div>
+            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-answer">
             <p>GP Link manages your entire pathway from start to finish. We handle document verification, coordinate with EPIC, AMC and AHPRA, match you with practices, support your visa application, and prepare you for commencement. Our team responds during business hours and you can reach us anytime through the Messages tab.</p>
+            <div class="faq-feedback">
+              Helpful?
+              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
+              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- HELP CARD -->
-    <div class="help-card">
-      <div class="txt">
+    <div class="help-card" style="flex-direction:column;">
+      <div class="txt" style="max-width:100%;">
         <strong>We're Here For You!</strong>
         Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
       </div>
-      <div class="trust-grid">
+      <div class="trust-grid" style="grid-template-columns:1fr 1fr;width:100%;">
         <div class="trust-col">
           <h4>You do:</h4>
           <ul>
@@ -1217,9 +1295,9 @@
           </ul>
         </div>
       </div>
-      <div class="help-actions">
+      <div class="help-actions" style="width:100%;">
         <a class="btn-modern btn-primary" href="messages.html">Contact Support <span>&#8594;</span></a>
-        <a class="btn-modern btn-outline" href="#">View FAQs <span>&#8594;</span></a>
+        <a class="btn-modern btn-outline" href="messages.html#help-center">View FAQs <span>&#8594;</span></a>
       </div>
     </div>
 
@@ -2270,22 +2348,30 @@
       if (!faqList) return;
 
       faqList.addEventListener("click", function(e) {
-        const head = e.target.closest(".faq-head");
+        // Handle feedback buttons
+        var fbBtn = e.target.closest(".faq-feedback-btn");
+        if (fbBtn) {
+          var siblings = fbBtn.parentElement.querySelectorAll(".faq-feedback-btn");
+          var wasSelected = fbBtn.classList.contains("selected");
+          siblings.forEach(function(s) { s.classList.remove("selected"); });
+          if (!wasSelected) fbBtn.classList.add("selected");
+          return;
+        }
+
+        var head = e.target.closest(".faq-head");
         if (!head) return;
 
-        const item = head.closest(".faq-item");
+        var item = head.closest(".faq-item");
         if (!item) return;
 
-        const wasOpen = item.classList.contains("open");
+        var wasOpen = item.classList.contains("open");
 
-        // Close all other open items
         faqList.querySelectorAll(".faq-item.open").forEach(function(openItem) {
           openItem.classList.remove("open");
           var btn = openItem.querySelector(".faq-head");
           if (btn) btn.setAttribute("aria-expanded", "false");
         });
 
-        // Toggle clicked item
         if (!wasOpen) {
           item.classList.add("open");
           head.setAttribute("aria-expanded", "true");
