@@ -5702,7 +5702,7 @@
           summary: "Once registration is complete, you can begin your visa submission workflow.",
           status: "pending",
           started: false,
-          href: "myinthealth.html"
+          href: "visa.html"
         },
         {
           key: "pbs_number",
@@ -5710,7 +5710,7 @@
           summary: "PBS setup becomes available after the earlier onboarding steps are complete.",
           status: "pending",
           started: false,
-          href: "myinthealth.html"
+          href: "pbs.html"
         }
       ],
       story: {
@@ -8079,14 +8079,17 @@
       return "pending";
     }
 
+    const CAREER_BYPASS_LOCK_EMAILS = { "hello@mygplink.com.au": true };
+
     function buildPlacementChecklistItems(items) {
       const source = Array.isArray(items) ? items : [];
+      const bypassAll = !!CAREER_BYPASS_LOCK_EMAILS[careerSessionEmail];
       let blockedBy = null;
       return source.map((item, index) => {
         const status = normalizeChecklistStatus(item && item.status);
         const title = String(item && item.title || `Step ${index + 1}`).trim();
         const started = item && item.started === true;
-        const unlocked = !blockedBy;
+        const unlocked = bypassAll || !blockedBy;
         const actionLabel = status === "complete"
           ? "Completed"
           : (!unlocked ? "Locked" : (started || status === "current" ? "Continue" : "Get Started"));
