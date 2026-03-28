@@ -132,7 +132,7 @@
 
     /* ─── FAB ─── */
     .fab {
-      position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 170px; left: 50%; transform: translateX(-50%);
       background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff; border: 0;
       border-radius: 999px; padding: 14px 28px; font: inherit; font-size: 15px; font-weight: 700;
       cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
@@ -273,13 +273,13 @@
     }
     .resolve-btn.primary { border-color: transparent; background: linear-gradient(135deg, var(--blue), var(--blue2)); color: #fff; }
 
-    /* ─── BOTTOM TABS (view switcher — always visible) ─── */
+    /* ─── BOTTOM TABS (view switcher — locked above app nav) ─── */
     .bottom-tabs {
-      position: fixed; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
-      background: rgba(255,255,255,.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-      border-top: 1px solid var(--line); display: flex; z-index: 51;
-      /* Default: sit above the mobile-nav (height + safe-area) */
-      bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+      position: fixed; left: 50%; transform: translateX(-50%); width: 100%; max-width: 560px;
+      background: rgba(255,255,255,.97); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+      display: flex; z-index: 51;
+      bottom: calc(58px + env(safe-area-inset-bottom, 6px) + 6px);
       padding: 0;
     }
     .bottom-tab {
@@ -360,9 +360,9 @@
       .topbar { display: none; }
       .mobile-nav { display: grid; }
       /* Bottom-tabs sit above the mobile-nav (nav height + safe-area) */
-      .bottom-tabs { bottom: calc(58px + env(safe-area-inset-bottom, 0px)); max-width: 560px; }
-      .fab { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
-      .view { padding-bottom: 140px; }
+      .bottom-tabs { bottom: calc(58px + env(safe-area-inset-bottom, 6px) + 6px); max-width: 560px; }
+      .fab { bottom: calc(170px + env(safe-area-inset-bottom, 0px)); }
+      .view { padding-bottom: 160px; }
     }
     @media (min-width: 768px) {
       .app-shell { max-width: 960px; }
@@ -382,13 +382,14 @@
       bottom: var(--gp-shell-bottom-clearance, 70px);
       max-width: 100%;
       padding-bottom: 0;
+      border-bottom: 1px solid var(--line);
     }
     html.gp-shell-embedded .fab {
-      bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 80px);
+      bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 100px);
       max-width: 100%;
     }
     html.gp-shell-embedded .view {
-      padding-bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 64px);
+      padding-bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 80px);
     }
 
     .legal-footer { text-align: center; font-size: 12px; color: var(--muted); margin: 14px 0 8px; line-height: 1.45; }

@@ -40,16 +40,16 @@
   };
   var NAV_GROUPS = {
     "/pages/index.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/registration-intro.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
-    "/pages/myinthealth.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
-    "/pages/amc.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
-    "/pages/ahpra.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
-    "/pages/visa.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
-    "/pages/pbs.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
-    "/pages/commencement.html": { desktop: "registration", mobile: "/pages/myinthealth.html" },
-    "/pages/my-documents.html": { desktop: "documents", mobile: "/pages/myinthealth.html" },
+    "/pages/registration-intro.html": { desktop: "home", mobile: "/pages/index.html" },
+    "/pages/myinthealth.html": { desktop: "home", mobile: "/pages/index.html" },
+    "/pages/amc.html": { desktop: "home", mobile: "/pages/index.html" },
+    "/pages/ahpra.html": { desktop: "home", mobile: "/pages/index.html" },
+    "/pages/visa.html": { desktop: "home", mobile: "/pages/index.html" },
+    "/pages/pbs.html": { desktop: "home", mobile: "/pages/index.html" },
+    "/pages/commencement.html": { desktop: "home", mobile: "/pages/index.html" },
+    "/pages/my-documents.html": { desktop: "documents", mobile: "/pages/index.html" },
     "/pages/career.html": { desktop: "career", mobile: "/pages/career.html" },
-    "/pages/messages.html": { desktop: "messages", mobile: "/pages/index.html" },
+    "/pages/messages.html": { desktop: "support", mobile: "/pages/messages.html" },
     "/pages/account.html": { desktop: "account", mobile: "/pages/account.html" }
   };
 
