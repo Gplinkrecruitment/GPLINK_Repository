@@ -3712,12 +3712,12 @@
 
     .placement-checklist-action {
       width: fit-content;
-      min-height: 34px;
-      border-radius: 10px;
+      min-height: 44px;
+      border-radius: 12px;
       border: 0;
       background: #111827;
       color: #fff;
-      padding: 0 14px;
+      padding: 0 18px;
       font-size: 12px;
       font-weight: 800;
       letter-spacing: -0.01em;
@@ -4381,7 +4381,7 @@
       }
 
       body.career-mode-secured .shell {
-        padding-bottom: 182px;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 160px);
       }
 
       .app-header {
@@ -4637,6 +4637,12 @@
     body.career-mode-secured {
       background: #f0f4fa;
       min-height: 100vh;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      body.career-mode-secured { scroll-behavior: smooth; }
     }
 
     body.career-mode-secured .shell {
@@ -4664,9 +4670,9 @@
     }
 
     body.career-mode-secured .secured-grid {
-      max-width: 388px;
+      max-width: 480px;
       margin: 0 auto;
-      gap: 10px;
+      gap: 16px;
     }
 
     body.career-mode-secured .placement-hero-card,
@@ -4677,20 +4683,26 @@
     body.career-mode-secured .placement-status-card,
     body.career-mode-secured .placement-dock-card,
     body.career-mode-secured .placement-stat-card {
-      border-radius: 16px;
-      box-shadow: 0 16px 34px -28px rgba(15, 23, 42, 0.45);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
+      border-radius: 20px;
+      box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.04),
+        0 4px 12px rgba(0, 0, 0, 0.06),
+        0 12px 32px -8px rgba(0, 0, 0, 0.08);
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
     }
 
     body.career-mode-secured .placement-hero-card {
-      padding: 16px;
-      gap: 14px;
+      padding: 18px;
+      gap: 16px;
       background:
         radial-gradient(360px 180px at 100% 0%, rgba(37, 99, 235, 0.16), transparent 62%),
         linear-gradient(180deg, #0d1722 0%, #122031 100%);
       border: 1px solid rgba(255, 255, 255, 0.06);
       box-shadow: 0 28px 40px -34px rgba(15, 23, 42, 0.96);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
     }
 
     body.career-mode-secured .placement-hero-top,
@@ -4789,7 +4801,10 @@
       padding: 12px 10px;
       background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
       border: 0;
+      border-radius: 14px;
       box-shadow: 0 14px 22px -18px rgba(37, 99, 235, 0.92);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
       transform: translateY(-2px);
     }
 
@@ -4810,7 +4825,7 @@
     body.career-mode-secured .placement-primary-grid,
     body.career-mode-secured .placement-secondary-grid {
       grid-template-columns: 1fr;
-      gap: 10px;
+      gap: 16px;
     }
 
     body.career-mode-secured .placement-income-float {
@@ -4857,10 +4872,12 @@
     }
 
     body.career-mode-secured .placement-practice-contact-card {
-      padding: 14px;
+      padding: 16px;
       gap: 12px;
       background: #101b28;
       border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
     }
 
     body.career-mode-secured .placement-practice-contact-kicker {
@@ -4887,6 +4904,8 @@
       background: transparent;
       border: 0;
       box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
     }
 
     body.career-mode-secured .placement-story-media {
@@ -4965,8 +4984,7 @@
       grid-auto-columns: 172px;
     }
 
-    body.career-mode-secured .placement-broker-card,
-    body.career-mode-secured .placement-secondary-grid {
+    body.career-mode-secured .placement-broker-card {
       display: none;
     }
 
@@ -4974,16 +4992,25 @@
       display: block;
       position: static;
       transform: none;
-      width: min(100%, 388px);
-      margin: 10px auto 0;
+      width: min(100%, 480px);
+      margin: 16px auto 0;
     }
 
     body.career-mode-secured .placement-dock-card {
-      padding: 10px;
+      padding: 12px;
       gap: 10px;
       background: #101b28;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 20px 32px -28px rgba(15, 23, 42, 1);
+      border-radius: 16px;
+      box-shadow:
+        0 1px 3px rgba(0, 0, 0, 0.06),
+        0 8px 24px -8px rgba(15, 23, 42, 0.4);
+    }
+
+    html.gp-shell-embedded body.career-mode-secured .placement-dock {
+      position: static;
+      transform: none;
+      width: 100%;
     }
 
     body.career-mode-secured .placement-dock-avatar {
@@ -5013,12 +5040,12 @@
     }
 
     body.career-mode-secured .placement-dock-btn {
-      min-height: 36px;
-      border-radius: 10px;
+      min-height: 44px;
+      border-radius: 12px;
       border-color: rgba(255, 255, 255, 0.08);
       background: rgba(255, 255, 255, 0.06);
       color: #fff;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
     }
 
@@ -5031,6 +5058,7 @@
       body.career-mode-secured .shell {
         max-width: 960px;
         padding-top: 0;
+        padding-bottom: 48px;
       }
 
       body.career-mode-secured .app-header {
@@ -5039,6 +5067,30 @@
 
       body.career-mode-secured .topbar {
         display: block !important;
+      }
+
+      body.career-mode-secured .secured-grid {
+        max-width: 720px;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      body.career-mode-secured .placement-hero-card,
+      body.career-mode-secured .placement-quick-stats,
+      body.career-mode-secured .placement-income-float,
+      body.career-mode-secured .placement-checklist,
+      body.career-mode-secured .placement-primary-grid,
+      body.career-mode-secured .placement-secondary-grid,
+      body.career-mode-secured .placement-dock {
+        grid-column: 1 / -1;
+      }
+
+      body.career-mode-secured .placement-secondary-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      body.career-mode-secured .placement-dock {
+        width: 100%;
+        max-width: 720px;
       }
     }
 
@@ -5054,6 +5106,10 @@
       body.career-mode-secured .placement-primary-grid {
         width: calc(100vw - 24px);
         margin-left: calc(50% - 50vw + 12px);
+      }
+
+      html.gp-shell-embedded body.career-mode-secured .shell {
+        padding-bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 24px);
       }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -5320,7 +5376,7 @@
           </div>
         </div>
         <div class="placement-dock-actions">
-          <a class="placement-dock-btn" href="messages.html">Chat</a>
+          <a class="placement-dock-btn" id="placementDockChatBtn" href="messages.html">Chat</a>
           <a class="placement-dock-btn placement-dock-btn-whatsapp" id="placementDockWhatsAppLink" href="https://wa.me/61432555018" target="_blank" rel="noreferrer">WhatsApp</a>
         </div>
       </div>
@@ -8693,6 +8749,20 @@
       const href = securedContinueBtnEl.dataset.href || "myinthealth.html";
       window.location.href = href;
     });
+
+    const placementDockChatBtn = document.getElementById("placementDockChatBtn");
+    if (placementDockChatBtn) {
+      placementDockChatBtn.addEventListener("click", (e) => {
+        if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window) {
+          e.preventDefault();
+          try {
+            window.parent.postMessage({ type: "gp-shell-route", href: "/pages/messages.html", title: "Support" }, window.location.origin);
+          } catch (err) {
+            window.location.href = "messages.html";
+          }
+        }
+      });
+    }
 
     document.addEventListener("click", (event) => {
       if (
