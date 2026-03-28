@@ -44,6 +44,132 @@
       min-height: 100dvh;
     }
 
+    /* ─── HERO SECTION ─── */
+    .hero-section {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+      padding-top: env(safe-area-inset-top, 0px);
+      min-height: 340px;
+    }
+
+    .hero-video, .hero-fallback {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .hero-fallback { display: none; }
+    .hero-section.use-fallback .hero-video { display: none; }
+    .hero-section.use-fallback .hero-fallback {
+      display: block;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 70%, #533483 100%);
+    }
+
+    .hero-gradient {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        180deg,
+        rgba(15, 23, 42, 0.25) 0%,
+        rgba(15, 23, 42, 0.08) 35%,
+        rgba(15, 23, 42, 0.5) 85%,
+        rgba(240, 244, 250, 1) 100%
+      );
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 24px;
+    }
+
+    /* Hero header overrides */
+    .hero-section .app-header {
+      display: flex;
+      padding: 20px 0 18px;
+    }
+
+    .hero-section .header-text h1 {
+      color: #fff;
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    .hero-section .header-text p {
+      color: rgba(255, 255, 255, 0.65);
+      font-size: 12px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    }
+
+    .hero-section .header-avatar {
+      width: 52px; height: 52px;
+      border-color: rgba(255, 255, 255, 0.25);
+      box-shadow: 0 4px 16px -4px rgba(0,0,0,0.35);
+      font-size: 20px;
+    }
+
+    .hero-section .header-icon-btn {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-color: rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 2px 8px -2px rgba(0,0,0,0.2);
+    }
+
+    .hero-section .header-icon-btn:hover {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .hero-section .header-badge {
+      border-color: rgba(15, 23, 42, 0.6);
+    }
+
+    /* Glass dream card in hero */
+    .hero-section .dream-card {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.25),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.15);
+      margin-bottom: 0;
+    }
+
+    .hero-section .dream-card::before {
+      background: radial-gradient(circle at 90% 10%, rgba(167, 139, 250, 0.15), transparent 60%);
+    }
+
+    .hero-section .dream-card-badge {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    .hero-section .dream-card-cta {
+      background: rgba(255, 255, 255, 0.95);
+      color: #1e293b;
+      box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.2);
+    }
+
+    .hero-section .dream-card-cta:hover {
+      background: #fff;
+    }
+
+    .hero-section .dream-card-cta svg {
+      stroke: #1e293b;
+    }
+
     .dash-wrap {
       max-width: 960px;
       margin: 0 auto;
@@ -232,7 +358,7 @@
 
     .journey-caret {
       width: 20px; height: 20px; color: #94a3b8; flex-shrink: 0;
-      transition: transform .2s ease;
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .journey-caret svg {
       width: 20px; height: 20px; stroke: currentColor;
@@ -241,10 +367,19 @@
     .journey-step.open .journey-caret { transform: rotate(180deg); }
 
     .journey-body {
-      padding: 0 16px 16px 58px;
-      display: none;
+      padding: 0 16px 0 58px;
+      max-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                  padding 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                  opacity 0.3s ease;
     }
-    .journey-step.open .journey-body { display: block; }
+    .journey-step.open .journey-body {
+      max-height: 600px;
+      padding-bottom: 16px;
+      opacity: 1;
+    }
 
     .journey-body p {
       font-size: 13px; color: #475569; font-weight: 500;
@@ -846,20 +981,101 @@
       overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
     }
 
+    /* ─── FAQ SECTION ─── */
+    .faq-section {
+      margin-top: 24px;
+    }
+
+    .faq-section .section-title {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: -0.02em; color: var(--text);
+      padding: 12px 0 10px;
+      display: block;
+    }
+
+    .faq-list { display: grid; gap: 0; }
+
+    .faq-item {
+      background: #fff;
+      border: 1px solid #e8edf5;
+      overflow: hidden;
+    }
+    .faq-item:first-child { border-radius: 16px 16px 0 0; }
+    .faq-item:last-child { border-radius: 0 0 16px 16px; }
+    .faq-item:only-child { border-radius: 16px; }
+    .faq-item + .faq-item { border-top: none; }
+
+    .faq-head {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 14px;
+      padding: 16px 18px;
+      cursor: pointer; border: none;
+      background: none; width: 100%;
+      text-align: left; font: inherit;
+      color: var(--text);
+      transition: background 0.15s ease;
+    }
+    .faq-head:hover { background: #f8fafc; }
+
+    .faq-question {
+      font-size: 14px; font-weight: 700;
+      line-height: 1.4; flex: 1;
+    }
+
+    .faq-icon {
+      width: 24px; height: 24px; flex-shrink: 0;
+      display: grid; place-items: center;
+      border-radius: 50%;
+      background: #f1f5f9;
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                  background 0.2s ease;
+    }
+    .faq-icon svg {
+      width: 14px; height: 14px; stroke: #64748b;
+      fill: none; stroke-width: 2.5;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .faq-item.open .faq-icon {
+      transform: rotate(180deg);
+      background: #eff6ff;
+    }
+    .faq-item.open .faq-icon svg { stroke: var(--blue); }
+
+    .faq-answer {
+      max-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                  opacity 0.3s ease,
+                  padding 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      padding: 0 18px;
+    }
+    .faq-item.open .faq-answer {
+      max-height: 300px;
+      opacity: 1;
+      padding: 0 18px 16px;
+    }
+
+    .faq-answer p {
+      font-size: 13px; color: #475569;
+      font-weight: 500; line-height: 1.6;
+    }
+
     /* ─── RESPONSIVE ─── */
     @media (min-width: 768px) {
-      .app-header { display: none; }
+      .hero-section .app-header { display: flex; }
       .desktop-topbar { display: block; }
       .mobile-nav { display: none; }
       .dash-wrap { padding-bottom: 40px; }
-
-      /* (carousel removed) */
+      .hero-section { min-height: 380px; }
+      .hero-section .header-text h1 { font-size: 32px; }
     }
 
     @media (max-width: 767px) {
       .desktop-topbar { display: none; }
       .mobile-nav { display: grid; }
-      .app-header { display: flex; }
+      .hero-section .app-header { display: flex; }
       .trust-grid { grid-template-columns: 1fr; }
     }
 
@@ -868,24 +1084,47 @@
 </head>
 <body>
 
-  <div class="dash-wrap">
-    <!-- MOBILE HEADER -->
-    <header class="app-header">
-      <div class="header-greeting">
-        <div class="header-avatar" id="headerAvatarMobile">GP</div>
-        <div class="header-text">
-          <h1 id="intro-title-mobile">Welcome back</h1>
-          <p id="headerSubtitleMobile">To Australia Via Expedited Specialist Pathway</p>
+  <!-- HERO SECTION -->
+  <section class="hero-section" id="heroSection">
+    <video class="hero-video" id="heroVideo" autoplay muted loop playsinline preload="none">
+    </video>
+    <div class="hero-fallback" id="heroFallback"></div>
+    <div class="hero-gradient"></div>
+    <div class="hero-content">
+      <header class="app-header">
+        <div class="header-greeting">
+          <div class="header-avatar" id="headerAvatarMobile">GP</div>
+          <div class="header-text">
+            <h1 id="intro-title-mobile">Welcome Back</h1>
+            <p id="headerSubtitleMobile">To Australia Via Expedited Specialist Pathway</p>
+          </div>
         </div>
-      </div>
-      <div class="header-actions">
-        <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Notifications" data-alert-trigger>
-          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
-          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        </button>
-      </div>
-    </header>
+        <div class="header-actions">
+          <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Notifications" data-alert-trigger>
+            <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+            <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          </button>
+        </div>
+      </header>
 
+      <a class="dream-card" href="career.html#browse" id="dreamPracticeCard">
+        <div style="position:relative;z-index:1;">
+          <div class="dream-card-badge">
+            <svg viewBox="0 0 20 20"><path d="M10 1l2.39 4.84L17.82 6.7l-3.91 3.81.92 5.39L10 13.27 5.17 15.9l.92-5.39L2.18 6.7l5.43-.86L10 1z"/></svg>
+            Premium
+          </div>
+          <h3>Find My Dream Practice</h3>
+          <p>Browse GP roles across Australia. Apply early to secure your ideal placement before registration completes.</p>
+          <span class="dream-card-cta">
+            Explore Positions
+            <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </span>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <div class="dash-wrap">
     <!-- HIDDEN METRICS -->
     <div class="metrics-hidden" aria-hidden="true">
       <svg width="112" height="112" viewBox="0 0 112 112">
@@ -895,28 +1134,64 @@
       <span id="next-milestone">Next milestone: Step 1 complete</span>
     </div>
 
-    <!-- FIND MY DREAM PRACTICE -->
-    <a class="dream-card" href="career.html#browse" id="dreamPracticeCard">
-      <div style="position:relative;z-index:1;">
-        <div class="dream-card-badge">
-          <svg viewBox="0 0 20 20"><path d="M10 1l2.39 4.84L17.82 6.7l-3.91 3.81.92 5.39L10 13.27 5.17 15.9l.92-5.39L2.18 6.7l5.43-.86L10 1z"/></svg>
-          Premium
-        </div>
-        <h3>Find My Dream Practice</h3>
-        <p>Browse GP roles across Australia. Apply early to secure your ideal placement before registration completes.</p>
-        <span class="dream-card-cta">
-          Explore Positions
-          <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
-        </span>
-      </div>
-    </a>
-
     <!-- THE JOURNEY -->
     <div class="section-head">
       <span class="section-title">The Journey:</span>
     </div>
 
     <div class="journey-list" id="journeyList"></div>
+
+    <!-- FAQ SECTION -->
+    <div class="faq-section">
+      <span class="section-title">Frequently Asked Questions</span>
+      <div class="faq-list" id="faqList">
+        <div class="faq-item">
+          <button class="faq-head" type="button" aria-expanded="false">
+            <span class="faq-question">How long does the GP registration process take?</span>
+            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div class="faq-answer">
+            <p>The full process typically takes 12 to 18 months from initial application to commencement. Timelines vary based on your country of qualification, document readiness, and processing times for EPIC verification, AMC portfolio assessment, and AHPRA registration. GP Link coordinates each stage to minimise delays.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-head" type="button" aria-expanded="false">
+            <span class="faq-question">Can I apply for jobs before my registration is complete?</span>
+            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div class="faq-answer">
+            <p>Yes. We encourage you to explore and apply for positions early through Find My Dream Practice. Securing a placement early helps with visa sponsorship and ensures you have a role lined up when your registration is finalised. Many practices are happy to offer positions to candidates in progress.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-head" type="button" aria-expanded="false">
+            <span class="faq-question">What documents do I need to prepare?</span>
+            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div class="faq-answer">
+            <p>Required documents depend on your country of qualification. Generally you will need certified copies of your primary medical degree, specialist qualification certificates (e.g. MRCGP, MICGP, FRNZCGP), a current CV, certificate of good standing, and proof of training completion. Each step in The Journey will guide you through exactly what is needed.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-head" type="button" aria-expanded="false">
+            <span class="faq-question">How does visa sponsorship work?</span>
+            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div class="faq-answer">
+            <p>Once you secure a practice placement, your employer will act as your visa sponsor. GP Link works with both you and the practice to prepare the nomination, lodge your visa application, and track it through to grant. The Visa Application step in The Journey provides full visibility into each stage of this process.</p>
+          </div>
+        </div>
+        <div class="faq-item">
+          <button class="faq-head" type="button" aria-expanded="false">
+            <span class="faq-question">What support does GP Link provide throughout the process?</span>
+            <span class="faq-icon"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div class="faq-answer">
+            <p>GP Link manages your entire pathway from start to finish. We handle document verification, coordinate with EPIC, AMC and AHPRA, match you with practices, support your visa application, and prepare you for commencement. Our team responds during business hours and you can reach us anytime through the Messages tab.</p>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- HELP CARD -->
     <div class="help-card">
@@ -1090,7 +1365,7 @@
     function applyIntroTitle() {
       const titleEl = document.getElementById("intro-title-mobile");
       if (titleEl) {
-        titleEl.textContent = sessionFirstName ? `Dr ${sessionFirstName}` : "Welcome back";
+        titleEl.textContent = sessionFirstName ? `Welcome Back Dr ${sessionFirstName}` : "Welcome Back";
       }
       const avatarEl = document.getElementById("headerAvatarMobile");
       if (avatarEl && sessionFirstName) {
@@ -1944,6 +2219,79 @@
       dragging = false;
       if (deltaY > 90) { closeMobileRegistration(); } else { mobileRegSheet.style.transform = ""; }
     });
+
+    // ─── VIDEO FALLBACK ───
+    (function initHeroVideo() {
+      const hero = document.getElementById("heroSection");
+      const video = document.getElementById("heroVideo");
+      if (!video || !hero) return;
+
+      function activateFallback() {
+        if (hero.classList.contains("use-fallback")) return;
+        hero.classList.add("use-fallback");
+      }
+
+      // Check if device can play mp4 at all
+      if (video.canPlayType && !video.canPlayType("video/mp4")) {
+        activateFallback();
+        return;
+      }
+
+      video.addEventListener("error", activateFallback);
+
+      // Lazy-load: inject source after critical content is painted
+      requestAnimationFrame(function() {
+        var source = document.createElement("source");
+        source.src = "../media/videos/gp-link-hero-mobile.mp4";
+        source.type = "video/mp4";
+        source.addEventListener("error", activateFallback);
+        video.appendChild(source);
+        video.load();
+
+        var playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(function() { activateFallback(); });
+        }
+      });
+
+      // If video stalls for too long, use fallback
+      var stallTimer = setTimeout(function() {
+        if (video.readyState < 2) activateFallback();
+      }, 5000);
+
+      video.addEventListener("canplay", function() {
+        clearTimeout(stallTimer);
+      }, { once: true });
+    })();
+
+    // ─── FAQ ACCORDION ───
+    (function initFaqAccordion() {
+      const faqList = document.getElementById("faqList");
+      if (!faqList) return;
+
+      faqList.addEventListener("click", function(e) {
+        const head = e.target.closest(".faq-head");
+        if (!head) return;
+
+        const item = head.closest(".faq-item");
+        if (!item) return;
+
+        const wasOpen = item.classList.contains("open");
+
+        // Close all other open items
+        faqList.querySelectorAll(".faq-item.open").forEach(function(openItem) {
+          openItem.classList.remove("open");
+          var btn = openItem.querySelector(".faq-head");
+          if (btn) btn.setAttribute("aria-expanded", "false");
+        });
+
+        // Toggle clicked item
+        if (!wasOpen) {
+          item.classList.add("open");
+          head.setAttribute("aria-expanded", "true");
+        }
+      });
+    })();
   </script>
 </body>
 </html>
