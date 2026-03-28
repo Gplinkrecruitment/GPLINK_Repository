@@ -223,67 +223,140 @@
     }
     .section-link:hover { text-decoration: underline; }
 
-    /* ─── TASK LIST (Registration Steps) ─── */
-    .task-list { display: grid; gap: 10px; }
+    /* ─── DREAM PRACTICE CARD ─── */
+    .dream-card {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border-radius: var(--radius); padding: 22px 20px;
+      color: #fff; position: relative; overflow: hidden;
+      text-decoration: none; display: block;
+      margin-bottom: 16px; transition: transform .2s ease;
+    }
+    .dream-card:hover { transform: translateY(-2px); }
+    .dream-card::before {
+      content: ""; position: absolute; inset: 0;
+      background: radial-gradient(circle at 90% 10%, rgba(99,102,241,0.25), transparent 60%);
+      pointer-events: none;
+    }
+    .dream-card-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 999px;
+      background: rgba(99,102,241,0.3); backdrop-filter: blur(4px);
+      font-size: 11px; font-weight: 700; color: #c7d2fe;
+      margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .dream-card-badge svg { width: 14px; height: 14px; fill: currentColor; }
+    .dream-card h3 {
+      font-size: 18px; font-weight: 800; letter-spacing: -0.02em;
+      line-height: 1.25; margin-bottom: 4px;
+    }
+    .dream-card p {
+      font-size: 13px; font-weight: 500; opacity: 0.8;
+      line-height: 1.4; margin-bottom: 14px;
+    }
+    .dream-card-cta {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 18px; border-radius: 12px;
+      background: #6366f1; color: #fff;
+      font-size: 13px; font-weight: 700;
+      border: none; cursor: pointer;
+      box-shadow: 0 4px 12px -4px rgba(99,102,241,0.5);
+      transition: background .15s ease;
+    }
+    .dream-card-cta:hover { background: #4f46e5; }
+    .dream-card-cta svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    }
 
-    .task-item {
+    /* ─── THE JOURNEY (Step List) ─── */
+    .journey-list { display: grid; gap: 0; }
+
+    .journey-step {
+      background: #fff; border: 1px solid #e8edf5;
+      overflow: hidden; transition: all .2s ease;
+    }
+    .journey-step:first-child { border-radius: 16px 16px 0 0; }
+    .journey-step:last-child { border-radius: 0 0 16px 16px; }
+    .journey-step:only-child { border-radius: 16px; }
+    .journey-step + .journey-step { border-top: none; }
+
+    .journey-step.active { border-color: #bfdbfe; z-index: 1; position: relative; }
+    .journey-step.locked { opacity: 0.55; }
+
+    .journey-head {
       display: flex; align-items: center; gap: 14px;
-      background: #fff; border-radius: 16px;
-      padding: 16px; border: 1px solid #e8edf5;
-      transition: all .2s ease; text-decoration: none;
-      color: inherit; cursor: pointer;
+      padding: 14px 16px; cursor: pointer;
+      border: none; background: none; width: 100%;
+      text-align: left; font: inherit; color: inherit;
+      transition: background .15s ease;
     }
-    .task-item:hover {
-      border-color: #c7d2fe;
-      box-shadow: 0 4px 16px -8px rgba(37, 99, 235, 0.15);
-      transform: translateY(-1px);
+    .journey-head:hover { background: #f8fafc; }
+    .journey-step.locked .journey-head { cursor: default; }
+    .journey-step.locked .journey-head:hover { background: none; }
+
+    .journey-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 12px; font-weight: 800; flex-shrink: 0;
+      border: 2px solid #e2e8f0; color: #94a3b8; background: #f8fafc;
     }
-
-    .task-item.locked { opacity: 0.65; cursor: default; }
-    .task-item.locked:hover { transform: none; box-shadow: none; border-color: #e8edf5; }
-
-    .task-dot {
-      width: 10px; height: 10px; border-radius: 50%;
-      flex-shrink: 0;
+    .journey-step.active .journey-num {
+      background: var(--blue); border-color: var(--blue);
+      color: #fff; box-shadow: 0 0 0 4px rgba(37,99,235,0.12);
     }
-    .task-dot.current { background: var(--blue); box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15); }
-    .task-dot.done { background: var(--green2); box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.12); }
-    .task-dot.locked-dot { background: #cbd5e1; }
-
-    .task-body { flex: 1; min-width: 0; }
-
-    .task-cat {
-      font-size: 11px; font-weight: 600;
-      color: var(--muted); text-transform: uppercase;
-      letter-spacing: 0.04em; margin-bottom: 2px;
+    .journey-step.done .journey-num {
+      background: var(--green2); border-color: var(--green2);
+      color: #fff;
     }
 
-    .task-name {
-      font-size: 14px; font-weight: 700;
-      color: var(--text); line-height: 1.3;
-    }
+    .journey-info { flex: 1; min-width: 0; }
+    .journey-title { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.3; }
+    .journey-subtitle { font-size: 12px; color: var(--muted); font-weight: 500; margin-top: 1px; }
 
-    .task-status-text {
-      font-size: 12px; color: var(--muted);
-      font-weight: 500; margin-top: 2px;
+    .journey-pill {
+      padding: 4px 12px; border-radius: 999px;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
     }
+    .journey-pill.current { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .journey-pill.done { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
+    .journey-pill.locked { background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; }
 
-    .task-priority {
-      padding: 5px 12px; border-radius: 999px;
-      font-size: 11px; font-weight: 700;
-      flex-shrink: 0; text-transform: capitalize;
+    .journey-caret {
+      width: 20px; height: 20px; color: #94a3b8; flex-shrink: 0;
+      transition: transform .2s ease;
     }
-    .task-priority.current-p { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-    .task-priority.done-p { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
-    .task-priority.locked-p { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-
-    .task-arrow {
-      width: 20px; height: 20px; color: #94a3b8;
-      flex-shrink: 0;
-    }
-    .task-arrow svg {
+    .journey-caret svg {
       width: 20px; height: 20px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .journey-step.open .journey-caret { transform: rotate(180deg); }
+
+    .journey-body {
+      padding: 0 16px 16px 58px;
+      display: none;
+    }
+    .journey-step.open .journey-body { display: block; }
+
+    .journey-body p {
+      font-size: 13px; color: #475569; font-weight: 500;
+      line-height: 1.5; margin-bottom: 12px;
+    }
+    .journey-body-cta {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 10px;
+      background: var(--blue); color: #fff;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; border: none; cursor: pointer;
+      transition: background .15s ease;
+    }
+    .journey-body-cta:hover { background: var(--blue2); }
+    .journey-body-cta.done-cta {
+      background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0;
+      cursor: default;
+    }
+    .journey-body-cta svg {
+      width: 14px; height: 14px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
     }
 
     /* ─── UPDATES CARD ─── */
@@ -930,50 +1003,28 @@
       <span id="next-milestone">Next milestone: Step 1 complete</span>
     </div>
 
-    <!-- REGISTRATION STEPS (Task List) -->
+    <!-- FIND MY DREAM PRACTICE -->
+    <a class="dream-card" href="career.html#browse" id="dreamPracticeCard">
+      <div style="position:relative;z-index:1;">
+        <div class="dream-card-badge">
+          <svg viewBox="0 0 20 20"><path d="M10 1l2.39 4.84L17.82 6.7l-3.91 3.81.92 5.39L10 13.27 5.17 15.9l.92-5.39L2.18 6.7l5.43-.86L10 1z"/></svg>
+          Premium
+        </div>
+        <h3>Find My Dream Practice</h3>
+        <p>Browse GP roles across Australia. Apply early to secure your ideal placement before registration completes.</p>
+        <span class="dream-card-cta">
+          Explore Positions
+          <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+        </span>
+      </div>
+    </a>
+
+    <!-- THE JOURNEY -->
     <div class="section-head">
-      <span class="section-title">Registration Steps</span>
-      <a class="section-link" href="#" id="viewScheduleLink">View all <span>&#8594;</span></a>
+      <span class="section-title">The Journey:</span>
     </div>
 
-    <div class="task-list" id="taskList">
-      <a class="task-item" id="task1" href="myinthealth.html">
-        <span class="task-dot current"></span>
-        <div class="task-body">
-          <div class="task-cat">Step 1</div>
-          <div class="task-name">MyIntealth Account</div>
-          <div class="task-status-text" id="step1-status-text">Not started yet</div>
-        </div>
-        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
-      </a>
-      <a class="task-item" id="task2" href="#">
-        <span class="task-dot locked-dot"></span>
-        <div class="task-body">
-          <div class="task-cat">Step 2</div>
-          <div class="task-name">AMC Portfolio</div>
-          <div class="task-status-text" id="step2-status-text">Unlocked after Step 1</div>
-        </div>
-        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
-      </a>
-      <a class="task-item locked" id="task3" href="#">
-        <span class="task-dot locked-dot"></span>
-        <div class="task-body">
-          <div class="task-cat">Step 3</div>
-          <div class="task-name">AHPRA Registration</div>
-          <div class="task-status-text" id="step3-status-text">Unlocked after Step 2</div>
-        </div>
-        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
-      </a>
-      <a class="task-item locked" id="task6" href="#">
-        <span class="task-dot locked-dot"></span>
-        <div class="task-body">
-          <div class="task-cat">Step 4</div>
-          <div class="task-name">Commencement</div>
-          <div class="task-status-text" id="step6-status-text">No action needed yet</div>
-        </div>
-        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
-      </a>
-    </div>
+    <div class="journey-list" id="journeyList"></div>
 
     <!-- HELP CARD -->
     <div class="help-card">
@@ -1044,7 +1095,7 @@
   </div>
 
   <script>
-    const TOTAL_STEPS = 4;
+    const TOTAL_STEPS = 7;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
@@ -1052,6 +1103,7 @@
     const PREPARED_DOCS_KEY = "gp_prepared_docs";
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
     const CAREER_STATE_KEY = "gp_career_state";
+    const BYPASS_LOCK_EMAILS = { "hello@mygplink.com.au": true };
     const ringCirc = 289.026524;
 
     const epicStageLabels = {
@@ -1400,9 +1452,32 @@
       }
     }
 
+    function getCurrentUserEmail() {
+      try {
+        var cached = localStorage.getItem("gp_session_profile_cache");
+        if (cached) { var p = JSON.parse(cached); if (p && p.email) return String(p.email).trim().toLowerCase(); }
+      } catch (e) {}
+      return String(localStorage.getItem("gp_state_owner") || "").trim().toLowerCase();
+    }
+
+    function hasCareerSecured() {
+      var careerState = parseStorage(CAREER_STATE_KEY);
+      if (!careerState) return false;
+      var applications = Array.isArray(careerState.applications) ? careerState.applications : [];
+      for (var i = 0; i < applications.length; i++) {
+        var app = applications[i];
+        if (!app || typeof app !== "object") continue;
+        if (app.isPlacementSecured === true) return true;
+        var status = String(app.rawStatus || app.status || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        if (status === "secured" || status === "placement_secured" || status === "practice_secured") return true;
+      }
+      return false;
+    }
+
     function getProgressSnapshot() {
       const epic = parseStorage(EPIC_KEY);
       const amc = parseStorage(AMC_KEY);
+      const ahpra = parseStorage(AHPRA_KEY);
       const docs = parseStorage(DOC_KEY);
       const prepared = parseStorage(PREPARED_DOCS_KEY);
 
@@ -1413,6 +1488,9 @@
       const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
       const amcStage = amc && typeof amc.stage === "string" ? amc.stage : "create_portfolio";
       const amcCurrentLabel = amcStageLabels[amcStage] || amcStageLabels.create_portfolio;
+
+      const careerSecured = hasCareerSecured();
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
 
       const isUkDocs = !!(docs && docs.country === "uk" && docs.docs && prepared && prepared.docs);
       const preparedUploaded = isUkDocs
@@ -1430,22 +1508,26 @@
           supervisedReady === UK_SUPERVISED_KEYS.length
         : false;
 
-      const completedSteps = [epicDone, amcDone].filter(Boolean).length;
+      // For now visa/pbs/commencement done states are false (checked via API in career checklist)
+      const visaDone = false;
+      const pbsDone = false;
+      const commencementDone = false;
+
+      const completedSteps = [epicDone, amcDone, careerSecured, ahpraDone, visaDone, pbsDone, commencementDone].filter(Boolean).length;
       const progressPercent = Math.max(3, (completedSteps * 100) / TOTAL_STEPS);
 
       let currentRoute = "myinthealth.html";
       let currentTitle = "MyIntealth Account";
-      if (epicDone && !amcDone) {
-        currentRoute = "amc.html";
-        currentTitle = "AMC Portfolio";
-      } else if (epicDone && amcDone) {
-        currentRoute = "ahpra.html";
-        currentTitle = "AHPRA Registration";
-      }
+      if (epicDone && !amcDone) { currentRoute = "amc.html"; currentTitle = "AMC Portfolio"; }
+      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career.html#browse"; currentTitle = "Career & Placement"; }
+      else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra.html"; currentTitle = "AHPRA Registration"; }
+      else if (epicDone && amcDone && careerSecured && ahpraDone) { currentRoute = "visa.html"; currentTitle = "Visa Application"; }
 
       return {
         epicDone, epicCurrentLabel,
         amcDone, amcCurrentLabel,
+        careerSecured, ahpraDone,
+        visaDone, pbsDone, commencementDone,
         docsDone, preparedUploaded, institutionRequested, supervisedReady,
         completedSteps, progressPercent,
         currentRoute, currentTitle
@@ -1491,23 +1573,80 @@
       };
     }
 
-    function setTaskVisual(stepNum, state, statusText, href) {
-      const taskEl = document.getElementById(`task${stepNum}`);
-      const pill = document.getElementById(`step${stepNum}-pill`);
-      const statusEl = document.getElementById(`step${stepNum}-status-text`);
-      if (!taskEl) return;
+    function renderJourneyList() {
+      const listEl = document.getElementById("journeyList");
+      if (!listEl) return;
+      const snap = getProgressSnapshot();
+      const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
-      const dot = taskEl.querySelector(".task-dot");
-      if (dot) {
-        dot.className = `task-dot ${state === "done" ? "done" : state === "current" ? "current" : "locked-dot"}`;
-      }
-      if (statusEl) statusEl.textContent = statusText;
-      if (href) taskEl.href = href;
-      if (pill) {
-        pill.textContent = state === "done" ? "Done" : state === "current" ? "Continue" : "Locked";
-        pill.className = `task-priority ${state === "done" ? "done-p" : state === "current" ? "current-p" : "locked-p"}`;
-      }
-      taskEl.classList.toggle("locked", state === "locked");
+      const steps = [
+        { num: 1, key: "myintealth", title: "MyIntealth Account", sub: snap.epicDone ? "Completed" : snap.epicCurrentLabel, detail: "Create your MyIntealth account and complete EPIC verification to begin your Australian GP journey.", done: snap.epicDone, locked: false, href: "myinthealth.html" },
+        { num: 2, key: "amc", title: "AMC Portfolio", sub: snap.amcDone ? "Completed" : snap.amcCurrentLabel, detail: "Create your AMC candidate portfolio, upload credentials, and connect it to your EPIC verification.", done: snap.amcDone, locked: !bypassAll && !snap.epicDone, href: "amc.html" },
+        { num: 3, key: "career", title: "Career & Placement", sub: snap.careerSecured ? "Position secured" : "Browse & apply", detail: "Browse GP roles across Australia, apply for positions, and secure your ideal practice placement.", done: snap.careerSecured, locked: !bypassAll && !snap.amcDone, href: "career.html#browse" },
+        { num: 4, key: "ahpra", title: "AHPRA Registration", sub: snap.ahpraDone ? "Completed" : "Specialist registration", detail: "Prepare and submit your specialist registration application with the Australian Health Practitioner Regulation Agency.", done: snap.ahpraDone, locked: !bypassAll && !snap.careerSecured, href: "ahpra.html" },
+        { num: 5, key: "visa", title: "Visa Application", sub: "Nomination to grant", detail: "Track your visa from nomination through lodgement and processing to grant. Your practice sponsor and GP Link team coordinate this together.", done: snap.visaDone, locked: !bypassAll && !snap.ahpraDone, href: "visa.html" },
+        { num: 6, key: "pbs", title: "PBS & Medicare", sub: "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number to begin prescribing in Australia.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" },
+        { num: 7, key: "commencement", title: "Commencement", sub: "Pre-arrival checklist", detail: "Complete your pre-arrival checklist: travel, accommodation, medical indemnity, bank account, TFN, and practice orientation.", done: snap.commencementDone, locked: !bypassAll && !snap.pbsDone, href: "commencement.html" }
+      ];
+
+      // Determine current step (first non-done, non-locked)
+      let currentIdx = steps.findIndex(s => !s.done && !s.locked);
+      if (currentIdx === -1) currentIdx = steps.length - 1;
+
+      listEl.innerHTML = "";
+      steps.forEach((step, idx) => {
+        const isActive = idx === currentIdx && !step.done;
+        const stateClass = step.done ? "done" : step.locked ? "locked" : isActive ? "active" : "";
+        const isOpen = isActive;
+
+        const el = document.createElement("div");
+        el.className = `journey-step ${stateClass} ${isOpen ? "open" : ""}`.trim();
+
+        const pillClass = step.done ? "done" : step.locked ? "locked" : "current";
+        const pillText = step.done ? "Done" : step.locked ? "Locked" : isActive ? "Current" : "Ready";
+
+        const checkSvg = '<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
+
+        el.innerHTML = `
+          <button class="journey-head" type="button" aria-expanded="${isOpen}">
+            <span class="journey-num">${step.done ? checkSvg : step.num}</span>
+            <div class="journey-info">
+              <div class="journey-title">${step.title}</div>
+              <div class="journey-subtitle">${step.sub}</div>
+            </div>
+            <span class="journey-pill ${pillClass}">${pillText}</span>
+            ${step.locked ? '' : '<span class="journey-caret"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>'}
+          </button>
+          <div class="journey-body">
+            <p>${step.detail}</p>
+            ${step.done
+              ? '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>'
+              : step.locked
+                ? ''
+                : `<a class="journey-body-cta" href="${step.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
+            }
+          </div>
+        `;
+
+        if (!step.locked) {
+          const headBtn = el.querySelector(".journey-head");
+          headBtn.addEventListener("click", () => {
+            const wasOpen = el.classList.contains("open");
+            // Close all others
+            listEl.querySelectorAll(".journey-step.open").forEach(s => {
+              s.classList.remove("open");
+              const btn = s.querySelector(".journey-head");
+              if (btn) btn.setAttribute("aria-expanded", "false");
+            });
+            if (!wasOpen) {
+              el.classList.add("open");
+              headBtn.setAttribute("aria-expanded", "true");
+            }
+          });
+        }
+
+        listEl.appendChild(el);
+      });
     }
 
     function renderDashboard() {
@@ -1556,18 +1695,13 @@
         nextMilestoneEl.textContent = `Next milestone: Step ${nextStep} complete`;
       }
 
-      setTaskVisual(1, snap.epicDone ? "done" : "current", snap.epicDone ? "Completed" : snap.epicCurrentLabel, "myinthealth.html");
-      setTaskVisual(2, !snap.epicDone ? "locked" : snap.amcDone ? "done" : "current", !snap.epicDone ? "Unlocked after Step 1" : snap.amcDone ? "Completed" : snap.amcCurrentLabel, snap.epicDone ? "amc.html" : "#");
-      setTaskVisual(3, !snap.amcDone ? "locked" : "current", !snap.amcDone ? "Unlocked after Step 2" : "In progress", snap.amcDone ? "ahpra.html" : "#");
-      setTaskVisual(6, "locked", "No action needed yet", "#");
-
+      renderJourneyList();
       renderUpdatesFeed();
     }
 
     function getRegistrationRows() {
       const snap = getProgressSnapshot();
-      const ahpra = parseStorage(AHPRA_KEY);
-      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
       return [
         buildRegistrationRow("myinthealth", {
           title: "1. MyIntealth Account",
@@ -1582,18 +1716,54 @@
           sub: "Create AMC candidate portfolio and upload credentials.",
           mobileDetail: "AMC portfolio is created and connected to your verification.",
           mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
-          locked: !snap.epicDone,
+          locked: !bypassAll && !snap.epicDone,
           done: snap.amcDone,
           href: "amc.html"
         }),
+        buildRegistrationRow("career", {
+          title: "3. Career & Placement",
+          sub: "Secure a practice position through GP Link.",
+          mobileDetail: "Browse roles, apply and secure a placement at a practice.",
+          mobileStatus: snap.careerSecured ? "Position secured" : "Browse & apply",
+          locked: !bypassAll && !snap.amcDone,
+          done: snap.careerSecured,
+          href: "career.html#browse"
+        }),
         buildRegistrationRow("ahpra", {
-          title: "3. AHPRA Registration",
+          title: "4. AHPRA Registration",
           sub: "Prepare and submit your specialist registration application.",
           mobileDetail: "Specialist registration application is prepared and submitted correctly.",
-          mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : ahpraDone ? "Completed" : "In progress",
-          locked: !snap.amcDone,
-          done: ahpraDone,
+          mobileStatus: snap.ahpraDone ? "Completed" : "In progress",
+          locked: !bypassAll && !snap.careerSecured,
+          done: snap.ahpraDone,
           href: "ahpra.html"
+        }),
+        buildRegistrationRow("visa", {
+          title: "5. Visa Application",
+          sub: "Track your visa nomination, lodgement and processing.",
+          mobileDetail: "Visa status from nomination through to grant.",
+          mobileStatus: "In progress",
+          locked: !bypassAll && !snap.ahpraDone,
+          done: snap.visaDone,
+          href: "visa.html"
+        }),
+        buildRegistrationRow("pbs", {
+          title: "6. PBS & Medicare",
+          sub: "Apply for Medicare provider and PBS prescriber numbers.",
+          mobileDetail: "Medicare and PBS registration for prescribing authority.",
+          mobileStatus: "In progress",
+          locked: !bypassAll && !snap.ahpraDone,
+          done: snap.pbsDone,
+          href: "pbs.html"
+        }),
+        buildRegistrationRow("commencement", {
+          title: "7. Commencement",
+          sub: "Pre-arrival checklist and first-day preparation.",
+          mobileDetail: "Everything to prepare before your start date.",
+          mobileStatus: "In progress",
+          locked: !bypassAll && !snap.pbsDone,
+          done: snap.commencementDone,
+          href: "commencement.html"
         })
       ];
     }
