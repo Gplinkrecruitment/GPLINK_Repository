@@ -4984,7 +4984,8 @@
       grid-auto-columns: 172px;
     }
 
-    body.career-mode-secured .placement-broker-card {
+    body.career-mode-secured .placement-broker-card,
+    body.career-mode-secured .placement-secondary-grid {
       display: none;
     }
 
@@ -5077,20 +5078,28 @@
       body.career-mode-secured .placement-hero-card,
       body.career-mode-secured .placement-quick-stats,
       body.career-mode-secured .placement-income-float,
-      body.career-mode-secured .placement-checklist,
       body.career-mode-secured .placement-primary-grid,
-      body.career-mode-secured .placement-secondary-grid,
       body.career-mode-secured .placement-dock {
         grid-column: 1 / -1;
       }
 
-      body.career-mode-secured .placement-secondary-grid {
+      body.career-mode-secured .placement-primary-grid {
         grid-template-columns: 1fr 1fr;
+        gap: 16px;
       }
 
       body.career-mode-secured .placement-dock {
         width: 100%;
         max-width: 720px;
+      }
+
+      body.career-mode-secured .placement-dock-card {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+
+      body.career-mode-secured .placement-dock-actions {
+        width: 220px;
       }
     }
 

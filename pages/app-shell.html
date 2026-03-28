@@ -276,36 +276,16 @@
     }
 
     .reg-row.done {
-      border-color: #86efac;
-      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+      border-color: #bfdbfe;
+      background: #eff6ff;
     }
 
-    .reg-row.done .reg-name,
+    .reg-row.done .reg-name {
+      color: #1d4ed8;
+    }
+
     .reg-row.done .reg-sub {
-      color: #166534;
-      text-decoration: line-through;
-      text-decoration-thickness: 1.5px;
-    }
-
-    .reg-row.done::before,
-    .reg-row.done::after {
-      content: "";
-      position: absolute;
-      top: 50%;
-      left: 14px;
-      right: 14px;
-      height: 2px;
-      border-radius: 999px;
-      background: rgba(15, 23, 42, 0.78);
-      pointer-events: none;
-    }
-
-    .reg-row.done::before {
-      transform: rotate(6deg);
-    }
-
-    .reg-row.done::after {
-      transform: rotate(-6deg);
+      color: #64748b;
     }
 
     .reg-btn {
@@ -326,10 +306,9 @@
     }
 
     .reg-btn.done {
-      border-color: #86efac;
-      background: #dcfce7;
-      color: #166534;
-      cursor: not-allowed;
+      border-color: #bfdbfe;
+      background: #dbeafe;
+      color: #1d4ed8;
     }
 
     .reg-btn.locked {
@@ -753,10 +732,10 @@
               <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
               <span>Career</span>
             </a>
-            <button class="nav-link nav-item" type="button" data-nav="notifications" data-alert-trigger style="cursor:pointer;">
+            <a class="nav-link nav-item" href="/pages/messages.html" data-route="/pages/messages.html" data-nav="notifications">
               <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
               <span>Notifications</span>
-            </button>
+            </a>
             <a class="account-pill nav-item" href="/pages/account.html" data-route="/pages/account.html" data-nav="account">
               <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg>
               <span>Account</span>
