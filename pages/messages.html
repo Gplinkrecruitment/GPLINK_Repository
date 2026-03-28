@@ -377,10 +377,19 @@
       .view { padding-bottom: 48px; }
     }
     /* When embedded in app-shell iframe, parent provides mobile-nav so ours is hidden.
-       On mobile the tabs go to bottom: 0; on desktop they stay sticky. */
-    html.gp-shell-embedded .bottom-tabs { bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
-    html.gp-shell-embedded .fab { bottom: 74px; }
-    html.gp-shell-embedded .view { padding-bottom: 80px; }
+       Bottom tabs must sit above the parent shell's nav bar. */
+    html.gp-shell-embedded .bottom-tabs {
+      bottom: var(--gp-shell-bottom-clearance, 70px);
+      max-width: 100%;
+      padding-bottom: 0;
+    }
+    html.gp-shell-embedded .fab {
+      bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 54px);
+      max-width: 100%;
+    }
+    html.gp-shell-embedded .view {
+      padding-bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 64px);
+    }
 
     .legal-footer { text-align: center; font-size: 12px; color: var(--muted); margin: 14px 0 8px; line-height: 1.45; }
     .legal-footer a { color: #334155; text-decoration: underline; }
