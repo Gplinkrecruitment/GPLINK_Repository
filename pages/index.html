@@ -108,101 +108,10 @@
       box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.5);
     }
 
-    /* ─── PROGRESS CARDS CAROUSEL ─── */
-    .progress-carousel {
-      display: flex; gap: 14px;
-      overflow-x: auto; scroll-snap-type: x mandatory;
-      -webkit-overflow-scrolling: touch;
-      padding: 4px 0 14px;
-      scrollbar-width: none;
-    }
-    .progress-carousel::-webkit-scrollbar { display: none; }
-
-    .progress-card {
-      flex: 0 0 280px; scroll-snap-align: start;
-      border-radius: var(--radius); padding: 20px;
-      color: #fff; position: relative; overflow: hidden;
-      min-height: 160px; display: flex; flex-direction: column;
-      justify-content: space-between;
-      cursor: pointer; transition: transform .2s ease;
-      text-decoration: none;
-    }
-    .progress-card:hover { transform: translateY(-2px); }
-
-    .progress-card-1 { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #2563eb 100%); }
-    .progress-card-2 { background: linear-gradient(135deg, #5b21b6 0%, #8b5cf6 50%, #7c3aed 100%); }
-    .progress-card-3 { background: linear-gradient(135deg, #065f46 0%, #10b981 50%, #059669 100%); }
-    .progress-card-4 { background: linear-gradient(135deg, #9f1239 0%, #f43f5e 50%, #e11d48 100%); }
-
-    .progress-card::before {
-      content: ""; position: absolute; inset: 0;
-      background: radial-gradient(circle at 80% 20%, rgba(255,255,255,0.15), transparent 60%);
-      pointer-events: none;
-    }
-
-    .pc-top { position: relative; z-index: 1; }
-
-    .pc-badge {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 4px 10px; border-radius: 999px;
-      background: rgba(255,255,255,0.2); backdrop-filter: blur(4px);
-      font-size: 11px; font-weight: 700;
-      margin-bottom: 10px;
-    }
-
-    .pc-badge-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: #fff; animation: pulse-dot 2s ease infinite;
-    }
-
     @keyframes pulse-dot {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.4; }
     }
-
-    .pc-title {
-      font-size: 18px; font-weight: 800;
-      letter-spacing: -0.01em; line-height: 1.25;
-      margin-bottom: 4px;
-    }
-
-    .pc-sub {
-      font-size: 12px; font-weight: 500;
-      opacity: 0.85; line-height: 1.4;
-    }
-
-    .pc-bottom { position: relative; z-index: 1; margin-top: 14px; }
-
-    .pc-progress-row {
-      display: flex; align-items: center;
-      justify-content: space-between; gap: 10px;
-      margin-bottom: 6px;
-    }
-
-    .pc-progress-label { font-size: 12px; font-weight: 600; opacity: 0.9; }
-    .pc-progress-val { font-size: 13px; font-weight: 800; }
-
-    .pc-progress-track {
-      height: 6px; border-radius: 999px;
-      background: rgba(255,255,255,0.25); overflow: hidden;
-    }
-
-    .pc-progress-fill {
-      height: 100%; border-radius: 999px;
-      background: #fff; transition: width .4s ease;
-    }
-
-    .carousel-dots {
-      display: flex; justify-content: center;
-      gap: 6px; padding: 0 0 8px;
-    }
-
-    .carousel-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: #cbd5e1; border: none; cursor: pointer;
-      transition: all .2s ease; padding: 0;
-    }
-    .carousel-dot.active { background: var(--blue); width: 24px; border-radius: 4px; }
 
     /* ─── SECTION HEADING ─── */
     .section-head {
@@ -358,6 +267,29 @@
       width: 14px; height: 14px; stroke: currentColor;
       fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
     }
+
+    /* ─── Registration sub-steps ─── */
+    .journey-subs { display: grid; gap: 0; }
+
+    .journey-sub-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .journey-sub-item:last-child { border-bottom: none; }
+
+    .journey-sub-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .journey-sub-dot.done { background: var(--green2); box-shadow: 0 0 0 3px rgba(22,163,74,0.12); }
+    .journey-sub-dot.active { background: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); animation: pulse-dot 2s ease infinite; }
+    .journey-sub-dot.locked { background: #cbd5e1; }
+
+    .journey-sub-info { flex: 1; min-width: 0; }
+    .journey-sub-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .journey-sub-detail { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+
+    .journey-sub-item.locked { opacity: 0.55; }
 
     /* ─── UPDATES CARD ─── */
     .updates-section {
@@ -921,9 +853,7 @@
       .mobile-nav { display: none; }
       .dash-wrap { padding-bottom: 40px; }
 
-      .progress-card { flex: 1 1 0; min-width: 0; }
-      .progress-carousel { overflow: visible; flex-wrap: nowrap; }
-      .carousel-dots { display: none; }
+      /* (carousel removed) */
     }
 
     @media (max-width: 767px) {
@@ -933,9 +863,7 @@
       .trust-grid { grid-template-columns: 1fr; }
     }
 
-    @media (max-width: 480px) {
-      .progress-card { flex: 0 0 calc(100vw - 48px); }
-    }
+    /* (480px carousel breakpoint removed) */
   </style>
 </head>
 <body>
@@ -957,42 +885,6 @@
         </button>
       </div>
     </header>
-
-    <!-- PROGRESS CARDS -->
-    <div class="progress-carousel" id="progressCarousel">
-      <a class="progress-card progress-card-1" id="mainProgressCard" href="myinthealth.html">
-        <div class="pc-top">
-          <div class="pc-badge"><span class="pc-badge-dot"></span> Current Step</div>
-          <div class="pc-title" id="pc-main-title">MyIntealth Account</div>
-          <div class="pc-sub" id="pc-main-sub">EPIC verification is set up and moving forward.</div>
-        </div>
-        <div class="pc-bottom">
-          <div class="pc-progress-row">
-            <span class="pc-progress-label">Overall Progress</span>
-            <span class="pc-progress-val" id="pc-main-percent">0%</span>
-          </div>
-          <div class="pc-progress-track"><div class="pc-progress-fill" id="pc-main-bar" style="width:3%"></div></div>
-        </div>
-      </a>
-      <a class="progress-card progress-card-3" id="careerProgressCard" href="career.html#browse">
-        <div class="pc-top">
-          <div class="pc-badge">Career</div>
-          <div class="pc-title">MyCareer</div>
-          <div class="pc-sub" id="pc-career-sub">Browse roles, review applications and track your placement progress.</div>
-        </div>
-        <div class="pc-bottom">
-          <div class="pc-progress-row">
-            <span class="pc-progress-label" id="pc-career-label">Status</span>
-            <span class="pc-progress-val" id="pc-career-val">Ready</span>
-          </div>
-          <div class="pc-progress-track"><div class="pc-progress-fill" id="pc-career-bar" style="width:18%"></div></div>
-        </div>
-      </a>
-    </div>
-    <div class="carousel-dots" id="carouselDots">
-      <button class="carousel-dot active" data-index="0"></button>
-      <button class="carousel-dot" data-index="1"></button>
-    </div>
 
     <!-- HIDDEN METRICS -->
     <div class="metrics-hidden" aria-hidden="true">
@@ -1579,19 +1471,28 @@
       const snap = getProgressSnapshot();
       const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
-      const steps = [
-        { num: 1, key: "myintealth", title: "MyIntealth Account", sub: snap.epicDone ? "Completed" : snap.epicCurrentLabel, detail: "Create your MyIntealth account and complete EPIC verification to begin your Australian GP journey.", done: snap.epicDone, locked: false, href: "myinthealth.html" },
-        { num: 2, key: "amc", title: "AMC Portfolio", sub: snap.amcDone ? "Completed" : snap.amcCurrentLabel, detail: "Create your AMC candidate portfolio, upload credentials, and connect it to your EPIC verification.", done: snap.amcDone, locked: !bypassAll && !snap.epicDone, href: "amc.html" },
-        { num: 3, key: "career", title: "Career & Placement", sub: snap.careerSecured ? "Position secured" : "Browse & apply", detail: "Browse GP roles across Australia, apply for positions, and secure your ideal practice placement.", done: snap.careerSecured, locked: !bypassAll && !snap.amcDone, href: "career.html#browse" },
-        { num: 4, key: "ahpra", title: "AHPRA Registration", sub: snap.ahpraDone ? "Completed" : "Specialist registration", detail: "Prepare and submit your specialist registration application with the Australian Health Practitioner Regulation Agency.", done: snap.ahpraDone, locked: !bypassAll && !snap.careerSecured, href: "ahpra.html" },
-        { num: 5, key: "visa", title: "Visa Application", sub: "Nomination to grant", detail: "Track your visa from nomination through lodgement and processing to grant. Your practice sponsor and GP Link team coordinate this together.", done: snap.visaDone, locked: !bypassAll && !snap.ahpraDone, href: "visa.html" },
-        { num: 6, key: "pbs", title: "PBS & Medicare", sub: "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number to begin prescribing in Australia.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" },
-        { num: 7, key: "commencement", title: "Commencement", sub: "Pre-arrival checklist", detail: "Complete your pre-arrival checklist: travel, accommodation, medical indemnity, bank account, TFN, and practice orientation.", done: snap.commencementDone, locked: !bypassAll && !snap.pbsDone, href: "commencement.html" }
+      const regSubsDone = [snap.epicDone, snap.amcDone, snap.ahpraDone];
+      const regAllDone = regSubsDone.every(Boolean);
+      const regCompletedCount = regSubsDone.filter(Boolean).length;
+
+      const regSubs = [
+        { key: "myintealth", title: "MyIntealth Account", sub: snap.epicDone ? "Completed" : snap.epicCurrentLabel, detail: "Create your MyIntealth account and complete EPIC verification.", done: snap.epicDone, locked: false, href: "myinthealth.html" },
+        { key: "amc", title: "AMC Portfolio", sub: snap.amcDone ? "Completed" : snap.amcCurrentLabel, detail: "Create your AMC candidate portfolio and upload credentials.", done: snap.amcDone, locked: !bypassAll && !snap.epicDone, href: "amc.html" },
+        { key: "ahpra", title: "AHPRA Registration", sub: snap.ahpraDone ? "Completed" : "Specialist registration", detail: "Prepare and submit your specialist registration application with AHPRA.", done: snap.ahpraDone, locked: !bypassAll && !snap.amcDone, href: "ahpra.html" }
       ];
 
-      // Determine current step (first non-done, non-locked)
+      const steps = [
+        { num: 1, key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
+        { num: 2, key: "visa", title: "Visa Application", sub: snap.visaDone ? "Granted" : "Nomination to grant", detail: "Track your visa from nomination through lodgement and processing to grant. Your practice sponsor and GP Link team coordinate this together.", done: snap.visaDone, locked: !bypassAll && !snap.ahpraDone, href: "visa.html" },
+        { num: 3, key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number to begin prescribing in Australia.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" },
+        { num: 4, key: "commencement", title: "Commencement", sub: snap.commencementDone ? "Ready to start" : "Pre-arrival checklist", detail: "Complete your pre-arrival checklist: travel, accommodation, medical indemnity, bank account, TFN, and practice orientation.", done: snap.commencementDone, locked: !bypassAll && !snap.pbsDone, href: "commencement.html" }
+      ];
+
+      // Determine which top-level step is current
       let currentIdx = steps.findIndex(s => !s.done && !s.locked);
       if (currentIdx === -1) currentIdx = steps.length - 1;
+
+      const checkSvg = '<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
 
       listEl.innerHTML = "";
       steps.forEach((step, idx) => {
@@ -1605,7 +1506,38 @@
         const pillClass = step.done ? "done" : step.locked ? "locked" : "current";
         const pillText = step.done ? "Done" : step.locked ? "Locked" : isActive ? "Current" : "Ready";
 
-        const checkSvg = '<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
+        // Build body content
+        let bodyHtml = "";
+        if (step.subs) {
+          // Registration parent — render sub-steps inside
+          bodyHtml = '<div class="journey-subs">' + step.subs.map((sub) => {
+            const subState = sub.done ? "done" : sub.locked ? "locked" : "active";
+            const subPillClass = sub.done ? "done" : sub.locked ? "locked" : "current";
+            const subPillText = sub.done ? "Done" : sub.locked ? "Locked" : "Continue";
+            return `
+              <div class="journey-sub-item ${subState}">
+                <span class="journey-sub-dot ${subState}"></span>
+                <div class="journey-sub-info">
+                  <div class="journey-sub-title">${sub.title}</div>
+                  <div class="journey-sub-detail">${sub.sub}</div>
+                </div>
+                ${sub.done
+                  ? '<span class="journey-pill done" style="font-size:10px;padding:3px 10px;">Done</span>'
+                  : sub.locked
+                    ? '<span class="journey-pill locked" style="font-size:10px;padding:3px 10px;">Locked</span>'
+                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="${sub.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
+                }
+              </div>
+            `;
+          }).join("") + '</div>';
+        } else {
+          bodyHtml = `<p>${step.detail}</p>`;
+          if (step.done) {
+            bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
+          } else if (!step.locked) {
+            bodyHtml += `<a class="journey-body-cta" href="${step.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
+          }
+        }
 
         el.innerHTML = `
           <button class="journey-head" type="button" aria-expanded="${isOpen}">
@@ -1617,26 +1549,17 @@
             <span class="journey-pill ${pillClass}">${pillText}</span>
             ${step.locked ? '' : '<span class="journey-caret"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>'}
           </button>
-          <div class="journey-body">
-            <p>${step.detail}</p>
-            ${step.done
-              ? '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>'
-              : step.locked
-                ? ''
-                : `<a class="journey-body-cta" href="${step.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
-            }
-          </div>
+          <div class="journey-body">${bodyHtml}</div>
         `;
 
         if (!step.locked) {
           const headBtn = el.querySelector(".journey-head");
           headBtn.addEventListener("click", () => {
             const wasOpen = el.classList.contains("open");
-            // Close all others
             listEl.querySelectorAll(".journey-step.open").forEach(s => {
               s.classList.remove("open");
-              const btn = s.querySelector(".journey-head");
-              if (btn) btn.setAttribute("aria-expanded", "false");
+              const b = s.querySelector(".journey-head");
+              if (b) b.setAttribute("aria-expanded", "false");
             });
             if (!wasOpen) {
               el.classList.add("open");
@@ -1659,35 +1582,6 @@
       document.getElementById("ring-num").textContent = `${Math.round(snap.progressPercent)}%`;
       document.getElementById("progress-ring").setAttribute("stroke-dashoffset", ringOffset.toFixed(4));
       if (progressBarEl) progressBarEl.style.width = `${snap.progressPercent}%`;
-
-      // Progress cards
-      const mainCard = document.getElementById("mainProgressCard");
-      const mainTitle = document.getElementById("pc-main-title");
-      const mainSub = document.getElementById("pc-main-sub");
-      const mainPercent = document.getElementById("pc-main-percent");
-      const mainBar = document.getElementById("pc-main-bar");
-      if (mainCard) mainCard.href = snap.currentRoute;
-      if (mainTitle) mainTitle.textContent = snap.currentTitle;
-      if (mainSub) {
-        mainSub.textContent = snap.epicDone
-          ? (snap.amcDone ? "Prepare the final AHPRA submission." : "Upload credentials in AMC portfolio.")
-          : "EPIC verification is set up and moving forward.";
-      }
-      if (mainPercent) mainPercent.textContent = `${Math.round(snap.progressPercent)}%`;
-      if (mainBar) mainBar.style.width = `${snap.progressPercent}%`;
-
-      // MyCareer card
-      const careerCard = document.getElementById("careerProgressCard");
-      const careerLabel = document.getElementById("pc-career-label");
-      const careerVal = document.getElementById("pc-career-val");
-      const careerBar = document.getElementById("pc-career-bar");
-      const careerSub = document.getElementById("pc-career-sub");
-      const careerSnap = getCareerCardSnapshot();
-      if (careerCard) careerCard.href = careerSnap.href;
-      if (careerLabel) careerLabel.textContent = careerSnap.label;
-      if (careerVal) careerVal.textContent = careerSnap.value;
-      if (careerBar) careerBar.style.width = `${careerSnap.percent}%`;
-      if (careerSub) careerSub.textContent = careerSnap.sub;
 
       const nextMilestoneEl = document.getElementById("next-milestone");
       if (nextMilestoneEl) {
@@ -1720,17 +1614,8 @@
           done: snap.amcDone,
           href: "amc.html"
         }),
-        buildRegistrationRow("career", {
-          title: "3. Career & Placement",
-          sub: "Secure a practice position through GP Link.",
-          mobileDetail: "Browse roles, apply and secure a placement at a practice.",
-          mobileStatus: snap.careerSecured ? "Position secured" : "Browse & apply",
-          locked: !bypassAll && !snap.amcDone,
-          done: snap.careerSecured,
-          href: "career.html#browse"
-        }),
         buildRegistrationRow("ahpra", {
-          title: "4. AHPRA Registration",
+          title: "3. AHPRA Registration",
           sub: "Prepare and submit your specialist registration application.",
           mobileDetail: "Specialist registration application is prepared and submitted correctly.",
           mobileStatus: snap.ahpraDone ? "Completed" : "In progress",
@@ -1739,7 +1624,7 @@
           href: "ahpra.html"
         }),
         buildRegistrationRow("visa", {
-          title: "5. Visa Application",
+          title: "4. Visa Application",
           sub: "Track your visa nomination, lodgement and processing.",
           mobileDetail: "Visa status from nomination through to grant.",
           mobileStatus: "In progress",
@@ -1748,7 +1633,7 @@
           href: "visa.html"
         }),
         buildRegistrationRow("pbs", {
-          title: "6. PBS & Medicare",
+          title: "5. PBS & Medicare",
           sub: "Apply for Medicare provider and PBS prescriber numbers.",
           mobileDetail: "Medicare and PBS registration for prescribing authority.",
           mobileStatus: "In progress",
@@ -1757,7 +1642,7 @@
           href: "pbs.html"
         }),
         buildRegistrationRow("commencement", {
-          title: "7. Commencement",
+          title: "6. Commencement",
           sub: "Pre-arrival checklist and first-day preparation.",
           mobileDetail: "Everything to prepare before your start date.",
           mobileStatus: "In progress",
@@ -2033,38 +1918,7 @@
       renderRegistrationRows();
     }, { once: true });
 
-    // Carousel dots
-    const carousel = document.getElementById("progressCarousel");
-    const dots = document.querySelectorAll(".carousel-dot");
-    if (carousel && dots.length) {
-      carousel.addEventListener("scroll", () => {
-        const scrollLeft = carousel.scrollLeft;
-        const cardWidth = carousel.firstElementChild ? carousel.firstElementChild.offsetWidth + 14 : 300;
-        const idx = Math.round(scrollLeft / cardWidth);
-        dots.forEach((d, i) => d.classList.toggle("active", i === idx));
-      });
-      dots.forEach((dot) => {
-        dot.addEventListener("click", () => {
-          const idx = parseInt(dot.dataset.index, 10);
-          const cardWidth = carousel.firstElementChild ? carousel.firstElementChild.offsetWidth + 14 : 300;
-          carousel.scrollTo({ left: idx * cardWidth, behavior: "smooth" });
-        });
-      });
-    }
-
-    // View schedule link opens registration
-    const viewScheduleLink = document.getElementById("viewScheduleLink");
-    if (viewScheduleLink) {
-      viewScheduleLink.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (window.matchMedia("(max-width: 767px)").matches) {
-          openMobileRegistration();
-        } else {
-          openRegistrationDropdown();
-        }
-      });
-    }
+    // (carousel removed — replaced by The Journey stepper)
 
     // Touch drag to close mobile reg sheet
     let startY = 0;
