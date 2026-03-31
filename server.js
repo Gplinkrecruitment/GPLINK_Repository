@@ -6764,6 +6764,14 @@ function normalizeAustralianStateAbbreviation(value) {
   const direct = raw.toUpperCase();
   if (['NSW', 'QLD', 'VIC', 'SA', 'WA', 'TAS', 'NT', 'ACT'].includes(direct)) return direct;
   const aliases = {
+    nsw: 'NSW',
+    qld: 'QLD',
+    vic: 'VIC',
+    sa: 'SA',
+    wa: 'WA',
+    tas: 'TAS',
+    nt: 'NT',
+    act: 'ACT',
     newsouthwales: 'NSW',
     queensland: 'QLD',
     victoria: 'VIC',
@@ -6828,15 +6836,24 @@ function buildLifestyleLocationContext(locationValue, roleMeta, roleRow) {
 
 function normalizeLifestyleSearchLocationContext(value) {
   const source = value && typeof value === 'object' ? value : {};
-  const suburb = String(source.suburb || '').trim();
-  const state = normalizeAustralianStateAbbreviation(source.state || '');
-  const postcode = String(source.postcode || source.postCode || extractAustralianPostcode(source.label) || '').trim();
-  const country = String(source.country || 'Australia').trim() || 'Australia';
+  const parsedLabelContext = String(source.label || '').trim()
+    ? parsePlacementLocationContext(source.label)
+    : {};
+  const suburb = String(source.suburb || parsedLabelContext.suburb || '').trim();
+  const state = normalizeAustralianStateAbbreviation(source.state || parsedLabelContext.state || '');
+  const postcode = String(
+    source.postcode
+    || source.postCode
+    || parsedLabelContext.postcode
+    || extractAustralianPostcode(source.label)
+    || ''
+  ).trim();
+  const country = String(source.country || parsedLabelContext.country || 'Australia').trim() || 'Australia';
   const label = String(source.label || '').trim() || buildLocationLabel([
     suburb,
     buildLocationLabel([state, postcode]),
     country
-  ]);
+  ]) || String(parsedLabelContext.label || '').trim();
   return {
     suburb,
     state,
@@ -13447,7 +13464,7 @@ Return ONLY valid JSON with no markdown formatting:
     const email = getSessionEmail(session);
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
-    const caseId = parsedUrl.searchParams.get('caseId');
+    const caseId = url.searchParams.get('caseId');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing caseId.' }); return; }
     // Verify ownership
     const own = await supabaseDbRequest('visa_applications', `select=id&id=eq.${encodeURIComponent(caseId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
@@ -13567,7 +13584,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx6 = requireAdminSession(req, res);
     if (!adminCtx6) return;
-    const caseId = parsedUrl.searchParams.get('id');
+    const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     const caseIdEnc = encodeURIComponent(caseId);
     const [caseRes, docsRes, updatesRes, eventsRes] = await Promise.all([

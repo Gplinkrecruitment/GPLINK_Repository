@@ -6264,6 +6264,13 @@
           defaultRadiusKm: 5,
           partySummary: "your move",
           recommendedBedrooms: 2,
+          searchContext: {
+            suburb: "Tweed Heads South",
+            state: "NSW",
+            postcode: "2486",
+            country: "Australia",
+            label: "Tweed Heads South, NSW 2486, Australia"
+          },
           viewAllRentUrl: "https://www.homely.com.au/for-rent/tweed-heads-south-nsw-2486/real-estate",
           viewAllBuyUrl: "https://www.homely.com.au/for-sale/tweed-heads-south-nsw-2486/real-estate",
           rent: [
@@ -7435,10 +7442,24 @@
       window.clearTimeout(practiceLifestyleHousingSearchTimer);
       const delay = Math.max(0, Number(delayMs) || 0);
       practiceLifestyleHousingSearchTimer = window.setTimeout(() => {
+        practiceLifestyleHousingSearchTimer = 0;
         const nextLifestyle = resolveSecuredPlacement().lifestyle;
         const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
         void refreshPracticeLifestyleHousingSearch(nextLifestyle || lifestyle, market);
       }, delay);
+    }
+
+    function ensurePracticeLifestyleHousingLoaded(lifestyle) {
+      if (!lifestyle || typeof lifestyle !== "object") return;
+      if (practiceLifestyleState.mode !== "housing") return;
+      const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      const bucket = getPracticeLifestyleRemoteHousingBucketForMarket(market);
+      const listings = getPracticeLifestyleHousingListings(lifestyle, market);
+      if (Array.isArray(listings) && listings.length) return;
+      if (bucket.status === "loading" || bucket.status === "ready") return;
+      if (practiceLifestyleHousingSearchTimer) return;
+      if (!buildPracticeLifestyleHousingSearchPayload(lifestyle, market)) return;
+      schedulePracticeLifestyleHousingSearch(lifestyle, 0);
     }
 
     function getPracticeLifestyleVisibleHousing(lifestyle) {
@@ -8622,15 +8643,19 @@
       const listings = getPracticeLifestyleVisibleHousing(lifestyle).slice(0, 4);
       const featured = listings[0] || null;
       const compact = listings.slice(1);
+      const housingMeta = getPracticeLifestyleHousingMeta(lifestyle, market);
       const footerUrl = market === "buy"
         ? String(lifestyle && lifestyle.housing && lifestyle.housing.viewAllBuyUrl || "").trim()
         : String(lifestyle && lifestyle.housing && lifestyle.housing.viewAllRentUrl || "").trim();
       if (!featured) {
+        const emptyCopy = housingMeta.status === "loading" || housingMeta.status === "idle"
+          ? "Loading live properties..."
+          : (housingMeta.error || "No live properties matched this search.");
         return `
           <div class="practice-lifestyle-dashboard-body">
             <div class="practice-lifestyle-empty-state">
               <div class="practice-lifestyle-empty-icon">${buildPracticeLifestyleIcon("home")}</div>
-              <p style="font-size:13px;font-weight:400;">No properties available right now.</p>
+              <p style="font-size:13px;font-weight:400;">${escapeHtml(emptyCopy)}</p>
             </div>
           </div>
         `;
@@ -8794,6 +8819,7 @@
       securedLifestyleExplorerEl.classList.add("is-open");
       resetPracticeLifestyleMapRuntime();
       securedLifestyleExplorerEl.innerHTML = buildPracticeLifestyleDashboardHtml(lifestyle);
+      ensurePracticeLifestyleHousingLoaded(lifestyle);
     }
 
     function resolveSecuredPlacement() {
