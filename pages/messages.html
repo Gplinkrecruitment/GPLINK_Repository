@@ -143,31 +143,52 @@
     .fab svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.5; }
 
     /* ─── ARTICLES ─── */
-    .articles-list { padding: 0 16px; display: grid; gap: 8px; }
-    .article-item { background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; transition: border-color .15s; }
-    .article-item.expanded { border-color: #bfdbfe; }
-    .article-header {
-      display: flex; align-items: center; gap: 12px; padding: 14px 16px;
-      cursor: pointer; border: 0; background: transparent; width: 100%; text-align: left; font: inherit;
+    .articles-list { padding: 0 16px; display: grid; gap: 12px; }
+    .article-card {
+      background: #fff; border: 1px solid var(--line); border-radius: 16px;
+      overflow: hidden; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease;
     }
-    .article-icon { width: 36px; height: 36px; border-radius: 10px; background: #eff6ff; display: grid; place-items: center; flex-shrink: 0; }
-    .article-icon svg { width: 18px; height: 18px; stroke: #2563eb; fill: none; stroke-width: 2; }
-    .article-info { flex: 1; min-width: 0; }
-    .article-title { font-size: 14px; font-weight: 700; color: var(--text); margin: 0; }
-    .article-views { font-size: 12px; color: var(--muted); font-weight: 500; display: flex; align-items: center; gap: 4px; margin-top: 2px; }
-    .article-views svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 2; }
-    .article-chevron { width: 20px; height: 20px; color: #94a3b8; transition: transform .2s; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 2; }
-    .article-item.expanded .article-chevron { transform: rotate(180deg); }
-    .article-body { display: none; padding: 0 16px 16px; font-size: 13px; color: #475569; line-height: 1.6; font-weight: 500; }
-    .article-item.expanded .article-body { display: block; }
-    .article-feedback { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--muted); font-weight: 600; }
-    .feedback-btn {
-      width: 32px; height: 32px; border: 1px solid var(--line); background: #fff; border-radius: 8px;
-      display: grid; place-items: center; cursor: pointer; transition: background .15s, border-color .15s;
+    .article-card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px -16px rgba(15, 23, 42, 0.18); }
+    .article-card-img {
+      height: 120px; display: flex; align-items: center; justify-content: center;
+      background: var(--article-bg); position: relative; overflow: hidden;
     }
-    .feedback-btn:hover { background: #eff6ff; border-color: #bfdbfe; }
-    .feedback-btn.selected { background: #dbeafe; border-color: #93c5fd; }
-    .feedback-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; }
+    .article-card-img svg { width: 36px; height: 36px; stroke: rgba(255,255,255,0.7); fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+    .article-card-body { padding: 14px 16px 16px; display: grid; gap: 6px; }
+    .article-card-tag {
+      display: inline-flex; width: fit-content; padding: 4px 9px; border-radius: 999px;
+      font-size: 10px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+      background: var(--tag-bg, #eff6ff); color: var(--tag-color, #1d4ed8);
+    }
+    .article-card-title { font-size: 15px; font-weight: 800; color: var(--text); letter-spacing: -0.02em; line-height: 1.3; margin: 0; }
+    .article-card-desc { font-size: 12px; color: var(--muted); font-weight: 500; line-height: 1.5; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .article-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 11px; color: #94a3b8; font-weight: 600; }
+    .article-card-meta svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+    .article-detail { display: none; }
+    .article-detail.open { display: block; }
+    .article-detail-header {
+      height: 160px; display: flex; align-items: flex-end; padding: 20px;
+      background: var(--article-bg); position: relative;
+    }
+    .article-detail-header::after {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.5));
+    }
+    .article-detail-header h2 {
+      position: relative; z-index: 1; color: #fff; font-size: 20px; font-weight: 800;
+      letter-spacing: -0.03em; line-height: 1.2; margin: 0;
+    }
+    .article-detail-body { padding: 20px 16px 40px; }
+    .article-detail-body p { font-size: 14px; color: #334155; line-height: 1.7; font-weight: 500; margin: 0 0 14px; }
+    .article-detail-body p:last-child { margin-bottom: 0; }
+    .article-detail-back {
+      position: absolute; top: 14px; left: 14px; z-index: 2;
+      width: 36px; height: 36px; border-radius: 999px; border: 0;
+      background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      color: #fff; display: grid; place-items: center; cursor: pointer;
+    }
+    .article-detail-back svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 
     /* ─── HELP CTA ─── */
     .help-cta {
@@ -441,7 +462,7 @@
       <div class="search-wrap">
         <div class="search-bar">
           <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="search" id="articleSearch" placeholder="Search conversation" aria-label="Search articles" />
+          <input type="search" id="articleSearch" placeholder="Search articles" aria-label="Search articles" />
         </div>
       </div>
       <p class="section-label">Popular articles</p>
@@ -453,7 +474,14 @@
         </div>
         <button class="help-cta-btn" id="ctaCreateTicket" type="button">Create Ticket</button>
       </div>
-      <p class="section-label" style="margin-top:16px;">Popular articles</p>
+    </div>
+
+  </div>
+
+  <!-- ═══ SLIDE: ARTICLE DETAIL ═══ -->
+  <div class="slide-view" id="slideArticleDetail">
+    <div class="slide-inner" style="padding:0;">
+      <div id="articleDetailContent"></div>
     </div>
   </div>
 
@@ -546,11 +574,126 @@
     const DOC_KEY = "gp_documents_prep";
 
     const HELP_ARTICLES = [
-      { id:"a1", title:"Getting started guide", views:234, content:"Welcome to GP Link! Start by completing your registration in the onboarding wizard. You'll need to verify your qualifications, set up your MyIntealth account, and upload your documents. Each step is guided \u2013 follow the prompts and you'll be set up in no time." },
-      { id:"a2", title:"Troubleshooting payment issue", views:534, content:"Common causes of payment issues include:\n\n\u2022 Expired credit card\n\u2022 Insufficient funds\n\u2022 Bank security blocks on international transactions\n\u2022 Incorrect billing details\n\nIf you continue to experience issues, contact your bank first, then reach out to our support team with your transaction reference number." },
-      { id:"a3", title:"How to upload documents", views:412, content:"Navigate to My Documents from the main menu. Click on the document you need to upload, then either take a photo using your camera or select a file from your device. Supported formats: PDF, JPG, PNG, WEBP. Maximum file size is 10MB. Ensure documents are clear and all text is legible." },
-      { id:"a4", title:"Understanding your registration steps", views:328, content:"Your registration follows four main stages: 1) MyIntealth/EPIC account setup, 2) AMC Portfolio submission, 3) Document collection and verification, 4) AHPRA registration. Each stage has sub-steps that you can track from your dashboard. Green means complete, blue means in progress, and grey means pending." },
-      { id:"a5", title:"Contacting your GP Link advisor", views:189, content:"Your GP Link advisor is assigned once you complete the onboarding process. You can reach them through the Support section by creating a ticket, or check your Messages for any updates they've sent. For urgent matters, mark your ticket as urgent and our team will prioritise your request." }
+      {
+        id: "a1",
+        title: "The Expedited Pathway to Practise in Australia",
+        tag: "Registration",
+        tagBg: "#eff6ff",
+        tagColor: "#1d4ed8",
+        bg: "linear-gradient(135deg, #1e40af, #3b82f6)",
+        icon: "clipboard",
+        views: 1247,
+        desc: "How the Competent Authority Pathway lets qualified GPs skip exams and start practising faster.",
+        content: "The Competent Authority Pathway (CAP) is the fastest route for experienced GPs from the UK, Ireland, and New Zealand to practise in Australia. Unlike the Standard Pathway, the CAP does not require you to sit the AMC exam \u2014 your existing qualifications are assessed as equivalent.\n\nTo be eligible, you need a recognised primary medical degree, completion of specialist GP training (e.g. MRCGP, MICGP, or FRNZCGP), and at least 12 months of post-fellowship clinical experience.\n\nThe process involves four key stages: creating a MyIntealth/EPIC account to begin your portfolio, compiling your AMC documentation including certified copies of your qualifications, applying to AHPRA for medical registration, and finally securing a placement at a practice.\n\nMost GPs complete the pathway in 3\u20136 months from initial application to arriving at their practice. GP Link manages each step for you, coordinating document certification, submission timelines, and practice matching so you can focus on the move itself."
+      },
+      {
+        id: "a2",
+        title: "What to Expect at an Australian Medical Centre",
+        tag: "Clinical",
+        tagBg: "#f0fdf4",
+        tagColor: "#15803d",
+        bg: "linear-gradient(135deg, #166534, #22c55e)",
+        icon: "stethoscope",
+        views: 983,
+        desc: "The day-to-day reality of working as a GP in an Australian general practice.",
+        content: "Australian medical centres operate differently to UK surgeries or Irish practices. Most are privately owned, mixed-billing clinics where GPs work as independent contractors rather than salaried employees.\n\nA typical day involves seeing 30\u201340 patients in 10\u201315 minute consultations. You\u2019ll use clinical software like Best Practice or Medical Director rather than EMIS or SystmOne. Pathology and imaging are referred externally \u2014 there are no in-house labs.\n\nMedicare is Australia\u2019s universal health system. Bulk-billed consultations are charged directly to Medicare at a set rate. Private-billing practices charge above the Medicare rate, and patients pay the gap. Many centres operate a mixed model.\n\nYou\u2019ll typically have a dedicated consulting room, a practice nurse for support, and admin staff handling reception and billing. Practice managers coordinate rosters, but you generally have flexibility to set your own hours and patient load once settled.\n\nMost GPs work 4\u20135 days per week. After-hours work is optional and usually covered by dedicated after-hours services rather than individual GPs."
+      },
+      {
+        id: "a3",
+        title: "GP Income and Earnings in Australia",
+        tag: "Finance",
+        tagBg: "#fefce8",
+        tagColor: "#a16207",
+        bg: "linear-gradient(135deg, #92400e, #f59e0b)",
+        icon: "dollar",
+        views: 2104,
+        desc: "Realistic earning expectations, billing structures, and how GP pay works.",
+        content: "GP earnings in Australia are among the highest in the world. Most GPs earn between $350,000 and $550,000 AUD per year, with some exceeding $600,000 depending on location, billing model, and hours worked.\n\nThe vast majority of GPs are paid as a percentage of billings rather than a fixed salary. A typical split is 65\u201370% of billings to the GP, with the practice retaining the remainder to cover overheads. Some practices offer guaranteed minimum draws of $2,500\u2013$3,500 per day while you build your patient base.\n\nMedicare rebates form the backbone of GP income. A standard Level B consultation (the most common) attracts a Medicare rebate of approximately $41. Private-billing practices charge $80\u2013$120 per consultation, with patients claiming the Medicare portion back.\n\nRural and regional areas often offer higher earnings due to stronger demand and additional government incentives. The District of Workforce Shortage (DWS) classification unlocks Medicare provider numbers for international medical graduates, and many rural practices offer relocation packages.\n\nSuperannuation (retirement contributions of 11.5%) is paid on top of earnings. As a contractor, you\u2019ll also need to manage your own tax, including quarterly BAS statements for GST if registered."
+      },
+      {
+        id: "a4",
+        title: "Lifestyle and Cost of Living in Australia",
+        tag: "Lifestyle",
+        tagBg: "#fdf2f8",
+        tagColor: "#be185d",
+        bg: "linear-gradient(135deg, #9d174d, #ec4899)",
+        icon: "sun",
+        views: 1563,
+        desc: "What life is really like \u2014 housing, weather, schools, and day-to-day costs.",
+        content: "Australia consistently ranks among the top countries for quality of life. The climate is a major draw \u2014 most of the eastern seaboard enjoys 250+ days of sunshine per year, with mild winters even in the southern states.\n\nHousing costs vary significantly by location. In Sydney, expect to pay $600\u2013$900/week for a 3-bedroom rental. Brisbane and the Gold Coast are more affordable at $500\u2013$700/week. Regional towns can be as low as $350\u2013$500/week for a family home.\n\nGroceries, dining, and transport are broadly comparable to the UK, though fuel and car insurance tend to be cheaper. A family of four typically spends $800\u2013$1,200/month on groceries.\n\nPublic schools in Australia are free and generally high quality. Private schools range from $8,000\u2013$35,000/year depending on the school. Most expat families find the public system excellent, particularly in suburban areas.\n\nHealthcare for residents is covered under Medicare, which you\u2019ll have access to as a registered medical practitioner. The outdoor lifestyle is a genuine differentiator \u2014 beaches, national parks, and community sports are embedded in daily life in a way that\u2019s hard to replicate elsewhere."
+      },
+      {
+        id: "a5",
+        title: "AHPRA Registration Explained",
+        tag: "Registration",
+        tagBg: "#eff6ff",
+        tagColor: "#1d4ed8",
+        bg: "linear-gradient(135deg, #1e3a5f, #0ea5e9)",
+        icon: "shield",
+        views: 876,
+        desc: "Step-by-step guide to getting your AHPRA medical registration approved.",
+        content: "AHPRA (Australian Health Practitioner Regulation Agency) is the body that grants your licence to practise medicine in Australia. Without AHPRA registration, you cannot see patients.\n\nThere are several registration types relevant to international GPs. The most common for CAP applicants is Limited Registration for Area of Need, which allows you to work in a specific location where there\u2019s a demonstrated need for GPs.\n\nThe application requires your AMC assessment outcome, proof of identity, English language evidence (IELTS or OET, or exemption for UK/Irish/NZ-trained doctors), a criminal history check, and professional references.\n\nProcessing times are typically 4\u20138 weeks once all documents are submitted. GP Link coordinates the submission and follows up directly with AHPRA to prevent delays.\n\nOnce registered, your provider number is linked to your practice location. If you change practices, you\u2019ll need to update your registration. Annual renewal is required, and continuing professional development (CPD) obligations apply from your first year of registration.\n\nFull specialist recognition through the RACGP or ACRRM can be pursued after arrival, which removes the area-of-need restriction and gives you full flexibility on where you practise."
+      },
+      {
+        id: "a6",
+        title: "Choosing the Right Location in Australia",
+        tag: "Relocation",
+        tagBg: "#f5f3ff",
+        tagColor: "#6d28d9",
+        bg: "linear-gradient(135deg, #4c1d95, #8b5cf6)",
+        icon: "map",
+        views: 1091,
+        desc: "Regional vs metro, coastal vs inland \u2014 how to pick where you\u2019ll thrive.",
+        content: "Location choice affects your income, lifestyle, visa options, and long-term career flexibility. Understanding the trade-offs is critical before committing.\n\nMetro areas (Sydney, Melbourne, Brisbane) offer the most amenities, schooling options, and social infrastructure. However, competition for positions is higher, and as an IMG you\u2019ll need a DWS-classified area for your Medicare provider number \u2014 which excludes most inner-city locations.\n\nRegional and outer-suburban areas are where the strongest demand exists. Towns with populations of 15,000\u201380,000 often offer the best balance: enough infrastructure for a comfortable family life, strong patient demand, and practices willing to offer generous packages to attract GPs.\n\nCoastal regional towns (Gold Coast hinterland, Sunshine Coast, Wollongong, Geelong) are especially popular with relocating GPs. They combine lifestyle appeal with clinical demand.\n\nRural and remote areas offer the highest earning potential and fastest visa processing, but require a genuine willingness to adapt to smaller-town life. Some GPs love it; others find the isolation challenging.\n\nGP Link matches you to locations based on your family situation, lifestyle preferences, and career goals. We only place GPs in practices we\u2019ve personally vetted."
+      },
+      {
+        id: "a7",
+        title: "Visa Options for GPs Moving to Australia",
+        tag: "Visa",
+        tagBg: "#fff7ed",
+        tagColor: "#c2410c",
+        bg: "linear-gradient(135deg, #9a3412, #fb923c)",
+        icon: "globe",
+        views: 1432,
+        desc: "The main visa pathways and which one suits your situation.",
+        content: "Most GPs relocating through GP Link arrive on one of three visa types: the subclass 482 (Temporary Skill Shortage), the subclass 494 (Skilled Employer Sponsored Regional), or the subclass 186 (Employer Nomination Scheme).\n\nThe 482 visa is the most common starting point. It\u2019s employer-sponsored, valid for up to 4 years, and allows your partner to work. Processing times are typically 2\u20134 months. After 2\u20133 years on a 482, you can transition to permanent residency via the 186 visa.\n\nThe 494 visa is designed for regional areas and provides a direct pathway to permanent residency after 3 years. It\u2019s particularly attractive if you\u2019re open to regional placement.\n\nThe 186 visa grants permanent residency directly but requires the employer to demonstrate they couldn\u2019t fill the role locally. It\u2019s less common as an initial visa but is the typical endpoint for GPs who stay.\n\nAll three visas require a skills assessment, English language evidence, health checks, and police clearances. Your sponsoring practice handles the employer side of the application.\n\nGP Link coordinates with registered migration agents to manage the visa process alongside your registration timeline, ensuring nothing falls through the cracks."
+      },
+      {
+        id: "a8",
+        title: "The AMC Portfolio: What You Need to Prepare",
+        tag: "Documents",
+        tagBg: "#f0fdf4",
+        tagColor: "#15803d",
+        bg: "linear-gradient(135deg, #064e3b, #10b981)",
+        icon: "folder",
+        views: 724,
+        desc: "Every document required for your AMC assessment and how to get them certified.",
+        content: "The AMC (Australian Medical Council) assesses whether your qualifications are equivalent to Australian standards. For the Competent Authority Pathway, this is a paper-based assessment \u2014 no exam required.\n\nYour portfolio must include: a certified copy of your primary medical degree (MBBS, MBChB, or equivalent), your specialist GP qualification (MRCGP, MICGP, or FRNZCGP), your certificate of completion of training (CCT, CSCST, or equivalent), a current certificate of good standing from your medical council, and two structured referee reports.\n\nAll documents must be certified copies \u2014 not originals. Certification can be done by a Justice of the Peace, solicitor, or notary public. Australian consulates and embassies can also certify documents.\n\nThe referee reports must come from senior medical practitioners who have directly supervised your clinical work within the last 5 years. GP Link provides the structured template and guidance on selecting appropriate referees.\n\nSubmission is done through the AMC online portal. Processing takes 8\u201312 weeks. GP Link reviews your portfolio before submission to catch any issues that could cause delays or rejection.\n\nThe most common reasons for delays are incomplete certification, outdated certificates of good standing (must be less than 3 months old), and referee reports that don\u2019t meet the structured format requirements."
+      },
+      {
+        id: "a9",
+        title: "Settling Your Family in Australia",
+        tag: "Family",
+        tagBg: "#fdf2f8",
+        tagColor: "#be185d",
+        bg: "linear-gradient(135deg, #581c87, #a855f7)",
+        icon: "users",
+        views: 891,
+        desc: "Schools, childcare, partner employment, and making Australia home.",
+        content: "Relocating a family adds complexity but Australia is exceptionally well set up for it. Most GP families settle within 2\u20133 months of arrival.\n\nSchool enrolment is straightforward. Public schools accept enrolments year-round, and your nearest school is determined by your residential address (catchment zones). The school year runs February to December with four terms. Private schools typically require applications 6\u201312 months in advance.\n\nChildcare is widely available but can have waitlists in popular areas. The Child Care Subsidy (CCS) covers 50\u201390% of fees depending on household income. Register with MyGov and Centrelink as soon as you arrive to access the subsidy.\n\nYour partner can work on most visa types. If they have a professional qualification, they may need to apply for Australian recognition \u2014 GP Link can connect you with the relevant assessment body.\n\nBanking is simple to set up. Most major banks (CommBank, Westpac, ANZ, NAB) allow you to open an account online before you arrive. You\u2019ll need a Tax File Number (TFN) within 28 days of starting work \u2014 apply online through the ATO.\n\nDriving licences from the UK, Ireland, and New Zealand are valid for the first 3\u20136 months (varies by state). After that, you\u2019ll need to convert to a local licence, which is usually a straightforward exchange without a test."
+      },
+      {
+        id: "a10",
+        title: "Your First 90 Days at a Practice",
+        tag: "Career",
+        tagBg: "#eff6ff",
+        tagColor: "#1d4ed8",
+        bg: "linear-gradient(135deg, #0f172a, #334155)",
+        icon: "calendar",
+        views: 667,
+        desc: "What orientation looks like and how to build your patient list quickly.",
+        content: "Your first three months at an Australian practice are about building confidence in the local system and establishing your patient base.\n\nWeek 1 is typically orientation: learning the practice software (Best Practice or Medical Director), understanding the Medicare billing codes, meeting the nursing and admin team, and familiarising yourself with local referral pathways for pathology, imaging, and specialists.\n\nWeeks 2\u20134, most practices start you at a lighter load \u2014 20\u201325 patients per day \u2014 while you get comfortable with the consultation rhythm and billing. Your practice manager will guide you through the MBS (Medicare Benefits Schedule) item numbers you\u2019ll use most frequently.\n\nBy month 2, you\u2019ll typically be at full capacity. Word of mouth is powerful in Australian general practice \u2014 patients who have a good experience will return and bring their families. Practices actively help new GPs build their list through reception booking preferences and signage.\n\nThe clinical work itself will feel familiar. The scope of general practice in Australia is broad: minor procedures, chronic disease management, mental health plans, skin checks, and paediatrics are all standard GP territory.\n\nGP Link checks in regularly during your first 90 days to ensure the placement is working for both you and the practice. If adjustments are needed \u2014 to hours, patient load, or support arrangements \u2014 we coordinate directly with the practice."
+      }
     ];
 
     const PREPARED_BY_YOU_DOCS = [
@@ -803,31 +946,67 @@
     ticketSearchEl.addEventListener("input", renderTicketList);
 
     /* ═══ RENDER ARTICLES ═══ */
+    const ARTICLE_ICONS = {
+      clipboard: '<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>',
+      stethoscope: '<svg viewBox="0 0 24 24"><path d="M4.8 2.7A4 4 0 1 0 8 10c0-2.2-1.8-4-4-4"/><path d="M15 2a4 4 0 0 1 0 8"/><path d="M9 10v5a7 7 0 0 0 14 0v-1"/><circle cx="20" cy="12" r="2"/></svg>',
+      dollar: '<svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+      sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>',
+      shield: '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+      map: '<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+      globe: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+      folder: '<svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+      users: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+      calendar: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
+    };
+
+    const slideArticleDetail = document.getElementById("slideArticleDetail");
+    const articleDetailContent = document.getElementById("articleDetailContent");
+
+    function openArticleDetail(articleId) {
+      const article = HELP_ARTICLES.find(a => a.id === articleId);
+      if (!article) return;
+      const paragraphs = article.content.split("\n\n").map(p => "<p>" + escapeHtml(p).replace(/\n/g, "<br>") + "</p>").join("");
+      articleDetailContent.innerHTML = `
+        <div class="article-detail-header" style="--article-bg:${article.bg}">
+          <button class="article-detail-back" id="articleDetailBack" type="button"><svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg></button>
+          <h2>${escapeHtml(article.title)}</h2>
+        </div>
+        <div class="article-detail-body">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;">
+            <span class="article-card-tag" style="--tag-bg:${article.tagBg};--tag-color:${article.tagColor};">${escapeHtml(article.tag)}</span>
+            <span style="font-size:12px;color:#94a3b8;font-weight:600;">${article.views} views</span>
+          </div>
+          ${paragraphs}
+        </div>
+      `;
+      slideArticleDetail.classList.add("open");
+      slideArticleDetail.scrollTop = 0;
+      document.getElementById("articleDetailBack").addEventListener("click", () => slideArticleDetail.classList.remove("open"));
+    }
+
     function renderArticles() {
       const q = articleSearchEl.value.trim().toLowerCase();
       let filtered = HELP_ARTICLES;
-      if (q) filtered = HELP_ARTICLES.filter(a=>`${a.title} ${a.content}`.toLowerCase().includes(q));
-      articlesListEl.innerHTML = filtered.map(a=>`
-        <div class="article-item" data-article-id="${a.id}">
-          <button class="article-header" type="button">
-            <div class="article-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
-            <div class="article-info">
-              <p class="article-title">${escapeHtml(a.title)}</p>
-              <p class="article-views"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${a.views} views</p>
-            </div>
-            <svg class="article-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="article-body">
-            <p>${escapeHtml(a.content).replace(/\n/g,"<br>")}</p>
-            <div class="article-feedback">Was that helpful?
-              <button class="feedback-btn" type="button" data-feedback="up" aria-label="Helpful"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
-              <button class="feedback-btn" type="button" data-feedback="down" aria-label="Not helpful"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
+      if (q) filtered = HELP_ARTICLES.filter(a => `${a.title} ${a.desc} ${a.tag} ${a.content}`.toLowerCase().includes(q));
+      articlesListEl.innerHTML = filtered.map(a => `
+        <div class="article-card" data-article-id="${a.id}">
+          <div class="article-card-img" style="--article-bg:${a.bg}">
+            ${ARTICLE_ICONS[a.icon] || ""}
+          </div>
+          <div class="article-card-body">
+            <span class="article-card-tag" style="--tag-bg:${a.tagBg};--tag-color:${a.tagColor};">${escapeHtml(a.tag)}</span>
+            <p class="article-card-title">${escapeHtml(a.title)}</p>
+            <p class="article-card-desc">${escapeHtml(a.desc)}</p>
+            <div class="article-card-meta">
+              <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>${a.views} views</span>
             </div>
           </div>
         </div>
       `).join("");
-      articlesListEl.querySelectorAll(".article-header").forEach(h=>h.addEventListener("click",()=>h.closest(".article-item").classList.toggle("expanded")));
-      articlesListEl.querySelectorAll(".feedback-btn").forEach(btn=>btn.addEventListener("click",e=>{e.stopPropagation();btn.parentElement.querySelectorAll(".feedback-btn").forEach(s=>s.classList.remove("selected"));btn.classList.add("selected");}));
+      articlesListEl.querySelectorAll(".article-card").forEach(card => {
+        card.addEventListener("click", () => openArticleDetail(card.dataset.articleId));
+      });
     }
     articleSearchEl.addEventListener("input", renderArticles);
 
