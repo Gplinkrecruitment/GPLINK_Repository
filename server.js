@@ -83,7 +83,7 @@ const API_RATE_MAX_REQUESTS = 30; // max 30 requests per minute per user
 const _apiRateLimitStore = new Map(); // userId -> [timestamps]
 const VISA_STAGES = ['nomination', 'lodgement', 'processing', 'granted', 'refused'];
 const PBS_APPLICATION_TYPES = ['medicare_provider', 'pbs_prescriber'];
-const PBS_STATUSES = ['not_started', 'in_progress', 'submitted', 'approved', 'rejected'];
+const PBS_STATUSES = ['not_started', 'in_progress', 'submitted', 'approved', 'rejected', 'waiting_on_gp', 'under_review', 'complete', 'blocked'];
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const CAREER_AI_PROFILE_VERSION = 2;
 const CAREER_HERO_IMAGE_VERSION = 3;
@@ -121,7 +121,7 @@ const DOMAIN_API_CLIENT_SECRET = String(process.env.DOMAIN_API_CLIENT_SECRET || 
 const DOMAIN_API_SCOPE = String(process.env.DOMAIN_API_SCOPE || 'api_listings_read').trim() || 'api_listings_read';
 const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https://auth.domain.com.au/v1/connect/token').trim() || 'https://auth.domain.com.au/v1/connect/token';
 const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = String(process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK || 'false').trim().toLowerCase() === 'true';
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 11;
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 12;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE = Math.max(10, Number(process.env.DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE || 40) || 40);
@@ -7232,11 +7232,13 @@ function scoreHomelyLocationCandidate(candidate, locationContext) {
   const candidatePostcode = extractAustralianPostcode(candidate && candidate.zipCode && candidate.zipCode.name);
   const candidateType = Number(candidate && candidate.type || 0);
   const suburbKey = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
+  const broadSuburb = isBroadCareerLocationLabel(locationContext && locationContext.suburb);
   const stateCode = normalizeAustralianStateAbbreviation(locationContext && locationContext.state || '');
   const postcode = extractAustralianPostcode(locationContext && locationContext.postcode);
   let score = 0;
-  if (suburbKey && candidateName === suburbKey) score += 100;
-  else if (suburbKey && candidateName.includes(suburbKey)) score += 40;
+  if (suburbKey && !broadSuburb && candidateName === suburbKey) score += 100;
+  else if (suburbKey && !broadSuburb && candidateName.includes(suburbKey)) score += 40;
+  else if (suburbKey && !broadSuburb) score -= 35;
   if (stateCode && candidateState === stateCode) score += 35;
   if (postcode && candidatePostcode === postcode) score += 35;
   if (candidateType === 2) score += 15;
@@ -7288,10 +7290,18 @@ async function resolveHomelyLifestyleLocation(locationContext) {
   }
   const candidates = Array.from(candidatesBySlug.values());
   if (!candidates.length) return null;
+  const suburbKey = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
+  const broadSuburb = isBroadCareerLocationLabel(locationContext && locationContext.suburb);
+  const postcode = extractAustralianPostcode(locationContext && locationContext.postcode);
   const best = candidates
     .map((candidate) => ({ candidate, score: scoreHomelyLocationCandidate(candidate, locationContext) }))
     .sort((left, right) => right.score - left.score)[0];
   if (!best || !best.candidate || !Number.isFinite(best.score) || best.score < 40) return null;
+  const candidateName = normalizeCareerHeroCityKey(best.candidate && best.candidate.name);
+  const candidatePostcode = extractAustralianPostcode(best.candidate && best.candidate.zipCode && best.candidate.zipCode.name);
+  const suburbMatched = suburbKey && !broadSuburb && (candidateName === suburbKey || candidateName.includes(suburbKey));
+  const postcodeMatched = postcode && candidatePostcode === postcode;
+  if (!suburbMatched && !postcodeMatched) return null;
   return {
     suburb: String(best.candidate.name || locationContext && locationContext.suburb || '').trim(),
     state: normalizeAustralianStateAbbreviation(best.candidate && best.candidate.state && best.candidate.state.name),
@@ -7473,16 +7483,62 @@ async function fetchHomelyLifestyleSearchPage(url) {
   }
 }
 
-async function fetchHomelyLifestyleListings(locationContext, practiceCoords, market, household, options = {}) {
-  const resolvedLocation = await resolveHomelyLifestyleLocation(locationContext) || locationContext;
-  const searchUrl = buildHomelyLifestyleSearchUrl(resolvedLocation, market, 1);
+function buildHomelyLifestyleLocationSignature(locationContext) {
+  if (!locationContext || typeof locationContext !== 'object') return '';
+  const explicitSlug = String(locationContext.slug || '').trim();
+  if (explicitSlug) return `slug:${explicitSlug}`;
+  return [
+    normalizeCareerHeroCityKey(locationContext.suburb),
+    normalizeAustralianStateAbbreviation(locationContext.state),
+    extractAustralianPostcode(locationContext.postcode),
+    String(locationContext.label || '').trim().toLowerCase()
+  ].filter(Boolean).join('|');
+}
+
+async function buildHomelyLifestyleSearchContexts(locationContext, practiceCoords = null) {
+  const contexts = [];
+  const seen = new Set();
+  const pushContext = (value) => {
+    const normalized = normalizeLifestyleSearchLocationContext(value);
+    const signature = buildHomelyLifestyleLocationSignature({
+      ...normalized,
+      slug: value && value.slug ? value.slug : '',
+      uri: value && value.uri ? value.uri : ''
+    });
+    if (!signature || seen.has(signature)) return;
+    seen.add(signature);
+    contexts.push({
+      ...normalized,
+      slug: String(value && value.slug || '').trim(),
+      uri: String(value && value.uri || '').trim()
+    });
+  };
+
+  const normalized = normalizeLifestyleSearchLocationContext(locationContext);
+  const resolved = await resolveHomelyLifestyleLocation(locationContext);
+  if (resolved) pushContext(resolved);
+  pushContext(normalized);
+
+  const reverseContext = await reverseGeocodeCareerLocationContext(practiceCoords);
+  if (reverseContext) {
+    const enrichedReverse = await enrichLifestyleLocationContextForHomely(reverseContext, practiceCoords);
+    const resolvedReverse = await resolveHomelyLifestyleLocation(enrichedReverse);
+    if (resolvedReverse) pushContext(resolvedReverse);
+    pushContext(enrichedReverse);
+  }
+
+  return contexts;
+}
+
+async function fetchHomelyLifestyleListingsForLocation(locationContext, practiceCoords, market, household, options = {}) {
+  const searchUrl = buildHomelyLifestyleSearchUrl(locationContext, market, 1);
   if (!searchUrl) return [];
   const deduped = new Map();
   let totalPages = 1;
   const maxPages = Math.max(1, HOMELY_LIFESTYLE_MAX_PAGES);
 
   for (let page = 1; page <= Math.min(totalPages, maxPages); page += 1) {
-    const pageUrl = buildHomelyLifestyleSearchUrl(resolvedLocation, market, page);
+    const pageUrl = buildHomelyLifestyleSearchUrl(locationContext, market, page);
     const payload = await fetchHomelyLifestyleSearchPage(pageUrl);
     totalPages = Math.max(totalPages, payload.totalPages || 1);
     (Array.isArray(payload.listings) ? payload.listings : []).forEach((record) => {
@@ -7507,6 +7563,24 @@ async function fetchHomelyLifestyleListings(locationContext, practiceCoords, mar
   ));
   const candidateRows = bedroomFiltered.length ? bedroomFiltered : rows;
   return applyLifestyleHousingFilters(candidateRows, options, market)
+    .slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
+}
+
+async function fetchHomelyLifestyleListings(locationContext, practiceCoords, market, household, options = {}) {
+  const searchContexts = await buildHomelyLifestyleSearchContexts(locationContext, practiceCoords);
+  const dedupedListings = new Map();
+
+  for (const candidateLocation of searchContexts) {
+    const rows = await fetchHomelyLifestyleListingsForLocation(candidateLocation, practiceCoords, market, household, options);
+    rows.forEach((item) => {
+      if (!item || !item.id) return;
+      dedupedListings.set(item.id, item);
+    });
+    if (dedupedListings.size >= DOMAIN_LIFESTYLE_RESULT_LIMIT) break;
+  }
+
+  const mergedRows = Array.from(dedupedListings.values());
+  return applyLifestyleHousingFilters(mergedRows, options, market)
     .slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
 }
 
@@ -8587,7 +8661,7 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
   const roleMeta = getCareerRoleGpLinkMeta(roleRow);
   const baseLocationContext = buildLifestyleLocationContext(location, roleMeta, roleRow);
   const geocoded = await resolveCareerSuburbCoordinates({
-    suburb: roleMeta && roleMeta.suburb ? roleMeta.suburb : baseLocationContext.suburb,
+    suburb: baseLocationContext.suburb || (roleMeta && roleMeta.suburb) || '',
     state: roleRow && roleRow.location_state ? roleRow.location_state : baseLocationContext.state,
     country: roleRow && roleRow.location_country ? roleRow.location_country : baseLocationContext.country
   });
@@ -8930,6 +9004,24 @@ async function pushVisaNotificationToOwner(caseId, notification) {
     const state = (row && row.state && typeof row.state === 'object') ? { ...row.state } : {};
     const updates = Array.isArray(state.gp_link_updates) ? [...state.gp_link_updates] : [];
     updates.unshift({ type: notification.type || 'info', title: notification.title || 'Visa update', detail: notification.detail || '', ts: Date.now() });
+    if (updates.length > 50) updates.length = 50;
+    state.gp_link_updates = updates;
+    await upsertSupabaseUserState(userId, state, new Date().toISOString());
+  } catch (_) { /* non-critical */ }
+}
+
+async function pushPbsNotificationToOwner(appId, notification) {
+  if (!appId) return;
+  try {
+    const appRes = await supabaseDbRequest('pbs_applications', `select=user_id&id=eq.${encodeURIComponent(appId)}&limit=1`);
+    if (!appRes.ok || !Array.isArray(appRes.data) || appRes.data.length === 0) return;
+    const userId = appRes.data[0].user_id;
+    if (!userId) return;
+    const stateRes = await supabaseDbRequest('user_state', `select=state,updated_at&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const row = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data.length > 0 ? stateRes.data[0] : null;
+    const state = (row && row.state && typeof row.state === 'object') ? { ...row.state } : {};
+    const updates = Array.isArray(state.gp_link_updates) ? [...state.gp_link_updates] : [];
+    updates.unshift({ type: notification.type || 'info', title: notification.title || 'PBS & Medicare', detail: notification.detail || '', ts: Date.now() });
     if (updates.length > 50) updates.length = 50;
     state.gp_link_updates = updates;
     await upsertSupabaseUserState(userId, state, new Date().toISOString());

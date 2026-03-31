@@ -7380,7 +7380,9 @@
           state: String(searchContext.state || "").trim(),
           postcode: String(searchContext.postcode || searchContext.postCode || "").trim(),
           country: String(searchContext.country || "Australia").trim() || "Australia",
-          label
+          label,
+          slug: String(searchContext.slug || "").trim(),
+          uri: String(searchContext.uri || "").trim()
         },
         practiceCoords: Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null,
         household: {
@@ -7587,7 +7589,7 @@
         practiceLifestyleState = {
           mode: "housing",
           housingMode: lifestyle.housing && lifestyle.housing.defaultMode === "buy" ? "buy" : "rent",
-          radiusKm: clampNumber(lifestyle.housing && lifestyle.housing.defaultRadiusKm || 5, 2, 25),
+          radiusKm: clampNumber(lifestyle.housing && lifestyle.housing.defaultRadiusKm || 25, 2, 25),
           searchQuery: "",
           priceMin: "",
           priceMax: "",
