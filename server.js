@@ -122,7 +122,7 @@ const DOMAIN_API_CLIENT_SECRET = String(process.env.DOMAIN_API_CLIENT_SECRET || 
 const DOMAIN_API_SCOPE = String(process.env.DOMAIN_API_SCOPE || 'api_listings_read').trim() || 'api_listings_read';
 const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https://auth.domain.com.au/v1/connect/token').trim() || 'https://auth.domain.com.au/v1/connect/token';
 const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = String(process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK || 'false').trim().toLowerCase() === 'true';
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 13;
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 14;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE = Math.max(10, Number(process.env.DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE || 40) || 40);
@@ -7338,6 +7338,22 @@ function buildHomelyListingUrl(value) {
   return `${HOMELY_BASE_URL}/${source.replace(/^\/+/, '')}`;
 }
 
+function buildHomelyLifestyleSearchDataUrl(locationContext, market = 'rent', pageNumber = 1, buildId = '') {
+  const slug = buildHomelyLifestyleLocationSlug(locationContext);
+  const resolvedBuildId = String(buildId || '').trim();
+  if (!slug || !resolvedBuildId) return '';
+  const mode = market === 'buy' ? 'for-sale' : 'for-rent';
+  const page = Math.max(1, parseWholeNumber(pageNumber, 1));
+  const pathParts = [mode, slug, 'real-estate'];
+  if (page > 1) pathParts.push(`page-${page}`);
+  const url = new URL(`${HOMELY_BASE_URL}/_next/data/${resolvedBuildId}/${pathParts.join('/')}.json`);
+  url.searchParams.set('mode', mode);
+  url.searchParams.set('location', slug);
+  url.searchParams.set('facets', 'real-estate');
+  if (page > 1) url.searchParams.set('page', String(page));
+  return url.toString();
+}
+
 function normalizeHomelyPriceLabel(value, market = 'rent') {
   const source = String(value || '').trim();
   if (!source) return market === 'buy' ? 'Price on request' : 'Rent on request';
@@ -7453,7 +7469,7 @@ function normalizeHomelyListing(record, practiceCoords, market) {
 
 async function fetchHomelyLifestyleSearchPage(url) {
   const requestUrl = String(url || '').trim();
-  if (!requestUrl) return { listings: [], totalPages: 0 };
+  if (!requestUrl) return { ok: false, listings: [], totalPages: 0 };
   try {
     const response = await fetch(requestUrl, {
       headers: {
@@ -7461,10 +7477,10 @@ async function fetchHomelyLifestyleSearchPage(url) {
         'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
       }
     });
-    if (!response.ok) return { listings: [], totalPages: 0 };
+    if (!response.ok) return { ok: false, listings: [], totalPages: 0 };
     const html = await response.text().catch(() => '');
     const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/i);
-    if (!nextDataMatch || !nextDataMatch[1]) return { listings: [], totalPages: 0 };
+    if (!nextDataMatch || !nextDataMatch[1]) return { ok: false, listings: [], totalPages: 0 };
     const payload = JSON.parse(nextDataMatch[1]);
     const pageProps = payload && payload.props && payload.props.pageProps && typeof payload.props.pageProps === 'object'
       ? payload.props.pageProps
@@ -7476,11 +7492,107 @@ async function fetchHomelyLifestyleSearchPage(url) {
       ? ssrData.paging
       : {};
     return {
+      ok: true,
       listings: Array.isArray(ssrData.listings) ? ssrData.listings : [],
       totalPages: Math.max(1, parseWholeNumber(paging.totalPages, 1))
     };
   } catch (err) {
-    return { listings: [], totalPages: 0 };
+    return { ok: false, listings: [], totalPages: 0 };
+  }
+}
+
+function extractHomelyNextDataPayload(html) {
+  const source = String(html || '');
+  if (!source) return null;
+  const nextDataMatch = source.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/i);
+  if (!nextDataMatch || !nextDataMatch[1]) return null;
+  try {
+    return JSON.parse(nextDataMatch[1]);
+  } catch (err) {
+    return null;
+  }
+}
+
+function extractHomelyListingsPayload(payload) {
+  const pageProps = payload && payload.props && payload.props.pageProps && typeof payload.props.pageProps === 'object'
+    ? payload.props.pageProps
+    : (payload && payload.pageProps && typeof payload.pageProps === 'object' ? payload.pageProps : {});
+  const ssrData = pageProps && pageProps.ssrData && typeof pageProps.ssrData === 'object'
+    ? pageProps.ssrData
+    : {};
+  const paging = ssrData && ssrData.paging && typeof ssrData.paging === 'object'
+    ? ssrData.paging
+    : {};
+  return {
+    listings: Array.isArray(ssrData.listings) ? ssrData.listings : [],
+    totalPages: Math.max(1, parseWholeNumber(paging.totalPages, 1)),
+    buildId: String(payload && payload.buildId || '').trim()
+  };
+}
+
+async function fetchHomelyBuildId(locationContext, market = 'rent') {
+  if (String(_homelyBuildIdCache.value || '').trim() && Number(_homelyBuildIdCache.expiresAt || 0) > Date.now()) {
+    return _homelyBuildIdCache.value;
+  }
+  const pageUrl = buildHomelyLifestyleSearchUrl(locationContext, market, 1);
+  if (!pageUrl) return '';
+  try {
+    const response = await fetch(pageUrl, {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
+      }
+    });
+    if (!response.ok) return '';
+    const html = await response.text().catch(() => '');
+    const nextDataPayload = extractHomelyNextDataPayload(html);
+    const buildId = String(
+      nextDataPayload && nextDataPayload.buildId
+      || (html.match(/\/_next\/static\/([^/]+)\/_buildManifest\.js/i) || [])[1]
+      || (html.match(/"buildId":"([^"]+)"/i) || [])[1]
+      || ''
+    ).trim();
+    if (!buildId) return '';
+    _homelyBuildIdCache = {
+      value: buildId,
+      expiresAt: Date.now() + (30 * 60 * 1000)
+    };
+    return buildId;
+  } catch (err) {
+    return '';
+  }
+}
+
+async function fetchHomelyLifestyleSearchJsonPage(locationContext, market, pageNumber, buildId) {
+  const requestUrl = buildHomelyLifestyleSearchDataUrl(locationContext, market, pageNumber, buildId);
+  if (!requestUrl) return { ok: false, listings: [], totalPages: 0 };
+  try {
+    const response = await fetch(requestUrl, {
+      headers: {
+        Accept: 'application/json,text/plain,*/*',
+        'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
+      }
+    });
+    if (!response.ok) {
+      if (response.status === 404 && String(_homelyBuildIdCache.value || '').trim() === String(buildId || '').trim()) {
+        _homelyBuildIdCache = { value: '', expiresAt: 0 };
+      }
+      return {
+        ok: false,
+        listings: [],
+        totalPages: 0
+      };
+    }
+    const payload = await response.json().catch(() => null);
+    if (!payload || typeof payload !== 'object') return { ok: false, listings: [], totalPages: 0 };
+    const extracted = extractHomelyListingsPayload(payload);
+    return {
+      ok: true,
+      listings: extracted.listings,
+      totalPages: extracted.totalPages
+    };
+  } catch (err) {
+    return { ok: false, listings: [], totalPages: 0 };
   }
 }
 
@@ -7534,13 +7646,24 @@ async function buildHomelyLifestyleSearchContexts(locationContext, practiceCoord
 async function fetchHomelyLifestyleListingsForLocation(locationContext, practiceCoords, market, household, options = {}) {
   const searchUrl = buildHomelyLifestyleSearchUrl(locationContext, market, 1);
   if (!searchUrl) return [];
+  const buildId = await fetchHomelyBuildId(locationContext, market);
   const deduped = new Map();
   let totalPages = 1;
   const maxPages = Math.max(1, HOMELY_LIFESTYLE_MAX_PAGES);
 
   for (let page = 1; page <= Math.min(totalPages, maxPages); page += 1) {
     const pageUrl = buildHomelyLifestyleSearchUrl(locationContext, market, page);
-    const payload = await fetchHomelyLifestyleSearchPage(pageUrl);
+    let payload = buildId
+      ? await fetchHomelyLifestyleSearchJsonPage(locationContext, market, page, buildId)
+      : await fetchHomelyLifestyleSearchPage(pageUrl);
+    if (!payload.ok) {
+      payload = await fetchHomelyLifestyleSearchPage(pageUrl);
+    } else if (buildId && page === 1 && (!Array.isArray(payload.listings) || payload.listings.length === 0)) {
+      const htmlPayload = await fetchHomelyLifestyleSearchPage(pageUrl);
+      if (htmlPayload.ok && Array.isArray(htmlPayload.listings) && htmlPayload.listings.length > 0) {
+        payload = htmlPayload;
+      }
+    }
     totalPages = Math.max(totalPages, payload.totalPages || 1);
     (Array.isArray(payload.listings) ? payload.listings : []).forEach((record) => {
       const normalized = normalizeHomelyListing(record, practiceCoords, market);
