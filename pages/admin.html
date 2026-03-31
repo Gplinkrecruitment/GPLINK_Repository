@@ -966,6 +966,11 @@
         Visa Cases
         <span class="admin-action-count" id="visaCaseCount" hidden>0</span>
       </a>
+      <a class="admin-action-link" href="/pages/admin-pbs.html">
+        <svg viewBox="0 0 24 24"><path d="M9 12h6M12 9v6"/><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+        PBS & Medicare
+        <span class="admin-action-count" id="pbsCaseCount" hidden>0</span>
+      </a>
     </div>
 
     <section class="panel executive-panel" id="executivePanel" hidden>
@@ -2622,6 +2627,17 @@
       } catch (_) { /* non-critical */ }
     }
 
+    async function loadPbsCaseCount() {
+      try {
+        const r = await fetch("/api/admin/pbs/cases", { credentials: "same-origin" });
+        const d = await r.json();
+        if (d.ok && Array.isArray(d.cases) && d.cases.length > 0) {
+          const badge = document.getElementById("pbsCaseCount");
+          if (badge) { badge.textContent = d.cases.length; badge.hidden = false; }
+        }
+      } catch (_) { /* non-critical */ }
+    }
+
     bindEvents();
     loadAdminSession()
       .then((ok) => {
@@ -2629,6 +2645,7 @@
         loadDashboard();
         loadZohoRecruitStatus();
         loadVisaCaseCount();
+        loadPbsCaseCount();
         startAutoRefresh();
       })
       .catch((err) => {

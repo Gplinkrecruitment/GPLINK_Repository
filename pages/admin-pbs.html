@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PBS & Medicare Admin - GP Link</title>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --panel: #ffffff;
+      --line: #dfe6f2;
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --green: #16a34a;
+      --amber: #b45309;
+      --red: #dc2626;
+      --purple-1: #7c3aed;
+      --purple-2: #6366f1;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --shadow: 0 20px 36px -28px rgba(15, 23, 42, 0.5);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(1000px 560px at 50% -12%, #fff, var(--bg));
+      padding: 16px;
+    }
+
+    .app { max-width: 1100px; margin: 0 auto; display: grid; gap: 12px; }
+
+    .hero {
+      border-radius: var(--radius-lg);
+      background: linear-gradient(120deg, var(--purple-1), var(--purple-2));
+      color: #fff; padding: 18px; box-shadow: var(--shadow);
+    }
+    .hero h1 { margin: 0; font-size: 26px; letter-spacing: -0.03em; font-weight: 760; }
+    .hero p { margin: 6px 0 0; font-size: 13px; opacity: 0.92; font-weight: 560; }
+    .hero-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .hero-back {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600;
+      text-decoration: none; padding: 6px 12px; border-radius: 8px;
+      background: rgba(255,255,255,0.15); transition: background .15s;
+    }
+    .hero-back:hover { background: rgba(255,255,255,0.25); }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--radius-lg); padding: 18px;
+    }
+    .panel-title {
+      font-size: 15px; font-weight: 760; letter-spacing: -0.01em;
+      margin: 0 0 12px;
+    }
+
+    /* -- Case List -- */
+    .case-table { width: 100%; border-collapse: collapse; }
+    .case-table th {
+      text-align: left; font-size: 10px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .case-table td {
+      padding: 10px; font-size: 13px; font-weight: 500;
+      border-bottom: 1px solid #f1f5f9; vertical-align: middle;
+    }
+    .case-table tr { cursor: pointer; transition: background .1s; }
+    .case-table tbody tr:hover { background: #f8fafc; }
+    .case-name { font-weight: 700; }
+    .case-email { font-size: 11px; color: var(--muted); }
+    .pill {
+      display: inline-block; padding: 3px 8px; border-radius: 6px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .pill-blue { background: #eff6ff; color: #1d4ed8; }
+    .pill-green { background: #ecfdf5; color: #166534; }
+    .pill-amber { background: #fef3c7; color: #92400e; }
+    .pill-red { background: #fef2f2; color: #991b1b; }
+    .pill-gray { background: #f1f5f9; color: #64748b; }
+    .pill-purple { background: #f5f3ff; color: #6d28d9; }
+    .pill-teal { background: #f0fdfa; color: #0f766e; }
+    .empty-msg {
+      text-align: center; padding: 32px; font-size: 13px;
+      color: var(--muted); font-weight: 500;
+    }
+
+    /* -- Case Detail -- */
+    #detailView { display: none; }
+    #detailView.active { display: block; }
+    #listView.hidden { display: none; }
+    .detail-back {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 12px; font-weight: 600; color: var(--blue);
+      cursor: pointer; margin-bottom: 12px; background: none; border: none;
+      font-family: inherit; padding: 0;
+    }
+    .detail-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 12px; margin-bottom: 16px;
+    }
+    .detail-header h2 { font-size: 20px; font-weight: 760; letter-spacing: -0.02em; margin: 0; }
+    .detail-header-sub { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+
+    .form-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; margin-bottom: 16px;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .form-input, .form-select, .form-textarea {
+      padding: 8px 10px; border: 1px solid var(--line);
+      border-radius: 8px; font-size: 13px; font-weight: 500;
+      font-family: inherit; color: var(--text);
+      background: #fafbfd; transition: border-color .15s;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none; border-color: var(--blue);
+    }
+    .form-textarea { min-height: 64px; resize: vertical; }
+    .form-select { -webkit-appearance: none; appearance: none; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 8px;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+      border: none; font-family: inherit; transition: all .15s;
+    }
+    .btn-blue { background: var(--blue); color: #fff; }
+    .btn-blue:hover { background: #1d4ed8; }
+    .btn-green { background: var(--green); color: #fff; }
+    .btn-green:hover { background: #15803d; }
+    .btn-red { background: var(--red); color: #fff; }
+    .btn-red:hover { background: #b91c1c; }
+    .btn-outline {
+      background: #fff; border: 1px solid var(--line); color: var(--text);
+    }
+    .btn-outline:hover { background: #f8fafc; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      padding: 10px 20px; border-radius: 10px;
+      background: #0f172a; color: #fff;
+      font-size: 13px; font-weight: 600;
+      opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 999;
+    }
+    .toast.show { opacity: 1; }
+
+    /* -- Detail Tabs -- */
+    .tab-bar {
+      display: flex; gap: 0; border-bottom: 1px solid var(--line);
+      margin-bottom: 14px;
+    }
+    .tab-btn {
+      padding: 8px 14px; font-size: 12px; font-weight: 700;
+      color: var(--muted); background: none; border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer; font-family: inherit; transition: all .15s;
+    }
+    .tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+    .tab-btn:hover { color: var(--text); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* -- Documents Admin -- */
+    .doc-admin-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid #f1f5f9;
+    }
+    .doc-admin-row:last-child { border-bottom: none; }
+    .doc-admin-name { flex: 1; font-size: 13px; font-weight: 600; }
+    .doc-admin-file { font-size: 11px; color: var(--muted); font-weight: 500; }
+    .doc-admin-actions { display: flex; gap: 4px; }
+    .doc-mini-btn {
+      padding: 4px 8px; border-radius: 6px; font-size: 10px;
+      font-weight: 700; cursor: pointer; border: 1px solid var(--line);
+      background: #fff; font-family: inherit; transition: all .1s;
+    }
+    .doc-mini-btn:hover { background: #f8fafc; }
+    .doc-mini-btn.approve { color: var(--green); border-color: #bbf7d0; }
+    .doc-mini-btn.approve:hover { background: #ecfdf5; }
+    .doc-mini-btn.reject { color: var(--red); border-color: #fecaca; }
+    .doc-mini-btn.reject:hover { background: #fef2f2; }
+
+    /* -- Updates Admin -- */
+    .update-item {
+      padding: 10px 0; border-bottom: 1px solid #f1f5f9;
+    }
+    .update-item:last-child { border-bottom: none; }
+    .update-meta { font-size: 11px; color: var(--muted); font-weight: 500; margin-bottom: 2px; }
+    .update-body { font-size: 13px; font-weight: 500; line-height: 1.5; }
+    .update-vis {
+      display: inline-block; padding: 2px 6px; border-radius: 4px;
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      margin-left: 6px;
+    }
+    .update-vis.gp { background: #eff6ff; color: #1d4ed8; }
+    .update-vis.internal { background: #fef3c7; color: #92400e; }
+
+    @media (max-width: 640px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .case-table th:nth-child(4), .case-table td:nth-child(4),
+      .case-table th:nth-child(5), .case-table td:nth-child(5) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- HERO -->
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>PBS & Medicare Cases</h1>
+          <p>Manage GP Medicare and PBS applications, documents, and updates.</p>
+        </div>
+        <a class="hero-back" href="/pages/admin.html">&larr; Dashboard</a>
+      </div>
+    </div>
+
+    <!-- LIST VIEW -->
+    <div id="listView" class="panel">
+      <h3 class="panel-title">All Cases</h3>
+      <div id="caseListContainer">
+        <p class="empty-msg">Loading...</p>
+      </div>
+    </div>
+
+    <!-- DETAIL VIEW -->
+    <div id="detailView">
+      <div class="panel">
+        <button class="detail-back" id="backToList">&larr; Back to all cases</button>
+        <div class="detail-header">
+          <div>
+            <h2 id="detailName">--</h2>
+            <div class="detail-header-sub" id="detailSub">--</div>
+          </div>
+          <span class="pill" id="detailPill">--</span>
+        </div>
+
+        <!-- TABS -->
+        <div class="tab-bar" id="tabBar">
+          <button class="tab-btn active" data-tab="case">Case Details</button>
+          <button class="tab-btn" data-tab="docs">Documents</button>
+          <button class="tab-btn" data-tab="updates">Updates</button>
+          <button class="tab-btn" data-tab="timeline">Timeline</button>
+        </div>
+
+        <!-- TAB: Case Details -->
+        <div class="tab-panel active" id="tab-case">
+          <div class="form-grid" id="caseForm">
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select class="form-select" id="fStatus">
+                <option value="not_started">Not Started</option>
+                <option value="in_progress">In Progress</option>
+                <option value="submitted">Submitted</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="waiting_on_gp">Waiting on GP</option>
+                <option value="under_review">Under Review</option>
+                <option value="complete">Complete</option>
+                <option value="blocked">Blocked</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Reference Number</label>
+              <input class="form-input" id="fRefNumber" placeholder="e.g. PBS-2026-001" />
+            </div>
+            <div class="form-group" id="providerNumberGroup">
+              <label class="form-label">Provider Number</label>
+              <input class="form-input" id="fProviderNumber" placeholder="Medicare provider number" />
+            </div>
+            <div class="form-group" id="prescriberNumberGroup" style="display:none;">
+              <label class="form-label">Prescriber Number</label>
+              <input class="form-input" id="fPrescriberNumber" placeholder="PBS prescriber number" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Application Date</label>
+              <input class="form-input" id="fApplicationDate" type="date" readonly />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Practice Name</label>
+              <input class="form-input" id="fPracticeName" placeholder="Practice name" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Practice Contact</label>
+              <input class="form-input" id="fPracticeContact" placeholder="Contact person or email" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Current Action Title</label>
+              <input class="form-input" id="fActionTitle" placeholder="e.g. Submit Medicare application" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Current Action Owner</label>
+              <input class="form-input" id="fActionOwner" placeholder="e.g. GP, GP Link Team" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Current Action Due Date</label>
+              <input class="form-input" id="fActionDue" type="date" />
+            </div>
+            <div class="form-group full">
+              <label class="form-label">Current Action Description</label>
+              <textarea class="form-textarea" id="fActionDesc" placeholder="Explain what needs to happen..."></textarea>
+            </div>
+            <div class="form-group full">
+              <label class="form-label">Status Message</label>
+              <textarea class="form-textarea" id="fStatusMessage" placeholder="Status summary visible to the GP..."></textarea>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-blue" id="saveCaseBtn">Save Changes</button>
+          </div>
+        </div>
+
+        <!-- TAB: Documents -->
+        <div class="tab-panel" id="tab-docs">
+          <div id="docsAdminList"><p class="empty-msg">No documents uploaded.</p></div>
+          <div style="margin-top:14px; border-top: 1px solid var(--line); padding-top: 14px;">
+            <h4 style="font-size:13px; font-weight:700; margin-bottom:8px;">Request Document from GP</h4>
+            <div class="form-grid" style="margin-bottom:8px;">
+              <div class="form-group">
+                <label class="form-label">Document Type</label>
+                <select class="form-select" id="reqDocType">
+                  <option value="medicare_application">Medicare Application</option>
+                  <option value="pbs_application">PBS Application</option>
+                  <option value="supporting_document">Supporting Document</option>
+                  <option value="ahpra_certificate">AHPRA Certificate</option>
+                  <option value="passport_copy">Passport Copy</option>
+                  <option value="employment_letter">Employment Letter</option>
+                  <option value="bank_details">Bank Details</option>
+                  <option value="tfn_document">TFN Document</option>
+                  <option value="indemnity_certificate">Indemnity Certificate</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Request Note (optional)</label>
+                <input class="form-input" id="reqDocNote" placeholder="e.g. Please upload a certified copy" />
+              </div>
+            </div>
+            <button class="btn btn-blue" id="reqDocBtn">Request Document</button>
+          </div>
+        </div>
+
+        <!-- TAB: Updates -->
+        <div class="tab-panel" id="tab-updates">
+          <div id="updatesAdminList"></div>
+          <div style="margin-top:14px; border-top: 1px solid var(--line); padding-top: 14px;">
+            <h4 style="font-size:13px; font-weight:700; margin-bottom:8px;">Add Update</h4>
+            <textarea class="form-textarea" id="newUpdateBody" placeholder="Write an update..." style="width:100%; margin-bottom:8px;"></textarea>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select class="form-select" id="newUpdateVis" style="width:auto;">
+                <option value="gp">Visible to GP</option>
+                <option value="internal">Internal only</option>
+              </select>
+              <button class="btn btn-blue" id="addUpdateBtn">Post Update</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: Timeline -->
+        <div class="tab-panel" id="tab-timeline">
+          <div id="timelineAdminList"></div>
+          <div style="margin-top:14px; border-top: 1px solid var(--line); padding-top: 14px;">
+            <h4 style="font-size:13px; font-weight:700; margin-bottom:8px;">Add Event</h4>
+            <div class="form-grid" style="margin-bottom:8px;">
+              <div class="form-group">
+                <input class="form-input" id="newEventTitle" placeholder="Event title" />
+              </div>
+              <div class="form-group">
+                <select class="form-select" id="newEventVis">
+                  <option value="true">Visible to GP</option>
+                  <option value="false">Internal only</option>
+                </select>
+              </div>
+              <div class="form-group full">
+                <input class="form-input" id="newEventDesc" placeholder="Description (optional)" />
+              </div>
+            </div>
+            <button class="btn btn-blue" id="addEventBtn">Add Event</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+  <!-- REJECTION MODAL -->
+  <div id="rejectModalBg" style="position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.35);display:none;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:14px;padding:20px;width:90%;max-width:400px;">
+      <h3 style="font-size:15px;font-weight:760;margin:0 0 8px;">Reject Document</h3>
+      <textarea class="form-textarea" id="rejectReason" placeholder="Reason for rejection..." style="width:100%;margin-bottom:10px;"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-outline" id="rejectCancelBtn">Cancel</button>
+        <button class="btn btn-red" id="rejectConfirmBtn">Reject</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var currentAppId = null;
+    var currentAppData = null;
+    var pendingRejectDocId = null;
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      var d = document.createElement("div");
+      d.appendChild(document.createTextNode(str));
+      return d.innerHTML;
+    }
+
+    function formatDate(iso) {
+      if (!iso) return "--";
+      try { return new Date(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }); }
+      catch (e) { return iso; }
+    }
+
+    function showToast(msg) {
+      var t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      setTimeout(function () { t.classList.remove("show"); }, 2500);
+    }
+
+    function statusPillClass(status) {
+      if (status === "complete" || status === "approved") return "pill-green";
+      if (status === "rejected" || status === "blocked") return "pill-red";
+      if (status === "in_progress" || status === "under_review") return "pill-amber";
+      if (status === "submitted") return "pill-blue";
+      if (status === "waiting_on_gp") return "pill-purple";
+      return "pill-gray";
+    }
+
+    function typePillClass(type) {
+      if (type === "medicare") return "pill-teal";
+      if (type === "pbs") return "pill-purple";
+      return "pill-gray";
+    }
+
+    function formatStatus(status) {
+      if (!status) return "not_started";
+      return status.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    }
+
+    function apiJson(url, opts) {
+      var o = Object.assign({ credentials: "same-origin" }, opts || {});
+      if (o.body && typeof o.body === "object") {
+        o.headers = Object.assign({ "Content-Type": "application/json" }, o.headers || {});
+        o.body = JSON.stringify(o.body);
+      }
+      return fetch(url, o).then(function (r) { return r.json(); });
+    }
+
+    // -- Auth check --
+    function checkAdmin() {
+      return apiJson("/api/admin/auth/session").then(function (data) {
+        if (!data.ok) { window.location.href = "/pages/admin-signin.html"; }
+      }).catch(function () { window.location.href = "/pages/admin-signin.html"; });
+    }
+
+    // -- List View --
+    function loadCaseList() {
+      apiJson("/api/admin/pbs/cases").then(function (data) {
+        var container = document.getElementById("caseListContainer");
+        if (!data.ok || !data.cases || !data.cases.length) {
+          container.innerHTML = '<p class="empty-msg">No PBS or Medicare cases found. Cases are created when admin updates a user\'s PBS/Medicare status.</p>';
+          return;
+        }
+        var rows = data.cases.map(function (c) {
+          var name = c.profile ? (c.profile.first_name || "") + " " + (c.profile.last_name || "") : "Unknown";
+          var email = c.profile ? c.profile.email || "" : c.user_id;
+          var status = c.status || "not_started";
+          var appType = c.application_type || "medicare";
+          return '<tr data-id="' + escapeHtml(c.id) + '">' +
+            '<td><div class="case-name">' + escapeHtml(name.trim() || "Unknown") + '</div><div class="case-email">' + escapeHtml(email) + '</div></td>' +
+            '<td><span class="pill ' + typePillClass(appType) + '">' + escapeHtml(appType === "pbs" ? "PBS" : "Medicare") + '</span></td>' +
+            '<td><span class="pill ' + statusPillClass(status) + '">' + escapeHtml(formatStatus(status)) + '</span></td>' +
+            '<td>' + escapeHtml(c.reference_number || "--") + '</td>' +
+            '<td>' + formatDate(c.updated_at) + '</td></tr>';
+        }).join("");
+        container.innerHTML = '<table class="case-table"><thead><tr>' +
+          '<th>GP</th><th>Type</th><th>Status</th><th>Reference #</th><th>Updated</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table>';
+        container.querySelectorAll("tr[data-id]").forEach(function (row) {
+          row.addEventListener("click", function () { openCase(row.getAttribute("data-id")); });
+        });
+      });
+    }
+
+    // -- Detail View --
+    function openCase(id) {
+      currentAppId = id;
+      document.getElementById("listView").classList.add("hidden");
+      document.getElementById("detailView").classList.add("active");
+      loadCaseDetail();
+    }
+
+    function closeCase() {
+      document.getElementById("listView").classList.remove("hidden");
+      document.getElementById("detailView").classList.remove("active");
+      currentAppId = null;
+      currentAppData = null;
+      loadCaseList();
+    }
+
+    function loadCaseDetail() {
+      apiJson("/api/admin/pbs/case?id=" + encodeURIComponent(currentAppId)).then(function (data) {
+        if (!data.ok || !data.application) { showToast("Case not found"); closeCase(); return; }
+        currentAppData = data;
+        var app = data.application;
+        var profile = data.profile;
+        var appType = app.application_type || "medicare";
+
+        var name = profile ? (profile.first_name || "") + " " + (profile.last_name || "") : "Unknown";
+        document.getElementById("detailName").textContent = name.trim() || "Unknown";
+        document.getElementById("detailSub").textContent = (profile ? profile.email || "" : "") + " \u00B7 " + (appType === "pbs" ? "PBS" : "Medicare") + " Application";
+        var pill = document.getElementById("detailPill");
+        pill.textContent = formatStatus(app.status);
+        pill.className = "pill " + statusPillClass(app.status);
+
+        // Show/hide provider vs prescriber number based on application type
+        if (appType === "pbs") {
+          document.getElementById("providerNumberGroup").style.display = "none";
+          document.getElementById("prescriberNumberGroup").style.display = "";
+        } else {
+          document.getElementById("providerNumberGroup").style.display = "";
+          document.getElementById("prescriberNumberGroup").style.display = "none";
+        }
+
+        // Fill form
+        document.getElementById("fStatus").value = app.status || "not_started";
+        document.getElementById("fRefNumber").value = app.reference_number || "";
+        document.getElementById("fProviderNumber").value = app.provider_number || "";
+        document.getElementById("fPrescriberNumber").value = app.prescriber_number || "";
+        document.getElementById("fApplicationDate").value = app.application_date || "";
+        document.getElementById("fPracticeName").value = app.practice_name || "";
+        document.getElementById("fPracticeContact").value = app.practice_contact || "";
+        document.getElementById("fActionTitle").value = app.current_action_title || "";
+        document.getElementById("fActionOwner").value = app.current_action_owner || "";
+        document.getElementById("fActionDesc").value = app.current_action_description || "";
+        document.getElementById("fActionDue").value = app.current_action_due_date || "";
+        document.getElementById("fStatusMessage").value = app.status_message || "";
+
+        renderAdminDocs(data.documents || []);
+        renderAdminUpdates(data.updates || []);
+        renderAdminTimeline(data.timelineEvents || []);
+
+        // Activate first tab
+        switchTab("case");
+      });
+    }
+
+    // -- Save case --
+    document.getElementById("saveCaseBtn").addEventListener("click", function () {
+      if (!currentAppId || !currentAppData) return;
+      var app = currentAppData.application;
+      var appType = app.application_type || "medicare";
+      var payload = {
+        userId: app.user_id,
+        applicationType: appType,
+        status: document.getElementById("fStatus").value,
+        referenceNumber: document.getElementById("fRefNumber").value,
+        currentActionTitle: document.getElementById("fActionTitle").value,
+        currentActionDescription: document.getElementById("fActionDesc").value,
+        currentActionOwner: document.getElementById("fActionOwner").value,
+        currentActionDueDate: document.getElementById("fActionDue").value || null,
+        practiceName: document.getElementById("fPracticeName").value,
+        practiceContact: document.getElementById("fPracticeContact").value,
+        statusMessage: document.getElementById("fStatusMessage").value
+      };
+      if (appType === "pbs") {
+        payload.prescriberNumber = document.getElementById("fPrescriberNumber").value;
+      } else {
+        payload.providerNumber = document.getElementById("fProviderNumber").value;
+      }
+      apiJson("/api/pbs/update", { method: "POST", body: payload }).then(function (data) {
+        if (data.ok) { showToast("Case saved"); loadCaseDetail(); }
+        else showToast("Failed to save: " + (data.message || "Unknown error"));
+      });
+    });
+
+    // -- Tabs --
+    function switchTab(name) {
+      document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-tab") === name); });
+      document.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.toggle("active", p.id === "tab-" + name); });
+    }
+    document.getElementById("tabBar").addEventListener("click", function (e) {
+      var btn = e.target.closest(".tab-btn");
+      if (btn) switchTab(btn.getAttribute("data-tab"));
+    });
+
+    // -- Documents Admin --
+    function renderAdminDocs(docs) {
+      var container = document.getElementById("docsAdminList");
+      if (!docs.length) { container.innerHTML = '<p class="empty-msg">No documents uploaded.</p>'; return; }
+      container.innerHTML = docs.map(function (d) {
+        var statusPill = '<span class="pill ' +
+          (d.status === "approved" ? "pill-green" : d.status === "rejected" ? "pill-red" : d.status === "under_review" ? "pill-amber" : "pill-blue") +
+          '">' + escapeHtml(d.status || "uploaded") + '</span>';
+        var actions = d.status !== "approved"
+          ? '<button class="doc-mini-btn approve" data-doc-id="' + d.id + '" data-action="approve">Approve</button>'
+          : '';
+        actions += d.status !== "rejected"
+          ? '<button class="doc-mini-btn reject" data-doc-id="' + d.id + '" data-action="reject">Reject</button>'
+          : '';
+        return '<div class="doc-admin-row">' +
+          '<div style="flex:1;min-width:0;"><div class="doc-admin-name">' + escapeHtml(d.document_type ? d.document_type.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); }) : "Document") + '</div>' +
+          '<div class="doc-admin-file">' + escapeHtml(d.original_file_name || "No filename") + (d.rejection_reason ? ' &mdash; ' + escapeHtml(d.rejection_reason) : '') + '</div></div>' +
+          statusPill +
+          '<div class="doc-admin-actions">' + actions + '</div></div>';
+      }).join("");
+
+      container.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-doc-id]");
+        if (!btn) return;
+        var docId = btn.getAttribute("data-doc-id");
+        var action = btn.getAttribute("data-action");
+        if (action === "approve") reviewDoc(docId, "approved");
+        else if (action === "reject") openRejectModal(docId);
+      });
+    }
+
+    function reviewDoc(docId, status, reason) {
+      var payload = { documentId: docId, status: status };
+      if (reason) payload.rejectionReason = reason;
+      apiJson("/api/pbs/documents/review", { method: "POST", body: payload }).then(function (data) {
+        if (data.ok) { showToast("Document " + status); loadCaseDetail(); }
+        else showToast("Failed: " + (data.message || ""));
+      });
+    }
+
+    // Rejection modal
+    function openRejectModal(docId) {
+      pendingRejectDocId = docId;
+      document.getElementById("rejectReason").value = "";
+      document.getElementById("rejectModalBg").style.display = "flex";
+    }
+    document.getElementById("rejectCancelBtn").addEventListener("click", function () {
+      document.getElementById("rejectModalBg").style.display = "none";
+      pendingRejectDocId = null;
+    });
+    document.getElementById("rejectConfirmBtn").addEventListener("click", function () {
+      if (!pendingRejectDocId) return;
+      var reason = document.getElementById("rejectReason").value.trim();
+      reviewDoc(pendingRejectDocId, "rejected", reason);
+      document.getElementById("rejectModalBg").style.display = "none";
+      pendingRejectDocId = null;
+    });
+
+    // -- Document Request --
+    document.getElementById("reqDocBtn").addEventListener("click", function () {
+      if (!currentAppId) return;
+      var docType = document.getElementById("reqDocType").value;
+      var note = document.getElementById("reqDocNote").value.trim();
+      var payload = { appId: currentAppId, documentType: docType };
+      if (note) payload.requestNote = note;
+      apiJson("/api/pbs/documents/request", { method: "POST", body: payload }).then(function (data) {
+        if (data.ok) {
+          showToast("Document requested");
+          document.getElementById("reqDocNote").value = "";
+          loadCaseDetail();
+        } else showToast("Failed: " + (data.message || "Unknown error"));
+      });
+    });
+
+    // -- Updates Admin --
+    function renderAdminUpdates(updates) {
+      var container = document.getElementById("updatesAdminList");
+      if (!updates.length) { container.innerHTML = '<p class="empty-msg">No updates.</p>'; return; }
+      container.innerHTML = updates.map(function (u) {
+        return '<div class="update-item">' +
+          '<div class="update-meta">' + escapeHtml(u.created_by || "Admin") + ' &middot; ' + formatDate(u.created_at) +
+          '<span class="update-vis ' + (u.visibility || "gp") + '">' + (u.visibility === "internal" ? "Internal" : "GP") + '</span></div>' +
+          '<div class="update-body">' + escapeHtml(u.body) + '</div></div>';
+      }).join("");
+    }
+
+    document.getElementById("addUpdateBtn").addEventListener("click", function () {
+      var body = document.getElementById("newUpdateBody").value.trim();
+      if (!body || !currentAppId) return;
+      var vis = document.getElementById("newUpdateVis").value;
+      apiJson("/api/pbs/updates", { method: "POST", body: { appId: currentAppId, body: body, visibility: vis } })
+        .then(function (data) {
+          if (data.ok) {
+            showToast("Update posted");
+            document.getElementById("newUpdateBody").value = "";
+            loadCaseDetail();
+          } else showToast("Failed: " + (data.message || ""));
+        });
+    });
+
+    // -- Timeline Admin --
+    function renderAdminTimeline(events) {
+      var container = document.getElementById("timelineAdminList");
+      if (!events.length) { container.innerHTML = '<p class="empty-msg">No events.</p>'; return; }
+      container.innerHTML = events.map(function (e) {
+        var vis = e.visible_to_gp ? '<span class="update-vis gp">GP</span>' : '<span class="update-vis internal">Internal</span>';
+        return '<div class="update-item">' +
+          '<div class="update-meta">' + formatDate(e.created_at) + ' &middot; ' + escapeHtml(e.created_by || "System") + vis + '</div>' +
+          '<div class="update-body"><strong>' + escapeHtml(e.event_title) + '</strong>' +
+          (e.event_description ? '<br>' + escapeHtml(e.event_description) : '') + '</div></div>';
+      }).join("");
+    }
+
+    document.getElementById("addEventBtn").addEventListener("click", function () {
+      var title = document.getElementById("newEventTitle").value.trim();
+      if (!title || !currentAppId) return;
+      var desc = document.getElementById("newEventDesc").value.trim();
+      var vis = document.getElementById("newEventVis").value === "true";
+      apiJson("/api/pbs/events", { method: "POST", body: { appId: currentAppId, eventTitle: title, eventDescription: desc || null, visibleToGp: vis } })
+        .then(function (data) {
+          if (data.ok) {
+            showToast("Event added");
+            document.getElementById("newEventTitle").value = "";
+            document.getElementById("newEventDesc").value = "";
+            loadCaseDetail();
+          } else showToast("Failed: " + (data.message || ""));
+        });
+    });
+
+    // -- Back button --
+    document.getElementById("backToList").addEventListener("click", closeCase);
+
+    // -- Init --
+    checkAdmin().then(loadCaseList);
+  })();
+  </script>
+</body>
+</html>

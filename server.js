@@ -72,6 +72,7 @@ const _authBootstrapWarmCache = new Map(); // email -> { expiresAt, value }
 const _authBootstrapInFlight = new Map(); // email -> Promise
 const _careerHeroLookupCache = new Map(); // normalized location key -> { ts, value }
 let _careerHeroCityLibraryCache = { ts: 0, value: null };
+let _homelyBuildIdCache = { value: '', expiresAt: 0 };
 const _applyRateLimitStore = new Map(); // userId → [timestamps] for rate limiting apply endpoint
 const APPLY_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const APPLY_RATE_MAX = 10; // max 10 applications per hour
@@ -121,7 +122,7 @@ const DOMAIN_API_CLIENT_SECRET = String(process.env.DOMAIN_API_CLIENT_SECRET || 
 const DOMAIN_API_SCOPE = String(process.env.DOMAIN_API_SCOPE || 'api_listings_read').trim() || 'api_listings_read';
 const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https://auth.domain.com.au/v1/connect/token').trim() || 'https://auth.domain.com.au/v1/connect/token';
 const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = String(process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK || 'false').trim().toLowerCase() === 'true';
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 12;
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 13;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE = Math.max(10, Number(process.env.DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE || 40) || 40);
@@ -14193,79 +14194,82 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
-  // ── PBS Status ──
+  // ── PBS Status (V2: returns docs, updates, timeline) ──
   if (pathname === '/api/pbs/status' && req.method === 'GET') {
-    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
-      sendJson(res, 503, { ok: false, message: 'PBS API requires Supabase database configuration.' });
-      return;
-    }
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const session = requireSession(req, res);
     if (!session) return;
     if (!enforceApiRateLimit(req, res, session)) return;
-
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
-
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
 
-    const result = await supabaseDbRequest(
-      'pbs_applications',
-      `select=*&user_id=eq.${encodeURIComponent(userId)}&order=application_type.asc`
-    );
-    if (!result.ok) {
-      sendJson(res, 502, { ok: false, message: 'Failed to fetch PBS status.' });
-      return;
-    }
-
+    const result = await supabaseDbRequest('pbs_applications', `select=*&user_id=eq.${encodeURIComponent(userId)}&order=application_type.asc`);
+    if (!result.ok) { sendJson(res, 502, { ok: false, message: 'Failed to fetch PBS status.' }); return; }
     const rows = Array.isArray(result.data) ? result.data : [];
     const medicareProvider = rows.find((r) => r.application_type === 'medicare_provider') || null;
     const pbsPrescriber = rows.find((r) => r.application_type === 'pbs_prescriber') || null;
+    const appIds = rows.map(r => r.id);
 
-    sendJson(res, 200, { ok: true, medicareProvider, pbsPrescriber });
+    let documents = [], updates = [], timelineEvents = [];
+    if (appIds.length > 0) {
+      const idFilter = appIds.map(id => encodeURIComponent(id)).join(',');
+      const [docsRes, updatesRes, eventsRes] = await Promise.all([
+        supabaseDbRequest('pbs_documents', `select=*&pbs_application_id=in.(${idFilter})&order=created_at.desc`),
+        supabaseDbRequest('pbs_updates', `select=*&pbs_application_id=in.(${idFilter})&visibility=eq.gp&order=created_at.desc`),
+        supabaseDbRequest('pbs_timeline_events', `select=*&pbs_application_id=in.(${idFilter})&visible_to_gp=eq.true&order=created_at.desc`)
+      ]);
+      documents = docsRes.ok && Array.isArray(docsRes.data) ? docsRes.data : [];
+      updates = updatesRes.ok && Array.isArray(updatesRes.data) ? updatesRes.data : [];
+      timelineEvents = eventsRes.ok && Array.isArray(eventsRes.data) ? eventsRes.data : [];
+    }
+
+    sendJson(res, 200, { ok: true, medicareProvider, pbsPrescriber, documents, updates, timelineEvents });
     return;
   }
 
-  // ── PBS Update ──
+  // ── PBS Update (V2: enhanced with case management fields + auto-timeline) ──
   if (pathname === '/api/pbs/update' && req.method === 'POST') {
-    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
-      sendJson(res, 503, { ok: false, message: 'PBS API requires Supabase database configuration.' });
-      return;
-    }
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
-
     let body;
-    try { body = await readJsonBody(req); } catch {
-      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
-      return;
-    }
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
 
     const targetUserId = String(body && body.userId || '').trim();
     const applicationType = body && typeof body.applicationType === 'string' && PBS_APPLICATION_TYPES.includes(body.applicationType) ? body.applicationType : null;
-    if (!targetUserId || !applicationType) {
-      sendJson(res, 400, { ok: false, message: 'Missing userId or valid applicationType.' });
-      return;
-    }
+    if (!targetUserId || !applicationType) { sendJson(res, 400, { ok: false, message: 'Missing userId or valid applicationType.' }); return; }
 
     const status = body && typeof body.status === 'string' && PBS_STATUSES.includes(body.status) ? body.status : null;
     const referenceNumber = body && typeof body.referenceNumber === 'string' ? body.referenceNumber.trim().slice(0, 100) : undefined;
     const noteText = body && typeof body.note === 'string' ? body.note.trim().slice(0, 2000) : '';
 
-    // Check if application exists
-    const existingResult = await supabaseDbRequest(
-      'pbs_applications',
-      `select=*&user_id=eq.${encodeURIComponent(targetUserId)}&application_type=eq.${encodeURIComponent(applicationType)}&limit=1`
-    );
+    const v2Fields = {};
+    const v2Map = {
+      provider_number: 'providerNumber', prescriber_number: 'prescriberNumber',
+      current_action_title: 'currentActionTitle', current_action_description: 'currentActionDescription',
+      current_action_owner: 'currentActionOwner', practice_name: 'practiceName',
+      practice_contact: 'practiceContact', status_message: 'statusMessage'
+    };
+    for (const [dbCol, bodyKey] of Object.entries(v2Map)) {
+      if (body && typeof body[bodyKey] === 'string') v2Fields[dbCol] = body[bodyKey].trim().slice(0, 500);
+    }
+    if (body && typeof body.currentActionDueDate === 'string') {
+      const dd = body.currentActionDueDate.trim();
+      v2Fields.current_action_due_date = dd || null;
+    }
+
+    const existingResult = await supabaseDbRequest('pbs_applications', `select=*&user_id=eq.${encodeURIComponent(targetUserId)}&application_type=eq.${encodeURIComponent(applicationType)}&limit=1`);
 
     if (existingResult.ok && Array.isArray(existingResult.data) && existingResult.data.length > 0) {
-      // Update existing
       const existing = existingResult.data[0];
-      const updatePayload = { updated_at: new Date().toISOString() };
+      const oldStatus = existing.status;
+      const updatePayload = { updated_at: new Date().toISOString(), ...v2Fields };
       if (status) {
         updatePayload.status = status;
         if (status === 'submitted' && !existing.application_date) updatePayload.application_date = new Date().toISOString();
-        if (status === 'approved') updatePayload.approval_date = new Date().toISOString();
+        if ((status === 'approved' || status === 'complete') && !existing.approval_date) updatePayload.approval_date = new Date().toISOString();
       }
       if (referenceNumber !== undefined) updatePayload.reference_number = referenceNumber;
       if (noteText) {
@@ -14274,139 +14278,257 @@ Return ONLY valid JSON with no markdown formatting:
         updatePayload.notes = existingNotes;
       }
 
-      const updateResult = await supabaseDbRequest(
-        'pbs_applications',
-        `id=eq.${encodeURIComponent(existing.id)}`,
-        {
-          method: 'PATCH',
-          headers: { Prefer: 'return=representation' },
-          body: updatePayload
-        }
-      );
-      if (!updateResult.ok) {
-        sendJson(res, 502, { ok: false, message: 'Failed to update PBS application.' });
-        return;
-      }
+      const updateResult = await supabaseDbRequest('pbs_applications', `id=eq.${encodeURIComponent(existing.id)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: updatePayload });
+      if (!updateResult.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update PBS application.' }); return; }
       const updated = Array.isArray(updateResult.data) && updateResult.data.length > 0 ? updateResult.data[0] : null;
+
+      if (updated && status && oldStatus && status !== oldStatus) {
+        const typeLabel = applicationType === 'medicare_provider' ? 'Medicare' : 'PBS';
+        const statusLabel = status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', body: [{ pbs_application_id: updated.id, event_title: typeLabel + ' status changed to ' + statusLabel, visible_to_gp: true, created_by: adminCtx.email }] });
+        pushPbsNotificationToOwner(updated.id, { type: 'action', title: typeLabel + ' status updated', detail: typeLabel + ' is now ' + statusLabel });
+      }
+      if (updated && v2Fields.provider_number && !existing.provider_number) {
+        await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', body: [{ pbs_application_id: updated.id, event_title: 'Medicare Provider Number assigned', visible_to_gp: true, created_by: adminCtx.email }] });
+        pushPbsNotificationToOwner(updated.id, { type: 'success', title: 'Provider number assigned', detail: 'Your Medicare Provider Number has been set' });
+      }
+      if (updated && v2Fields.prescriber_number && !existing.prescriber_number) {
+        await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', body: [{ pbs_application_id: updated.id, event_title: 'PBS Prescriber Number assigned', visible_to_gp: true, created_by: adminCtx.email }] });
+        pushPbsNotificationToOwner(updated.id, { type: 'success', title: 'Prescriber number assigned', detail: 'Your PBS Prescriber Number has been set' });
+      }
+
       sendJson(res, 200, { ok: true, application: updated });
     } else {
-      // Create new
       const createPayload = {
-        user_id: targetUserId,
-        application_type: applicationType,
-        status: status || 'not_started',
-        reference_number: referenceNumber || null,
+        user_id: targetUserId, application_type: applicationType,
+        status: status || 'not_started', reference_number: referenceNumber || null,
         application_date: status === 'submitted' ? new Date().toISOString() : null,
-        approval_date: status === 'approved' ? new Date().toISOString() : null,
-        documents: [],
-        notes: noteText ? [{ text: noteText, author: adminCtx.email, ts: new Date().toISOString() }] : []
+        approval_date: (status === 'approved' || status === 'complete') ? new Date().toISOString() : null,
+        documents: [], notes: noteText ? [{ text: noteText, author: adminCtx.email, ts: new Date().toISOString() }] : [],
+        ...v2Fields
       };
-      const createResult = await supabaseDbRequest('pbs_applications', '', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: [createPayload]
-      });
-      if (!createResult.ok) {
-        sendJson(res, 502, { ok: false, message: 'Failed to create PBS application.' });
-        return;
-      }
+      const createResult = await supabaseDbRequest('pbs_applications', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [createPayload] });
+      if (!createResult.ok) { sendJson(res, 502, { ok: false, message: 'Failed to create PBS application.' }); return; }
       const created = Array.isArray(createResult.data) && createResult.data.length > 0 ? createResult.data[0] : null;
+      if (created) {
+        const typeLabel = applicationType === 'medicare_provider' ? 'Medicare' : 'PBS';
+        await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', body: [{ pbs_application_id: created.id, event_title: typeLabel + ' application created', visible_to_gp: true, created_by: adminCtx.email }] });
+      }
       sendJson(res, 201, { ok: true, application: created });
     }
     return;
   }
 
-  // ── PBS Document Upload ──
+  // ── PBS Document Upload (V2: uses pbs_documents table + auto-timeline) ──
   if (pathname === '/api/pbs/documents' && req.method === 'POST') {
-    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
-      sendJson(res, 503, { ok: false, message: 'PBS API requires Supabase database configuration.' });
-      return;
-    }
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     const session = requireSession(req, res);
     if (!session) return;
     if (!enforceApiRateLimit(req, res, session)) return;
-
     const email = getSessionEmail(session);
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
-
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
 
     let body;
-    try { body = await readJsonBody(req); } catch {
-      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
-      return;
-    }
-
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
     const applicationType = body && typeof body.applicationType === 'string' && PBS_APPLICATION_TYPES.includes(body.applicationType) ? body.applicationType : null;
     const documentType = String(body && body.documentType || '').trim().slice(0, 200);
     const fileDataUrl = typeof body.fileDataUrl === 'string' ? body.fileDataUrl.trim() : '';
     const fileName = sanitizeUserString(body && body.fileName, 240);
     const mimeType = sanitizeUserString(body && body.mimeType, 160);
+    if (!applicationType || !documentType || !fileDataUrl || !fileName) { sendJson(res, 400, { ok: false, message: 'Missing required fields.' }); return; }
 
-    if (!applicationType || !documentType || !fileDataUrl || !fileName) {
-      sendJson(res, 400, { ok: false, message: 'Missing required fields: applicationType, documentType, fileDataUrl, fileName.' });
-      return;
-    }
-
-    // Get or create the PBS application
     let pbsApp = null;
-    const existingResult = await supabaseDbRequest(
-      'pbs_applications',
-      `select=*&user_id=eq.${encodeURIComponent(userId)}&application_type=eq.${encodeURIComponent(applicationType)}&limit=1`
-    );
+    const existingResult = await supabaseDbRequest('pbs_applications', `select=*&user_id=eq.${encodeURIComponent(userId)}&application_type=eq.${encodeURIComponent(applicationType)}&limit=1`);
     if (existingResult.ok && Array.isArray(existingResult.data) && existingResult.data.length > 0) {
       pbsApp = existingResult.data[0];
     } else {
-      // Create the application
-      const createResult = await supabaseDbRequest('pbs_applications', '', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: [{ user_id: userId, application_type: applicationType, status: 'in_progress', documents: [], notes: [] }]
-      });
-      if (createResult.ok && Array.isArray(createResult.data) && createResult.data.length > 0) {
-        pbsApp = createResult.data[0];
-      }
+      const createResult = await supabaseDbRequest('pbs_applications', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [{ user_id: userId, application_type: applicationType, status: 'in_progress', documents: [], notes: [] }] });
+      if (createResult.ok && Array.isArray(createResult.data) && createResult.data.length > 0) pbsApp = createResult.data[0];
     }
-    if (!pbsApp) {
-      sendJson(res, 502, { ok: false, message: 'Failed to resolve PBS application.' });
-      return;
-    }
+    if (!pbsApp) { sendJson(res, 502, { ok: false, message: 'Failed to resolve PBS application.' }); return; }
+    if (pbsApp.user_id !== userId) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
 
-    // Upload to storage
     const storagePath = ['users', sanitizeStoragePathSegment(userId, 80), 'pbs-documents', sanitizeStoragePathSegment(applicationType, 40), sanitizeStoragePathSegment(documentType, 120), 'current'].join('/');
     const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, fileDataUrl, mimeType);
-    if (!uploaded) {
-      sendJson(res, 502, { ok: false, message: 'Failed to upload PBS document.' });
-      return;
+    if (!uploaded) { sendJson(res, 502, { ok: false, message: 'Failed to upload document.' }); return; }
+
+    const missingDoc = await supabaseDbRequest('pbs_documents', `select=id&pbs_application_id=eq.${encodeURIComponent(pbsApp.id)}&document_type=eq.${encodeURIComponent(documentType)}&status=eq.missing&limit=1`);
+    if (missingDoc.ok && Array.isArray(missingDoc.data) && missingDoc.data.length > 0) {
+      await supabaseDbRequest('pbs_documents', `id=eq.${encodeURIComponent(missingDoc.data[0].id)}`, { method: 'PATCH', body: { file_path: storagePath, original_file_name: fileName, mime_type: mimeType, status: 'uploaded', uploaded_by_user_id: userId, updated_at: new Date().toISOString() } });
+    } else {
+      await supabaseDbRequest('pbs_documents', '', { method: 'POST', body: [{ pbs_application_id: pbsApp.id, document_type: documentType, file_path: storagePath, original_file_name: fileName, mime_type: mimeType, status: 'uploaded', uploaded_by_user_id: userId }] });
     }
 
-    // Update documents array in the PBS application
-    const existingDocs = Array.isArray(pbsApp.documents) ? pbsApp.documents : [];
-    existingDocs.push({
-      documentType,
-      fileName,
-      mimeType,
-      storagePath,
-      uploadedAt: new Date().toISOString()
-    });
+    const docLabel = documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', body: [{ pbs_application_id: pbsApp.id, event_title: docLabel + ' uploaded', visible_to_gp: true, created_by: 'system' }] });
+    const appPatch = { updated_at: new Date().toISOString() };
+    if (pbsApp.status === 'not_started') appPatch.status = 'in_progress';
+    await supabaseDbRequest('pbs_applications', `id=eq.${encodeURIComponent(pbsApp.id)}`, { method: 'PATCH', body: appPatch });
 
-    const updateResult = await supabaseDbRequest(
-      'pbs_applications',
-      `id=eq.${encodeURIComponent(pbsApp.id)}`,
-      {
-        method: 'PATCH',
-        headers: { Prefer: 'return=representation' },
-        body: { documents: existingDocs, updated_at: new Date().toISOString() }
+    sendJson(res, 201, { ok: true, document: { documentType, fileName, storagePath } });
+    return;
+  }
+
+  // ── PBS Updates (GP reads, admin writes) ──
+  if (pathname === '/api/pbs/updates' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const appId = url.searchParams.get('appId');
+    if (!appId) { sendJson(res, 400, { ok: false, message: 'Missing appId.' }); return; }
+    const own = await supabaseDbRequest('pbs_applications', `select=id&id=eq.${encodeURIComponent(appId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    if (!own.ok || !Array.isArray(own.data) || own.data.length === 0) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
+    const updatesRes = await supabaseDbRequest('pbs_updates', `select=*&pbs_application_id=eq.${encodeURIComponent(appId)}&visibility=eq.gp&order=created_at.desc`);
+    sendJson(res, 200, { ok: true, updates: updatesRes.ok && Array.isArray(updatesRes.data) ? updatesRes.data : [] });
+    return;
+  }
+
+  if (pathname === '/api/pbs/updates' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx2 = requireAdminSession(req, res);
+    if (!adminCtx2) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const appId = String(body && body.appId || '').trim();
+    const noteBody = String(body && body.body || '').trim().slice(0, 4000);
+    const visibility = body && body.visibility === 'internal' ? 'internal' : 'gp';
+    if (!appId || !noteBody) { sendJson(res, 400, { ok: false, message: 'Missing appId or body.' }); return; }
+    const insertRes = await supabaseDbRequest('pbs_updates', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [{ pbs_application_id: appId, body: noteBody, visibility, created_by: adminCtx2.email }] });
+    if (!insertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to create update.' }); return; }
+    if (visibility === 'gp') {
+      await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', body: [{ pbs_application_id: appId, event_title: 'New update from GP Link team', visible_to_gp: true, created_by: adminCtx2.email }] });
+      pushPbsNotificationToOwner(appId, { type: 'info', title: 'PBS & Medicare update', detail: noteBody.length > 80 ? noteBody.slice(0, 77) + '...' : noteBody });
+    }
+    const update = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
+    sendJson(res, 201, { ok: true, update });
+    return;
+  }
+
+  // ── PBS Timeline Events (admin creates) ──
+  if (pathname === '/api/pbs/events' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx3 = requireAdminSession(req, res);
+    if (!adminCtx3) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const appId = String(body && body.appId || '').trim();
+    const eventTitle = String(body && body.eventTitle || '').trim().slice(0, 500);
+    const eventDescription = body && typeof body.eventDescription === 'string' ? body.eventDescription.trim().slice(0, 2000) : null;
+    const visibleToGp = body && body.visibleToGp === false ? false : true;
+    if (!appId || !eventTitle) { sendJson(res, 400, { ok: false, message: 'Missing appId or eventTitle.' }); return; }
+    const insertRes = await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [{ pbs_application_id: appId, event_title: eventTitle, event_description: eventDescription, visible_to_gp: visibleToGp, created_by: adminCtx3.email }] });
+    if (!insertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to create event.' }); return; }
+    const evt = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
+    sendJson(res, 201, { ok: true, event: evt });
+    return;
+  }
+
+  // ── PBS Document Review (admin approves/rejects) ──
+  if (pathname === '/api/pbs/documents/review' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx4 = requireAdminSession(req, res);
+    if (!adminCtx4) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const documentId = String(body && body.documentId || '').trim();
+    const status = String(body && body.status || '').trim();
+    if (!documentId || !['approved', 'rejected', 'under_review'].includes(status)) { sendJson(res, 400, { ok: false, message: 'Missing documentId or invalid status.' }); return; }
+    const payload = { status, verified: status === 'approved', reviewed_by: adminCtx4.email, reviewed_at: new Date().toISOString() };
+    if (status === 'rejected' && body && typeof body.rejectionReason === 'string') payload.rejection_reason = body.rejectionReason.trim().slice(0, 1000);
+    if (status !== 'rejected') payload.rejection_reason = null;
+    const updateRes = await supabaseDbRequest('pbs_documents', `id=eq.${encodeURIComponent(documentId)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: payload });
+    if (!updateRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to review document.' }); return; }
+    const doc = Array.isArray(updateRes.data) && updateRes.data.length > 0 ? updateRes.data[0] : null;
+    if (doc && doc.pbs_application_id) {
+      const docLabel = (doc.document_type || 'Document').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', body: [{ pbs_application_id: doc.pbs_application_id, event_title: docLabel + ' ' + status, visible_to_gp: true, created_by: adminCtx4.email }] });
+      const notifType = status === 'approved' ? 'success' : 'action';
+      const notifDetail = status === 'approved' ? docLabel + ' has been approved' : docLabel + ' was rejected — please re-upload';
+      pushPbsNotificationToOwner(doc.pbs_application_id, { type: notifType, title: 'Document ' + status, detail: notifDetail });
+    }
+    sendJson(res, 200, { ok: true, document: doc });
+    return;
+  }
+
+  // ── PBS Document Request (admin requests doc from GP) ──
+  if (pathname === '/api/pbs/documents/request' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtxReq = requireAdminSession(req, res);
+    if (!adminCtxReq) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const appId = String(body && body.appId || '').trim();
+    const documentType = String(body && body.documentType || '').trim().slice(0, 200);
+    const requestNote = body && typeof body.requestNote === 'string' ? body.requestNote.trim().slice(0, 1000) : null;
+    if (!appId || !documentType) { sendJson(res, 400, { ok: false, message: 'Missing appId or documentType.' }); return; }
+    const caseCheck = await supabaseDbRequest('pbs_applications', `select=id&id=eq.${encodeURIComponent(appId)}&limit=1`);
+    if (!caseCheck.ok || !Array.isArray(caseCheck.data) || caseCheck.data.length === 0) { sendJson(res, 404, { ok: false, message: 'Application not found.' }); return; }
+    const insertRes = await supabaseDbRequest('pbs_documents', '', { method: 'POST', headers: { Prefer: 'return=representation' }, body: [{ pbs_application_id: appId, document_type: documentType, file_path: '', verified: false, status: 'missing', requested_by: adminCtxReq.email, requested_at: new Date().toISOString(), request_note: requestNote }] });
+    if (!insertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to create document request.' }); return; }
+    const doc = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
+    const docLabel = documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    await supabaseDbRequest('pbs_timeline_events', '', { method: 'POST', body: [{ pbs_application_id: appId, event_title: docLabel + ' requested', visible_to_gp: true, created_by: adminCtxReq.email }] });
+    pushPbsNotificationToOwner(appId, { type: 'action', title: 'Document requested', detail: docLabel + ' — please upload this document' });
+    sendJson(res, 201, { ok: true, document: doc });
+    return;
+  }
+
+  // ── Admin PBS Cases (list all) ──
+  if (pathname === '/api/admin/pbs/cases' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const appsRes = await supabaseDbRequest('pbs_applications', 'select=*&order=updated_at.desc');
+    if (!appsRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to fetch cases.' }); return; }
+    const apps = Array.isArray(appsRes.data) ? appsRes.data : [];
+    const userIds = [...new Set(apps.map(a => a.user_id).filter(Boolean))];
+    let profileMap = {};
+    if (userIds.length > 0) {
+      const profileRes = await supabaseDbRequest('user_profiles', `select=user_id,first_name,last_name,email&user_id=in.(${userIds.map(id => encodeURIComponent(id)).join(',')})`);
+      if (profileRes.ok && Array.isArray(profileRes.data)) {
+        profileRes.data.forEach(p => { profileMap[p.user_id] = p; });
       }
-    );
-    if (!updateResult.ok) {
-      sendJson(res, 502, { ok: false, message: 'Failed to update PBS application with document.' });
-      return;
     }
+    const cases = apps.map(a => {
+      const p = profileMap[a.user_id] || {};
+      return { ...a, gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown', gp_email: p.email || '' };
+    });
+    sendJson(res, 200, { ok: true, cases });
+    return;
+  }
 
-    const updated = Array.isArray(updateResult.data) && updateResult.data.length > 0 ? updateResult.data[0] : null;
-    sendJson(res, 201, { ok: true, application: updated });
+  // ── Admin PBS Case Detail ──
+  if (pathname === '/api/admin/pbs/case' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const appId = url.searchParams.get('id');
+    if (!appId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    const [appRes, docsRes, updatesRes, eventsRes] = await Promise.all([
+      supabaseDbRequest('pbs_applications', `select=*&id=eq.${encodeURIComponent(appId)}&limit=1`),
+      supabaseDbRequest('pbs_documents', `select=*&pbs_application_id=eq.${encodeURIComponent(appId)}&order=created_at.desc`),
+      supabaseDbRequest('pbs_updates', `select=*&pbs_application_id=eq.${encodeURIComponent(appId)}&order=created_at.desc`),
+      supabaseDbRequest('pbs_timeline_events', `select=*&pbs_application_id=eq.${encodeURIComponent(appId)}&order=created_at.desc`)
+    ]);
+    if (!appRes.ok || !Array.isArray(appRes.data) || appRes.data.length === 0) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    const application = appRes.data[0];
+    const profileRes = await supabaseDbRequest('user_profiles', `select=first_name,last_name,email&user_id=eq.${encodeURIComponent(application.user_id)}&limit=1`);
+    const profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data.length > 0 ? profileRes.data[0] : {};
+    application.gp_name = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || 'Unknown';
+    application.gp_email = profile.email || '';
+
+    sendJson(res, 200, {
+      ok: true, application,
+      documents: docsRes.ok && Array.isArray(docsRes.data) ? docsRes.data : [],
+      updates: updatesRes.ok && Array.isArray(updatesRes.data) ? updatesRes.data : [],
+      timelineEvents: eventsRes.ok && Array.isArray(eventsRes.data) ? eventsRes.data : []
+    });
     return;
   }
 
@@ -14736,7 +14858,7 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html' || pathname === '/pages/admin-visa.html') && !isAllowedAdminHost(req)) {
+  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html' || pathname === '/pages/admin-visa.html' || pathname === '/pages/admin-pbs.html') && !isAllowedAdminHost(req)) {
     res.writeHead(404);
     res.end('Not found');
     return;

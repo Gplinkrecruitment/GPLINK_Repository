@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>PBS & Medicare - GP Link</title>
-  <script src="/js/nav-shell-bridge.js?v=20260329a"></script>
-  <script src="/js/auth-guard.js?v=20260311f" defer></script>
-  <script src="/js/state-sync.js?v=20260315a" defer></script>
-  <script src="/js/updates-sync.js?v=20260309c" defer></script>
-  <script src="/js/qualification-camera.js?v=20260310a" defer></script>
-  <script src="/js/qualification-scan.js?v=20260331c" defer></script>
-  <script src="/js/account-dropdown.js?v=20260329a" defer></script>
+  <script src="/js/nav-shell-bridge.js?v=20260401a"></script>
+  <script src="/js/auth-guard.js?v=20260401a" defer></script>
+  <script src="/js/state-sync.js?v=20260401a" defer></script>
+  <script src="/js/updates-sync.js?v=20260401a" defer></script>
+  <script src="/js/qualification-camera.js?v=20260401a" defer></script>
+  <script src="/js/qualification-scan.js?v=20260401a" defer></script>
+  <script src="/js/account-dropdown.js?v=20260401a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -85,9 +85,7 @@
     }
 
     /* ---- PAGE HERO ---- */
-    .page-hero {
-      padding: 8px 0 16px;
-    }
+    .page-hero { padding: 8px 0 18px; }
     .page-hero h1 {
       font-size: 24px; font-weight: 800;
       letter-spacing: -0.02em; line-height: 1.2;
@@ -97,153 +95,471 @@
       font-weight: 500; margin-top: 4px; line-height: 1.5;
     }
 
-    /* ---- CARD ---- */
-    .card {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 20px;
-      margin-bottom: 16px; position: relative; overflow: hidden;
+    /* ---- SETUP STEPPER ---- */
+    .pbs-stepper {
+      display: flex; align-items: flex-start;
+      gap: 0; margin-bottom: 24px;
+      padding: 0 4px;
     }
-    .card::before {
+    .pbs-step {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; position: relative; z-index: 2;
+    }
+    .pbs-step-dot {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: #e8edf5; color: #94a3b8;
+      font-size: 11px; font-weight: 700;
+      border: 2px solid #e2e8f0;
+      transition: all .25s ease;
+      position: relative; z-index: 2;
+    }
+    .pbs-step-dot svg {
+      width: 14px; height: 14px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .pbs-step.active .pbs-step-dot {
+      background: var(--blue); color: #fff;
+      border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.5);
+    }
+    .pbs-step.done .pbs-step-dot {
+      background: var(--green); color: #fff;
+      border-color: var(--green);
+    }
+    .pbs-step-label {
+      margin-top: 6px; font-size: 10px; font-weight: 600;
+      color: #94a3b8; text-align: center; line-height: 1.3;
+    }
+    .pbs-step.active .pbs-step-label { color: var(--blue); font-weight: 700; }
+    .pbs-step.done .pbs-step-label { color: var(--green); }
+    .pbs-step-connector {
+      position: absolute; top: 16px;
+      left: calc(50% + 16px); right: calc(-50% + 16px);
+      height: 2px; background: #e2e8f0; z-index: 1;
+    }
+    .pbs-step.done .pbs-step-connector { background: var(--green); }
+    .pbs-step.active .pbs-step-connector { background: linear-gradient(90deg, var(--blue), #e2e8f0); }
+    .pbs-step:last-child .pbs-step-connector { display: none; }
+
+    /* ---- CASE SUMMARY ---- */
+    .case-summary {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5;
+      padding: 22px 20px 20px;
+      margin-bottom: 14px;
+      position: relative; overflow: hidden;
+    }
+    .case-summary::before {
       content: ""; position: absolute; top: 0; left: 0; right: 0;
       height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
     }
-    .card.medicare::before { background: linear-gradient(90deg, #2563eb, #0ea5e9); }
-    .card.pbs::before { background: linear-gradient(90deg, #7c3aed, #a855f7); }
-    .card-label {
-      font-size: 10px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    .case-summary-top {
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 12px;
+      margin-bottom: 6px;
     }
-    .card-title {
-      font-size: 18px; font-weight: 800;
-      letter-spacing: -0.01em; line-height: 1.3; margin-bottom: 4px;
+    .case-title {
+      font-size: 20px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
     }
-    .card-sub {
-      font-size: 13px; color: #475569;
-      font-weight: 500; line-height: 1.5; margin-bottom: 14px;
+    .case-sub {
+      font-size: 13px; color: #475569; font-weight: 500;
+      margin-top: 2px; line-height: 1.4;
     }
-
-    /* ---- STATUS BADGE ---- */
     .status-badge {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 4px 10px; border-radius: 999px;
       font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.03em; white-space: nowrap; flex-shrink: 0;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
     }
-    .status-badge.not-started { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
-    .status-badge.in-progress { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-    .status-badge.submitted { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-    .status-badge.approved { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
-
-    /* ---- DETAIL GRID ---- */
-    .detail-grid {
+    .status-badge.not-started { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+    .status-badge.in-progress { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    .status-badge.submitted { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+    .status-badge.approved { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .status-badge.refused { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+    .status-badge-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+    }
+    .case-meta {
       display: grid; grid-template-columns: 1fr 1fr;
-      gap: 10px; margin-bottom: 16px;
+      gap: 0; margin-top: 16px;
+      border-top: 1px solid #f1f5f9;
+      padding-top: 14px;
     }
-    .detail-item {
-      background: #f8fafc; border-radius: 12px;
-      border: 1px solid #e8edf5; padding: 14px;
+    .case-meta-item { padding: 6px 0; }
+    .case-meta-label {
+      font-size: 10px; font-weight: 600; color: #94a3b8;
+      text-transform: uppercase; letter-spacing: 0.04em;
     }
-    .detail-label {
-      font-size: 10px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
-    }
-    .detail-value {
-      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
+    .case-meta-value {
+      font-size: 13px; font-weight: 600; color: var(--text);
+      margin-top: 2px; line-height: 1.3;
     }
 
-    /* ---- DOCUMENT UPLOAD ---- */
-    .upload-zone {
-      border: 2px dashed #cbd5e1; border-radius: 14px;
-      padding: 24px; text-align: center; cursor: pointer;
-      transition: all .15s ease; margin-bottom: 14px;
+    /* ---- CURRENT ACTION ---- */
+    .action-block {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5;
+      padding: 20px;
+      margin-bottom: 14px;
+      position: relative;
     }
-    .upload-zone:hover { border-color: var(--blue); background: #f8fafc; }
-    .upload-zone-icon {
-      width: 40px; height: 40px; margin: 0 auto 8px;
-      border-radius: 12px; background: #eff6ff;
-      display: grid; place-items: center; color: var(--blue);
+    .action-block.has-action {
+      border-color: #bfdbfe;
+      background: linear-gradient(180deg, #f8faff 0%, #fff 100%);
     }
-    .upload-zone-icon svg {
-      width: 20px; height: 20px; stroke: currentColor;
+    .action-block.no-action {
+      border-color: #d1fae5;
+      background: linear-gradient(180deg, #f0fdf8 0%, #fff 100%);
+    }
+    .action-indicator {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 10px;
+    }
+    .action-indicator-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--blue); flex-shrink: 0;
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    .action-block.no-action .action-indicator-dot {
+      background: var(--green); animation: none;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+    .action-indicator-label {
+      font-size: 10px; font-weight: 700; color: var(--blue);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .action-block.no-action .action-indicator-label { color: var(--green); }
+    .action-title {
+      font-size: 17px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .action-desc {
+      font-size: 13px; color: #475569;
+      font-weight: 500; line-height: 1.55;
+      margin-bottom: 12px;
+    }
+    .action-owner-row {
+      display: flex; align-items: center; gap: 16px;
+      flex-wrap: wrap;
+      font-size: 12px; color: var(--muted); font-weight: 500;
+      margin-bottom: 14px;
+    }
+    .action-owner-row span { display: flex; align-items: center; gap: 4px; }
+    .action-owner-row svg {
+      width: 13px; height: 13px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+      flex-shrink: 0;
     }
-    .upload-zone-text { font-size: 13px; font-weight: 600; color: #334155; }
-    .upload-zone-hint { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
-    .upload-list { display: grid; gap: 8px; }
-    .upload-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 12px; border: 1px solid #e8edf5;
-      border-radius: 10px; background: #fafbfd;
+    .action-cta {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: 12px;
+      background: var(--blue); color: #fff;
+      font-size: 13px; font-weight: 700;
+      border: none; cursor: pointer;
+      transition: all .15s ease;
+      font-family: inherit;
     }
-    .upload-item-icon {
-      width: 32px; height: 32px; border-radius: 8px;
-      background: #eff6ff; display: grid; place-items: center; color: var(--blue); flex-shrink: 0;
-    }
-    .upload-item-icon svg {
+    .action-cta:hover { background: var(--blue2); }
+    .action-cta svg {
       width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-    .upload-item-name { font-size: 12px; font-weight: 600; flex: 1; }
-    .upload-item-meta { font-size: 11px; color: var(--muted); font-weight: 500; }
 
-    /* ---- CHECKLIST ---- */
-    .checklist { display: grid; gap: 8px; }
-    .checklist-item {
+    /* ---- PRACTICE ROW ---- */
+    .practice-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px;
+      background: #fff; border: 1px solid #e8edf5;
+      border-radius: 14px; margin-bottom: 14px;
+    }
+    .practice-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: grid; place-items: center;
+      color: #fff; flex-shrink: 0;
+    }
+    .practice-icon svg {
+      width: 18px; height: 18px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .practice-info { flex: 1; min-width: 0; }
+    .practice-name { font-size: 13px; font-weight: 700; }
+    .practice-detail { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+
+    /* ---- SECTION ---- */
+    .section-label {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+      margin: 22px 0 10px; padding-left: 2px;
+    }
+    .section-label:first-of-type { margin-top: 18px; }
+
+    /* ---- STEP SECTION ---- */
+    .step-section {
+      margin-bottom: 20px;
+    }
+    .step-section-header {
       display: flex; align-items: center; gap: 10px;
-      padding: 12px 14px; border: 1px solid #e8edf5;
-      border-radius: 12px; background: #fafbfd;
-      font-size: 13px; font-weight: 600; color: #334155;
-    }
-    .checklist-icon {
-      width: 24px; height: 24px; border-radius: 50%;
-      display: grid; place-items: center; flex-shrink: 0;
-      background: #e8edf5; color: #94a3b8;
-    }
-    .checklist-icon svg {
-      width: 13px; height: 13px; stroke: currentColor;
-      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .checklist-icon.done { background: var(--green); color: #fff; }
-
-    /* ---- LOADING ---- */
-    .loading-bars {
-      display: flex; flex-direction: column; gap: 10px;
-      padding: 20px 0;
-    }
-    .loading-bar {
-      height: 14px; border-radius: 8px;
-      background: linear-gradient(90deg, #e8edf5 25%, #f1f5f9 50%, #e8edf5 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.5s ease-in-out infinite;
-    }
-    .loading-bar:nth-child(1) { width: 80%; }
-    .loading-bar:nth-child(2) { width: 60%; }
-    .loading-bar:nth-child(3) { width: 70%; }
-    @keyframes shimmer {
-      0% { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-
-    /* ---- SECTION HEADING ---- */
-    .section-head {
-      display: flex; align-items: center; justify-content: space-between;
       margin-bottom: 12px;
     }
-    .section-title { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+    .step-section-title {
+      font-size: 16px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.2;
+      flex: 1;
+    }
+    .step-section-note {
+      font-size: 13px; color: var(--muted); font-weight: 500;
+      line-height: 1.5; padding: 10px 14px;
+      background: #f8fafc; border: 1px solid #e8edf5;
+      border-radius: 10px; margin-bottom: 12px;
+    }
+    .step-meta {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; margin-bottom: 14px;
+    }
+    .step-meta-item {
+      background: #f8fafc; border-radius: 10px;
+      border: 1px solid #e8edf5; padding: 12px;
+    }
+    .step-meta-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px;
+    }
+    .step-meta-value {
+      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3;
+    }
+    .step-meta-value.number {
+      font-size: 15px; font-weight: 800; letter-spacing: 0.02em;
+      color: var(--blue);
+    }
+
+    /* ---- DOCUMENTS ---- */
+    .doc-list {
+      background: #fff; border: 1px solid #e8edf5;
+      border-radius: 16px; overflow: hidden;
+    }
+    .doc-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      transition: background .1s;
+    }
+    .doc-row:last-child { border-bottom: none; }
+    .doc-icon {
+      width: 30px; height: 30px; border-radius: 8px;
+      display: grid; place-items: center; flex-shrink: 0;
+      background: #f1f5f9; color: #64748b;
+    }
+    .doc-icon svg {
+      width: 15px; height: 15px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .doc-icon.uploaded { background: #eff6ff; color: var(--blue); }
+    .doc-icon.approved { background: #ecfdf5; color: var(--green); }
+    .doc-icon.rejected { background: #fef2f2; color: var(--red); }
+    .doc-icon.under_review { background: #fef3c7; color: #92400e; }
+    .doc-icon.missing { background: #fff7ed; color: var(--orange2); }
+    .doc-info { flex: 1; min-width: 0; }
+    .doc-name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+    .doc-file-name {
+      font-size: 11px; color: var(--muted); font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      margin-top: 1px;
+    }
+    .doc-rejection { font-size: 11px; color: var(--red); font-weight: 500; margin-top: 2px; }
+    .doc-request-note { font-size: 11px; color: #92400e; font-weight: 500; margin-top: 2px; line-height: 1.4; }
+    .doc-status {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; flex-shrink: 0;
+      padding: 3px 8px; border-radius: 6px;
+    }
+    .doc-status.missing { background: #f1f5f9; color: #64748b; }
+    .doc-status.uploaded { background: #eff6ff; color: #1d4ed8; }
+    .doc-status.under_review { background: #fef3c7; color: #92400e; }
+    .doc-status.approved { background: #ecfdf5; color: #166534; }
+    .doc-status.rejected { background: #fef2f2; color: #991b1b; }
+    .doc-upload-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px; cursor: pointer;
+      color: var(--blue); transition: background .1s;
+    }
+    .doc-upload-row:hover { background: #f8fafc; }
+    .doc-upload-row svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .doc-upload-text { font-size: 13px; font-weight: 600; }
+    .doc-empty {
+      padding: 20px 16px; text-align: center;
+      font-size: 13px; color: var(--muted); font-weight: 500;
+    }
+    .doc-row.doc-requested { cursor: pointer; }
+    .doc-row.doc-requested:hover { background: #f8fafc; }
+    .doc-requested-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; flex-shrink: 0;
+      padding: 3px 8px; border-radius: 6px;
+      background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
+    }
+
+    /* ---- UPLOAD MODAL ---- */
+    .upload-modal-bg {
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(2, 6, 23, 0.45);
+      display: flex; align-items: flex-end; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity .2s ease;
+    }
+    .upload-modal-bg.open { opacity: 1; pointer-events: auto; }
+    .upload-modal {
+      background: #fff; border-radius: 20px 20px 0 0;
+      width: 100%; max-width: 540px;
+      padding: 24px 20px 32px;
+      transform: translateY(100%);
+      transition: transform .25s cubic-bezier(.22,.9,.18,1.05);
+    }
+    .upload-modal-bg.open .upload-modal { transform: translateY(0); }
+    .upload-modal h3 {
+      font-size: 17px; font-weight: 800; letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+    .upload-modal p {
+      font-size: 13px; color: var(--muted); font-weight: 500;
+      margin-bottom: 16px; line-height: 1.5;
+    }
+    .upload-type-select {
+      width: 100%; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid #e2e8f0; font-size: 13px; font-weight: 500;
+      font-family: inherit; color: var(--text);
+      background: #f8fafc; margin-bottom: 12px;
+      -webkit-appearance: none; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+    }
+    .upload-drop-zone {
+      border: 2px dashed #cbd5e1; border-radius: 14px;
+      padding: 28px 20px; text-align: center;
+      cursor: pointer; transition: all .15s ease;
+      margin-bottom: 14px;
+    }
+    .upload-drop-zone:hover { border-color: var(--blue); background: #f8fafc; }
+    .upload-drop-zone svg {
+      width: 28px; height: 28px; stroke: var(--blue);
+      fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+      margin-bottom: 6px;
+    }
+    .upload-drop-text { font-size: 13px; font-weight: 600; color: #334155; }
+    .upload-drop-hint { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+    .upload-modal-actions {
+      display: flex; gap: 8px; margin-top: 4px;
+    }
+    .upload-cancel-btn {
+      flex: 1; padding: 10px; border-radius: 10px;
+      border: 1px solid #e2e8f0; background: #fff;
+      font-size: 13px; font-weight: 600; color: var(--text);
+      cursor: pointer; font-family: inherit;
+      transition: background .1s;
+    }
+    .upload-cancel-btn:hover { background: #f8fafc; }
+
+    /* ---- NOTES ---- */
+    .notes-list { display: grid; gap: 0; }
+    .note-item {
+      padding: 14px 0; border-bottom: 1px solid #f1f5f9;
+    }
+    .note-item:last-child { border-bottom: none; }
+    .note-head {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 4px;
+    }
+    .note-author { font-size: 12px; font-weight: 700; color: var(--blue); }
+    .note-date { font-size: 11px; color: var(--muted); font-weight: 500; }
+    .note-dot { width: 3px; height: 3px; border-radius: 50%; background: #cbd5e1; }
+    .note-text {
+      font-size: 13px; color: #334155;
+      font-weight: 500; line-height: 1.55;
+    }
+    .empty-state {
+      font-size: 13px; color: var(--muted); font-weight: 500;
+      padding: 8px 0; line-height: 1.5;
+    }
+
+    /* ---- TIMELINE ---- */
+    .timeline { display: grid; gap: 0; padding-left: 20px; position: relative; }
+    .timeline::before {
+      content: ""; position: absolute; left: 7px; top: 6px; bottom: 6px;
+      width: 2px; background: #e8edf5;
+    }
+    .timeline-item { position: relative; padding: 0 0 16px 20px; }
+    .timeline-item:last-child { padding-bottom: 0; }
+    .timeline-dot {
+      position: absolute; left: -20px; top: 3px;
+      width: 12px; height: 12px; border-radius: 50%;
+      background: #e8edf5; border: 2px solid #fff;
+      box-shadow: 0 0 0 2px #e2e8f0;
+    }
+    .timeline-item:first-child .timeline-dot { background: var(--blue); box-shadow: 0 0 0 2px var(--blue); }
+    .timeline-item.done .timeline-dot { background: var(--green); box-shadow: 0 0 0 2px var(--green); }
+    .timeline-date { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .timeline-text { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
+    .timeline-detail { font-size: 12px; color: #475569; font-weight: 500; margin-top: 1px; }
+
+    /* ---- LOADING ---- */
+    .loading-state { padding: 32px 0; text-align: center; }
+    .loading-state p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 8px; }
+    .loading-spinner {
+      width: 28px; height: 28px; border: 3px solid #e8edf5;
+      border-top-color: var(--blue); border-radius: 50%;
+      animation: spin .7s linear infinite; margin: 0 auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- EMPTY CASE ---- */
+    .empty-case {
+      text-align: center; padding: 48px 20px;
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5;
+    }
+    .empty-case-icon {
+      width: 56px; height: 56px; border-radius: 16px;
+      background: #f1f5f9; display: grid; place-items: center;
+      margin: 0 auto 14px; color: #94a3b8;
+    }
+    .empty-case-icon svg {
+      width: 26px; height: 26px; stroke: currentColor;
+      fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .empty-case h2 {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: -0.01em; margin-bottom: 6px;
+    }
+    .empty-case p {
+      font-size: 13px; color: var(--muted);
+      font-weight: 500; line-height: 1.55;
+      max-width: 380px; margin: 0 auto;
+    }
+    .empty-case p + p { margin-top: 10px; }
 
     /* ---- RESPONSIVE ---- */
     @media (min-width: 768px) {
       .app-header { display: none; }
+      .upload-modal { border-radius: 20px; margin-bottom: 10vh; }
     }
     @media (max-width: 767px) {
       .app-header { display: flex; }
       .page-hero h1 { font-size: 20px; }
-      .detail-grid { grid-template-columns: 1fr; }
-      .two-col { grid-template-columns: 1fr !important; }
-    }
-
-    .two-col {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+      .case-title { font-size: 18px; }
+      .action-title { font-size: 16px; }
+      .case-meta { grid-template-columns: 1fr 1fr; }
+      .step-meta { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -253,10 +569,10 @@
     <!-- MOBILE HEADER -->
     <header class="app-header">
       <div class="header-greeting">
-        <div class="header-avatar">GP</div>
+        <div class="header-avatar" id="headerAvatar">GP</div>
         <div class="header-text">
           <h1>PBS & Medicare</h1>
-          <p>Provider number applications</p>
+          <p>Provider number setup</p>
         </div>
       </div>
       <div class="header-actions">
@@ -273,115 +589,177 @@
     <!-- PAGE HERO -->
     <div class="page-hero">
       <h1>PBS & Medicare</h1>
-      <p>Track your Medicare provider number and PBS prescriber number applications. Both are required before you can bulk-bill and prescribe PBS medicines.</p>
+      <p>Set up your provider and prescriber numbers so you can bill Medicare and prescribe PBS medicines.</p>
     </div>
 
-    <div class="two-col">
-      <!-- MEDICARE PROVIDER NUMBER CARD -->
-      <div class="card medicare" id="medicareCard">
-        <span class="card-label">Medicare</span>
-        <h2 class="card-title">Medicare Provider Number</h2>
-        <p class="card-sub">Required to bill Medicare for consultations and procedures.</p>
-        <span class="status-badge not-started" id="medicareStatusBadge">Not Started</span>
-        <div class="detail-grid" id="medicareDetails" style="margin-top:14px;">
-          <div class="detail-item">
-            <div class="detail-label">Status</div>
-            <div class="detail-value" id="medicareStatus">Not started</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Application date</div>
-            <div class="detail-value" id="medicareAppDate">--</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Reference number</div>
-            <div class="detail-value" id="medicareRefNum">--</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Provider number</div>
-            <div class="detail-value" id="medicareProviderNum">--</div>
-          </div>
-        </div>
-        <div class="upload-zone" id="medicareUploadZone" role="button" tabindex="0" aria-label="Upload Medicare document">
-          <div class="upload-zone-icon">
-            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          </div>
-          <div class="upload-zone-text">Upload Medicare document</div>
-          <div class="upload-zone-hint">PDF, JPG or PNG up to 10 MB</div>
-        </div>
-        <input type="file" id="medicareFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" multiple />
-        <div class="upload-list" id="medicareUploadList"></div>
-      </div>
+    <!-- LOADING STATE -->
+    <div id="loadingState" class="loading-state">
+      <div class="loading-spinner"></div>
+      <p>Loading your PBS & Medicare status...</p>
+    </div>
 
-      <!-- PBS PRESCRIBER NUMBER CARD -->
-      <div class="card pbs" id="pbsCard">
-        <span class="card-label">PBS</span>
-        <h2 class="card-title">PBS Prescriber Number</h2>
-        <p class="card-sub">Required to prescribe medicines listed on the Pharmaceutical Benefits Scheme.</p>
-        <span class="status-badge not-started" id="pbsStatusBadge">Not Started</span>
-        <div class="detail-grid" id="pbsDetails" style="margin-top:14px;">
-          <div class="detail-item">
-            <div class="detail-label">Status</div>
-            <div class="detail-value" id="pbsStatus">Not started</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Application date</div>
-            <div class="detail-value" id="pbsAppDate">--</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Reference number</div>
-            <div class="detail-value" id="pbsRefNum">--</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Prescriber number</div>
-            <div class="detail-value" id="pbsPrescriberNum">--</div>
-          </div>
+    <!-- EMPTY STATE -->
+    <div id="emptyState" hidden>
+      <div class="pbs-stepper" id="emptyPbsStepper">
+        <div class="pbs-step"><div class="pbs-step-dot">1</div><span class="pbs-step-label">Medicare Provider</span><div class="pbs-step-connector"></div></div>
+        <div class="pbs-step"><div class="pbs-step-dot">2</div><span class="pbs-step-label">PBS Prescriber</span></div>
+      </div>
+      <div class="empty-case">
+        <div class="empty-case-icon">
+          <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         </div>
-        <div class="upload-zone" id="pbsUploadZone" role="button" tabindex="0" aria-label="Upload PBS document">
-          <div class="upload-zone-icon">
-            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          </div>
-          <div class="upload-zone-text">Upload PBS document</div>
-          <div class="upload-zone-hint">PDF, JPG or PNG up to 10 MB</div>
-        </div>
-        <input type="file" id="pbsFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" multiple />
-        <div class="upload-list" id="pbsUploadList"></div>
+        <h2>PBS & Medicare Setup</h2>
+        <p>Set up your provider and prescriber numbers so you can bill Medicare and prescribe PBS medicines once eligible.</p>
+        <p>Your GP Link team will initiate this process once your placement is confirmed. You'll be notified when there's something for you to do.</p>
       </div>
     </div>
 
-    <!-- REQUIRED DOCUMENTS GUIDE -->
-    <div class="card">
-      <span class="card-label">Guide</span>
-      <h2 class="card-title">Required Documents Checklist</h2>
-      <p class="card-sub">Ensure you have the following documents ready before submitting your applications.</p>
-      <div class="checklist" id="pbsChecklist">
-        <div class="checklist-item" data-doc="ahpra-cert">
-          <span class="checklist-icon" id="checkAhpra"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          AHPRA registration certificate
+    <!-- CASE CONTENT -->
+    <div id="caseContent" hidden>
+
+      <!-- STEPPER -->
+      <div class="pbs-stepper" id="pbsStepper">
+        <div class="pbs-step" data-stage="medicare"><div class="pbs-step-dot">1</div><span class="pbs-step-label">Medicare Provider</span><div class="pbs-step-connector"></div></div>
+        <div class="pbs-step" data-stage="pbs"><div class="pbs-step-dot">2</div><span class="pbs-step-label">PBS Prescriber</span></div>
+      </div>
+
+      <!-- CASE SUMMARY -->
+      <div class="case-summary" id="caseSummary">
+        <div class="case-summary-top">
+          <div>
+            <h2 class="case-title" id="caseTitle">PBS & Medicare</h2>
+            <div class="case-sub" id="caseSub"></div>
+          </div>
+          <span class="status-badge" id="caseBadge"><span class="status-badge-dot"></span> --</span>
         </div>
-        <div class="checklist-item" data-doc="passport">
-          <span class="checklist-icon" id="checkPassport"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          Passport (certified copy)
+        <div class="case-meta" id="caseMeta">
+          <div class="case-meta-item">
+            <div class="case-meta-label">Managed by</div>
+            <div class="case-meta-value" id="caseResponsible">GP Link Team</div>
+          </div>
+          <div class="case-meta-item">
+            <div class="case-meta-label">Last updated</div>
+            <div class="case-meta-value" id="caseUpdated">--</div>
+          </div>
         </div>
-        <div class="checklist-item" data-doc="visa-grant">
-          <span class="checklist-icon" id="checkVisa"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          Visa grant notification
+      </div>
+
+      <!-- CURRENT ACTION -->
+      <div class="action-block" id="actionBlock">
+        <div class="action-indicator">
+          <div class="action-indicator-dot"></div>
+          <span class="action-indicator-label" id="actionLabel">Current step</span>
         </div>
-        <div class="checklist-item" data-doc="practice-letter">
-          <span class="checklist-icon" id="checkPractice"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          Practice employment letter
+        <h3 class="action-title" id="actionTitle">--</h3>
+        <p class="action-desc" id="actionDesc">--</p>
+        <div class="action-owner-row" id="actionOwnerRow">
+          <span id="actionOwner"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg> --</span>
+          <span id="actionDue" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> --</span>
         </div>
-        <div class="checklist-item" data-doc="bank-details">
-          <span class="checklist-icon" id="checkBank"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          Australian bank account details
+        <button class="action-cta" id="actionCta" hidden>
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span id="actionCtaText">Upload Document</span>
+        </button>
+      </div>
+
+      <!-- STEP 1: MEDICARE -->
+      <div class="step-section" id="medicareSection">
+        <div class="step-section-header">
+          <h3 class="step-section-title">Step 1 — Medicare Provider Number</h3>
+          <span class="status-badge not-started" id="medicareStepBadge"><span class="status-badge-dot"></span> Not Started</span>
         </div>
-        <div class="checklist-item" data-doc="tfn">
-          <span class="checklist-icon" id="checkTfn"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          Tax File Number (TFN)
+        <div class="step-meta" id="medicareMeta">
+          <div class="step-meta-item">
+            <div class="step-meta-label">Reference</div>
+            <div class="step-meta-value" id="medicareRef">--</div>
+          </div>
+          <div class="step-meta-item">
+            <div class="step-meta-label">Application date</div>
+            <div class="step-meta-value" id="medicareAppDate">--</div>
+          </div>
+          <div class="step-meta-item" id="medicareProviderWrap" hidden>
+            <div class="step-meta-label">Provider number</div>
+            <div class="step-meta-value number" id="medicareProviderNum">--</div>
+          </div>
         </div>
-        <div class="checklist-item" data-doc="indemnity">
-          <span class="checklist-icon" id="checkIndemnity"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          Medical indemnity insurance certificate
+        <div id="medicarePracticeRow"></div>
+        <div class="doc-list" id="medicareDocList">
+          <div class="doc-empty">No documents yet for this step.</div>
         </div>
+      </div>
+
+      <!-- STEP 2: PBS -->
+      <div class="step-section" id="pbsSection">
+        <div class="step-section-header">
+          <h3 class="step-section-title">Step 2 — PBS Prescriber Number</h3>
+          <span class="status-badge not-started" id="pbsStepBadge"><span class="status-badge-dot"></span> Not Started</span>
+        </div>
+        <div id="pbsDownstreamNote"></div>
+        <div class="step-meta" id="pbsMeta">
+          <div class="step-meta-item">
+            <div class="step-meta-label">Reference</div>
+            <div class="step-meta-value" id="pbsRef">--</div>
+          </div>
+          <div class="step-meta-item">
+            <div class="step-meta-label">Application date</div>
+            <div class="step-meta-value" id="pbsAppDate">--</div>
+          </div>
+          <div class="step-meta-item" id="pbsPrescriberWrap" hidden>
+            <div class="step-meta-label">Prescriber number</div>
+            <div class="step-meta-value number" id="pbsPrescriberNum">--</div>
+          </div>
+        </div>
+        <div class="doc-list" id="pbsDocList">
+          <div class="doc-empty">No documents yet for this step.</div>
+        </div>
+      </div>
+
+      <!-- UPDATES -->
+      <div class="section-label">Updates</div>
+      <div id="updatesContainer">
+        <p class="empty-state">No updates yet. Your agent will post notes here as things progress.</p>
+      </div>
+
+      <!-- HISTORY -->
+      <div class="section-label">History</div>
+      <div class="timeline" id="timelineContainer">
+        <p class="empty-state" style="padding-left:0;">No history recorded yet.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- UPLOAD MODAL -->
+  <div class="upload-modal-bg" id="uploadModal">
+    <div class="upload-modal">
+      <h3>Upload Document</h3>
+      <p>Select the application and document type, then upload your file.</p>
+      <select class="upload-type-select" id="uploadAppSelect">
+        <option value="">Select application...</option>
+        <option value="medicare_provider">Medicare Provider</option>
+        <option value="pbs_prescriber">PBS Prescriber</option>
+      </select>
+      <select class="upload-type-select" id="uploadTypeSelect">
+        <option value="">Select document type...</option>
+        <option value="medicare_application">Medicare Application</option>
+        <option value="pbs_application">PBS Application</option>
+        <option value="supporting_document">Supporting Document</option>
+        <option value="ahpra_certificate">AHPRA Certificate</option>
+        <option value="passport_copy">Passport Copy</option>
+        <option value="employment_letter">Employment Letter</option>
+        <option value="bank_details">Bank Details</option>
+        <option value="tfn_document">TFN Document</option>
+        <option value="indemnity_certificate">Indemnity Certificate</option>
+        <option value="other">Other</option>
+      </select>
+      <div class="upload-drop-zone" id="uploadDropZone">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div class="upload-drop-text" id="uploadDropText">Tap to select a file</div>
+        <div class="upload-drop-hint">PDF, JPG or PNG up to 10 MB</div>
+      </div>
+      <input type="file" id="uploadFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" />
+      <div class="upload-modal-actions">
+        <button class="upload-cancel-btn" id="uploadCancelBtn">Cancel</button>
+        <button class="action-cta" id="uploadSubmitBtn" disabled style="flex:1;justify-content:center;">Upload</button>
       </div>
     </div>
   </div>
@@ -390,14 +768,13 @@
   (function () {
     "use strict";
 
-    var STATUS_MAP = {
-      not_started: { label: "Not Started", cls: "not-started" },
-      in_progress: { label: "In Progress", cls: "in-progress" },
-      submitted: { label: "Submitted", cls: "submitted" },
-      approved: { label: "Approved", cls: "approved" }
-    };
+    var currentMedicare = null;
+    var currentPbs = null;
+    var allDocuments = [];
+    var selectedFile = null;
 
     function escapeHtml(str) {
+      if (!str) return "";
       var div = document.createElement("div");
       div.appendChild(document.createTextNode(str));
       return div.innerHTML;
@@ -411,101 +788,497 @@
       } catch (e) { return isoStr; }
     }
 
-    function renderCardStatus(prefix, data) {
-      var status = data.status || "not_started";
-      var mapped = STATUS_MAP[status] || STATUS_MAP.not_started;
-
-      var badgeEl = document.getElementById(prefix + "StatusBadge");
-      if (badgeEl) {
-        badgeEl.textContent = mapped.label;
-        badgeEl.className = "status-badge " + mapped.cls;
-      }
-
-      var statusEl = document.getElementById(prefix + "Status");
-      if (statusEl) statusEl.textContent = mapped.label;
-
-      var appDateEl = document.getElementById(prefix + "AppDate");
-      if (appDateEl) appDateEl.textContent = formatDate(data.applicationDate);
-
-      var refNumEl = document.getElementById(prefix + "RefNum");
-      if (refNumEl) refNumEl.textContent = data.referenceNumber || "--";
-
-      var numEl = document.getElementById(prefix + "ProviderNum") || document.getElementById(prefix + "PrescriberNum");
-      if (numEl) numEl.textContent = data.providerNumber || data.prescriberNumber || "--";
-
-      renderDocuments(prefix, data.documents || []);
+    function relativeTime(isoStr) {
+      if (!isoStr) return "--";
+      try {
+        var now = Date.now();
+        var then = new Date(isoStr).getTime();
+        var diff = now - then;
+        if (diff < 60000) return "Just now";
+        if (diff < 3600000) return Math.floor(diff / 60000) + "m ago";
+        if (diff < 86400000) return Math.floor(diff / 3600000) + "h ago";
+        if (diff < 604800000) return Math.floor(diff / 86400000) + "d ago";
+        return formatDate(isoStr);
+      } catch (e) { return formatDate(isoStr); }
     }
 
-    function renderDocuments(prefix, documents) {
-      var list = document.getElementById(prefix + "UploadList");
-      if (!list || !documents.length) return;
-      list.innerHTML = documents.map(function (doc) {
-        return [
-          '<div class="upload-item">',
-          '<div class="upload-item-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>',
-          '<span class="upload-item-name">' + escapeHtml(doc.name || "Document") + '</span>',
-          '<span class="upload-item-meta">' + escapeHtml(doc.status || "Uploaded") + '</span>',
-          '</div>'
-        ].join("");
-      }).join("");
+    function prettifyDocType(type) {
+      if (!type) return "Document";
+      return type.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
     }
 
-    function renderChecklist(completedDocs) {
-      if (!completedDocs || !completedDocs.length) return;
-      var items = document.querySelectorAll(".checklist-item");
-      items.forEach(function (item) {
-        var docKey = item.getAttribute("data-doc");
-        if (completedDocs.indexOf(docKey) !== -1) {
-          var icon = item.querySelector(".checklist-icon");
-          if (icon) icon.classList.add("done");
+    // ── Status helpers ──
+    var STATUS_MAP = {
+      not_started: { text: "Not Started", cls: "not-started" },
+      in_progress: { text: "In Progress", cls: "in-progress" },
+      submitted: { text: "Submitted", cls: "submitted" },
+      approved: { text: "Approved", cls: "approved" },
+      refused: { text: "Refused", cls: "refused" }
+    };
+
+    function getStatusInfo(status) {
+      return STATUS_MAP[status] || STATUS_MAP.not_started;
+    }
+
+    function isComplete(app) {
+      return app && (app.status === "approved");
+    }
+
+    function hasStarted(app) {
+      return app && app.status && app.status !== "not_started";
+    }
+
+    // ── Stepper ──
+    function updateStepper() {
+      var steps = document.querySelectorAll("#pbsStepper .pbs-step");
+      var medicareDone = isComplete(currentMedicare);
+      var medicareActive = hasStarted(currentMedicare) && !medicareDone;
+      var pbsDone = isComplete(currentPbs);
+      var pbsActive = hasStarted(currentPbs) && !pbsDone;
+
+      steps.forEach(function (step) {
+        step.classList.remove("active", "done");
+        var dot = step.querySelector(".pbs-step-dot");
+        var stage = step.getAttribute("data-stage");
+
+        if (stage === "medicare") {
+          if (medicareDone) {
+            step.classList.add("done");
+            dot.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>';
+          } else if (medicareActive) {
+            step.classList.add("active");
+            dot.textContent = "1";
+          } else {
+            dot.textContent = "1";
+          }
+        } else if (stage === "pbs") {
+          if (pbsDone) {
+            step.classList.add("done");
+            dot.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>';
+          } else if (pbsActive) {
+            step.classList.add("active");
+            dot.textContent = "2";
+          } else {
+            dot.textContent = "2";
+          }
         }
       });
     }
 
-    function setupUpload(prefix) {
-      var zone = document.getElementById(prefix + "UploadZone");
-      var input = document.getElementById(prefix + "FileInput");
-      if (!zone || !input) return;
-      zone.addEventListener("click", function () { input.click(); });
-      zone.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); }
+    // ── Overall readiness ──
+    function computeOverallStatus() {
+      if (isComplete(currentPbs) && isComplete(currentMedicare)) return "approved";
+      if (isComplete(currentMedicare) && hasStarted(currentPbs)) return "in_progress";
+      if (hasStarted(currentMedicare)) return "in_progress";
+      if (currentMedicare && currentMedicare.status === "submitted") return "submitted";
+      return "not_started";
+    }
+
+    function computeReadinessLabel() {
+      if (isComplete(currentPbs) && isComplete(currentMedicare)) return "Both numbers active";
+      if (isComplete(currentMedicare) && hasStarted(currentPbs)) return "Medicare confirmed, PBS in progress";
+      if (isComplete(currentMedicare)) return "Medicare confirmed, PBS pending";
+      if (hasStarted(currentMedicare)) return "Medicare application in progress";
+      return "Setup not yet started";
+    }
+
+    // ── Render case summary ──
+    function renderCaseSummary() {
+      document.getElementById("caseTitle").textContent = "PBS & Medicare";
+
+      var sub = computeReadinessLabel();
+      document.getElementById("caseSub").textContent = sub;
+
+      var overall = computeOverallStatus();
+      var info = getStatusInfo(overall);
+      var badgeEl = document.getElementById("caseBadge");
+      badgeEl.innerHTML = '<span class="status-badge-dot"></span> ' + escapeHtml(info.text);
+      badgeEl.className = "status-badge " + info.cls;
+
+      document.getElementById("caseResponsible").textContent = "GP Link Team";
+
+      var latestUpdate = null;
+      if (currentMedicare && currentMedicare.updated_at) latestUpdate = currentMedicare.updated_at;
+      if (currentPbs && currentPbs.updated_at) {
+        if (!latestUpdate || new Date(currentPbs.updated_at) > new Date(latestUpdate)) {
+          latestUpdate = currentPbs.updated_at;
+        }
+      }
+      document.getElementById("caseUpdated").textContent = relativeTime(latestUpdate);
+    }
+
+    // ── Render current action ──
+    function renderAction() {
+      var block = document.getElementById("actionBlock");
+      var title = document.getElementById("actionTitle");
+      var desc = document.getElementById("actionDesc");
+      var label = document.getElementById("actionLabel");
+      var ownerEl = document.getElementById("actionOwner");
+      var dueEl = document.getElementById("actionDue");
+      var cta = document.getElementById("actionCta");
+
+      var activeApp = null;
+      if (currentMedicare && currentMedicare.current_action_title) {
+        activeApp = currentMedicare;
+      } else if (currentPbs && currentPbs.current_action_title) {
+        activeApp = currentPbs;
+      }
+
+      if (activeApp) {
+        var isGpAction = (activeApp.current_action_owner || "").toLowerCase() === "gp" ||
+                         (activeApp.current_action_owner || "").toLowerCase() === "you";
+        block.className = "action-block " + (isGpAction ? "has-action" : "");
+        label.textContent = isGpAction ? "Action required" : "Current step";
+        title.textContent = activeApp.current_action_title;
+        desc.textContent = activeApp.current_action_description || "";
+        ownerEl.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg> ' + escapeHtml(activeApp.current_action_owner || "GP Link Team");
+        if (activeApp.current_action_due_date) {
+          dueEl.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Due ' + formatDate(activeApp.current_action_due_date);
+          dueEl.hidden = false;
+        } else {
+          dueEl.hidden = true;
+        }
+        if (isGpAction) {
+          cta.hidden = false;
+          var ctaText = activeApp.current_action_title.toLowerCase().indexOf("upload") > -1 ? "Upload Document" : "Take Action";
+          document.getElementById("actionCtaText").textContent = ctaText;
+        } else {
+          cta.hidden = true;
+        }
+      } else {
+        var overall = computeOverallStatus();
+        var isAllDone = overall === "approved";
+        block.className = "action-block " + (isAllDone ? "no-action" : "no-action");
+        label.textContent = "No action needed";
+        if (isAllDone) {
+          title.textContent = "All set";
+          desc.textContent = "Both your Medicare provider number and PBS prescriber number are active. You're ready to bill and prescribe.";
+        } else {
+          title.textContent = "No action required right now";
+          desc.textContent = "Your GP Link team is progressing your applications. You'll be notified when something needs your attention.";
+        }
+        ownerEl.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg> GP Link Team';
+        dueEl.hidden = true;
+        cta.hidden = true;
+      }
+    }
+
+    // ── Render step badge ──
+    function renderStepBadge(badgeId, app) {
+      var el = document.getElementById(badgeId);
+      if (!el) return;
+      var info = getStatusInfo(app ? app.status : "not_started");
+      el.innerHTML = '<span class="status-badge-dot"></span> ' + escapeHtml(info.text);
+      el.className = "status-badge " + info.cls;
+    }
+
+    // ── Render Medicare section ──
+    function renderMedicareSection() {
+      renderStepBadge("medicareStepBadge", currentMedicare);
+
+      document.getElementById("medicareRef").textContent = (currentMedicare && currentMedicare.reference_number) || "--";
+      document.getElementById("medicareAppDate").textContent = formatDate(currentMedicare && currentMedicare.application_date);
+
+      var providerWrap = document.getElementById("medicareProviderWrap");
+      var providerNum = document.getElementById("medicareProviderNum");
+      if (currentMedicare && currentMedicare.provider_number) {
+        providerWrap.hidden = false;
+        providerNum.textContent = currentMedicare.provider_number;
+      } else {
+        providerWrap.hidden = true;
+      }
+
+      // Practice info
+      var practiceContainer = document.getElementById("medicarePracticeRow");
+      if (currentMedicare && currentMedicare.practice_name) {
+        practiceContainer.innerHTML =
+          '<div class="practice-row">' +
+          '<div class="practice-icon"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>' +
+          '<div class="practice-info">' +
+          '<div class="practice-name">' + escapeHtml(currentMedicare.practice_name) + '</div>' +
+          '<div class="practice-detail">' + escapeHtml(currentMedicare.practice_contact || "Assigned practice") + '</div>' +
+          '</div></div>';
+      } else {
+        practiceContainer.innerHTML = "";
+      }
+
+      // Medicare documents
+      var medicareDocs = allDocuments.filter(function (doc) {
+        return currentMedicare && doc.pbs_application_id === currentMedicare.id;
       });
-      input.addEventListener("change", function () {
-        var files = Array.prototype.slice.call(input.files);
-        if (!files.length) return;
-        var list = document.getElementById(prefix + "UploadList");
-        files.forEach(function (file) {
-          var item = document.createElement("div");
-          item.className = "upload-item";
-          item.innerHTML = [
-            '<div class="upload-item-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>',
-            '<span class="upload-item-name">' + escapeHtml(file.name) + '</span>',
-            '<span class="upload-item-meta">Uploading...</span>'
-          ].join("");
-          list.appendChild(item);
+      renderDocList("medicareDocList", medicareDocs, "medicare_provider");
+    }
+
+    // ── Render PBS section ──
+    function renderPbsSection() {
+      renderStepBadge("pbsStepBadge", currentPbs);
+
+      // Downstream note
+      var noteContainer = document.getElementById("pbsDownstreamNote");
+      if (!isComplete(currentMedicare) && !hasStarted(currentPbs)) {
+        noteContainer.innerHTML = '<div class="step-section-note">PBS setup typically begins after your Medicare provider number is confirmed.</div>';
+      } else {
+        noteContainer.innerHTML = "";
+      }
+
+      document.getElementById("pbsRef").textContent = (currentPbs && currentPbs.reference_number) || "--";
+      document.getElementById("pbsAppDate").textContent = formatDate(currentPbs && currentPbs.application_date);
+
+      var prescriberWrap = document.getElementById("pbsPrescriberWrap");
+      var prescriberNum = document.getElementById("pbsPrescriberNum");
+      if (currentPbs && currentPbs.prescriber_number) {
+        prescriberWrap.hidden = false;
+        prescriberNum.textContent = currentPbs.prescriber_number;
+      } else {
+        prescriberWrap.hidden = true;
+      }
+
+      // PBS documents
+      var pbsDocs = allDocuments.filter(function (doc) {
+        return currentPbs && doc.pbs_application_id === currentPbs.id;
+      });
+      renderDocList("pbsDocList", pbsDocs, "pbs_prescriber");
+    }
+
+    // ── Render document list ──
+    function renderDocList(containerId, documents, appType) {
+      var list = document.getElementById(containerId);
+      if (!list) return;
+
+      if (!documents || !documents.length) {
+        list.innerHTML =
+          '<div class="doc-empty">No documents yet for this step.</div>' +
+          '<div class="doc-upload-row doc-upload-trigger" data-app-type="' + escapeHtml(appType) + '" role="button" tabindex="0" aria-label="Upload a document">' +
+          '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+          '<span class="doc-upload-text">Upload a document</span></div>';
+        bindDocTriggers();
+        return;
+      }
+
+      var html = documents.map(function (doc) {
+        var status = doc.status || "uploaded";
+        var statusLabel = prettifyDocType(status);
+        var iconCls = status;
+        var isMissing = status === "missing";
+        var svgIcon = status === "approved"
+          ? '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>'
+          : status === "rejected"
+            ? '<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+            : isMissing
+              ? '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="12" y1="11" x2="12.01" y2="11"/></svg>'
+              : '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+        var rejection = status === "rejected" && doc.rejection_reason
+          ? '<div class="doc-rejection">' + escapeHtml(doc.rejection_reason) + '</div>' : '';
+        var requestNote = isMissing && doc.request_note
+          ? '<div class="doc-request-note">' + escapeHtml(doc.request_note) + '</div>' : '';
+        var fileName = doc.original_file_name
+          ? '<div class="doc-file-name">' + escapeHtml(doc.original_file_name) + '</div>' : '';
+        var rowCls = "doc-row" + (isMissing ? " doc-requested" : "");
+        var rowDataAttr = isMissing ? ' data-requested-type="' + escapeHtml(doc.document_type || "") + '" data-requested-app="' + escapeHtml(appType) + '"' : '';
+        var statusHtml = isMissing
+          ? '<span class="doc-requested-badge"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Requested</span>'
+          : '<span class="doc-status ' + status + '">' + escapeHtml(statusLabel) + '</span>';
+        return '<div class="' + rowCls + '"' + rowDataAttr + '>' +
+          '<div class="doc-icon ' + iconCls + '">' + svgIcon + '</div>' +
+          '<div class="doc-info"><div class="doc-name">' + escapeHtml(prettifyDocType(doc.document_type)) + '</div>' + fileName + requestNote + rejection + '</div>' +
+          statusHtml + '</div>';
+      }).join("");
+
+      html += '<div class="doc-upload-row doc-upload-trigger" data-app-type="' + escapeHtml(appType) + '" role="button" tabindex="0" aria-label="Upload a document">' +
+        '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+        '<span class="doc-upload-text">Upload a document</span></div>';
+
+      list.innerHTML = html;
+      bindDocTriggers();
+    }
+
+    // ── Bind doc upload triggers ──
+    function bindDocTriggers() {
+      var triggers = document.querySelectorAll(".doc-upload-trigger");
+      triggers.forEach(function (trigger) {
+        trigger.addEventListener("click", function () {
+          var appType = trigger.getAttribute("data-app-type") || "";
+          openUploadModal(appType, "");
         });
-        input.value = "";
+        trigger.addEventListener("keydown", function (e) {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            var appType = trigger.getAttribute("data-app-type") || "";
+            openUploadModal(appType, "");
+          }
+        });
+      });
+
+      var requestedRows = document.querySelectorAll(".doc-requested");
+      requestedRows.forEach(function (row) {
+        row.addEventListener("click", function () {
+          var docType = row.getAttribute("data-requested-type") || "";
+          var appType = row.getAttribute("data-requested-app") || "";
+          openUploadModal(appType, docType);
+        });
       });
     }
 
+    // ── Render updates ──
+    function renderUpdates(updates) {
+      var container = document.getElementById("updatesContainer");
+      if (!updates || !updates.length) {
+        container.innerHTML = '<p class="empty-state">No updates yet. Your agent will post notes here as things progress.</p>';
+        return;
+      }
+      var html = '<div class="notes-list">' + updates.map(function (u) {
+        return '<div class="note-item">' +
+          '<div class="note-head">' +
+          '<span class="note-author">' + escapeHtml(u.created_by || "GP Link Team") + '</span>' +
+          '<span class="note-dot"></span>' +
+          '<span class="note-date">' + relativeTime(u.created_at) + '</span></div>' +
+          '<div class="note-text">' + escapeHtml(u.body) + '</div></div>';
+      }).join("") + '</div>';
+      container.innerHTML = html;
+    }
+
+    // ── Render timeline ──
+    function renderTimeline(events) {
+      var container = document.getElementById("timelineContainer");
+      if (!events || !events.length) {
+        container.innerHTML = '<p class="empty-state" style="padding-left:0;">No history recorded yet.</p>';
+        container.className = "";
+        return;
+      }
+      container.className = "timeline";
+      container.innerHTML = events.map(function (evt, idx) {
+        return '<div class="timeline-item' + (idx > 0 ? ' done' : '') + '">' +
+          '<div class="timeline-dot"></div>' +
+          '<div class="timeline-date">' + formatDate(evt.created_at) + '</div>' +
+          '<div class="timeline-text">' + escapeHtml(evt.event_title) + '</div>' +
+          (evt.event_description ? '<div class="timeline-detail">' + escapeHtml(evt.event_description) + '</div>' : '') +
+          '</div>';
+      }).join("");
+    }
+
+    // ── Upload Modal ──
+    var uploadModal = document.getElementById("uploadModal");
+    var uploadFileInput = document.getElementById("uploadFileInput");
+    var uploadDropZone = document.getElementById("uploadDropZone");
+    var uploadSubmitBtn = document.getElementById("uploadSubmitBtn");
+    var uploadCancelBtn = document.getElementById("uploadCancelBtn");
+    var uploadAppSelect = document.getElementById("uploadAppSelect");
+    var uploadTypeSelect = document.getElementById("uploadTypeSelect");
+    var uploadDropText = document.getElementById("uploadDropText");
+
+    function openUploadModal(appType, docType) {
+      uploadModal.classList.add("open");
+      if (appType) uploadAppSelect.value = appType;
+      if (docType) uploadTypeSelect.value = docType;
+    }
+
+    function closeUploadModal() {
+      uploadModal.classList.remove("open");
+      uploadFileInput.value = "";
+      uploadAppSelect.value = "";
+      uploadTypeSelect.value = "";
+      uploadDropText.textContent = "Tap to select a file";
+      uploadSubmitBtn.disabled = true;
+      selectedFile = null;
+    }
+
+    uploadCancelBtn.addEventListener("click", closeUploadModal);
+    uploadModal.addEventListener("click", function (e) {
+      if (e.target === uploadModal) closeUploadModal();
+    });
+
+    uploadDropZone.addEventListener("click", function () { uploadFileInput.click(); });
+    uploadFileInput.addEventListener("change", function () {
+      if (uploadFileInput.files && uploadFileInput.files.length > 0) {
+        selectedFile = uploadFileInput.files[0];
+        uploadDropText.textContent = selectedFile.name;
+        checkUploadReady();
+      }
+    });
+    uploadAppSelect.addEventListener("change", checkUploadReady);
+    uploadTypeSelect.addEventListener("change", checkUploadReady);
+
+    function checkUploadReady() {
+      uploadSubmitBtn.disabled = !(selectedFile && uploadAppSelect.value && uploadTypeSelect.value);
+    }
+
+    uploadSubmitBtn.addEventListener("click", function () {
+      if (!selectedFile || !uploadAppSelect.value || !uploadTypeSelect.value) return;
+      uploadSubmitBtn.disabled = true;
+      uploadSubmitBtn.textContent = "Uploading...";
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        var dataUrl = reader.result;
+        fetch("/api/pbs/documents", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            applicationType: uploadAppSelect.value,
+            documentType: uploadTypeSelect.value,
+            fileDataUrl: dataUrl,
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type
+          })
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          closeUploadModal();
+          uploadSubmitBtn.textContent = "Upload";
+          if (data.ok) loadPbsStatus();
+        })
+        .catch(function () {
+          uploadSubmitBtn.textContent = "Upload";
+          uploadSubmitBtn.disabled = false;
+        });
+      };
+      reader.readAsDataURL(selectedFile);
+    });
+
+    // ── Action CTA ──
+    document.getElementById("actionCta").addEventListener("click", function () {
+      openUploadModal("", "");
+    });
+
+    // ── Load PBS status ──
     function loadPbsStatus() {
       fetch("/api/pbs/status", { credentials: "same-origin" })
         .then(function (res) {
-          if (!res.ok) throw new Error("Failed to load PBS status");
+          if (!res.ok) throw new Error("Failed");
           return res.json();
         })
         .then(function (data) {
-          if (data.medicare) renderCardStatus("medicare", data.medicare);
-          if (data.pbs) renderCardStatus("pbs", data.pbs);
-          if (data.completedDocs) renderChecklist(data.completedDocs);
+          document.getElementById("loadingState").hidden = true;
+
+          currentMedicare = data.medicareProvider || null;
+          currentPbs = data.pbsPrescriber || null;
+          allDocuments = data.documents || [];
+
+          if (!currentMedicare && !currentPbs) {
+            document.getElementById("emptyState").hidden = false;
+            document.getElementById("caseContent").hidden = true;
+            return;
+          }
+
+          document.getElementById("emptyState").hidden = true;
+          document.getElementById("caseContent").hidden = false;
+
+          updateStepper();
+          renderCaseSummary();
+          renderAction();
+          renderMedicareSection();
+          renderPbsSection();
+          renderUpdates(data.updates || []);
+          renderTimeline(data.timelineEvents || []);
         })
         .catch(function () {
-          // Graceful fallback - show default not-started state
+          document.getElementById("loadingState").hidden = true;
+          document.getElementById("emptyState").hidden = false;
+          document.getElementById("caseContent").hidden = true;
         });
     }
 
-    setupUpload("medicare");
-    setupUpload("pbs");
     loadPbsStatus();
   })();
   </script>
