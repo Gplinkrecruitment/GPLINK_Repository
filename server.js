@@ -884,20 +884,57 @@ function sanitizeUserString(str, maxLen) {
   return s;
 }
 
+const NAME_NOISE_PARTS = new Set(['dr', 'mr', 'mrs', 'ms', 'miss', 'mx', 'sir', 'prof', 'professor', 'md', 'mbbs', 'mbchb', 'phd']);
+
+function normalizeNameParts(name) {
+  return String(name || '')
+    .toLowerCase()
+    .trim()
+    .replace(/['’]/g, '')
+    .replace(/-/g, ' ')
+    .replace(/[^a-z\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((part) => !NAME_NOISE_PARTS.has(part));
+}
+
+function middleNamesCompatible(partsA, partsB) {
+  if (!partsA.length || !partsB.length) return true;
+  const shorter = partsA.length <= partsB.length ? partsA : partsB;
+  const longer = partsA.length <= partsB.length ? partsB : partsA;
+  let longIdx = 0;
+  for (const part of shorter) {
+    let matched = false;
+    while (longIdx < longer.length) {
+      const candidate = longer[longIdx++];
+      if (!candidate) continue;
+      if (part === candidate || part.charAt(0) === candidate.charAt(0)) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) return false;
+  }
+  return true;
+}
+
 function matchNames(docName, profileName) {
-  const normalize = (n) => String(n || '').toLowerCase().trim().replace(/[^a-z\s]/g, '');
-  const docParts = normalize(docName).split(/\s+/).filter(Boolean);
-  const profileParts = normalize(profileName).split(/\s+/).filter(Boolean);
-  if (docParts.length === 0 || profileParts.length === 0) return 'unknown';
+  const docParts = normalizeNameParts(docName);
+  const profileParts = normalizeNameParts(profileName);
+  if (docParts.length < 2 || profileParts.length < 2) return 'unknown';
   if (docParts.join(' ') === profileParts.join(' ')) return 'exact';
-  const docFirst = docParts[0], docLast = docParts[docParts.length - 1];
-  const profFirst = profileParts[0], profLast = profileParts[profileParts.length - 1];
-  if (docFirst === profFirst && docLast === profLast) return 'fuzzy';
-  const allProfileInDoc = profileParts.every(p => docParts.includes(p));
-  if (allProfileInDoc) return 'fuzzy';
-  const allDocInProfile = docParts.every(p => profileParts.includes(p));
-  if (allDocInProfile) return 'fuzzy';
-  return 'mismatch';
+  const docFirst = docParts[0];
+  const docLast = docParts[docParts.length - 1];
+  const profFirst = profileParts[0];
+  const profLast = profileParts[profileParts.length - 1];
+  if (docFirst !== profFirst || docLast !== profLast) return 'mismatch';
+  const docMiddle = docParts.slice(1, -1);
+  const profileMiddle = profileParts.slice(1, -1);
+  return middleNamesCompatible(docMiddle, profileMiddle) ? 'fuzzy' : 'mismatch';
+}
+
+function isConfirmedNameMatch(match) {
+  return match === 'exact' || match === 'fuzzy';
 }
 
 /**
@@ -9492,39 +9529,19 @@ async function handleApi(req, res, pathname) {
       priceMax: body && body.priceMax,
       sortOrder: body && body.sortOrder
     };
-    const liveEnabled = isDomainLifestyleConfigured();
-    const fallbackEnabled = isDomainLifestyleFallbackEnabled();
-    const liveListings = liveEnabled
-      ? await fetchDomainLifestyleListings(locationContext, practiceCoords, market, household, searchOptions)
-      : [];
-    const agencyListings = liveEnabled && !liveListings.length
-      ? await fetchDomainSelectedAgencyLifestyleListings(locationContext, practiceCoords, market, household, searchOptions)
-      : [];
-    let source = 'none';
-    let listings = liveListings;
-    let liveUsed = liveListings.length > 0;
-
-    if (!listings.length && agencyListings.length) {
-      listings = agencyListings;
-      source = 'selected_agencies';
-      liveUsed = false;
-    } else if (!listings.length && fallbackEnabled) {
-      const fallbackCatalog = buildLifestyleHousingFallbackCatalog(locationContext, practiceCoords);
-      listings = buildLifestyleFallbackListings(
-        fallbackCatalog[market],
-        practiceCoords,
-        market,
-        locationContext,
-        household,
-        searchOptions
-      );
-      source = 'fallback';
-      liveUsed = false;
-    } else if (listings.length) {
-      source = 'domain';
-    } else if (liveEnabled) {
-      source = 'domain';
-    }
+    const fallbackCatalog = buildLifestyleHousingFallbackCatalog(locationContext, practiceCoords);
+    const listings = buildLifestyleFallbackListings(
+      fallbackCatalog[market],
+      practiceCoords,
+      market,
+      locationContext,
+      household,
+      searchOptions
+    );
+    const source = 'fallback';
+    const liveUsed = false;
+    const liveEnabled = false;
+    const fallbackEnabled = true;
 
     sendJson(res, 200, {
       ok: true,
@@ -10488,6 +10505,7 @@ Verify this document.`;
         } catch (e) { /* non-critical — proceed with profile name only */ }
       }
 
+      const hasReferenceNames = !!profileName || verifiedNames.length > 0;
       const nameCheck = crossCheckDocumentName(verification.nameFound, profileName, verifiedNames);
       verification.nameMatch = nameCheck.match;
       verification.nameMatchedAgainst = nameCheck.matchedAgainst;
@@ -10495,6 +10513,10 @@ Verify this document.`;
         verification.verified = false;
         verification.issues = verification.issues || [];
         verification.issues.push('The name on this document does not match your account name. Please upload a document with the name matching your profile.');
+      } else if (hasReferenceNames && !isConfirmedNameMatch(nameCheck.match)) {
+        verification.verified = false;
+        verification.issues = verification.issues || [];
+        verification.issues.push('We could not confidently match the full name on this document to your account. Please upload a clearer document showing the full name.');
       }
 
       sendJson(res, 200, {
@@ -11038,15 +11060,18 @@ Return ONLY valid JSON with no markdown formatting:
           } catch (e) { /* non-critical */ }
         }
 
+        const hasReferenceNames = namesToCheck.length > 0;
         const nameCheck = crossCheckDocumentName(idName, profileName, namesToCheck);
+        verification.nameMatch = nameCheck.match;
+        verification.nameMatchedAgainst = nameCheck.matchedAgainst;
         if (nameCheck.match === 'mismatch') {
           verification.verified = false;
           verification.issues = verification.issues || [];
           verification.issues.push('Name on ID does not match your profile name or previously verified documents. Please upload an ID with the same name as your qualifications.');
-          verification.nameMatch = 'mismatch';
-        } else {
-          verification.nameMatch = nameCheck.match === 'unknown' ? 'match' : nameCheck.match;
-          verification.nameMatchedAgainst = nameCheck.matchedAgainst;
+        } else if (hasReferenceNames && !isConfirmedNameMatch(nameCheck.match)) {
+          verification.verified = false;
+          verification.issues = verification.issues || [];
+          verification.issues.push('We could not confidently match the full name on your ID to your account or verified documents. Please upload a clearer photo showing the full name.');
         }
       }
 
@@ -13596,6 +13621,8 @@ module.exports.__testUtils = {
   buildDomainResidentialSearchPayload,
   collectDomainResidentialSearchListings,
   extractDomainListingCoordinates,
+  crossCheckDocumentName,
+  matchNames,
   matchesDomainAgencyListingMarket,
   normalizeDomainAgencyListing,
   normalizeDomainListing,

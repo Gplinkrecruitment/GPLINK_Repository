@@ -64,7 +64,7 @@
   <script src="../js/state-sync.js?v=20260315a" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260322a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260331a" defer></script>
   <script src="../js/account-dropdown.js?v=20260316a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -497,7 +497,7 @@
 
     .hero-shortcuts {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
 
@@ -1198,7 +1198,7 @@
 
     .application-meta {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
       padding-top: 12px;
       border-top: 1px solid var(--line);
@@ -1724,7 +1724,7 @@
 
     .placement-quick-stats {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
 
@@ -1865,7 +1865,7 @@
       padding: 12px;
       border-radius: 18px;
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
       background: rgba(255, 255, 255, 0.18);
       border: 1px solid rgba(255, 255, 255, 0.24);
@@ -1981,7 +1981,6 @@
     .practice-lifestyle-map-glow,
     .practice-lifestyle-map-vignette,
     .practice-lifestyle-map-topfade,
-    .practice-lifestyle-routes,
     .practice-lifestyle-catchment,
     .practice-lifestyle-radius {
       position: absolute;
@@ -2093,19 +2092,6 @@
       animation: lifestyleOverlayIn .32s ease-out both;
     }
 
-    .practice-lifestyle-routes {
-      z-index: 1;
-      opacity: 0.94;
-      animation: lifestyleOverlayIn .36s ease-out both;
-    }
-
-    .practice-lifestyle-routes line {
-      stroke: rgba(34, 197, 94, 0.4);
-      stroke-width: 1.5;
-      stroke-dasharray: 6 4;
-      stroke-linecap: round;
-    }
-
     .practice-lifestyle-practice-pin {
       position: absolute;
       left: 50%;
@@ -2181,12 +2167,6 @@
       background: rgba(168, 85, 247, 0.94);
       color: #fff;
       box-shadow: 0 0 18px rgba(168, 85, 247, 0.3), 0 12px 26px -20px rgba(76, 29, 149, 0.86);
-    }
-
-    .practice-lifestyle-map-marker.is-flights {
-      background: rgba(34, 197, 94, 0.94);
-      color: #fff;
-      box-shadow: 0 0 18px rgba(34, 197, 94, 0.25), 0 12px 26px -20px rgba(20, 83, 45, 0.86);
     }
 
     .practice-lifestyle-map-marker.is-practice {
@@ -2400,12 +2380,6 @@
       box-shadow: 0 0 18px rgba(168, 85, 247, 0.3), 0 12px 26px -20px rgba(76, 29, 149, 0.86);
     }
 
-    .practice-lifestyle-point-flights {
-      background: rgba(34, 197, 94, 0.9);
-      color: #fff;
-      box-shadow: 0 0 18px rgba(34, 197, 94, 0.25), 0 12px 26px -20px rgba(20, 83, 45, 0.86);
-    }
-
     .practice-lifestyle-dock {
       position: absolute;
       left: 16px;
@@ -2421,7 +2395,7 @@
       width: min(100%, 296px);
       padding: 6px;
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
       border-radius: 24px;
       background: rgba(11, 15, 20, 0.75);
@@ -2780,8 +2754,7 @@
       font-weight: 700;
     }
 
-    .practice-lifestyle-property-drive svg,
-    .practice-lifestyle-flight-time svg {
+    .practice-lifestyle-property-drive svg {
       width: 12px;
       height: 12px;
       stroke: currentColor;
@@ -2811,14 +2784,12 @@
       box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.16);
     }
 
-    .practice-lifestyle-school-list,
-    .practice-lifestyle-flight-list {
+    .practice-lifestyle-school-list {
       display: grid;
       gap: 10px;
     }
 
-    .practice-lifestyle-school-card,
-    .practice-lifestyle-flight-card {
+    .practice-lifestyle-school-card {
       display: grid;
       gap: 6px;
       padding: 14px;
@@ -2827,16 +2798,14 @@
       border: 1px solid rgba(255, 255, 255, 0.04);
     }
 
-    .practice-lifestyle-school-top,
-    .practice-lifestyle-flight-top {
+    .practice-lifestyle-school-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
     }
 
-    .practice-lifestyle-school-name,
-    .practice-lifestyle-flight-name {
+    .practice-lifestyle-school-name {
       margin: 0;
       color: #fff;
       font-size: 14px;
@@ -2845,8 +2814,7 @@
       letter-spacing: -0.01em;
     }
 
-    .practice-lifestyle-school-meta,
-    .practice-lifestyle-flight-meta {
+    .practice-lifestyle-school-meta {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
@@ -2896,54 +2864,6 @@
       color: #6b7280;
       font-size: 12px;
       font-weight: 700;
-    }
-
-    .practice-lifestyle-flight-top {
-      align-items: center;
-    }
-
-    .practice-lifestyle-flight-left {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .practice-lifestyle-flight-iconbox {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-      color: #fff;
-    }
-
-    .practice-lifestyle-flight-iconbox.is-airport {
-      background: rgba(37, 99, 235, 0.24);
-    }
-
-    .practice-lifestyle-flight-iconbox.is-destination {
-      background: rgba(34, 197, 94, 0.2);
-    }
-
-    .practice-lifestyle-flight-iconbox svg {
-      width: 16px;
-      height: 16px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .practice-lifestyle-flight-time {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: #fff;
-      font-size: 12px;
-      font-weight: 700;
-      white-space: nowrap;
     }
 
     .practice-lifestyle-empty {
@@ -3384,21 +3304,17 @@
     }
 
     .practice-lifestyle-school-card,
-    .practice-lifestyle-flight-card,
     .practice-lifestyle-empty {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       color: #64748b;
     }
 
-    .practice-lifestyle-school-name,
-    .practice-lifestyle-flight-name,
-    .practice-lifestyle-flight-time {
+    .practice-lifestyle-school-name {
       color: #0f172a;
     }
 
-    .practice-lifestyle-school-meta,
-    .practice-lifestyle-flight-meta {
+    .practice-lifestyle-school-meta {
       color: #64748b;
     }
 
@@ -3744,7 +3660,7 @@
 
     .placement-practice-contact-actions {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
     }
 
@@ -3847,7 +3763,7 @@
     }
 
     .placement-broker-actions {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .placement-dock-actions {
@@ -4342,7 +4258,7 @@
       }
 
       .placement-quick-stats {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       body.career-mode-secured .placement-dock {
@@ -4427,7 +4343,7 @@
       }
 
       .hero-shortcuts {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
       }
 
@@ -4582,7 +4498,7 @@
       }
 
       .placement-quick-stats {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .placement-story-media {
@@ -4788,7 +4704,7 @@
     }
 
     body.career-mode-secured .placement-quick-stats {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
 
@@ -5116,97 +5032,6 @@
         padding-bottom: calc(var(--gp-shell-bottom-clearance, 70px) + 24px);
       }
     }
-    /* ---- SCHOOLING SEARCH ---- */
-    .schooling-module {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      padding: 20px;
-      margin-top: 16px;
-      position: relative;
-      overflow: hidden;
-    }
-    .schooling-module::before {
-      content: "";
-      position: absolute; top: 0; left: 0; right: 0;
-      height: 3px;
-      background: linear-gradient(90deg, #8b5cf6, #6366f1);
-    }
-    .schooling-head {
-      margin-bottom: 14px;
-    }
-    .schooling-head .detail-label { margin-bottom: 2px; }
-    .schooling-head .card-title { margin-bottom: 2px; }
-    .schooling-intro {
-      font-size: 13px; color: var(--muted); font-weight: 500; line-height: 1.5;
-    }
-    .schooling-search-bar {
-      display: flex; gap: 8px; margin-bottom: 10px;
-    }
-    .schooling-search-input {
-      flex: 1; padding: 10px 14px;
-      border: 1px solid var(--line); border-radius: var(--radius-sm);
-      background: var(--panel-soft); font-size: 13px; font-weight: 500;
-      color: var(--text); outline: none;
-      transition: border-color .15s ease;
-    }
-    .schooling-search-input:focus { border-color: var(--blue); }
-    .schooling-search-input::placeholder { color: #94a3b8; }
-    .schooling-search-btn {
-      padding: 10px 16px; border: 1px solid var(--blue);
-      border-radius: var(--radius-sm); background: var(--blue);
-      color: #fff; font-size: 13px; font-weight: 700;
-      cursor: pointer; white-space: nowrap;
-      transition: background .15s ease;
-    }
-    .schooling-search-btn:hover { background: var(--blue2); }
-    .schooling-filters {
-      display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px;
-    }
-    .schooling-chip {
-      padding: 6px 12px; border: 1px solid var(--line);
-      border-radius: 999px; background: var(--panel-soft);
-      font-size: 11px; font-weight: 700; color: var(--muted);
-      cursor: pointer; transition: all .15s ease;
-      user-select: none; -webkit-user-select: none;
-    }
-    .schooling-chip:hover { border-color: var(--blue); color: var(--blue); }
-    .schooling-chip.active {
-      background: #eff6ff; color: var(--blue2); border-color: #bfdbfe;
-    }
-    .schooling-results {
-      display: grid; gap: 8px;
-    }
-    .schooling-card {
-      display: grid; grid-template-columns: 1fr auto;
-      align-items: center; gap: 10px;
-      padding: 14px 16px; border: 1px solid var(--line);
-      border-radius: var(--radius-md); background: var(--panel-soft);
-      transition: border-color .15s ease;
-    }
-    .schooling-card:hover { border-color: #bfdbfe; }
-    .schooling-card-name {
-      font-size: 13px; font-weight: 700; color: var(--text);
-    }
-    .schooling-card-meta {
-      font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px;
-    }
-    .schooling-card-meta span + span::before { content: " \00b7 "; }
-    .schooling-card-rating {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 4px 8px; border-radius: 8px;
-      background: #fef3c7; color: #92400e;
-      font-size: 11px; font-weight: 700; white-space: nowrap;
-    }
-    .schooling-empty {
-      text-align: center; padding: 20px;
-      font-size: 13px; color: var(--muted); font-weight: 500;
-    }
-    .schooling-powered {
-      text-align: right; margin-top: 10px;
-      font-size: 10px; color: #94a3b8; font-weight: 500;
-    }
-
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.01ms !important;
@@ -5398,31 +5223,9 @@
               <div class="practice-lifestyle-head">
                 <span class="detail-label">Lifestyle planning</span>
                 <h3 class="card-title" id="practiceLifestyleHeading">Life Around This Practice</h3>
-                <p class="practice-lifestyle-intro" id="practiceLifestyleIntro">Explore housing, schooling and travel around the practice before you relocate.</p>
+                <p class="practice-lifestyle-intro" id="practiceLifestyleIntro">Explore housing and schooling around the practice before you relocate.</p>
               </div>
               <div class="practice-lifestyle-explorer" id="securedLifestyleExplorer"></div>
-            </section>
-
-            <section class="schooling-module" id="schoolingModule" aria-labelledby="schoolingHeading">
-              <div class="schooling-head">
-                <span class="detail-label">Schooling search</span>
-                <h3 class="card-title" id="schoolingHeading">Schools Near Your Practice</h3>
-                <p class="schooling-intro">Search for schools around your secured practice location for your family.</p>
-              </div>
-              <div class="schooling-search-bar">
-                <input class="schooling-search-input" id="schoolingSearchInput" type="text" placeholder="Search school name or type..." aria-label="Search schools" />
-                <button class="schooling-search-btn" id="schoolingSearchBtn" type="button">Search</button>
-              </div>
-              <div class="schooling-filters" id="schoolingFilters">
-                <button class="schooling-chip" data-school-type="primary" type="button">Primary</button>
-                <button class="schooling-chip" data-school-type="secondary" type="button">Secondary</button>
-                <button class="schooling-chip" data-school-type="public" type="button">Public</button>
-                <button class="schooling-chip" data-school-type="private" type="button">Private</button>
-              </div>
-              <div class="schooling-results" id="schoolingResults">
-                <div class="schooling-empty">Search for schools near your practice to see results here.</div>
-              </div>
-              <div class="schooling-powered">Powered by GP Link</div>
             </section>
 
             <article class="placement-broker-card">
@@ -6014,52 +5817,7 @@
             }
           ]
         },
-        flights: [
-          {
-            id: "tweed-flight-1",
-            name: "Gold Coast Airport (OOL)",
-            distanceLabel: "8 km",
-            travelTime: "12 min",
-            type: "airport",
-            lat: -28.1644,
-            lng: 153.5052,
-            x: 24,
-            y: 22
-          },
-          {
-            id: "tweed-flight-2",
-            name: "Brisbane Airport (BNE)",
-            distanceLabel: "105 km",
-            travelTime: "1h 15 min",
-            type: "airport",
-            lat: -27.3842,
-            lng: 153.1175,
-            x: 78,
-            y: 22
-          },
-          {
-            id: "tweed-flight-3",
-            name: "Surfers Paradise",
-            distanceLabel: "25 km",
-            travelTime: "28 min",
-            type: "destination",
-            lat: -28.0021,
-            lng: 153.4303,
-            x: 71,
-            y: 66
-          },
-          {
-            id: "tweed-flight-4",
-            name: "Byron Bay",
-            distanceLabel: "32 km",
-            travelTime: "35 min",
-            type: "destination",
-            lat: -28.6474,
-            lng: 153.602,
-            x: 29,
-            y: 72
-          }
-        ]
+        flights: []
       }
     });
 
@@ -6733,14 +6491,13 @@
       const hasExplicitBuyListings = Array.isArray(housingPayload.buy);
       const hasExplicitPrimarySchools = Array.isArray(schoolsPayload.primary);
       const hasExplicitSecondarySchools = Array.isArray(schoolsPayload.secondary);
-      const hasExplicitFlights = Array.isArray(lifestylePayload.flights);
       return {
         ...base,
         key: lifestylePayload.key || base.key,
         title: lifestylePayload.title || base.title,
         subtitle: lifestylePayload.subtitle || base.subtitle,
         heading: lifestylePayload.heading || "Life Around This Practice",
-        intro: lifestylePayload.intro || "Explore housing, schooling and travel around the practice before you relocate.",
+        intro: lifestylePayload.intro || "Explore housing and schooling around the practice before you relocate.",
         mapImageUrl: lifestylePayload.mapImageUrl || base.mapImageUrl,
         map: {
           ...baseMap,
@@ -6765,7 +6522,7 @@
           primary: hasExplicitPrimarySchools ? schoolsPayload.primary : base.schools.primary,
           secondary: hasExplicitSecondarySchools ? schoolsPayload.secondary : base.schools.secondary
         },
-        flights: hasExplicitFlights ? lifestylePayload.flights : base.flights
+        flights: []
       };
     }
 
@@ -7064,7 +6821,7 @@
         };
       }
 
-      practiceLifestyleState.mode = ["housing", "schools", "flights"].includes(practiceLifestyleState.mode)
+      practiceLifestyleState.mode = ["housing", "schools"].includes(practiceLifestyleState.mode)
         ? practiceLifestyleState.mode
         : "housing";
       practiceLifestyleState.housingMode = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
@@ -7201,7 +6958,7 @@
     function buildPracticeLifestylePopupHtml(listing, routeSummary) {
       if (!listing) return "";
       const linkHref = String(listing.sourceUrl || "").trim();
-      const provider = String(listing.sourceLabel || "Domain").trim() || "Domain";
+      const provider = String(listing.sourceLabel || "GP Link").trim() || "GP Link";
       const driveLabel = routeSummary && routeSummary.duration ? routeSummary.duration : (listing.driveTime || "");
       return `
         <article class="practice-lifestyle-map-popup">
@@ -7551,38 +7308,6 @@
           });
         }
 
-        if (mode === "flights") {
-          const items = Array.isArray(lifestyle && lifestyle.flights) ? lifestyle.flights : [];
-          items.forEach((item) => {
-            const point = {
-              lat: parsePracticeLifestyleCoordinate(item && item.lat),
-              lng: parsePracticeLifestyleCoordinate(item && item.lng)
-            };
-            if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return;
-            markerPoints.push(point);
-            const route = new maps.Polyline({
-              map: practiceLifestyleMapRuntime.map,
-              path: [center, point],
-              geodesic: true,
-              strokeColor: "#22c55e",
-              strokeOpacity: 0.6,
-              strokeWeight: 2,
-              icons: [{
-                icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
-                offset: "0",
-                repeat: "12px"
-              }]
-            });
-            practiceLifestyleMapRuntime.activeOverlays.push(route);
-            const marker = createPracticeLifestyleGoogleMarker(practiceLifestyleMapRuntime.map, point, {
-              icon: "plane",
-              className: "is-flights",
-              title: item.name || "Travel destination"
-            });
-            if (marker) practiceLifestyleMapRuntime.activeMarkers.push(marker);
-          });
-        }
-
         if (markerPoints.length > 1) {
           fitPracticeLifestyleMapBounds(practiceLifestyleMapRuntime.map, markerPoints);
         }
@@ -7608,8 +7333,7 @@
     function buildPracticeLifestyleDockHtml(activeMode) {
       const tabs = [
         { key: "housing", label: "Housing", icon: "home" },
-        { key: "schools", label: "Schools", icon: "graduation" },
-        { key: "flights", label: "Flights", icon: "plane" }
+        { key: "schools", label: "Schools", icon: "graduation" }
       ];
       return `
         <div class="practice-lifestyle-dock">
@@ -7655,27 +7379,6 @@
           ${buildPracticeLifestyleIcon("graduation")}
         </span>
       `).join("");
-    }
-
-    function buildPracticeLifestyleFlightPinsHtml(items) {
-      return items.map((item, index) => `
-        <span
-          class="practice-lifestyle-point practice-lifestyle-point-flights"
-          aria-hidden="true"
-          style="--x:${Number(item.x || 50)}%; --y:${Number(item.y || 50)}%; --stagger:${index};">
-          ${buildPracticeLifestyleIcon("plane")}
-        </span>
-      `).join("");
-    }
-
-    function buildPracticeLifestyleFlightRoutesHtml(items) {
-      return `
-        <svg class="practice-lifestyle-routes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          ${items.map((item) => `
-            <line x1="50" y1="50" x2="${Number(item.x || 50)}" y2="${Number(item.y || 50)}"></line>
-          `).join("")}
-        </svg>
-      `;
     }
 
     function buildPracticeLifestyleHousingToolbarHtml(lifestyle) {
@@ -7794,7 +7497,7 @@
                     style="--thumb-image:url('${escapeHtml(listing.imageUrl || "")}'); --thumb-position:${escapeHtml(listing.imagePosition || "center")}"></div>
                   <div class="practice-lifestyle-result-body">
                     <div class="practice-lifestyle-result-topline">
-                      <span class="practice-lifestyle-property-source">${escapeHtml(listing.sourceLabel || "Domain")}</span>
+                      <span class="practice-lifestyle-property-source">${escapeHtml(listing.sourceLabel || "GP Link")}</span>
                       <span class="practice-lifestyle-result-price">${escapeHtml(listing.price)}</span>
                     </div>
                     <p class="practice-lifestyle-result-title">${escapeHtml(listing.title || listing.address || "Property option")}</p>
@@ -7812,7 +7515,7 @@
                     ${listing.summary ? `<p class="practice-lifestyle-result-summary">${escapeHtml(listing.summary)}</p>` : ""}
                     <div class="practice-lifestyle-result-actions">
                       <button class="practice-lifestyle-result-btn" type="button" data-housing-select="${escapeHtml(listing.id)}">Show on map</button>
-                      ${listing.sourceUrl ? `<a class="practice-lifestyle-result-link" href="${escapeHtml(listing.sourceUrl)}" target="_blank" rel="noopener noreferrer">View on Domain</a>` : ""}
+                      ${listing.sourceUrl ? `<a class="practice-lifestyle-result-link" href="${escapeHtml(listing.sourceUrl)}" target="_blank" rel="noopener noreferrer">View listing</a>` : ""}
                     </div>
                   </div>
                 </article>
@@ -7885,39 +7588,9 @@
       `;
     }
 
-    function buildPracticeLifestyleFlightsDrawerHtml(lifestyle) {
-      const items = Array.isArray(lifestyle && lifestyle.flights) ? lifestyle.flights : [];
-      return `
-        <div class="practice-lifestyle-drawer" data-lifestyle-drawer="flights">
-          <p class="practice-lifestyle-drawer-subtitle">Travel times from your practice</p>
-          <div class="practice-lifestyle-flight-list">
-            ${items.map((item) => `
-              <article class="practice-lifestyle-flight-card">
-                <div class="practice-lifestyle-flight-top">
-                  <div class="practice-lifestyle-flight-left">
-                    <span class="practice-lifestyle-flight-iconbox ${item.type === "airport" ? "is-airport" : "is-destination"}">
-                      ${buildPracticeLifestyleIcon("plane")}
-                    </span>
-                    <div>
-                      <p class="practice-lifestyle-flight-name">${escapeHtml(item.name)}</p>
-                      <div class="practice-lifestyle-flight-meta">
-                        <span>${escapeHtml(item.distanceLabel)}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <span class="practice-lifestyle-flight-time">${buildPracticeLifestyleIcon("clock")}<span>${escapeHtml(item.travelTime)}</span></span>
-                </div>
-              </article>
-            `).join("")}
-          </div>
-        </div>
-      `;
-    }
-
     function buildPracticeLifestyleDrawerHtml(lifestyle) {
       if (practiceLifestyleState.mode === "housing") return buildPracticeLifestyleHousingDrawerHtml(lifestyle);
       if (practiceLifestyleState.mode === "schools") return buildPracticeLifestyleSchoolsDrawerHtml(lifestyle);
-      if (practiceLifestyleState.mode === "flights") return buildPracticeLifestyleFlightsDrawerHtml(lifestyle);
       return "";
     }
 
@@ -7925,7 +7598,6 @@
       const activeMode = practiceLifestyleState.mode;
       const visibleHousing = getPracticeLifestyleVisibleHousing(lifestyle);
       const schools = getPracticeLifestyleVisibleSchools(lifestyle);
-      const flights = Array.isArray(lifestyle && lifestyle.flights) ? lifestyle.flights : [];
       const radiusSizePx = 132 + ((Number(practiceLifestyleState.radiusKm || 5) - 2) / 23) * 160;
       const useGoogleMap = canRenderPracticeLifestyleGoogleMap(lifestyle);
       return `
@@ -7937,7 +7609,6 @@
               <div class="practice-lifestyle-stage">
                 ${activeMode === "housing" ? `<div class="practice-lifestyle-radius" style="--radius-size:${radiusSizePx.toFixed(0)}px;"></div>${buildPracticeLifestyleHousingPinsHtml(visibleHousing)}` : ""}
                 ${activeMode === "schools" ? `<div class="practice-lifestyle-catchment"></div>${buildPracticeLifestyleSchoolPinsHtml(schools)}` : ""}
-                ${activeMode === "flights" ? `${buildPracticeLifestyleFlightRoutesHtml(flights)}${buildPracticeLifestyleFlightPinsHtml(flights)}` : ""}
               </div>
               <div class="practice-lifestyle-practice-pin" aria-hidden="true">
                 <span class="practice-lifestyle-practice-pulse"></span>
@@ -8924,7 +8595,7 @@
       const lifestyleModeBtn = event.target.closest("[data-lifestyle-mode]");
       if (lifestyleModeBtn) {
         const nextMode = lifestyleModeBtn.getAttribute("data-lifestyle-mode") || "overview";
-        practiceLifestyleState.mode = ["housing", "schools", "flights"].includes(nextMode) ? nextMode : "housing";
+        practiceLifestyleState.mode = ["housing", "schools"].includes(nextMode) ? nextMode : "housing";
         if (practiceLifestyleState.mode !== "housing") practiceLifestyleState.activeHousingPopupId = "";
         renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
         return;
@@ -9111,89 +8782,6 @@
       renderPage();
       if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
-
-      // ---- Schooling Search ----
-      (function initSchoolingSearch() {
-        const searchInput = document.getElementById("schoolingSearchInput");
-        const searchBtn = document.getElementById("schoolingSearchBtn");
-        const resultsEl = document.getElementById("schoolingResults");
-        const filtersEl = document.getElementById("schoolingFilters");
-        if (!searchInput || !searchBtn || !resultsEl) return;
-
-        let activeFilters = new Set();
-
-        function getPlacementCoords() {
-          const placementApp = getSecuredPlacementApp();
-          if (!placementApp) return null;
-          const placement = placementApp.placement && typeof placementApp.placement === "object" ? placementApp.placement : {};
-          if (placement.lat && placement.lng) return { lat: placement.lat, lng: placement.lng };
-          const role = findRole(placementApp.roleId);
-          if (role && role.lat && role.lng) return { lat: role.lat, lng: role.lng };
-          return null;
-        }
-
-        function renderSchoolResults(schools) {
-          if (!schools || !schools.length) {
-            resultsEl.innerHTML = '<div class="schooling-empty">No schools found matching your search. Try different keywords or filters.</div>';
-            return;
-          }
-          resultsEl.innerHTML = schools.map(function (s) {
-            return [
-              '<div class="schooling-card">',
-              '<div>',
-              '<div class="schooling-card-name">' + escapeHtml(s.name || "Unknown School") + '</div>',
-              '<div class="schooling-card-meta">',
-              '<span>' + escapeHtml(s.type || "") + '</span>',
-              s.distance ? '<span>' + escapeHtml(s.distance) + '</span>' : '',
-              '</div>',
-              '</div>',
-              s.rating ? '<span class="schooling-card-rating">' + escapeHtml(String(s.rating)) + '</span>' : '',
-              '</div>'
-            ].join("");
-          }).join("");
-        }
-
-        function runSchoolSearch() {
-          const query = searchInput.value.trim();
-          const coords = getPlacementCoords();
-          let url = "/api/schools/search?q=" + encodeURIComponent(query);
-          if (coords) { url += "&lat=" + coords.lat + "&lng=" + coords.lng; }
-          activeFilters.forEach(function (f) { url += "&type=" + encodeURIComponent(f); });
-
-          resultsEl.innerHTML = '<div class="schooling-empty">Searching...</div>';
-          fetch(url, { credentials: "same-origin" })
-            .then(function (res) {
-              if (!res.ok) throw new Error("School search failed");
-              return res.json();
-            })
-            .then(function (data) {
-              renderSchoolResults(data.schools || data.results || []);
-            })
-            .catch(function () {
-              resultsEl.innerHTML = '<div class="schooling-empty">Could not load school results. Please try again.</div>';
-            });
-        }
-
-        searchBtn.addEventListener("click", runSchoolSearch);
-        searchInput.addEventListener("keydown", function (e) {
-          if (e.key === "Enter") { e.preventDefault(); runSchoolSearch(); }
-        });
-
-        if (filtersEl) {
-          filtersEl.addEventListener("click", function (e) {
-            const chip = e.target.closest("[data-school-type]");
-            if (!chip) return;
-            const type = chip.getAttribute("data-school-type");
-            if (activeFilters.has(type)) {
-              activeFilters.delete(type);
-              chip.classList.remove("active");
-            } else {
-              activeFilters.add(type);
-              chip.classList.add("active");
-            }
-          });
-        }
-      })();
     })();
   </script>
 </body>
