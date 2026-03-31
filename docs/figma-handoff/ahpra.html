@@ -1,0 +1,2446 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>AHPRA Registration - GP Link</title>
+  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/state-sync.js?v=20260314b" defer></script>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260310a" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --green2: #16a34a;
+      --orange: #f59e0b;
+      --orange2: #f97316;
+      --red: #dc2626;
+      --card: rgba(255, 255, 255, 0.92);
+      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #f0f4fa;
+      min-height: 100dvh;
+    }
+
+    .dash-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 120px;
+    }
+
+    /* ---- HEADER ---- */
+    .app-header {
+      display: flex; align-items: center;
+      justify-content: space-between; padding: 18px 0 14px;
+    }
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+    .header-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0; border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .header-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+    .header-text p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease; color: #475569;
+    }
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+    }
+
+    /* ---- STEP TABS (horizontal navigation) ---- */
+    .step-tabs {
+      display: flex; align-items: center;
+      gap: 4px; padding: 8px 0 12px;
+      position: relative;
+      overflow-x: auto;
+      -ms-overflow-style: none; scrollbar-width: none;
+    }
+    .step-tabs::-webkit-scrollbar { display: none; }
+
+    .step-tab-glass {
+      position: absolute; z-index: 1;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(191, 220, 255, 0.9);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px -10px rgba(37, 99, 235, 0.35);
+      pointer-events: none;
+      transition: left .35s cubic-bezier(.22,.9,.18,1.05),
+                  width .35s cubic-bezier(.22,.9,.18,1.05);
+    }
+
+    .step-tab {
+      position: relative; z-index: 2;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px; border-radius: 14px;
+      font-size: 13px; font-weight: 600; color: #64748b;
+      cursor: pointer; border: 0; background: transparent;
+      font-family: inherit; white-space: nowrap;
+      transition: color .2s;
+      flex-shrink: 0;
+    }
+    .step-tab:hover { color: var(--text); }
+    .step-tab.active { color: var(--blue); font-weight: 700; }
+    .step-tab.done { color: #059669; }
+    .step-tab:disabled { opacity: .4; cursor: not-allowed; }
+    .step-tab:disabled:hover { color: #64748b; }
+
+    .step-tab-num {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 11px; font-weight: 700;
+      background: #e8edf5; color: #64748b;
+      flex-shrink: 0; transition: all .2s;
+    }
+    .step-tab-num svg {
+      width: 13px; height: 13px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .step-tab-num.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px -2px rgba(37,99,235,.4); }
+    .step-tab-num.done { background: var(--green); color: #fff; }
+    .step-tab-num.locked { background: #f1f5f9; color: #94a3b8; }
+
+    /* ---- TUTORIAL VIDEO ---- */
+    .tutorial-card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-bottom: 16px;
+    }
+    .tutorial-title {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 4px;
+    }
+    .tutorial-title svg {
+      width: 20px; height: 20px; stroke: var(--blue);
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .tutorial-title span { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+    .tutorial-desc { font-size: 13px; color: var(--muted); font-weight: 500; margin-bottom: 12px; }
+    .tutorial-video {
+      width: 100%; border-radius: 12px;
+      border: 1px solid #e2e8f0; background: #000;
+    }
+
+    /* ---- STEP CONTENT PANEL ---- */
+    .step-content {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 22px;
+      margin-bottom: 16px; position: relative; overflow: hidden;
+    }
+    .step-content::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
+    }
+    .step-content.waiting-state::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+    .step-content.done-state::before { background: linear-gradient(90deg, #16a34a, #22c55e); }
+
+    .step-content-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; margin-bottom: 8px;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+    }
+    .step-content-badge.waiting { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
+    .step-content-badge.done { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+
+    .step-content-title {
+      font-size: 20px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .step-content-sub {
+      font-size: 13px; color: #475569;
+      font-weight: 500; line-height: 1.5; margin-bottom: 16px;
+    }
+
+    .step-content-warning {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: #fffbeb; border: 1px solid #fde68a;
+      border-radius: 14px; padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .step-content-warning.hidden { display: none; }
+    .step-content-warning-icon {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: #fef3c7; display: grid; place-items: center; flex-shrink: 0;
+    }
+    .step-content-warning-icon svg {
+      width: 18px; height: 18px; stroke: #b45309;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .step-content-warning-title { font-size: 13px; font-weight: 700; color: #92400e; margin-bottom: 2px; }
+    .step-content-warning-text { font-size: 12px; color: #a16207; font-weight: 500; line-height: 1.45; }
+
+    .step-info-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; margin-bottom: 16px;
+    }
+    .step-info-item {
+      background: #f8fafc; border-radius: 12px;
+      border: 1px solid #e8edf5; padding: 14px;
+    }
+    .step-info-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .step-info-value {
+      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
+    }
+
+    .step-actions {
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .step-nav-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .step-nav-actions .btn-action {
+      min-width: 140px;
+      justify-content: center;
+    }
+    .step-nav-actions .spacer {
+      width: 1px;
+      height: 1px;
+    }
+
+    .btn-action {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 20px; border-radius: 12px;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; border: 1px solid;
+      transition: all .15s ease; cursor: pointer;
+      font-family: inherit;
+    }
+    .btn-action:hover { transform: translateY(-1px); }
+    .btn-action svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .btn-action.primary {
+      background: var(--blue); color: #fff; border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .btn-action.primary:hover { background: var(--blue2); }
+    .btn-action.complete {
+      background: #fff; color: #059669; border-color: #bbf7d0;
+    }
+    .btn-action.complete:hover { background: #ecfdf5; }
+    .btn-action.secondary {
+      background: #fff; color: #334155; border-color: #e2e8f0; box-shadow: none;
+    }
+    .btn-action.secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .btn-action:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    .btn-action.cta-pulse {
+      position: relative;
+      overflow: visible;
+    }
+    .btn-action.cta-pulse::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 14px;
+      border: 2px solid rgba(37, 99, 235, 0.55);
+      animation: ctaPulseRing 1.5s ease-out infinite;
+      pointer-events: none;
+    }
+    .btn-action .cta-cursor {
+      position: absolute;
+      top: -12px;
+      right: -10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #fff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      box-shadow: 0 6px 14px -8px rgba(30, 64, 175, 0.55);
+      animation: ctaCursorBounce 1.2s ease-in-out infinite;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .btn-action .cta-cursor::before {
+      content: "";
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 7px solid #1d4ed8;
+      transform: translateY(1px);
+    }
+    @keyframes ctaPulseRing {
+      0% { transform: scale(0.98); opacity: .9; }
+      70% { transform: scale(1.06); opacity: .15; }
+      100% { transform: scale(1.08); opacity: 0; }
+    }
+    @keyframes ctaCursorBounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+
+    /* Progress bar in step content */
+    .step-progress-row {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 16px;
+    }
+    .step-progress-track {
+      flex: 1; height: 6px; border-radius: 999px;
+      background: #e8edf5; overflow: hidden;
+    }
+    .step-progress-fill {
+      height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, #2563eb, #3b82f6);
+      transition: width .5s ease;
+    }
+    .step-progress-fill.complete { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .step-progress-text {
+      font-size: 12px; font-weight: 700; color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* ---- HELP CARD ---- */
+    .help-card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-bottom: 16px;
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    }
+    .help-card .txt {
+      font-size: 13px; font-weight: 500; color: #334155;
+      line-height: 1.5; max-width: 600px;
+    }
+    .help-card .txt strong {
+      display: block; font-weight: 800; font-size: 15px;
+      color: var(--text); margin-bottom: 4px;
+    }
+    .help-card .trust-grid {
+      width: 100%;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    .help-card .trust-col {
+      border: 1px solid #e8edf5; border-radius: 14px;
+      background: #fafbfd; padding: 14px;
+    }
+    .help-card .trust-col h4 {
+      font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 8px;
+    }
+    .help-card .trust-col ul { list-style: none; display: grid; gap: 6px; }
+    .help-card .trust-col li {
+      font-size: 12px; font-weight: 500; color: #334155;
+      display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
+    }
+    .help-card .trust-col li::before {
+      content: "";
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--blue); flex-shrink: 0; margin-top: 5px;
+    }
+    .help-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .btn-modern {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 16px; border-radius: 12px;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; border: 1px solid;
+      transition: all .15s ease; cursor: pointer; font-family: inherit;
+    }
+    .btn-modern:hover { transform: translateY(-1px); }
+    .btn-primary {
+      background: var(--blue); color: #fff; border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .btn-primary:hover { background: var(--blue2); }
+    .btn-outline {
+      background: #fff; color: #334155; border-color: #e2e8f0;
+    }
+    .btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+    .footer-links {
+      text-align: center; padding: 16px 0;
+      font-size: 12px; color: #94a3b8; font-weight: 600;
+    }
+    .footer-links a { color: #475569; text-decoration: underline; }
+
+    /* ---- SPINNER ---- */
+    .spin-icon {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(100, 116, 139, 0.3);
+      border-top-color: currentColor; border-radius: 50%;
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- DESKTOP TOPBAR ---- */
+    .desktop-topbar {
+      padding: 12px 16px; border-radius: 16px;
+      margin-bottom: 6px; background: #fff;
+      border: 1px solid #e8edf5; box-shadow: var(--shadow2);
+    }
+    .topbar-row {
+      display: grid; grid-template-columns: auto 1fr auto;
+      align-items: center; min-height: 52px; gap: 14px;
+    }
+    .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
+    .brand-logo img { display: block; width: 160px; height: auto; }
+    .nav-menu {
+      display: flex; gap: 6px; align-items: center;
+      justify-content: center; position: relative; padding: 4px; border-radius: 14px;
+    }
+    .nav-item { position: relative; z-index: 2; }
+    .nav-link, .nav-action, .account-pill {
+      text-decoration: none; border: 0; background: transparent; color: #64748b;
+      padding: 8px 14px; font-size: 13px; font-weight: 600; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 6px; line-height: 1.15;
+      border-radius: 12px; cursor: pointer; font-family: inherit; transition: color .15s ease;
+    }
+    .nav-link:hover, .nav-action:hover, .account-pill:hover { color: var(--text); }
+    .nav-link.active, .nav-action.active, .account-pill.active { color: var(--text); font-weight: 700; }
+    .nav-icon {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .nav-icon-wrap { position: relative; display: inline-grid; place-items: center; }
+    .nav-alert {
+      position: absolute; top: -6px; right: -8px;
+      width: 14px; height: 14px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 900; color: #fff;
+      background: #dc2626; pointer-events: none; z-index: 2;
+      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.6);
+    }
+    .nav-glass {
+      position: absolute; top: 0; left: 0;
+      width: 100px; height: 40px; border-radius: 12px;
+      background: rgba(37, 99, 235, 0.06);
+      border: 1px solid rgba(37, 99, 235, 0.1);
+      z-index: 1; pointer-events: none;
+      transition: left .3s cubic-bezier(.22,.9,.18,1.05), top .3s cubic-bezier(.22,.9,.18,1.05), width .3s cubic-bezier(.22,.9,.18,1.05), height .3s cubic-bezier(.22,.9,.18,1.05);
+    }
+    .nav-glass.engulf { background: rgba(37, 99, 235, 0.1); }
+
+    /* ---- REGISTRATION DROPDOWN ---- */
+    .reg-dropdown {
+      position: absolute; top: calc(100% + 4px); right: 0;
+      width: min(700px, 90vw); border-radius: 18px;
+      border: 1px solid #e8edf5; background: #fff;
+      box-shadow: 0 20px 40px -16px rgba(15, 23, 42, 0.18);
+      padding: 14px; z-index: 70;
+      opacity: 0; transform: translateY(6px);
+      pointer-events: none; visibility: hidden;
+      transition: opacity .15s ease, transform .15s ease, visibility .15s ease;
+    }
+    .reg-dropdown.show { opacity: 1; transform: translateY(0); pointer-events: auto; visibility: visible; }
+    .reg-head { margin: 0 0 10px; font-size: 14px; font-weight: 800; }
+    .reg-table { display: grid; gap: 8px; }
+    .reg-row {
+      display: grid; grid-template-columns: 1.2fr auto auto;
+      align-items: center; gap: 10px;
+      border: 1px solid #e8edf5; background: #fafbfd;
+      border-radius: 14px; padding: 10px 12px;
+      position: relative;
+      overflow: hidden;
+    }
+    .reg-name { font-size: 13px; font-weight: 700; }
+    .reg-sub { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .reg-row.done {
+      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+      border-color: #86efac;
+    }
+    .reg-row.done .reg-name,
+    .reg-row.done .reg-sub {
+      color: #166534;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+    }
+    .reg-row.done::before,
+    .reg-row.done::after {
+      content: "";
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      top: 50%;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+      pointer-events: none;
+    }
+    .reg-row.done::before { transform: rotate(6deg); }
+    .reg-row.done::after { transform: rotate(-6deg); }
+    .reg-pill {
+      font-size: 10px; text-transform: uppercase; font-weight: 800;
+      border-radius: 999px; padding: 4px 10px;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+    }
+    .reg-pill.done { background: #16a34a; color: #fff; border-color: #16a34a; }
+    .reg-pill.locked { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+    .reg-btn {
+      text-decoration: none; padding: 8px 14px; border-radius: 10px;
+      font-size: 12px; font-weight: 700; white-space: nowrap;
+      color: var(--blue); background: #eff6ff;
+      border: 1px solid #bfdbfe; transition: all .15s ease;
+    }
+    .reg-btn:hover { background: #dbeafe; }
+    .reg-btn.done {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #166534;
+      cursor: not-allowed;
+    }
+    .reg-btn.locked { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
+    .reg-btn:disabled { cursor: not-allowed; }
+
+    /* ---- MOBILE REG SHEET ---- */
+    .mobile-reg-backdrop {
+      position: fixed; inset: 0; background: rgba(2, 6, 23, 0.4);
+      opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 54;
+    }
+    .mobile-reg-backdrop.show { opacity: 1; pointer-events: auto; }
+    .mobile-reg-sheet {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      background: #fff; border-radius: 20px 20px 0 0;
+      border-top: 1px solid #e2e8f0;
+      box-shadow: 0 -16px 40px -20px rgba(15, 23, 42, 0.3);
+      padding: 10px 14px 18px; z-index: 55;
+      max-height: 74vh; overflow: auto;
+      transform: translateY(100%); transition: transform .25s ease; touch-action: pan-y;
+    }
+    .mobile-reg-sheet.show { transform: translateY(0); }
+    .mobile-reg-grab { width: 40px; height: 4px; border-radius: 999px; background: #d1d5db; margin: 4px auto 12px; }
+    .mobile-reg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .mobile-reg-title { font-size: 16px; font-weight: 800; }
+    .mobile-reg-close {
+      border: 0; background: #f1f5f9; color: #475569;
+      border-radius: 50%; width: 32px; height: 32px;
+      font-size: 16px; font-weight: 800; cursor: pointer; display: grid; place-items: center;
+    }
+    .mobile-reg-table { display: grid; gap: 8px; }
+    .mobile-reg-table .reg-row { grid-template-columns: 1fr auto; }
+    .mobile-reg-table .reg-btn { grid-column: 1 / -1; width: 100%; text-align: center; margin-top: 2px; }
+
+    /* ---- BOTTOM NAV ---- */
+    .bottom-nav {
+      position: fixed; left: 50%; bottom: 0; transform: translateX(-50%);
+      width: 100%; max-width: 560px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid #e2e8f0;
+      padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
+      display: none; grid-template-columns: repeat(5, 1fr); gap: 4px; z-index: 50; overflow: visible;
+    }
+    .bottom-tab {
+      text-decoration: none; border: 0; background: transparent; color: #94a3b8;
+      border-radius: 12px; min-height: 46px; padding: 6px 4px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 0; cursor: pointer; font: inherit; transition: all .15s ease;
+    }
+    .bottom-tab svg {
+      width: 22px; height: 22px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .bottom-tab-label { display: none; }
+    .bottom-tab-active { color: var(--blue); background: rgba(37, 99, 235, 0.08); }
+    .bottom-tab-icon { position: relative; display: inline-grid; place-items: center; }
+    .bottom-tab-scan { transform: none; }
+    .bottom-tab-scan .bottom-tab-icon {
+      width: 36px; height: 36px; border-radius: 999px;
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      animation: scanHaloPulse 2.8s ease-in-out infinite;
+    }
+    .bottom-tab-scan .bottom-tab-icon svg { width: 19px; height: 19px; }
+    @keyframes scanHaloPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78);
+      }
+    }
+    .bottom-tab-badge {
+      position: absolute; top: -5px; right: -8px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 9px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #fff;
+    }
+
+    /* ---- MODALS ---- */
+    .modal {
+      position: fixed; inset: 0;
+      background: rgba(240, 244, 250, 0.34);
+      backdrop-filter: blur(0px) saturate(1.02);
+      -webkit-backdrop-filter: blur(0px) saturate(1.02);
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 16px; z-index: 60;
+      overflow-y: auto;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
+    }
+    .modal.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      backdrop-filter: blur(16px) saturate(1.05);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+    }
+    .modal-card {
+      width: min(920px, 100%);
+      background: rgba(255, 255, 255, 0.86);
+      border-radius: var(--radius);
+      border: 1px solid rgba(191, 220, 255, 0.75);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 26px 56px -24px rgba(15, 23, 42, 0.35);
+      padding: 20px; display: grid; gap: 12px;
+      max-height: calc(100dvh - 32px);
+      overflow-y: auto;
+      margin: auto 0;
+      transform: translateY(20px) scale(0.92);
+      opacity: 0;
+      transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
+      transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
+    }
+    .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
+    .modal-card h4 { font-size: 18px; font-weight: 800; }
+    .modal-card p { font-size: 13px; color: #475569; line-height: 1.5; font-weight: 500; }
+    .modal-card textarea {
+      width: 100%; min-height: 90px; border-radius: 12px;
+      border: 1px solid #e2e8f0; padding: 12px;
+      resize: vertical; font: inherit; font-size: 13px;
+    }
+    .btn-glass {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(191, 220, 255, 0.9);
+      background: rgba(255, 255, 255, 0.78);
+      color: #1d4ed8;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px -10px rgba(37, 99, 235, 0.35);
+      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+    .btn-glass:hover {
+      transform: translateY(-1px);
+      border-color: rgba(147, 197, 253, 1);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 12px 24px -12px rgba(37, 99, 235, 0.45);
+    }
+    .btn-glass svg {
+      width: 15px;
+      height: 15px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ---- TOAST ---- */
+    .toast {
+      position: fixed; right: 12px; bottom: 92px; z-index: 95;
+      border-radius: 10px; background: #111827; color: #fff;
+      padding: 9px 14px; font-size: 12px; font-weight: 650;
+      opacity: 0; transform: translateY(8px);
+      transition: opacity .2s ease, transform .2s ease; pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ---- RESPONSIVE ---- */
+    @media (min-width: 768px) {
+      .app-header { display: none; }
+      .desktop-topbar { display: block; }
+      .bottom-nav { display: none; }
+      .dash-wrap { padding-bottom: 40px; }
+      .step-actions { justify-content: center; }
+    }
+    @media (max-width: 767px) {
+      .desktop-topbar { display: none; }
+      .bottom-nav { display: grid; }
+      .app-header { display: flex; }
+      .step-info-grid { grid-template-columns: 1fr; }
+      .btn-action { width: 100%; justify-content: center; }
+      .step-nav-actions .btn-action { width: auto; }
+      .desktop-only-section { display: none; }
+      .dash-wrap { padding-bottom: 80px; }
+      .step-tab { padding: 8px 12px; font-size: 12px; }
+      .step-tab-num { width: 22px; height: 22px; font-size: 10px; }
+      .step-tab-num svg { width: 11px; height: 11px; }
+      .modal { padding: 10px; }
+      .modal-card {
+        width: 100%;
+        max-height: calc(100dvh - 20px);
+        border-radius: 16px;
+      }
+    }
+    @media (max-width: 480px) {
+      .step-content-title { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash-wrap">
+    <!-- MOBILE HEADER -->
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar" id="headerAvatarMobile">GP</div>
+        <div class="header-text">
+          <h1>AHPRA Registration</h1>
+          <p>Specialist Registration Process</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Notifications">
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+        <a class="header-icon-btn" href="/pages/account.html" aria-label="Account">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+        </a>
+      </div>
+    </header>
+
+    <!-- DESKTOP TOPBAR -->
+    <header class="desktop-topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="/pages/index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item" href="/pages/index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+            <span>Home</span>
+          </a>
+          <button class="nav-action nav-item active" id="registrationMenuBtn" type="button" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+            <span>Registration</span>
+          </button>
+          <a class="nav-link nav-item" href="/pages/my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span>My Documents</span>
+          </a>
+          <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span>Messages</span>
+          </button>
+          <a class="account-pill nav-item" href="/pages/account.html" data-nav="account">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            <span>Account</span>
+          </a>
+          <div class="reg-dropdown" id="registrationDropdown">
+            <p class="reg-head">Registration Process</p>
+            <div class="reg-table" id="regTable"></div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <!-- HORIZONTAL STEP TABS -->
+    <nav class="step-tabs" id="stepTabs" aria-label="Step navigation">
+      <div class="step-tab-glass" id="stepTabGlass"></div>
+    </nav>
+
+    <!-- TUTORIAL VIDEO -->
+    <div class="tutorial-card" id="tutorialCard">
+      <div class="tutorial-title">
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span>Video Walkthrough</span>
+      </div>
+      <p class="tutorial-desc" id="tutorialDesc">Create your AHPRA Online account and continue your specialist registration steps.</p>
+      <video class="tutorial-video" id="tutorialVideo" controls playsinline preload="metadata">
+        <source id="tutorialSource" src="../media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
+        Your browser does not support the video tag.
+      </video>
+    </div>
+
+    <!-- STEP CONTENT -->
+    <div class="step-content" id="stepContent">
+      <div class="step-content-badge" id="stepBadge">What to do now</div>
+      <h2 class="step-content-title" id="stepTitle">Create AHPRA Account</h2>
+      <p class="step-content-sub" id="stepSub">Set up your AHPRA Online Services account.</p>
+
+      <div class="step-progress-row">
+        <div class="step-progress-track">
+          <div class="step-progress-fill" id="stepProgressFill" style="width:2%"></div>
+        </div>
+        <span class="step-progress-text" id="stepProgressText">0 of 4 complete</span>
+      </div>
+
+      <div class="step-content-warning hidden" id="stepWarning">
+        <div class="step-content-warning-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+        </div>
+        <div>
+          <div class="step-content-warning-title" id="stepWarningTitle">Attention needed</div>
+          <div class="step-content-warning-text" id="stepWarningText">-</div>
+        </div>
+      </div>
+
+      <div class="step-info-grid" id="stepInfoGrid"></div>
+
+      <div class="step-actions" id="stepActions"></div>
+
+      <div class="step-nav-actions" id="stepNavActions"></div>
+    </div>
+
+    <!-- HELP CARD -->
+    <div class="help-card desktop-only-section">
+      <div class="txt">
+        <strong>We're Here For You!</strong>
+        Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
+      </div>
+      <div class="trust-grid">
+        <div class="trust-col">
+          <h4>You do:</h4>
+          <ul>
+            <li>Upload required documents</li>
+            <li>Complete key forms</li>
+            <li>Confirm details when requested</li>
+          </ul>
+        </div>
+        <div class="trust-col">
+          <h4>We do:</h4>
+          <ul>
+            <li>Guide each step in order</li>
+            <li>Check progress and timelines</li>
+            <li>Flag issues and coordinate support</li>
+          </ul>
+        </div>
+      </div>
+      <div class="help-actions">
+        <a class="btn-modern btn-primary" href="/pages/messages.html">Contact Support <span>&#8594;</span></a>
+        <a class="btn-modern btn-outline" href="/pages/support-cases.html">View Support Cases <span>&#8594;</span></a>
+      </div>
+    </div>
+
+    <div class="footer-links">
+      <div><a href="/pages/privacy.html">Privacy Policy</a> &middot; <a href="/pages/terms.html">Terms of Service</a></div>
+      <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV (Mobile) -->
+  <nav class="bottom-nav" aria-label="Mobile navigation">
+    <a class="bottom-tab" href="/pages/index.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
+      <span class="bottom-tab-label">Home</span>
+    </a>
+    <button class="bottom-tab bottom-tab-active" id="mobileRegistrationBtn" type="button">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+      <span class="bottom-tab-label">Registration</span>
+    </button>
+    <button class="bottom-tab bottom-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="bottom-tab-label">Scan</span>
+    </button>
+    <button class="bottom-tab" id="mobileSupportBtn" type="button">
+      <span class="bottom-tab-icon">
+        <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        <span class="bottom-tab-badge" data-inbox-alert hidden aria-hidden="true">!</span>
+      </span>
+      <span class="bottom-tab-label">Messages</span>
+    </button>
+    <a class="bottom-tab" href="/pages/account.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
+      <span class="bottom-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <!-- MOBILE REGISTRATION SHEET -->
+  <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
+  <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
+    <div class="mobile-reg-grab" aria-hidden="true"></div>
+    <div class="mobile-reg-head">
+      <p class="mobile-reg-title">Registration Process</p>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">&times;</button>
+    </div>
+    <div class="mobile-reg-table" id="mobileRegTable"></div>
+  </aside>
+
+  <!-- SUPPORT MODAL -->
+  <div class="modal" id="supportModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+      <h4 id="supportTitle">New support case</h4>
+      <p>Create a support case from your current step. GP Link will follow up with next actions.</p>
+      <div style="display:grid; gap:10px;">
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          What is this about?
+          <select id="supportCategory" class="input">
+            <option value="AHPRA">AHPRA</option>
+            <option value="AMC">AMC</option>
+            <option value="EPIC">EPIC</option>
+            <option value="Documents">Documents</option>
+            <option value="Provider">Provider</option>
+            <option value="Contract">Contract</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          Brief summary
+          <input id="supportSummary" class="input" type="text" maxlength="120" placeholder="Short summary of your issue" />
+        </label>
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          Describe the issue
+          <textarea id="supportMessage" placeholder="What happened and what do you need help with?"></textarea>
+        </label>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-primary" id="supportSubmitBtn" type="button">Submit request</button>
+        <button class="btn-modern btn-outline" data-close="supportModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="missingDocsModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="missingDocsTitle">
+      <h4 id="missingDocsTitle">Missing Supporting Documents</h4>
+      <p>Upload missing documents below to continue this step.</p>
+      <div id="missingDocsModalList" style="display:grid; gap:8px;"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-glass" id="requestHelpMissingBtn" type="button">Request Help</button>
+        <button class="btn-modern btn-outline" data-close="missingDocsModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="downloadPackModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="downloadPackTitle">
+      <h4 id="downloadPackTitle">Download Supporting Documents</h4>
+      <p>Download ready files now. Missing items can be uploaded directly from this flow.</p>
+      <div id="downloadPackSummary" style="display:grid; gap:10px;"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-outline" data-close="downloadPackModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="reviewPendingModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reviewPendingTitle">
+      <h4 id="reviewPendingTitle">Documents Under Review</h4>
+      <p>Your uploaded documents are currently under GP Link review (usually within 24 hours).</p>
+      <p>Once review is complete, you can download all documents and continue.</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-primary" data-close="reviewPendingModal" type="button">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Progress saved</div>
+
+  <script>
+    // ─── CONSTANTS ───────────────────────────────────────────────
+    const STORAGE_KEY = "gp_ahpra_progress";
+    const TUTORIAL_SEEN_KEY = "gp_ahpra_tutorial_seen";
+    const EPIC_KEY = "gp_epic_progress";
+    const AMC_KEY = "gp_amc_progress";
+    const DOC_KEY = "gp_documents_prep";
+    const PREPARED_DOCS_KEY = "gp_prepared_docs";
+    const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
+    const SAVE_BATCH_SIZE = 3;
+    const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
+    const AHPRA_URL = "https://www.ahpra.gov.au/Registration/Online-services.aspx";
+
+    const GP_REQUIRED_DOCS = [
+      { key: "primary_medical_degree", name: "Certified copy of Primary Medical Degree (MBBS/MBChB)" },
+      { key: "mrcgp_certified", name: "Certified copy of MRCGP (issued from Aug 2007 onward)" },
+      { key: "cct_certified", name: "Certified copy of CCT (General Practice)" },
+      { key: "cv_signed_dated", name: "CV (Signed + dated)" }
+    ];
+    const GPLINK_REQUIRED_DOCS = [
+      { key: "sppa_00", name: "Supervised Practice Plan - SPPA-00" },
+      { key: "section_g", name: "Supervised Practice Plan - Section G" },
+      { key: "position_description", name: "Position Description" },
+      { key: "offer_contract", name: "Letter of Offer / Employment Contract" },
+      { key: "supervisor_cv", name: "Supervisor's CV" }
+    ];
+
+    // Internal stages (keep verification_issued for backward compat)
+    const STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification", "verification_issued"];
+
+    // Visible tabs (4 steps only)
+    const TAB_STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification"];
+    const TAB_LABELS = {
+      create_account: "Account",
+      account_establishment: "Establishment",
+      upload_qualifications: "Qualifications",
+      waiting_verification: "Verification"
+    };
+
+    const stageMeta = {
+      create_account: {
+        label: "Account",
+        full: "Create AHPRA Account",
+        short: "Set up your AHPRA Online Services account.",
+        doNow: "Create your AHPRA account and confirm login access.",
+        time: "10-20 minutes",
+        support: "We check setup details and can help if access issues occur.",
+        next: "Next, confirm specialist registration profile details.",
+        cta: "Open AHPRA",
+        ctaType: "open"
+      },
+      account_establishment: {
+        label: "Establishment",
+        full: "Prepare Profile Details",
+        short: "Confirm your personal and specialist profile details are correct.",
+        doNow: "Review profile details and keep specialist information aligned with your documents.",
+        time: "10-20 minutes",
+        support: "We review alignment issues and help correct any mismatches early.",
+        next: "After this, prepare supporting documents for submission.",
+        cta: "Open AHPRA",
+        ctaType: "open"
+      },
+      upload_qualifications: {
+        label: "Qualifications",
+        full: "Prepare Supporting Documents",
+        short: "Upload and verify all specialist registration supporting documents.",
+        doNow: "Upload all required supporting files in the correct AHPRA-ready format.",
+        time: "10-20 minutes",
+        support: "We verify completeness and quality before final submission.",
+        next: "Once prepared, submit your specialist application.",
+        cta: "Download Supporting Documents",
+        ctaType: "download_docs"
+      },
+      waiting_verification: {
+        label: "Verification",
+        full: "Submit Application",
+        short: "Submit your specialist application in AHPRA Online Services.",
+        doNow: "Submit your completed specialist registration application.",
+        time: "Depends on submission readiness",
+        support: "We help resolve blockers before and after submission.",
+        next: "After submission, await final AHPRA outcome.",
+        cta: "Contact Support",
+        ctaType: "support"
+      },
+      verification_issued: {
+        label: "Complete",
+        full: "Registration Submitted",
+        short: "Your AHPRA specialist registration submission is complete.",
+        doNow: "Track your final outcome and continue with GP Link onboarding.",
+        time: "5 minutes",
+        support: "We will keep guiding you through outcome and commencement readiness.",
+        next: "Return to your dashboard for next onboarding actions.",
+        cta: "Go to Home Dashboard",
+        ctaType: "home"
+      }
+    };
+
+    const stageRouteMap = {
+      create_account: "account",
+      account_establishment: "establish",
+      upload_qualifications: "upload",
+      waiting_verification: "verify",
+      verification_issued: "complete"
+    };
+    const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([k, v]) => [v, k]));
+
+    const tutorialByStage = {};
+
+    // ─── STATE MANAGEMENT ────────────────────────────────────────
+    function loadBatchMeta(metaKey) {
+      const raw = localStorage.getItem(metaKey);
+      if (!raw) return { pending: 0, lastValue: "" };
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return { pending: 0, lastValue: "" };
+        return { pending: Number.isInteger(parsed.pending) ? parsed.pending : 0, lastValue: typeof parsed.lastValue === "string" ? parsed.lastValue : "" };
+      } catch (e) { return { pending: 0, lastValue: "" }; }
+    }
+
+    function queueBatchedSave(storageKey, value, force) {
+      const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+      const meta = loadBatchMeta(metaKey);
+      meta.pending += 1;
+      meta.lastValue = value;
+      if (force || meta.pending >= SAVE_BATCH_SIZE) {
+        localStorage.setItem(storageKey, value);
+        meta.pending = 0;
+      }
+      localStorage.setItem(metaKey, JSON.stringify(meta));
+    }
+
+    function flushBatchedSave(storageKey) {
+      const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+      const meta = loadBatchMeta(metaKey);
+      if (meta.pending > 0 && meta.lastValue) {
+        localStorage.setItem(storageKey, meta.lastValue);
+        meta.pending = 0;
+        localStorage.setItem(metaKey, JSON.stringify(meta));
+      }
+    }
+
+    function flushAllBatchedSaves() {
+      [STORAGE_KEY, TUTORIAL_SEEN_KEY].forEach(flushBatchedSave);
+    }
+
+    window.addEventListener("beforeunload", flushAllBatchedSaves);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushAllBatchedSaves();
+    });
+
+    function defaultProgress() {
+      return {
+        stage: "create_account",
+        completed: { create_account: false, upload_qualifications: false, waiting_verification: false, account_establishment: false, verification_issued: false },
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    function isValidProgress(v) {
+      if (!v || typeof v !== "object") return false;
+      if (!STAGES.includes(v.stage)) return false;
+      if (!v.completed || typeof v.completed !== "object") return false;
+      for (const k of STAGES) { if (typeof v.completed[k] !== "boolean") return false; }
+      return typeof v.updatedAt === "string";
+    }
+
+    function migrateProgress(v) {
+      if (!v || typeof v !== "object" || !v.completed || typeof v.completed !== "object") return null;
+      const base = defaultProgress();
+      if (typeof v.stage === "string" && STAGES.includes(v.stage)) base.stage = v.stage;
+      for (const k of STAGES) { if (typeof v.completed[k] === "boolean") base.completed[k] = v.completed[k]; }
+      if (base.completed.upload_qualifications || base.completed.waiting_verification || base.completed.verification_issued) {
+        base.completed.account_establishment = true;
+      }
+      if (typeof v.updatedAt === "string") base.updatedAt = v.updatedAt;
+      return base;
+    }
+
+    function saveProgress(progress, force) {
+      progress.updatedAt = new Date().toISOString();
+      queueBatchedSave(STORAGE_KEY, JSON.stringify(progress), force);
+    }
+
+    function expectedStageFromCompleted(completed) {
+      for (const k of STAGES) { if (!completed[k]) return k; }
+      return "verification_issued";
+    }
+
+    function normalizeProgress(progress) {
+      const expected = expectedStageFromCompleted(progress.completed);
+      if (progress.stage !== expected) {
+        progress.stage = expected;
+        saveProgress(progress, true);
+      }
+      return progress;
+    }
+
+    function loadProgress() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) { const f = defaultProgress(); saveProgress(f, true); return f; }
+      try {
+        const parsed = JSON.parse(raw);
+        const migrated = migrateProgress(parsed);
+        if (!migrated || !isValidProgress(migrated)) { const f = defaultProgress(); saveProgress(f, true); return f; }
+        const normalized = normalizeProgress(migrated);
+        if (JSON.stringify(parsed) !== JSON.stringify(normalized)) saveProgress(normalized, true);
+        return normalized;
+      } catch (e) { const f = defaultProgress(); saveProgress(f, true); return f; }
+    }
+
+    function stageStatus(progress, key) {
+      if (progress.completed[key]) return "done";
+      if (progress.stage === key) return "current";
+      const idx = STAGES.indexOf(key);
+      if (idx === 0) return "current";
+      if (!progress.completed[STAGES[idx - 1]]) return "locked";
+      return "current";
+    }
+
+    // Get the active tab stage (maps verification_issued back to waiting_verification for display)
+    function activeTabStage(progress) {
+      if (progress.stage === "verification_issued") return "waiting_verification";
+      return progress.stage;
+    }
+
+    function stageFromRoute(pathname) {
+      const parts = String(pathname || "").split("/").filter(Boolean);
+      if (parts.length < 3 || parts[0] !== "registration" || parts[1] !== "ahpra") return null;
+      const routeStage = routeStageMap[parts[2]];
+      return STAGES.includes(routeStage) ? routeStage : null;
+    }
+
+    function pickTabFromRoute(progress) {
+      const routeStage = stageFromRoute(window.location.pathname);
+      if (!routeStage) return null;
+      const viewStage = routeStage === "verification_issued" ? "waiting_verification" : routeStage;
+      if (!TAB_STAGES.includes(viewStage)) return null;
+      return stageStatus(progress, viewStage) === "locked" ? null : viewStage;
+    }
+
+    function syncRouteForStage(key, replace) {
+      const slug = stageRouteMap[key];
+      if (!slug || !window.history || typeof window.history.pushState !== "function") return;
+      const target = `/registration/ahpra/${slug}`;
+      if (window.location.pathname === target) return;
+      if (replace) window.history.replaceState({ stage: key }, "", target);
+      else window.history.pushState({ stage: key }, "", target);
+    }
+
+    // ─── DOM REFS ────────────────────────────────────────────────
+    const toastEl = document.getElementById("toast");
+    const supportModalEl = document.getElementById("supportModal");
+    const supportCategoryEl = document.getElementById("supportCategory");
+    const supportSummaryEl = document.getElementById("supportSummary");
+    const supportMessageEl = document.getElementById("supportMessage");
+    const supportSubmitBtnEl = document.getElementById("supportSubmitBtn");
+    const missingDocsModalEl = document.getElementById("missingDocsModal");
+    const downloadPackModalEl = document.getElementById("downloadPackModal");
+    const reviewPendingModalEl = document.getElementById("reviewPendingModal");
+    const missingDocsModalListEl = document.getElementById("missingDocsModalList");
+    const downloadPackSummaryEl = document.getElementById("downloadPackSummary");
+    const requestHelpMissingBtnEl = document.getElementById("requestHelpMissingBtn");
+    const tutorialVideoEl = document.getElementById("tutorialVideo");
+    const tutorialSourceEl = document.getElementById("tutorialSource");
+    const tutorialDescEl = document.getElementById("tutorialDesc");
+    const stepTabsEl = document.getElementById("stepTabs");
+    const stepTabGlassEl = document.getElementById("stepTabGlass");
+
+    let currentTabKey = null; // tracks which tab is selected/viewed
+
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toastEl.classList.remove("show"), 1400);
+    }
+
+    let lastFocusedElement = null;
+    const modalTriggerByEl = new WeakMap();
+    function openModal(el, triggerEl) {
+      if (!el) return;
+      const card = el.querySelector(".modal-card");
+      const source = triggerEl instanceof HTMLElement
+        ? triggerEl
+        : (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+      if (source) modalTriggerByEl.set(el, source);
+      if (card) {
+        let originX = window.innerWidth / 2;
+        let originY = window.innerHeight / 2;
+        if (source) {
+          const rect = source.getBoundingClientRect();
+          originX = rect.left + (rect.width / 2);
+          originY = rect.top + (rect.height / 2);
+        }
+        card.style.setProperty("--modal-origin-x", `${Math.round(originX)}px`);
+        card.style.setProperty("--modal-origin-y", `${Math.round(originY)}px`);
+      }
+      lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      el.classList.add("show");
+      el.setAttribute("aria-hidden", "false");
+      const firstFocusable = el.querySelector("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])");
+      if (firstFocusable instanceof HTMLElement) firstFocusable.focus();
+    }
+    function closeModal(el) {
+      if (!el) return;
+      const card = el.querySelector(".modal-card");
+      const source = modalTriggerByEl.get(el);
+      if (card && source instanceof HTMLElement) {
+        const rect = source.getBoundingClientRect();
+        card.style.setProperty("--modal-origin-x", `${Math.round(rect.left + (rect.width / 2))}px`);
+        card.style.setProperty("--modal-origin-y", `${Math.round(rect.top + (rect.height / 2))}px`);
+      }
+      el.classList.remove("show");
+      el.setAttribute("aria-hidden", "true");
+      const focusTarget = lastFocusedElement;
+      if (focusTarget && typeof focusTarget.focus === "function") {
+        window.setTimeout(() => {
+          try { focusTarget.focus(); } catch (e) {}
+        }, 170);
+      }
+      lastFocusedElement = null;
+    }
+
+    function getCurrentSupportContext() {
+      const progress = loadProgress();
+      const key = currentTabKey || activeTabStage(progress);
+      const effectiveKey = key === "waiting_verification" && progress.completed.verification_issued ? "verification_issued" : key;
+      const meta = stageMeta[effectiveKey] || stageMeta[key] || stageMeta.create_account;
+      return {
+        category: "AHPRA",
+        stepKey: key || "create_account",
+        summary: meta && meta.full ? meta.full : "AHPRA support request"
+      };
+    }
+
+    function openSupportCaseModal(triggerEl) {
+      const context = getCurrentSupportContext();
+      if (supportCategoryEl) supportCategoryEl.value = context.category;
+      if (supportSummaryEl) supportSummaryEl.value = context.summary;
+      if (supportMessageEl) {
+        supportMessageEl.value = "";
+        supportMessageEl.placeholder = `What happened during "${context.summary}" and what do you need help with?`;
+      }
+      openModal(supportModalEl, triggerEl);
+    }
+
+    function createSupportTicket(category, title, message) {
+      const key = "gpLinkSupportCases";
+      let tickets = [];
+      try { const raw = localStorage.getItem(key); tickets = raw ? JSON.parse(raw) : []; if (!Array.isArray(tickets)) tickets = []; } catch (e) { tickets = []; }
+      const text = String(message || "").trim() || "Help requested from AHPRA registration page.";
+      const summary = String(title || "").trim() || "AHPRA support request";
+      const ticketCategory = String(category || "AHPRA").trim() || "AHPRA";
+      tickets.unshift({
+        id: `case_${Date.now()}`, category: ticketCategory, title: summary,
+        detail: text, status: "open", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        thread: [{ from: "me", text, ts: new Date().toISOString() }], unread: true
+      });
+      localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
+    }
+
+    function readJsonStorage(key, fallback) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      try { return JSON.parse(raw); } catch (e) { return fallback; }
+    }
+
+    function getDocSnapshot() {
+      const docState = readJsonStorage(DOC_KEY, { docs: {} }) || { docs: {} };
+      const preparedState = readJsonStorage(PREPARED_DOCS_KEY, { docs: {} }) || { docs: {} };
+
+      const rowsGp = GP_REQUIRED_DOCS.map((doc) => {
+        const item = (docState.docs && docState.docs[doc.key]) || {};
+        const uploaded = item.uploaded === true;
+        const status = typeof item.status === "string" ? item.status : (uploaded ? "under_review" : "pending");
+        const rejected = status === "rejected";
+        const underReview = status === "under_review";
+        const ready = status === "accepted" || status === "approved" || !!item.url;
+        const reason = rejected
+          ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}`
+          : underReview ? "Under review by GP Link (up to 24 hours)." : uploaded ? "Uploaded on Documents page." : "Upload this on the Documents page";
+        return {
+          group: "gp",
+          key: doc.key,
+          name: doc.name,
+          uploaded,
+          ready,
+          rejected,
+          status: rejected ? "Rejected" : ready ? "Ready" : underReview ? "Pending" : uploaded ? "Pending" : "Not ready",
+          reason,
+          downloadUrl: typeof item.url === "string" ? item.url : ""
+        };
+      });
+
+      const rowsGpLink = GPLINK_REQUIRED_DOCS.map((doc) => {
+        const item = (preparedState.docs && preparedState.docs[doc.key]) || {};
+        const ready = !!(item.ready || item.url);
+        const rejected = item.status === "rejected";
+        return {
+          group: "gplink",
+          key: doc.key,
+          name: doc.name,
+          uploaded: ready,
+          ready,
+          rejected,
+          status: rejected ? "Rejected" : ready ? "Ready" : "Not ready",
+          reason: rejected ? `Rejected - re-upload required${item.reviewNote ? ` (${item.reviewNote})` : ""}` : "GP Link is preparing this",
+          downloadUrl: typeof item.url === "string" ? item.url : ""
+        };
+      });
+
+      const all = [...rowsGp, ...rowsGpLink];
+      const missing = all.filter((item) => !item.ready || item.rejected);
+      const downloadable = all.filter((item) => item.ready && item.downloadUrl);
+      return { gp: rowsGp, gplink: rowsGpLink, all, missing, downloadable, gpTotal: rowsGp.length, gplinkTotal: rowsGpLink.length };
+    }
+
+    function saveMissingUploadToDocuments(item, file) {
+      if (!item || !file) return false;
+      if (item.group === "gp") {
+        const state = readJsonStorage(DOC_KEY, { docs: {}, country: "uk" }) || { docs: {}, country: "uk" };
+        state.docs = state.docs && typeof state.docs === "object" ? state.docs : {};
+        state.docs[item.key] = { ...(state.docs[item.key] || {}), uploaded: true, fileName: file.name, status: "under_review" };
+        state.updatedAt = new Date().toISOString();
+        localStorage.setItem(DOC_KEY, JSON.stringify(state));
+        return true;
+      }
+      if (item.group === "gplink") {
+        const state = readJsonStorage(PREPARED_DOCS_KEY, { docs: {}, country: "uk" }) || { docs: {}, country: "uk" };
+        state.docs = state.docs && typeof state.docs === "object" ? state.docs : {};
+        const current = state.docs[item.key] || {};
+        state.docs[item.key] = { ...current, fileName: file.name, ready: true, url: typeof current.url === "string" ? current.url : "" };
+        state.updatedAt = new Date().toISOString();
+        localStorage.setItem(PREPARED_DOCS_KEY, JSON.stringify(state));
+        return true;
+      }
+      return false;
+    }
+
+    function hasDocsUnderReview(snapshot) {
+      if (!snapshot || !Array.isArray(snapshot.gp)) return false;
+      return snapshot.gp.some((item) => item.uploaded && !item.ready && !item.rejected);
+    }
+
+    function getGpMissing(snapshot) {
+      if (!snapshot || !Array.isArray(snapshot.gp)) return [];
+      return snapshot.gp.filter((item) => !item.ready || item.rejected);
+    }
+
+    function tryDownloadRows(rows) {
+      const readyRows = Array.isArray(rows)
+        ? rows.filter((item) => item && item.downloadUrl)
+        : [];
+      if (!readyRows.length) return;
+      if (readyRows.length === 1) {
+        window.location.assign(readyRows[0].downloadUrl);
+        return;
+      }
+      downloadRowsAsZip(readyRows).catch(() => {
+        showToast("Could not bundle every document. Opening the first file instead.");
+        window.location.assign(readyRows[0].downloadUrl);
+      });
+    }
+
+    function sanitizeZipName(name) {
+      return String(name || "document")
+        .replace(/[\\/:*?"<>|]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 120) || "document";
+    }
+
+    function inferFileName(item, index) {
+      const fallbackBase = sanitizeZipName(item && item.name ? item.name : `document-${index + 1}`);
+      const url = item && item.downloadUrl ? String(item.downloadUrl) : "";
+      try {
+        const parsed = new URL(url, window.location.origin);
+        const fromPath = decodeURIComponent(parsed.pathname.split("/").pop() || "");
+        if (fromPath && /\.[a-zA-Z0-9]{2,8}$/.test(fromPath)) return sanitizeZipName(fromPath);
+      } catch (e) {
+        // Ignore parsing error and fallback to generated file name
+      }
+      return `${fallbackBase}.pdf`;
+    }
+
+    function makeCrc32Table() {
+      const table = new Uint32Array(256);
+      for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        table[i] = c >>> 0;
+      }
+      return table;
+    }
+
+    const CRC32_TABLE = makeCrc32Table();
+    function crc32(bytes) {
+      let c = 0xffffffff;
+      for (let i = 0; i < bytes.length; i++) c = CRC32_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    }
+
+    function buildZipBlob(files) {
+      const enc = new TextEncoder();
+      const parts = [];
+      const centralParts = [];
+      let offset = 0;
+
+      files.forEach((file) => {
+        const nameBytes = enc.encode(file.name);
+        const data = file.bytes;
+        const checksum = crc32(data);
+
+        const localHeader = new Uint8Array(30 + nameBytes.length);
+        const lh = new DataView(localHeader.buffer);
+        lh.setUint32(0, 0x04034b50, true);
+        lh.setUint16(4, 20, true);
+        lh.setUint16(6, 0, true);
+        lh.setUint16(8, 0, true);
+        lh.setUint16(10, 0, true);
+        lh.setUint16(12, 0, true);
+        lh.setUint32(14, checksum, true);
+        lh.setUint32(18, data.length, true);
+        lh.setUint32(22, data.length, true);
+        lh.setUint16(26, nameBytes.length, true);
+        lh.setUint16(28, 0, true);
+        localHeader.set(nameBytes, 30);
+
+        const centralHeader = new Uint8Array(46 + nameBytes.length);
+        const ch = new DataView(centralHeader.buffer);
+        ch.setUint32(0, 0x02014b50, true);
+        ch.setUint16(4, 20, true);
+        ch.setUint16(6, 20, true);
+        ch.setUint16(8, 0, true);
+        ch.setUint16(10, 0, true);
+        ch.setUint16(12, 0, true);
+        ch.setUint16(14, 0, true);
+        ch.setUint32(16, checksum, true);
+        ch.setUint32(20, data.length, true);
+        ch.setUint32(24, data.length, true);
+        ch.setUint16(28, nameBytes.length, true);
+        ch.setUint16(30, 0, true);
+        ch.setUint16(32, 0, true);
+        ch.setUint16(34, 0, true);
+        ch.setUint16(36, 0, true);
+        ch.setUint32(38, 0, true);
+        ch.setUint32(42, offset, true);
+        centralHeader.set(nameBytes, 46);
+
+        parts.push(localHeader, data);
+        centralParts.push(centralHeader);
+        offset += localHeader.length + data.length;
+      });
+
+      const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+      const end = new Uint8Array(22);
+      const ed = new DataView(end.buffer);
+      ed.setUint32(0, 0x06054b50, true);
+      ed.setUint16(4, 0, true);
+      ed.setUint16(6, 0, true);
+      ed.setUint16(8, centralParts.length, true);
+      ed.setUint16(10, centralParts.length, true);
+      ed.setUint32(12, centralSize, true);
+      ed.setUint32(16, offset, true);
+      ed.setUint16(20, 0, true);
+
+      return new Blob([...parts, ...centralParts, end], { type: "application/zip" });
+    }
+
+    async function downloadRowsAsZip(rows) {
+      const files = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || !row.downloadUrl) continue;
+        const response = await fetch(row.downloadUrl, { credentials: "omit" });
+        if (!response.ok) throw new Error(`download-failed-${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        files.push({ name: inferFileName(row, i), bytes: new Uint8Array(arrayBuffer) });
+      }
+      if (!files.length) throw new Error("no-files");
+      const zipBlob = buildZipBlob(files);
+      const blobUrl = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = "supporting-documents.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 8000);
+    }
+
+    function openMissingDocsModal(missingItems, triggerEl) {
+      if (!missingDocsModalListEl || !missingDocsModalEl) return;
+      const rows = Array.isArray(missingItems) ? missingItems.filter((item) => item && item.group === "gp") : [];
+      missingDocsModalListEl.innerHTML = "";
+      if (!rows.length) {
+        missingDocsModalListEl.innerHTML = `<div style="border:1px solid #e2e8f0; border-radius:12px; padding:12px; background:#f8fbff;"><p style="margin:0; font-size:13px; color:#475569;">No documents require upload from you at the moment.</p></div>`;
+        if (requestHelpMissingBtnEl) {
+          requestHelpMissingBtnEl.textContent = "Done";
+          requestHelpMissingBtnEl.setAttribute("data-mode", "done");
+        }
+        openModal(missingDocsModalEl, triggerEl);
+        return;
+      }
+      if (requestHelpMissingBtnEl) {
+        requestHelpMissingBtnEl.textContent = "Request Help";
+        requestHelpMissingBtnEl.setAttribute("data-mode", "help");
+      }
+      rows.forEach((item) => {
+        const row = document.createElement("div");
+        row.style.border = "1px solid #e2e8f0";
+        row.style.borderRadius = "12px";
+        row.style.padding = "10px 12px";
+        row.style.background = "#f8fbff";
+        const reasonText = item.reason && item.reason.includes("Upload this on the Documents page")
+          ? "Required document for this stage."
+          : item.reason;
+        row.innerHTML = `
+          <p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">${item.name}</p>
+          <p style="margin:4px 0 8px; font-size:12px; color:#475569;">${reasonText}</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="file" data-missing-upload-input="1" data-doc-group="${item.group}" data-doc-key="${item.key}" style="display:none;" />
+            <button type="button" class="btn-glass" data-missing-upload-trigger="1" data-doc-group="${item.group}" data-doc-key="${item.key}">
+              Upload
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
+            </button>
+          </div>
+        `;
+        missingDocsModalListEl.appendChild(row);
+      });
+      openModal(missingDocsModalEl, triggerEl);
+    }
+
+    function renderDownloadPackModal(snapshot) {
+      if (!downloadPackSummaryEl || !downloadPackModalEl) return;
+      const gpReady = snapshot.gp.filter((item) => item.ready && item.downloadUrl).length;
+      const gplinkReady = snapshot.gplink.filter((item) => item.ready && item.downloadUrl).length;
+      const gpMissing = snapshot.gp.filter((item) => !item.ready || item.rejected);
+      const allMissing = snapshot.all.filter((item) => !item.ready || item.rejected);
+
+      downloadPackSummaryEl.innerHTML = `
+        <div style="border:1px solid #e2e8f0; border-radius:12px; padding:12px; background:#f8fbff;">
+          <p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">Prepared by GP Link</p>
+          <p style="margin:4px 0 8px; font-size:12px; color:#475569;">${gplinkReady}/${snapshot.gplinkTotal} files ready to download</p>
+          <button type="button" class="btn-modern btn-outline" data-modal-download-group="gplink">Download</button>
+        </div>
+        <div style="border:1px solid #e2e8f0; border-radius:12px; padding:12px; background:#f8fbff;">
+          <p style="margin:0; font-size:13px; font-weight:700; color:#0f172a;">Prepared by You</p>
+          <p style="margin:4px 0 8px; font-size:12px; color:#475569;">${gpReady}/${snapshot.gpTotal} files ready to download</p>
+          <button type="button" class="btn-modern btn-outline" data-modal-download-group="gp">Download</button>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn-modern btn-primary" id="modalDownloadAllBtn">Download All Required Documents</button>
+        </div>
+        ${allMissing.length ? `<div style="border:1px solid #fde68a; border-radius:12px; padding:10px 12px; background:#fffbeb;"><p style="margin:0; font-size:12px; font-weight:700; color:#92400e;">${allMissing.length} document(s) not ready yet.</p></div>` : ""}
+      `;
+
+      const groupBtns = [...downloadPackSummaryEl.querySelectorAll("[data-modal-download-group]")];
+      groupBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const fresh = getDocSnapshot();
+          const group = btn.getAttribute("data-modal-download-group");
+          const rows = group === "gplink" ? fresh.gplink : fresh.gp;
+          const downloadable = rows.filter((item) => item.ready && item.downloadUrl);
+          if (!downloadable.length) {
+            showToast("No ready documents in this section");
+            return;
+          }
+          tryDownloadRows(downloadable);
+          showToast("Download started");
+        });
+      });
+
+      const allBtn = document.getElementById("modalDownloadAllBtn");
+      if (allBtn) allBtn.addEventListener("click", async () => {
+        const fresh = getDocSnapshot();
+        const anyMissing = fresh.all.some((item) => item.rejected || !item.ready || !item.downloadUrl);
+        if (anyMissing) {
+          closeModal(downloadPackModalEl);
+          openMissingDocsModal(getGpMissing(fresh), allBtn);
+          showToast("Upload missing documents to continue");
+          return;
+        }
+        allBtn.disabled = true;
+        try {
+          await downloadRowsAsZip(fresh.all);
+          showToast("ZIP download started");
+        } catch (e) {
+          showToast("Could not create ZIP. Downloading files individually.");
+          tryDownloadRows(fresh.downloadable);
+        } finally {
+          allBtn.disabled = false;
+        }
+      });
+    }
+
+    // ─── MARK COMPLETE / UNDO ────────────────────────────────────
+    function markStageComplete(progress, key) {
+      if (progress.stage !== key) return;
+
+      if (key === "upload_qualifications") {
+        const snapshot = getDocSnapshot();
+        const gpMissing = getGpMissing(snapshot);
+        const gplinkMissing = snapshot.gplink.filter((item) => !item.ready || item.rejected);
+        if (gpMissing.length || gplinkMissing.length) {
+          if (gpMissing.length) {
+            openMissingDocsModal(gpMissing);
+            showToast("Upload missing documents to continue");
+          } else if (hasDocsUnderReview(snapshot) || gplinkMissing.length) {
+            if (reviewPendingModalEl) openModal(reviewPendingModalEl);
+            showToast("Some documents are still under review");
+          }
+          return;
+        }
+      }
+
+      progress.completed[key] = true;
+
+      // Completing submit-application stage moves to final submitted state
+      if (key === "waiting_verification") {
+        progress.completed.verification_issued = true;
+        progress.stage = "verification_issued";
+        saveProgress(progress, true);
+        syncRouteForStage(progress.stage);
+        currentTabKey = activeTabStage(progress);
+        renderPage(progress);
+        showToast("Submission marked complete");
+        return;
+      }
+
+      const idx = STAGES.indexOf(key);
+      const next = STAGES[idx + 1];
+      if (next) progress.stage = next;
+      saveProgress(progress, true);
+      syncRouteForStage(progress.stage);
+      currentTabKey = activeTabStage(progress);
+      renderPage(progress);
+      showToast("Progress saved");
+    }
+
+    function undoToStage(progress, key) {
+      const idx = STAGES.indexOf(key);
+      if (idx === -1) return;
+      for (let i = idx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
+      progress.stage = key;
+      saveProgress(progress, true);
+      syncRouteForStage(key);
+      currentTabKey = activeTabStage(progress);
+      renderPage(progress);
+      showToast("Progress reverted");
+    }
+
+    function rewindToPreviousStep(progress, key) {
+      const tabIdx = TAB_STAGES.indexOf(key);
+      if (tabIdx <= 0) return;
+      const previous = TAB_STAGES[tabIdx - 1];
+      progress.completed[key] = false;
+      progress.completed[previous] = false;
+      if (key === "waiting_verification") progress.completed.verification_issued = false;
+      progress.stage = previous;
+      saveProgress(progress, true);
+      syncRouteForStage(previous);
+      currentTabKey = previous;
+      renderPage(progress);
+      showToast("Progress reverted");
+    }
+
+    function resetProgressToStage(progress, key) {
+      const stageIdx = STAGES.indexOf(key);
+      if (stageIdx === -1) return;
+      for (let i = stageIdx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
+      progress.stage = key;
+      saveProgress(progress, true);
+      currentTabKey = key;
+      syncRouteForStage(key);
+      renderPage(progress);
+    }
+
+    // ─── RENDER: STEP TABS ──────────────────────────────────────
+    let tabElements = [];
+
+    function renderStepTabs(progress) {
+      // Remove old tab buttons (keep the glass)
+      tabElements.forEach(el => el.remove());
+      tabElements = [];
+      const isMobileView = window.matchMedia("(max-width: 767px)").matches;
+
+      TAB_STAGES.forEach((key, idx) => {
+        const status = stageStatus(progress, key);
+        const isDone = status === "done";
+        const isActive = currentTabKey === key;
+        const isLocked = status === "locked";
+        const isSelectable = !isLocked && (!isMobileView || isDone || isActive);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "step-tab";
+        if (isActive) btn.classList.add("active");
+        if (isDone && !isActive) btn.classList.add("done");
+        if (!isSelectable) btn.disabled = true;
+
+        let numClass = "step-tab-num";
+        if (isDone) numClass += " done";
+        else if (isActive) numClass += " active";
+        else if (isLocked) numClass += " locked";
+
+        const numContent = isDone
+          ? '<svg viewBox="0 0 16 16"><path d="M13 4.5L6.5 11 3 7.5"/></svg>'
+          : (idx + 1);
+
+        btn.innerHTML = `<span class="${numClass}">${numContent}</span>${TAB_LABELS[key]}`;
+
+        if (isSelectable) {
+          btn.addEventListener("click", () => {
+            resetProgressToStage(progress, key);
+          });
+        } else {
+          btn.addEventListener("click", () => showToast("Complete the previous step first."));
+        }
+
+        stepTabsEl.appendChild(btn);
+        tabElements.push(btn);
+      });
+
+      // Position glass on active tab
+      requestAnimationFrame(() => positionTabGlass(true));
+    }
+
+    function setTabGlassToButton(targetBtn, animate) {
+      if (!targetBtn) { stepTabGlassEl.style.opacity = "0"; return; }
+      stepTabGlassEl.style.opacity = "1";
+      const parentRect = stepTabsEl.getBoundingClientRect();
+      const rect = targetBtn.getBoundingClientRect();
+      const left = rect.left - parentRect.left + stepTabsEl.scrollLeft;
+      if (!animate) {
+        const prev = stepTabGlassEl.style.transition;
+        stepTabGlassEl.style.transition = "none";
+        stepTabGlassEl.style.left = `${left}px`;
+        stepTabGlassEl.style.width = `${rect.width}px`;
+        stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        stepTabGlassEl.style.height = `${rect.height}px`;
+        void stepTabGlassEl.offsetWidth;
+        stepTabGlassEl.style.transition = prev;
+      } else {
+        stepTabGlassEl.style.left = `${left}px`;
+        stepTabGlassEl.style.width = `${rect.width}px`;
+        stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        stepTabGlassEl.style.height = `${rect.height}px`;
+      }
+    }
+
+    function positionTabGlass(animate) {
+      const activeBtn = stepTabsEl.querySelector(".step-tab.active");
+      if (!activeBtn) { stepTabGlassEl.style.opacity = "0"; return; }
+      setTabGlassToButton(activeBtn, animate);
+
+      // Scroll active tab into view
+      const scrollTarget = activeBtn.offsetLeft - stepTabsEl.offsetWidth / 2 + activeBtn.offsetWidth / 2;
+      stepTabsEl.scrollTo({ left: Math.max(0, scrollTarget), behavior: animate ? "smooth" : "auto" });
+    }
+
+    // ─── RENDER: STEP CONTENT ───────────────────────────────────
+    function renderStepContent(progress) {
+      const key = currentTabKey;
+      const effectiveKey = (key === "waiting_verification" && progress.completed.verification_issued) ? "verification_issued" : key;
+      const meta = stageMeta[effectiveKey];
+      if (!meta) return;
+      const status = stageStatus(progress, key);
+      const isDone = status === "done";
+      const isCurrent = status === "current";
+      const isWaiting = key === "waiting_verification" && isCurrent;
+      const isAction = key === "upload_qualifications" && isCurrent;
+      const allDone = STAGES.every(k => progress.completed[k]);
+
+      // Card accent
+      const card = document.getElementById("stepContent");
+      card.className = "step-content";
+      if (isWaiting) card.classList.add("waiting-state");
+      else if (isDone || allDone) card.classList.add("done-state");
+
+      // Badge
+      const badge = document.getElementById("stepBadge");
+      if (isDone) { badge.className = "step-content-badge done"; badge.textContent = "Complete"; }
+      else if (isWaiting) { badge.className = "step-content-badge waiting"; badge.textContent = "Submit Application"; }
+      else { badge.className = "step-content-badge"; badge.textContent = "What to do now"; }
+
+      // Title & sub
+      document.getElementById("stepTitle").textContent = meta.full;
+      document.getElementById("stepSub").textContent = meta.short;
+
+      // Progress bar
+      const doneCount = TAB_STAGES.filter(k => progress.completed[k]).length;
+      const pct = Math.round((doneCount / TAB_STAGES.length) * 100);
+      const fill = document.getElementById("stepProgressFill");
+      fill.style.width = `${Math.max(2, pct)}%`;
+      fill.classList.toggle("complete", doneCount === TAB_STAGES.length);
+      document.getElementById("stepProgressText").textContent = `${doneCount} of ${TAB_STAGES.length} complete`;
+
+      // Warning
+      const warning = document.getElementById("stepWarning");
+      if (isAction) {
+        warning.classList.remove("hidden");
+        document.getElementById("stepWarningTitle").textContent = "Documents need uploading";
+        document.getElementById("stepWarningText").textContent = "Ensure all required supporting documents are complete and correctly formatted before submission.";
+      } else if (isWaiting) {
+        warning.classList.remove("hidden");
+        document.getElementById("stepWarningTitle").textContent = "Submission step";
+        document.getElementById("stepWarningText").textContent = "Submit your specialist registration application in AHPRA Online Services.";
+      } else {
+        warning.classList.add("hidden");
+      }
+
+      // Info grid
+      const doNow = meta.doNow;
+
+      document.getElementById("stepInfoGrid").innerHTML = `
+        <div class="step-info-item">
+          <div class="step-info-label">Your Action</div>
+          <div class="step-info-value">${doNow}</div>
+        </div>
+        <div class="step-info-item">
+          <div class="step-info-label">Estimated Time</div>
+          <div class="step-info-value">${meta.time}</div>
+        </div>
+        <div class="step-info-item">
+          <div class="step-info-label">GP Link Support</div>
+          <div class="step-info-value">${meta.support}</div>
+        </div>
+        <div class="step-info-item">
+          <div class="step-info-label">What Happens Next</div>
+          <div class="step-info-value">${meta.next}</div>
+        </div>
+      `;
+
+      // Actions
+      const actionsEl = document.getElementById("stepActions");
+      const navActionsEl = document.getElementById("stepNavActions");
+      let html = '';
+      let navHtml = '';
+
+      // Previous button
+      const tabIdx = TAB_STAGES.indexOf(key);
+      const hasPrev = tabIdx > 0;
+      const hasNext = tabIdx < TAB_STAGES.length - 1 && stageStatus(progress, TAB_STAGES[tabIdx + 1]) !== "locked";
+
+      if (effectiveKey === "verification_issued") {
+        html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
+      } else if (isCurrent && !isWaiting) {
+        html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
+      }
+
+      const markDisabled = !isCurrent || isDone;
+      const markLabel = isDone ? "Completed" : "Mark Complete";
+      if (effectiveKey !== "verification_issued") {
+        navHtml += hasPrev
+          ? `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
+          : `<span class="spacer" aria-hidden="true"></span>`;
+      navHtml += `<button class="btn-action complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      }
+      actionsEl.innerHTML = html;
+      navActionsEl.innerHTML = navHtml;
+
+      // Wire buttons
+      const openBtn = document.getElementById("actionOpenBtn");
+      if (openBtn) {
+        if (effectiveKey === "verification_issued") {
+          openBtn.classList.add("cta-pulse");
+          if (!openBtn.querySelector(".cta-cursor")) {
+            const hint = document.createElement("span");
+            hint.className = "cta-cursor";
+            hint.textContent = "Click Here";
+            openBtn.appendChild(hint);
+          }
+        }
+        openBtn.addEventListener("click", () => {
+          if (meta.ctaType === "open") window.location.assign(AHPRA_URL);
+          else if (meta.ctaType === "download_docs") {
+            const snapshot = getDocSnapshot();
+            renderDownloadPackModal(snapshot);
+            if (downloadPackModalEl) openModal(downloadPackModalEl, openBtn);
+          }
+          else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
+          else if (meta.ctaType === "home") {
+            const target = "/pages/index.html";
+            if (window.location.pathname !== target) window.location.assign(target);
+            else window.location.reload();
+          }
+        });
+      }
+
+      const markBtn = document.getElementById("actionMarkBtn");
+      if (markBtn && !markBtn.disabled) {
+        markBtn.addEventListener("click", () => markStageComplete(progress, key));
+      }
+
+      const prevBtn = document.getElementById("actionPrevBtn");
+      if (prevBtn) {
+        prevBtn.addEventListener("click", () => {
+          rewindToPreviousStep(progress, key);
+        });
+      }
+
+    }
+
+    // ─── RENDER: TUTORIAL ───────────────────────────────────────
+    function renderTutorial(progress) {
+      const key = currentTabKey;
+      const config = tutorialByStage[key];
+      const card = document.getElementById("tutorialCard");
+
+      if (!config) {
+        card.style.display = "none";
+        return;
+      }
+
+      card.style.display = "block";
+      if (tutorialDescEl) tutorialDescEl.textContent = config.text;
+      if (tutorialSourceEl) {
+        const currentSrc = tutorialSourceEl.getAttribute("src");
+        if (currentSrc !== config.src) {
+          tutorialSourceEl.src = config.src;
+          if (tutorialVideoEl) tutorialVideoEl.load();
+        }
+      }
+    }
+
+    // ─── MAIN RENDER ────────────────────────────────────────────
+    function renderPage(progress) {
+      renderStepTabs(progress);
+      renderTutorial(progress);
+      renderStepContent(progress);
+    }
+
+    // ─── REGISTRATION DROPDOWN ──────────────────────────────────
+    const registrationMenuBtn = document.getElementById("registrationMenuBtn");
+    const registrationDropdown = document.getElementById("registrationDropdown");
+    const regTableEl = document.getElementById("regTable");
+    const mobileRegistrationBtn = document.getElementById("mobileRegistrationBtn");
+    const mobileRegBackdrop = document.getElementById("mobileRegBackdrop");
+    const mobileRegSheet = document.getElementById("mobileRegSheet");
+    const mobileRegTable = document.getElementById("mobileRegTable");
+    const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+    let navGlassInitialized = false;
+
+    function parseStorage(key) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (e) { return null; }
+    }
+
+    function getRegistrationReturnOverrides() {
+      const parsed = parseStorage(REGISTRATION_RETURN_KEY);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+
+    function isRegistrationReturnAllowed(stepKey) {
+      return getRegistrationReturnOverrides()[stepKey] === true;
+    }
+
+    function hasMeaningfulAhpraProgress(progress) {
+      if (!progress || typeof progress !== "object") return false;
+      if (typeof progress.stage === "string" && progress.stage && progress.stage !== "create_account") return true;
+      const completed = progress.completed && typeof progress.completed === "object" ? progress.completed : null;
+      return !!(completed && Object.values(completed).some((value) => value === true));
+    }
+
+    function buildRegistrationRow(stepKey, config) {
+      const locked = !!config.locked;
+      const done = !!config.done;
+      const returnable = done && isRegistrationReturnAllowed(stepKey);
+      return {
+        title: config.title,
+        sub: config.sub,
+        status: locked ? "Locked" : done ? "Done" : "Current",
+        locked,
+        done,
+        current: !locked && !done,
+        returnable,
+        href: !locked && (!done || returnable) ? config.href : "#",
+        cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+      };
+    }
+
+    function getRegistrationRows() {
+      const ahpra = parseStorage(STORAGE_KEY);
+      const epicDone = true;
+      const amcDone = true;
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      return [
+        buildRegistrationRow("myinthealth", {
+          title: "1. MyIntealth Account",
+          sub: "Create account and complete EPIC verification.",
+          done: epicDone,
+          href: "myinthealth.html"
+        }),
+        buildRegistrationRow("amc", {
+          title: "2. AMC Portfolio",
+          sub: "Create AMC candidate portfolio and upload credentials.",
+          locked: !epicDone,
+          done: amcDone,
+          href: "amc.html"
+        }),
+        buildRegistrationRow("ahpra", {
+          title: "3. AHPRA Registration",
+          sub: "Specialist registration submission.",
+          locked: !amcDone,
+          done: ahpraDone,
+          href: "ahpra.html"
+        })
+      ];
+    }
+
+    function renderRegistrationRows() {
+      regTableEl.innerHTML = "";
+      mobileRegTable.innerHTML = "";
+      getRegistrationRows().forEach(row => {
+        const sc = row.done ? "done" : row.locked ? "locked" : "";
+        const actionDisabled = row.locked || (row.done && !row.returnable);
+        const el = document.createElement("div");
+        el.className = `reg-row ${row.done ? "done" : ""}`.trim();
+        const textWrap = document.createElement("div");
+        textWrap.innerHTML = `<div class="reg-name">${row.title}</div><div class="reg-sub">${row.sub}</div>`;
+        const pill = document.createElement("span");
+        pill.className = `reg-pill ${sc}`.trim();
+        pill.textContent = row.status;
+        const ctaEl = actionDisabled ? document.createElement("button") : document.createElement("a");
+        ctaEl.className = `reg-btn ${sc}`.trim();
+        ctaEl.textContent = row.cta;
+        if (actionDisabled) {
+          ctaEl.type = "button";
+          ctaEl.disabled = true;
+        } else {
+          ctaEl.href = row.href;
+        }
+        el.appendChild(textWrap);
+        el.appendChild(pill);
+        el.appendChild(ctaEl);
+        regTableEl.appendChild(el);
+        mobileRegTable.appendChild(el.cloneNode(true));
+      });
+    }
+
+    function moveNavGlass(target, animate) {
+      if (!target || !navGlassEl) return;
+      const parentRect = target.parentElement.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      if (!animate || !navGlassInitialized) {
+        const prev = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        navGlassEl.style.width = `${rect.width}px`;
+        navGlassEl.style.height = `${rect.height}px`;
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prev;
+        navGlassInitialized = true;
+        return;
+      }
+      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+      navGlassEl.style.width = `${rect.width}px`;
+      navGlassEl.style.height = `${rect.height}px`;
+    }
+
+    function setActiveNav(target, animate) {
+      navItems.forEach(i => i.classList.remove("active"));
+      if (target) { target.classList.add("active"); activeNavItem = target; }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    let registrationHoverCloseTimer = null;
+    function openRegistrationDropdown() {
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      renderRegistrationRows();
+      registrationDropdown.classList.add("show");
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    }
+    function closeRegistrationDropdown(immediate) {
+      const doClose = () => { registrationDropdown.classList.remove("show"); navGlassEl.classList.remove("engulf"); };
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      if (immediate) { doClose(); return; }
+      registrationHoverCloseTimer = setTimeout(doClose, 140);
+    }
+
+    registrationMenuBtn.addEventListener("click", () => {
+      setActiveNav(registrationMenuBtn);
+      if (registrationDropdown.classList.contains("show")) closeRegistrationDropdown(true);
+      else openRegistrationDropdown();
+    });
+    registrationMenuBtn.addEventListener("mouseenter", () => openRegistrationDropdown());
+    registrationDropdown.addEventListener("mouseenter", () => {
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      navGlassEl.classList.add("engulf"); moveNavGlass(registrationMenuBtn, true);
+    });
+    registrationMenuBtn.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    registrationDropdown.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    document.addEventListener("click", e => {
+      if (!registrationDropdown.contains(e.target) && !registrationMenuBtn.contains(e.target)) closeRegistrationDropdown(true);
+    });
+
+    function openMobileRegistration() {
+      renderRegistrationRows();
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.add("show");
+      mobileRegSheet.classList.add("show");
+    }
+    function closeMobileRegistration() {
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.remove("show");
+      mobileRegSheet.classList.remove("show");
+    }
+
+    mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
+    mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
+    mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
+
+    navItems.forEach(item => {
+      item.addEventListener("mouseenter", () => { if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); } });
+      item.addEventListener("focus", () => { if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); } });
+      if (item !== registrationMenuBtn && item.id !== "topSupportBtn") {
+        item.addEventListener("click", () => setActiveNav(item));
+      }
+    });
+
+    // ─── EVENT LISTENERS ────────────────────────────────────────
+    // mobileSupportBtn click is handled by updates-sync.js (alert panel)
+
+    if (supportSubmitBtnEl) {
+      supportSubmitBtnEl.addEventListener("click", () => {
+        createSupportTicket(
+          supportCategoryEl ? supportCategoryEl.value : "AHPRA",
+          supportSummaryEl ? supportSummaryEl.value : "AHPRA support request",
+          supportMessageEl ? supportMessageEl.value : ""
+        );
+        if (supportCategoryEl) supportCategoryEl.value = "AHPRA";
+        if (supportSummaryEl) supportSummaryEl.value = "";
+        if (supportMessageEl) supportMessageEl.value = "";
+        closeModal(supportModalEl);
+        showToast("Support request submitted");
+      });
+    }
+
+    if (requestHelpMissingBtnEl) {
+      requestHelpMissingBtnEl.addEventListener("click", () => {
+        const mode = requestHelpMissingBtnEl.getAttribute("data-mode") || "help";
+        if (mode === "done") {
+          closeModal(missingDocsModalEl);
+          const fresh = getDocSnapshot();
+          renderDownloadPackModal(fresh);
+          if (downloadPackModalEl) openModal(downloadPackModalEl, requestHelpMissingBtnEl);
+          return;
+        }
+        createSupportTicket("AHPRA", "Missing Supporting Documents", "I need help with missing supporting documents for AHPRA.");
+        closeModal(missingDocsModalEl);
+        showToast("Support request submitted");
+      });
+    }
+
+    if (missingDocsModalListEl) {
+      missingDocsModalListEl.addEventListener("change", (e) => {
+        const input = e.target;
+        if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
+        const docKey = input.getAttribute("data-doc-key");
+        const docGroup = input.getAttribute("data-doc-group");
+        if (!docKey || !docGroup) return;
+        if (!(input instanceof HTMLInputElement) || !input.files || !input.files.length) {
+          showToast("Choose a file to upload");
+          return;
+        }
+        const snapshot = getDocSnapshot();
+        const item = snapshot.all.find((row) => row.key === docKey && row.group === docGroup);
+        if (!item) {
+          showToast("Could not find document row");
+          return;
+        }
+        const ok = saveMissingUploadToDocuments(item, input.files[0]);
+        if (!ok) {
+          showToast("Upload failed");
+          return;
+        }
+        const fresh = getDocSnapshot();
+        const gpMissing = getGpMissing(fresh);
+        const gplinkMissing = fresh.gplink.filter((row) => !row.ready || row.rejected);
+        if (!gpMissing.length) {
+          openMissingDocsModal([], input);
+          if (gplinkMissing.length) showToast("Your upload is complete. GP Link files are still being prepared.");
+          else showToast("All required documents are now uploaded");
+          return;
+        }
+        openMissingDocsModal(gpMissing, input);
+        showToast("Document uploaded");
+      });
+
+      missingDocsModalListEl.addEventListener("click", (e) => {
+        const btn = e.target instanceof HTMLElement ? e.target.closest("[data-missing-upload-trigger='1']") : null;
+        if (!(btn instanceof HTMLButtonElement)) return;
+        const docKey = btn.getAttribute("data-doc-key");
+        const docGroup = btn.getAttribute("data-doc-group");
+        if (!docKey || !docGroup) return;
+        const input = missingDocsModalListEl.querySelector(`[data-missing-upload-input="1"][data-doc-group="${docGroup}"][data-doc-key="${docKey}"]`);
+        if (input instanceof HTMLInputElement) input.click();
+      });
+    }
+
+    document.querySelectorAll("[data-close]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-close");
+        const modal = document.getElementById(id);
+        if (modal) closeModal(modal);
+      });
+    });
+
+    [supportModalEl, missingDocsModalEl, downloadPackModalEl, reviewPendingModalEl].forEach((modalEl) => {
+      if (!modalEl) return;
+      modalEl.addEventListener("click", (e) => {
+        if (e.target === modalEl) closeModal(modalEl);
+      });
+    });
+
+    supportModalEl.addEventListener("keydown", e => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeModal(supportModalEl);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusables = [...supportModalEl.querySelectorAll("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])")]
+        .filter(el => !el.hasAttribute("disabled"));
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+
+    // Touch drag for mobile reg sheet
+    let startY = 0, deltaY = 0, dragging = false;
+    mobileRegSheet.addEventListener("touchstart", e => {
+      if (!mobileRegSheet.classList.contains("show")) return;
+      startY = e.touches[0].clientY; deltaY = 0; dragging = true;
+    }, { passive: true });
+    mobileRegSheet.addEventListener("touchmove", e => {
+      if (!dragging) return;
+      deltaY = Math.max(0, e.touches[0].clientY - startY);
+      if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+    }, { passive: true });
+    mobileRegSheet.addEventListener("touchend", () => {
+      if (!dragging) return; dragging = false;
+      if (deltaY > 90) closeMobileRegistration(); else mobileRegSheet.style.transform = "";
+    });
+
+    let hoveredStepTabBtn = null;
+    stepTabsEl.addEventListener("mousemove", e => {
+      if (!tabElements.length) return;
+      const x = e.clientX;
+      let closest = null;
+      let min = Number.POSITIVE_INFINITY;
+      tabElements.forEach(btn => {
+        const r = btn.getBoundingClientRect();
+        const cx = r.left + (r.width / 2);
+        const d = Math.abs(cx - x);
+        if (d < min) { min = d; closest = btn; }
+      });
+      if (closest && closest !== hoveredStepTabBtn) {
+        hoveredStepTabBtn = closest;
+        setTabGlassToButton(closest, true);
+      }
+    });
+    stepTabsEl.addEventListener("mouseleave", () => {
+      hoveredStepTabBtn = null;
+      positionTabGlass(true);
+    });
+
+    // Reposition glass on resize
+    window.addEventListener("resize", () => {
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+      positionTabGlass(false);
+    });
+
+    // ─── INIT ───────────────────────────────────────────────────
+    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+    setActiveNav(activeNavItem, false);
+    function getClosestNavItemByX(clientX) {
+      let closest = null;
+      let minDistance = Number.POSITIVE_INFINITY;
+      navItems.forEach((item) => {
+        const rect = item.getBoundingClientRect();
+        const center = rect.left + (rect.width / 2);
+        const distance = Math.abs(center - clientX);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = item;
+        }
+      });
+      return closest;
+    }
+
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", e => {
+        const hit = getClosestNavItemByX(e.clientX);
+        if (hit && hit !== hoveredNavItem) { hoveredNavItem = hit; moveNavGlass(hit, true); }
+      });
+      navMenuEl.addEventListener("mouseleave", () => {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
+
+    function redirectToAllowedStage() {
+      const epic = parseStorage(EPIC_KEY);
+      const amc = parseStorage(AMC_KEY);
+      const ahpra = parseStorage(STORAGE_KEY);
+      const ahpraStarted = hasMeaningfulAhpraProgress(ahpra);
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true) || ahpraStarted;
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true) || amcDone;
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      if (!epicDone) {
+        window.location.replace("/pages/myinthealth.html");
+        return true;
+      }
+      if (!amcDone) {
+        window.location.replace("/pages/amc.html");
+        return true;
+      }
+      if (!ahpraDone || isRegistrationReturnAllowed("ahpra")) return false;
+      window.location.replace("/pages/index.html");
+      return true;
+    }
+
+    if (!redirectToAllowedStage()) {
+      const initialProgress = loadProgress();
+
+      const routeTab = pickTabFromRoute(initialProgress);
+      currentTabKey = routeTab || activeTabStage(initialProgress);
+      if (!routeTab) syncRouteForStage(initialProgress.stage, true);
+      renderPage(initialProgress);
+
+      window.addEventListener("popstate", () => {
+        const progress = loadProgress();
+        const tabFromRoute = pickTabFromRoute(progress);
+        currentTabKey = tabFromRoute || activeTabStage(progress);
+        renderPage(progress);
+      });
+      // Re-render after state-sync hydrates the current user's data
+      window.addEventListener("gp-state-hydrated", function () {
+        if (redirectToAllowedStage()) return;
+        const progress = loadProgress();
+        currentTabKey = activeTabStage(progress);
+        renderPage(progress);
+      }, { once: true });
+    }
+  </script>
+</body>
+</html>

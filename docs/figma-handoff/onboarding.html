@@ -1,0 +1,1202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Welcome - GP Link</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --red: #dc2626;
+      --orange: #f59e0b;
+      --text: #0f172a;
+      --muted: #64748b;
+      --light: #94a3b8;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --radius: 20px;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    /* ── LAYOUT ───────────────────────────────── */
+    .onboarding-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── BACKGROUND BLOBS ─────────────────────── */
+    .blob-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 420px;
+      overflow: hidden;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0.55;
+      transition: all 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .blob-1 {
+      width: 260px; height: 260px;
+      background: #93c5fd;
+      top: -80px; left: -40px;
+    }
+    .blob-2 {
+      width: 220px; height: 220px;
+      background: #a5b4fc;
+      top: -40px; right: -60px;
+    }
+    .blob-3 {
+      width: 180px; height: 180px;
+      background: #6ee7b7;
+      top: 60px; left: 40%;
+    }
+
+    /* per-step blob color variations (5 steps: 0-4) */
+    [data-step="0"] .blob-1 { background: #6ee7b7; top: -60px; left: -20px; }
+    [data-step="0"] .blob-2 { background: #93c5fd; }
+    [data-step="0"] .blob-3 { background: #fbbf24; }
+
+    [data-step="1"] .blob-1 { background: #a5b4fc; }
+    [data-step="1"] .blob-2 { background: #f9a8d4; }
+    [data-step="1"] .blob-3 { background: #93c5fd; top: 80px; }
+
+    [data-step="2"] .blob-1 { background: #93c5fd; }
+    [data-step="2"] .blob-2 { background: #6ee7b7; }
+    [data-step="2"] .blob-3 { background: #fbbf24; }
+
+    [data-step="3"] .blob-1 { background: #fbbf24; }
+    [data-step="3"] .blob-2 { background: #6ee7b7; }
+    [data-step="3"] .blob-3 { background: #a5b4fc; }
+
+    [data-step="4"] .blob-1 { background: #a5b4fc; top: -100px; }
+    [data-step="4"] .blob-2 { background: #6ee7b7; }
+    [data-step="4"] .blob-3 { background: #93c5fd; top: 40px; }
+
+    /* ── PREVIOUS BUTTON ──────────────────────── */
+    .back-btn {
+      border: 1.5px solid var(--text);
+      background: transparent;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 14px 24px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease, background 0.2s ease;
+      min-width: 120px;
+      text-align: center;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform-origin: center;
+      will-change: transform;
+    }
+    .back-btn.visible {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+    .back-btn:hover {
+      background: rgba(15, 23, 42, 0.05);
+      transform: translateY(-1px) scaleX(1.02) scaleY(0.98);
+    }
+    .back-btn:active { transform: translateY(0) scale(0.97); }
+
+    /* ── SLIDE AREA ───────────────────────────── */
+    .slides-viewport {
+      flex: 1;
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+    }
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 0 24px;
+      opacity: 0;
+      transform: translateX(60px);
+      transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .slide::-webkit-scrollbar { display: none; }
+    .slide.active {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+    .slide.exit-left {
+      opacity: 0;
+      transform: translateX(-60px);
+    }
+
+    /* ── ILLUSTRATION AREA ────────────────────── */
+    .slide-illustration {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 220px;
+      padding: 30px 0 10px;
+    }
+    .slide-illustration svg {
+      width: 180px;
+      height: 180px;
+      filter: drop-shadow(0 20px 30px rgba(0,0,0,0.10));
+    }
+
+    /* ── CONTENT CARD ─────────────────────────── */
+    .slide-content {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 28px 24px 24px;
+      box-shadow: 0 8px 30px rgba(15,23,42,0.08);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .slide-content h1 {
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 10px;
+      color: var(--text);
+    }
+
+    .slide-content p {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 20px;
+    }
+
+    .slide-content .form-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* ── FORM ELEMENTS ────────────────────────── */
+    label.field-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    input[type="text"],
+    input[type="date"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 15px;
+      color: var(--text);
+      background: #fff;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 100px;
+    }
+
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 36px;
+    }
+
+    .field-error {
+      font-size: 12px;
+      color: var(--red);
+      margin-top: 4px;
+      display: none;
+    }
+    .field-error.show { display: block; }
+
+    .field-hint {
+      font-size: 12px;
+      color: var(--light);
+      margin-top: 4px;
+    }
+
+    /* ── COUNTRY SEARCH ───────────────────────── */
+    .country-search-wrap {
+      position: relative;
+    }
+    .country-search-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 15px;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+    }
+    .country-search-input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+    .country-list {
+      list-style: none;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      margin-top: 6px;
+      background: #fff;
+      scrollbar-width: thin;
+    }
+    .country-list li {
+      padding: 12px 14px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .country-list li:hover,
+    .country-list li.highlighted { background: rgba(37,99,235,0.06); }
+    .country-list li.selected {
+      background: rgba(37,99,235,0.10);
+      font-weight: 600;
+      color: var(--blue);
+    }
+    .country-list li .country-flag { font-size: 20px; }
+
+    /* ── QUAL DOC VERIFICATION CARDS ────────── */
+    .qual-doc-slot {
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 10px;
+      background: #fff;
+      transition: border-color 0.2s;
+    }
+    .qual-doc-slot.verified { border-color: var(--green); background: #f0fdf4; }
+    .qual-doc-slot.failed { border-color: var(--red); background: #fef2f2; }
+    .qual-doc-slot.scanning { border-color: var(--orange); background: #fffbeb; }
+    .qual-doc-slot-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .qual-doc-slot-label {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .qual-doc-slot-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .qual-doc-slot-badge.pending { background: #f1f5f9; color: var(--muted); }
+    .qual-doc-slot-badge.verified { background: #ecfdf5; color: var(--green); }
+    .qual-doc-slot-badge.failed { background: #fef2f2; color: var(--red); }
+    .qual-doc-slot-badge.scanning { background: #fef3c7; color: #d97706; }
+    .qual-doc-slot-badge.review { background: #dbeafe; color: var(--blue); }
+    .qual-doc-slot-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .qual-doc-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .qual-doc-btn:hover { border-color: var(--blue); background: rgba(37,99,235,0.04); }
+    .qual-doc-btn:active { transform: scale(0.97); }
+    .qual-doc-btn svg {
+      width: 18px; height: 18px;
+      stroke: var(--blue);
+      fill: none; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .qual-doc-slot-info {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .qual-doc-slot-info.error { color: var(--red); }
+    .qual-doc-slot-retry {
+      font-size: 11px;
+      color: var(--light);
+      margin-top: 4px;
+    }
+    .qual-support-btn {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 8px 18px;
+      border: 1px solid #3b82f6;
+      border-radius: 8px;
+      background: transparent;
+      color: #3b82f6;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: background 0.2s, color 0.2s;
+    }
+    .qual-support-btn:active {
+      background: #3b82f6;
+      color: #fff;
+    }
+    .id-check-info {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: rgba(59,130,246,0.08);
+      border: 1px solid rgba(59,130,246,0.2);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #64748b;
+    }
+    .id-check-info svg {
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .id-check-info strong {
+      color: #334155;
+    }
+    .id-verify-status {
+      min-height: 0;
+      margin-bottom: 4px;
+    }
+    .qual-doc-spinner {
+      width: 20px; height: 20px;
+      border: 2px solid #e2e8f0;
+      border-top-color: var(--orange);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .qual-doc-or {
+      text-align: center;
+      font-size: 12px;
+      color: var(--light);
+      margin: -2px 0 6px;
+      font-weight: 600;
+    }
+
+    /* ── FILE UPLOAD ──────────────────────────── */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      padding: 24px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+    .upload-zone:hover { border-color: var(--blue); background: rgba(37,99,235,0.03); }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .upload-zone-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+    .upload-zone-icon svg {
+      width: 36px; height: 36px;
+      stroke: var(--light);
+      fill: none; stroke-width: 1.5;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .upload-zone-text {
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .upload-zone-text span {
+      color: var(--blue);
+      font-weight: 600;
+    }
+    .upload-zone-hint {
+      font-size: 12px;
+      color: var(--light);
+      margin-top: 4px;
+    }
+
+    /* ── UPLOAD CARDS ─────────────────────────── */
+    .upload-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      background: #fff;
+      transition: border-color 0.2s;
+    }
+    .upload-card.completed { border-color: var(--green); }
+    .upload-card.error { border-color: var(--red); }
+    .upload-card.scanning { border-color: var(--orange); }
+
+    .upload-card-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .upload-card-icon.pending { background: #f1f5f9; }
+    .upload-card-icon.pending svg { stroke: var(--light); }
+    .upload-card-icon.completed { background: #ecfdf5; }
+    .upload-card-icon.completed svg { stroke: var(--green); }
+    .upload-card-icon.scanning { background: #fef3c7; }
+    .upload-card-icon.scanning svg { stroke: var(--orange); }
+    .upload-card-icon.error { background: #fef2f2; }
+    .upload-card-icon.error svg { stroke: var(--red); }
+    .upload-card-icon svg {
+      width: 20px; height: 20px;
+      fill: none; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .upload-card-body { flex: 1; min-width: 0; }
+    .upload-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .upload-card-status {
+      font-size: 12px;
+      margin-top: 2px;
+    }
+    .upload-card-status.pending { color: var(--light); }
+    .upload-card-status.completed { color: var(--green); }
+    .upload-card-status.scanning { color: var(--orange); }
+    .upload-card-status.error { color: var(--red); }
+    .upload-card-status.review { color: var(--blue); }
+
+    .upload-card-action {
+      flex-shrink: 0;
+    }
+    .upload-card-action button {
+      border: none;
+      background: none;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 8px;
+      transition: background 0.15s;
+    }
+    .upload-card-action button:hover { background: #f1f5f9; }
+    .upload-card-action svg {
+      width: 18px; height: 18px;
+      stroke: var(--muted);
+      fill: none; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* upload progress bar */
+    .upload-progress {
+      height: 3px;
+      background: #e2e8f0;
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden;
+      display: none;
+    }
+    .upload-progress.show { display: block; }
+    .upload-progress-bar {
+      height: 100%;
+      background: var(--blue);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    /* scan animation */
+    @keyframes pulse-scan {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .scanning .upload-card-status { animation: pulse-scan 1.5s ease-in-out infinite; }
+
+    /* ── WHO IS MOVING OPTIONS ────────────────── */
+    .option-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .option-card {
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 12px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s, transform 0.15s;
+      background: #fff;
+    }
+    .option-card:hover { border-color: var(--blue); }
+    .option-card:active { transform: scale(0.97); }
+    .option-card.selected {
+      border-color: var(--blue);
+      background: rgba(37,99,235,0.06);
+    }
+    .option-card-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+    .option-card-icon svg {
+      width: 32px; height: 32px;
+      stroke: var(--muted);
+      fill: none; stroke-width: 1.5;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .option-card.selected .option-card-icon svg { stroke: var(--blue); }
+    .option-card-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .option-card.selected .option-card-label { color: var(--blue); }
+
+    .children-count-wrap {
+      display: none;
+      margin-top: 12px;
+    }
+    .children-count-wrap.show { display: block; }
+    .stepper-input {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .stepper-btn {
+      width: 40px; height: 40px;
+      border-radius: 12px;
+      border: 1.5px solid var(--border);
+      background: #fff;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .stepper-btn:hover { border-color: var(--blue); }
+    .stepper-btn:active { background: rgba(37,99,235,0.06); }
+    .stepper-value {
+      font-size: 20px;
+      font-weight: 700;
+      min-width: 30px;
+      text-align: center;
+    }
+
+    /* ── REVIEW SUMMARY ───────────────────────── */
+    .review-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .review-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 12px 0;
+      border-bottom: 1px solid #f1f5f9;
+      gap: 12px;
+    }
+    .review-row:last-child { border-bottom: none; }
+    .review-label {
+      font-size: 13px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .review-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      text-align: right;
+      word-break: break-word;
+    }
+    .review-value.status-verified { color: var(--green); }
+    .review-value.status-pending { color: var(--orange); }
+    .review-value.status-missing { color: var(--red); }
+
+    /* ── BOTTOM CONTROLS ──────────────────────── */
+    .bottom-controls {
+      position: relative;
+      z-index: 2;
+      padding: 16px 24px calc(env(safe-area-inset-bottom, 12px) + 16px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    /* progress dots */
+    .progress-dots {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .progress-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #cbd5e1;
+      transition: all 0.3s ease;
+    }
+    .progress-dot.active {
+      width: 24px;
+      border-radius: 4px;
+      background: var(--text);
+    }
+    .progress-dot.done {
+      background: var(--blue);
+    }
+
+    /* button row */
+    .btn-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      gap: 12px;
+    }
+
+    .btn-skip {
+      display: none;
+    }
+    .btn-skip.invisible { visibility: hidden; }
+
+    .btn-next {
+      border: none;
+      background: var(--text);
+      color: #fff;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 14px 32px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: transform 0.15s, opacity 0.15s, background 0.2s;
+      min-width: 120px;
+      text-align: center;
+      transform-origin: center;
+      will-change: transform;
+    }
+    .btn-next:hover {
+      background: #1e293b;
+      transform: translateY(-1px) scaleX(1.02) scaleY(0.98);
+    }
+    .btn-next:active { transform: translateY(0) scale(0.97); }
+    .btn-next:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-next.submit {
+      background: var(--blue);
+    }
+    .btn-next.submit:hover { background: var(--blue2); }
+
+    /* ── LOADING OVERLAY ──────────────────────── */
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.92);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .loading-overlay.show { display: flex; }
+    .loading-spinner {
+      width: 40px; height: 40px;
+      border: 3px solid #e2e8f0;
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    /* ── SUCCESS SCREEN ───────────────────────── */
+    .success-screen {
+      position: fixed;
+      inset: 0;
+      background: #fff;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 40px 24px;
+      text-align: center;
+    }
+    .success-screen.show { display: flex; }
+    .success-check {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: #ecfdf5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+    .success-check svg {
+      width: 40px; height: 40px;
+      stroke: var(--green);
+      fill: none; stroke-width: 2.5;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .success-screen h1 {
+      font-size: 26px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    .success-screen p {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.55;
+      max-width: 320px;
+      margin-bottom: 32px;
+    }
+    .success-screen .btn-next { min-width: 200px; }
+
+    /* ── DESKTOP POLISH ───────────────────────── */
+    @media (min-width: 520px) {
+      .onboarding-shell {
+        max-width: 440px;
+        margin-top: 20px;
+        height: calc(100% - 40px);
+        border-radius: 24px;
+        box-shadow: 0 20px 60px rgba(15,23,42,0.10);
+        overflow: hidden;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- loading overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loadingText">Saving your progress...</div>
+  </div>
+
+  <!-- success screen -->
+  <div class="success-screen" id="successScreen">
+    <div class="success-check">
+      <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+    </div>
+    <h1>You're all set!</h1>
+    <p>Your profile is ready. We'll guide you through each step of your registration and relocation journey.</p>
+    <button class="btn-next" id="successContinueBtn">Go to Dashboard</button>
+  </div>
+
+  <div class="onboarding-shell" id="shell" data-step="0">
+    <!-- blobs -->
+    <div class="blob-canvas">
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      <div class="blob blob-3"></div>
+    </div>
+
+    <!-- slides viewport -->
+    <div class="slides-viewport">
+
+      <!-- STEP 0: Country of qualification -->
+      <div class="slide active" data-slide="0">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Globe network -->
+            <circle cx="100" cy="85" r="55" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="2"/>
+            <path d="M50 85h100M100 30v110" stroke="#a7f3d0" stroke-width="1"/>
+            <ellipse cx="100" cy="85" rx="55" ry="20" fill="none" stroke="#a7f3d0" stroke-width="1"/>
+            <ellipse cx="100" cy="85" rx="25" ry="55" fill="none" stroke="#a7f3d0" stroke-width="1"/>
+            <!-- Connection dots -->
+            <circle cx="65" cy="70" r="5" fill="#10b981"/>
+            <circle cx="120" cy="60" r="4" fill="#3b82f6"/>
+            <circle cx="85" cy="100" r="4" fill="#f59e0b"/>
+            <circle cx="135" cy="90" r="5" fill="#ef4444"/>
+            <circle cx="112" cy="108" r="4" fill="#8b5cf6"/>
+            <!-- Lines between dots -->
+            <line x1="65" y1="70" x2="120" y2="60" stroke="#d1d5db" stroke-width="1"/>
+            <line x1="120" y1="60" x2="135" y2="90" stroke="#d1d5db" stroke-width="1"/>
+            <line x1="85" y1="100" x2="112" y2="108" stroke="#d1d5db" stroke-width="1"/>
+            <!-- Arrow pointing to Australia pin -->
+            <g transform="translate(112,100)">
+              <path d="M0-6c-4 0-7 3-7 7s7 13 7 13 7-9 7-13-3-7-7-7z" fill="#2563eb"/>
+              <circle cx="0" cy="1" r="2.5" fill="#fff"/>
+            </g>
+            <!-- Passport icon -->
+            <g transform="translate(30,135)">
+              <rect x="0" y="0" width="30" height="40" rx="4" fill="#1e40af"/>
+              <rect x="5" y="5" width="20" height="14" rx="2" fill="#dbeafe"/>
+              <line x1="5" y1="24" x2="25" y2="24" stroke="#93c5fd" stroke-width="1.5"/>
+              <line x1="5" y1="28" x2="20" y2="28" stroke="#93c5fd" stroke-width="1.5"/>
+              <line x1="5" y1="32" x2="22" y2="32" stroke="#93c5fd" stroke-width="1.5"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Where are you qualified?</h1>
+          <p>Tell us where you're currently qualified so we can tailor your registration journey.</p>
+          <p style="font-size:13px;color:var(--light);margin-top:-14px;">This takes about 3 minutes to complete. Your progress is saved automatically.</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" for="countrySearch">Country of qualification</label>
+              <div class="country-search-wrap">
+                <input type="text" class="country-search-input" id="countrySearch" placeholder="Search for your country..." autocomplete="off" />
+                <ul class="country-list" id="countryList"></ul>
+              </div>
+              <div class="field-error" id="countryError">Please select your country of qualification.</div>
+              <div class="field-hint" id="countryHint" style="display:none;color:var(--red);font-size:13px;margin-top:8px;">We currently only accept GPs qualified in the United Kingdom, Ireland, or New Zealand.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 1: Verify qualification documents -->
+      <div class="slide" data-slide="1">
+        <div class="slide-illustration" style="min-height:160px;padding:20px 0 0;">
+          <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
+            <!-- Shield with document -->
+            <rect x="45" y="20" width="110" height="90" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="45" y="20" width="110" height="22" rx="8" fill="#dbeafe"/>
+            <rect x="45" y="34" width="110" height="8" rx="0" fill="#dbeafe"/>
+            <rect x="60" y="55" width="80" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="65" y="65" width="60" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="60" y="75" width="70" height="4" rx="2" fill="#e2e8f0"/>
+            <circle cx="100" cy="96" r="8" fill="#fbbf24"/>
+            <path d="M97 96l2.5 2.5 5-5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>
+            <g transform="translate(130,75)">
+              <path d="M15 2l12 4v10c0 8-5 14-12 17-7-3-12-9-12-17V6z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+              <path d="M10 14l4 4 8-8" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+            <!-- Camera icon -->
+            <g transform="translate(15,100)">
+              <rect x="2" y="8" width="30" height="22" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+              <path d="M10 8l2-4h10l2 4" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.5"/>
+              <circle cx="17" cy="20" r="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Verify your qualifications</h1>
+          <p>Upload or photograph each required document. AI will verify them instantly.</p>
+          <div class="form-area">
+            <div id="qualDocsContainer">
+              <!-- Populated dynamically by JS based on selected country -->
+            </div>
+            <div class="field-error" id="qualDocsError">Please verify all required documents.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: Quick Identity Check -->
+      <div class="slide" data-slide="2">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- ID Card -->
+            <rect x="35" y="55" width="130" height="90" rx="12" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="35" y="55" width="130" height="28" rx="12" fill="#dbeafe"/>
+            <rect x="35" y="75" width="130" height="8" fill="#dbeafe"/>
+            <!-- Photo area -->
+            <rect x="48" y="92" width="36" height="42" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1.5"/>
+            <circle cx="66" cy="105" r="9" fill="#cbd5e1"/>
+            <path d="M52 130c0-8 6-14 14-14s14 6 14 14" fill="#cbd5e1"/>
+            <!-- Text lines -->
+            <rect x="94" y="94" width="56" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="94" y="104" width="42" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="94" y="113" width="50" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="94" y="122" width="30" height="3" rx="1.5" fill="#e2e8f0"/>
+            <!-- Shield check -->
+            <g transform="translate(130,30)">
+              <path d="M20 2l16 5v13c0 10-6 18-16 22-10-4-16-12-16-22V7z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+              <path d="M13 18l5 5 10-10" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Quick identity check</h1>
+          <p>Upload your <strong>passport</strong> or <strong>driver's licence</strong> to confirm the person behind the qualifications is really you.</p>
+          <div class="form-area">
+            <div class="id-check-info">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <span>Your identity document will be <strong>deleted immediately</strong> after verification is completed. We only check the name matches your qualifications.</span>
+            </div>
+
+            <!-- ID verification area -->
+            <div id="idVerifyArea">
+              <div class="id-verify-status" id="idVerifyStatus"></div>
+              <div class="qual-doc-slot-actions" id="idVerifyActions">
+                <button class="qual-doc-btn" id="idVerifyUploadBtn" type="button">
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Upload
+                </button>
+                <button class="qual-doc-btn" id="idVerifyCameraBtn" type="button">
+                  <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  Camera
+                </button>
+              </div>
+              <input type="file" id="idVerifyFileInput" accept="image/*" style="display:none;" />
+            </div>
+
+            <div class="field-error" id="docsError">Please upload your passport or driver's licence.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 3: Relocation details (merged date/city/who) -->
+      <div class="slide" data-slide="3">
+        <div class="slide-illustration" style="min-height:160px;padding:10px 0 0;">
+          <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
+            <!-- Calendar -->
+            <rect x="15" y="20" width="75" height="65" rx="7" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+            <rect x="15" y="20" width="75" height="18" rx="7" fill="#3b82f6"/>
+            <rect x="15" y="32" width="75" height="6" rx="0" fill="#3b82f6"/>
+            <g fill="#e2e8f0">
+              <rect x="22" y="45" width="8" height="8" rx="2"/>
+              <rect x="34" y="45" width="8" height="8" rx="2"/>
+              <rect x="46" y="45" width="8" height="8" rx="2"/>
+              <rect x="58" y="45" width="8" height="8" rx="2"/>
+              <rect x="70" y="45" width="8" height="8" rx="2"/>
+              <rect x="22" y="58" width="8" height="8" rx="2"/>
+              <rect x="34" y="58" width="8" height="8" rx="2"/>
+            </g>
+            <rect x="46" y="58" width="8" height="8" rx="2" fill="#3b82f6"/>
+            <g fill="#e2e8f0">
+              <rect x="58" y="58" width="8" height="8" rx="2"/>
+              <rect x="70" y="58" width="8" height="8" rx="2"/>
+              <rect x="22" y="71" width="8" height="8" rx="2"/>
+            </g>
+            <!-- Australia silhouette -->
+            <g transform="translate(105,15)">
+              <path d="M10 20c-3 1-6 8-4 14s8 14 16 16 18-1 22-6 6-12 3-18-8-10-14-11-10 0-14 2-5 2-9 3z" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+              <circle cx="38" cy="28" r="3" fill="#3b82f6"/>
+              <circle cx="32" cy="36" r="2.5" fill="#60a5fa"/>
+              <circle cx="22" cy="38" r="2.5" fill="#93c5fd"/>
+            </g>
+            <!-- People icons -->
+            <g transform="translate(110,80)">
+              <circle cx="15" cy="8" r="10" fill="#fbbf24"/>
+              <rect x="5" y="18" width="20" height="20" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+            </g>
+            <g transform="translate(145,85)">
+              <circle cx="10" cy="6" r="8" fill="#f9a8d4"/>
+              <rect x="2" y="14" width="16" height="16" rx="5" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
+            </g>
+            <!-- Arrow -->
+            <path d="M85 70 Q100 55 112 45" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="4 3"/>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Relocation details</h1>
+          <p>When are you arriving, where would you like to live, and who's coming along?</p>
+          <div class="form-area">
+            <div>
+              <label class="field-label" for="targetDate">Target arrival date</label>
+              <input type="date" id="targetDate" />
+              <div class="field-hint">Must be at least 5 months from today.</div>
+              <div class="field-error" id="dateError">Please select a valid date.</div>
+            </div>
+            <div>
+              <label class="field-label" for="preferredCity">Preferred city</label>
+              <select id="preferredCity">
+                <option value="" disabled selected>Choose a city</option>
+                <option value="Sydney">Sydney</option>
+                <option value="Brisbane">Brisbane</option>
+                <option value="Melbourne">Melbourne</option>
+                <option value="Adelaide">Adelaide</option>
+                <option value="Perth">Perth</option>
+                <option value="Darwin">Darwin</option>
+                <option value="Canberra">Canberra</option>
+              </select>
+              <div class="field-error" id="cityError">Please select a preferred city.</div>
+            </div>
+            <div>
+              <label class="field-label">Who's relocating?</label>
+              <div class="option-grid" id="whoMovingGrid">
+                <div class="option-card" data-value="just_me">
+                  <div class="option-card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  </div>
+                  <div class="option-card-label">Just me</div>
+                </div>
+                <div class="option-card" data-value="me_partner">
+                  <div class="option-card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  </div>
+                  <div class="option-card-label">Me & partner</div>
+                </div>
+                <div class="option-card" data-value="me_children">
+                  <div class="option-card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><circle cx="19" cy="11" r="3"/></svg>
+                  </div>
+                  <div class="option-card-label">Me & children</div>
+                </div>
+                <div class="option-card" data-value="me_partner_children">
+                  <div class="option-card-icon">
+                    <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="20" cy="14" r="2.5"/></svg>
+                  </div>
+                  <div class="option-card-label">Family</div>
+                </div>
+              </div>
+              <div class="field-error" id="whoError">Please select who is relocating.</div>
+              <div class="children-count-wrap" id="childrenCountWrap">
+                <label class="field-label">How many children?</label>
+                <div class="stepper-input">
+                  <button type="button" class="stepper-btn" id="childMinus">&minus;</button>
+                  <span class="stepper-value" id="childCount">1</span>
+                  <button type="button" class="stepper-btn" id="childPlus">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4: Review & Submit -->
+      <div class="slide" data-slide="4">
+        <div class="slide-illustration" style="min-height:140px; padding: 20px 0 0;">
+          <svg viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg">
+            <!-- Clipboard -->
+            <rect x="50" y="10" width="100" height="120" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="70" y="2" width="60" height="16" rx="8" fill="#e2e8f0"/>
+            <rect x="80" y="6" width="40" height="8" rx="4" fill="#fff"/>
+            <!-- Check rows -->
+            <g transform="translate(62,30)">
+              <circle cx="6" cy="6" r="6" fill="#ecfdf5"/><path d="M3 6l2.5 2.5 5-5" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="60" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g transform="translate(62,50)">
+              <circle cx="6" cy="6" r="6" fill="#ecfdf5"/><path d="M3 6l2.5 2.5 5-5" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="50" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g transform="translate(62,70)">
+              <circle cx="6" cy="6" r="6" fill="#ecfdf5"/><path d="M3 6l2.5 2.5 5-5" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="55" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g transform="translate(62,90)">
+              <circle cx="6" cy="6" r="6" fill="#ecfdf5"/><path d="M3 6l2.5 2.5 5-5" stroke="#10b981" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="45" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g transform="translate(62,110)">
+              <circle cx="6" cy="6" r="6" fill="#dbeafe"/><path d="M3 6l2.5 2.5 5-5" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="55" height="4" rx="2" fill="#dbeafe"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Review your details</h1>
+          <p>Check everything looks right before we set up your dashboard.</p>
+          <div class="form-area">
+            <div class="review-list" id="reviewList">
+              <!-- populated by JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end slides-viewport -->
+
+    <!-- bottom controls -->
+    <div class="bottom-controls">
+      <div class="progress-dots" id="progressDots">
+        <div class="progress-dot active"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
+      </div>
+      <div class="btn-row">
+        <button class="back-btn" id="backBtn" aria-label="Go to previous step">Previous</button>
+        <button class="btn-skip invisible" id="skipBtn">SKIP</button>
+        <button class="btn-next" id="nextBtn">NEXT</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/qualification-camera.js?v=20260311a"></script>
+  <script src="../js/onboarding.js?v=20260313b"></script>
+</body>
+</html>

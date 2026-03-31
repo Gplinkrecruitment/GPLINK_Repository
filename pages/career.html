@@ -6261,7 +6261,7 @@
         mapImageUrl: "../media/images/account-header.webp",
         housing: {
           defaultMode: "rent",
-          defaultRadiusKm: 5,
+          defaultRadiusKm: 25,
           partySummary: "your move",
           recommendedBedrooms: 2,
           searchContext: {
@@ -6958,7 +6958,7 @@
     let practiceLifestyleState = {
       mode: "housing",
       housingMode: "rent",
-      radiusKm: 5,
+      radiusKm: 25,
       searchQuery: "",
       priceMin: "",
       priceMax: "",
@@ -7470,7 +7470,7 @@
       const query = sanitizePracticeLifestyleSearchQuery(practiceLifestyleState.searchQuery).toLowerCase();
       return listings
         .map((item, index) => ({ item, index }))
-        .filter((entry) => Number(entry.item && entry.item.distanceKm || 0) <= Number(practiceLifestyleState.radiusKm || 5))
+        .filter((entry) => Number(entry.item && entry.item.distanceKm || 0) <= Number(practiceLifestyleState.radiusKm || 25))
         .filter((item) => {
           if (!query) return true;
           const haystack = [
@@ -8092,7 +8092,7 @@
           const circle = new maps.Circle({
             map: practiceLifestyleMapRuntime.map,
             center,
-            radius: Math.max(2, Number(practiceLifestyleState.radiusKm || 5)) * 1000,
+            radius: Math.max(2, Number(practiceLifestyleState.radiusKm || 25)) * 1000,
             strokeColor: "#3b82f6",
             strokeOpacity: 0.3,
             strokeWeight: 1,
@@ -8476,7 +8476,7 @@
       const activeMode = practiceLifestyleState.mode;
       const visibleHousing = getPracticeLifestyleVisibleHousing(lifestyle);
       const schools = getPracticeLifestyleVisibleSchools(lifestyle);
-      const radiusSizePx = 132 + ((Number(practiceLifestyleState.radiusKm || 5) - 2) / 23) * 160;
+      const radiusSizePx = 132 + ((Number(practiceLifestyleState.radiusKm || 25) - 2) / 23) * 160;
       const useGoogleMap = canRenderPracticeLifestyleGoogleMap(lifestyle);
       return `
         <div class="practice-lifestyle-map-shell${useGoogleMap ? " is-google" : ""}">

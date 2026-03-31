@@ -1,0 +1,1962 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>GP Registration Portal Dashboard</title>
+  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/state-sync.js?v=20260314b" defer></script>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260310a" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --green2: #16a34a;
+      --orange: #f59e0b;
+      --orange2: #f97316;
+      --red: #dc2626;
+      --card: rgba(255, 255, 255, 0.92);
+      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --glass-bg: rgba(255, 255, 255, 0.72);
+      --glass-border: rgba(191, 220, 255, 0.95);
+      --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #f0f4fa;
+      min-height: 100dvh;
+    }
+
+    .dash-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 120px;
+    }
+
+    /* ─── HEADER ─── */
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 0 14px;
+    }
+
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+
+    .header-avatar {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0;
+      border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+
+    .header-text h1 {
+      font-size: 20px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
+    }
+
+    .header-text p {
+      font-size: 13px; color: var(--muted);
+      font-weight: 500; margin-top: 1px;
+    }
+
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease;
+      color: #475569;
+    }
+
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.5);
+    }
+
+    /* ─── PROGRESS CARDS CAROUSEL ─── */
+    .progress-carousel {
+      display: flex; gap: 14px;
+      overflow-x: auto; scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      padding: 4px 0 14px;
+      scrollbar-width: none;
+    }
+    .progress-carousel::-webkit-scrollbar { display: none; }
+
+    .progress-card {
+      flex: 0 0 280px; scroll-snap-align: start;
+      border-radius: var(--radius); padding: 20px;
+      color: #fff; position: relative; overflow: hidden;
+      min-height: 160px; display: flex; flex-direction: column;
+      justify-content: space-between;
+      cursor: pointer; transition: transform .2s ease;
+      text-decoration: none;
+    }
+    .progress-card:hover { transform: translateY(-2px); }
+
+    .progress-card-1 { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #2563eb 100%); }
+    .progress-card-2 { background: linear-gradient(135deg, #5b21b6 0%, #8b5cf6 50%, #7c3aed 100%); }
+    .progress-card-3 { background: linear-gradient(135deg, #065f46 0%, #10b981 50%, #059669 100%); }
+    .progress-card-4 { background: linear-gradient(135deg, #9f1239 0%, #f43f5e 50%, #e11d48 100%); }
+
+    .progress-card::before {
+      content: ""; position: absolute; inset: 0;
+      background: radial-gradient(circle at 80% 20%, rgba(255,255,255,0.15), transparent 60%);
+      pointer-events: none;
+    }
+
+    .pc-top { position: relative; z-index: 1; }
+
+    .pc-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      background: rgba(255,255,255,0.2); backdrop-filter: blur(4px);
+      font-size: 11px; font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .pc-badge-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #fff; animation: pulse-dot 2s ease infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .pc-title {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.25;
+      margin-bottom: 4px;
+    }
+
+    .pc-sub {
+      font-size: 12px; font-weight: 500;
+      opacity: 0.85; line-height: 1.4;
+    }
+
+    .pc-bottom { position: relative; z-index: 1; margin-top: 14px; }
+
+    .pc-progress-row {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .pc-progress-label { font-size: 12px; font-weight: 600; opacity: 0.9; }
+    .pc-progress-val { font-size: 13px; font-weight: 800; }
+
+    .pc-progress-track {
+      height: 6px; border-radius: 999px;
+      background: rgba(255,255,255,0.25); overflow: hidden;
+    }
+
+    .pc-progress-fill {
+      height: 100%; border-radius: 999px;
+      background: #fff; transition: width .4s ease;
+    }
+
+    .carousel-dots {
+      display: flex; justify-content: center;
+      gap: 6px; padding: 0 0 8px;
+    }
+
+    .carousel-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #cbd5e1; border: none; cursor: pointer;
+      transition: all .2s ease; padding: 0;
+    }
+    .carousel-dot.active { background: var(--blue); width: 24px; border-radius: 4px; }
+
+    /* ─── SECTION HEADING ─── */
+    .section-head {
+      display: flex; align-items: center;
+      justify-content: space-between;
+      padding: 12px 0 10px;
+    }
+
+    .section-title {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: -0.02em; color: var(--text);
+    }
+
+    .section-link {
+      font-size: 13px; font-weight: 700;
+      color: var(--blue); text-decoration: none;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .section-link:hover { text-decoration: underline; }
+
+    /* ─── TASK LIST (Registration Steps) ─── */
+    .task-list { display: grid; gap: 10px; }
+
+    .task-item {
+      display: flex; align-items: center; gap: 14px;
+      background: #fff; border-radius: 16px;
+      padding: 16px; border: 1px solid #e8edf5;
+      transition: all .2s ease; text-decoration: none;
+      color: inherit; cursor: pointer;
+    }
+    .task-item:hover {
+      border-color: #c7d2fe;
+      box-shadow: 0 4px 16px -8px rgba(37, 99, 235, 0.15);
+      transform: translateY(-1px);
+    }
+
+    .task-item.locked { opacity: 0.65; cursor: default; }
+    .task-item.locked:hover { transform: none; box-shadow: none; border-color: #e8edf5; }
+
+    .task-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .task-dot.current { background: var(--blue); box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15); }
+    .task-dot.done { background: var(--green2); box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.12); }
+    .task-dot.locked-dot { background: #cbd5e1; }
+
+    .task-body { flex: 1; min-width: 0; }
+
+    .task-cat {
+      font-size: 11px; font-weight: 600;
+      color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.04em; margin-bottom: 2px;
+    }
+
+    .task-name {
+      font-size: 14px; font-weight: 700;
+      color: var(--text); line-height: 1.3;
+    }
+
+    .task-status-text {
+      font-size: 12px; color: var(--muted);
+      font-weight: 500; margin-top: 2px;
+    }
+
+    .task-priority {
+      padding: 5px 12px; border-radius: 999px;
+      font-size: 11px; font-weight: 700;
+      flex-shrink: 0; text-transform: capitalize;
+    }
+    .task-priority.current-p { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .task-priority.done-p { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
+    .task-priority.locked-p { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+
+    .task-arrow {
+      width: 20px; height: 20px; color: #94a3b8;
+      flex-shrink: 0;
+    }
+    .task-arrow svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ─── UPDATES CARD ─── */
+    .updates-section {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-top: 12px;
+    }
+
+    .updates-section-title {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .updates-section-title svg {
+      width: 20px; height: 20px; stroke: var(--blue);
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .updates-section-title span {
+      font-size: 16px; font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+
+    .updates-feed { display: grid; gap: 8px; }
+
+    .updates-list {
+      display: grid; gap: 8px;
+      max-height: clamp(220px, 35vh, 320px);
+      overflow: hidden; align-content: start;
+    }
+
+    .update-item {
+      border: 1px solid #e8edf5; border-radius: 14px;
+      background: #fafbfd; padding: 12px 14px;
+      display: grid; gap: 4px;
+      transition: border-color .15s ease;
+    }
+    .update-item:hover { border-color: #c7d2fe; }
+
+    .update-item-link {
+      text-decoration: none; color: inherit; display: block;
+    }
+
+    .update-item.action {
+      border-left: 4px solid #f59e0b;
+      padding-left: 10px;
+      background: rgba(255, 251, 235, 0.9);
+    }
+
+    .update-top {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 8px; flex-wrap: wrap;
+    }
+
+    .update-badge {
+      display: inline-flex; align-items: center;
+      border-radius: 999px; padding: 3px 10px;
+      font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.03em;
+      border: 1px solid #dbe4ef; background: #f8fafc; color: #334155;
+    }
+    .update-badge.success { background: #ecfdf3; border-color: #bbf7d0; color: #166534; }
+    .update-badge.info { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .update-badge.action { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .update-badge.case { background: #f0f9ff; border-color: #bae6fd; color: #075985; }
+
+    .update-ts { font-size: 11px; color: #64748b; font-weight: 500; }
+
+    .update-title {
+      margin: 0; font-size: 13px; color: #0f172a;
+      font-weight: 700; line-height: 1.4;
+    }
+
+    .update-detail {
+      margin: 0; font-size: 12px; color: #64748b;
+      font-weight: 500; line-height: 1.4;
+    }
+
+    .updates-empty {
+      border: 1px dashed #d7e3f6; border-radius: 14px;
+      background: #f8fbff; padding: 14px;
+      font-size: 13px; color: #64748b;
+      font-weight: 500; line-height: 1.45;
+    }
+
+    .updates-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 13px; color: #1d4ed8;
+      text-decoration: none; font-weight: 700;
+      margin-top: 4px;
+    }
+    .updates-link:hover { text-decoration: underline; }
+
+    .updates-card.is-action {
+      border-color: rgba(245, 158, 11, 0.55);
+      background: linear-gradient(180deg, rgba(255, 251, 235, 0.82), rgba(255, 255, 255, 0.96));
+    }
+
+    .updates-alert {
+      margin: 6px 0 0; font-size: 12px; font-weight: 700;
+      color: #92400e; line-height: 1.35;
+    }
+
+    /* ─── NEXT STEPS CARD ─── */
+    .next-steps-card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-top: 12px;
+    }
+
+    .next-steps-title {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .next-steps-title svg {
+      width: 20px; height: 20px; stroke: var(--blue);
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .next-steps-title span {
+      font-size: 16px; font-weight: 800;
+      letter-spacing: -0.01em;
+    }
+
+    .next-steps-list {
+      display: grid; gap: 10px;
+    }
+
+    .next-step-row {
+      display: flex; gap: 12px; align-items: flex-start;
+      font-size: 13px; font-weight: 500; color: #334155;
+      line-height: 1.5;
+    }
+
+    .next-step-label { font-weight: 700; color: var(--text); white-space: nowrap; }
+
+    .next-step-arrow {
+      color: var(--blue); font-weight: 900; margin-top: 1px; flex-shrink: 0;
+    }
+
+    .need-line {
+      margin-top: 12px; font-size: 12px; color: #64748b;
+      font-weight: 500; line-height: 1.5;
+      padding: 10px 14px; background: #f8fafc;
+      border-radius: 12px; border: 1px solid #e8edf5;
+    }
+
+    /* ─── HELP / TRUST ─── */
+    .help-card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-top: 12px;
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    }
+
+    .help-card .txt {
+      font-size: 13px; font-weight: 500; color: #334155;
+      line-height: 1.5; max-width: 600px;
+    }
+
+    .help-card .txt strong {
+      display: block; font-weight: 800; font-size: 15px;
+      color: var(--text); margin-bottom: 4px;
+    }
+
+    .help-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    .btn-modern {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 16px; border-radius: 12px;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; border: 1px solid;
+      transition: all .15s ease; cursor: pointer;
+      font-family: inherit;
+    }
+    .btn-modern:hover { transform: translateY(-1px); }
+
+    .btn-primary {
+      background: var(--blue); color: #fff;
+      border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .btn-primary:hover { background: var(--blue2); }
+
+    .btn-outline {
+      background: #fff; color: #334155;
+      border-color: #e2e8f0;
+    }
+    .btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+    .trust-block {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-top: 12px;
+    }
+
+    .trust-block > .trust-heading {
+      font-weight: 800; color: var(--text); font-size: 15px; margin-bottom: 12px;
+    }
+
+    .trust-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+
+    .trust-col {
+      border: 1px solid #e8edf5; border-radius: 14px;
+      background: #fafbfd; padding: 14px;
+    }
+
+    .trust-col h4 { font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
+
+    .trust-col ul {
+      list-style: none; display: grid; gap: 6px;
+    }
+
+    .trust-col li {
+      font-size: 12px; font-weight: 500; color: #334155;
+      display: flex; align-items: flex-start; gap: 8px;
+      line-height: 1.4;
+    }
+
+    .trust-col li::before {
+      content: "";
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--blue); flex-shrink: 0; margin-top: 5px;
+    }
+
+    .footer-links {
+      text-align: center; padding: 16px 0;
+      font-size: 12px; color: #94a3b8; font-weight: 600;
+    }
+    .footer-links a { color: #475569; text-decoration: underline; }
+
+    /* ─── BOTTOM NAV ─── */
+    .bottom-nav {
+      position: fixed; left: 50%; bottom: 0;
+      transform: translateX(-50%);
+      width: 100%; max-width: 560px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid #e2e8f0;
+      padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
+      display: none; grid-template-columns: repeat(5, 1fr);
+      gap: 4px; z-index: 50; overflow: visible;
+    }
+
+    .bottom-tab {
+      text-decoration: none; border: 0;
+      background: transparent; color: #94a3b8;
+      border-radius: 12px; min-height: 46px;
+      padding: 6px 4px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 0; cursor: pointer; font: inherit;
+      transition: all .15s ease;
+    }
+
+    .bottom-tab svg {
+      width: 22px; height: 22px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .bottom-tab-label { display: none; }
+
+    .bottom-tab-active {
+      color: var(--blue); background: rgba(37, 99, 235, 0.08);
+    }
+
+    .bottom-tab-icon { position: relative; display: inline-grid; place-items: center; }
+    .bottom-tab-scan { transform: none; }
+    .bottom-tab-scan .bottom-tab-icon {
+      width: 36px; height: 36px; border-radius: 999px;
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      animation: scanHaloPulse 2.8s ease-in-out infinite;
+    }
+    .bottom-tab-scan .bottom-tab-icon svg { width: 19px; height: 19px; }
+    @keyframes scanHaloPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78);
+      }
+    }
+
+    .bottom-tab-badge {
+      position: absolute; top: -5px; right: -8px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 9px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #fff;
+    }
+
+    /* ─── DESKTOP NAV (wide) ─── */
+    .desktop-topbar {
+      padding: 12px 16px; border-radius: 16px;
+      margin-bottom: 6px; background: #fff;
+      border: 1px solid #e8edf5;
+      box-shadow: var(--shadow2);
+    }
+
+    .topbar-row {
+      display: grid; grid-template-columns: auto 1fr auto;
+      align-items: center; min-height: 52px; gap: 14px;
+    }
+
+    .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
+    .brand-logo img { display: block; width: 160px; height: auto; }
+
+    .nav-menu {
+      display: flex; gap: 6px; align-items: center;
+      justify-content: center; position: relative;
+      padding: 4px; border-radius: 14px;
+    }
+
+    .nav-item { position: relative; z-index: 2; }
+
+    .nav-link, .nav-action, .account-pill {
+      text-decoration: none; border: 0;
+      background: transparent; color: #64748b;
+      padding: 8px 14px; font-size: 13px;
+      font-weight: 600; white-space: nowrap;
+      display: inline-flex; align-items: center;
+      gap: 6px; line-height: 1.15;
+      border-radius: 12px; cursor: pointer;
+      font-family: inherit; transition: color .15s ease;
+    }
+
+    .nav-link:hover, .nav-action:hover, .account-pill:hover { color: var(--text); }
+    .nav-link.active, .nav-action.active, .account-pill.active { color: var(--text); font-weight: 700; }
+
+    .nav-icon {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .nav-icon-wrap { position: relative; display: inline-grid; place-items: center; }
+
+    .nav-alert {
+      position: absolute; top: -6px; right: -8px;
+      width: 14px; height: 14px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 900; color: #fff;
+      background: #dc2626; pointer-events: none; z-index: 2;
+      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.6);
+    }
+
+    .nav-glass {
+      position: absolute; top: 0; left: 0;
+      width: 100px; height: 40px; border-radius: 12px;
+      background: rgba(37, 99, 235, 0.06);
+      border: 1px solid rgba(37, 99, 235, 0.1);
+      z-index: 1; pointer-events: none;
+      transition: left .3s cubic-bezier(.22,.9,.18,1.05), top .3s cubic-bezier(.22,.9,.18,1.05), width .3s cubic-bezier(.22,.9,.18,1.05), height .3s cubic-bezier(.22,.9,.18,1.05);
+    }
+
+    .nav-glass.engulf { background: rgba(37, 99, 235, 0.1); }
+
+    /* ─── REGISTRATION DROPDOWN (Desktop) ─── */
+    .reg-dropdown {
+      position: absolute; top: calc(100% + 4px); right: 0;
+      width: min(700px, 90vw); border-radius: 18px;
+      border: 1px solid #e8edf5; background: #fff;
+      box-shadow: 0 20px 40px -16px rgba(15, 23, 42, 0.18);
+      padding: 14px; z-index: 70;
+      opacity: 0; transform: translateY(6px);
+      pointer-events: none; visibility: hidden;
+      transition: opacity .15s ease, transform .15s ease, visibility .15s ease;
+    }
+    .reg-dropdown.show {
+      opacity: 1; transform: translateY(0);
+      pointer-events: auto; visibility: visible;
+    }
+
+    .reg-head { margin: 0 0 10px; font-size: 14px; font-weight: 800; }
+
+    .reg-table { display: grid; gap: 8px; }
+
+    .reg-row {
+      display: grid; grid-template-columns: 1.2fr auto auto;
+      align-items: center; gap: 10px;
+      border: 1px solid #e8edf5; background: #fafbfd;
+      border-radius: 14px; padding: 10px 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .reg-name { font-size: 13px; font-weight: 700; }
+    .reg-sub { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .reg-row.done {
+      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+      border-color: #86efac;
+    }
+    .reg-row.done .reg-name,
+    .reg-row.done .reg-sub {
+      color: #166534;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+    }
+    .reg-row.done::before,
+    .reg-row.done::after {
+      content: "";
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      top: 50%;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+      pointer-events: none;
+    }
+    .reg-row.done::before { transform: rotate(6deg); }
+    .reg-row.done::after { transform: rotate(-6deg); }
+
+    .reg-pill {
+      font-size: 10px; text-transform: uppercase; font-weight: 800;
+      border-radius: 999px; padding: 4px 10px;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+    }
+    .reg-pill.done { background: #16a34a; color: #fff; border-color: #16a34a; }
+    .reg-pill.locked { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+
+    .reg-btn {
+      text-decoration: none; padding: 8px 14px; border-radius: 10px;
+      font-size: 12px; font-weight: 700; white-space: nowrap;
+      color: var(--blue); background: #eff6ff;
+      border: 1px solid #bfdbfe; transition: all .15s ease;
+    }
+    .reg-btn:hover { background: #dbeafe; }
+    .reg-btn.done {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #166534;
+      cursor: not-allowed;
+    }
+    .reg-btn.locked { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
+
+    /* ─── MOBILE REGISTRATION SHEET ─── */
+    .mobile-reg-backdrop {
+      position: fixed; inset: 0; background: rgba(2, 6, 23, 0.4);
+      opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 54;
+    }
+    .mobile-reg-backdrop.show { opacity: 1; pointer-events: auto; }
+
+    .mobile-reg-sheet {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      background: #fff; border-radius: 20px 20px 0 0;
+      border-top: 1px solid #e2e8f0;
+      box-shadow: 0 -16px 40px -20px rgba(15, 23, 42, 0.3);
+      padding: 10px 14px 18px; z-index: 55;
+      max-height: 74vh; overflow: auto;
+      transform: translateY(100%); transition: transform .25s ease;
+      touch-action: pan-y;
+    }
+    .mobile-reg-sheet.show { transform: translateY(0); }
+
+    .mobile-reg-grab {
+      width: 40px; height: 4px; border-radius: 999px;
+      background: #d1d5db; margin: 4px auto 12px;
+    }
+
+    .mobile-reg-head {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-bottom: 10px;
+    }
+
+    .mobile-reg-title { font-size: 16px; font-weight: 800; }
+
+    .mobile-reg-close {
+      border: 0; background: #f1f5f9; color: #475569;
+      border-radius: 50%; width: 32px; height: 32px;
+      font-size: 16px; font-weight: 800; cursor: pointer;
+      display: grid; place-items: center;
+    }
+
+    .mobile-reg-table { display: grid; gap: 8px; }
+    .mobile-reg-table .reg-row { grid-template-columns: 1fr auto; }
+    .mobile-reg-table .reg-btn { grid-column: 1 / -1; width: 100%; text-align: center; margin-top: 2px; }
+
+    .mobile-step-card { border: 1px solid #e8edf5; border-radius: 14px; background: #fff; overflow: hidden; }
+
+    .mobile-step-head {
+      width: 100%; border: 0; background: transparent;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px; text-align: left; font: inherit;
+      color: var(--text); cursor: pointer;
+    }
+    .mobile-step-title { font-size: 14px; font-weight: 700; }
+    .mobile-step-caret { font-size: 14px; color: #94a3b8; font-weight: 800; transition: transform .2s ease; }
+    .mobile-step-card.open .mobile-step-caret { transform: rotate(180deg); }
+
+    .mobile-step-pill {
+      border-radius: 999px; border: 1px solid #c7d2fe;
+      background: #e0e7ff; color: #1d4ed8;
+      font-size: 10px; font-weight: 800; padding: 3px 8px;
+      text-transform: uppercase;
+    }
+    .mobile-step-pill.done { border-color: #86efac; background: #ecfdf5; color: #166534; }
+    .mobile-step-pill.current { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+
+    .mobile-step-body {
+      border-top: 1px solid #e8edf5; padding: 12px 14px;
+      display: grid; gap: 8px;
+    }
+
+    .mobile-step-copy { font-size: 13px; color: #334155; font-weight: 500; line-height: 1.4; }
+    .mobile-step-status { font-size: 13px; color: #334155; font-weight: 500; }
+
+    /* ─── SUPPORT MODAL ─── */
+    .modal {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5);
+      display: none; align-items: center; justify-content: center;
+      padding: 16px; z-index: 60;
+    }
+    .modal.show { display: flex; }
+
+    .modal-card {
+      width: min(480px, 100%); background: #fff;
+      border-radius: var(--radius); border: 1px solid #e8edf5;
+      box-shadow: 0 24px 48px -16px rgba(15, 23, 42, 0.25);
+      padding: 20px; display: grid; gap: 12px;
+    }
+    .modal-card h4 { font-size: 18px; font-weight: 800; }
+    .modal-card p { font-size: 13px; color: #475569; line-height: 1.5; font-weight: 500; }
+    .modal-card textarea {
+      width: 100%; min-height: 90px; border-radius: 12px;
+      border: 1px solid #e2e8f0; padding: 12px;
+      resize: vertical; font: inherit; font-size: 13px;
+    }
+
+    /* ─── HIDDEN METRICS ─── */
+    .metrics-hidden {
+      position: absolute; width: 1px; height: 1px;
+      margin: -1px; padding: 0; border: 0;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
+    }
+
+    /* ─── RESPONSIVE ─── */
+    @media (min-width: 768px) {
+      .app-header { display: none; }
+      .desktop-topbar { display: block; }
+      .bottom-nav { display: none; }
+      .dash-wrap { padding-bottom: 40px; }
+
+      .progress-card { flex: 1 1 0; min-width: 0; }
+      .progress-carousel { overflow: visible; flex-wrap: nowrap; }
+      .carousel-dots { display: none; }
+    }
+
+    @media (max-width: 767px) {
+      .desktop-topbar { display: none; }
+      .bottom-nav { display: grid; }
+      .app-header { display: flex; }
+      .trust-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 480px) {
+      .progress-card { flex: 0 0 calc(100vw - 48px); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash-wrap">
+    <!-- MOBILE HEADER -->
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar" id="headerAvatarMobile">GP</div>
+        <div class="header-text">
+          <h1 id="intro-title-mobile">Welcome back</h1>
+          <p id="headerSubtitleMobile">To Australia Via Expedited Specialist Pathway</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Messages">
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- DESKTOP TOPBAR -->
+    <header class="desktop-topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item active" href="index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+            <span>Home</span>
+          </a>
+          <button class="nav-action nav-item" id="registrationMenuBtn" type="button" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+            <span>Registration</span>
+          </button>
+          <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span>My Documents</span>
+          </a>
+          <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span>Messages</span>
+          </button>
+          <a class="account-pill nav-item" href="account.html" data-nav="account">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            <span>Account</span>
+          </a>
+
+          <div class="reg-dropdown" id="registrationDropdown">
+            <p class="reg-head">Registration Process</p>
+            <div class="reg-table" id="regTable"></div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <!-- PROGRESS CARDS -->
+    <div class="progress-carousel" id="progressCarousel">
+      <a class="progress-card progress-card-1" id="mainProgressCard" href="myinthealth.html">
+        <div class="pc-top">
+          <div class="pc-badge"><span class="pc-badge-dot"></span> Current Step</div>
+          <div class="pc-title" id="pc-main-title">MyIntealth Account</div>
+          <div class="pc-sub" id="pc-main-sub">EPIC verification is set up and moving forward.</div>
+        </div>
+        <div class="pc-bottom">
+          <div class="pc-progress-row">
+            <span class="pc-progress-label">Overall Progress</span>
+            <span class="pc-progress-val" id="pc-main-percent">0%</span>
+          </div>
+          <div class="pc-progress-track"><div class="pc-progress-fill" id="pc-main-bar" style="width:3%"></div></div>
+        </div>
+      </a>
+      <a class="progress-card progress-card-3" id="careerProgressCard" href="../../pages/career.html#browse">
+        <div class="pc-top">
+          <div class="pc-badge">Career</div>
+          <div class="pc-title">MyCareer</div>
+          <div class="pc-sub" id="pc-career-sub">Browse roles, review applications and track your placement progress.</div>
+        </div>
+        <div class="pc-bottom">
+          <div class="pc-progress-row">
+            <span class="pc-progress-label" id="pc-career-label">Status</span>
+            <span class="pc-progress-val" id="pc-career-val">Ready</span>
+          </div>
+          <div class="pc-progress-track"><div class="pc-progress-fill" id="pc-career-bar" style="width:18%"></div></div>
+        </div>
+      </a>
+    </div>
+    <div class="carousel-dots" id="carouselDots">
+      <button class="carousel-dot active" data-index="0"></button>
+      <button class="carousel-dot" data-index="1"></button>
+    </div>
+
+    <!-- HIDDEN METRICS -->
+    <div class="metrics-hidden" aria-hidden="true">
+      <svg width="112" height="112" viewBox="0 0 112 112">
+        <circle id="progress-ring" cx="56" cy="56" r="46" fill="none" stroke="#2563eb" stroke-width="10" stroke-linecap="round" stroke-dasharray="289.026524" stroke-dashoffset="280" transform="rotate(-90 56 56)"></circle>
+      </svg>
+      <span id="ring-num">3%</span>
+      <span id="next-milestone">Next milestone: Step 1 complete</span>
+    </div>
+
+    <!-- REGISTRATION STEPS (Task List) -->
+    <div class="section-head">
+      <span class="section-title">Registration Steps</span>
+      <a class="section-link" href="#" id="viewScheduleLink">View all <span>&#8594;</span></a>
+    </div>
+
+    <div class="task-list" id="taskList">
+      <a class="task-item" id="task1" href="myinthealth.html">
+        <span class="task-dot current"></span>
+        <div class="task-body">
+          <div class="task-cat">Step 1</div>
+          <div class="task-name">MyIntealth Account</div>
+          <div class="task-status-text" id="step1-status-text">Not started yet</div>
+        </div>
+        <span class="task-priority current-p" id="step1-pill">Continue</span>
+        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
+      </a>
+      <a class="task-item" id="task2" href="#">
+        <span class="task-dot locked-dot"></span>
+        <div class="task-body">
+          <div class="task-cat">Step 2</div>
+          <div class="task-name">AMC Portfolio</div>
+          <div class="task-status-text" id="step2-status-text">Unlocked after Step 1</div>
+        </div>
+        <span class="task-priority locked-p" id="step2-pill">Locked</span>
+        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
+      </a>
+      <a class="task-item locked" id="task3" href="#">
+        <span class="task-dot locked-dot"></span>
+        <div class="task-body">
+          <div class="task-cat">Step 3</div>
+          <div class="task-name">AHPRA Registration</div>
+          <div class="task-status-text" id="step3-status-text">Unlocked after Step 2</div>
+        </div>
+        <span class="task-priority locked-p" id="step3-pill">Locked</span>
+        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
+      </a>
+      <a class="task-item locked" id="task6" href="#">
+        <span class="task-dot locked-dot"></span>
+        <div class="task-body">
+          <div class="task-cat">Step 4</div>
+          <div class="task-name">Commencement</div>
+          <div class="task-status-text" id="step6-status-text">No action needed yet</div>
+        </div>
+        <span class="task-priority locked-p" id="step6-pill">Locked</span>
+        <span class="task-arrow"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></span>
+      </a>
+    </div>
+
+    <!-- HELP CARD -->
+    <div class="help-card">
+      <div class="txt">
+        <strong>We're Here For You!</strong>
+        Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
+      </div>
+      <div class="trust-grid">
+        <div class="trust-col">
+          <h4>You do:</h4>
+          <ul>
+            <li>Upload required documents</li>
+            <li>Complete key forms</li>
+            <li>Confirm details when requested</li>
+          </ul>
+        </div>
+        <div class="trust-col">
+          <h4>We do:</h4>
+          <ul>
+            <li>Guide each step in order</li>
+            <li>Check progress and timelines</li>
+            <li>Flag issues and coordinate support</li>
+          </ul>
+        </div>
+      </div>
+      <div class="help-actions">
+        <a class="btn-modern btn-primary" href="messages.html">Contact Support <span>&#8594;</span></a>
+        <a class="btn-modern btn-outline" href="#">View FAQs <span>&#8594;</span></a>
+      </div>
+    </div>
+
+    <!-- Onboarding shortcut -->
+    <div style="text-align:center;margin:20px 0 8px;">
+      <a href="onboarding.html" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;background:#f1f5f9;color:#334155;font-size:13px;font-weight:600;text-decoration:none;border:1px solid #e2e8f0;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+        Setup Profile
+      </a>
+    </div>
+
+    <div class="footer-links">
+      <div><a href="privacy.html">Privacy Policy</a> &middot; <a href="terms.html">Terms of Service</a></div>
+      <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV (Mobile) -->
+  <nav class="bottom-nav" aria-label="Mobile navigation">
+    <a class="bottom-tab bottom-tab-active" href="index.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
+      <span class="bottom-tab-label">Home</span>
+    </a>
+    <button class="bottom-tab" id="mobileRegistrationBtn" type="button">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+      <span class="bottom-tab-label">Registration</span>
+    </button>
+    <button class="bottom-tab bottom-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="bottom-tab-label">Scan</span>
+    </button>
+    <a class="bottom-tab" href="my-documents.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+      <span class="bottom-tab-label">Documents</span>
+    </a>
+    <a class="bottom-tab" href="account.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
+      <span class="bottom-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <!-- MOBILE REGISTRATION SHEET -->
+  <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
+  <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
+    <div class="mobile-reg-grab" aria-hidden="true"></div>
+    <div class="mobile-reg-head">
+      <p class="mobile-reg-title">Registration Process</p>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">&times;</button>
+    </div>
+    <div class="mobile-reg-table" id="mobileRegTable"></div>
+  </aside>
+
+  <!-- SUPPORT MODAL -->
+  <div class="modal" id="supportModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+      <h4 id="supportTitle">Contact support</h4>
+      <p>Share your issue and our team will follow up during business hours.</p>
+      <textarea placeholder="Describe your issue..."></textarea>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-primary" type="button">Submit request</button>
+        <button class="btn-modern btn-outline" data-close="supportModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TOTAL_STEPS = 4;
+    const EPIC_KEY = "gp_epic_progress";
+    const AMC_KEY = "gp_amc_progress";
+    const AHPRA_KEY = "gp_ahpra_progress";
+    const DOC_KEY = "gp_documents_prep";
+    const PREPARED_DOCS_KEY = "gp_prepared_docs";
+    const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
+    const CAREER_STATE_KEY = "gp_career_state";
+    const ringCirc = 289.026524;
+
+    const epicStageLabels = {
+      create_account: "Create your MyIntealth account",
+      upload_qualifications: "Upload your specialist qualifications",
+      waiting_verification: "EPIC is verifying your documents",
+      account_establishment: "Account Establishment",
+      verification_issued: "Verification issued"
+    };
+
+    const amcStageLabels = {
+      create_portfolio: "Create an AMC account",
+      upload_credentials: "Upload credentials",
+      qualifications_pending: "Qualifications pending ECFMG verification",
+      qualifications_verified: "Qualifications verified"
+    };
+
+    const UK_DOC_KEYS = ["primary_medical_degree", "mrcgp_certified", "cct_certified", "cv_signed_dated"];
+    const UK_INST_KEYS = ["certificate_good_standing", "confirmation_training", "criminal_history"];
+    const UK_SUPERVISED_KEYS = ["sppa_00", "section_g", "position_description", "offer_contract", "supervisor_cv"];
+    const PREPARED_BY_YOU_DOCS = [
+      { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree (MBBS/MBChB)" },
+      { key: "mrcgp_certified", title: "Certified copy of MRCGP (issued from August 2007 onward)" },
+      { key: "cct_certified", title: "Certified copy of CCT (General Practice) issued by GMC or PMETB" },
+      { key: "cv_signed_dated", title: "CV (Signed and dated)" }
+    ];
+    const BATCH_META_SUFFIX = "__save_batch_meta";
+    if (!Array.isArray(window.gpLinkUpdates)) window.gpLinkUpdates = [];
+
+    const supportModalEl = document.getElementById("supportModal");
+    const mobileRegistrationBtn = document.getElementById("mobileRegistrationBtn");
+    const mobileRegBackdrop = document.getElementById("mobileRegBackdrop");
+    const mobileRegSheet = document.getElementById("mobileRegSheet");
+    const mobileRegTable = document.getElementById("mobileRegTable");
+    const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
+    let sessionLastName = "";
+    let sessionFirstName = "";
+
+    const openSupportModal = () => {
+      supportModalEl.classList.add("show");
+      supportModalEl.setAttribute("aria-hidden", "false");
+    };
+    const closeSupportModal = () => {
+      supportModalEl.classList.remove("show");
+      supportModalEl.setAttribute("aria-hidden", "true");
+    };
+
+    // mobileSupportBtn click is handled by updates-sync.js (alert panel)
+    document.querySelectorAll("[data-close]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-close");
+        if (id === "supportModal") closeSupportModal();
+      });
+    });
+    supportModalEl.addEventListener("click", (e) => {
+      if (e.target === supportModalEl) closeSupportModal();
+    });
+    const registrationMenuBtn = document.getElementById("registrationMenuBtn");
+    const registrationDropdown = document.getElementById("registrationDropdown");
+    const regTableEl = document.getElementById("regTable");
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+    let navGlassInitialized = false;
+
+    async function loadSessionProfile() {
+      try {
+        var profile = null;
+        if (window.gpSessionProfile) {
+          profile = window.gpSessionProfile;
+        } else if (window.gpSessionPromise && typeof window.gpSessionPromise.then === "function") {
+          const session = await window.gpSessionPromise;
+          profile = session && session.profile && typeof session.profile === "object" ? session.profile : null;
+        } else {
+          const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+          if (response.ok) {
+            const data = await response.json();
+            profile = data && data.profile ? data.profile : null;
+          }
+        }
+        return {
+          firstName: profile && typeof profile.firstName === "string" ? profile.firstName.trim() : "",
+          lastName: profile && typeof profile.lastName === "string" ? profile.lastName.trim() : ""
+        };
+      } catch (err) {
+        return { firstName: "", lastName: "" };
+      }
+    }
+
+    function applyIntroTitle() {
+      const titleEl = document.getElementById("intro-title-mobile");
+      if (titleEl) {
+        titleEl.textContent = sessionFirstName ? `Dr ${sessionFirstName}` : "Welcome back";
+      }
+      const avatarEl = document.getElementById("headerAvatarMobile");
+      if (avatarEl && sessionFirstName) {
+        avatarEl.textContent = sessionFirstName.charAt(0).toUpperCase();
+      }
+      /* Pathway subtitle */
+      var subtitleEl = document.getElementById("headerSubtitleMobile");
+      if (subtitleEl) {
+        var pathway = "Expedited Specialist Pathway";
+        try {
+          var stored = localStorage.getItem("gp_registration_pathway");
+          if (stored) {
+            var parsed = JSON.parse(stored);
+            if (typeof parsed === "string" && parsed.trim()) pathway = parsed.trim();
+          }
+        } catch (e) { /* use default */ }
+        subtitleEl.textContent = "To Australia Via " + pathway;
+      }
+    }
+
+    function parseStorage(key) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (err) { return null; }
+    }
+
+    function getRegistrationReturnOverrides() {
+      const parsed = parseStorage(REGISTRATION_RETURN_KEY);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+
+    function isRegistrationReturnAllowed(stepKey) {
+      return getRegistrationReturnOverrides()[stepKey] === true;
+    }
+
+    function buildRegistrationRow(stepKey, config) {
+      const locked = !!config.locked;
+      const done = !!config.done;
+      const returnable = done && isRegistrationReturnAllowed(stepKey);
+      return {
+        title: config.title,
+        sub: config.sub,
+        mobileDetail: config.mobileDetail,
+        mobileStatus: config.mobileStatus,
+        status: locked ? "Locked" : done ? "Done" : "Current",
+        locked,
+        done,
+        current: !locked && !done,
+        returnable,
+        href: !locked && (!done || returnable) ? config.href : "#",
+        cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+      };
+    }
+
+    function formatUpdateTimestamp(tsValue) {
+      if (!tsValue) return "";
+      const d = new Date(tsValue);
+      if (Number.isNaN(d.getTime())) return String(tsValue);
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const dayMs = 24 * 60 * 60 * 1000;
+      if (diffMs < dayMs) {
+        return `Today \u2022 ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).toLowerCase()}`;
+      }
+      const days = Math.round(diffMs / dayMs);
+      if (days <= 1) return "1 day ago";
+      if (days < 7) return `${days} days ago`;
+      return d.toLocaleDateString();
+    }
+
+    function getPreparedDocReviewUpdates() {
+      const docsState = loadLatestDocsStateForDashboard();
+      if (!docsState || typeof docsState !== "object" || docsState.country !== "uk" || !docsState.docs) return [];
+      const updatedAt = typeof docsState.updatedAt === "string" ? docsState.updatedAt : new Date().toISOString();
+
+      return PREPARED_BY_YOU_DOCS.map((doc) => {
+        const entry = docsState.docs[doc.key];
+        const status = entry && typeof entry.status === "string" ? entry.status.toLowerCase() : "";
+        if (!entry || (status !== "accepted" && status !== "approved" && status !== "rejected")) return null;
+
+        const reviewReason = typeof entry.rejectionReason === "string" && entry.rejectionReason.trim()
+          ? entry.rejectionReason.trim()
+          : (typeof entry.reviewNote === "string" && entry.reviewNote.trim() ? entry.reviewNote.trim() : "");
+
+        if (status === "accepted" || status === "approved") {
+          return {
+            type: "info",
+            title: `${doc.title} was accepted by GP Link review.`,
+            detail: "No further action needed for this document.",
+            ts: updatedAt,
+            source: "prepared-doc-review",
+            sourceKey: doc.key
+          };
+        }
+
+        const reasonText = reviewReason || "The uploaded copy did not meet AHPRA certification or clarity requirements.";
+        return {
+          type: "action",
+          title: `${doc.title} needs re-upload after review.`,
+          detail: `Reason: ${reasonText} Action required: Upload a corrected certified copy in My Documents.`,
+          ts: updatedAt,
+          source: "prepared-doc-review",
+          sourceKey: doc.key
+        };
+      }).filter(Boolean);
+    }
+
+    function loadLatestDocsStateForDashboard() {
+      const persisted = parseStorage(DOC_KEY);
+      const batchMeta = parseStorage(`${DOC_KEY}${BATCH_META_SUFFIX}`);
+      if (!batchMeta || typeof batchMeta !== "object" || !batchMeta.lastValue) return persisted;
+      let pendingParsed = null;
+      try { pendingParsed = JSON.parse(batchMeta.lastValue); } catch (err) { pendingParsed = null; }
+      if (!pendingParsed || typeof pendingParsed !== "object") return persisted;
+      const pendingTs = Date.parse(pendingParsed.updatedAt || "") || 0;
+      const persistedTs = Date.parse((persisted && persisted.updatedAt) || "") || 0;
+      return pendingTs >= persistedTs ? pendingParsed : persisted;
+    }
+
+    function renderUpdatesFeed() {
+      const listEl = document.getElementById("gp-updates-list");
+      const cardEl = document.getElementById("gp-updates-card");
+      const subtitleEl = document.getElementById("updates-subtitle");
+      const alertEl = document.getElementById("updates-alert");
+      const MAX_ITEMS = 8;
+      const isMobileUpdates = window.matchMedia("(max-width: 767px)").matches;
+      if (!listEl) return;
+      const messageDb = parseStorage("gpLinkMessageDB");
+      const dbUpdates = messageDb && Array.isArray(messageDb.updates) ? messageDb.updates.slice() : [];
+      const dbCases = messageDb && Array.isArray(messageDb.supportCases) ? messageDb.supportCases.slice() : [];
+      const baseUpdates = dbUpdates.length
+        ? dbUpdates
+        : (typeof window.getGpLinkUpdates === "function"
+            ? window.getGpLinkUpdates().slice()
+            : (Array.isArray(window.gpLinkUpdates) ? window.gpLinkUpdates.slice() : []));
+      const updates = [...baseUpdates, ...getPreparedDocReviewUpdates()].sort((a, b) => {
+        const aTime = Date.parse(a.ts || "") || 0;
+        const bTime = Date.parse(b.ts || "") || 0;
+        return bTime - aTime;
+      });
+
+      const actionUpdates = updates.filter((item) => {
+        const t = item && typeof item.type === "string" ? item.type.toLowerCase() : "";
+        return t.includes("action");
+      });
+      const regularUpdates = updates.filter((item) => {
+        const t = item && typeof item.type === "string" ? item.type.toLowerCase() : "";
+        return !t.includes("action");
+      });
+      const supportCases = dbCases.length ? dbCases : parseStorage("gpLinkSupportCases");
+      const openCases = Array.isArray(supportCases)
+        ? supportCases
+            .filter((c) => {
+              const status = c && typeof c.status === "string" ? c.status.toLowerCase() : "";
+              return status === "open";
+            })
+            .sort((a, b) => (Date.parse(b.updatedAt || "") || 0) - (Date.parse(a.updatedAt || "") || 0))
+        : [];
+
+      const priorityItems = [
+        ...actionUpdates.map((item) => ({ kind: "update", item })),
+        ...openCases.map((item) => ({ kind: "case", item }))
+      ];
+      let displayItems = [];
+      if (isMobileUpdates) {
+        if (actionUpdates.length) {
+          displayItems = [{ kind: "update", item: actionUpdates[0] }];
+        } else if (openCases.length) {
+          displayItems = [{ kind: "case", item: openCases[0] }];
+        } else if (regularUpdates.length) {
+          displayItems = [{ kind: "update", item: regularUpdates[0] }];
+        }
+      } else {
+        displayItems = (priorityItems.length ? priorityItems : regularUpdates.map((item) => ({ kind: "update", item }))).slice(0, MAX_ITEMS);
+      }
+
+      const hasAction = actionUpdates.length > 0;
+      listEl.innerHTML = "";
+      if (cardEl) cardEl.classList.toggle("is-action", hasAction);
+      if (alertEl) alertEl.hidden = !hasAction;
+      if (subtitleEl) {
+        subtitleEl.textContent = priorityItems.length
+          ? "Priority items from your workflow and support conversations."
+          : "Messages from the GP Link team about what changed and what to do next.";
+      }
+      if (!displayItems.length) {
+        const empty = document.createElement("div");
+        empty.className = "updates-empty";
+        empty.textContent = "No updates yet. We'll post here when something changes or if we need anything from you.";
+        listEl.appendChild(empty);
+        return;
+      }
+
+      const typeLabel = { success: "SUCCESS", info: "INFO", action: "ACTION REQUIRED", case: "OPEN CASE" };
+      const rows = [];
+      displayItems.forEach((entry) => {
+        if (entry.kind === "case") {
+          const c = entry.item || {};
+          const title = typeof c.title === "string" ? c.title : "Open support case";
+          const last = Array.isArray(c.thread) && c.thread.length ? c.thread[c.thread.length - 1] : null;
+          const detail = last && typeof last.text === "string" ? last.text : "Support conversation is active.";
+          const tsText = formatUpdateTimestamp(c.updatedAt || c.createdAt || "");
+          const href = `messages.html#case-${encodeURIComponent(c.id || "")}`;
+
+          const row = document.createElement("a");
+          row.href = href;
+          row.className = "update-item update-item-link info";
+          row.innerHTML = `
+            <div class="update-top">
+              <span class="update-badge case">${typeLabel.case}</span>
+              <span class="update-ts">${tsText}</span>
+            </div>
+            <p class="update-title">${title}</p>
+            <p class="update-detail">${detail}</p>
+          `;
+          rows.push(row);
+          return;
+        }
+
+        const item = entry.item || {};
+        const type = item && typeof item.type === "string" ? item.type : "info";
+        const title = item && typeof item.title === "string" ? item.title : "Update available.";
+        const detail = item && typeof item.detail === "string" ? item.detail : "";
+        const tsText = formatUpdateTimestamp(item && item.ts ? item.ts : "");
+        const href = type === "action" ? "messages.html#tab-action" : "messages.html#tab-updates";
+
+        const row = document.createElement("a");
+        row.href = href;
+        row.className = `update-item update-item-link ${type}`;
+        row.innerHTML = `
+          <div class="update-top">
+            <span class="update-badge ${type}">${typeLabel[type] || "INFO"}</span>
+            <span class="update-ts">${tsText}</span>
+          </div>
+          <p class="update-title">${title}</p>
+          ${detail ? `<p class="update-detail">${detail}</p>` : ""}
+        `;
+        rows.push(row);
+      });
+
+      for (const row of rows) {
+        listEl.appendChild(row);
+        if (listEl.scrollHeight > listEl.clientHeight + 1) {
+          row.remove();
+          break;
+        }
+      }
+
+      if (typeof window.refreshInboxBadges === "function") {
+        window.refreshInboxBadges();
+      }
+    }
+
+    function getProgressSnapshot() {
+      const epic = parseStorage(EPIC_KEY);
+      const amc = parseStorage(AMC_KEY);
+      const docs = parseStorage(DOC_KEY);
+      const prepared = parseStorage(PREPARED_DOCS_KEY);
+
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      const epicStage = epic && typeof epic.stage === "string" ? epic.stage : "create_account";
+      const epicCurrentLabel = epicStageLabels[epicStage] || epicStageLabels.create_account;
+
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      const amcStage = amc && typeof amc.stage === "string" ? amc.stage : "create_portfolio";
+      const amcCurrentLabel = amcStageLabels[amcStage] || amcStageLabels.create_portfolio;
+
+      const isUkDocs = !!(docs && docs.country === "uk" && docs.docs && prepared && prepared.docs);
+      const preparedUploaded = isUkDocs
+        ? UK_DOC_KEYS.filter((key) => docs.docs[key] && docs.docs[key].uploaded === true).length
+        : 0;
+      const institutionRequested = isUkDocs
+        ? UK_INST_KEYS.filter((key) => docs.docs[key] && docs.docs[key].uploaded === true).length
+        : 0;
+      const supervisedReady = isUkDocs
+        ? UK_SUPERVISED_KEYS.filter((key) => prepared.docs[key] && (prepared.docs[key].ready || !!prepared.docs[key].url)).length
+        : 0;
+      const docsDone = isUkDocs
+        ? preparedUploaded === UK_DOC_KEYS.length &&
+          institutionRequested === UK_INST_KEYS.length &&
+          supervisedReady === UK_SUPERVISED_KEYS.length
+        : false;
+
+      const completedSteps = [epicDone, amcDone].filter(Boolean).length;
+      const progressPercent = Math.max(3, (completedSteps * 100) / TOTAL_STEPS);
+
+      let currentRoute = "myinthealth.html";
+      let currentTitle = "MyIntealth Account";
+      if (epicDone && !amcDone) {
+        currentRoute = "amc.html";
+        currentTitle = "AMC Portfolio";
+      } else if (epicDone && amcDone) {
+        currentRoute = "ahpra.html";
+        currentTitle = "AHPRA Registration";
+      }
+
+      return {
+        epicDone, epicCurrentLabel,
+        amcDone, amcCurrentLabel,
+        docsDone, preparedUploaded, institutionRequested, supervisedReady,
+        completedSteps, progressPercent,
+        currentRoute, currentTitle
+      };
+    }
+
+    function getCareerCardSnapshot() {
+      const career = parseStorage(CAREER_STATE_KEY);
+      const savedCount = Array.isArray(career && career.savedJobs) ? career.savedJobs.filter(Boolean).length : 0;
+      const applicationCount = Array.isArray(career && career.applications) ? career.applications.filter(Boolean).length : 0;
+      const countToPercent = (count) => Math.max(18, Math.round((Math.min(count, 5) / 5) * 100));
+
+      if (applicationCount > 0) {
+        return {
+          href: "../../pages/career.html#applications",
+          label: "Applications",
+          value: applicationCount === 1 ? "1 Active" : `${applicationCount} Active`,
+          percent: countToPercent(applicationCount),
+          sub: applicationCount === 1
+            ? "You have 1 active application ready to review."
+            : `You have ${applicationCount} active applications ready to review.`
+        };
+      }
+
+      if (savedCount > 0) {
+        return {
+          href: "../../pages/career.html#browse",
+          label: "Saved Roles",
+          value: savedCount === 1 ? "1 Saved" : `${savedCount} Saved`,
+          percent: countToPercent(savedCount),
+          sub: savedCount === 1
+            ? "You have 1 saved role ready to revisit."
+            : `You have ${savedCount} saved roles ready to revisit.`
+        };
+      }
+
+      return {
+        href: "../../pages/career.html#browse",
+        label: "Status",
+        value: "Ready",
+        percent: 18,
+        sub: "Browse roles, review applications and track your placement progress."
+      };
+    }
+
+    function setTaskVisual(stepNum, state, statusText, href) {
+      const taskEl = document.getElementById(`task${stepNum}`);
+      const pill = document.getElementById(`step${stepNum}-pill`);
+      const statusEl = document.getElementById(`step${stepNum}-status-text`);
+      if (!taskEl) return;
+
+      const dot = taskEl.querySelector(".task-dot");
+      if (dot) {
+        dot.className = `task-dot ${state === "done" ? "done" : state === "current" ? "current" : "locked-dot"}`;
+      }
+      if (statusEl) statusEl.textContent = statusText;
+      if (href) taskEl.href = href;
+      if (pill) {
+        pill.textContent = state === "done" ? "Done" : state === "current" ? "Continue" : "Locked";
+        pill.className = `task-priority ${state === "done" ? "done-p" : state === "current" ? "current-p" : "locked-p"}`;
+      }
+      taskEl.classList.toggle("locked", state === "locked");
+    }
+
+    function renderDashboard() {
+      const snap = getProgressSnapshot();
+      const ringOffset = Math.max(0, ringCirc - (snap.progressPercent * ringCirc) / 100);
+
+      const stepsCompleteEl = document.getElementById("steps-complete");
+      const progressBarEl = document.getElementById("progress-bar");
+      if (stepsCompleteEl) stepsCompleteEl.textContent = `${snap.completedSteps}/${TOTAL_STEPS}`;
+      document.getElementById("ring-num").textContent = `${Math.round(snap.progressPercent)}%`;
+      document.getElementById("progress-ring").setAttribute("stroke-dashoffset", ringOffset.toFixed(4));
+      if (progressBarEl) progressBarEl.style.width = `${snap.progressPercent}%`;
+
+      // Progress cards
+      const mainCard = document.getElementById("mainProgressCard");
+      const mainTitle = document.getElementById("pc-main-title");
+      const mainSub = document.getElementById("pc-main-sub");
+      const mainPercent = document.getElementById("pc-main-percent");
+      const mainBar = document.getElementById("pc-main-bar");
+      if (mainCard) mainCard.href = snap.currentRoute;
+      if (mainTitle) mainTitle.textContent = snap.currentTitle;
+      if (mainSub) {
+        mainSub.textContent = snap.epicDone
+          ? (snap.amcDone ? "Prepare the final AHPRA submission." : "Upload credentials in AMC portfolio.")
+          : "EPIC verification is set up and moving forward.";
+      }
+      if (mainPercent) mainPercent.textContent = `${Math.round(snap.progressPercent)}%`;
+      if (mainBar) mainBar.style.width = `${snap.progressPercent}%`;
+
+      // MyCareer card
+      const careerCard = document.getElementById("careerProgressCard");
+      const careerLabel = document.getElementById("pc-career-label");
+      const careerVal = document.getElementById("pc-career-val");
+      const careerBar = document.getElementById("pc-career-bar");
+      const careerSub = document.getElementById("pc-career-sub");
+      const careerSnap = getCareerCardSnapshot();
+      if (careerCard) careerCard.href = careerSnap.href;
+      if (careerLabel) careerLabel.textContent = careerSnap.label;
+      if (careerVal) careerVal.textContent = careerSnap.value;
+      if (careerBar) careerBar.style.width = `${careerSnap.percent}%`;
+      if (careerSub) careerSub.textContent = careerSnap.sub;
+
+      const nextMilestoneEl = document.getElementById("next-milestone");
+      if (nextMilestoneEl) {
+        const nextStep = Math.min(TOTAL_STEPS, snap.completedSteps + 1);
+        nextMilestoneEl.textContent = `Next milestone: Step ${nextStep} complete`;
+      }
+
+      setTaskVisual(1, snap.epicDone ? "done" : "current", snap.epicDone ? "Completed" : snap.epicCurrentLabel, "myinthealth.html");
+      setTaskVisual(2, !snap.epicDone ? "locked" : snap.amcDone ? "done" : "current", !snap.epicDone ? "Unlocked after Step 1" : snap.amcDone ? "Completed" : snap.amcCurrentLabel, snap.epicDone ? "amc.html" : "#");
+      setTaskVisual(3, !snap.amcDone ? "locked" : "current", !snap.amcDone ? "Unlocked after Step 2" : "In progress", snap.amcDone ? "ahpra.html" : "#");
+      setTaskVisual(6, "locked", "No action needed yet", "#");
+
+      renderUpdatesFeed();
+    }
+
+    function getRegistrationRows() {
+      const snap = getProgressSnapshot();
+      const ahpra = parseStorage(AHPRA_KEY);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      return [
+        buildRegistrationRow("myinthealth", {
+          title: "1. MyIntealth Account",
+          sub: "Create account and complete EPIC verification.",
+          mobileDetail: "EPIC verification is set up and moving forward.",
+          mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
+          done: snap.epicDone,
+          href: "myinthealth.html"
+        }),
+        buildRegistrationRow("amc", {
+          title: "2. AMC Portfolio",
+          sub: "Create AMC candidate portfolio and upload credentials.",
+          mobileDetail: "AMC portfolio is created and connected to your verification.",
+          mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
+          locked: !snap.epicDone,
+          done: snap.amcDone,
+          href: "amc.html"
+        }),
+        buildRegistrationRow("ahpra", {
+          title: "3. AHPRA Registration",
+          sub: "Prepare and submit your specialist registration application.",
+          mobileDetail: "Specialist registration application is prepared and submitted correctly.",
+          mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : ahpraDone ? "Completed" : "In progress",
+          locked: !snap.amcDone,
+          done: ahpraDone,
+          href: "ahpra.html"
+        })
+      ];
+    }
+
+    function renderRegistrationRows() {
+      const rows = getRegistrationRows();
+      regTableEl.innerHTML = "";
+      mobileRegTable.innerHTML = "";
+      rows.forEach((row) => {
+        const statusClass = row.done ? "done" : row.locked ? "locked" : "";
+        const actionDisabled = row.locked || (row.done && !row.returnable);
+        const rowEl = document.createElement("div");
+        rowEl.className = `reg-row ${row.done ? "done" : ""}`.trim();
+        rowEl.innerHTML = `
+          <div>
+            <div class="reg-name">${row.title}</div>
+            <div class="reg-sub">${row.sub}</div>
+          </div>
+          <span class="reg-pill ${statusClass}">${row.status}</span>
+        `;
+        const actionEl = actionDisabled ? document.createElement("button") : document.createElement("a");
+        actionEl.className = `reg-btn ${statusClass}`.trim();
+        actionEl.textContent = row.cta;
+        if (actionDisabled) {
+          actionEl.type = "button";
+          actionEl.disabled = true;
+        } else {
+          actionEl.href = row.href;
+        }
+        rowEl.appendChild(actionEl);
+        regTableEl.appendChild(rowEl);
+      });
+
+      if (!rows.length) {
+        const doneEl = document.createElement("div");
+        doneEl.className = "mobile-step-card";
+        doneEl.innerHTML = `<div class="mobile-step-head"><span class="mobile-step-title">All visible steps are complete.</span></div>`;
+        mobileRegTable.appendChild(doneEl);
+        return;
+      }
+
+      rows.forEach((row, idx) => {
+        const isCurrent = row.current;
+        const actionDisabled = row.locked || (row.done && !row.returnable);
+        const cardEl = document.createElement("div");
+        cardEl.className = `mobile-step-card ${row.locked ? "locked" : "unlocked"} ${isCurrent ? "current open" : ""}`;
+        const bodyId = `mobileStepBody${idx}`;
+        const pillMarkup = row.locked
+          ? `<span class="mobile-step-pill locked">Locked</span>`
+          : row.status === "Done"
+            ? `<span class="mobile-step-pill done">Done</span>`
+            : `<span class="mobile-step-pill current">Continue</span>`;
+        cardEl.innerHTML = `
+          <button class="mobile-step-head" type="button" ${isCurrent ? "disabled" : ""} aria-expanded="${isCurrent ? "true" : "false"}" aria-controls="${bodyId}">
+            <span class="mobile-step-title">${row.title}</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              ${pillMarkup}
+              <span class="mobile-step-caret">${isCurrent ? "" : "\u2304"}</span>
+            </span>
+          </button>
+          <div class="mobile-step-body" id="${bodyId}" ${isCurrent ? "" : "hidden"}>
+            <p class="mobile-step-copy">${row.mobileDetail || row.sub}</p>
+            <p class="mobile-step-status"><b>Status:</b> ${row.mobileStatus || row.status}</p>
+          </div>
+        `;
+        const headBtn = cardEl.querySelector(".mobile-step-head");
+        const bodyEl = cardEl.querySelector(".mobile-step-body");
+        const actionEl = actionDisabled ? document.createElement("button") : document.createElement("a");
+        actionEl.className = `reg-btn ${row.done ? "done" : row.locked ? "locked" : ""}`.trim();
+        actionEl.textContent = row.cta;
+        if (actionDisabled) {
+          actionEl.type = "button";
+          actionEl.disabled = true;
+        } else {
+          actionEl.href = row.href;
+        }
+        bodyEl.appendChild(actionEl);
+        let autoCloseTimer = null;
+        if (headBtn && bodyEl && !isCurrent) {
+          headBtn.addEventListener("click", () => {
+            const isOpen = !bodyEl.hidden;
+            if (autoCloseTimer) { clearTimeout(autoCloseTimer); autoCloseTimer = null; }
+            bodyEl.hidden = isOpen;
+            headBtn.setAttribute("aria-expanded", isOpen ? "false" : "true");
+            cardEl.classList.toggle("open", !isOpen);
+            if (!isOpen) {
+              autoCloseTimer = window.setTimeout(() => {
+                bodyEl.hidden = true;
+                headBtn.setAttribute("aria-expanded", "false");
+                cardEl.classList.remove("open");
+                autoCloseTimer = null;
+              }, 5000);
+            }
+          });
+        }
+        mobileRegTable.appendChild(cardEl);
+      });
+    }
+
+    let registrationHoverCloseTimer = null;
+
+    function openRegistrationDropdown() {
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      renderRegistrationRows();
+      registrationDropdown.classList.add("show");
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    }
+
+    function closeRegistrationDropdown(immediate = false) {
+      const doClose = () => {
+        registrationDropdown.classList.remove("show");
+        navGlassEl.classList.remove("engulf");
+      };
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      if (immediate) { doClose(); return; }
+      registrationHoverCloseTimer = setTimeout(doClose, 140);
+    }
+
+    function moveNavGlass(target, animate = true) {
+      if (!target || !navGlassEl) return;
+      const parentRect = target.parentElement.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      if (!animate || !navGlassInitialized) {
+        const prevTransition = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        navGlassEl.style.width = `${rect.width}px`;
+        navGlassEl.style.height = `${rect.height}px`;
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prevTransition;
+        navGlassInitialized = true;
+        return;
+      }
+      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+      navGlassEl.style.width = `${rect.width}px`;
+      navGlassEl.style.height = `${rect.height}px`;
+    }
+
+    function setActiveNav(target, animate = true) {
+      navItems.forEach((item) => item.classList.remove("active"));
+      if (target) { target.classList.add("active"); activeNavItem = target; }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    registrationMenuBtn.addEventListener("click", () => {
+      setActiveNav(registrationMenuBtn);
+      if (registrationDropdown.classList.contains("show")) {
+        closeRegistrationDropdown(true);
+      } else {
+        openRegistrationDropdown();
+      }
+    });
+    registrationMenuBtn.addEventListener("mouseenter", () => { openRegistrationDropdown(); });
+    registrationDropdown.addEventListener("mouseenter", () => {
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    });
+    registrationMenuBtn.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    registrationDropdown.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    document.addEventListener("click", (e) => {
+      if (!registrationDropdown.contains(e.target) && !registrationMenuBtn.contains(e.target)) {
+        closeRegistrationDropdown(true);
+      }
+    });
+
+    function openMobileRegistration() {
+      renderRegistrationRows();
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.add("show");
+      mobileRegSheet.classList.add("show");
+    }
+
+    function closeMobileRegistration() {
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.remove("show");
+      mobileRegSheet.classList.remove("show");
+    }
+
+    mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
+    mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
+    mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
+
+    navItems.forEach((item) => {
+      item.addEventListener("mouseenter", () => {
+        if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); }
+      });
+      item.addEventListener("focus", () => {
+        if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); }
+      });
+      if (item !== registrationMenuBtn && item.id !== "topSupportBtn") {
+        item.addEventListener("click", () => setActiveNav(item));
+      }
+    });
+
+    loadSessionProfile().then((p) => {
+      sessionFirstName = p.firstName;
+      sessionLastName = p.lastName;
+      applyIntroTitle();
+    });
+    renderDashboard();
+    if (typeof window.saveGpLinkUpdates === "function") {
+      window.saveGpLinkUpdates(window.gpLinkUpdates);
+    }
+    renderRegistrationRows();
+    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+    setActiveNav(activeNavItem, false);
+    function getClosestNavItemByX(clientX) {
+      let closest = null;
+      let minDistance = Number.POSITIVE_INFINITY;
+      navItems.forEach((item) => {
+        const rect = item.getBoundingClientRect();
+        const center = rect.left + (rect.width / 2);
+        const distance = Math.abs(center - clientX);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = item;
+        }
+      });
+      return closest;
+    }
+
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", (event) => {
+        const hit = getClosestNavItemByX(event.clientX);
+        if (hit && hit !== hoveredNavItem) { hoveredNavItem = hit; moveNavGlass(hit, true); }
+      });
+      navMenuEl.addEventListener("mouseleave", () => {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
+    window.addEventListener("resize", () => {
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+      renderUpdatesFeed();
+    });
+    window.addEventListener("storage", (event) => {
+      if (!event || typeof event.key !== "string") return;
+      if (event.key === "gpLinkMessageDB" || event.key === "gpLinkSupportCases" || event.key === "gp_link_updates" || event.key === DOC_KEY || event.key === `${DOC_KEY}${BATCH_META_SUFFIX}`) {
+        renderUpdatesFeed();
+      }
+      if (event.key === CAREER_STATE_KEY) {
+        renderDashboard();
+      }
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") renderUpdatesFeed();
+    });
+    // Re-render after state-sync hydrates the current user's data from the server
+    window.addEventListener("gp-state-hydrated", function () {
+      renderDashboard();
+      renderUpdatesFeed();
+      renderRegistrationRows();
+    }, { once: true });
+
+    // Carousel dots
+    const carousel = document.getElementById("progressCarousel");
+    const dots = document.querySelectorAll(".carousel-dot");
+    if (carousel && dots.length) {
+      carousel.addEventListener("scroll", () => {
+        const scrollLeft = carousel.scrollLeft;
+        const cardWidth = carousel.firstElementChild ? carousel.firstElementChild.offsetWidth + 14 : 300;
+        const idx = Math.round(scrollLeft / cardWidth);
+        dots.forEach((d, i) => d.classList.toggle("active", i === idx));
+      });
+      dots.forEach((dot) => {
+        dot.addEventListener("click", () => {
+          const idx = parseInt(dot.dataset.index, 10);
+          const cardWidth = carousel.firstElementChild ? carousel.firstElementChild.offsetWidth + 14 : 300;
+          carousel.scrollTo({ left: idx * cardWidth, behavior: "smooth" });
+        });
+      });
+    }
+
+    // View schedule link opens registration
+    const viewScheduleLink = document.getElementById("viewScheduleLink");
+    if (viewScheduleLink) {
+      viewScheduleLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (window.matchMedia("(max-width: 767px)").matches) {
+          openMobileRegistration();
+        } else {
+          openRegistrationDropdown();
+        }
+      });
+    }
+
+    // Touch drag to close mobile reg sheet
+    let startY = 0;
+    let deltaY = 0;
+    let dragging = false;
+
+    mobileRegSheet.addEventListener("touchstart", (e) => {
+      if (!mobileRegSheet.classList.contains("show")) return;
+      startY = e.touches[0].clientY;
+      deltaY = 0;
+      dragging = true;
+    }, { passive: true });
+
+    mobileRegSheet.addEventListener("touchmove", (e) => {
+      if (!dragging) return;
+      const currentY = e.touches[0].clientY;
+      deltaY = Math.max(0, currentY - startY);
+      if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+    }, { passive: true });
+
+    mobileRegSheet.addEventListener("touchend", () => {
+      if (!dragging) return;
+      dragging = false;
+      if (deltaY > 90) { closeMobileRegistration(); } else { mobileRegSheet.style.transform = ""; }
+    });
+  </script>
+</body>
+</html>

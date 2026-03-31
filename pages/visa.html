@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Visa Application - GP Link</title>
-  <script src="/js/nav-shell-bridge.js?v=20260329a"></script>
+  <script src="/js/nav-shell-bridge.js?v=20260331a"></script>
   <script src="/js/auth-guard.js?v=20260311f" defer></script>
   <script src="/js/state-sync.js?v=20260315a" defer></script>
   <script src="/js/updates-sync.js?v=20260309c" defer></script>
@@ -85,9 +85,7 @@
     }
 
     /* ---- PAGE HERO ---- */
-    .page-hero {
-      padding: 8px 0 16px;
-    }
+    .page-hero { padding: 8px 0 18px; }
     .page-hero h1 {
       font-size: 24px; font-weight: 800;
       letter-spacing: -0.02em; line-height: 1.2;
@@ -101,7 +99,6 @@
     .visa-stepper {
       display: flex; align-items: flex-start;
       gap: 0; margin-bottom: 24px;
-      position: relative;
       padding: 0 4px;
     }
     .visa-step {
@@ -109,16 +106,16 @@
       align-items: center; position: relative; z-index: 2;
     }
     .visa-step-dot {
-      width: 36px; height: 36px; border-radius: 50%;
+      width: 32px; height: 32px; border-radius: 50%;
       display: grid; place-items: center;
       background: #e8edf5; color: #94a3b8;
-      font-size: 12px; font-weight: 700;
+      font-size: 11px; font-weight: 700;
       border: 2px solid #e2e8f0;
       transition: all .25s ease;
       position: relative; z-index: 2;
     }
     .visa-step-dot svg {
-      width: 16px; height: 16px; stroke: currentColor;
+      width: 14px; height: 14px; stroke: currentColor;
       fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
     }
     .visa-step.active .visa-step-dot {
@@ -131,190 +128,533 @@
       border-color: var(--green);
     }
     .visa-step-label {
-      margin-top: 8px; font-size: 11px; font-weight: 600;
+      margin-top: 6px; font-size: 10px; font-weight: 600;
       color: #94a3b8; text-align: center; line-height: 1.3;
     }
     .visa-step.active .visa-step-label { color: var(--blue); font-weight: 700; }
     .visa-step.done .visa-step-label { color: var(--green); }
     .visa-step-connector {
-      position: absolute; top: 18px;
-      left: calc(50% + 18px); right: calc(-50% + 18px);
-      height: 3px; background: #e2e8f0; z-index: 1;
+      position: absolute; top: 16px;
+      left: calc(50% + 16px); right: calc(-50% + 16px);
+      height: 2px; background: #e2e8f0; z-index: 1;
     }
     .visa-step.done .visa-step-connector { background: var(--green); }
     .visa-step.active .visa-step-connector { background: linear-gradient(90deg, var(--blue), #e2e8f0); }
     .visa-step:last-child .visa-step-connector { display: none; }
 
-    /* ---- CARD ---- */
-    .card {
+    /* ---- CASE SUMMARY (unified top surface) ---- */
+    .case-summary {
       background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 20px;
-      margin-bottom: 16px; position: relative; overflow: hidden;
+      border: 1px solid #e8edf5;
+      padding: 22px 20px 20px;
+      margin-bottom: 14px;
+      position: relative; overflow: hidden;
     }
-    .card::before {
+    .case-summary::before {
       content: ""; position: absolute; top: 0; left: 0; right: 0;
       height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
     }
-    .card-label {
-      font-size: 10px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    .case-summary-top {
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 12px;
+      margin-bottom: 6px;
     }
-    .card-title {
-      font-size: 18px; font-weight: 800;
-      letter-spacing: -0.01em; line-height: 1.3; margin-bottom: 4px;
+    .case-title {
+      font-size: 20px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
     }
-    .card-sub {
-      font-size: 13px; color: #475569;
-      font-weight: 500; line-height: 1.5; margin-bottom: 14px;
+    .case-visa-type {
+      font-size: 13px; color: #475569; font-weight: 500;
+      margin-top: 2px; line-height: 1.4;
     }
-
-    /* ---- STATUS BADGE ---- */
     .status-badge {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 4px 10px; border-radius: 999px;
       font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.03em; white-space: nowrap; flex-shrink: 0;
       background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
     }
     .status-badge.processing { background: #fef3c7; color: #92400e; border-color: #fde68a; }
     .status-badge.granted { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
     .status-badge.not-started { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+    .status-badge.refused { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+    .status-badge.delayed { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .status-badge-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+    }
+    .case-meta {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 0; margin-top: 16px;
+      border-top: 1px solid #f1f5f9;
+      padding-top: 14px;
+    }
+    .case-meta-item {
+      padding: 6px 0;
+    }
+    .case-meta-label {
+      font-size: 10px; font-weight: 600; color: #94a3b8;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .case-meta-value {
+      font-size: 13px; font-weight: 600; color: var(--text);
+      margin-top: 2px; line-height: 1.3;
+    }
 
-    /* ---- SPONSOR CARD ---- */
-    .sponsor-card {
-      display: flex; gap: 14px; align-items: center;
-      padding: 16px; background: #f8fafc;
-      border: 1px solid #e8edf5; border-radius: 14px;
+    /* ---- CURRENT ACTION (dominant component) ---- */
+    .action-block {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5;
+      padding: 20px;
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .action-block.has-action {
+      border-color: #bfdbfe;
+      background: linear-gradient(180deg, #f8faff 0%, #fff 100%);
+    }
+    .action-block.no-action {
+      border-color: #d1fae5;
+      background: linear-gradient(180deg, #f0fdf8 0%, #fff 100%);
+    }
+    .action-indicator {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 10px;
+    }
+    .action-indicator-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--blue); flex-shrink: 0;
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    .action-block.no-action .action-indicator-dot {
+      background: var(--green); animation: none;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+    .action-indicator-label {
+      font-size: 10px; font-weight: 700; color: var(--blue);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .action-block.no-action .action-indicator-label { color: var(--green); }
+    .action-title {
+      font-size: 17px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .action-desc {
+      font-size: 13px; color: #475569;
+      font-weight: 500; line-height: 1.55;
+      margin-bottom: 12px;
+    }
+    .action-owner-row {
+      display: flex; align-items: center; gap: 16px;
+      flex-wrap: wrap;
+      font-size: 12px; color: var(--muted); font-weight: 500;
       margin-bottom: 14px;
     }
-    .sponsor-avatar {
-      width: 44px; height: 44px; border-radius: 50%;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
-      display: grid; place-items: center;
-      color: #fff; font-weight: 800; font-size: 16px;
+    .action-owner-row span { display: flex; align-items: center; gap: 4px; }
+    .action-owner-row svg {
+      width: 13px; height: 13px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
       flex-shrink: 0;
     }
-    .sponsor-name { font-size: 14px; font-weight: 700; }
-    .sponsor-role { font-size: 12px; color: var(--muted); font-weight: 500; margin-top: 1px; }
-
-    /* ---- DOCUMENT UPLOAD ---- */
-    .upload-zone {
-      border: 2px dashed #cbd5e1; border-radius: 14px;
-      padding: 24px; text-align: center; cursor: pointer;
-      transition: all .15s ease; margin-bottom: 14px;
+    .action-cta {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: 12px;
+      background: var(--blue); color: #fff;
+      font-size: 13px; font-weight: 700;
+      border: none; cursor: pointer;
+      transition: all .15s ease;
+      font-family: inherit;
     }
-    .upload-zone:hover { border-color: var(--blue); background: #f8fafc; }
-    .upload-zone-icon {
-      width: 40px; height: 40px; margin: 0 auto 8px;
-      border-radius: 12px; background: #eff6ff;
-      display: grid; place-items: center; color: var(--blue);
-    }
-    .upload-zone-icon svg {
-      width: 20px; height: 20px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .upload-zone-text { font-size: 13px; font-weight: 600; color: #334155; }
-    .upload-zone-hint { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
-    .upload-list { display: grid; gap: 8px; }
-    .upload-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 12px; border: 1px solid #e8edf5;
-      border-radius: 10px; background: #fafbfd;
-    }
-    .upload-item-icon {
-      width: 32px; height: 32px; border-radius: 8px;
-      background: #eff6ff; display: grid; place-items: center; color: var(--blue); flex-shrink: 0;
-    }
-    .upload-item-icon svg {
+    .action-cta:hover { background: var(--blue2); }
+    .action-cta svg {
       width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-    .upload-item-name { font-size: 12px; font-weight: 600; flex: 1; }
-    .upload-item-meta { font-size: 11px; color: var(--muted); font-weight: 500; }
+
+    /* ---- SPONSOR INLINE ---- */
+    .sponsor-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px;
+      background: #fff; border: 1px solid #e8edf5;
+      border-radius: 14px; margin-bottom: 14px;
+    }
+    .sponsor-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: grid; place-items: center;
+      color: #fff; flex-shrink: 0;
+    }
+    .sponsor-icon svg {
+      width: 18px; height: 18px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .sponsor-info { flex: 1; min-width: 0; }
+    .sponsor-name { font-size: 13px; font-weight: 700; }
+    .sponsor-detail { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .sponsor-status-pill {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 3px 8px; border-radius: 6px;
+      background: #ecfdf5; color: #166534;
+      flex-shrink: 0;
+    }
+    .sponsor-status-pill.pending { background: #fef3c7; color: #92400e; }
+
+    /* ---- SECTION ---- */
+    .section-label {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+      margin: 22px 0 10px; padding-left: 2px;
+    }
+    .section-label:first-of-type { margin-top: 18px; }
+
+    /* ---- DOCUMENTS ---- */
+    .doc-list {
+      background: #fff; border: 1px solid #e8edf5;
+      border-radius: 16px; overflow: hidden;
+    }
+    .doc-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      transition: background .1s;
+    }
+    .doc-row:last-child { border-bottom: none; }
+    .doc-icon {
+      width: 30px; height: 30px; border-radius: 8px;
+      display: grid; place-items: center; flex-shrink: 0;
+      background: #f1f5f9; color: #64748b;
+    }
+    .doc-icon svg {
+      width: 15px; height: 15px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .doc-icon.uploaded { background: #eff6ff; color: var(--blue); }
+    .doc-icon.approved { background: #ecfdf5; color: var(--green); }
+    .doc-icon.rejected { background: #fef2f2; color: var(--red); }
+    .doc-icon.under_review { background: #fef3c7; color: #92400e; }
+    .doc-info { flex: 1; min-width: 0; }
+    .doc-name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+    .doc-file-name {
+      font-size: 11px; color: var(--muted); font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      margin-top: 1px;
+    }
+    .doc-rejection { font-size: 11px; color: var(--red); font-weight: 500; margin-top: 2px; }
+    .doc-status {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; flex-shrink: 0;
+      padding: 3px 8px; border-radius: 6px;
+    }
+    .doc-status.missing { background: #f1f5f9; color: #64748b; }
+    .doc-status.uploaded { background: #eff6ff; color: #1d4ed8; }
+    .doc-status.under_review { background: #fef3c7; color: #92400e; }
+    .doc-status.approved { background: #ecfdf5; color: #166534; }
+    .doc-status.rejected { background: #fef2f2; color: #991b1b; }
+    .doc-upload-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px; cursor: pointer;
+      color: var(--blue); transition: background .1s;
+    }
+    .doc-upload-row:hover { background: #f8fafc; }
+    .doc-upload-row svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .doc-upload-text { font-size: 13px; font-weight: 600; }
+    .doc-empty {
+      padding: 20px 16px; text-align: center;
+      font-size: 13px; color: var(--muted); font-weight: 500;
+    }
+
+    /* ---- UPLOAD MODAL ---- */
+    .upload-modal-bg {
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(2, 6, 23, 0.45);
+      display: flex; align-items: flex-end; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity .2s ease;
+    }
+    .upload-modal-bg.open { opacity: 1; pointer-events: auto; }
+    .upload-modal {
+      background: #fff; border-radius: 20px 20px 0 0;
+      width: 100%; max-width: 540px;
+      padding: 24px 20px 32px;
+      transform: translateY(100%);
+      transition: transform .25s cubic-bezier(.22,.9,.18,1.05);
+    }
+    .upload-modal-bg.open .upload-modal { transform: translateY(0); }
+    .upload-modal h3 {
+      font-size: 17px; font-weight: 800; letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+    .upload-modal p {
+      font-size: 13px; color: var(--muted); font-weight: 500;
+      margin-bottom: 16px; line-height: 1.5;
+    }
+    .upload-type-select {
+      width: 100%; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid #e2e8f0; font-size: 13px; font-weight: 500;
+      font-family: inherit; color: var(--text);
+      background: #f8fafc; margin-bottom: 12px;
+      -webkit-appearance: none; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+    }
+    .upload-drop-zone {
+      border: 2px dashed #cbd5e1; border-radius: 14px;
+      padding: 28px 20px; text-align: center;
+      cursor: pointer; transition: all .15s ease;
+      margin-bottom: 14px;
+    }
+    .upload-drop-zone:hover { border-color: var(--blue); background: #f8fafc; }
+    .upload-drop-zone svg {
+      width: 28px; height: 28px; stroke: var(--blue);
+      fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+      margin-bottom: 6px;
+    }
+    .upload-drop-text { font-size: 13px; font-weight: 600; color: #334155; }
+    .upload-drop-hint { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+    .upload-modal-actions {
+      display: flex; gap: 8px; margin-top: 4px;
+    }
+    .upload-cancel-btn {
+      flex: 1; padding: 10px; border-radius: 10px;
+      border: 1px solid #e2e8f0; background: #fff;
+      font-size: 13px; font-weight: 600; color: var(--text);
+      cursor: pointer; font-family: inherit;
+      transition: background .1s;
+    }
+    .upload-cancel-btn:hover { background: #f8fafc; }
+
+    /* ---- NOTES ---- */
+    .notes-list { display: grid; gap: 0; }
+    .note-item {
+      padding: 14px 0; border-bottom: 1px solid #f1f5f9;
+    }
+    .note-item:last-child { border-bottom: none; }
+    .note-head {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 4px;
+    }
+    .note-author { font-size: 12px; font-weight: 700; color: var(--blue); }
+    .note-date { font-size: 11px; color: var(--muted); font-weight: 500; }
+    .note-dot { width: 3px; height: 3px; border-radius: 50%; background: #cbd5e1; }
+    .note-text {
+      font-size: 13px; color: #334155;
+      font-weight: 500; line-height: 1.55;
+    }
+    .empty-state {
+      font-size: 13px; color: var(--muted); font-weight: 500;
+      padding: 8px 0; line-height: 1.5;
+    }
 
     /* ---- TIMELINE ---- */
     .timeline { display: grid; gap: 0; padding-left: 20px; position: relative; }
     .timeline::before {
-      content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px;
-      width: 2px; background: #e2e8f0;
+      content: ""; position: absolute; left: 7px; top: 6px; bottom: 6px;
+      width: 2px; background: #e8edf5;
     }
-    .timeline-item {
-      position: relative; padding: 0 0 20px 20px;
-    }
+    .timeline-item { position: relative; padding: 0 0 16px 20px; }
     .timeline-item:last-child { padding-bottom: 0; }
     .timeline-dot {
-      position: absolute; left: -20px; top: 4px;
-      width: 14px; height: 14px; border-radius: 50%;
+      position: absolute; left: -20px; top: 3px;
+      width: 12px; height: 12px; border-radius: 50%;
       background: #e8edf5; border: 2px solid #fff;
       box-shadow: 0 0 0 2px #e2e8f0;
     }
-    .timeline-item.current .timeline-dot { background: var(--blue); box-shadow: 0 0 0 2px var(--blue); }
+    .timeline-item:first-child .timeline-dot { background: var(--blue); box-shadow: 0 0 0 2px var(--blue); }
     .timeline-item.done .timeline-dot { background: var(--green); box-shadow: 0 0 0 2px var(--green); }
-    .timeline-date { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
-    .timeline-text { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; }
-    .timeline-detail { font-size: 12px; color: #475569; font-weight: 500; margin-top: 2px; }
-
-    /* ---- NOTES/UPDATES ---- */
-    .note-card {
-      padding: 14px; border: 1px solid #e8edf5;
-      border-radius: 12px; background: #fafbfd; margin-bottom: 10px;
-    }
-    .note-author { font-size: 12px; font-weight: 700; color: var(--blue); }
-    .note-date { font-size: 11px; color: var(--muted); font-weight: 500; margin-left: 8px; }
-    .note-text { font-size: 13px; color: #334155; font-weight: 500; line-height: 1.5; margin-top: 4px; }
-
-    /* ---- DETAIL GRID ---- */
-    .detail-grid {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 10px; margin-bottom: 16px;
-    }
-    .detail-item {
-      background: #f8fafc; border-radius: 12px;
-      border: 1px solid #e8edf5; padding: 14px;
-    }
-    .detail-label {
-      font-size: 10px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
-    }
-    .detail-value {
-      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
-    }
-
-    /* ---- SECTION HEADING ---- */
-    .section-head {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 12px;
-    }
-    .section-title { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+    .timeline-date { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .timeline-text { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
+    .timeline-detail { font-size: 12px; color: #475569; font-weight: 500; margin-top: 1px; }
 
     /* ---- LOADING ---- */
-    .loading-bars {
-      display: flex; flex-direction: column; gap: 10px;
-      padding: 20px 0;
+    .loading-state { padding: 32px 0; text-align: center; }
+    .loading-state p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 8px; }
+    .loading-spinner {
+      width: 28px; height: 28px; border: 3px solid #e8edf5;
+      border-top-color: var(--blue); border-radius: 50%;
+      animation: spin .7s linear infinite; margin: 0 auto;
     }
-    .loading-bar {
-      height: 14px; border-radius: 8px;
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .shimmer-block {
+      height: 14px; border-radius: 8px; width: 70%;
       background: linear-gradient(90deg, #e8edf5 25%, #f1f5f9 50%, #e8edf5 75%);
       background-size: 200% 100%;
       animation: shimmer 1.5s ease-in-out infinite;
+      margin-bottom: 8px;
     }
-    .loading-bar:nth-child(1) { width: 80%; }
-    .loading-bar:nth-child(2) { width: 60%; }
-    .loading-bar:nth-child(3) { width: 70%; }
+    .shimmer-block:nth-child(2) { width: 50%; }
+    .shimmer-block:nth-child(3) { width: 60%; }
     @keyframes shimmer {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
     }
 
+    /* ---- EMPTY CASE ---- */
+    .empty-case {
+      text-align: center; padding: 48px 20px;
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5;
+    }
+    .empty-case-icon {
+      width: 56px; height: 56px; border-radius: 16px;
+      background: #f1f5f9; display: grid; place-items: center;
+      margin: 0 auto 14px; color: #94a3b8;
+    }
+    .empty-case-icon svg {
+      width: 26px; height: 26px; stroke: currentColor;
+      fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .empty-case h2 {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: -0.01em; margin-bottom: 6px;
+    }
+    .empty-case p {
+      font-size: 13px; color: var(--muted);
+      font-weight: 500; line-height: 1.55;
+      max-width: 340px; margin: 0 auto;
+    }
+
+    /* ---- DEPENDANTS ---- */
+    .dep-list {
+      background: #fff; border: 1px solid #e8edf5;
+      border-radius: 16px; overflow: hidden;
+    }
+    .dep-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .dep-row:last-child { border-bottom: none; }
+    .dep-avatar {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: #f1f5f9; color: #64748b;
+      display: grid; place-items: center; flex-shrink: 0;
+      font-size: 11px; font-weight: 700;
+    }
+    .dep-info { flex: 1; min-width: 0; }
+    .dep-name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+    .dep-meta {
+      font-size: 11px; color: var(--muted); font-weight: 500;
+      margin-top: 1px; display: flex; align-items: center; gap: 6px;
+    }
+    .dep-badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 7px; border-radius: 6px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em;
+      background: #eff6ff; color: #1d4ed8;
+    }
+    .dep-badge.child { background: #fef3c7; color: #92400e; }
+    .dep-badge.other { background: #f1f5f9; color: #64748b; }
+    .dep-delete-btn {
+      width: 28px; height: 28px; border-radius: 8px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      color: #94a3b8; flex-shrink: 0;
+      transition: all .15s ease;
+    }
+    .dep-delete-btn:hover { background: #fef2f2; border-color: #fecaca; color: var(--red); }
+    .dep-delete-btn svg {
+      width: 14px; height: 14px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .dep-add-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px; cursor: pointer;
+      color: var(--blue); transition: background .1s;
+    }
+    .dep-add-row:hover { background: #f8fafc; }
+    .dep-add-row svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .dep-add-text { font-size: 13px; font-weight: 600; }
+    .dep-empty {
+      padding: 20px 16px; text-align: center;
+      font-size: 13px; color: var(--muted); font-weight: 500;
+    }
+
+    /* ---- DEPENDANT MODAL ---- */
+    .dep-modal-bg {
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(2, 6, 23, 0.45);
+      display: flex; align-items: flex-end; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity .2s ease;
+    }
+    .dep-modal-bg.open { opacity: 1; pointer-events: auto; }
+    .dep-modal {
+      background: #fff; border-radius: 20px 20px 0 0;
+      width: 100%; max-width: 540px;
+      padding: 24px 20px 32px;
+      transform: translateY(100%);
+      transition: transform .25s cubic-bezier(.22,.9,.18,1.05);
+    }
+    .dep-modal-bg.open .dep-modal { transform: translateY(0); }
+    .dep-modal h3 {
+      font-size: 17px; font-weight: 800; letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+    .dep-modal p {
+      font-size: 13px; color: var(--muted); font-weight: 500;
+      margin-bottom: 16px; line-height: 1.5;
+    }
+    .dep-field { margin-bottom: 12px; }
+    .dep-field label {
+      display: block; font-size: 12px; font-weight: 600;
+      color: #475569; margin-bottom: 4px;
+    }
+    .dep-field input,
+    .dep-field select {
+      width: 100%; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid #e2e8f0; font-size: 13px; font-weight: 500;
+      font-family: inherit; color: var(--text);
+      background: #f8fafc;
+      -webkit-appearance: none; appearance: none;
+    }
+    .dep-field select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+    }
+    .dep-field-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+
+    /* ---- DOC REQUESTED ---- */
+    .doc-row.doc-requested { cursor: pointer; }
+    .doc-row.doc-requested:hover { background: #f8fafc; }
+    .doc-icon.missing { background: #fff7ed; color: var(--orange2); }
+    .doc-requested-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; flex-shrink: 0;
+      padding: 3px 8px; border-radius: 6px;
+      background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
+    }
+    .doc-request-note {
+      font-size: 11px; color: #92400e; font-weight: 500;
+      margin-top: 2px; line-height: 1.4;
+    }
+
     /* ---- RESPONSIVE ---- */
     @media (min-width: 768px) {
       .app-header { display: none; }
+      .upload-modal { border-radius: 20px; margin-bottom: 10vh; }
+      .dep-modal { border-radius: 20px; margin-bottom: 10vh; }
     }
     @media (max-width: 767px) {
       .app-header { display: flex; }
       .page-hero h1 { font-size: 20px; }
-      .detail-grid { grid-template-columns: 1fr; }
-      .visa-step-label { font-size: 10px; }
+      .case-title { font-size: 18px; }
+      .action-title { font-size: 16px; }
+      .case-meta { grid-template-columns: 1fr 1fr; }
     }
   </style>
 </head>
@@ -324,9 +664,9 @@
     <!-- MOBILE HEADER -->
     <header class="app-header">
       <div class="header-greeting">
-        <div class="header-avatar">GP</div>
+        <div class="header-avatar" id="headerAvatar">GP</div>
         <div class="header-text">
-          <h1>Visa Application</h1>
+          <h1>Visa</h1>
           <p>Track your visa progress</p>
         </div>
       </div>
@@ -344,117 +684,193 @@
     <!-- PAGE HERO -->
     <div class="page-hero">
       <h1>Visa Application</h1>
-      <p>Track your visa from nomination through to grant. Your GP Link agent manages the process and updates you at each stage.</p>
+      <p>Your GP Link agent manages the process and updates you at each stage.</p>
     </div>
 
-    <!-- VISA PROGRESS STEPPER -->
-    <div class="visa-stepper" id="visaStepper">
-      <div class="visa-step" data-stage="nomination">
-        <div class="visa-step-dot">1</div>
-        <span class="visa-step-label">Nomination</span>
-        <div class="visa-step-connector"></div>
-      </div>
-      <div class="visa-step" data-stage="lodgement">
-        <div class="visa-step-dot">2</div>
-        <span class="visa-step-label">Lodgement</span>
-        <div class="visa-step-connector"></div>
-      </div>
-      <div class="visa-step" data-stage="processing">
-        <div class="visa-step-dot">3</div>
-        <span class="visa-step-label">Processing</span>
-        <div class="visa-step-connector"></div>
-      </div>
-      <div class="visa-step" data-stage="granted">
-        <div class="visa-step-dot">4</div>
-        <span class="visa-step-label">Granted</span>
-      </div>
+    <!-- LOADING STATE -->
+    <div id="loadingState" class="loading-state">
+      <div class="loading-spinner"></div>
+      <p>Loading your visa case...</p>
     </div>
 
-    <!-- STATUS CARD -->
-    <div class="card" id="visaStatusCard">
-      <span class="card-label">Current status</span>
-      <h2 class="card-title" id="visaStatusTitle">Loading visa status...</h2>
-      <p class="card-sub" id="visaStatusSub">Fetching the latest information from your case.</p>
-      <span class="status-badge" id="visaStatusBadge">Loading</span>
-      <div class="loading-bars" id="visaLoadingBars">
-        <span class="loading-bar"></span>
-        <span class="loading-bar"></span>
-        <span class="loading-bar"></span>
+    <!-- EMPTY CASE STATE -->
+    <div id="emptyState" hidden>
+      <div class="visa-stepper" id="emptyVisaStepper">
+        <div class="visa-step"><div class="visa-step-dot">1</div><span class="visa-step-label">Nomination</span><div class="visa-step-connector"></div></div>
+        <div class="visa-step"><div class="visa-step-dot">2</div><span class="visa-step-label">Lodgement</span><div class="visa-step-connector"></div></div>
+        <div class="visa-step"><div class="visa-step-dot">3</div><span class="visa-step-label">Processing</span><div class="visa-step-connector"></div></div>
+        <div class="visa-step"><div class="visa-step-dot">4</div><span class="visa-step-label">Granted</span></div>
       </div>
-      <div class="detail-grid" id="visaDetailGrid" hidden>
-        <div class="detail-item">
-          <div class="detail-label">Visa subclass</div>
-          <div class="detail-value" id="visaSubclass">--</div>
+      <div class="empty-case">
+        <div class="empty-case-icon">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         </div>
-        <div class="detail-item">
-          <div class="detail-label">Application date</div>
-          <div class="detail-value" id="visaApplicationDate">--</div>
-        </div>
-        <div class="detail-item">
-          <div class="detail-label">Reference number</div>
-          <div class="detail-value" id="visaReferenceNumber">--</div>
-        </div>
-        <div class="detail-item">
-          <div class="detail-label">Expected timeline</div>
-          <div class="detail-value" id="visaExpectedTimeline">--</div>
-        </div>
+        <h2>No Visa Case Yet</h2>
+        <p>Your visa case will appear here once your GP Link agent begins the process. This usually happens after your career placement is confirmed.</p>
       </div>
     </div>
 
-    <!-- PRACTICE SPONSOR -->
-    <div class="card">
-      <span class="card-label">Sponsoring practice</span>
-      <h2 class="card-title">Practice Sponsor</h2>
-      <p class="card-sub">Your nominated employer sponsor for the visa application.</p>
-      <div class="sponsor-card" id="sponsorCard">
-        <div class="sponsor-avatar" id="sponsorInitials">--</div>
-        <div>
-          <div class="sponsor-name" id="sponsorName">Loading...</div>
-          <div class="sponsor-role" id="sponsorRole">Practice sponsor</div>
+    <!-- MAIN CONTENT (shown when case exists) -->
+    <div id="caseContent" hidden>
+
+      <!-- STEPPER -->
+      <div class="visa-stepper" id="visaStepper">
+        <div class="visa-step" data-stage="nomination"><div class="visa-step-dot">1</div><span class="visa-step-label">Nomination</span><div class="visa-step-connector"></div></div>
+        <div class="visa-step" data-stage="lodgement"><div class="visa-step-dot">2</div><span class="visa-step-label">Lodgement</span><div class="visa-step-connector"></div></div>
+        <div class="visa-step" data-stage="processing"><div class="visa-step-dot">3</div><span class="visa-step-label">Processing</span><div class="visa-step-connector"></div></div>
+        <div class="visa-step" data-stage="granted"><div class="visa-step-dot">4</div><span class="visa-step-label">Granted</span></div>
+      </div>
+
+      <!-- CASE SUMMARY -->
+      <div class="case-summary" id="caseSummary">
+        <div class="case-summary-top">
+          <div>
+            <h2 class="case-title" id="caseTitle">--</h2>
+            <div class="case-visa-type" id="caseVisaType"></div>
+          </div>
+          <span class="status-badge" id="caseBadge"><span class="status-badge-dot"></span> --</span>
+        </div>
+        <div class="case-meta" id="caseMeta">
+          <div class="case-meta-item">
+            <div class="case-meta-label">Managed by</div>
+            <div class="case-meta-value" id="caseResponsible">GP Link Team</div>
+          </div>
+          <div class="case-meta-item">
+            <div class="case-meta-label">Timeline</div>
+            <div class="case-meta-value" id="caseTimeline">--</div>
+          </div>
+          <div class="case-meta-item">
+            <div class="case-meta-label">Reference</div>
+            <div class="case-meta-value" id="caseRef">--</div>
+          </div>
+          <div class="case-meta-item">
+            <div class="case-meta-label">Last updated</div>
+            <div class="case-meta-value" id="caseUpdated">--</div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- DOCUMENT UPLOAD -->
-    <div class="card">
-      <span class="card-label">Visa documents</span>
-      <h2 class="card-title">Required Documents</h2>
-      <p class="card-sub">Upload supporting documents for your visa application.</p>
-      <div class="upload-zone" id="visaUploadZone" role="button" tabindex="0" aria-label="Upload visa document">
-        <div class="upload-zone-icon">
+      <!-- CURRENT ACTION -->
+      <div class="action-block" id="actionBlock">
+        <div class="action-indicator">
+          <div class="action-indicator-dot"></div>
+          <span class="action-indicator-label" id="actionLabel">Current step</span>
+        </div>
+        <h3 class="action-title" id="actionTitle">--</h3>
+        <p class="action-desc" id="actionDesc">--</p>
+        <div class="action-owner-row" id="actionOwnerRow">
+          <span id="actionOwner"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg> --</span>
+          <span id="actionDue" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> --</span>
+        </div>
+        <button class="action-cta" id="actionCta" hidden>
           <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        </div>
-        <div class="upload-zone-text">Tap to upload a document</div>
-        <div class="upload-zone-hint">PDF, JPG or PNG up to 10 MB</div>
+          <span id="actionCtaText">Upload Document</span>
+        </button>
       </div>
-      <input type="file" id="visaFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" multiple />
-      <div class="upload-list" id="visaUploadList"></div>
-    </div>
 
-    <!-- NOTES / UPDATES -->
-    <div class="card">
-      <span class="card-label">Case updates</span>
-      <h2 class="card-title">Notes & Updates</h2>
-      <p class="card-sub">Messages and updates from your GP Link team about your visa.</p>
-      <div id="visaNotes">
-        <div class="loading-bars">
-          <span class="loading-bar"></span>
-          <span class="loading-bar"></span>
+      <!-- SPONSOR -->
+      <div class="sponsor-row" id="sponsorRow" hidden>
+        <div class="sponsor-icon">
+          <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         </div>
+        <div class="sponsor-info">
+          <div class="sponsor-name" id="sponsorName">--</div>
+          <div class="sponsor-detail" id="sponsorContact">Sponsoring practice</div>
+        </div>
+        <span class="sponsor-status-pill" id="sponsorPill">--</span>
+      </div>
+
+      <!-- DOCUMENTS -->
+      <div class="section-label">Documents</div>
+      <div class="doc-list" id="docList">
+        <div class="doc-empty">No documents requested yet.</div>
+      </div>
+
+      <!-- DEPENDANTS -->
+      <div class="section-label">Dependants</div>
+      <div class="dep-list" id="depList">
+        <div class="dep-empty">No dependants added yet.</div>
+      </div>
+
+      <!-- UPDATES -->
+      <div class="section-label">Updates</div>
+      <div id="updatesContainer">
+        <p class="empty-state">No updates yet. Your agent will post notes here as things progress.</p>
+      </div>
+
+      <!-- HISTORY -->
+      <div class="section-label">History</div>
+      <div class="timeline" id="timelineContainer">
+        <p class="empty-state" style="padding-left:0;">No history recorded yet.</p>
       </div>
     </div>
+  </div>
 
-    <!-- TIMELINE -->
-    <div class="card">
-      <span class="card-label">History</span>
-      <h2 class="card-title">Status Timeline</h2>
-      <p class="card-sub">A complete log of all visa status changes.</p>
-      <div class="timeline" id="visaTimeline">
-        <div class="loading-bars">
-          <span class="loading-bar"></span>
-          <span class="loading-bar"></span>
-          <span class="loading-bar"></span>
+  <!-- UPLOAD MODAL -->
+  <div class="upload-modal-bg" id="uploadModal">
+    <div class="upload-modal">
+      <h3>Upload Document</h3>
+      <p>Select the document type and upload a file.</p>
+      <select class="upload-type-select" id="uploadTypeSelect">
+        <option value="">Select document type...</option>
+        <option value="passport">Passport</option>
+        <option value="cv">CV / Resume</option>
+        <option value="marriage_certificate">Marriage Certificate</option>
+        <option value="birth_certificate">Child Birth Certificate</option>
+        <option value="police_clearance">Police Clearance</option>
+        <option value="medical_exam">Medical Examination</option>
+        <option value="english_test">English Language Test</option>
+        <option value="qualification_certificate">Qualification Certificate</option>
+        <option value="other">Other Supporting Document</option>
+      </select>
+      <div class="upload-drop-zone" id="uploadDropZone">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div class="upload-drop-text" id="uploadDropText">Tap to select a file</div>
+        <div class="upload-drop-hint">PDF, JPG or PNG up to 10 MB</div>
+      </div>
+      <input type="file" id="uploadFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" />
+      <div class="upload-modal-actions">
+        <button class="upload-cancel-btn" id="uploadCancelBtn">Cancel</button>
+        <button class="action-cta" id="uploadSubmitBtn" disabled style="flex:1;justify-content:center;">Upload</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEPENDANT MODAL -->
+  <div class="dep-modal-bg" id="depModal">
+    <div class="dep-modal">
+      <h3>Add Dependant</h3>
+      <p>Enter your dependant's details for the visa application.</p>
+      <div class="dep-field">
+        <label for="depFullName">Full name <span style="color:var(--red);">*</span></label>
+        <input type="text" id="depFullName" placeholder="e.g. Jane Smith" autocomplete="off" />
+      </div>
+      <div class="dep-field">
+        <label for="depRelationship">Relationship <span style="color:var(--red);">*</span></label>
+        <select id="depRelationship">
+          <option value="">Select relationship...</option>
+          <option value="spouse">Spouse</option>
+          <option value="child">Child</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="dep-field">
+        <label for="depDob">Date of birth</label>
+        <input type="date" id="depDob" />
+      </div>
+      <div class="dep-field-row">
+        <div class="dep-field">
+          <label for="depPassportNumber">Passport number</label>
+          <input type="text" id="depPassportNumber" placeholder="Optional" autocomplete="off" />
         </div>
+        <div class="dep-field">
+          <label for="depPassportCountry">Passport country</label>
+          <input type="text" id="depPassportCountry" placeholder="Optional" autocomplete="off" />
+        </div>
+      </div>
+      <div class="upload-modal-actions" style="margin-top:4px;">
+        <button class="upload-cancel-btn" id="depCancelBtn">Cancel</button>
+        <button class="action-cta" id="depSubmitBtn" disabled style="flex:1;justify-content:center;">Add Dependant</button>
       </div>
     </div>
   </div>
@@ -464,11 +880,54 @@
     "use strict";
 
     var STAGES = ["nomination", "lodgement", "processing", "granted"];
+    var currentCase = null;
+    var selectedFile = null;
 
+    function escapeHtml(str) {
+      if (!str) return "";
+      var div = document.createElement("div");
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+
+    function formatDate(isoStr) {
+      if (!isoStr) return "--";
+      try {
+        var d = new Date(isoStr);
+        return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+      } catch (e) { return isoStr; }
+    }
+
+    function relativeTime(isoStr) {
+      if (!isoStr) return "--";
+      try {
+        var now = Date.now();
+        var then = new Date(isoStr).getTime();
+        var diff = now - then;
+        if (diff < 60000) return "Just now";
+        if (diff < 3600000) return Math.floor(diff / 60000) + "m ago";
+        if (diff < 86400000) return Math.floor(diff / 3600000) + "h ago";
+        if (diff < 604800000) return Math.floor(diff / 86400000) + "d ago";
+        return formatDate(isoStr);
+      } catch (e) { return formatDate(isoStr); }
+    }
+
+    function getInitials(name) {
+      if (!name) return "GP";
+      return name.split(" ").map(function (w) { return w.charAt(0); }).join("").toUpperCase().slice(0, 2);
+    }
+
+    function prettifyDocType(type) {
+      if (!type) return "Document";
+      return type.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    }
+
+    // ── Stepper ──
     function updateStepper(currentStage) {
       var stageIndex = STAGES.indexOf(currentStage);
       if (stageIndex === -1) stageIndex = 0;
-      var steps = document.querySelectorAll(".visa-step");
+      if (currentStage === "refused") stageIndex = -1;
+      var steps = document.querySelectorAll("#visaStepper .visa-step");
       steps.forEach(function (step, idx) {
         step.classList.remove("active", "done");
         var dot = step.querySelector(".visa-step-dot");
@@ -484,170 +943,464 @@
       });
     }
 
-    function formatDate(isoStr) {
-      if (!isoStr) return "--";
-      try {
-        var d = new Date(isoStr);
-        return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
-      } catch (e) { return isoStr; }
+    // ── Status badge mapping ──
+    function getStatusBadge(stage) {
+      var map = {
+        nomination: { text: "Nomination", cls: "" },
+        lodgement: { text: "Lodged", cls: "" },
+        processing: { text: "Processing", cls: "processing" },
+        granted: { text: "Granted", cls: "granted" },
+        refused: { text: "Refused", cls: "refused" }
+      };
+      return map[stage] || { text: stage || "--", cls: "not-started" };
     }
 
-    function getInitials(name) {
-      if (!name) return "--";
-      return name.split(" ").map(function (w) { return w.charAt(0); }).join("").toUpperCase().slice(0, 2);
-    }
-
-    function renderNotes(notes) {
-      var container = document.getElementById("visaNotes");
-      if (!notes || !notes.length) {
-        container.innerHTML = '<p style="font-size:13px;color:#64748b;font-weight:500;">No updates yet. Your agent will post notes here as things progress.</p>';
-        return;
-      }
-      container.innerHTML = notes.map(function (note) {
-        return [
-          '<div class="note-card">',
-          '<span class="note-author">' + escapeHtml(note.author || "GP Link Team") + '</span>',
-          '<span class="note-date">' + formatDate(note.date) + '</span>',
-          '<p class="note-text">' + escapeHtml(note.text || "") + '</p>',
-          '</div>'
-        ].join("");
-      }).join("");
-    }
-
-    function renderTimeline(events) {
-      var container = document.getElementById("visaTimeline");
-      if (!events || !events.length) {
-        container.innerHTML = '<p style="font-size:13px;color:#64748b;font-weight:500;">No status changes recorded yet.</p>';
-        return;
-      }
-      container.innerHTML = events.map(function (evt, idx) {
-        var cls = idx === 0 ? "current" : "done";
-        return [
-          '<div class="timeline-item ' + cls + '">',
-          '<div class="timeline-dot"></div>',
-          '<div class="timeline-date">' + formatDate(evt.date) + '</div>',
-          '<div class="timeline-text">' + escapeHtml(evt.title || "") + '</div>',
-          evt.detail ? '<div class="timeline-detail">' + escapeHtml(evt.detail) + '</div>' : '',
-          '</div>'
-        ].join("");
-      }).join("");
-    }
-
-    function renderDocuments(documents) {
-      var list = document.getElementById("visaUploadList");
-      if (!documents || !documents.length) { list.innerHTML = ""; return; }
-      list.innerHTML = documents.map(function (doc) {
-        return [
-          '<div class="upload-item">',
-          '<div class="upload-item-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>',
-          '<span class="upload-item-name">' + escapeHtml(doc.name || "Document") + '</span>',
-          '<span class="upload-item-meta">' + escapeHtml(doc.status || "Uploaded") + '</span>',
-          '</div>'
-        ].join("");
-      }).join("");
-    }
-
-    function escapeHtml(str) {
-      var div = document.createElement("div");
-      div.appendChild(document.createTextNode(str));
-      return div.innerHTML;
-    }
-
-    function renderStatus(data) {
-      var loadingBars = document.getElementById("visaLoadingBars");
-      var detailGrid = document.getElementById("visaDetailGrid");
-      if (loadingBars) loadingBars.hidden = true;
-      if (detailGrid) detailGrid.hidden = false;
-
-      var stage = data.stage || "nomination";
-      updateStepper(stage);
-
-      var titleEl = document.getElementById("visaStatusTitle");
-      var subEl = document.getElementById("visaStatusSub");
-      var badgeEl = document.getElementById("visaStatusBadge");
-
+    // ── Render case summary ──
+    function renderCaseSummary(app) {
       var stageTitles = {
         nomination: "Employer Nomination",
-        lodgement: "Visa Lodged",
+        lodgement: "Visa Application Lodged",
         processing: "Application Processing",
-        granted: "Visa Granted"
+        granted: "Visa Granted",
+        refused: "Application Refused"
       };
-      var stageSubs = {
-        nomination: "Your practice sponsor is preparing the employer nomination application.",
-        lodgement: "Your visa application has been lodged with the Department of Home Affairs.",
-        processing: "Your application is being processed. Average processing times vary by subclass.",
-        granted: "Congratulations! Your visa has been granted."
-      };
+      document.getElementById("caseTitle").textContent = app.status_message || stageTitles[app.stage] || "Visa Application";
 
-      titleEl.textContent = stageTitles[stage] || "Visa Application";
-      subEl.textContent = data.statusMessage || stageSubs[stage] || "";
+      var typeText = "";
+      if (app.visa_type) typeText += app.visa_type;
+      if (app.visa_subclass) typeText += (typeText ? " \u00B7 " : "") + "Subclass " + app.visa_subclass;
+      document.getElementById("caseVisaType").textContent = typeText || "";
 
-      badgeEl.textContent = stage === "granted" ? "Granted" : stage === "processing" ? "Processing" : stage === "lodgement" ? "Lodged" : "Nominated";
-      badgeEl.className = "status-badge" + (stage === "granted" ? " granted" : stage === "processing" ? " processing" : "");
+      var badge = getStatusBadge(app.stage);
+      var badgeEl = document.getElementById("caseBadge");
+      badgeEl.innerHTML = '<span class="status-badge-dot"></span> ' + escapeHtml(badge.text);
+      badgeEl.className = "status-badge " + badge.cls;
 
-      document.getElementById("visaSubclass").textContent = data.subclass || "--";
-      document.getElementById("visaApplicationDate").textContent = formatDate(data.applicationDate);
-      document.getElementById("visaReferenceNumber").textContent = data.referenceNumber || "--";
-      document.getElementById("visaExpectedTimeline").textContent = data.expectedTimeline || "--";
-
-      if (data.sponsor) {
-        document.getElementById("sponsorName").textContent = data.sponsor.name || "Practice Sponsor";
-        document.getElementById("sponsorRole").textContent = data.sponsor.role || "Nominated employer";
-        document.getElementById("sponsorInitials").textContent = getInitials(data.sponsor.name);
-      }
-
-      renderNotes(data.notes || []);
-      renderTimeline(data.events || []);
-      renderDocuments(data.documents || []);
+      document.getElementById("caseResponsible").textContent = app.responsible_party || "GP Link Team";
+      document.getElementById("caseTimeline").textContent = app.estimated_timeline || "--";
+      document.getElementById("caseRef").textContent = app.reference_number || "--";
+      document.getElementById("caseUpdated").textContent = relativeTime(app.updated_at);
     }
 
-    function loadVisaStatus() {
+    // ── Render current action ──
+    function renderAction(app) {
+      var block = document.getElementById("actionBlock");
+      var title = document.getElementById("actionTitle");
+      var desc = document.getElementById("actionDesc");
+      var label = document.getElementById("actionLabel");
+      var ownerEl = document.getElementById("actionOwner");
+      var dueEl = document.getElementById("actionDue");
+      var cta = document.getElementById("actionCta");
+
+      if (app.current_action_title) {
+        var isGpAction = (app.current_action_owner || "").toLowerCase() === "gp" ||
+                         (app.current_action_owner || "").toLowerCase() === "you";
+        block.className = "action-block " + (isGpAction ? "has-action" : "");
+        label.textContent = isGpAction ? "Action required" : "Current step";
+        title.textContent = app.current_action_title;
+        desc.textContent = app.current_action_description || "";
+        ownerEl.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg> ' + escapeHtml(app.current_action_owner || "GP Link Team");
+        if (app.current_action_due_date) {
+          dueEl.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Due ' + formatDate(app.current_action_due_date);
+          dueEl.hidden = false;
+        } else {
+          dueEl.hidden = true;
+        }
+        if (isGpAction) {
+          cta.hidden = false;
+          var ctaText = app.current_action_title.toLowerCase().indexOf("upload") > -1 ? "Upload Document" : "Take Action";
+          document.getElementById("actionCtaText").textContent = ctaText;
+        } else {
+          cta.hidden = true;
+        }
+      } else {
+        // Default state based on stage
+        var defaults = {
+          nomination: { title: "Preparing employer nomination", desc: "Your GP Link team is working with your sponsor to prepare the nomination application. No action is required from you right now.", owner: "GP Link Team" },
+          lodgement: { title: "Application lodged", desc: "Your visa application has been submitted to the Department of Home Affairs. Processing times vary by subclass.", owner: "Department of Home Affairs" },
+          processing: { title: "Application under assessment", desc: "Your application is being assessed. You may be contacted if additional information is required.", owner: "Department of Home Affairs" },
+          granted: { title: "No further action required", desc: "Congratulations \u2014 your visa has been granted. Proceed to the next step in your registration.", owner: "Complete" }
+        };
+        var def = defaults[app.stage] || defaults.nomination;
+        var isNoAction = app.stage === "granted" || app.stage === "processing" || app.stage === "lodgement";
+        block.className = "action-block " + (isNoAction ? "no-action" : "");
+        label.textContent = isNoAction ? "No action needed" : "Current step";
+        title.textContent = def.title;
+        desc.textContent = def.desc;
+        ownerEl.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg> ' + escapeHtml(def.owner);
+        dueEl.hidden = true;
+        cta.hidden = true;
+      }
+    }
+
+    // ── Render sponsor ──
+    function renderSponsor(app) {
+      var row = document.getElementById("sponsorRow");
+      var name = app.sponsor_name || app.sponsor_status;
+      if (!name) { row.hidden = true; return; }
+      row.hidden = false;
+      document.getElementById("sponsorName").textContent = name;
+      document.getElementById("sponsorContact").textContent = app.sponsor_contact || "Sponsoring practice";
+      var pill = document.getElementById("sponsorPill");
+      var status = (app.sponsor_status || "").toLowerCase();
+      if (status === "approved" || status === "confirmed") {
+        pill.textContent = "Approved";
+        pill.className = "sponsor-status-pill";
+      } else if (status === "pending" || status === "in progress") {
+        pill.textContent = "Pending";
+        pill.className = "sponsor-status-pill pending";
+      } else {
+        pill.textContent = app.sponsor_status || "Sponsor";
+        pill.className = "sponsor-status-pill pending";
+      }
+    }
+
+    // ── Render documents ──
+    function renderDocuments(documents) {
+      var list = document.getElementById("docList");
+      if (!documents || !documents.length) {
+        list.innerHTML = '<div class="doc-upload-row" id="docUploadTrigger" role="button" tabindex="0" aria-label="Upload a document">' +
+          '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+          '<span class="doc-upload-text">Upload a document</span></div>';
+        bindUploadTrigger();
+        return;
+      }
+
+      var html = documents.map(function (doc) {
+        var status = doc.status || "uploaded";
+        var statusLabel = prettifyDocType(status);
+        var iconCls = status;
+        var isMissing = status === "missing";
+        var svgIcon = status === "approved"
+          ? '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>'
+          : status === "rejected"
+            ? '<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+            : isMissing
+              ? '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="12" y1="11" x2="12.01" y2="11"/></svg>'
+              : '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+        var rejection = status === "rejected" && doc.rejection_reason
+          ? '<div class="doc-rejection">' + escapeHtml(doc.rejection_reason) + '</div>' : '';
+        var requestNote = isMissing && doc.request_note
+          ? '<div class="doc-request-note">' + escapeHtml(doc.request_note) + '</div>' : '';
+        var fileName = doc.original_file_name
+          ? '<div class="doc-file-name">' + escapeHtml(doc.original_file_name) + '</div>' : '';
+        var rowCls = "doc-row" + (isMissing ? " doc-requested" : "");
+        var rowDataAttr = isMissing ? ' data-requested-type="' + escapeHtml(doc.document_type || "") + '"' : '';
+        var statusHtml = isMissing
+          ? '<span class="doc-requested-badge"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Requested</span>'
+          : '<span class="doc-status ' + status + '">' + escapeHtml(statusLabel) + '</span>';
+        return '<div class="' + rowCls + '"' + rowDataAttr + '>' +
+          '<div class="doc-icon ' + iconCls + '">' + svgIcon + '</div>' +
+          '<div class="doc-info"><div class="doc-name">' + escapeHtml(prettifyDocType(doc.document_type)) + '</div>' + fileName + requestNote + rejection + '</div>' +
+          statusHtml + '</div>';
+      }).join("");
+
+      html += '<div class="doc-upload-row" id="docUploadTrigger" role="button" tabindex="0" aria-label="Upload a document">' +
+        '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+        '<span class="doc-upload-text">Upload a document</span></div>';
+
+      list.innerHTML = html;
+      bindUploadTrigger();
+    }
+
+    // ── Render updates ──
+    function renderUpdates(updates) {
+      var container = document.getElementById("updatesContainer");
+      if (!updates || !updates.length) {
+        container.innerHTML = '<p class="empty-state">No updates yet. Your agent will post notes here as things progress.</p>';
+        return;
+      }
+      var html = '<div class="notes-list">' + updates.map(function (u) {
+        return '<div class="note-item">' +
+          '<div class="note-head">' +
+          '<span class="note-author">' + escapeHtml(u.created_by || "GP Link Team") + '</span>' +
+          '<span class="note-dot"></span>' +
+          '<span class="note-date">' + relativeTime(u.created_at) + '</span></div>' +
+          '<div class="note-text">' + escapeHtml(u.body) + '</div></div>';
+      }).join("") + '</div>';
+      container.innerHTML = html;
+    }
+
+    // ── Render timeline ──
+    function renderTimeline(events) {
+      var container = document.getElementById("timelineContainer");
+      if (!events || !events.length) {
+        container.innerHTML = '<p class="empty-state" style="padding-left:0;">No history recorded yet.</p>';
+        container.className = "";
+        return;
+      }
+      container.className = "timeline";
+      container.innerHTML = events.map(function (evt, idx) {
+        return '<div class="timeline-item' + (idx > 0 ? ' done' : '') + '">' +
+          '<div class="timeline-dot"></div>' +
+          '<div class="timeline-date">' + formatDate(evt.created_at) + '</div>' +
+          '<div class="timeline-text">' + escapeHtml(evt.event_title) + '</div>' +
+          (evt.event_description ? '<div class="timeline-detail">' + escapeHtml(evt.event_description) + '</div>' : '') +
+          '</div>';
+      }).join("");
+    }
+
+    // ── Upload Modal ──
+    var uploadModal = document.getElementById("uploadModal");
+    var uploadFileInput = document.getElementById("uploadFileInput");
+    var uploadDropZone = document.getElementById("uploadDropZone");
+    var uploadSubmitBtn = document.getElementById("uploadSubmitBtn");
+    var uploadCancelBtn = document.getElementById("uploadCancelBtn");
+    var uploadTypeSelect = document.getElementById("uploadTypeSelect");
+    var uploadDropText = document.getElementById("uploadDropText");
+
+    function openUploadModal() { uploadModal.classList.add("open"); }
+    function closeUploadModal() {
+      uploadModal.classList.remove("open");
+      uploadFileInput.value = "";
+      uploadTypeSelect.value = "";
+      uploadDropText.textContent = "Tap to select a file";
+      uploadSubmitBtn.disabled = true;
+      selectedFile = null;
+    }
+
+    function bindUploadTrigger() {
+      var trigger = document.getElementById("docUploadTrigger");
+      if (!trigger) return;
+      trigger.addEventListener("click", openUploadModal);
+      trigger.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openUploadModal(); }
+      });
+      // Bind requested doc rows to open upload modal with pre-selected type
+      var requestedRows = document.querySelectorAll(".doc-requested");
+      requestedRows.forEach(function (row) {
+        row.addEventListener("click", function () {
+          var docType = row.getAttribute("data-requested-type");
+          openUploadModal();
+          if (docType) uploadTypeSelect.value = docType;
+        });
+      });
+    }
+
+    uploadCancelBtn.addEventListener("click", closeUploadModal);
+    uploadModal.addEventListener("click", function (e) {
+      if (e.target === uploadModal) closeUploadModal();
+    });
+
+    uploadDropZone.addEventListener("click", function () { uploadFileInput.click(); });
+    uploadFileInput.addEventListener("change", function () {
+      if (uploadFileInput.files && uploadFileInput.files.length > 0) {
+        selectedFile = uploadFileInput.files[0];
+        uploadDropText.textContent = selectedFile.name;
+        checkUploadReady();
+      }
+    });
+    uploadTypeSelect.addEventListener("change", checkUploadReady);
+
+    function checkUploadReady() {
+      uploadSubmitBtn.disabled = !(selectedFile && uploadTypeSelect.value);
+    }
+
+    uploadSubmitBtn.addEventListener("click", function () {
+      if (!selectedFile || !uploadTypeSelect.value || !currentCase) return;
+      uploadSubmitBtn.disabled = true;
+      uploadSubmitBtn.textContent = "Uploading...";
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        var dataUrl = reader.result;
+        fetch("/api/visa/documents", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            visaApplicationId: currentCase.id,
+            documentType: uploadTypeSelect.value,
+            fileDataUrl: dataUrl,
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type
+          })
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          closeUploadModal();
+          uploadSubmitBtn.textContent = "Upload";
+          if (data.ok) loadVisaCase();
+        })
+        .catch(function () {
+          uploadSubmitBtn.textContent = "Upload";
+          uploadSubmitBtn.disabled = false;
+        });
+      };
+      reader.readAsDataURL(selectedFile);
+    });
+
+    // ── Dependant Modal ──
+    var depModal = document.getElementById("depModal");
+    var depFullName = document.getElementById("depFullName");
+    var depRelationship = document.getElementById("depRelationship");
+    var depDob = document.getElementById("depDob");
+    var depPassportNumber = document.getElementById("depPassportNumber");
+    var depPassportCountry = document.getElementById("depPassportCountry");
+    var depSubmitBtn = document.getElementById("depSubmitBtn");
+    var depCancelBtn = document.getElementById("depCancelBtn");
+
+    function openDepModal() { depModal.classList.add("open"); checkDepReady(); }
+    function closeDepModal() {
+      depModal.classList.remove("open");
+      depFullName.value = "";
+      depRelationship.value = "";
+      depDob.value = "";
+      depPassportNumber.value = "";
+      depPassportCountry.value = "";
+      depSubmitBtn.disabled = true;
+      depSubmitBtn.textContent = "Add Dependant";
+    }
+
+    function checkDepReady() {
+      depSubmitBtn.disabled = !(depFullName.value.trim() && depRelationship.value);
+    }
+
+    depFullName.addEventListener("input", checkDepReady);
+    depRelationship.addEventListener("change", checkDepReady);
+    depCancelBtn.addEventListener("click", closeDepModal);
+    depModal.addEventListener("click", function (e) {
+      if (e.target === depModal) closeDepModal();
+    });
+
+    depSubmitBtn.addEventListener("click", function () {
+      if (!depFullName.value.trim() || !depRelationship.value || !currentCase) return;
+      depSubmitBtn.disabled = true;
+      depSubmitBtn.textContent = "Adding...";
+
+      fetch("/api/visa/dependants", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caseId: currentCase.id,
+          fullName: depFullName.value.trim(),
+          relationship: depRelationship.value,
+          dateOfBirth: depDob.value || null,
+          passportNumber: depPassportNumber.value.trim() || null,
+          passportCountry: depPassportCountry.value.trim() || null
+        })
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        closeDepModal();
+        if (data.ok) loadVisaCase();
+      })
+      .catch(function () {
+        depSubmitBtn.textContent = "Add Dependant";
+        depSubmitBtn.disabled = false;
+      });
+    });
+
+    function deleteDependant(depId) {
+      if (!currentCase) return;
+      fetch("/api/visa/dependants?id=" + encodeURIComponent(depId), {
+        method: "DELETE",
+        credentials: "same-origin"
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.ok) loadVisaCase();
+      })
+      .catch(function () {});
+    }
+
+    // ── Render dependants ──
+    function renderDependants(dependants) {
+      var list = document.getElementById("depList");
+      if (!dependants || !dependants.length) {
+        list.innerHTML = '<div class="dep-empty">No dependants added yet.</div>' +
+          '<div class="dep-add-row" id="depAddTrigger" role="button" tabindex="0" aria-label="Add dependant">' +
+          '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+          '<span class="dep-add-text">Add dependant</span></div>';
+        bindDepAddTrigger();
+        return;
+      }
+
+      var html = dependants.map(function (dep) {
+        var rel = (dep.relationship || "other").toLowerCase();
+        var badgeCls = rel === "child" ? "child" : rel === "other" ? "other" : "";
+        var initials = getInitials(dep.full_name || dep.fullName);
+        var name = dep.full_name || dep.fullName || "Dependant";
+        var dob = dep.date_of_birth || dep.dateOfBirth;
+        var metaParts = [];
+        if (dob) metaParts.push(formatDate(dob));
+        var metaHtml = metaParts.length ? '<span>' + escapeHtml(metaParts.join("")) + '</span>' : '';
+        var depId = dep.id;
+        return '<div class="dep-row">' +
+          '<div class="dep-avatar">' + escapeHtml(initials) + '</div>' +
+          '<div class="dep-info"><div class="dep-name">' + escapeHtml(name) + '</div>' +
+          '<div class="dep-meta"><span class="dep-badge ' + badgeCls + '">' + escapeHtml(rel.charAt(0).toUpperCase() + rel.slice(1)) + '</span>' + metaHtml + '</div></div>' +
+          '<button class="dep-delete-btn" data-dep-delete="' + escapeHtml(String(depId)) + '" aria-label="Remove dependant" title="Remove">' +
+          '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>' +
+          '</button></div>';
+      }).join("");
+
+      html += '<div class="dep-add-row" id="depAddTrigger" role="button" tabindex="0" aria-label="Add dependant">' +
+        '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+        '<span class="dep-add-text">Add dependant</span></div>';
+
+      list.innerHTML = html;
+      bindDepAddTrigger();
+
+      // Bind delete buttons
+      list.querySelectorAll("[data-dep-delete]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var id = btn.getAttribute("data-dep-delete");
+          if (id) deleteDependant(id);
+        });
+      });
+    }
+
+    function bindDepAddTrigger() {
+      var trigger = document.getElementById("depAddTrigger");
+      if (!trigger) return;
+      trigger.addEventListener("click", openDepModal);
+      trigger.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDepModal(); }
+      });
+    }
+
+    // ── Action CTA ──
+    document.getElementById("actionCta").addEventListener("click", openUploadModal);
+
+    // ── Load visa case ──
+    function loadVisaCase() {
       fetch("/api/visa/status", { credentials: "same-origin" })
         .then(function (res) {
-          if (!res.ok) throw new Error("Failed to load visa status");
+          if (!res.ok) throw new Error("Failed");
           return res.json();
         })
         .then(function (data) {
-          renderStatus(data);
+          document.getElementById("loadingState").hidden = true;
+
+          if (!data.application) {
+            document.getElementById("emptyState").hidden = false;
+            document.getElementById("caseContent").hidden = true;
+            return;
+          }
+
+          currentCase = data.application;
+          document.getElementById("emptyState").hidden = true;
+          document.getElementById("caseContent").hidden = false;
+
+          updateStepper(currentCase.stage);
+          renderCaseSummary(currentCase);
+          renderAction(currentCase);
+          renderSponsor(currentCase);
+          renderDocuments(data.documents || []);
+          renderDependants(data.dependants || []);
+          renderUpdates(data.updates || []);
+          renderTimeline(data.timelineEvents || []);
         })
         .catch(function () {
-          var titleEl = document.getElementById("visaStatusTitle");
-          var subEl = document.getElementById("visaStatusSub");
-          var loadingBars = document.getElementById("visaLoadingBars");
-          if (loadingBars) loadingBars.hidden = true;
-          titleEl.textContent = "Visa Application";
-          subEl.textContent = "Your visa case will appear here once your agent initiates the process. Check back soon.";
-          updateStepper("nomination");
+          document.getElementById("loadingState").hidden = true;
+          document.getElementById("emptyState").hidden = false;
+          document.getElementById("caseContent").hidden = true;
         });
     }
 
-    // File upload handling
-    var uploadZone = document.getElementById("visaUploadZone");
-    var fileInput = document.getElementById("visaFileInput");
-    if (uploadZone && fileInput) {
-      uploadZone.addEventListener("click", function () { fileInput.click(); });
-      uploadZone.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
-      });
-      fileInput.addEventListener("change", function () {
-        var files = Array.prototype.slice.call(fileInput.files);
-        if (!files.length) return;
-        var list = document.getElementById("visaUploadList");
-        files.forEach(function (file) {
-          var item = document.createElement("div");
-          item.className = "upload-item";
-          item.innerHTML = [
-            '<div class="upload-item-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>',
-            '<span class="upload-item-name">' + escapeHtml(file.name) + '</span>',
-            '<span class="upload-item-meta">Uploading...</span>'
-          ].join("");
-          list.appendChild(item);
-        });
-        fileInput.value = "";
-      });
-    }
-
-    loadVisaStatus();
+    loadVisaCase();
   })();
   </script>
 </body>

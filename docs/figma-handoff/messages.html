@@ -1,0 +1,1588 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Messages - GP Link</title>
+  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/state-sync.js" defer></script>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260310a" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f0f4fa;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e8edf5;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --shadow-soft: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+    }
+
+    * { box-sizing: border-box; }
+    h1, h2, h3, p { overflow-wrap: anywhere; }
+
+    body {
+      margin: 0;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 0;
+    }
+
+    .shell {
+      max-width: 960px;
+      margin: 0 auto;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      overflow: visible;
+      padding: 0 16px 120px;
+    }
+
+    .topbar {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid #e8edf5;
+      background: #ffffff;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      min-height: 56px;
+      gap: 14px;
+    }
+
+    .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
+    .brand-logo img { display: block; width: 178px; height: auto; }
+
+    .nav-menu {
+      display: flex;
+      gap: 22px;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+      padding: 6px;
+      border-radius: 14px;
+    }
+
+    .nav-item { position: relative; z-index: 2; transition: color .18s ease, font-weight .18s ease; }
+
+    .nav-link,
+    .account-pill {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #111827;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+
+    .nav-icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #334155;
+    }
+
+    .nav-text { line-height: 1; }
+
+    .nav-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+
+    .nav-alert {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .nav-link.active,
+    .account-pill.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 104px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05);
+    }
+
+    .main { padding: 14px 0 0; display: grid; gap: 12px; }
+
+    .heading h2 { margin: 0; font-size: 22px; letter-spacing: -0.02em; font-weight: 800; }
+    .heading p { margin: 4px 0 0; color: var(--muted); font-size: 13px; font-weight: 560; }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-soft);
+      padding: 18px;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      position: relative;
+      border: 1px solid #dbe4ef;
+      background: #f8fafc;
+      color: #1e3a8a;
+      border-radius: 12px;
+      padding: 9px 14px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: linear-gradient(135deg, var(--blue), var(--blue2));
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 10px 24px -14px rgba(37, 99, 235, 0.8);
+    }
+
+    .tab-alert {
+      position: absolute;
+      top: -8px;
+      right: 10px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+    }
+
+    .case-toolbar {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .input,
+    .select,
+    .textarea {
+      width: 100%;
+      border: 1px solid #d7e3f6;
+      border-radius: 10px;
+      padding: 10px;
+      font: inherit;
+      font-size: 13px;
+      background: #fff;
+      color: #0f172a;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 0.95fr 1.05fr;
+      gap: 12px;
+      align-items: start;
+      min-height: 520px;
+    }
+
+    .master-list {
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fff;
+      max-height: 620px;
+      overflow-y: auto;
+    }
+
+    .msg-item {
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid #edf2f7;
+      background: #fff;
+      text-align: left;
+      padding: 10px;
+      cursor: pointer;
+      display: grid;
+      gap: 6px;
+    }
+
+    .msg-item:last-child { border-bottom: 0; }
+    .msg-item:hover { background: #f8fbff; }
+    .msg-item.active { background: #eff6ff; }
+
+    .msg-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      border: 1px solid #dbe4ef;
+      background: #f8fafc;
+      color: #334155;
+    }
+
+    .badge.success { background: #ecfdf3; border-color: #bbf7d0; color: #166534; }
+    .badge.info { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .badge.action { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .badge.case { background: #f1f5f9; border-color: #dbe4ef; color: #334155; }
+
+    .msg-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #2563eb;
+      display: inline-block;
+    }
+
+    .ts { font-size: 11px; color: #64748b; font-weight: 560; }
+    .msg-title { margin: 0; font-size: 13px; font-weight: 700; color: #0f172a; }
+    .msg-preview {
+      margin: 0;
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 560;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .detail {
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      background: #fff;
+      padding: 12px;
+      min-height: 420px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+    }
+
+    .detail h3 { margin: 0; font-size: 18px; font-weight: 750; }
+    .detail-sub { margin: 0; font-size: 12px; color: #64748b; font-weight: 560; }
+
+    .detail-body {
+      border: 1px solid #edf2f7;
+      background: #f8fbff;
+      border-radius: 12px;
+      padding: 10px;
+      overflow: auto;
+    }
+
+    .detail-text {
+      margin: 0;
+      font-size: 13px;
+      color: #0f172a;
+      line-height: 1.5;
+      font-weight: 560;
+    }
+
+    .todo {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      font-size: 12px;
+      color: #1f2937;
+      font-weight: 560;
+      display: grid;
+      gap: 4px;
+    }
+
+    .btn {
+      border: 1px solid #dbe4ef;
+      background: #f8fafc;
+      color: #1e3a8a;
+      box-shadow: 0 2px 8px -4px rgba(15, 23, 42, 0.15);
+      border-radius: 12px;
+      padding: 10px 16px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      width: fit-content;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .case-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .case-status {
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid #d9e4f6;
+    }
+
+    .case-status.open { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    .case-status.closed { background: #f1f5f9; color: #475569; border-color: #dbe4ef; }
+
+    .case-contact-note {
+      margin: 4px 0 0;
+      font-size: 12px;
+      font-weight: 650;
+      color: #166534;
+    }
+
+    .thread {
+      display: grid;
+      gap: 8px;
+    }
+
+    .bubble {
+      max-width: 86%;
+      border-radius: 12px;
+      padding: 8px 10px;
+      display: grid;
+      gap: 4px;
+      border: 1px solid #dbe4ef;
+      background: #fff;
+    }
+
+    .bubble.me {
+      margin-left: auto;
+      background: #eff6ff;
+      border-color: #bfdbfe;
+    }
+
+    .bubble.gp {
+      margin-right: auto;
+      background: #f8fafc;
+      border-color: #e2e8f0;
+    }
+
+    .bubble p { margin: 0; font-size: 12.5px; font-weight: 560; color: #0f172a; line-height: 1.4; }
+    .bubble span { font-size: 10.5px; color: #64748b; font-weight: 560; }
+
+    .composer {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .category-chip {
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #334155;
+      border: 1px solid #d9e4f6;
+      background: #f8fafc;
+    }
+
+    .case-detail-meta {
+      display: grid;
+      gap: 4px;
+      margin-top: 2px;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(240, 244, 250, 0.34);
+      backdrop-filter: blur(0px) saturate(1.02);
+      -webkit-backdrop-filter: blur(0px) saturate(1.02);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 70;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
+    }
+
+    .modal.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      backdrop-filter: blur(16px) saturate(1.05);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+    }
+
+    .modal-card {
+      width: min(680px, 100%);
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(191, 220, 255, 0.75);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 26px 56px -24px rgba(15, 23, 42, 0.35);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+      max-height: 86vh;
+      overflow: auto;
+      transform: translateY(20px) scale(0.92);
+      opacity: 0;
+      transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
+      transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
+    }
+    .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
+
+    .modal-card h4 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: -0.01em;
+    }
+
+    .modal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .modal-field {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: #334155;
+      font-weight: 650;
+    }
+
+    .modal-field.full { grid-column: 1 / -1; }
+
+    .upload-help {
+      margin: 0;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 560;
+      line-height: 1.35;
+    }
+
+    .empty {
+      border: 1px dashed #d7e3f6;
+      border-radius: 12px;
+      background: #f8fbff;
+      padding: 12px;
+      font-size: 12.5px;
+      color: #64748b;
+      font-weight: 560;
+      line-height: 1.45;
+      text-align: center;
+    }
+
+    .mobile-nav {
+      position: fixed;
+      left: 50%;
+      bottom: 0;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 560px;
+      background: rgba(255, 255, 255, 0.92);
+      border-top: 1px solid #e2e8f0;
+      padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
+      display: none;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      z-index: 50;
+      overflow: visible;
+      box-shadow: none;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+
+    .mobile-tab {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #94a3b8;
+      border-radius: 12px;
+      min-height: 46px;
+      padding: 6px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .mobile-tab-icon { position: relative; display: inline-grid; place-items: center; color: #64748b; }
+
+    .mobile-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .mobile-tab-alert {
+      top: -6px;
+      right: -8px;
+      transform: none;
+    }
+    .mobile-tab-label { display: none; }
+    .mobile-tab-active { background: rgba(37, 99, 235, 0.08); color: #2563eb; }
+    .mobile-tab-active .mobile-tab-icon { color: #2563eb; }
+    .mobile-tab-icon svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .mobile-tab-scan { transform: none; }
+    .mobile-tab-scan .mobile-tab-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      color: #ffffff;
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      animation: scanHaloPulse 2.8s ease-in-out infinite;
+    }
+    .mobile-tab-scan .mobile-tab-icon svg { width: 19px; height: 19px; }
+    @keyframes scanHaloPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 767px) {
+      body { padding-bottom: 96px; }
+      .mobile-nav { display: grid; }
+      .topbar { display: none; }
+      .main { padding: 10px; }
+      .toolbar { grid-template-columns: 1fr; }
+      .case-toolbar { grid-template-columns: 1fr; }
+      .case-toolbar .select { width: 100%; }
+      .modal-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .shell { border-radius: 0; padding: 0 10px 100px; }
+      .card { padding: 12px; }
+      .heading h2 { font-size: 20px; }
+      .btn { width: 100%; }
+      .bubble { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item" href="index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+            <span class="nav-text">Home</span>
+          </a>
+          <a class="nav-link nav-item" href="myinthealth.html" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+            <span class="nav-text">Registration</span>
+          </a>
+          <a class="nav-link nav-item" href="my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span class="nav-text">My Documents</span>
+          </a>
+          <a class="nav-link nav-item active" href="messages.html" data-nav="messages">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span class="nav-text">Messages</span>
+          </a>
+          <a class="account-pill nav-item" href="account.html" data-nav="account">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            <span class="nav-text">Account</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="heading card">
+        <h2>Support</h2>
+        <p>Message us here - we'll reply in this thread. Updates also appear in Messages.</p>
+      </section>
+
+      <section class="card">
+        <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="Message filters">
+            <button class="tab active" type="button" data-tab="action">Action required <span class="tab-alert" data-tab-alert="action" hidden aria-hidden="true">!</span></button>
+            <button class="tab" type="button" data-tab="cases">Support cases <span class="tab-alert" data-tab-alert="cases" hidden aria-hidden="true">!</span></button>
+            <button class="tab" type="button" data-tab="updates">Updates <span class="tab-alert" data-tab-alert="updates" hidden aria-hidden="true">!</span></button>
+          </div>
+        </div>
+
+        <div class="case-toolbar" id="caseToolbar" hidden>
+          <input class="input" id="caseSearchInput" type="search" placeholder="Search cases" aria-label="Search support cases" />
+          <select class="select" id="sortSelect" aria-label="Sort messages">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+            <option value="unread">Unread first</option>
+          </select>
+          <button class="btn" id="newCaseToggleTab" type="button">New support case</button>
+        </div>
+
+        <div class="layout">
+          <section>
+            <div class="master-list" id="messageList"></div>
+          </section>
+          <section class="detail" id="detailView">
+            <div>
+              <h3>Select a message</h3>
+              <p class="detail-sub">Choose an item from the list to view full details.</p>
+            </div>
+            <div class="detail-body"><div class="empty">No message selected yet.</div></div>
+            <div></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal" id="newCaseModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="newCaseTitle">
+      <h4 id="newCaseTitle">New support case</h4>
+      <div class="modal-grid">
+        <label class="modal-field" for="ticketCategory">
+          What is this about?
+          <select class="select" id="ticketCategory">
+            <option value="EPIC">EPIC</option>
+            <option value="AMC">AMC</option>
+            <option value="Documents">Documents</option>
+            <option value="AHPRA">AHPRA</option>
+            <option value="Provider">Provider</option>
+            <option value="Contract">Contract</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label class="modal-field" for="ticketPriority">
+          Priority
+          <select class="select" id="ticketPriority">
+            <option value="normal">Normal</option>
+            <option value="blocked">I'm blocked</option>
+            <option value="time_sensitive">Time-sensitive</option>
+          </select>
+        </label>
+        <label class="modal-field full" for="ticketSummary">
+          Brief summary
+          <input class="input" id="ticketSummary" type="text" maxlength="120" placeholder="Short summary of your issue" />
+        </label>
+        <label class="modal-field full" for="ticketDescription">
+          Describe the issue
+          <textarea class="textarea" id="ticketDescription" rows="5" maxlength="2000" placeholder="What happened and what do you need help with?"></textarea>
+        </label>
+        <label class="modal-field full" for="ticketAttachment">
+          Attach screenshot / PDF (optional)
+          <input class="input" id="ticketAttachment" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf" />
+          <p class="upload-help">Attachment is stored securely in your browser for this MVP.</p>
+        </label>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="createCaseBtn" type="button">Create case</button>
+        <button class="btn" id="cancelCaseBtn" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
+      <span class="mobile-tab-label">Home Dashboard</span>
+    </a>
+    <a class="mobile-tab" href="myinthealth.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+      <span class="mobile-tab-label">Registration Process</span>
+    </a>
+    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="mobile-tab-label">Scan</span>
+    </button>
+    <a class="mobile-tab mobile-tab-active" href="messages.html">
+      <span class="mobile-icon-wrap">
+        <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg></span>
+        <span class="mobile-tab-alert nav-alert" data-inbox-alert hidden aria-hidden="true">!</span>
+      </span>
+      <span class="mobile-tab-label">Messages</span>
+    </a>
+    <a class="mobile-tab" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
+      <span class="mobile-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <script>
+    const SUPPORT_CASES_KEY = "gpLinkSupportCases";
+    const SUPPORT_DRAFT_KEY = "gpLinkSupportDraft";
+    const MESSAGE_DB_KEY = "gpLinkMessageDB";
+    const UPDATES_READ_KEY = "gp_link_updates_read";
+    const DOC_KEY = "gp_documents_prep";
+    const PREPARED_BY_YOU_DOCS = [
+      { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree (MBBS/MBChB)" },
+      { key: "mrcgp_certified", title: "Certified copy of MRCGP (issued from August 2007 onward)" },
+      { key: "cct_certified", title: "Certified copy of CCT (General Practice) issued by GMC or PMETB" },
+      { key: "cv_signed_dated", title: "CV (Signed and dated)" }
+    ];
+
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+    const tabs = [...document.querySelectorAll("[data-tab]")];
+    const messageListEl = document.getElementById("messageList");
+    const detailViewEl = document.getElementById("detailView");
+    const caseSearchInputEl = document.getElementById("caseSearchInput");
+    const sortSelectEl = document.getElementById("sortSelect");
+    const caseToolbarEl = document.getElementById("caseToolbar");
+    const newCaseToggleTabEl = document.getElementById("newCaseToggleTab");
+    const newCaseModalEl = document.getElementById("newCaseModal");
+    const ticketCategoryEl = document.getElementById("ticketCategory");
+    const ticketPriorityEl = document.getElementById("ticketPriority");
+    const ticketSummaryEl = document.getElementById("ticketSummary");
+    const ticketDescriptionEl = document.getElementById("ticketDescription");
+    const ticketAttachmentEl = document.getElementById("ticketAttachment");
+    const createCaseBtnEl = document.getElementById("createCaseBtn");
+    const cancelCaseBtnEl = document.getElementById("cancelCaseBtn");
+
+    let navGlassInitialized = false;
+    let activeTab = "action";
+    let selectedId = "";
+    let caseModalOpen = false;
+
+    function parseStorage(key) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (err) { return null; }
+    }
+
+    function saveStorage(key, data) {
+      localStorage.setItem(key, JSON.stringify(data));
+    }
+
+    function loadDraft() {
+      const draft = parseStorage(SUPPORT_DRAFT_KEY);
+      return draft && typeof draft === "object" ? draft : {};
+    }
+
+    function saveDraft(nextDraft) {
+      saveStorage(SUPPORT_DRAFT_KEY, nextDraft || {});
+    }
+
+    function clearDraft() {
+      localStorage.removeItem(SUPPORT_DRAFT_KEY);
+    }
+
+    function formatTs(tsValue) {
+      if (!tsValue) return "";
+      const d = new Date(tsValue);
+      if (Number.isNaN(d.getTime())) return String(tsValue);
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const dayMs = 24 * 60 * 60 * 1000;
+      if (diffMs < dayMs) {
+        return `Today • ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+      }
+      const days = Math.round(diffMs / dayMs);
+      if (days <= 1) return "1 day ago";
+      if (days < 7) return `${days} days ago`;
+      return d.toLocaleDateString();
+    }
+
+    function moveNavGlass(target, animate = true) {
+      if (!target || !navGlassEl) return;
+      const parentRect = target.parentElement.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      if (!animate || !navGlassInitialized) {
+        const prevTransition = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        navGlassEl.style.width = `${rect.width}px`;
+        navGlassEl.style.height = `${rect.height}px`;
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prevTransition;
+        navGlassInitialized = true;
+        return;
+      }
+      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+      navGlassEl.style.width = `${rect.width}px`;
+      navGlassEl.style.height = `${rect.height}px`;
+    }
+
+    function setActiveNav(target, animate = true) {
+      navItems.forEach((item) => item.classList.remove("active"));
+      if (target) {
+        target.classList.add("active");
+        activeNavItem = target;
+      }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    navItems.forEach((item) => {
+      item.addEventListener("mouseenter", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      item.addEventListener("focus", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      item.addEventListener("click", () => setActiveNav(item));
+    });
+
+    function loadUpdateReadMap() {
+      const parsed = parseStorage(UPDATES_READ_KEY);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+
+    function saveUpdateReadMap(map) {
+      saveStorage(UPDATES_READ_KEY, map);
+      syncMessageDatabase();
+    }
+
+    function updateId(item) {
+      const title = item && item.title ? String(item.title) : "";
+      const ts = item && item.ts ? String(item.ts) : "";
+      const source = item && item.source ? String(item.source) : "gp-link";
+      const sourceKey = item && item.sourceKey ? String(item.sourceKey) : "";
+      return `u:${source}:${sourceKey}:${title}:${ts}`;
+    }
+
+    function normalizeCase(rawCase) {
+      if (!rawCase || typeof rawCase !== "object") return null;
+      const createdAt = typeof rawCase.createdAt === "string" ? rawCase.createdAt : (typeof rawCase.updatedAt === "string" ? rawCase.updatedAt : new Date().toISOString());
+      const updatedAt = typeof rawCase.updatedAt === "string" ? rawCase.updatedAt : createdAt;
+      const id = typeof rawCase.id === "string" && rawCase.id ? rawCase.id : `case_${Date.now()}`;
+      const caseCode = typeof rawCase.caseCode === "string" && rawCase.caseCode
+        ? rawCase.caseCode
+        : `Case GP-${createdAt.slice(0, 10).replace(/-/g, "")}-${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
+      const status = rawCase.status === "closed" ? "closed" : "open";
+      const category = ["EPIC", "AMC", "Documents", "AHPRA", "Provider", "Contract", "Other"].includes(rawCase.category) ? rawCase.category : "Other";
+      const priority = ["normal", "blocked", "time_sensitive"].includes(rawCase.priority) ? rawCase.priority : "normal";
+      const thread = Array.isArray(rawCase.thread) ? rawCase.thread.map((entry) => ({
+        from: entry && entry.from === "gp" ? "gp" : "me",
+        text: entry && typeof entry.text === "string" ? entry.text : "",
+        ts: entry && typeof entry.ts === "string" ? entry.ts : updatedAt,
+        attachments: Array.isArray(entry && entry.attachments) ? entry.attachments : []
+      })) : [];
+      return {
+        id,
+        caseCode,
+        title: typeof rawCase.title === "string" && rawCase.title ? rawCase.title : "Support request",
+        category,
+        priority,
+        status,
+        unread: !!rawCase.unread,
+        createdAt,
+        updatedAt,
+        thread
+      };
+    }
+
+    function loadSupportCases() {
+      const stored = parseStorage(SUPPORT_CASES_KEY);
+      if (Array.isArray(stored) && stored.length) {
+        const normalized = stored.map(normalizeCase).filter(Boolean);
+        window.gpLinkSupportCases = normalized;
+        return normalized;
+      }
+      window.gpLinkSupportCases = [];
+      return [];
+    }
+
+    function saveSupportCases(cases) {
+      const normalized = cases.map(normalizeCase).filter(Boolean);
+      saveStorage(SUPPORT_CASES_KEY, normalized);
+      window.gpLinkSupportCases = normalized;
+      syncMessageDatabase(normalized);
+    }
+
+    function buildMessageDatabase(cases) {
+      return {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        supportCases: Array.isArray(cases) ? cases : loadSupportCases(),
+        updates: [...getUpdates(), ...getPreparedDocReviewUpdates()],
+        updateReadMap: loadUpdateReadMap()
+      };
+    }
+
+    function syncMessageDatabase(cases) {
+      const db = buildMessageDatabase(cases);
+      saveStorage(MESSAGE_DB_KEY, db);
+      window.gpLinkMessageDB = db;
+      return db;
+    }
+
+    function getUpdates() {
+      if (typeof window.getGpLinkUpdates === "function") {
+        return window.getGpLinkUpdates().slice();
+      }
+      if (Array.isArray(window.gpLinkUpdates)) {
+        return window.gpLinkUpdates.slice();
+      }
+      return [];
+    }
+
+    function getPreparedDocReviewUpdates() {
+      const parsed = parseStorage(DOC_KEY);
+      if (!parsed || typeof parsed !== "object" || parsed.country !== "uk" || !parsed.docs) return [];
+      const updatedAt = typeof parsed.updatedAt === "string" ? parsed.updatedAt : new Date().toISOString();
+
+      return PREPARED_BY_YOU_DOCS.map((doc) => {
+        const entry = parsed.docs[doc.key];
+        if (!entry || (entry.status !== "accepted" && entry.status !== "rejected")) return null;
+
+        const reviewReason = typeof entry.rejectionReason === "string" && entry.rejectionReason.trim()
+          ? entry.rejectionReason.trim()
+          : (typeof entry.reviewNote === "string" && entry.reviewNote.trim() ? entry.reviewNote.trim() : "");
+
+        if (entry.status === "accepted") {
+          return {
+            type: "info",
+            title: `${doc.title} was accepted by GP Link review.`,
+            detail: "No further action needed for this document.",
+            ts: updatedAt,
+            source: "prepared-doc-review",
+            sourceKey: doc.key
+          };
+        }
+
+        const reasonText = reviewReason || "The uploaded copy did not meet AHPRA certification or clarity requirements.";
+        return {
+          type: "action",
+          title: `${doc.title} needs re-upload after review.`,
+          detail: `Reason: ${reasonText} Action required: Upload a corrected certified copy in My Documents.`,
+          ts: updatedAt,
+          source: "prepared-doc-review",
+          sourceKey: doc.key
+        };
+      }).filter(Boolean);
+    }
+
+    function buildItems() {
+      const updates = [...getUpdates(), ...getPreparedDocReviewUpdates()];
+      const updateReadMap = loadUpdateReadMap();
+      const cases = loadSupportCases();
+
+      const updateItems = updates.map((u) => {
+        const id = updateId(u);
+        const type = typeof u.type === "string" ? u.type : "info";
+        return {
+          id,
+          kind: "update",
+          badge: type === "action" ? "ACTION REQUIRED" : type === "success" ? "SUCCESS" : "INFO",
+          badgeClass: type,
+          title: typeof u.title === "string" ? u.title : "Update available",
+          preview: typeof u.detail === "string" && u.detail ? u.detail : "GP Link has posted an update.",
+          body: typeof u.detail === "string" && u.detail ? u.detail : "",
+          ts: typeof u.ts === "string" ? u.ts : new Date().toISOString(),
+          unread: !updateReadMap[id],
+          actionRequired: type === "action",
+          raw: u
+        };
+      });
+
+      const caseItems = cases.map((c) => {
+        const latest = Array.isArray(c.thread) && c.thread.length ? c.thread[c.thread.length - 1] : null;
+        const preview = latest && typeof latest.text === "string" ? latest.text : "Support conversation";
+        const threadText = Array.isArray(c.thread) ? c.thread.map((entry) => (entry && typeof entry.text === "string" ? entry.text : "")).join(" ") : "";
+        return {
+          id: `c:${c.id}`,
+          kind: "case",
+          badge: "CASE",
+          badgeClass: "case",
+          title: typeof c.title === "string" ? c.title : "Support case",
+          category: c.category || "Other",
+          preview,
+          body: threadText || preview,
+          ts: typeof c.updatedAt === "string" ? c.updatedAt : new Date().toISOString(),
+          unread: !!c.unread,
+          actionRequired: false,
+          raw: c
+        };
+      });
+
+      return [...updateItems, ...caseItems];
+    }
+
+    function filterItems(items) {
+      let out = items.slice();
+
+      if (activeTab === "updates") out = out.filter((item) => item.kind === "update" && !item.actionRequired);
+      if (activeTab === "cases") out = out.filter((item) => item.kind === "case");
+      if (activeTab === "action") out = out.filter((item) => item.kind === "update" && item.actionRequired);
+
+      if (activeTab === "cases") {
+        const query = caseSearchInputEl.value.trim().toLowerCase();
+        if (query) {
+          out = out.filter((item) => {
+            const haystack = `${item.title} ${item.preview} ${item.body} ${item.category || ""}`.toLowerCase();
+            return haystack.includes(query);
+          });
+        }
+      }
+
+      const sortMode = sortSelectEl.value;
+      out.sort((a, b) => {
+        const aTime = new Date(a.ts).getTime() || 0;
+        const bTime = new Date(b.ts).getTime() || 0;
+        if (sortMode === "oldest") return aTime - bTime;
+        if (sortMode === "unread") {
+          if (a.unread !== b.unread) return a.unread ? -1 : 1;
+          return bTime - aTime;
+        }
+        return bTime - aTime;
+      });
+
+      return out;
+    }
+
+    function updateTabAlerts() {
+      const items = buildItems();
+      const hasUpdatesUnread = items.some((item) => item.kind === "update" && !item.actionRequired && item.unread);
+      const hasCasesUnread = items.some((item) => item.kind === "case" && item.unread);
+      const hasActionUnread = items.some((item) => item.kind === "update" && item.actionRequired && item.unread);
+
+      document.querySelectorAll("[data-tab-alert]").forEach((badge) => {
+        const key = badge.getAttribute("data-tab-alert");
+        const show = (key === "updates" && hasUpdatesUnread) ||
+          (key === "cases" && hasCasesUnread) ||
+          (key === "action" && hasActionUnread);
+        badge.hidden = !show;
+        badge.setAttribute("aria-hidden", show ? "false" : "true");
+      });
+    }
+
+    function syncCaseUIVisibility() {
+      const showCaseUI = activeTab === "cases";
+      caseToolbarEl.hidden = !showCaseUI;
+      caseToolbarEl.style.display = showCaseUI ? "grid" : "none";
+      if (!showCaseUI) {
+        caseModalOpen = false;
+        newCaseModalEl.classList.remove("show");
+        newCaseModalEl.setAttribute("aria-hidden", "true");
+      }
+    }
+
+    function renderList() {
+      const items = filterItems(buildItems());
+      messageListEl.innerHTML = "";
+      updateTabAlerts();
+      syncCaseUIVisibility();
+
+      if (!items.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No messages to show in this section yet.";
+        messageListEl.appendChild(empty);
+        selectedId = "";
+        renderDetail(null);
+        return;
+      }
+
+      if (!selectedId || !items.some((i) => i.id === selectedId)) {
+        selectedId = items[0].id;
+      }
+
+      items.forEach((item) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `msg-item${selectedId === item.id ? " active" : ""}`;
+        btn.setAttribute("aria-label", `${item.title} ${item.badge}`);
+        btn.innerHTML = `
+          <div class="msg-top">
+            <span class="msg-meta"><span class="badge ${item.badgeClass}">${item.badge}</span>${item.kind === "case" ? `<span class="category-chip">${item.category}</span>` : ""}</span>
+            <span class="msg-meta">${item.unread ? '<span class="dot" aria-label="Unread"></span>' : ""}<span class="ts">${formatTs(item.ts)}</span></span>
+          </div>
+          <p class="msg-title">${item.title}</p>
+          <p class="msg-preview">${item.preview}</p>
+        `;
+        btn.addEventListener("click", () => {
+          selectedId = item.id;
+          renderList();
+        });
+        messageListEl.appendChild(btn);
+      });
+
+      const selected = items.find((i) => i.id === selectedId) || null;
+      renderDetail(selected);
+    }
+
+    function applyHashRouting() {
+      const hash = window.location.hash || "";
+      if (!hash) return;
+      if (hash === "#tab-action") {
+        activeTab = "action";
+      } else if (hash === "#tab-updates") {
+        activeTab = "updates";
+      } else if (hash.startsWith("#case-")) {
+        activeTab = "cases";
+        const caseId = decodeURIComponent(hash.replace("#case-", ""));
+        if (caseId) selectedId = `c:${caseId}`;
+      }
+      tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === activeTab));
+    }
+
+    function markUpdateRead(item) {
+      const map = loadUpdateReadMap();
+      map[item.id] = true;
+      saveUpdateReadMap(map);
+      renderList();
+    }
+
+    function markCaseRead(caseId) {
+      const cases = loadSupportCases();
+      const idx = cases.findIndex((c) => c.id === caseId);
+      if (idx === -1) return;
+      cases[idx].unread = false;
+      saveSupportCases(cases);
+      renderList();
+    }
+
+    function setCaseStatus(caseId, status) {
+      const cases = loadSupportCases();
+      const idx = cases.findIndex((c) => c.id === caseId);
+      if (idx === -1) return;
+      cases[idx].status = status === "closed" ? "closed" : "open";
+      cases[idx].updatedAt = new Date().toISOString();
+      saveSupportCases(cases);
+      renderList();
+    }
+
+    function sendCaseMessage(caseId, text) {
+      const cases = loadSupportCases();
+      const idx = cases.findIndex((c) => c.id === caseId);
+      if (idx === -1) return;
+      const now = new Date().toISOString();
+      if (!Array.isArray(cases[idx].thread)) cases[idx].thread = [];
+      cases[idx].thread.push({ from: "me", text, ts: now });
+      cases[idx].updatedAt = now;
+      cases[idx].unread = false;
+      saveSupportCases(cases);
+      renderList();
+    }
+
+    function addTeamReply(caseId, text, attachments) {
+      const cases = loadSupportCases();
+      const idx = cases.findIndex((c) => c.id === caseId);
+      if (idx === -1) return null;
+      const now = new Date().toISOString();
+      if (!Array.isArray(cases[idx].thread)) cases[idx].thread = [];
+      const normalizedAttachments = Array.isArray(attachments)
+        ? attachments.filter((att) => att && typeof att === "object" && typeof att.name === "string" && typeof att.type === "string" && typeof att.dataUrl === "string")
+        : [];
+      cases[idx].thread.push({ from: "gp", text: typeof text === "string" ? text : "", ts: now, attachments: normalizedAttachments });
+      cases[idx].updatedAt = now;
+      cases[idx].unread = true;
+      saveSupportCases(cases);
+      return cases[idx];
+    }
+
+    function renderDetail(item) {
+      if (!item) {
+        detailViewEl.innerHTML = `
+          <div>
+            <h3>Select a message</h3>
+            <p class="detail-sub">Choose an item from the list to view full details.</p>
+          </div>
+          <div class="detail-body"><div class="empty">No message selected yet.</div></div>
+          <div></div>
+        `;
+        return;
+      }
+
+      if (item.kind === "update") {
+        detailViewEl.innerHTML = `
+          <div>
+            <h3>${item.title}</h3>
+            <p class="detail-sub">${item.badge} • ${formatTs(item.ts)}</p>
+          </div>
+          <div class="detail-body">
+            <p class="detail-text">${item.body || item.preview}</p>
+            ${item.actionRequired ? `<ul class="todo"><li>Review this update carefully.</li><li>Complete the required action in your current registration step.</li></ul>` : ""}
+          </div>
+          <div class="btn-row">
+            ${item.unread ? '<button class="btn" id="markReadBtn" type="button">Mark as read</button>' : ""}
+          </div>
+        `;
+
+        const markReadBtn = document.getElementById("markReadBtn");
+        if (markReadBtn) {
+          markReadBtn.addEventListener("click", () => markUpdateRead(item));
+        }
+        return;
+      }
+
+      const c = item.raw;
+      const caseStatus = c.status === "closed" ? "closed" : "open";
+      const threadHtml = Array.isArray(c.thread)
+        ? c.thread.map((entry) => {
+            const from = entry.from === "gp" ? "gp" : "me";
+            const who = from === "gp" ? "GP Link" : "You";
+            const text = typeof entry.text === "string" ? entry.text : "";
+            const ts = typeof entry.ts === "string" ? entry.ts : new Date().toISOString();
+            const attachments = Array.isArray(entry.attachments) ? entry.attachments : [];
+            const attachmentMarkup = attachments.map((att) => {
+              const name = att && att.name ? att.name : "Attachment";
+              const dataUrl = att && att.dataUrl ? att.dataUrl : "";
+              if (!dataUrl) return `<span>${name}</span>`;
+              return `<a href="${dataUrl}" download="${name}" style="font-size:11px; color:#1d4ed8; text-decoration:none;">${name}</a>`;
+            }).join("");
+            return `<div class="bubble ${from}"><p>${text}</p>${attachmentMarkup ? `<div style="display:grid; gap:4px;">${attachmentMarkup}</div>` : ""}<span>${who} • ${formatTs(ts)}</span></div>`;
+          }).join("")
+        : "";
+
+      detailViewEl.innerHTML = `
+        <div>
+          <div class="case-head">
+            <h3>${c.title}</h3>
+            <div class="btn-row" style="gap:6px;">
+              <span class="case-status ${caseStatus}">${caseStatus === "open" ? "Open" : "Closed"}</span>
+            </div>
+          </div>
+          <div class="case-detail-meta">
+            <p class="detail-sub">${c.caseCode} • Updated ${formatTs(c.updatedAt)}</p>
+            <p class="detail-sub">Category: ${c.category} • Priority: ${c.priority.replace("_", " ")}</p>
+          </div>
+        </div>
+        <div class="detail-body">
+          <div class="thread">${threadHtml || '<div class="empty">No messages yet.</div>'}</div>
+          ${caseStatus === "open" ? `
+            <div class="composer">
+              <textarea class="textarea" id="caseReply" rows="3" maxlength="2000" placeholder="Write your message"></textarea>
+              <div class="btn-row">
+                <button class="btn" id="sendReplyBtn" type="button">Send message</button>
+                ${c.unread ? '<button class="btn" id="markCaseReadBtn" type="button">Mark as read</button>' : ""}
+              </div>
+            </div>
+          ` : '<div class="empty" style="margin-top:10px;">This case is closed. Start a new case if you need more help.</div>'}
+        </div>
+        <div>${caseStatus === "open"
+          ? `<div class="btn-row"><button class="btn" id="markResolvedBtn" type="button">Mark as resolved</button></div>${Array.isArray(c.thread) && c.thread.some((entry) => entry && entry.from === "gp") ? "" : '<p class="case-contact-note">Team will contact you within the next few hours</p>'}`
+          : '<div class="btn-row"><button class="btn" id="reopenCaseBtn" type="button">Reopen</button></div>'}</div>
+      `;
+
+      const sendReplyBtn = document.getElementById("sendReplyBtn");
+      if (sendReplyBtn) {
+        sendReplyBtn.addEventListener("click", () => {
+          const replyEl = document.getElementById("caseReply");
+          const text = replyEl.value.trim();
+          if (!text) return;
+          sendCaseMessage(c.id, text);
+        });
+      }
+
+      const markCaseReadBtn = document.getElementById("markCaseReadBtn");
+      if (markCaseReadBtn) {
+        markCaseReadBtn.addEventListener("click", () => markCaseRead(c.id));
+      }
+      const markResolvedBtn = document.getElementById("markResolvedBtn");
+      if (markResolvedBtn) markResolvedBtn.addEventListener("click", () => setCaseStatus(c.id, "closed"));
+      const reopenCaseBtn = document.getElementById("reopenCaseBtn");
+      if (reopenCaseBtn) reopenCaseBtn.addEventListener("click", () => setCaseStatus(c.id, "open"));
+    }
+
+    function closeCaseModal() {
+      caseModalOpen = false;
+      newCaseModalEl.classList.remove("show");
+      newCaseModalEl.setAttribute("aria-hidden", "true");
+    }
+
+    function openCaseModal() {
+      const draft = loadDraft();
+      ticketCategoryEl.value = draft.category || "EPIC";
+      ticketPriorityEl.value = draft.priority || "normal";
+      ticketSummaryEl.value = draft.title || "";
+      ticketDescriptionEl.value = draft.description || "";
+      ticketAttachmentEl.value = "";
+      caseModalOpen = true;
+      newCaseModalEl.classList.add("show");
+      newCaseModalEl.setAttribute("aria-hidden", "false");
+    }
+
+    function persistCaseDraft() {
+      saveDraft({
+        category: ticketCategoryEl.value,
+        priority: ticketPriorityEl.value,
+        title: ticketSummaryEl.value,
+        description: ticketDescriptionEl.value
+      });
+    }
+
+    function readAttachmentAsDataUrl(file) {
+      return new Promise((resolve) => {
+        if (!file) {
+          resolve(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve({
+          name: file.name,
+          type: file.type || "application/octet-stream",
+          dataUrl: String(reader.result || "")
+        });
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function createCase() {
+      const category = ticketCategoryEl.value;
+      const priority = ticketPriorityEl.value;
+      const title = ticketSummaryEl.value.trim();
+      const description = ticketDescriptionEl.value.trim();
+      const attachmentFile = ticketAttachmentEl.files && ticketAttachmentEl.files[0] ? ticketAttachmentEl.files[0] : null;
+      if (!title || !description) return;
+
+      const cases = loadSupportCases();
+      const now = new Date().toISOString();
+      const dayCode = now.slice(0, 10).replace(/-/g, "");
+      const nextNo = cases.filter((c) => typeof c.caseCode === "string" && c.caseCode.includes(`GP-${dayCode}`)).length + 1;
+      const caseCode = `Case GP-${dayCode}-${String(nextNo).padStart(3, "0")}`;
+      const attachment = await readAttachmentAsDataUrl(attachmentFile);
+
+      const createdCase = normalizeCase({
+        id: `case_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        caseCode,
+        title,
+        category,
+        priority,
+        status: "open",
+        unread: false,
+        createdAt: now,
+        updatedAt: now,
+        thread: [{
+          from: "me",
+          text: description,
+          ts: now,
+          attachments: attachment ? [attachment] : []
+        }]
+      });
+
+      cases.unshift(createdCase);
+      saveSupportCases(cases);
+      clearDraft();
+      ticketCategoryEl.value = "EPIC";
+      ticketPriorityEl.value = "normal";
+      ticketSummaryEl.value = "";
+      ticketDescriptionEl.value = "";
+      ticketAttachmentEl.value = "";
+      closeCaseModal();
+      selectedId = `c:${createdCase.id}`;
+      activeTab = "cases";
+      tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === activeTab));
+      renderList();
+    }
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        activeTab = tab.dataset.tab;
+        tabs.forEach((t) => t.classList.toggle("active", t === tab));
+        renderList();
+      });
+    });
+
+    caseSearchInputEl.addEventListener("input", renderList);
+    sortSelectEl.addEventListener("change", renderList);
+
+    cancelCaseBtnEl.addEventListener("click", () => {
+      closeCaseModal();
+    });
+
+    newCaseToggleTabEl.addEventListener("click", () => {
+      if (activeTab !== "cases") return;
+      openCaseModal();
+    });
+
+    [ticketCategoryEl, ticketPriorityEl, ticketSummaryEl, ticketDescriptionEl].forEach((field) => {
+      field.addEventListener("input", persistCaseDraft);
+      field.addEventListener("change", persistCaseDraft);
+    });
+
+    newCaseModalEl.addEventListener("click", (e) => {
+      if (e.target === newCaseModalEl) closeCaseModal();
+    });
+
+    createCaseBtnEl.addEventListener("click", createCase);
+
+    window.gpLinkSupportDB = {
+      getDatabase: () => parseStorage(MESSAGE_DB_KEY) || syncMessageDatabase(),
+      getCases: () => loadSupportCases(),
+      addTeamReply: (caseId, text, attachments) => {
+        const updated = addTeamReply(caseId, text, attachments);
+        renderList();
+        return updated;
+      },
+      setCaseStatus: (caseId, status) => {
+        setCaseStatus(caseId, status);
+        return loadSupportCases().find((c) => c.id === caseId) || null;
+      },
+      markCaseRead: (caseId) => {
+        markCaseRead(caseId);
+        return loadSupportCases().find((c) => c.id === caseId) || null;
+      }
+    };
+
+    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+    setActiveNav(activeNavItem, false);
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", (event) => {
+        const hit = event.target instanceof Element ? event.target.closest(".nav-item") : null;
+        if (hit && hit !== hoveredNavItem) {
+          hoveredNavItem = hit;
+          moveNavGlass(hit, true);
+        }
+      });
+      navMenuEl.addEventListener("mouseleave", () => {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
+    window.addEventListener("resize", () => {
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+    });
+
+    function initializeMessagesPage() {
+      applyHashRouting();
+      syncMessageDatabase();
+      renderList();
+      if (typeof window.refreshInboxBadges === "function") {
+        window.refreshInboxBadges();
+      }
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initializeMessagesPage, { once: true });
+    } else {
+      initializeMessagesPage();
+    }
+
+    // Re-render after state-sync hydrates the current user's data from the server
+    window.addEventListener("gp-state-hydrated", function () {
+      syncMessageDatabase();
+      renderList();
+    }, { once: true });
+  </script>
+  <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
+    <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
+    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+  </div>
+</body>
+</html>

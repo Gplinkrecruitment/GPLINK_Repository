@@ -920,6 +920,28 @@
       .step-copy { min-width: 0; }
       .step-help { white-space: normal; }
     }
+    /* ── Admin Quick Actions Bar ── */
+    .admin-actions-bar {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .admin-action-link {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 10px 16px; border-radius: var(--radius-md);
+      background: var(--panel); border: 1px solid var(--line);
+      font-size: 13px; font-weight: 660; color: var(--text);
+      text-decoration: none; transition: all .15s;
+      box-shadow: 0 2px 8px -4px rgba(15,23,42,0.08);
+    }
+    .admin-action-link:hover { border-color: #a5b4fc; background: #f8faff; }
+    .admin-action-link svg {
+      width: 16px; height: 16px; stroke: var(--purple-1);
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+      flex-shrink: 0;
+    }
+    .admin-action-count {
+      margin-left: 2px; padding: 1px 7px; border-radius: 6px;
+      font-size: 10px; font-weight: 800; background: #ede9fe; color: var(--purple-1);
+    }
   </style>
 </head>
 <body>
@@ -937,6 +959,14 @@
       </div>
       <p id="refreshText" class="inline-note">Loading...</p>
     </header>
+
+    <div class="admin-actions-bar" id="adminActionsBar">
+      <a class="admin-action-link" href="/pages/admin-visa.html">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Visa Cases
+        <span class="admin-action-count" id="visaCaseCount" hidden>0</span>
+      </a>
+    </div>
 
     <section class="panel executive-panel" id="executivePanel" hidden>
       <div class="executive-head">
@@ -2580,12 +2610,25 @@
       }, 10000);
     }
 
+    // Fetch visa case count for action bar badge
+    async function loadVisaCaseCount() {
+      try {
+        const r = await fetch("/api/admin/visa/cases", { credentials: "same-origin" });
+        const d = await r.json();
+        if (d.ok && Array.isArray(d.cases) && d.cases.length > 0) {
+          const badge = document.getElementById("visaCaseCount");
+          if (badge) { badge.textContent = d.cases.length; badge.hidden = false; }
+        }
+      } catch (_) { /* non-critical */ }
+    }
+
     bindEvents();
     loadAdminSession()
       .then((ok) => {
         if (!ok) return;
         loadDashboard();
         loadZohoRecruitStatus();
+        loadVisaCaseCount();
         startAutoRefresh();
       })
       .catch((err) => {

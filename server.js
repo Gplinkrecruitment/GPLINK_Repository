@@ -121,7 +121,7 @@ const DOMAIN_API_CLIENT_SECRET = String(process.env.DOMAIN_API_CLIENT_SECRET || 
 const DOMAIN_API_SCOPE = String(process.env.DOMAIN_API_SCOPE || 'api_listings_read').trim() || 'api_listings_read';
 const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https://auth.domain.com.au/v1/connect/token').trim() || 'https://auth.domain.com.au/v1/connect/token';
 const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = String(process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK || 'false').trim().toLowerCase() === 'true';
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 9;
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 10;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE = Math.max(10, Number(process.env.DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE || 40) || 40);
@@ -134,6 +134,7 @@ const DOMAIN_LIFESTYLE_AGENCY_BRANDS = Array.from(new Set(
     .filter(Boolean)
 )).slice(0, 8);
 const HOMELY_BASE_URL = 'https://www.homely.com.au';
+const HOMELY_LOCATION_SEARCH_URL = 'https://api.homely.com.au/search/locations';
 const HOMELY_LIFESTYLE_MAX_PAGES = Math.max(1, Math.min(5, Number(process.env.HOMELY_LIFESTYLE_MAX_PAGES || 4) || 4));
 const HOMELY_LIFESTYLE_USER_AGENT = 'Mozilla/5.0 (compatible; GP Link Live Listings/1.0; +https://app.mygplink.com.au)';
 const NSW_SCHOOL_FINDER_SQL_ENDPOINT = 'https://cesensw.carto.com/api/v2/sql';
@@ -4286,6 +4287,61 @@ async function fetchCareerSuburbPostcode(context = {}) {
   return '';
 }
 
+async function reverseGeocodeCareerLocationContext(coords = {}) {
+  const latitude = parseCareerCoordinate(coords && coords.lat);
+  const longitude = parseCareerCoordinate(coords && coords.lng);
+  if (!isAustralianCoordinate(latitude, longitude)) return null;
+
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/reverse');
+    url.searchParams.set('lat', String(latitude));
+    url.searchParams.set('lon', String(longitude));
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('zoom', '14');
+    url.searchParams.set('addressdetails', '1');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': HOMELY_LIFESTYLE_USER_AGENT,
+        Accept: 'application/json'
+      }
+    });
+    if (!response.ok) return null;
+
+    const payload = await response.json().catch(() => null);
+    const address = payload && payload.address && typeof payload.address === 'object'
+      ? payload.address
+      : {};
+    const suburb = String(
+      address.suburb
+      || address.city_district
+      || address.town
+      || address.city
+      || address.village
+      || address.hamlet
+      || ''
+    ).trim();
+    const state = normalizeAustralianStateAbbreviation(address.state || address.region || address.territory || '');
+    const postcode = extractAustralianPostcode(address.postcode || (payload && payload.display_name) || '');
+    const country = String(address.country || 'Australia').trim() || 'Australia';
+    const label = buildLocationLabel([
+      suburb,
+      buildLocationLabel([state, postcode]),
+      country
+    ]) || String(payload && payload.display_name || '').trim();
+    if (!suburb && !state && !postcode && !label) return null;
+    return {
+      suburb,
+      state,
+      postcode,
+      country,
+      label
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
 async function resolveCareerSuburbCoordinates(context = {}) {
   const checkedAt = Date.now();
   const cached = await readCareerSuburbGeoCache(context);
@@ -6784,6 +6840,21 @@ function normalizeAustralianStateAbbreviation(value) {
   return aliases[key] || '';
 }
 
+function getAustralianStateName(value) {
+  const stateCode = normalizeAustralianStateAbbreviation(value);
+  const labels = {
+    NSW: 'New South Wales',
+    QLD: 'Queensland',
+    VIC: 'Victoria',
+    SA: 'South Australia',
+    WA: 'Western Australia',
+    TAS: 'Tasmania',
+    NT: 'Northern Territory',
+    ACT: 'Australian Capital Territory'
+  };
+  return labels[stateCode] || '';
+}
+
 function extractAustralianPostcode(value) {
   const match = String(value || '').match(/\b(\d{4})\b/);
   return match ? match[1] : '';
@@ -6794,10 +6865,15 @@ function parsePlacementLocationContext(locationValue) {
   const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
   const second = parts[1] || '';
   const secondState = normalizeAustralianStateAbbreviation(second);
+  const inlineStateMatch = value.match(/\b(NSW|QLD|VIC|SA|WA|TAS|NT|ACT|New South Wales|Queensland|Victoria|South Australia|Western Australia|Tasmania|Northern Territory|Australian Capital Territory)\b/i);
+  const inlineState = normalizeAustralianStateAbbreviation(inlineStateMatch ? inlineStateMatch[1] : '');
+  const inlineSuburb = inlineState
+    ? value.replace(inlineStateMatch[0], '').replace(/\b\d{4}\b/g, '').replace(/,\s*$/,'').trim()
+    : '';
   const suburb = secondState && parts[2]
     ? parts[2]
-    : (parts[0] || '');
-  const state = normalizeAustralianStateAbbreviation(second || parts.find((part) => normalizeAustralianStateAbbreviation(part)) || '');
+    : ((parts.length === 1 && inlineSuburb) ? inlineSuburb : (parts[0] || inlineSuburb));
+  const state = normalizeAustralianStateAbbreviation(second || parts.find((part) => normalizeAustralianStateAbbreviation(part)) || inlineState || '');
   return {
     suburb,
     state,
@@ -6863,8 +6939,20 @@ function normalizeLifestyleSearchLocationContext(value) {
   };
 }
 
-async function enrichLifestyleLocationContextForHomely(value) {
-  const locationContext = normalizeLifestyleSearchLocationContext(value);
+async function enrichLifestyleLocationContextForHomely(value, practiceCoords = null) {
+  let locationContext = normalizeLifestyleSearchLocationContext(value);
+  const reverseContext = await reverseGeocodeCareerLocationContext(practiceCoords);
+  if (reverseContext) {
+    locationContext = {
+      ...reverseContext,
+      ...locationContext,
+      suburb: String(locationContext.suburb || reverseContext.suburb || '').trim(),
+      state: normalizeAustralianStateAbbreviation(locationContext.state || reverseContext.state || ''),
+      postcode: String(locationContext.postcode || reverseContext.postcode || '').trim(),
+      country: String(locationContext.country || reverseContext.country || 'Australia').trim() || 'Australia',
+      label: String(locationContext.label || reverseContext.label || '').trim()
+    };
+  }
   if (locationContext.postcode) return locationContext;
   const postcode = await fetchCareerSuburbPostcode(locationContext);
   if (!postcode) return locationContext;
@@ -7041,11 +7129,116 @@ function resizeDomainImageUrl(value, width = 720, height = 540) {
 }
 
 function buildHomelyLifestyleLocationSlug(locationContext) {
+  const explicitSlug = String(locationContext && locationContext.slug || '').trim();
+  if (explicitSlug) return explicitSlug;
   const suburb = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
   const state = String(locationContext && locationContext.state || '').trim().toLowerCase();
   const postcode = extractAustralianPostcode(locationContext && locationContext.postcode);
   if (!suburb || !state || !postcode) return '';
   return `${suburb}-${state}-${postcode}`;
+}
+
+function buildHomelyLifestyleSearchQueries(locationContext) {
+  const suburb = String(locationContext && locationContext.suburb || '').trim();
+  const stateCode = normalizeAustralianStateAbbreviation(locationContext && locationContext.state || '');
+  const stateName = getAustralianStateName(stateCode);
+  const label = String(locationContext && locationContext.label || '').trim()
+    .replace(/,\s*Australia\s*$/i, '')
+    .replace(/\b\d{4}\b/g, ' ')
+    .replace(/,/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return Array.from(new Set([
+    suburb && stateName ? `${suburb} ${stateName}` : '',
+    suburb && stateCode ? `${suburb} ${stateCode}` : '',
+    suburb,
+    label
+  ].map((item) => String(item || '').replace(/\s+/g, ' ').trim()).filter(Boolean)));
+}
+
+function scoreHomelyLocationCandidate(candidate, locationContext) {
+  if (!candidate || typeof candidate !== 'object') return Number.NEGATIVE_INFINITY;
+  const candidateName = normalizeCareerHeroCityKey(candidate && candidate.name);
+  const candidateState = normalizeAustralianStateAbbreviation(candidate && candidate.state && candidate.state.name);
+  const candidatePostcode = extractAustralianPostcode(candidate && candidate.zipCode && candidate.zipCode.name);
+  const candidateType = Number(candidate && candidate.type || 0);
+  const suburbKey = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
+  const stateCode = normalizeAustralianStateAbbreviation(locationContext && locationContext.state || '');
+  const postcode = extractAustralianPostcode(locationContext && locationContext.postcode);
+  let score = 0;
+  if (suburbKey && candidateName === suburbKey) score += 100;
+  else if (suburbKey && candidateName.includes(suburbKey)) score += 40;
+  if (stateCode && candidateState === stateCode) score += 35;
+  if (postcode && candidatePostcode === postcode) score += 35;
+  if (candidateType === 2) score += 15;
+  return score;
+}
+
+async function fetchHomelyLocationMatches(query) {
+  const searchQuery = String(query || '').replace(/\s+/g, ' ').trim();
+  if (!searchQuery) return [];
+  try {
+    const url = new URL(HOMELY_LOCATION_SEARCH_URL);
+    url.searchParams.set('q', searchQuery);
+    const response = await fetch(url.toString(), {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
+      }
+    });
+    if (!response.ok) return [];
+    const payload = await response.json().catch(() => null);
+    return Array.isArray(payload && payload.locations) ? payload.locations : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+async function resolveHomelyLifestyleLocation(locationContext) {
+  const explicitSlug = String(locationContext && locationContext.slug || '').trim();
+  if (explicitSlug) {
+    return {
+      suburb: String(locationContext && locationContext.suburb || '').trim(),
+      state: normalizeAustralianStateAbbreviation(locationContext && locationContext.state || ''),
+      postcode: extractAustralianPostcode(locationContext && locationContext.postcode),
+      country: String(locationContext && locationContext.country || 'Australia').trim() || 'Australia',
+      label: String(locationContext && locationContext.label || '').trim(),
+      slug: explicitSlug,
+      uri: String(locationContext && locationContext.uri || '').trim()
+    };
+  }
+  const searchQueries = buildHomelyLifestyleSearchQueries(locationContext);
+  const candidatesBySlug = new Map();
+  for (const query of searchQueries) {
+    const matches = await fetchHomelyLocationMatches(query);
+    matches.forEach((candidate) => {
+      const slug = String(candidate && candidate.slug || '').trim();
+      if (!slug || candidatesBySlug.has(slug)) return;
+      candidatesBySlug.set(slug, candidate);
+    });
+  }
+  const candidates = Array.from(candidatesBySlug.values());
+  if (!candidates.length) return null;
+  const best = candidates
+    .map((candidate) => ({ candidate, score: scoreHomelyLocationCandidate(candidate, locationContext) }))
+    .sort((left, right) => right.score - left.score)[0];
+  if (!best || !best.candidate || !Number.isFinite(best.score) || best.score < 40) return null;
+  return {
+    suburb: String(best.candidate.name || locationContext && locationContext.suburb || '').trim(),
+    state: normalizeAustralianStateAbbreviation(best.candidate && best.candidate.state && best.candidate.state.name),
+    postcode: extractAustralianPostcode(best.candidate && best.candidate.zipCode && best.candidate.zipCode.name),
+    country: String(locationContext && locationContext.country || 'Australia').trim() || 'Australia',
+    label: buildLocationLabel([
+      String(best.candidate.name || '').trim(),
+      buildLocationLabel([
+        normalizeAustralianStateAbbreviation(best.candidate && best.candidate.state && best.candidate.state.name),
+        extractAustralianPostcode(best.candidate && best.candidate.zipCode && best.candidate.zipCode.name)
+      ]),
+      'Australia'
+    ]),
+    slug: String(best.candidate.slug || '').trim(),
+    uri: String(best.candidate.uri || '').trim()
+  };
 }
 
 function buildHomelyLifestyleSearchUrl(locationContext, market = 'rent', pageNumber = 1) {
@@ -7212,14 +7405,15 @@ async function fetchHomelyLifestyleSearchPage(url) {
 }
 
 async function fetchHomelyLifestyleListings(locationContext, practiceCoords, market, household, options = {}) {
-  const searchUrl = buildHomelyLifestyleSearchUrl(locationContext, market, 1);
+  const resolvedLocation = await resolveHomelyLifestyleLocation(locationContext) || locationContext;
+  const searchUrl = buildHomelyLifestyleSearchUrl(resolvedLocation, market, 1);
   if (!searchUrl) return [];
   const deduped = new Map();
   let totalPages = 1;
   const maxPages = Math.max(1, HOMELY_LIFESTYLE_MAX_PAGES);
 
   for (let page = 1; page <= Math.min(totalPages, maxPages); page += 1) {
-    const pageUrl = buildHomelyLifestyleSearchUrl(locationContext, market, page);
+    const pageUrl = buildHomelyLifestyleSearchUrl(resolvedLocation, market, page);
     const payload = await fetchHomelyLifestyleSearchPage(pageUrl);
     totalPages = Math.max(totalPages, payload.totalPages || 1);
     (Array.isArray(payload.listings) ? payload.listings : []).forEach((record) => {
@@ -8323,20 +8517,21 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
 
   const roleMeta = getCareerRoleGpLinkMeta(roleRow);
   const baseLocationContext = buildLifestyleLocationContext(location, roleMeta, roleRow);
-  const locationContext = await enrichLifestyleLocationContextForHomely(baseLocationContext);
   const geocoded = await resolveCareerSuburbCoordinates({
-    suburb: roleMeta && roleMeta.suburb ? roleMeta.suburb : locationContext.suburb,
-    state: roleRow && roleRow.location_state ? roleRow.location_state : locationContext.state,
-    country: roleRow && roleRow.location_country ? roleRow.location_country : locationContext.country
+    suburb: roleMeta && roleMeta.suburb ? roleMeta.suburb : baseLocationContext.suburb,
+    state: roleRow && roleRow.location_state ? roleRow.location_state : baseLocationContext.state,
+    country: roleRow && roleRow.location_country ? roleRow.location_country : baseLocationContext.country
   });
-  const locationSuburbKey = normalizeCareerHeroCityKey(locationContext.suburb);
+  const locationSuburbKey = normalizeCareerHeroCityKey(baseLocationContext.suburb);
   const practiceCoords = buildLifestyleCoordinate(geocoded && geocoded.latitude, geocoded && geocoded.longitude)
     || ((locationSuburbKey === 'tweed_heads' || locationSuburbKey === 'tweed_heads_south') ? { lat: -28.1883, lng: 153.5375 } : null);
+  const locationContext = await enrichLifestyleLocationContextForHomely(baseLocationContext, practiceCoords);
+  const homelyLocation = await resolveHomelyLifestyleLocation(locationContext) || locationContext;
   const [liveRentListings, liveBuyListings] = await Promise.all([
-    fetchHomelyLifestyleListings(locationContext, practiceCoords, 'rent', household, {
+    fetchHomelyLifestyleListings(homelyLocation, practiceCoords, 'rent', household, {
       radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
     }),
-    fetchHomelyLifestyleListings(locationContext, practiceCoords, 'buy', household, {
+    fetchHomelyLifestyleListings(homelyLocation, practiceCoords, 'buy', household, {
       radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
     })
   ]);
@@ -8369,17 +8564,17 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
     },
     housing: {
       defaultMode: 'rent',
-      defaultRadiusKm: 5,
+      defaultRadiusKm: 25,
       recommendedBedrooms: household.recommendedBedrooms,
       partySummary: household.partySummary,
       liveSource: 'homely',
       liveEnabled: true,
       fallbackEnabled: false,
       selectedAgencyBrands: [],
-      searchContext: locationContext,
+      searchContext: homelyLocation,
       sources: housingSources,
-      viewAllRentUrl: buildHomelyLifestyleSearchUrl(locationContext, 'rent'),
-      viewAllBuyUrl: buildHomelyLifestyleSearchUrl(locationContext, 'buy'),
+      viewAllRentUrl: buildHomelyLifestyleSearchUrl(homelyLocation, 'rent'),
+      viewAllBuyUrl: buildHomelyLifestyleSearchUrl(homelyLocation, 'buy'),
       rent: housingByMarket.rent,
       buy: housingByMarket.buy
     },
@@ -8652,6 +8847,24 @@ async function upsertSupabaseUserState(userId, state, updatedAt) {
     }
   );
   return result.ok;
+}
+
+async function pushVisaNotificationToOwner(caseId, notification) {
+  if (!caseId) return;
+  try {
+    const caseRes = await supabaseDbRequest('visa_applications', `select=user_id&id=eq.${encodeURIComponent(caseId)}&limit=1`);
+    if (!caseRes.ok || !Array.isArray(caseRes.data) || caseRes.data.length === 0) return;
+    const userId = caseRes.data[0].user_id;
+    if (!userId) return;
+    const stateRes = await supabaseDbRequest('user_state', `select=state,updated_at&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const row = stateRes.ok && Array.isArray(stateRes.data) && stateRes.data.length > 0 ? stateRes.data[0] : null;
+    const state = (row && row.state && typeof row.state === 'object') ? { ...row.state } : {};
+    const updates = Array.isArray(state.gp_link_updates) ? [...state.gp_link_updates] : [];
+    updates.unshift({ type: notification.type || 'info', title: notification.title || 'Visa update', detail: notification.detail || '', ts: Date.now() });
+    if (updates.length > 50) updates.length = 50;
+    state.gp_link_updates = updates;
+    await upsertSupabaseUserState(userId, state, new Date().toISOString());
+  } catch (_) { /* non-critical */ }
 }
 
 function mapSupabaseProfileRowToApiProfile(row, email) {
@@ -9978,13 +10191,6 @@ async function handleApi(req, res, pathname) {
     }
 
     const market = body && body.market === 'buy' ? 'buy' : 'rent';
-    const locationContext = await enrichLifestyleLocationContextForHomely(body && body.locationContext);
-    if (!locationContext.label && !locationContext.suburb && !locationContext.state && !locationContext.postcode) {
-      sendJson(res, 400, { ok: false, message: 'Missing housing search location.' });
-      return;
-    }
-
-    const household = normalizeLifestyleSearchHousehold(body && body.household);
     const practiceCoords = buildLifestyleCoordinate(
       body && body.practiceCoords && body.practiceCoords.lat,
       pickFirstDefined(
@@ -9993,6 +10199,13 @@ async function handleApi(req, res, pathname) {
         body && body.practiceCoords && body.practiceCoords.longitude
       )
     );
+    const locationContext = await enrichLifestyleLocationContextForHomely(body && body.locationContext, practiceCoords);
+    if (!locationContext.label && !locationContext.suburb && !locationContext.state && !locationContext.postcode) {
+      sendJson(res, 400, { ok: false, message: 'Missing housing search location.' });
+      return;
+    }
+    const homelyLocation = await resolveHomelyLifestyleLocation(locationContext) || locationContext;
+    const household = normalizeLifestyleSearchHousehold(body && body.household);
     const searchOptions = {
       radiusKm: body && body.radiusKm,
       searchQuery: body && body.searchQuery,
@@ -10001,7 +10214,7 @@ async function handleApi(req, res, pathname) {
       sortOrder: body && body.sortOrder
     };
     const listings = await fetchHomelyLifestyleListings(
-      locationContext,
+      homelyLocation,
       practiceCoords,
       market,
       household,
@@ -13159,19 +13372,22 @@ Return ONLY valid JSON with no markdown formatting:
     let documents = [];
     let updates = [];
     let timelineEvents = [];
+    let dependants = [];
     if (application) {
       const caseId = encodeURIComponent(application.id);
-      const [docsRes, updatesRes, eventsRes] = await Promise.all([
+      const [docsRes, updatesRes, eventsRes, depsRes] = await Promise.all([
         supabaseDbRequest('visa_documents', `select=*&visa_application_id=eq.${caseId}&order=uploaded_at.desc`),
         supabaseDbRequest('visa_updates', `select=*&visa_case_id=eq.${caseId}&visibility=eq.gp&order=created_at.desc`),
-        supabaseDbRequest('visa_timeline_events', `select=*&visa_case_id=eq.${caseId}&visible_to_gp=eq.true&order=created_at.desc`)
+        supabaseDbRequest('visa_timeline_events', `select=*&visa_case_id=eq.${caseId}&visible_to_gp=eq.true&order=created_at.desc`),
+        supabaseDbRequest('visa_dependants', `select=*&visa_case_id=eq.${caseId}&order=created_at.asc`)
       ]);
       if (docsRes.ok && Array.isArray(docsRes.data)) documents = docsRes.data;
       if (updatesRes.ok && Array.isArray(updatesRes.data)) updates = updatesRes.data;
       if (eventsRes.ok && Array.isArray(eventsRes.data)) timelineEvents = eventsRes.data;
+      if (depsRes.ok && Array.isArray(depsRes.data)) dependants = depsRes.data;
     }
 
-    sendJson(res, 200, { ok: true, application, documents, updates, timelineEvents });
+    sendJson(res, 200, { ok: true, application, documents, updates, timelineEvents, dependants });
     return;
   }
 
@@ -13277,6 +13493,13 @@ Return ONLY valid JSON with no markdown formatting:
           return;
         }
         const created = Array.isArray(createResult.data) && createResult.data.length > 0 ? createResult.data[0] : null;
+        // Auto-create "Case created" timeline event
+        if (created) {
+          await supabaseDbRequest('visa_timeline_events', '', {
+            method: 'POST',
+            body: [{ visa_case_id: created.id, event_title: 'Visa case created', event_description: created.visa_subclass ? 'Subclass ' + created.visa_subclass : null, visible_to_gp: true, created_by: adminCtx.email }]
+          });
+        }
         sendJson(res, 201, { ok: true, application: created });
         return;
       }
@@ -13295,6 +13518,17 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
+    // Capture old stage before update for auto-timeline
+    let oldStage = null;
+    let caseIdForEvents = null;
+    if (stage && filterQuery) {
+      const oldRes = await supabaseDbRequest('visa_applications', `select=id,stage&${filterQuery}`);
+      if (oldRes.ok && Array.isArray(oldRes.data) && oldRes.data.length > 0) {
+        oldStage = oldRes.data[0].stage;
+        caseIdForEvents = oldRes.data[0].id;
+      }
+    }
+
     const updateResult = await supabaseDbRequest('visa_applications', filterQuery, {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
@@ -13306,6 +13540,18 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const updated = Array.isArray(updateResult.data) && updateResult.data.length > 0 ? updateResult.data[0] : null;
+
+    // Auto-create timeline events for stage transitions
+    if (updated && stage && oldStage && stage !== oldStage) {
+      const stageLabels = { nomination: 'Nomination', lodgement: 'Lodgement', processing: 'Processing', granted: 'Granted', refused: 'Refused' };
+      const label = stageLabels[stage] || stage;
+      await supabaseDbRequest('visa_timeline_events', '', {
+        method: 'POST',
+        body: [{ visa_case_id: updated.id, event_title: 'Stage changed to ' + label, visible_to_gp: true, created_by: adminCtx.email }]
+      });
+      pushVisaNotificationToOwner(updated.id, { type: 'action', title: 'Visa stage updated', detail: 'Your visa case has moved to ' + label });
+    }
+
     sendJson(res, 200, { ok: true, application: updated });
     return;
   }
@@ -13495,6 +13741,7 @@ Return ONLY valid JSON with no markdown formatting:
         method: 'POST',
         body: [{ visa_case_id: caseId, event_title: 'New update from GP Link team', visible_to_gp: true, created_by: adminCtx2.email }]
       });
+      pushVisaNotificationToOwner(caseId, { type: 'info', title: 'Visa update', detail: noteBody.length > 80 ? noteBody.slice(0, 77) + '...' : noteBody });
     }
     const update = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
     sendJson(res, 201, { ok: true, update });
@@ -13552,8 +13799,181 @@ Return ONLY valid JSON with no markdown formatting:
         method: 'POST',
         body: [{ visa_case_id: doc.visa_application_id, event_title: docLabel + ' ' + status, visible_to_gp: true, created_by: adminCtx4.email }]
       });
+      const notifType = status === 'approved' ? 'success' : 'action';
+      const notifDetail = status === 'approved' ? docLabel + ' has been approved' : docLabel + ' was rejected — please re-upload';
+      pushVisaNotificationToOwner(doc.visa_application_id, { type: notifType, title: 'Document ' + status, detail: notifDetail });
     }
     sendJson(res, 200, { ok: true, document: doc });
+    return;
+  }
+
+  // ── Visa Document Request (admin requests doc from GP) ──
+  if (pathname === '/api/visa/documents/request' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtxReq = requireAdminSession(req, res);
+    if (!adminCtxReq) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const caseId = String(body && body.caseId || '').trim();
+    const documentType = String(body && body.documentType || '').trim().slice(0, 200);
+    const requestNote = body && typeof body.requestNote === 'string' ? body.requestNote.trim().slice(0, 1000) : null;
+    if (!caseId || !documentType) { sendJson(res, 400, { ok: false, message: 'Missing caseId or documentType.' }); return; }
+    // Find the visa_application_id (caseId IS the visa_application id)
+    const caseCheck = await supabaseDbRequest('visa_applications', `select=id&id=eq.${encodeURIComponent(caseId)}&limit=1`);
+    if (!caseCheck.ok || !Array.isArray(caseCheck.data) || caseCheck.data.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Visa case not found.' }); return;
+    }
+    const insertRes = await supabaseDbRequest('visa_documents', '', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: [{
+        visa_application_id: caseId,
+        document_type: documentType,
+        file_path: '',
+        verified: false,
+        status: 'missing',
+        requested_by: adminCtxReq.email,
+        requested_at: new Date().toISOString(),
+        request_note: requestNote
+      }]
+    });
+    if (!insertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to create document request.' }); return; }
+    const doc = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
+    // Auto-timeline event
+    const docLabel = documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    await supabaseDbRequest('visa_timeline_events', '', {
+      method: 'POST',
+      body: [{ visa_case_id: caseId, event_title: docLabel + ' requested', visible_to_gp: true, created_by: adminCtxReq.email }]
+    });
+    pushVisaNotificationToOwner(caseId, { type: 'action', title: 'Document requested', detail: docLabel + ' — please upload this document' });
+    sendJson(res, 201, { ok: true, document: doc });
+    return;
+  }
+
+  // ── Visa Dependants (GP CRUD) ──
+  if (pathname === '/api/visa/dependants' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const caseId = url.searchParams.get('caseId');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing caseId.' }); return; }
+    const own = await supabaseDbRequest('visa_applications', `select=id&id=eq.${encodeURIComponent(caseId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    if (!own.ok || !Array.isArray(own.data) || own.data.length === 0) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
+    const depRes = await supabaseDbRequest('visa_dependants', `select=*&visa_case_id=eq.${encodeURIComponent(caseId)}&order=created_at.asc`);
+    sendJson(res, 200, { ok: true, dependants: depRes.ok && Array.isArray(depRes.data) ? depRes.data : [] });
+    return;
+  }
+
+  if (pathname === '/api/visa/dependants' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const caseId = String(body && body.caseId || '').trim();
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing caseId.' }); return; }
+    const own = await supabaseDbRequest('visa_applications', `select=id&id=eq.${encodeURIComponent(caseId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    if (!own.ok || !Array.isArray(own.data) || own.data.length === 0) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
+    const fullName = String(body.fullName || '').trim().slice(0, 200);
+    const relationship = ['spouse', 'child', 'other'].includes(body.relationship) ? body.relationship : 'other';
+    if (!fullName) { sendJson(res, 400, { ok: false, message: 'Missing fullName.' }); return; }
+    const insertRes = await supabaseDbRequest('visa_dependants', '', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: [{
+        visa_case_id: caseId,
+        full_name: fullName,
+        relationship: relationship,
+        date_of_birth: body.dateOfBirth && typeof body.dateOfBirth === 'string' ? body.dateOfBirth.slice(0, 10) : null,
+        passport_number: body.passportNumber && typeof body.passportNumber === 'string' ? body.passportNumber.trim().slice(0, 50) : null,
+        passport_country: body.passportCountry && typeof body.passportCountry === 'string' ? body.passportCountry.trim().slice(0, 100) : null,
+        notes: body.notes && typeof body.notes === 'string' ? body.notes.trim().slice(0, 500) : null
+      }]
+    });
+    if (!insertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to add dependant.' }); return; }
+    const dep = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
+    // Auto-timeline event
+    if (dep) {
+      await supabaseDbRequest('visa_timeline_events', '', {
+        method: 'POST',
+        body: [{ visa_case_id: caseId, event_title: 'Dependant added: ' + fullName, visible_to_gp: true, created_by: 'system' }]
+      });
+    }
+    sendJson(res, 201, { ok: true, dependant: dep });
+    return;
+  }
+
+  if (pathname === '/api/visa/dependants' && req.method === 'PATCH') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const depId = String(body && body.id || '').trim();
+    if (!depId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    // Verify ownership through case
+    const depCheck = await supabaseDbRequest('visa_dependants', `select=id,visa_case_id&id=eq.${encodeURIComponent(depId)}`);
+    if (!depCheck.ok || !Array.isArray(depCheck.data) || depCheck.data.length === 0) { sendJson(res, 404, { ok: false, message: 'Dependant not found.' }); return; }
+    const depCaseId = depCheck.data[0].visa_case_id;
+    const own = await supabaseDbRequest('visa_applications', `select=id&id=eq.${encodeURIComponent(depCaseId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    if (!own.ok || !Array.isArray(own.data) || own.data.length === 0) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
+    const patch = { updated_at: new Date().toISOString() };
+    if (typeof body.fullName === 'string') patch.full_name = body.fullName.trim().slice(0, 200);
+    if (['spouse', 'child', 'other'].includes(body.relationship)) patch.relationship = body.relationship;
+    if (typeof body.dateOfBirth === 'string') patch.date_of_birth = body.dateOfBirth.slice(0, 10) || null;
+    if (typeof body.passportNumber === 'string') patch.passport_number = body.passportNumber.trim().slice(0, 50);
+    if (typeof body.passportCountry === 'string') patch.passport_country = body.passportCountry.trim().slice(0, 100);
+    if (typeof body.notes === 'string') patch.notes = body.notes.trim().slice(0, 500);
+    const updateRes = await supabaseDbRequest('visa_dependants', `id=eq.${encodeURIComponent(depId)}`, {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch
+    });
+    if (!updateRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update dependant.' }); return; }
+    const updated = Array.isArray(updateRes.data) && updateRes.data.length > 0 ? updateRes.data[0] : null;
+    sendJson(res, 200, { ok: true, dependant: updated });
+    return;
+  }
+
+  if (pathname === '/api/visa/dependants' && req.method === 'DELETE') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const depId = url.searchParams.get('id');
+    if (!depId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    const depCheck = await supabaseDbRequest('visa_dependants', `select=id,visa_case_id,full_name&id=eq.${encodeURIComponent(depId)}`);
+    if (!depCheck.ok || !Array.isArray(depCheck.data) || depCheck.data.length === 0) { sendJson(res, 404, { ok: false, message: 'Dependant not found.' }); return; }
+    const depCaseId = depCheck.data[0].visa_case_id;
+    const depName = depCheck.data[0].full_name;
+    const own = await supabaseDbRequest('visa_applications', `select=id&id=eq.${encodeURIComponent(depCaseId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    if (!own.ok || !Array.isArray(own.data) || own.data.length === 0) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
+    const delRes = await supabaseDbRequest('visa_dependants', `id=eq.${encodeURIComponent(depId)}`, { method: 'DELETE' });
+    if (!delRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to remove dependant.' }); return; }
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Admin: Get Dependants for a case ──
+  if (pathname === '/api/admin/visa/dependants' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtxDep = requireAdminSession(req, res);
+    if (!adminCtxDep) return;
+    const caseId = url.searchParams.get('caseId');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing caseId.' }); return; }
+    const depRes = await supabaseDbRequest('visa_dependants', `select=*&visa_case_id=eq.${encodeURIComponent(caseId)}&order=created_at.asc`);
+    sendJson(res, 200, { ok: true, dependants: depRes.ok && Array.isArray(depRes.data) ? depRes.data : [] });
     return;
   }
 
@@ -13587,11 +14007,12 @@ Return ONLY valid JSON with no markdown formatting:
     const caseId = url.searchParams.get('id');
     if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     const caseIdEnc = encodeURIComponent(caseId);
-    const [caseRes, docsRes, updatesRes, eventsRes] = await Promise.all([
+    const [caseRes, docsRes, updatesRes, eventsRes, depsRes] = await Promise.all([
       supabaseDbRequest('visa_applications', `select=*&id=eq.${caseIdEnc}&limit=1`),
       supabaseDbRequest('visa_documents', `select=*&visa_application_id=eq.${caseIdEnc}&order=uploaded_at.desc`),
       supabaseDbRequest('visa_updates', `select=*&visa_case_id=eq.${caseIdEnc}&order=created_at.desc`),
-      supabaseDbRequest('visa_timeline_events', `select=*&visa_case_id=eq.${caseIdEnc}&order=created_at.desc`)
+      supabaseDbRequest('visa_timeline_events', `select=*&visa_case_id=eq.${caseIdEnc}&order=created_at.desc`),
+      supabaseDbRequest('visa_dependants', `select=*&visa_case_id=eq.${caseIdEnc}&order=created_at.asc`)
     ]);
     const application = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data.length > 0 ? caseRes.data[0] : null;
     if (!application) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
@@ -13605,7 +14026,8 @@ Return ONLY valid JSON with no markdown formatting:
       ok: true, application, profile,
       documents: docsRes.ok && Array.isArray(docsRes.data) ? docsRes.data : [],
       updates: updatesRes.ok && Array.isArray(updatesRes.data) ? updatesRes.data : [],
-      timelineEvents: eventsRes.ok && Array.isArray(eventsRes.data) ? eventsRes.data : []
+      timelineEvents: eventsRes.ok && Array.isArray(eventsRes.data) ? eventsRes.data : [],
+      dependants: depsRes.ok && Array.isArray(depsRes.data) ? depsRes.data : []
     });
     return;
   }

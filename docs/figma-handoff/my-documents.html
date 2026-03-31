@@ -1,0 +1,2889 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Your Document Progress - GP Link</title>
+  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/state-sync.js?v=20260314b" defer></script>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260312g" defer></script>
+  <script src="../js/qualification-scan.js?v=20260312g" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f0f4fa;
+      --panel: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --line: #e8edf5;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --amber-bg: #fff8e8;
+      --amber-line: #f4d28d;
+      --shadow-soft: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+      --glass-bg: rgba(255, 255, 255, 0.92);
+      --glass-border: #e2e8f0;
+      --glass-shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+    }
+
+    * { box-sizing: border-box; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      margin: 0;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 0;
+    }
+
+    .shell {
+      max-width: 960px;
+      margin: 0 auto;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      overflow: visible;
+      padding: 0 16px 120px;
+    }
+
+    /* ─── MOBILE APP HEADER ─── */
+    .app-header {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 0 14px;
+    }
+
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+
+    .header-avatar {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0;
+      border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+
+    .header-text h1 {
+      margin: 0;
+      font-size: 20px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
+    }
+
+    .header-text p {
+      font-size: 13px; color: var(--muted);
+      font-weight: 500; margin: 1px 0 0;
+    }
+
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease;
+      color: #475569; text-decoration: none;
+    }
+
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.5);
+    }
+
+    .topbar {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid #e8edf5;
+      background: #ffffff;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .topbar-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      min-height: 56px;
+      gap: 14px;
+    }
+
+    .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
+    .brand-logo img { display: block; width: 178px; height: auto; }
+
+    .nav-menu {
+      display: flex;
+      gap: 22px;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+      padding: 6px;
+      border-radius: 14px;
+    }
+
+    .nav-item {
+      position: relative;
+      z-index: 2;
+      transition: color .18s ease, font-weight .18s ease;
+    }
+
+    .nav-link,
+    .nav-action,
+    .account-pill {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #111827;
+      border-radius: 0;
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0;
+      white-space: nowrap;
+      cursor: pointer;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      line-height: 1.15;
+      min-width: 104px;
+      border-radius: 12px;
+      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+    }
+
+    .nav-icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      color: #334155;
+    }
+
+    .nav-text { line-height: 1; }
+
+    .nav-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .nav-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+
+    .nav-alert {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      color: #ffffff;
+      background: #dc2626;
+      line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .nav-link.active,
+    .nav-action.active,
+    .account-pill.active {
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .nav-glass {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 104px;
+      height: 44px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05), transform .2s ease, box-shadow .2s ease;
+    }
+
+    .nav-glass.morph { animation: glassMorph .34s ease; }
+
+    .nav-glass.engulf {
+      transform: scale(1.06);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 14px 24px -18px rgba(37, 99, 235, 0.62);
+    }
+
+    @keyframes glassMorph {
+      0% { transform: scaleX(.92) scaleY(1.02); border-radius: 16px; }
+      50% { transform: scaleX(1.08) scaleY(.92); border-radius: 20px; }
+      100% { transform: scaleX(1) scaleY(1); border-radius: 12px; }
+    }
+
+    .reg-dropdown {
+      position: absolute;
+      top: calc(100% + 2px);
+      right: 0;
+      width: min(760px, 92vw);
+      border-radius: 16px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      box-shadow: var(--glass-shadow), 0 14px 26px -18px rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      padding: 10px;
+      z-index: 70;
+      opacity: 0;
+      transform: translateY(4px);
+      pointer-events: none;
+      visibility: hidden;
+      transition: opacity .14s ease, transform .14s ease, visibility .14s ease;
+    }
+
+    .reg-dropdown.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+      visibility: visible;
+    }
+
+    .reg-head { margin: 0 0 8px; font-size: 13px; font-weight: 900; color: #0f172a; }
+    .reg-table { display: grid; gap: 8px; }
+
+    .reg-row {
+      display: grid;
+      grid-template-columns: 1.2fr auto auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      background: #fbfdff;
+      border-radius: 12px;
+      padding: 8px 10px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .reg-name { font-size: 12px; font-weight: 800; color: #0f172a; }
+    .reg-sub { font-size: 11px; font-weight: 700; color: #64748b; margin-top: 2px; }
+    .reg-row.done {
+      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+      border-color: #86efac;
+    }
+    .reg-row.done .reg-name,
+    .reg-row.done .reg-sub {
+      color: #166534;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+    }
+    .reg-row.done::before,
+    .reg-row.done::after {
+      content: "";
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      top: 50%;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+      pointer-events: none;
+    }
+    .reg-row.done::before { transform: rotate(6deg); }
+    .reg-row.done::after { transform: rotate(-6deg); }
+
+    .reg-pill {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 900;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #eaf3ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdcff;
+    }
+    .reg-pill.done {
+      background: #16a34a;
+      color: #fff;
+      border-color: #16a34a;
+    }
+
+    .reg-pill.locked {
+      background: #f1f5f9;
+      color: #64748b;
+      border-color: #dbe4ef;
+    }
+
+    .reg-btn {
+      text-decoration: none;
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+      color: #1e3a8a;
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid rgba(191, 220, 255, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    .reg-btn.done {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #166534;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      pointer-events: none;
+    }
+
+    .reg-btn.locked {
+      background: rgba(241, 245, 249, 0.82);
+      border-color: #dbe4ef;
+      color: #64748b;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      pointer-events: none;
+    }
+
+    .main {
+      padding: 14px 0 0;
+      display: grid;
+      gap: 12px;
+    }
+
+    .heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 2px 4px;
+    }
+
+    .heading h2 { margin: 0; font-size: 22px; letter-spacing: -0.02em; font-weight: 800; color: var(--text); }
+    .heading p { margin: 4px 0 0; color: var(--muted); font-size: 14px; font-weight: 500; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      color: #334155;
+      transition: all .15s ease;
+      font-family: inherit;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+      opacity: 0.55;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: #fff;
+      border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+
+    .btn-primary:hover {
+      background: var(--blue2);
+      border-color: var(--blue2);
+    }
+
+    .btn-soft {
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+      background: #eff6ff;
+    }
+
+    .btn-soft:hover {
+      background: #dbeafe;
+      border-color: #93c5fd;
+    }
+
+    .btn-neutral {
+      color: #64748b;
+      border-color: #e2e8f0;
+      background: #f1f5f9;
+      box-shadow: none;
+    }
+
+    .btn-neutral:hover {
+      background: #e2e8f0;
+    }
+
+
+
+    /* ─── DOC TAB BAR (matches account.html) ─── */
+    .doc-tabs {
+      display: flex;
+      gap: 4px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 4px;
+      margin-bottom: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .doc-tab {
+      flex: 1;
+      border: 0;
+      background: transparent;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 10px 8px;
+      border-radius: 12px;
+      cursor: pointer;
+      position: relative;
+      z-index: 2;
+      transition: color .25s ease;
+      white-space: nowrap;
+      text-align: center;
+    }
+
+    .doc-tab:hover { color: var(--text); }
+
+    .doc-tab.is-active {
+      color: #fff;
+    }
+
+    .doc-tab-slider {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      height: calc(100% - 8px);
+      border-radius: 12px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.5);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .35s cubic-bezier(.22,.9,.18,1.05), width .35s cubic-bezier(.22,.9,.18,1.05);
+    }
+
+    /* ─── DOC TAB PANELS ─── */
+    .doc-panels-wrap {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .doc-panel {
+      display: none;
+      opacity: 0;
+      transform: translateX(20px);
+      transition: opacity .3s ease, transform .3s ease;
+    }
+
+    .doc-panel.is-entering {
+      display: block;
+    }
+
+    .doc-panel.is-active {
+      display: block;
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .doc-panel.is-leaving {
+      display: block;
+      opacity: 0;
+      transform: translateX(-20px);
+      position: absolute;
+      top: 0; left: 0; right: 0;
+    }
+
+    .doc-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .doc-panel-header p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    /* ─── DOCUMENT CARDS (matches account home-action-card) ─── */
+    .doc-card-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .doc-card {
+      border: 1px solid #e8edf5;
+      border-radius: 14px;
+      background: #fff;
+      padding: 18px;
+      display: grid;
+      gap: 10px;
+      transition: all .2s ease;
+    }
+
+    .doc-card:hover {
+      border-color: #c7d2fe;
+      box-shadow: 0 4px 16px -8px rgba(37, 99, 235, 0.15);
+      transform: translateY(-1px);
+    }
+
+    .doc-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .doc-card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .doc-card-desc {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .doc-card-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+
+    .pill {
+      border-radius: 999px;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      white-space: nowrap;
+      align-self: flex-start;
+      text-transform: capitalize;
+    }
+
+    .pill.done { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .pill.review { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+    .pill.pending { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+    .pill.rejected { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+
+
+
+    .show-me-how {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 0;
+      background: transparent;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+      font-family: inherit;
+      transition: color .15s ease;
+    }
+    .show-me-how:hover { color: var(--blue2); }
+    .show-me-how svg {
+      width: 14px; height: 14px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .upload-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-family: inherit;
+      transition: all .15s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .upload-btn:hover { background: #dbeafe; border-color: #93c5fd; }
+    .upload-btn svg {
+      width: 14px; height: 14px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .upload-btn input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      font-size: 0;
+    }
+    .upload-btn.has-file {
+      background: #ecfdf5;
+      border-color: #bbf7d0;
+      color: #166534;
+    }
+
+    .cert-scan-btn svg {
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .mobile-only { display: inline-flex !important; }
+    .desktop-only { display: none !important; }
+    @media (min-width: 640px) {
+      .mobile-only { display: none !important; }
+      .desktop-only { display: inline-flex !important; }
+    }
+
+    .cert-badge {
+      font-size: 11.5px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .cert-badge svg {
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .cert-badge.done { color: #16a34a; }
+    .cert-badge.attention { color: #d97706; }
+
+    .cert-scanning {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #6366f1;
+      padding: 8px 0;
+    }
+    .cert-scan-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #e2e8f0;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: certSpin .7s linear infinite;
+    }
+    @keyframes certSpin { to { transform: rotate(360deg); } }
+
+    .cert-result-popup {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      transition: opacity .25s ease;
+    }
+    .cert-result-popup.show { opacity: 1; }
+    .cert-result-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 28px 24px;
+      width: min(380px, calc(100vw - 40px));
+      text-align: center;
+      box-shadow: 0 20px 60px -20px rgba(15, 23, 42, 0.3);
+      transform: scale(0.95);
+      transition: transform .25s cubic-bezier(.22,.9,.18,1.02);
+    }
+    .cert-result-popup.show .cert-result-card { transform: scale(1); }
+    .cert-result-icon svg {
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .cert-result-popup.success .cert-result-icon { color: #16a34a; }
+    .cert-result-popup.fail .cert-result-icon { color: #dc2626; }
+    .cert-result-card h4 {
+      margin: 12px 0 6px;
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .cert-result-card p {
+      margin: 0 0 16px;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.55;
+    }
+    .cert-result-ok {
+      width: 100%;
+    }
+
+    .help-popover-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(240, 244, 250, 0.34);
+      backdrop-filter: blur(0px) saturate(1.02);
+      -webkit-backdrop-filter: blur(0px) saturate(1.02);
+      z-index: 90;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
+    }
+    .help-popover-backdrop.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      backdrop-filter: blur(16px) saturate(1.05);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+    }
+
+    .help-popover {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.95);
+      width: min(440px, calc(100vw - 32px));
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      border-radius: 20px;
+      border: 1px solid #e8edf5;
+      background: #fff;
+      box-shadow: 0 20px 60px -20px rgba(15, 23, 42, 0.25);
+      padding: 22px;
+      z-index: 91;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: transform .25s cubic-bezier(.22,.9,.18,1.02), opacity .25s ease;
+    }
+    .help-popover.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .help-popover h4 {
+      margin: 0 0 12px;
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .help-popover ol {
+      margin: 0;
+      padding-left: 0;
+      list-style: none;
+      display: grid;
+      gap: 8px;
+      font-size: 13px;
+      color: #334155;
+      font-weight: 500;
+      line-height: 1.55;
+    }
+    .help-popover ol li:first-child {
+      font-weight: 700;
+    }
+    .help-popover .help-reminder {
+      margin-top: 14px;
+      border-radius: 12px;
+      border: 1px solid #fde68a;
+      background: #fffbeb;
+      color: #92400e;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+    .help-popover .help-close-btn {
+      margin-top: 16px;
+      width: 100%;
+    }
+
+    .cert-note {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.6;
+      font-weight: 500;
+    }
+    .cert-note p {
+      margin: 0 0 10px;
+    }
+    .cert-note .cert-quote {
+      font-style: italic;
+      color: #6366f1;
+      font-weight: 600;
+      margin: 8px 0;
+    }
+    .cert-note ul {
+      margin: 6px 0 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 3px;
+    }
+    .cert-note ul li {
+      font-size: 12.5px;
+    }
+
+    .cert-illustration {
+      margin-top: 16px;
+      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      padding: 16px 18px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .cert-doc-mock {
+      flex-shrink: 0;
+      width: 110px;
+      border-radius: 8px;
+      background: #a7f3d0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .cert-doc-mock .doc-header {
+      font-size: 10px;
+      font-weight: 800;
+      color: #064e3b;
+      letter-spacing: -0.02em;
+    }
+    .cert-doc-mock .doc-accent {
+      height: 4px;
+      width: 36px;
+      border-radius: 2px;
+      background: #34d399;
+    }
+    .cert-doc-mock .doc-line {
+      height: 3px;
+      border-radius: 1.5px;
+      background: rgba(6, 78, 59, 0.18);
+    }
+    .cert-doc-mock .doc-line.short { width: 60%; }
+    .cert-doc-mock .doc-line.med { width: 80%; }
+    .cert-annotation {
+      flex: 1;
+      min-width: 0;
+    }
+    .cert-annotation .ann-quote {
+      font-size: 11px;
+      font-style: italic;
+      color: #475569;
+      font-weight: 500;
+      line-height: 1.5;
+      margin: 0 0 10px;
+    }
+    .cert-annotation .ann-details {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 500;
+      line-height: 1.55;
+    }
+    .cert-annotation .ann-sig {
+      margin: 8px 0 6px;
+      font-family: 'Georgia', serif;
+      font-size: 18px;
+      font-style: italic;
+      color: #334155;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(240, 244, 250, 0.34);
+      backdrop-filter: blur(0px) saturate(1.02);
+      -webkit-backdrop-filter: blur(0px) saturate(1.02);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      z-index: 90;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
+    }
+
+    .modal.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      backdrop-filter: blur(16px) saturate(1.05);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+    }
+
+    .modal-card {
+      width: min(620px, 100%);
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(191, 220, 255, 0.75);
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 26px 56px -24px rgba(15, 23, 42, 0.35);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      transform: translateY(20px) scale(0.92);
+      opacity: 0;
+      transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
+      transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
+    }
+    .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
+
+    .modal-card h4 { margin: 0; font-size: 18px; font-weight: 740; letter-spacing: -0.01em; }
+    .modal-card p { margin: 0; font-size: 13px; line-height: 1.45; color: #64748b; font-weight: 560; }
+
+    .modal-card textarea {
+      width: 100%;
+      min-height: 86px;
+      border-radius: 10px;
+      border: 1px solid #d8e4f6;
+      padding: 9px;
+      font: inherit;
+      font-size: 12px;
+      resize: vertical;
+    }
+
+    .mobile-nav {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 0;
+      width: 100%;
+      max-width: 560px;
+      border-top: 1px solid #e2e8f0;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
+      display: none;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      z-index: 50;
+      overflow: visible;
+      box-shadow: none;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+
+    .mobile-tab {
+      text-decoration: none;
+      border: 0;
+      background: transparent;
+      color: #94a3b8;
+      border-radius: 12px;
+      min-height: 46px;
+      padding: 6px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .mobile-tab-icon { position: relative; display: inline-grid; place-items: center; color: #64748b; }
+
+    .mobile-icon-wrap {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      line-height: 1;
+    }
+
+    .mobile-tab-alert {
+      top: -6px;
+      right: -8px;
+      transform: none;
+    }
+    .mobile-tab-label { display: none; }
+    .mobile-tab-active { background: rgba(37, 99, 235, 0.08); color: #2563eb; }
+    .mobile-tab-active .mobile-tab-icon { color: #2563eb; }
+    .mobile-tab-icon svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .mobile-tab-scan { transform: none; }
+    .mobile-tab-scan .mobile-tab-icon {
+      width: 36px; height: 36px; border-radius: 999px;
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      animation: scanHaloPulse 2.8s ease-in-out infinite;
+    }
+    .mobile-tab-scan .mobile-tab-icon svg { width: 19px; height: 19px; }
+    @keyframes scanHaloPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78);
+      }
+    }
+
+    .mobile-reg-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.42);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+      z-index: 54;
+    }
+
+    .mobile-reg-backdrop.show { opacity: 1; pointer-events: auto; }
+
+    .mobile-reg-sheet {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #ffffff;
+      border-radius: 18px 18px 0 0;
+      border-top: 1px solid #dbe4ef;
+      box-shadow: 0 -20px 40px -28px rgba(15, 23, 42, 0.5);
+      padding: 10px 12px 14px;
+      transform: translateY(100%);
+      transition: transform .24s ease;
+      z-index: 55;
+      max-height: 74vh;
+      overflow: auto;
+      touch-action: pan-y;
+    }
+
+    .mobile-reg-sheet.show { transform: translateY(0); }
+    .mobile-reg-grab { width: 44px; height: 5px; border-radius: 999px; background: #cbd5e1; margin: 2px auto 10px; }
+    .mobile-reg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .mobile-reg-title { margin: 0; font-size: 14px; font-weight: 900; color: #0f172a; }
+
+    .mobile-reg-close {
+      border: 0;
+      background: #f1f5f9;
+      color: #334155;
+      border-radius: 999px;
+      width: 30px;
+      height: 30px;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .mobile-reg-table { display: grid; gap: 8px; }
+    .mobile-reg-table .reg-row { grid-template-columns: 1fr auto; }
+    .mobile-reg-table .reg-btn { grid-column: 1 / -1; width: 100%; text-align: center; margin-top: 2px; }
+
+    @media (max-width: 980px) {
+      body { padding-bottom: 96px; }
+      .mobile-nav { display: grid; }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 12px 10px 22px; }
+      .heading h2 { font-size: 20px; }
+      .main { padding: 10px; }
+    }
+
+    @media (max-width: 767px) {
+      .nav-menu { display: none; }
+      .topbar { display: none; }
+      .app-header { display: flex; }
+      .heading { display: none; }
+    }
+
+    @media (max-width: 560px) {
+      .shell { border-radius: 0; padding: 0 10px 100px; }
+      .topbar { padding: 12px; margin-top: 12px; }
+      .doc-card { padding: 14px; }
+      .pill { white-space: normal; }
+      .doc-tab { font-size: 12px; padding: 9px 6px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar" id="headerAvatarMobile">GP</div>
+        <div class="header-text">
+          <h1>My Documents</h1>
+          <p>Some documents you prepare, and some we prepare for you.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="mobileHeaderChatBtn" type="button" aria-label="Messages">
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <header class="topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item" href="index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+            <span class="nav-text">Home</span>
+          </a>
+          <button class="nav-action nav-item" id="registrationMenuBtn" type="button" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+            <span class="nav-text">Registration</span>
+          </button>
+          <a class="nav-link nav-item active" href="my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span class="nav-text">My Documents</span>
+          </a>
+          <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span class="nav-text">Messages</span>
+          </button>
+          <a class="account-pill nav-item" href="account.html" data-nav="account">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            <span class="nav-text">Account</span>
+          </a>
+
+          <div class="reg-dropdown" id="registrationDropdown">
+            <p class="reg-head">Registration Process</p>
+            <div class="reg-table" id="regTable"></div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="heading">
+        <div>
+          <h2>My Documents</h2>
+          <p>Some documents you will prepare, and some we will prepare for you.</p>
+        </div>
+      </section>
+
+      <nav class="doc-tabs" role="tablist" aria-label="Document sections">
+        <div class="doc-tab-slider" id="docTabSlider"></div>
+        <button class="doc-tab is-active" data-doc-tab="direct_to_ahpra" role="tab" type="button">Direct to AHPRA</button>
+        <button class="doc-tab" data-doc-tab="you_prepare" role="tab" type="button">You Prepare</button>
+        <button class="doc-tab" data-doc-tab="gplink_prepares" role="tab" type="button">We Prepare</button>
+      </nav>
+
+      <div class="doc-panels-wrap">
+        <div class="doc-panel is-active" id="panel-direct_to_ahpra" role="tabpanel"></div>
+        <div class="doc-panel" id="panel-you_prepare" role="tabpanel"></div>
+        <div class="doc-panel" id="panel-gplink_prepares" role="tabpanel"></div>
+      </div>
+
+    </main>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
+      <span class="mobile-tab-label">Home Dashboard</span>
+    </a>
+    <button class="mobile-tab" id="mobileRegistrationBtn" type="button">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+      <span class="mobile-tab-label">Registration Process</span>
+    </button>
+    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="mobile-tab-label">Scan</span>
+    </button>
+    <a class="mobile-tab mobile-tab-active" href="my-documents.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+      <span class="mobile-tab-label">Documents</span>
+    </a>
+    <a class="mobile-tab" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
+      <span class="mobile-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
+  <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
+    <div class="mobile-reg-grab" aria-hidden="true"></div>
+    <div class="mobile-reg-head">
+      <p class="mobile-reg-title">Registration Process</p>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">×</button>
+    </div>
+    <div class="mobile-reg-table" id="mobileRegTable"></div>
+  </aside>
+
+  <div class="help-popover-backdrop" id="helpBackdrop"></div>
+  <div class="help-popover" id="helpPopover" role="dialog" aria-modal="true">
+    <h4 id="helpPopoverTitle"></h4>
+    <ol id="helpPopoverSteps"></ol>
+    <div class="cert-note" id="helpCertNote" hidden></div>
+    <div class="help-reminder" id="helpPopoverReminder" hidden></div>
+    <button class="btn btn-soft help-close-btn" id="helpPopoverClose" type="button">Got it</button>
+  </div>
+
+  <div class="modal" id="supportModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+      <h4 id="supportTitle">Contact support</h4>
+      <p>Share which document you are missing and we will guide you on acceptable alternatives.</p>
+      <textarea placeholder="Describe your issue..."></textarea>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-primary" type="button">Submit request</button>
+        <button class="btn btn-neutral" data-close="supportModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  try {
+    const EPIC_KEY = "gp_epic_progress";
+    const AMC_KEY = "gp_amc_progress";
+    const AHPRA_KEY = "gp_ahpra_progress";
+    const COUNTRY_KEY = "gp_selected_country";
+    const DOC_KEY = "gp_documents_prep";
+    const PREPARED_DOCS_KEY = "gp_prepared_docs";
+    const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
+    const SAVE_BATCH_SIZE = 3;
+    const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
+    const AI_SCAN_ACCEPT = "image/*,.pdf";
+    const PREPARED_DOC_STATUS = ["pending", "requested", "uploaded", "under_review", "approved", "rejected", "accepted", "action_required", "certified"];
+    const INSTITUTION_STATUS = ["pending", "requested", "under_review", "approved", "accepted", "rejected", "action_required"];
+
+    /* -- Country-aware document definitions -- */
+
+    const COUNTRY_DOCS = {
+      uk: {
+        label: "United Kingdom",
+        institution: [
+          {
+            key: "certificate_good_standing",
+            title: "Certificate of Good Standing",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Certificate of Good Standing",
+              steps: [
+                'Log in to your <a href="https://extgenmedcouncil.b2clogin.com/extgenmedcouncil.onmicrosoft.com/b2c_1a_usersigninormigrategmconline/oauth2/v2.0/authorize?client_id=1304d06d-0b67-4d06-9abd-e03aaef62a88&redirect_uri=https%3A%2F%2Fwww.gmc-uk.org%2Fqitm%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639088171193672580.ZjQwODcyZDgtNTAxOC00YmM2LWE4ZGUtM2I2NWUxNjE0MTVhNzJmY2YzMmQtNTg5Zi00NWRhLTgzYWEtNGMwYWZmMTFjZjg0&client_info=1&x-client-brkrver=IDWeb.1.24.0.0&state=CfDJ8CCFNphTI2xLiogAzC0YsAyIgiiJHlbcbo8KWD0yCcvLYHNZ1xxff35Gjym3wF68p0qnWcVa14sNBtztLdjKu9LyjSCebUIDBFdIvp2xvEUn086Tmqz1yP1ib7R7GaecxE6Aqb9w32l4XIh2x-7FLDYD92INc-Py--FWGS6YBTk1W1cUGoSi79jwFYlY7Ikf-chZf7yqV-3iVm-m_ZXnD-0rwEyDlyUHXfgM5eLMvcXvP_zNSmyKOLvzfe3bHddEmWStUY2QOXtCHxHYqD8womPvW29r7VGUM81fT1hbaj3xUprxuVhINsQTRA9_eIT8me26YGF4Io1VXbZEk4ObR8fDjVhTB38PUd8HiyHdALY2xv5qz5arVs3nzap_Ttoorg&x-client-SKU=ID_NETSTANDARD2_0&x-client-ver=6.17.0.0">GMC Online account</a>',
+                'In the left hand menu choose "My registration"',
+                'Then open "My CCPS requests"',
+                "Request the certificate to be sent directly to Ahpra"
+              ],
+              reminder: "Reminder: this must be sent directly by the issuing authority to Ahpra."
+            }
+          },
+          {
+            key: "confirmation_training",
+            title: "Confirmation of Training",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Confirmation of Training",
+              steps: [
+                '<a href="mailto:portfolio@gmc-uk.org?subject=Request%20for%20Confirmation%20of%20Training&body=Dear%20GMC%20Portfolio%20Team%2C%0A%0AI%20am%20writing%20to%20request%20confirmation%20of%20my%20specialist%20%2F%20GP%20training%20posts.%20I%20require%20this%20documentation%20for%20my%20application%20to%20the%20Australian%20Health%20Practitioner%20Regulation%20Agency%20(Ahpra).%0A%0APlease%20advise%20on%20the%20next%20steps%20and%20any%20forms%20I%20need%20to%20complete.%0A%0AKind%20regards">Email portfolio@gmc-uk.org</a>',
+                "State that you require confirmation of your specialist / GP training posts",
+                "GMC will review the request and send you an application form to complete",
+                "Complete the form and return it as instructed"
+              ],
+              reminder: "Reminder: request that the confirmation is sent by the GMC directly to Ahpra."
+            }
+          },
+          {
+            key: "criminal_history",
+            title: "Criminal History Check",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Criminal History Check",
+              steps: [
+                'Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D">Fit2Work</a>'
+              ]
+            }
+          }
+        ],
+        prepared: [
+          {
+            key: "primary_medical_degree",
+            title: "Certified copy of Primary Medical Degree (MBBS/MBChB)",
+            help: {
+              title: "Primary Medical Degree",
+              steps: ["Upload a certified copy of your primary medical degree"],
+              certNote: true
+            }
+          },
+          {
+            key: "mrcgp_certified",
+            title: "Certified copy of MRCGP",
+            help: {
+              title: "MRCGP",
+              steps: ["Upload a certified copy of your MRCGP certificate"],
+              certNote: true
+            }
+          },
+          {
+            key: "cct_certified",
+            title: "Certified copy of CCT (General Practice) issued by the General Medical Council or PMETB",
+            help: {
+              title: "CCT",
+              steps: ["Upload a certified copy of your CCT certificate issued by the GMC or PMETB"],
+              certNote: true
+            }
+          },
+          {
+            key: "cv_signed_dated",
+            title: "CV (Signed and dated)",
+            help: {
+              title: "CV",
+              steps: ["Upload your signed and dated CV"]
+            }
+          }
+        ]
+      },
+      ie: {
+        label: "Ireland",
+        institution: [
+          {
+            key: "certificate_good_standing",
+            title: "Certificate of Good Standing / Registration Status",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Certificate of Good Standing / Registration Status",
+              steps: [
+                "Request a current certificate of good standing / registration status from your Irish regulator",
+                "Ensure it is sent in the required format for Ahpra"
+              ],
+              reminder: "Reminder: this must be sent directly where required."
+            }
+          },
+          {
+            key: "criminal_history",
+            title: "Criminal History Check",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Criminal History Check",
+              steps: [
+                "Complete your criminal history check through the approved provider"
+              ]
+            }
+          }
+        ],
+        prepared: [
+          {
+            key: "primary_medical_degree",
+            title: "Certified copy of Primary Medical Degree",
+            help: {
+              title: "Primary Medical Degree",
+              steps: ["Upload a certified copy of your primary medical degree"],
+              certNote: true
+            }
+          },
+          {
+            key: "micgp_certified",
+            title: "Certified copy of MICGP",
+            help: {
+              title: "MICGP",
+              steps: [
+                "Upload a certified copy of your MICGP certificate",
+                "If you do not have a copy, request a re-issue from ICGP Membership Services"
+              ],
+              certNote: true
+            }
+          },
+          {
+            key: "cscst_certified",
+            title: "Certified copy of CSCST",
+            help: {
+              title: "CSCST",
+              steps: [
+                "Upload a certified copy of your CSCST",
+                "If needed, request a re-issue from ICGP Membership Services"
+              ],
+              certNote: true
+            }
+          },
+          {
+            key: "icgp_confirmation_letter",
+            title: "Certified copy of ICGP Confirmation Letter",
+            help: {
+              title: "ICGP Confirmation Letter",
+              steps: [
+                "Contact ICGP Membership Services",
+                "Request a confirmation / verification letter confirming your qualification was awarded under the ICGP curriculum after completion of the approved GP training pathway",
+                "If needed, request verification of training through ICGP"
+              ],
+              certNote: true,
+              reminder: "This is the key supporting letter for Irish GPs."
+            }
+          },
+          {
+            key: "cv_signed_dated",
+            title: "CV (Signed and dated)",
+            help: {
+              title: "CV",
+              steps: ["Upload your signed and dated CV"]
+            }
+          }
+        ]
+      },
+      nz: {
+        label: "New Zealand",
+        institution: [
+          {
+            key: "certificate_good_standing",
+            title: "Certificate of Good Standing / Registration Status",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Certificate of Good Standing / Registration Status",
+              steps: [
+                "Request your current certificate of good standing / registration status from the relevant New Zealand authority",
+                "Ensure it is provided in a format acceptable for Ahpra"
+              ]
+            }
+          },
+          {
+            key: "criminal_history",
+            title: "Criminal History Check",
+            actionLabel: "Mark Requested",
+            help: {
+              title: "Criminal History Check",
+              steps: [
+                "Complete your criminal history check through the approved provider"
+              ]
+            }
+          }
+        ],
+        prepared: [
+          {
+            key: "primary_medical_degree",
+            title: "Certified copy of Primary Medical Degree",
+            help: {
+              title: "Primary Medical Degree",
+              steps: ["Upload a certified copy of your primary medical degree"],
+              certNote: true
+            }
+          },
+          {
+            key: "frnzcgp_certified",
+            title: "Certified copy of FRNZCGP",
+            help: {
+              title: "FRNZCGP",
+              steps: [
+                "Upload a certified copy of your FRNZCGP certificate",
+                "If needed, contact RNZCGP for replacement or confirmation"
+              ],
+              certNote: true
+            }
+          },
+          {
+            key: "rnzcgp_confirmation_letter",
+            title: "Certified copy of RNZCGP Confirmation Letter",
+            help: {
+              title: "RNZCGP Confirmation Letter",
+              steps: [
+                "Contact RNZCGP",
+                "Request a confirmation letter stating that your fellowship was awarded under the RNZCGP curriculum following satisfactory completion of GPEP"
+              ],
+              certNote: true
+            }
+          },
+          {
+            key: "cv_signed_dated",
+            title: "CV (Signed and dated)",
+            help: {
+              title: "CV",
+              steps: ["Upload your signed and dated CV"]
+            }
+          }
+        ]
+      }
+    };
+
+    const SUPERVISED_PRACTICE_DOCS = [
+      { key: "sppa_00", label: "Supervised Practice Plan - SPPA-00" },
+      { key: "section_g", label: "Supervised Practice Plan - Section G" },
+      { key: "position_description", label: "Position description" },
+      { key: "offer_contract", label: "Letter of offer / employment contract" },
+      { key: "supervisor_cv", label: "Supervisor's CV" }
+    ];
+
+
+    /* -- Doc tab bar -- */
+    const docTabSliderEl = document.getElementById("docTabSlider");
+    const docTabBtns = [...document.querySelectorAll("[data-doc-tab]")];
+    const docTabPanels = {
+      direct_to_ahpra: document.getElementById("panel-direct_to_ahpra"),
+      you_prepare: document.getElementById("panel-you_prepare"),
+      gplink_prepares: document.getElementById("panel-gplink_prepares")
+    };
+    let activeDocTab = "direct_to_ahpra";
+    let docTabAnimating = false;
+    const docTabOrder = ["direct_to_ahpra", "you_prepare", "gplink_prepares"];
+
+    function positionDocSlider(animate) {
+      const activeBtn = docTabBtns.find(function(b) { return b.getAttribute("data-doc-tab") === activeDocTab; });
+      if (!activeBtn || !docTabSliderEl) return;
+      var tabsContainer = activeBtn.parentElement;
+      var containerRect = tabsContainer.getBoundingClientRect();
+      var btnRect = activeBtn.getBoundingClientRect();
+      if (!animate) docTabSliderEl.style.transition = "none";
+      docTabSliderEl.style.left = (btnRect.left - containerRect.left) + "px";
+      docTabSliderEl.style.width = btnRect.width + "px";
+      if (!animate) {
+        void docTabSliderEl.offsetWidth;
+        docTabSliderEl.style.transition = "";
+      }
+    }
+
+    function switchDocTab(next) {
+      if (next === activeDocTab || docTabAnimating) return;
+      if (!docTabPanels[next]) return;
+      docTabAnimating = true;
+
+      var prev = activeDocTab;
+      var prevPanel = docTabPanels[prev];
+      var nextPanel = docTabPanels[next];
+      var direction = docTabOrder.indexOf(next) > docTabOrder.indexOf(prev) ? 1 : -1;
+
+      docTabBtns.forEach(function(b) { b.classList.toggle("is-active", b.getAttribute("data-doc-tab") === next); });
+      activeDocTab = next;
+      positionDocSlider(true);
+
+      prevPanel.classList.remove("is-active");
+      prevPanel.classList.add("is-leaving");
+      prevPanel.style.transform = "translateX(" + (-30 * direction) + "px)";
+      prevPanel.style.opacity = "0";
+
+      nextPanel.classList.add("is-entering");
+      nextPanel.style.transform = "translateX(" + (30 * direction) + "px)";
+      nextPanel.style.opacity = "0";
+
+      void nextPanel.offsetWidth;
+      nextPanel.classList.add("is-active");
+      nextPanel.style.transform = "translateX(0)";
+      nextPanel.style.opacity = "1";
+
+      setTimeout(function() {
+        prevPanel.classList.remove("is-leaving");
+        prevPanel.style.transform = "";
+        prevPanel.style.opacity = "";
+        nextPanel.classList.remove("is-entering");
+        nextPanel.style.transform = "";
+        nextPanel.style.opacity = "";
+        docTabAnimating = false;
+      }, 320);
+    }
+
+    docTabBtns.forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        switchDocTab(btn.getAttribute("data-doc-tab"));
+      });
+    });
+
+    window.addEventListener("resize", function() { positionDocSlider(false); });
+    setTimeout(function() { positionDocSlider(false); }, 0);
+
+    function loadBatchMeta(metaKey) {
+      const raw = localStorage.getItem(metaKey);
+      if (!raw) return { pending: 0, lastValue: "" };
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return { pending: 0, lastValue: "" };
+        return {
+          pending: Number.isInteger(parsed.pending) ? parsed.pending : 0,
+          lastValue: typeof parsed.lastValue === "string" ? parsed.lastValue : ""
+        };
+      } catch (err) {
+        return { pending: 0, lastValue: "" };
+      }
+    }
+
+    function queueBatchedSave(storageKey, value, force = false) {
+      const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+      const meta = loadBatchMeta(metaKey);
+      meta.pending += 1;
+      meta.lastValue = value;
+      if (force || meta.pending >= SAVE_BATCH_SIZE) {
+        localStorage.setItem(storageKey, value);
+        meta.pending = 0;
+      }
+      localStorage.setItem(metaKey, JSON.stringify(meta));
+    }
+
+    function flushBatchedSave(storageKey) {
+      const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+      const meta = loadBatchMeta(metaKey);
+      if (meta.pending > 0 && meta.lastValue) {
+        localStorage.setItem(storageKey, meta.lastValue);
+        meta.pending = 0;
+        localStorage.setItem(metaKey, JSON.stringify(meta));
+      }
+    }
+
+    function flushAllBatchedSaves() {
+      [DOC_KEY, PREPARED_DOCS_KEY].forEach(flushBatchedSave);
+    }
+
+    window.addEventListener("beforeunload", flushAllBatchedSaves);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushAllBatchedSaves();
+    });
+
+    function parseStorage(key) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (err) { return null; }
+    }
+
+    function getRegistrationReturnOverrides() {
+      const parsed = parseStorage(REGISTRATION_RETURN_KEY);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+
+    function isRegistrationReturnAllowed(stepKey) {
+      return getRegistrationReturnOverrides()[stepKey] === true;
+    }
+
+    function buildRegistrationRow(stepKey, config) {
+      const locked = !!config.locked;
+      const done = !!config.done;
+      const returnable = done && isRegistrationReturnAllowed(stepKey);
+      return {
+        title: config.title,
+        sub: config.sub,
+        status: locked ? "Locked" : done ? "Done" : "Current",
+        locked,
+        done,
+        returnable,
+        href: !locked && (!done || returnable) ? config.href : "#",
+        cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+      };
+    }
+
+    function getCountry() {
+      const raw = localStorage.getItem(COUNTRY_KEY);
+      if (!raw) return "uk";
+      let val = raw;
+      try { val = JSON.parse(raw); } catch (e) { /* use raw */ }
+      if (typeof val !== "string") return "uk";
+      const lower = val.toLowerCase().trim();
+      if (lower === "uk" || lower === "gb" || lower === "united kingdom") return "uk";
+      if (lower === "ie" || lower === "ireland") return "ie";
+      if (lower === "nz" || lower === "new zealand") return "nz";
+      return "uk";
+    }
+
+    function getCountryConfig(country) {
+      return COUNTRY_DOCS[country] || COUNTRY_DOCS.uk;
+    }
+
+    function formatCountry(country) {
+      const cfg = getCountryConfig(country);
+      return cfg.label;
+    }
+
+    function defaultDocsState(country) {
+      const cfg = getCountryConfig(country);
+      const docs = {};
+      cfg.prepared.forEach((doc) => {
+        docs[doc.key] = { uploaded: false, fileName: "", status: "pending" };
+      });
+      cfg.institution.forEach((item) => {
+        docs[item.key] = { uploaded: false, fileName: "", status: "pending" };
+      });
+      return { country, docs, certFailCounts: {}, updatedAt: new Date().toISOString() };
+    }
+
+    function loadDocsState(country) {
+      const parsed = parseStorage(DOC_KEY);
+      if (!parsed || typeof parsed !== "object" || parsed.country !== country || !parsed.docs) {
+        const fresh = defaultDocsState(country);
+        queueBatchedSave(DOC_KEY, JSON.stringify(fresh), true);
+        return fresh;
+      }
+      const cfg = getCountryConfig(country);
+      let migrated = false;
+      if (!parsed.certFailCounts || typeof parsed.certFailCounts !== "object" || Array.isArray(parsed.certFailCounts)) {
+        parsed.certFailCounts = {};
+        migrated = true;
+      }
+      const allKeys = [...cfg.prepared.map((d) => d.key), ...cfg.institution.map((i) => i.key)];
+      allKeys.forEach((key) => {
+        const original = parsed.docs[key] || {};
+        const current = normalizeStoredDoc(original);
+        const isPrepared = cfg.prepared.some((doc) => doc.key === key);
+        const allowedStatuses = isPrepared ? PREPARED_DOC_STATUS : INSTITUTION_STATUS;
+        if (typeof original.uploaded !== "boolean") migrated = true;
+        if (typeof original.fileName !== "string") migrated = true;
+        if (typeof original.mimeType !== "string") migrated = true;
+        if (!Number.isFinite(original.fileSize)) migrated = true;
+        if (typeof original.downloadUrl !== "string") migrated = true;
+        if (typeof original.storagePath !== "string") migrated = true;
+        if (typeof original.storageBucket !== "string") migrated = true;
+        if (isPrepared && current.status === "approved") {
+          current.status = "accepted";
+          migrated = true;
+        }
+        if (!allowedStatuses.includes(current.status)) {
+          current.status = current.uploaded ? "under_review" : "pending";
+          migrated = true;
+        }
+        parsed.docs[key] = current;
+      });
+      if (migrated) saveDocsState(parsed, true);
+      return parsed;
+    }
+
+    function saveDocsState(state, force = false) {
+      state.updatedAt = new Date().toISOString();
+      queueBatchedSave(DOC_KEY, JSON.stringify(serializeDocsState(state)), force);
+    }
+
+    function syncTrackedState() {
+      if (window.gpLinkStateSync && typeof window.gpLinkStateSync.push === "function") {
+        window.gpLinkStateSync.push().catch(function() {});
+      }
+    }
+
+    function persistDocsState(state, force) {
+      saveDocsState(state, !!force);
+      if (force) syncTrackedState();
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function() {
+          resolve(typeof reader.result === "string" ? reader.result : "");
+        };
+        reader.onerror = function() {
+          reject(new Error("file_read_failed"));
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function isAiScannableFile(file) {
+      if (!file) return false;
+      var type = String(file.type || "").toLowerCase();
+      var name = String(file.name || "").toLowerCase();
+      if (type === "application/pdf" || /\.pdf$/i.test(name)) return true;
+      if (/^image\//i.test(type)) return true;
+      return /\.(jpg|jpeg|png|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(name);
+    }
+
+    function normalizeStoredDoc(doc) {
+      var next = doc && typeof doc === "object" ? { ...doc } : {};
+      if (typeof next.uploaded !== "boolean") next.uploaded = false;
+      if (typeof next.fileName !== "string") next.fileName = "";
+      if (typeof next.mimeType !== "string") next.mimeType = "";
+      if (!Number.isFinite(next.fileSize)) next.fileSize = 0;
+      if (typeof next.downloadUrl !== "string") next.downloadUrl = "";
+      if (typeof next.storagePath !== "string") next.storagePath = "";
+      if (typeof next.storageBucket !== "string") next.storageBucket = "";
+      return next;
+    }
+
+    function applyStoredFile(docState, payload) {
+      var next = normalizeStoredDoc(docState);
+      next.fileName = typeof payload.fileName === "string" ? payload.fileName : next.fileName;
+      next.mimeType = typeof payload.mimeType === "string" ? payload.mimeType : next.mimeType;
+      next.fileSize = Number.isFinite(payload.fileSize) ? payload.fileSize : next.fileSize;
+      next.downloadUrl = typeof payload.downloadUrl === "string" ? payload.downloadUrl : next.downloadUrl;
+      next.storagePath = typeof payload.storagePath === "string" ? payload.storagePath : next.storagePath;
+      next.storageBucket = typeof payload.storageBucket === "string" ? payload.storageBucket : next.storageBucket;
+      return next;
+    }
+
+    function serializeDocsState(state) {
+      var snapshot = state && typeof state === "object" ? { ...state, docs: {} } : { docs: {} };
+      var docs = state && state.docs && typeof state.docs === "object" ? state.docs : {};
+      Object.keys(docs).forEach(function(key) {
+        var current = docs[key] && typeof docs[key] === "object" ? { ...docs[key] } : docs[key];
+        if (current && typeof current === "object") {
+          delete current.downloadUrl;
+          delete current.storagePath;
+          delete current.storageBucket;
+        }
+        snapshot.docs[key] = current;
+      });
+      return snapshot;
+    }
+
+    async function fetchPreparedDocumentFiles(country) {
+      const response = await fetch("/api/prepared-documents?country=" + encodeURIComponent(country), {
+        credentials: "same-origin"
+      });
+      const data = await response.json().catch(function() { return {}; });
+      if (!response.ok || !data.ok) throw new Error(data.message || "prepared_documents_load_failed");
+      return data.docs && typeof data.docs === "object" ? data.docs : {};
+    }
+
+    async function savePreparedDocumentFile(country, key, payload) {
+      const response = await fetch("/api/prepared-documents", {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          country: country,
+          key: key,
+          fileName: payload.fileName,
+          mimeType: payload.mimeType,
+          fileSize: payload.fileSize,
+          fileDataUrl: payload.fileDataUrl
+        })
+      });
+      const data = await response.json().catch(function() { return {}; });
+      if (!response.ok || !data.ok || !data.document) throw new Error(data.message || "prepared_document_save_failed");
+      return data.document;
+    }
+
+    function deletePreparedDocumentFile(country, key) {
+      return fetch("/api/prepared-documents", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ country: country, key: key })
+      }).catch(function() {});
+    }
+
+    function mergePreparedDocumentFiles(state, files) {
+      if (!state || !state.docs || !files || typeof files !== "object") return;
+      Object.keys(files).forEach(function(key) {
+        if (!state.docs[key]) return;
+        state.docs[key] = applyStoredFile(state.docs[key], files[key]);
+      });
+    }
+
+    function defaultPreparedDocs(country) {
+      const docs = {};
+      SUPERVISED_PRACTICE_DOCS.forEach((doc) => {
+        docs[doc.key] = { url: "", fileName: "", ready: false };
+      });
+      return { country, docs, updatedAt: new Date().toISOString() };
+    }
+
+    function loadPreparedDocs(country) {
+      const parsed = parseStorage(PREPARED_DOCS_KEY);
+      if (!parsed || typeof parsed !== "object" || parsed.country !== country || !parsed.docs) {
+        const fresh = defaultPreparedDocs(country);
+        queueBatchedSave(PREPARED_DOCS_KEY, JSON.stringify(fresh), true);
+        return fresh;
+      }
+      return parsed;
+    }
+
+    function setPreparedDocsForCurrentUser(country, updates) {
+      const state = loadPreparedDocs(country);
+      SUPERVISED_PRACTICE_DOCS.forEach((doc) => {
+        const incoming = updates && updates[doc.key] ? updates[doc.key] : null;
+        if (!incoming) return;
+        state.docs[doc.key] = {
+          url: typeof incoming.url === "string" ? incoming.url : "",
+          fileName: typeof incoming.fileName === "string" ? incoming.fileName : "",
+          ready: incoming.ready === true || (typeof incoming.url === "string" && incoming.url.length > 0)
+        };
+      });
+      state.updatedAt = new Date().toISOString();
+      queueBatchedSave(PREPARED_DOCS_KEY, JSON.stringify(state));
+      return state;
+    }
+
+    function statusClass(status) {
+      if (status === "accepted" || status === "approved" || status === "certified") return "done";
+      if (status === "rejected") return "rejected";
+      if (status === "under_review") return "review";
+      if (status === "uploaded") return "review";
+      if (status === "requested") return "review";
+      if (status === "scanning") return "review";
+      if (status === "action_required" || status === "cert_attention") return "rejected";
+      return "pending";
+    }
+
+    function statusLabel(status) {
+      if (status === "accepted") return "Accepted";
+      if (status === "approved") return "Approved";
+      if (status === "certified") return "Certified";
+      if (status === "rejected") return "Rejected";
+      if (status === "under_review") return "Under review";
+      if (status === "uploaded") return "Uploaded";
+      if (status === "requested") return "Requested";
+      if (status === "scanning") return "Scanning...";
+      if (status === "action_required") return "Action required";
+      if (status === "cert_attention") return "Needs attention";
+      return "Pending";
+    }
+
+    /* -- Help popover -- */
+    const helpBackdrop = document.getElementById("helpBackdrop");
+    const helpPopover = document.getElementById("helpPopover");
+    const helpPopoverTitle = document.getElementById("helpPopoverTitle");
+    const helpPopoverSteps = document.getElementById("helpPopoverSteps");
+    const helpPopoverReminder = document.getElementById("helpPopoverReminder");
+    const helpCertNote = document.getElementById("helpCertNote");
+    const helpPopoverClose = document.getElementById("helpPopoverClose");
+
+    var CERT_NOTE_HTML = '<p>Before uploading, each required document must be certified as a true copy of the original by a solicitor or public notary.</p>' +
+      '<p>On the copy of the document, the certifier must write or stamp:</p>' +
+      '<p class="cert-quote">"I have sighted the original document and certify this to be a true copy of the original."</p>' +
+      '<p>They must also include:</p>' +
+      '<ul>' +
+        '<li>Their signature</li>' +
+        '<li>Their full name</li>' +
+        '<li>Their occupation or profession</li>' +
+        '<li>Their profession or registration number (if applicable)</li>' +
+        '<li>Their phone number</li>' +
+        '<li>The date</li>' +
+        '<li>Their stamp or seal (if relevant)</li>' +
+      '</ul>' +
+      '<div class="cert-illustration">' +
+        '<div class="cert-doc-mock">' +
+          '<div class="doc-header">Certificate</div>' +
+          '<div class="doc-accent"></div>' +
+          '<div class="doc-line"></div>' +
+          '<div class="doc-line short"></div>' +
+          '<div class="doc-line med"></div>' +
+          '<div class="doc-line"></div>' +
+          '<div class="doc-line short"></div>' +
+        '</div>' +
+        '<div class="cert-annotation">' +
+          '<div class="ann-quote"><em>I have sighted the original document and certify this to be a true copy of the original.</em></div>' +
+          '<div class="ann-sig">J. Smith</div>' +
+          '<div class="ann-details">Name, date, contact phone number, occupation or profession and profession number (if applicable).</div>' +
+        '</div>' +
+      '</div>';
+
+    function openHelpPopover(helpData) {
+      helpPopoverTitle.textContent = helpData.title || "How to get this document";
+      helpPopoverSteps.innerHTML = "";
+      (helpData.steps || []).forEach((step) => {
+        const li = document.createElement("li");
+        li.innerHTML = step;
+        helpPopoverSteps.appendChild(li);
+      });
+      if (helpData.certNote) {
+        helpCertNote.innerHTML = CERT_NOTE_HTML;
+        helpCertNote.hidden = false;
+      } else {
+        helpCertNote.hidden = true;
+      }
+      if (helpData.reminder) {
+        helpPopoverReminder.textContent = helpData.reminder;
+        helpPopoverReminder.hidden = false;
+      } else {
+        helpPopoverReminder.hidden = true;
+      }
+      helpBackdrop.classList.add("show");
+      helpPopover.classList.add("show");
+    }
+
+    function closeHelpPopover() {
+      helpBackdrop.classList.remove("show");
+      helpPopover.classList.remove("show");
+    }
+    helpPopoverClose.addEventListener("click", closeHelpPopover);
+    helpBackdrop.addEventListener("click", closeHelpPopover);
+
+    /* -- Render -- */
+
+    function renderProgress(country, state) {
+      const cfg = getCountryConfig(country);
+
+      const institutionDocs = cfg.institution;
+      const preparedDocs = cfg.prepared;
+      const prepared = loadPreparedDocs(country);
+
+      const institutionRequestedCount = institutionDocs.filter(function(item) {
+        var current = state.docs[item.key];
+        return !!(current && (current.uploaded || current.status === "requested" || current.status === "under_review" || current.status === "approved" || current.status === "accepted"));
+      }).length;
+      const preparedUploadedCount = preparedDocs.filter(function(doc) {
+        var current = state.docs[doc.key];
+        return !!(current && current.uploaded);
+      }).length;
+      const readyCount = SUPERVISED_PRACTICE_DOCS.filter(function(doc) {
+        var file = prepared.docs[doc.key];
+        return file && (file.ready || !!file.url);
+      }).length;
+
+      /* ── Panel 1: Direct to AHPRA ── */
+      var panel1 = docTabPanels.direct_to_ahpra;
+      panel1.innerHTML = '<div class="doc-panel-header"><p>' + institutionRequestedCount + ' of ' + institutionDocs.length + ' requested</p></div><div class="doc-card-grid" id="ahpraCardGrid"></div>';
+      var ahpraGrid = panel1.querySelector("#ahpraCardGrid");
+      institutionDocs.forEach(function(item, idx) {
+        var itemState = state.docs[item.key] || { uploaded: false, fileName: "", status: "pending" };
+        var instSClass = itemState.status === "pending" ? "pending" : statusClass(itemState.status);
+        var instSLabel = itemState.status === "pending" ? "Pending" : statusLabel(itemState.status);
+        var helpLink = item.help ? '<button class="show-me-how" type="button" data-help-idx="i' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
+        var card = document.createElement("div");
+        card.className = "doc-card";
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + item.title + '</span><span class="pill ' + instSClass + '">' + instSLabel + '</span></div>' + helpLink + '<div class="doc-card-actions">' + (itemState.status === "pending" ? '<button class="btn btn-soft" type="button" data-inst-mark="' + item.key + '">' + (item.actionLabel || "Mark Requested") + '</button>' : '') + '</div>';
+        ahpraGrid.appendChild(card);
+      });
+
+      /* ── Panel 2: You Prepare ── */
+      var panel2 = docTabPanels.you_prepare;
+      panel2.innerHTML = '<div class="doc-panel-header"><p>' + preparedUploadedCount + ' of ' + preparedDocs.length + ' uploaded</p></div><div class="doc-card-grid" id="youPrepareCardGrid"></div>';
+      var youGrid = panel2.querySelector("#youPrepareCardGrid");
+      preparedDocs.forEach(function(doc, idx) {
+        var itemState = normalizeStoredDoc(state.docs[doc.key] || { uploaded: false, fileName: "", status: "pending" });
+        var sClass = statusClass(itemState.status);
+        var sLabel = statusLabel(itemState.status);
+        var helpLink = doc.help ? '<button class="show-me-how" type="button" data-help-idx="p' + idx + '"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>Show me how</button>' : "";
+        var needsCert = doc.help && doc.help.certNote;
+        var certBadge = "";
+        if (itemState.certificationStatus === "certified") {
+          certBadge = '<div class="cert-badge done"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg> Certification verified</div>';
+        } else if (itemState.certificationStatus === "needs_attention") {
+          certBadge = '<div class="cert-badge attention">' + (itemState.certificationIssues && itemState.certificationIssues[0] ? itemState.certificationIssues[0] : "Certification needs attention") + '</div>';
+        }
+        var uploadHtml;
+        if (itemState.status === "scanning") {
+          uploadHtml = '<div class="cert-scanning"><div class="cert-scan-spinner"></div> ' + (needsCert ? 'Verifying certification...' : 'Checking document...') + '</div>';
+        } else if (itemState.uploaded) {
+          uploadHtml = '<label class="upload-btn has-file"><svg viewBox="0 0 24 24"><path d="M9 15l2 2 4-4"></path><circle cx="12" cy="12" r="10"></circle></svg>' + itemState.fileName + '<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>' + (itemState.downloadUrl ? '<a class="btn btn-soft" href="' + itemState.downloadUrl + '" download="' + itemState.fileName + '">Download</a>' : '');
+        } else if (needsCert) {
+          uploadHtml =
+            '<button class="upload-btn cert-scan-btn mobile-only" type="button" data-cert-scan="' + doc.key + '"><svg viewBox="0 0 24 24"><path d="M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5"></path><path d="M16 8l-4 4-4-4"></path></svg>Scan Document</button>' +
+            '<label class="upload-btn desktop-only"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
+        } else {
+          uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
+        }
+        var card = document.createElement("div");
+        card.className = "doc-card";
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + certBadge + '<div class="doc-card-actions">' + uploadHtml + '</div>';
+        youGrid.appendChild(card);
+      });
+
+      /* ── Panel 3: GP LINK Prepares ── */
+      var panel3 = docTabPanels.gplink_prepares;
+      panel3.innerHTML = '<div class="doc-panel-header"><p>' + readyCount + ' of ' + SUPERVISED_PRACTICE_DOCS.length + ' ready</p></div><div class="doc-card-grid" id="gplinkCardGrid"></div>';
+      var gplinkGrid = panel3.querySelector("#gplinkCardGrid");
+      SUPERVISED_PRACTICE_DOCS.forEach(function(doc) {
+        var file = prepared.docs[doc.key] || { url: "", fileName: "", ready: false };
+        var isReady = !!file.url || file.ready;
+        var card = document.createElement("div");
+        card.className = "doc-card";
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.label + '</span><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
+        gplinkGrid.appendChild(card);
+      });
+    }
+
+    function renderAll(country, state) {
+      renderProgress(country, state);
+    }
+
+    function bootDocumentModule() {
+      const country = getCountry();
+      let state = loadDocsState(country);
+      renderAll(country, state);
+      fetchPreparedDocumentFiles(country).then(function(files) {
+        mergePreparedDocumentFiles(state, files);
+        renderAll(country, state);
+      }).catch(function() {});
+
+      const cfg = getCountryConfig(country);
+      var panelsWrap = document.querySelector(".doc-panels-wrap");
+
+      function showCertResultPopup(success, title, message, options) {
+        var opts = options && typeof options === "object" ? options : {};
+        var existing = document.getElementById("certResultPopup");
+        if (existing) existing.remove();
+        var popup = document.createElement("div");
+        popup.id = "certResultPopup";
+        popup.className = "cert-result-popup " + (success ? "success" : "fail");
+        popup.innerHTML =
+          '<div class="cert-result-card">' +
+            '<div class="cert-result-icon">' +
+              (success
+                ? '<svg viewBox="0 0 24 24" width="48" height="48"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                : '<svg viewBox="0 0 24 24" width="48" height="48"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>') +
+            '</div>' +
+            '<h4>' + title + '</h4>' +
+            '<p>' + message + '</p>' +
+            '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' +
+              (opts.showSupport ? '<button class="btn btn-neutral cert-result-support" type="button">Contact support</button>' : '') +
+              '<button class="btn btn-soft cert-result-ok" type="button">OK</button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(popup);
+        requestAnimationFrame(function() { popup.classList.add("show"); });
+        popup.querySelector(".cert-result-ok").addEventListener("click", function() {
+          popup.classList.remove("show");
+          setTimeout(function() { popup.remove(); }, 250);
+        });
+        var supportBtn = popup.querySelector(".cert-result-support");
+        if (supportBtn) {
+          supportBtn.addEventListener("click", function() {
+            popup.classList.remove("show");
+            setTimeout(function() { popup.remove(); }, 250);
+            openSupportModal();
+          });
+        }
+        popup.addEventListener("click", function(e) {
+          if (e.target === popup) {
+            popup.classList.remove("show");
+            setTimeout(function() { popup.remove(); }, 250);
+          }
+        });
+      }
+
+      var CERT_SUPPORT_THRESHOLD = 3;
+
+      function getCertFailCounts() {
+        if (!state.certFailCounts || typeof state.certFailCounts !== "object" || Array.isArray(state.certFailCounts)) {
+          state.certFailCounts = {};
+        }
+        return state.certFailCounts;
+      }
+
+      function getCertFailCount(key) {
+        return Number(getCertFailCounts()[key] || 0);
+      }
+
+      function incCertFailCount(key) {
+        var counts = getCertFailCounts();
+        counts[key] = getCertFailCount(key) + 1;
+        return counts[key];
+      }
+
+      function resetCertFailCount(key) {
+        var counts = getCertFailCounts();
+        if (counts[key]) delete counts[key];
+      }
+
+      function handleCertFailure(key, state, country, title, msg) {
+        var fails = incCertFailCount(key);
+        var showSupport = fails >= CERT_SUPPORT_THRESHOLD;
+        var extra = showSupport
+          ? '<br><span style="color:#64748b;font-size:12px;">If you still need help after 3 failed attempts, contact support.</span>'
+          : '<br><span style="color:#64748b;font-size:12px;">You have ' + (CERT_SUPPORT_THRESHOLD - fails) + ' attempt' + ((CERT_SUPPORT_THRESHOLD - fails) === 1 ? '' : 's') + ' remaining before support is recommended.</span>';
+        delete state.docs[key];
+        deletePreparedDocumentFile(country, key);
+        persistDocsState(state, true);
+        renderAll(country, state);
+        showCertResultPopup(false, "Scan Failed", msg + extra, { showSupport: showSupport });
+      }
+
+      function buildClassificationFailureMessage(docTitle, data) {
+        var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
+        if (data && data.classification && data.classification.identifiedAs) {
+          reason = "This appears to be <strong>" + data.classification.identifiedAs + "</strong>, not <strong>" + docTitle + "</strong>.";
+        }
+        if (data && data.classification && data.classification.reason) {
+          reason += '<br><span style="color:#64748b;font-size:12px;">' + data.classification.reason + '</span>';
+        }
+        return reason;
+      }
+
+      function handlePreparedDocClassificationFailure(key, state, country, fileName, docTitle, message, title) {
+        delete state.docs[key];
+        deletePreparedDocumentFile(country, key);
+        persistDocsState(state, true);
+        renderAll(country, state);
+        showCertResultPopup(false, title || "Wrong Document", message || ("This file does not appear to be the correct document for <strong>" + docTitle + "</strong>."));
+      }
+
+      function runPreparedDocumentClassificationCheck(file, key, docTitle, state, country) {
+        readFileAsDataUrl(file).then(function(fileDataUrl) {
+          var storedFile = {
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            fileSize: Number(file.size || 0),
+            fileDataUrl: fileDataUrl
+          };
+          state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
+          persistDocsState(state, true);
+          renderAll(country, state);
+          window.gpFileToBase64(file).then(function(base64) {
+            return fetch("/api/ai/classify-document", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fileBase64: base64,
+                mimeType: /^image\//i.test(file.type || "") ? (file.type || "application/octet-stream") : (file.type || "application/pdf"),
+                expectedKey: key,
+                expectedLabel: docTitle
+              })
+            });
+          }).then(function(res) {
+            return res.json();
+          }).then(function(data) {
+            if (data.ok && data.classification && data.classification.matches) {
+              savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
+                state.docs[key] = applyStoredFile({
+                  uploaded: true,
+                  fileName: file.name,
+                  status: "under_review",
+                  aiVerified: true,
+                  aiVerifiedAt: new Date().toISOString()
+                }, savedFile);
+                persistDocsState(state, true);
+                renderAll(country, state);
+                showCertResultPopup(true, "Document Uploaded", "<strong>" + docTitle + "</strong> passed AI document checks and has been uploaded.");
+              }).catch(function() {
+                delete state.docs[key];
+                persistDocsState(state, true);
+                renderAll(country, state);
+                showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
+              });
+              return;
+            }
+            if (!data.ok || !data.classification) {
+              handlePreparedDocClassificationFailure(
+                key,
+                state,
+                country,
+                file.name,
+                docTitle,
+                (data && data.message) ? data.message : "Could not verify this document. Please try again.",
+                "Scan Failed"
+              );
+              return;
+            }
+            handlePreparedDocClassificationFailure(key, state, country, file.name, docTitle, buildClassificationFailureMessage(docTitle, data));
+          }).catch(function(err) {
+            var message = err && err.message ? err.message : "Could not verify this document. Please try again.";
+            handlePreparedDocClassificationFailure(key, state, country, file.name, docTitle, message, "Scan Failed");
+          });
+        }).catch(function() {
+          showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
+        });
+      }
+
+      function runCertificationCheck(file, key, docTitle, state, country) {
+        var isImage = /^image\//i.test(file.type);
+        readFileAsDataUrl(file).then(function(fileDataUrl) {
+          var storedFile = {
+            fileName: file.name,
+            mimeType: file.type || (isImage ? "image/jpeg" : "application/pdf"),
+            fileSize: Number(file.size || 0),
+            fileDataUrl: fileDataUrl
+          };
+          if (!isImage) {
+            state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
+            persistDocsState(state, true);
+            renderAll(country, state);
+            window.gpFileToBase64(file).then(function(base64) {
+              return fetch("/api/ai/classify-document", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? (file.type || "application/octet-stream") : (file.type || "application/pdf"), expectedKey: key, expectedLabel: docTitle })
+              });
+            }).then(function(res) { return res.json(); }).then(function(data) {
+              if (data.ok && data.classification && data.classification.matches) {
+                var certifyReason = "Claude identified this as <strong>" + docTitle + "</strong>, but could not verify the certification from this file. Upload a clear image that shows the certification statement, signature, occupation and date.";
+                if (data.classification && data.classification.reason) {
+                  certifyReason += '<br><span style="color:#64748b;font-size:12px;">' + data.classification.reason + '</span>';
+                }
+                state.docs[key] = { uploaded: false, fileName: file.name };
+                handleCertFailure(key, state, country, docTitle, certifyReason);
+              } else {
+                var reason = "This file does not appear to be the correct document for <strong>" + docTitle + "</strong>.";
+                if (data.classification && data.classification.identifiedAs) {
+                  reason = "This appears to be <strong>" + data.classification.identifiedAs + "</strong>, not <strong>" + docTitle + "</strong>.";
+                }
+                if (data.classification && data.classification.reason) {
+                  reason += '<br><span style="color:#64748b;font-size:12px;">' + data.classification.reason + '</span>';
+                }
+                state.docs[key] = { uploaded: false, fileName: file.name };
+                handleCertFailure(key, state, country, docTitle, reason);
+              }
+            }).catch(function() {
+              state.docs[key] = { uploaded: false, fileName: file.name };
+              handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.");
+            });
+            return;
+          }
+
+          state.docs[key] = applyStoredFile({ uploaded: true, fileName: file.name, status: "scanning" }, storedFile);
+          persistDocsState(state, true);
+          renderAll(country, state);
+
+          window.gpFileToBase64(file).then(function(base64) {
+            return fetch("/api/ai/verify-certification", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                imageBase64: base64,
+                mimeType: file.type || "application/octet-stream",
+                documentType: docTitle || "qualification document"
+              })
+            });
+          }).then(function(res) {
+            return res.json();
+          }).then(function(data) {
+            if (data.ok && data.verification) {
+              var v = data.verification;
+              var isCertified = !!v.certified;
+              if (isCertified) {
+                savePreparedDocumentFile(country, key, storedFile).then(function(savedFile) {
+                  resetCertFailCount(key);
+                  state.docs[key] = applyStoredFile({
+                    uploaded: true,
+                    fileName: file.name,
+                    status: "certified",
+                    certificationStatus: "certified",
+                    certifierName: v.certifierName || null,
+                    certifierOccupation: v.certifierOccupation || null,
+                    certifierDate: v.certifierDate || null,
+                    signaturePresent: !!v.signaturePresent,
+                    stampPresent: !!v.stampPresent,
+                    certificationIssues: [],
+                    certificationCheckedAt: new Date().toISOString()
+                  }, savedFile);
+                  persistDocsState(state, true);
+                  renderAll(country, state);
+                  showCertResultPopup(true, "Scan Successful", "Certification verified for <strong>" + docTitle + "</strong>");
+                }).catch(function() {
+                  delete state.docs[key];
+                  persistDocsState(state, true);
+                  renderAll(country, state);
+                  showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
+                });
+              } else {
+                var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
+                state.docs[key] = { uploaded: false, fileName: file.name };
+                handleCertFailure(key, state, country, docTitle, issues.join("<br>"));
+              }
+            } else {
+              state.docs[key] = { uploaded: false, fileName: file.name };
+              handleCertFailure(key, state, country, docTitle, data.message || "Could not verify this document. Please try again.");
+            }
+          }).catch(function() {
+            state.docs[key] = { uploaded: false, fileName: file.name };
+            handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.");
+          });
+        }).catch(function() {
+          showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
+        });
+      }
+
+      panelsWrap.addEventListener("change", function(event) {
+        var input = event.target;
+        if (!(input instanceof HTMLInputElement)) return;
+        if (!input.matches("input[type='file'][data-prepared-doc]")) return;
+        var key = input.getAttribute("data-prepared-doc");
+        var file = input.files && input.files[0];
+        if (!key || !file) return;
+        input.value = "";
+
+        /* Block video/audio files */
+        var blockedTypes = /^(video|audio)\//i;
+        var blockedExts = /\.(mov|mp4|mp3|avi|wmv|mkv|flv|wav|aac|ogg|m4a|m4v|webm)$/i;
+        if (blockedTypes.test(file.type) || blockedExts.test(file.name)) {
+          input.value = "";
+          showCertResultPopup(false, "File Not Accepted", "Video and audio files are not accepted. Please upload a document or image file.");
+          return;
+        }
+        if (!isAiScannableFile(file)) {
+          showCertResultPopup(false, "File Not Accepted", "Please upload a PDF or image file so Claude can scan it.");
+          return;
+        }
+
+        var docDef = cfg.prepared.find(function(d) { return d.key === key; });
+        var needsCert = docDef && docDef.help && docDef.help.certNote;
+
+        if (needsCert) {
+          runCertificationCheck(file, key, docDef.title, state, country);
+        } else {
+          runPreparedDocumentClassificationCheck(file, key, docDef.title, state, country);
+        }
+      });
+
+      panelsWrap.addEventListener("click", function(event) {
+        var target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+
+        /* Show me how click */
+        var helpBtn = target.closest("[data-help-idx]");
+        if (helpBtn) {
+          var idx = helpBtn.getAttribute("data-help-idx");
+          var type = idx.charAt(0);
+          var num = parseInt(idx.substring(1), 10);
+          var doc = type === "i" ? cfg.institution[num] : cfg.prepared[num];
+          if (doc && doc.help) openHelpPopover(doc.help);
+          return;
+        }
+
+        /* Scan Document (mobile) for certified docs */
+        var scanBtn = target.closest("[data-cert-scan]");
+        if (scanBtn) {
+          var scanKey = scanBtn.getAttribute("data-cert-scan");
+          var scanDoc = cfg.prepared.find(function(d) { return d.key === scanKey; });
+          if (scanDoc && window.gpOpenCertScan) {
+            window.gpOpenCertScan(scanKey, scanDoc.title, function(result) {
+              var storedFile = {
+                fileName: result.fileName,
+                mimeType: typeof result.mimeType === "string" ? result.mimeType : (result.certified ? "image/jpeg" : "application/pdf"),
+                fileSize: Number(result.fileSize || 0),
+                fileDataUrl: typeof result.fileDataUrl === "string" ? result.fileDataUrl : ""
+              };
+              if (result.certified) {
+                var v = result.verification;
+                savePreparedDocumentFile(country, scanKey, storedFile).then(function(savedFile) {
+                  resetCertFailCount(scanKey);
+                  state.docs[scanKey] = applyStoredFile({
+                    uploaded: true,
+                    fileName: result.fileName,
+                    status: "certified",
+                    certificationStatus: "certified",
+                    certifierName: v.certifierName || null,
+                    certifierOccupation: v.certifierOccupation || null,
+                    certifierDate: v.certifierDate || null,
+                    signaturePresent: !!v.signaturePresent,
+                    stampPresent: !!v.stampPresent,
+                    certificationIssues: [],
+                    certificationCheckedAt: new Date().toISOString()
+                  }, savedFile);
+                  persistDocsState(state, true);
+                  renderAll(country, state);
+                  showCertResultPopup(true, "Scan Successful", "Certification verified for <strong>" + scanDoc.title + "</strong>");
+                }).catch(function() {
+                  showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
+                });
+              } else {
+                /* Failed — do not attach */
+                var issues = result.verification && Array.isArray(result.verification.issues) && result.verification.issues.length
+                  ? result.verification.issues.join("<br>")
+                  : "The document does not appear to be properly certified.";
+                state.docs[scanKey] = { uploaded: false, fileName: result.fileName || "" };
+                handleCertFailure(scanKey, state, country, scanDoc.title, issues);
+              }
+            });
+          }
+          return;
+        }
+
+        /* Mark Requested */
+        var markBtn = target.closest("[data-inst-mark]");
+        var key = markBtn ? markBtn.getAttribute("data-inst-mark") : null;
+        if (!key) return;
+        if (!state.docs[key]) state.docs[key] = { uploaded: false, fileName: "", status: "pending" };
+        state.docs[key].uploaded = true;
+        state.docs[key].status = "requested";
+        persistDocsState(state, true);
+        renderAll(country, state);
+      });
+    }
+
+    const supportModalEl = document.getElementById("supportModal");
+    function openSupportModal() {
+      supportModalEl.classList.add("show");
+      supportModalEl.setAttribute("aria-hidden", "false");
+    }
+    function closeSupportModal() {
+      supportModalEl.classList.remove("show");
+      supportModalEl.setAttribute("aria-hidden", "true");
+    }
+
+    // mobileSupportBtn click is handled by updates-sync.js (alert panel)
+    document.querySelectorAll("[data-close]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (btn.getAttribute("data-close") === "supportModal") closeSupportModal();
+      });
+    });
+    supportModalEl.addEventListener("click", (e) => {
+      if (e.target === supportModalEl) closeSupportModal();
+    });
+
+    const registrationMenuBtn = document.getElementById("registrationMenuBtn");
+    const registrationDropdown = document.getElementById("registrationDropdown");
+    const regTableEl = document.getElementById("regTable");
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+    let navGlassInitialized = false;
+
+    const mobileRegistrationBtn = document.getElementById("mobileRegistrationBtn");
+    const mobileRegBackdrop = document.getElementById("mobileRegBackdrop");
+    const mobileRegSheet = document.getElementById("mobileRegSheet");
+    const mobileRegTable = document.getElementById("mobileRegTable");
+    const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
+
+    function getRegistrationRows() {
+      const epic = parseStorage(EPIC_KEY);
+      const amc = parseStorage(AMC_KEY);
+      const ahpra = parseStorage(AHPRA_KEY);
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+
+      return [
+        buildRegistrationRow("myinthealth", {
+          title: "1. MyIntealth Account",
+          sub: "Create account and complete EPIC verification.",
+          done: epicDone,
+          href: "myinthealth.html"
+        }),
+        buildRegistrationRow("amc", {
+          title: "2. AMC Portfolio",
+          sub: "Create AMC candidate portfolio and upload credentials.",
+          locked: !epicDone,
+          done: amcDone,
+          href: "amc.html"
+        }),
+        buildRegistrationRow("ahpra", {
+          title: "3. AHPRA Registration",
+          sub: "Specialist registration submission and assessment.",
+          locked: !amcDone,
+          done: ahpraDone,
+          href: "ahpra.html"
+        })
+      ];
+    }
+
+    function renderRegistrationRows() {
+      const rows = getRegistrationRows();
+      regTableEl.innerHTML = "";
+      mobileRegTable.innerHTML = "";
+      rows.forEach((row) => {
+        const statusClass = row.done ? "done" : row.locked ? "locked" : "";
+        const actionDisabled = row.locked || (row.done && !row.returnable);
+        const rowEl = document.createElement("div");
+        rowEl.className = `reg-row ${row.done ? "done" : ""}`.trim();
+        rowEl.innerHTML = `
+          <div>
+            <div class="reg-name">${row.title}</div>
+            <div class="reg-sub">${row.sub}</div>
+          </div>
+          <span class="reg-pill ${statusClass}">${row.status}</span>
+        `;
+        const actionEl = actionDisabled ? document.createElement("button") : document.createElement("a");
+        actionEl.className = `reg-btn ${statusClass}`.trim();
+        actionEl.textContent = row.cta;
+        if (actionDisabled) {
+          actionEl.type = "button";
+          actionEl.disabled = true;
+        } else {
+          actionEl.href = row.href;
+        }
+        rowEl.appendChild(actionEl);
+        regTableEl.appendChild(rowEl);
+        mobileRegTable.appendChild(rowEl.cloneNode(true));
+      });
+    }
+
+    function moveNavGlass(target, animate = true) {
+      if (!target || !navGlassEl) return;
+      const parentRect = target.parentElement.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      if (!animate || !navGlassInitialized) {
+        const prevTransition = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        navGlassEl.style.width = `${rect.width}px`;
+        navGlassEl.style.height = `${rect.height}px`;
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prevTransition;
+        navGlassInitialized = true;
+        return;
+      }
+      navGlassEl.classList.remove("morph");
+      void navGlassEl.offsetWidth;
+      navGlassEl.classList.add("morph");
+      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+      navGlassEl.style.width = `${rect.width}px`;
+      navGlassEl.style.height = `${rect.height}px`;
+    }
+
+    function setActiveNav(target, animate = true) {
+      navItems.forEach((item) => item.classList.remove("active"));
+      if (target) {
+        target.classList.add("active");
+        activeNavItem = target;
+      }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    let registrationHoverCloseTimer = null;
+
+    function openRegistrationDropdown() {
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      renderRegistrationRows();
+      registrationDropdown.classList.add("show");
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    }
+
+    function closeRegistrationDropdown(immediate = false) {
+      const doClose = () => {
+        registrationDropdown.classList.remove("show");
+        navGlassEl.classList.remove("engulf");
+      };
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      if (immediate) {
+        doClose();
+        return;
+      }
+      registrationHoverCloseTimer = setTimeout(doClose, 140);
+    }
+
+    registrationMenuBtn.addEventListener("click", () => {
+      setActiveNav(registrationMenuBtn);
+      if (registrationDropdown.classList.contains("show")) {
+        closeRegistrationDropdown(true);
+      } else {
+        openRegistrationDropdown();
+      }
+    });
+
+    registrationMenuBtn.addEventListener("mouseenter", () => {
+      openRegistrationDropdown();
+    });
+    registrationDropdown.addEventListener("mouseenter", () => {
+      if (registrationHoverCloseTimer) {
+        clearTimeout(registrationHoverCloseTimer);
+        registrationHoverCloseTimer = null;
+      }
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    });
+    registrationMenuBtn.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    registrationDropdown.addEventListener("mouseleave", () => closeRegistrationDropdown());
+
+    document.addEventListener("click", (e) => {
+      if (!registrationDropdown.contains(e.target) && !registrationMenuBtn.contains(e.target)) {
+        closeRegistrationDropdown(true);
+      }
+    });
+
+    navItems.forEach((item) => {
+      item.addEventListener("mouseenter", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      item.addEventListener("focus", () => {
+        if (hoveredNavItem !== item) {
+          hoveredNavItem = item;
+          moveNavGlass(item, true);
+        }
+      });
+      if (item !== registrationMenuBtn && item.id !== "topSupportBtn") {
+        item.addEventListener("click", () => setActiveNav(item));
+      }
+    });
+
+    function openMobileRegistration() {
+      renderRegistrationRows();
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.add("show");
+      mobileRegSheet.classList.add("show");
+    }
+
+    function closeMobileRegistration() {
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.remove("show");
+      mobileRegSheet.classList.remove("show");
+    }
+
+    mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
+    mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
+    mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
+
+    let startY = 0;
+    let deltaY = 0;
+    let dragging = false;
+
+    mobileRegSheet.addEventListener("touchstart", (e) => {
+      if (!mobileRegSheet.classList.contains("show")) return;
+      startY = e.touches[0].clientY;
+      deltaY = 0;
+      dragging = true;
+    }, { passive: true });
+
+    mobileRegSheet.addEventListener("touchmove", (e) => {
+      if (!dragging) return;
+      const currentY = e.touches[0].clientY;
+      deltaY = Math.max(0, currentY - startY);
+      if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+    }, { passive: true });
+
+    mobileRegSheet.addEventListener("touchend", () => {
+      if (!dragging) return;
+      dragging = false;
+      if (deltaY > 90) closeMobileRegistration();
+      else mobileRegSheet.style.transform = "";
+    });
+
+    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+    setActiveNav(activeNavItem, false);
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", (event) => {
+        const hit = event.target instanceof Element ? event.target.closest(".nav-item") : null;
+        if (hit && hit !== hoveredNavItem) {
+          hoveredNavItem = hit;
+          moveNavGlass(hit, true);
+        }
+      });
+      navMenuEl.addEventListener("mouseleave", () => {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
+    window.addEventListener("resize", () => {
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+    });
+
+    try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule error:", e); docTabPanels.direct_to_ahpra.innerHTML = '<div style="padding:12px;color:#b91c1c;font-size:13px;">Error loading documents: ' + e.message + '</div>'; }
+    renderRegistrationRows();
+
+
+    window.gpLinkSetPreparedDocs = function (updates) {
+      const country = getCountry();
+      const next = setPreparedDocsForCurrentUser(country, updates || {});
+      const currentDocs = loadDocsState(country);
+      renderAll(country, currentDocs);
+      return next;
+    };
+
+    window.gpLinkSetPreparedByYouStatus = function (updates) {
+      const country = getCountry();
+      const cfg = getCountryConfig(country);
+      const state = loadDocsState(country);
+      cfg.prepared.forEach((doc) => {
+        const incoming = updates && updates[doc.key] ? updates[doc.key] : null;
+        if (!incoming) return;
+        const nextStatus = incoming.status;
+        if (!PREPARED_DOC_STATUS.includes(nextStatus)) return;
+        const existing = state.docs[doc.key] || { uploaded: false, fileName: "", status: "pending" };
+        state.docs[doc.key] = {
+          uploaded: nextStatus === "pending" ? false : true,
+          fileName: typeof incoming.fileName === "string" ? incoming.fileName : existing.fileName,
+          status: nextStatus,
+          mimeType: typeof incoming.mimeType === "string" ? incoming.mimeType : existing.mimeType,
+          fileSize: Number.isFinite(incoming.fileSize) ? incoming.fileSize : existing.fileSize,
+          downloadUrl: typeof incoming.downloadUrl === "string" ? incoming.downloadUrl : existing.downloadUrl,
+          storagePath: typeof incoming.storagePath === "string" ? incoming.storagePath : existing.storagePath,
+          storageBucket: typeof incoming.storageBucket === "string" ? incoming.storageBucket : existing.storageBucket
+        };
+      });
+      persistDocsState(state, true);
+      renderAll(country, state);
+      return state;
+    };
+
+    window.gpLinkSetInstitutionToAhpraStatus = function (updates) {
+      const country = getCountry();
+      const cfg = getCountryConfig(country);
+      const state = loadDocsState(country);
+      cfg.institution.forEach((item) => {
+        const incoming = updates && updates[item.key] ? updates[item.key] : null;
+        if (!incoming) return;
+        const nextStatus = incoming.status;
+        if (!INSTITUTION_STATUS.includes(nextStatus)) return;
+        const existing = state.docs[item.key] || { uploaded: false, fileName: "", status: "pending" };
+        state.docs[item.key] = {
+          uploaded: nextStatus === "pending" ? false : true,
+          fileName: typeof incoming.fileName === "string" ? incoming.fileName : existing.fileName,
+          status: nextStatus,
+          mimeType: typeof incoming.mimeType === "string" ? incoming.mimeType : existing.mimeType,
+          fileSize: Number.isFinite(incoming.fileSize) ? incoming.fileSize : existing.fileSize,
+          downloadUrl: typeof incoming.downloadUrl === "string" ? incoming.downloadUrl : existing.downloadUrl,
+          storagePath: typeof incoming.storagePath === "string" ? incoming.storagePath : existing.storagePath,
+          storageBucket: typeof incoming.storageBucket === "string" ? incoming.storageBucket : existing.storageBucket
+        };
+      });
+      persistDocsState(state, true);
+      renderAll(country, state);
+      return state;
+    };
+
+    // Re-render after state-sync hydrates the current user's data
+    window.addEventListener("gp-state-hydrated", function () {
+      try { bootDocumentModule(); } catch(e) { console.error("bootDocumentModule hydration error:", e); docTabPanels.direct_to_ahpra.innerHTML = '<div style="padding:12px;color:#b91c1c;font-size:13px;">Error loading documents: ' + e.message + '</div>'; }
+      renderRegistrationRows();
+    }, { once: true });
+  } catch(globalErr) {
+    console.error("Documents page script error:", globalErr);
+    var errEl = document.getElementById("panel-direct_to_ahpra");
+    if (errEl) errEl.innerHTML = '<div style="padding:14px;color:#b91c1c;font-size:13px;font-weight:600;">Something went wrong loading the document checklist. Error: ' + globalErr.message + '</div>';
+  }
+  </script>
+  <div class="legal-footer" style="text-align:center;font-size:12px;color:#64748b;margin:14px 0 8px;line-height:1.45;">
+    <div style="margin-bottom:4px;"><a href="privacy.html" style="color:#334155;text-decoration:underline;">Privacy Policy</a> · <a href="terms.html" style="color:#334155;text-decoration:underline;">Terms of Service</a></div>
+    <div>© 2026 GP LINK AUSTRALIA PTY LTD</div>
+  </div>
+</body>
+</html>

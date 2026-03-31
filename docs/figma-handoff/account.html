@@ -1,0 +1,1897 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/state-sync.js" defer></script>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260310a" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <title>GP Link - My Account</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --green2: #16a34a;
+      --orange: #f59e0b;
+      --red: #dc2626;
+      --card: rgba(255, 255, 255, 0.92);
+      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --glass-bg: rgba(255, 255, 255, 0.72);
+      --glass-border: rgba(191, 220, 255, 0.95);
+      --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #f0f4fa;
+      min-height: 100dvh;
+    }
+
+    .dash-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 120px;
+    }
+
+    /* ─── HEADER ─── */
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 0 14px;
+    }
+
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+
+    .header-avatar {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0;
+      border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+
+    .header-text h1 {
+      font-size: 20px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.2;
+    }
+
+    .header-text p {
+      font-size: 13px; color: var(--muted);
+      font-weight: 500; margin-top: 1px;
+    }
+
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease;
+      color: #475569;
+    }
+
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.5);
+    }
+
+    /* ─── ACCOUNT HERO ─── */
+    .account-hero {
+      background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #2563eb 100%);
+      border-radius: var(--radius);
+      padding: 28px 24px 24px;
+      color: #fff;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    .account-hero::before {
+      content: ""; position: absolute; inset: 0;
+      background: radial-gradient(circle at 80% 20%, rgba(255,255,255,0.15), transparent 60%);
+      pointer-events: none;
+    }
+
+    .account-hero-inner {
+      position: relative; z-index: 1;
+      display: flex; align-items: center; gap: 20px;
+    }
+
+    .account-hero-avatar {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.4);
+      object-fit: cover;
+      flex-shrink: 0;
+      background: rgba(255,255,255,0.15);
+    }
+
+    .account-hero-info { min-width: 0; }
+
+    .account-hero-name {
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.2;
+      margin-bottom: 4px;
+    }
+
+    .account-hero-email {
+      font-size: 13px; font-weight: 500;
+      opacity: 0.85; margin-bottom: 10px;
+    }
+
+    .account-hero-completeness {
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .account-hero-progress-track {
+      flex: 1; max-width: 180px; height: 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.25);
+      overflow: hidden;
+    }
+
+    .account-hero-progress-fill {
+      height: 100%; border-radius: 999px;
+      background: #fff;
+      transition: width .4s ease;
+    }
+
+    .account-hero-progress-label {
+      font-size: 12px; font-weight: 700;
+      opacity: 0.9;
+    }
+
+    /* ─── TAB BAR ─── */
+    .account-tabs {
+      display: flex;
+      gap: 4px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 4px;
+      margin-bottom: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .account-tab {
+      flex: 1;
+      border: 0;
+      background: transparent;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 10px 8px;
+      border-radius: 12px;
+      cursor: pointer;
+      position: relative;
+      z-index: 2;
+      transition: color .25s ease;
+      white-space: nowrap;
+      text-align: center;
+    }
+
+    .account-tab:hover { color: var(--text); }
+
+    .account-tab.is-active {
+      color: #fff;
+    }
+
+    .account-tab-slider {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      height: calc(100% - 8px);
+      border-radius: 12px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.5);
+      z-index: 1;
+      pointer-events: none;
+      transition: left .35s cubic-bezier(.22,.9,.18,1.05), width .35s cubic-bezier(.22,.9,.18,1.05);
+    }
+
+    /* ─── TAB PANELS ─── */
+    .tab-panels-wrap {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .tab-panel {
+      display: none;
+      opacity: 0;
+      transform: translateX(20px);
+      transition: opacity .3s ease, transform .3s ease;
+    }
+
+    .tab-panel.is-entering {
+      display: block;
+    }
+
+    .tab-panel.is-active {
+      display: block;
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .tab-panel.is-leaving {
+      display: block;
+      opacity: 0;
+      transform: translateX(-20px);
+      position: absolute;
+      top: 0; left: 0; right: 0;
+    }
+
+    /* ─── SECTION CARDS ─── */
+    .section-card {
+      background: #fff;
+      border: 1px solid #e8edf5;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 12px;
+      transition: box-shadow .2s ease;
+    }
+
+    .section-card:hover {
+      box-shadow: 0 4px 16px -8px rgba(37, 99, 235, 0.1);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .section-header-left {
+      display: grid;
+      gap: 2px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .section-subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .section-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: grid; place-items: center;
+      flex-shrink: 0;
+    }
+
+    .section-icon svg {
+      width: 18px; height: 18px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .section-icon.blue { background: #eff6ff; color: var(--blue); }
+    .section-icon.green { background: #ecfdf5; color: var(--green2); }
+    .section-icon.purple { background: #f5f3ff; color: #7c3aed; }
+    .section-icon.amber { background: #fffbeb; color: #d97706; }
+
+    /* ─── FORM FIELDS ─── */
+    .fields {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+    }
+
+    .field.full { grid-column: 1 / -1; }
+
+    label {
+      font-size: 12px;
+      color: #334155;
+      font-weight: 700;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: #fff;
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .input-note {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .readonly-wrap {
+      display: grid;
+      grid-template-columns: 16px 1fr;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 0 12px;
+    }
+
+    .readonly-wrap input {
+      border: 0;
+      background: transparent;
+      padding: 10px 0;
+    }
+
+    .lock-icon {
+      width: 16px; height: 16px;
+      stroke: #94a3b8; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ─── UPLOAD CARDS ─── */
+    .uploads {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .upload-card {
+      border: 1px solid #e8edf5;
+      border-radius: 12px;
+      background: #f8fafc;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color .2s ease;
+    }
+
+    .upload-card:hover { border-color: #c7d2fe; }
+
+    .upload-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .upload-copy {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .upload-file {
+      font-size: 12px;
+      color: var(--text);
+      font-weight: 600;
+      line-height: 1.35;
+      min-height: 20px;
+      word-break: break-word;
+    }
+
+    .is-hidden { display: none; }
+
+    .upload-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .upload-status {
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+      padding: 3px 8px;
+    }
+
+    .upload-status.uploaded {
+      border-color: #86efac; background: #ecfdf5; color: #166534;
+    }
+
+    .upload-status.reviewed {
+      border-color: #22c55e; background: #dcfce7; color: #14532d;
+    }
+
+    .upload-status.action {
+      border-color: #f59e0b; background: #fffbeb; color: #92400e;
+    }
+
+    .upload-updated {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .upload-action {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+      color: var(--blue2);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 12px;
+      cursor: pointer;
+      width: fit-content;
+      margin-top: auto;
+      transition: all .15s ease;
+    }
+
+    .upload-action:hover {
+      border-color: var(--blue);
+      background: #eff6ff;
+    }
+
+    .upload-action:disabled {
+      opacity: .5; cursor: wait;
+    }
+
+    .privacy-line {
+      margin-top: 14px;
+      border: 1px solid #e8edf5;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      line-height: 1.45;
+    }
+
+    /* ─── BUTTONS ─── */
+    .btn {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      background: #fff;
+      color: var(--blue2);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+
+    .btn:hover { border-color: var(--blue); background: #eff6ff; }
+
+    .btn.primary {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #fff;
+      border-color: #1d4ed8;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+
+    .btn.primary:hover {
+      background: linear-gradient(135deg, #1d4ed8, #1e40af);
+    }
+
+    .btn:disabled {
+      opacity: .5; cursor: not-allowed;
+    }
+
+    .save-state {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .save-state.saving { color: var(--blue); }
+    .save-state.saved { color: var(--green2); }
+    .save-state.error {
+      color: #dc2626;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      border-radius: 8px;
+      padding: 6px 10px;
+    }
+
+    .bottom-actions {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    /* ─── SECURITY ─── */
+    .security-box {
+      margin-top: 16px;
+      border: 1px solid #e8edf5;
+      border-radius: 12px;
+      background: #f8fafc;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .security-toggle {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .security-toggle-icon {
+      width: 24px; height: 24px;
+      border-radius: 6px;
+      background: #eff6ff;
+      color: var(--blue);
+      display: grid; place-items: center;
+      font-size: 16px; font-weight: 600;
+      transition: transform .25s ease;
+    }
+
+    .security-content {
+      display: grid;
+      gap: 12px;
+      max-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      transition: max-height .35s ease, opacity .25s ease, margin .25s ease;
+    }
+
+    .security-content.is-open {
+      max-height: 400px;
+      opacity: 1;
+    }
+
+    .security-copy {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      line-height: 1.45;
+    }
+
+    .security-row {
+      display: grid;
+      gap: 8px;
+    }
+
+    .security-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .security-status {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .security-status.error {
+      color: #dc2626;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      border-radius: 8px;
+      padding: 6px 10px;
+    }
+
+    /* ─── SIGN OUT ─── */
+    .signout-section {
+      margin-top: 8px;
+      padding-top: 16px;
+      border-top: 1px solid #f1f5f9;
+    }
+
+    .signout-btn {
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      background: #fff;
+      color: #dc2626;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+
+    .signout-btn:hover {
+      background: #fef2f2;
+      border-color: #dc2626;
+    }
+
+    .signout-btn:disabled {
+      opacity: .5; cursor: wait;
+    }
+
+    /* ─── HOME TAB ─── */
+    .home-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .home-action-card {
+      border: 1px solid #e8edf5;
+      border-radius: 14px;
+      background: #fff;
+      padding: 18px;
+      cursor: pointer;
+      transition: all .2s ease;
+      display: grid;
+      gap: 8px;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+    }
+
+    .home-action-card:hover {
+      border-color: #c7d2fe;
+      box-shadow: 0 4px 16px -8px rgba(37, 99, 235, 0.15);
+      transform: translateY(-1px);
+    }
+
+    .home-action-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: grid; place-items: center;
+    }
+
+    .home-action-icon svg {
+      width: 20px; height: 20px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .home-action-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .home-action-desc {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
+    .home-suggestion {
+      grid-column: 1 / -1;
+      border: 1px solid #dbeafe;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+      padding: 20px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .home-suggestion h3 {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .home-suggestion p {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    /* ─── MOBILE NAV ─── */
+    .mobile-nav {
+      position: fixed;
+      left: 50%; transform: translateX(-50%);
+      bottom: 0; width: 100%; max-width: 560px;
+      z-index: 50;
+      display: none;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      border-top: 1px solid #e2e8f0;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
+      overflow: visible;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+
+    .mobile-tab {
+      text-decoration: none; border: 0; border-radius: 12px;
+      background: transparent; color: #94a3b8;
+      min-height: 46px; padding: 6px 4px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 0; cursor: pointer; font: inherit;
+    }
+
+    .mobile-tab-active {
+      background: rgba(20, 91, 196, 0.11);
+      color: #145bc4;
+    }
+
+    .mobile-tab-active .mobile-tab-icon { color: #145bc4; }
+
+    .mobile-tab-scan { transform: none; }
+    .mobile-tab-scan .mobile-tab-icon {
+      width: 36px; height: 36px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      animation: scanHaloPulse 2.8s ease-in-out infinite;
+    }
+    .mobile-tab-scan .mobile-tab-icon svg { width: 19px; height: 19px; }
+
+    @keyframes scanHaloPulse {
+      0%, 100% { box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7); }
+      50% { box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78); }
+    }
+
+    .mobile-tab-icon {
+      position: relative;
+      display: grid; place-items: center; color: #64748b;
+    }
+
+    .mobile-tab-icon svg {
+      width: 22px; height: 22px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .mobile-tab-alert {
+      position: absolute; top: -3px; right: -6px;
+      width: 14px; height: 14px; border-radius: 999px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 900; color: #fff;
+      background: #dc2626; line-height: 1;
+      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
+      pointer-events: none; z-index: 3;
+    }
+
+    .mobile-tab-label { display: none; }
+
+    /* ─── DESKTOP NAV ─── */
+    .desktop-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 0;
+      margin-bottom: 4px;
+      transition: color .15s ease;
+    }
+
+    .desktop-back:hover { color: var(--text); }
+
+    .desktop-back svg {
+      width: 16px; height: 16px;
+      stroke: currentColor; fill: none;
+      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 767px) {
+      .dash-wrap { padding: 0 12px 110px; }
+      .app-header { padding: 14px 0 10px; }
+      .mobile-nav { display: grid; }
+      .desktop-back { display: none; }
+
+      .account-hero { padding: 20px 16px 18px; border-radius: 16px; }
+      .account-hero-inner { gap: 14px; }
+      .account-hero-avatar { width: 60px; height: 60px; }
+      .account-hero-name { font-size: 18px; }
+      .account-hero-email { font-size: 12px; }
+
+      .account-tabs { border-radius: 12px; }
+      .account-tab { font-size: 12px; padding: 9px 4px; }
+      .account-tab-slider { border-radius: 10px; }
+
+      .section-card { padding: 16px; border-radius: 14px; }
+      .fields { grid-template-columns: 1fr; }
+      .uploads { grid-template-columns: 1fr; }
+      .home-grid { grid-template-columns: 1fr; }
+
+      .bottom-actions {
+        justify-content: stretch;
+      }
+      .bottom-actions .btn {
+        flex: 1 1 46%;
+      }
+      .bottom-actions .save-state {
+        flex: 1 1 100%;
+        text-align: left;
+      }
+      .security-actions .btn {
+        flex: 1 1 140px;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .account-hero-name { font-size: 16px; }
+      .account-tab { font-size: 11px; padding: 8px 2px; }
+    }
+
+    /* ─── LEGAL FOOTER ─── */
+    .legal-footer {
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      margin: 14px 0 8px;
+      line-height: 1.45;
+    }
+
+    .legal-footer a {
+      color: #334155;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="dash-wrap">
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar" id="headerAvatar">GP</div>
+        <div class="header-text">
+          <h1 id="headerName">My Account</h1>
+          <p>Manage your profile and settings</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="mobileHeaderChatBtn" type="button" aria-label="Messages">
+          <span class="header-badge" data-inbox-alert hidden>!</span>
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <a class="desktop-back" href="index.html">
+      <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="M12 19l-7-7 7-7"></path></svg>
+      Back to Dashboard
+    </a>
+
+    <!-- Hero -->
+    <section class="account-hero">
+      <div class="account-hero-inner">
+        <img id="heroAvatar" class="account-hero-avatar" alt="Profile photo" />
+        <div class="account-hero-info">
+          <h2 class="account-hero-name" id="heroName">Dr</h2>
+          <p class="account-hero-email" id="heroEmail">Loading...</p>
+          <div class="account-hero-completeness">
+            <div class="account-hero-progress-track">
+              <div class="account-hero-progress-fill" id="heroProgressBar" style="width:0%"></div>
+            </div>
+            <span class="account-hero-progress-label" id="heroProgressLabel">0% complete</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tabs -->
+    <nav class="account-tabs" role="tablist" aria-label="Account sections">
+      <div class="account-tab-slider" id="tabSlider"></div>
+      <button class="account-tab is-active" data-tab="home" role="tab" type="button">Home</button>
+      <button class="account-tab" data-tab="personal" role="tab" type="button">Personal</button>
+      <button class="account-tab" data-tab="security" role="tab" type="button">Security</button>
+      <button class="account-tab" data-tab="documents" role="tab" type="button">Documents</button>
+    </nav>
+
+    <!-- Tab Panels -->
+    <div class="tab-panels-wrap">
+
+      <!-- HOME -->
+      <div class="tab-panel is-active" id="panel-home" role="tabpanel">
+        <div class="home-grid">
+          <button class="home-action-card" type="button" data-tab-target="personal">
+            <div class="home-action-icon blue">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg>
+            </div>
+            <span class="home-action-title">Personal info</span>
+            <span class="home-action-desc">Name, phone, country, and relocation preferences.</span>
+          </button>
+
+          <button class="home-action-card" type="button" data-tab-target="security">
+            <div class="home-action-icon purple">
+              <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>
+            </div>
+            <span class="home-action-title">Security</span>
+            <span class="home-action-desc">Email access and password controls.</span>
+          </button>
+
+          <button class="home-action-card" type="button" data-tab-target="documents">
+            <div class="home-action-icon green">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+            </div>
+            <span class="home-action-title">Documents</span>
+            <span class="home-action-desc">Upload ID and CV for verification.</span>
+          </button>
+
+          <a class="home-action-card" href="my-documents.html" style="text-decoration:none;color:inherit;">
+            <div class="home-action-icon amber">
+              <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            </div>
+            <span class="home-action-title">My Documents</span>
+            <span class="home-action-desc">View all uploaded documents and scans.</span>
+          </a>
+
+          <div class="home-suggestion">
+            <h3>Complete your account check-up</h3>
+            <p>Review personal details, security settings and documents to keep your account current and speed up employer applications.</p>
+            <button type="button" class="btn primary" data-tab-target="personal" style="width:fit-content;">Begin check-up</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PERSONAL -->
+      <div class="tab-panel" id="panel-personal" role="tabpanel">
+        <section class="section-card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <h3 class="section-title">Personal Details</h3>
+              <p class="section-subtitle">Name, phone, country and registration number.</p>
+            </div>
+            <div class="section-icon blue">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg>
+            </div>
+          </div>
+          <div class="fields">
+            <div class="field">
+              <label for="firstName">First name</label>
+              <input id="firstName" type="text" maxlength="80" autocomplete="given-name" />
+            </div>
+            <div class="field">
+              <label for="lastName">Last name</label>
+              <input id="lastName" type="text" maxlength="80" autocomplete="family-name" />
+            </div>
+            <div class="field">
+              <label for="specialistCountryDisplay">Registration country</label>
+              <div class="readonly-wrap">
+                <svg class="lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>
+                <input id="specialistCountryDisplay" type="text" readonly />
+              </div>
+              <p class="input-note">Set during sign up. Contact support if incorrect.</p>
+            </div>
+            <div class="field">
+              <label for="phone">Phone number</label>
+              <input id="phone" type="tel" maxlength="40" autocomplete="tel" placeholder="e.g. +44 7700 900123" />
+            </div>
+            <div class="field full">
+              <label for="registrationNumber" id="registrationNumberLabel">Registration number</label>
+              <input id="registrationNumber" type="text" maxlength="40" placeholder="Enter your registration number" />
+              <p class="input-note">This is used for verification with your registration authority.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <h3 class="section-title">Relocation Details</h3>
+              <p class="section-subtitle">Preferred city and relocation timeline.</p>
+            </div>
+            <div class="section-icon amber">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"></circle><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"></path></svg>
+            </div>
+          </div>
+          <div class="fields">
+            <div class="field">
+              <label for="cityOfChoice">City of choice</label>
+              <select id="cityOfChoice">
+                <option value="">Select a city</option>
+                <option value="Adelaide">Adelaide</option>
+                <option value="Brisbane">Brisbane</option>
+                <option value="Canberra">Canberra</option>
+                <option value="Darwin">Darwin</option>
+                <option value="Melbourne">Melbourne</option>
+                <option value="Perth">Perth</option>
+                <option value="Sydney">Sydney</option>
+              </select>
+              <p class="input-note">Choose the city where you would prefer to relocate.</p>
+            </div>
+            <div class="field">
+              <label for="preferredStartDate">Commence work by</label>
+              <input id="preferredStartDate" type="date" />
+            </div>
+            <div class="field">
+              <label for="movingParty">Who will be moving</label>
+              <select id="movingParty">
+                <option value="">Select</option>
+                <option value="Just me">Just me</option>
+                <option value="Me and partner">Me and partner</option>
+                <option value="Me and children">Me and children</option>
+                <option value="Me, partner and children">Me, partner and children</option>
+              </select>
+            </div>
+            <div class="field is-hidden" id="childrenMovingField">
+              <label for="childrenMovingCount">Number of children moving</label>
+              <select id="childrenMovingCount">
+                <option value="">Select</option>
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5+">5+</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <div class="bottom-actions">
+          <p class="save-state" id="saveStateText">Changes not saved</p>
+          <button class="btn" id="resetBtn" type="button">Cancel</button>
+          <button class="btn primary" id="saveBtn" type="button" disabled>Save details</button>
+        </div>
+      </div>
+
+      <!-- SECURITY -->
+      <div class="tab-panel" id="panel-security" role="tabpanel">
+        <section class="section-card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <h3 class="section-title">Email Address</h3>
+              <p class="section-subtitle">Managed by your GP Link login.</p>
+            </div>
+            <div class="section-icon purple">
+              <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><path d="m22 6-10 7L2 6"></path></svg>
+            </div>
+          </div>
+          <div class="fields" style="grid-template-columns:1fr;">
+            <div class="field">
+              <label for="email">Email</label>
+              <div class="readonly-wrap">
+                <svg class="lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>
+                <input id="email" type="email" maxlength="120" autocomplete="email" readonly />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section-card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <h3 class="section-title">Password & Security</h3>
+              <p class="section-subtitle" id="passwordStateText">Password last updated: --</p>
+            </div>
+            <div class="section-icon purple">
+              <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 1 1 8 0v3"></path></svg>
+            </div>
+          </div>
+          <p class="security-copy">Use a unique password for GP Link. We apply secure hashing and never expose your password in plain text.</p>
+          <div class="security-box">
+            <button class="security-toggle" id="securityToggleBtn" type="button" aria-expanded="false">
+              <span>Change password</span>
+              <span class="security-toggle-icon" id="securityToggleIcon">+</span>
+            </button>
+            <div class="security-content" id="securityContent">
+              <div class="security-row">
+                <input id="currentPassword" type="password" autocomplete="current-password" placeholder="Current password (if already set)" />
+                <input id="newPassword" type="password" autocomplete="new-password" placeholder="New password" />
+                <input id="confirmPassword" type="password" autocomplete="new-password" placeholder="Confirm new password" />
+              </div>
+              <div class="security-actions">
+                <button class="btn primary" id="setPasswordBtn" type="button">Set password</button>
+                <button class="btn" id="forgotPasswordBtn" type="button">Forgot password</button>
+                <p class="security-status" id="passwordActionStatus"></p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="signout-section">
+          <button class="signout-btn" id="accountSignOutBtn" type="button">Sign Out</button>
+        </div>
+      </div>
+
+      <!-- DOCUMENTS -->
+      <div class="tab-panel" id="panel-documents" role="tabpanel">
+        <section class="section-card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <h3 class="section-title">Identity & Supporting Documents</h3>
+              <p class="section-subtitle">Upload ID and CV files for verification.</p>
+            </div>
+            <div class="section-icon green">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+            </div>
+          </div>
+          <div class="uploads">
+            <article class="upload-card" data-upload-card="idCopy">
+              <h3 class="upload-title">Copy of ID</h3>
+              <p class="upload-copy">Required -- Used for identity checks and registration preparation.</p>
+              <p class="upload-file is-hidden" id="idCopyFileName"></p>
+              <div class="upload-meta">
+                <span class="upload-status is-hidden" id="idCopyStatus"></span>
+                <span class="upload-updated" id="idCopyUpdated"></span>
+              </div>
+              <input id="idCopyInput" type="file" accept="image/*,.pdf" hidden />
+              <button class="upload-action" id="idCopyAction" type="button">Upload document</button>
+            </article>
+
+            <article class="upload-card" data-upload-card="cv">
+              <h3 class="upload-title">Up-to-date CV</h3>
+              <p class="upload-copy">Required -- used for employer applications.</p>
+              <p class="upload-file is-hidden" id="cvFileName"></p>
+              <div class="upload-meta">
+                <span class="upload-status is-hidden" id="cvStatus"></span>
+                <span class="upload-updated" id="cvUpdated"></span>
+              </div>
+              <input id="cvInput" type="file" accept=".pdf,.doc,.docx" hidden />
+              <button class="upload-action" id="cvAction" type="button">Upload document</button>
+            </article>
+          </div>
+          <p class="privacy-line">Your documents are stored securely and only shared with your consent for registration or employer purposes.</p>
+        </section>
+
+        <section class="section-card">
+          <div class="section-header">
+            <div class="section-header-left">
+              <h3 class="section-title">Profile Photo</h3>
+              <p class="section-subtitle">Used across your GP Link profile.</p>
+            </div>
+            <div class="section-icon blue">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><path d="m21 15-5-5L5 21"></path></svg>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;">
+            <img id="docAvatarImg" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid #e2e8f0;background:#dbeafe;" alt="Profile photo" />
+            <div>
+              <input id="profilePhotoInput" type="file" accept="image/*" hidden />
+              <button class="btn" id="changePictureTrigger" type="button">Change photo</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+    </div>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a class="mobile-tab" href="index.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg></span>
+      <span class="mobile-tab-label">Home</span>
+    </a>
+    <a class="mobile-tab" href="myinthealth.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg></span>
+      <span class="mobile-tab-label">Registration</span>
+    </a>
+    <button class="mobile-tab mobile-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="mobile-tab-label">Scan</span>
+    </button>
+    <a class="mobile-tab" href="my-documents.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg></span>
+      <span class="mobile-tab-label">Documents</span>
+    </a>
+    <a class="mobile-tab mobile-tab-active" href="account.html">
+      <span class="mobile-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"></path></svg></span>
+      <span class="mobile-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <div class="legal-footer">
+    <div style="margin-bottom:4px;"><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a></div>
+    <div>&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
+  </div>
+
+  <script>
+    /* ─── DOM REFERENCES ─── */
+    const fieldEls = {
+      firstName: document.getElementById("firstName"),
+      lastName: document.getElementById("lastName"),
+      email: document.getElementById("email"),
+      phone: document.getElementById("phone"),
+      specialistCountryDisplay: document.getElementById("specialistCountryDisplay"),
+      registrationNumber: document.getElementById("registrationNumber"),
+      cityOfChoice: document.getElementById("cityOfChoice"),
+      preferredStartDate: document.getElementById("preferredStartDate"),
+      movingParty: document.getElementById("movingParty"),
+      childrenMovingCount: document.getElementById("childrenMovingCount")
+    };
+    const childrenMovingFieldEl = document.getElementById("childrenMovingField");
+    const registrationNumberLabelEl = document.getElementById("registrationNumberLabel");
+    const saveBtnEl = document.getElementById("saveBtn");
+    const resetBtnEl = document.getElementById("resetBtn");
+    const saveStateTextEl = document.getElementById("saveStateText");
+    const passwordStateTextEl = document.getElementById("passwordStateText");
+    const passwordActionStatusEl = document.getElementById("passwordActionStatus");
+    const currentPasswordEl = document.getElementById("currentPassword");
+    const newPasswordEl = document.getElementById("newPassword");
+    const confirmPasswordEl = document.getElementById("confirmPassword");
+    const setPasswordBtnEl = document.getElementById("setPasswordBtn");
+    const forgotPasswordBtnEl = document.getElementById("forgotPasswordBtn");
+    const accountSignOutBtnEl = document.getElementById("accountSignOutBtn");
+    const securityToggleBtnEl = document.getElementById("securityToggleBtn");
+    const securityContentEl = document.getElementById("securityContent");
+    const securityToggleIconEl = document.getElementById("securityToggleIcon");
+
+    const heroNameEl = document.getElementById("heroName");
+    const heroEmailEl = document.getElementById("heroEmail");
+    const heroAvatarEl = document.getElementById("heroAvatar");
+    const heroProgressBarEl = document.getElementById("heroProgressBar");
+    const heroProgressLabelEl = document.getElementById("heroProgressLabel");
+    const headerAvatarEl = document.getElementById("headerAvatar");
+    const headerNameEl = document.getElementById("headerName");
+    const docAvatarImgEl = document.getElementById("docAvatarImg");
+
+    const tabSliderEl = document.getElementById("tabSlider");
+    const tabBtns = [...document.querySelectorAll("[data-tab]")];
+    const tabTargetBtns = [...document.querySelectorAll("[data-tab-target]")];
+    const tabPanels = {
+      home: document.getElementById("panel-home"),
+      personal: document.getElementById("panel-personal"),
+      security: document.getElementById("panel-security"),
+      documents: document.getElementById("panel-documents")
+    };
+
+    const uploadUi = {
+      profilePhoto: {
+        input: document.getElementById("profilePhotoInput"),
+        action: document.getElementById("changePictureTrigger"),
+        fileName: null,
+        status: null,
+        updated: null
+      },
+      idCopy: {
+        input: document.getElementById("idCopyInput"),
+        action: document.getElementById("idCopyAction"),
+        fileName: document.getElementById("idCopyFileName"),
+        status: document.getElementById("idCopyStatus"),
+        updated: document.getElementById("idCopyUpdated")
+      },
+      cv: {
+        input: document.getElementById("cvInput"),
+        action: document.getElementById("cvAction"),
+        fileName: document.getElementById("cvFileName"),
+        status: document.getElementById("cvStatus"),
+        updated: document.getElementById("cvUpdated")
+      }
+    };
+
+    /* ─── TAB SWITCHING WITH ANIMATION ─── */
+    let activeTab = "home";
+    let tabAnimating = false;
+    const tabOrder = ["home", "personal", "security", "documents"];
+
+    function positionSlider(animate) {
+      const activeBtn = tabBtns.find(b => b.getAttribute("data-tab") === activeTab);
+      if (!activeBtn || !tabSliderEl) return;
+      const tabsContainer = activeBtn.parentElement;
+      const containerRect = tabsContainer.getBoundingClientRect();
+      const btnRect = activeBtn.getBoundingClientRect();
+      if (!animate) tabSliderEl.style.transition = "none";
+      tabSliderEl.style.left = (btnRect.left - containerRect.left) + "px";
+      tabSliderEl.style.width = btnRect.width + "px";
+      if (!animate) {
+        void tabSliderEl.offsetWidth;
+        tabSliderEl.style.transition = "";
+      }
+    }
+
+    function switchTab(next) {
+      if (next === activeTab || tabAnimating) return;
+      if (!tabPanels[next]) return;
+      tabAnimating = true;
+
+      const prev = activeTab;
+      const prevPanel = tabPanels[prev];
+      const nextPanel = tabPanels[next];
+      const direction = tabOrder.indexOf(next) > tabOrder.indexOf(prev) ? 1 : -1;
+
+      // Update button states
+      tabBtns.forEach(b => b.classList.toggle("is-active", b.getAttribute("data-tab") === next));
+      activeTab = next;
+      positionSlider(true);
+
+      // Animate out current
+      prevPanel.classList.remove("is-active");
+      prevPanel.classList.add("is-leaving");
+      prevPanel.style.transform = "translateX(" + (-30 * direction) + "px)";
+      prevPanel.style.opacity = "0";
+
+      // Prepare incoming
+      nextPanel.classList.add("is-entering");
+      nextPanel.style.transform = "translateX(" + (30 * direction) + "px)";
+      nextPanel.style.opacity = "0";
+
+      // Force reflow then animate in
+      void nextPanel.offsetWidth;
+      nextPanel.classList.add("is-active");
+      nextPanel.style.transform = "translateX(0)";
+      nextPanel.style.opacity = "1";
+
+      // Clean up after animation
+      setTimeout(function() {
+        prevPanel.classList.remove("is-leaving");
+        prevPanel.style.transform = "";
+        prevPanel.style.opacity = "";
+        nextPanel.classList.remove("is-entering");
+        nextPanel.style.transform = "";
+        nextPanel.style.opacity = "";
+        tabAnimating = false;
+      }, 320);
+    }
+
+    tabBtns.forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        switchTab(btn.getAttribute("data-tab"));
+      });
+    });
+
+    tabTargetBtns.forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        switchTab(btn.getAttribute("data-tab-target"));
+      });
+    });
+
+    window.addEventListener("resize", function() { positionSlider(false); });
+
+    /* ─── CONFIG ─── */
+    const countryConfig = {
+      "United Kingdom": { label: "GMC number", placeholder: "e.g. 7654321" },
+      "Ireland": { label: "IMC number", placeholder: "e.g. 123456" },
+      "New Zealand": { label: "MCNZ number", placeholder: "e.g. 98765" },
+      "Australia": { label: "AHPRA number", placeholder: "e.g. MED0001234567" },
+      "Other": { label: "Registration number", placeholder: "Enter your registration number" }
+    };
+
+    const state = {
+      profile: {
+        firstName: "", lastName: "", email: "", phone: "",
+        specialistCountry: "", registrationNumber: "",
+        cityOfChoice: "", preferredStartDate: "",
+        movingParty: "", childrenMovingCount: "",
+        hasPassword: false,
+        files: { profilePhoto: null, idCopy: null, cv: null },
+        updatedAt: null
+      },
+      lastSavedSnapshot: null,
+      isSaving: false,
+      autoSaveTimer: null,
+      pendingAutoSave: false
+    };
+
+    /* ─── HELPERS ─── */
+    function formatTimestamp(ts) {
+      if (!ts) return "Not saved yet";
+      var d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return "Not saved yet";
+      return d.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    }
+
+    function buildAvatarPlaceholder(first, last) {
+      var a = String(first || "").trim().charAt(0).toUpperCase();
+      var b = String(last || "").trim().charAt(0).toUpperCase();
+      var initials = (a + b).trim() || "GP";
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280" viewBox="0 0 280 280">' +
+        '<defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1">' +
+        '<stop offset="0%" stop-color="#2563eb"/><stop offset="100%" stop-color="#7c3aed"/>' +
+        '</linearGradient></defs>' +
+        '<rect width="280" height="280" rx="140" fill="url(#g)"/>' +
+        '<text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle" ' +
+        'font-family="Inter, Segoe UI, sans-serif" font-size="94" font-weight="800" fill="#ffffff">' + initials + '</text></svg>';
+      return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+    }
+
+    function setSaveState(text, mode) {
+      saveStateTextEl.textContent = text;
+      saveStateTextEl.className = "save-state" + (mode ? " " + mode : "");
+    }
+
+    function setPasswordActionStatus(text, isError) {
+      passwordActionStatusEl.textContent = text;
+      passwordActionStatusEl.className = "security-status" + (isError ? " error" : "");
+    }
+
+    function mapCountryValue(rawCountry) {
+      var country = String(rawCountry || "").trim();
+      if (country === "UK") return "United Kingdom";
+      if (country === "NZ") return "New Zealand";
+      if (country === "Ireland") return "Ireland";
+      if (country === "Australia") return "Australia";
+      if (country === "United Kingdom" || country === "New Zealand" || country === "Other") return country;
+      return country ? "Other" : "";
+    }
+
+    function isStrongPassword(password) {
+      var v = String(password || "");
+      if (v.length < 12 || v.length > 128) return false;
+      if (!/[a-z]/.test(v)) return false;
+      if (!/[A-Z]/.test(v)) return false;
+      if (!/[0-9]/.test(v)) return false;
+      if (!/[^A-Za-z0-9]/.test(v)) return false;
+      return true;
+    }
+
+    function normalizeFile(meta, fallbackName, fallbackDataUrl) {
+      if (!meta && !fallbackName && !fallbackDataUrl) return null;
+      if (meta && typeof meta === "object") {
+        return {
+          name: typeof meta.name === "string" ? meta.name : (fallbackName || ""),
+          status: typeof meta.status === "string" ? meta.status : (fallbackName || fallbackDataUrl ? "uploaded" : "not_uploaded"),
+          updatedAt: typeof meta.updatedAt === "string" ? meta.updatedAt : null,
+          url: typeof meta.url === "string" ? meta.url : (fallbackDataUrl || "")
+        };
+      }
+      return {
+        name: fallbackName || "",
+        status: fallbackName || fallbackDataUrl ? "uploaded" : "not_uploaded",
+        updatedAt: null,
+        url: fallbackDataUrl || ""
+      };
+    }
+
+    function normalizeProfile(payload) {
+      var p = payload && typeof payload === "object" ? payload : {};
+      var files = p.files && typeof p.files === "object" ? p.files : {};
+      return {
+        firstName: typeof p.firstName === "string" ? p.firstName : "",
+        lastName: typeof p.lastName === "string" ? p.lastName : "",
+        email: typeof p.email === "string" ? p.email : "",
+        phone: typeof p.phone === "string" ? p.phone : (typeof p.phoneNumber === "string" ? p.phoneNumber : ""),
+        specialistCountry: mapCountryValue(p.specialistCountry || p.registrationCountry),
+        registrationNumber: typeof p.registrationNumber === "string" ? p.registrationNumber : (typeof p.gmcNumber === "string" ? p.gmcNumber : ""),
+        cityOfChoice: typeof p.cityOfChoice === "string" ? p.cityOfChoice : "",
+        preferredStartDate: typeof p.preferredStartDate === "string" ? p.preferredStartDate : "",
+        movingParty: typeof p.movingParty === "string" ? p.movingParty : "",
+        childrenMovingCount: typeof p.childrenMovingCount === "string" ? p.childrenMovingCount : "",
+        hasPassword: !!p.hasPassword,
+        files: {
+          profilePhoto: normalizeFile(files.profilePhoto, p.profilePhotoName, p.profilePhotoDataUrl),
+          idCopy: normalizeFile(files.idCopy, p.idCopyName, p.idCopyDataUrl),
+          cv: normalizeFile(files.cv, p.cvFileName, "")
+        },
+        updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : (typeof p.lastUpdated === "string" ? p.lastUpdated : null)
+      };
+    }
+
+    function formSnapshot() {
+      return {
+        firstName: fieldEls.firstName.value.trim(),
+        lastName: fieldEls.lastName.value.trim(),
+        phone: fieldEls.phone.value.trim(),
+        registrationNumber: fieldEls.registrationNumber.value.trim(),
+        cityOfChoice: fieldEls.cityOfChoice.value,
+        preferredStartDate: fieldEls.preferredStartDate.value,
+        movingParty: fieldEls.movingParty.value,
+        childrenMovingCount: fieldEls.childrenMovingCount.value
+      };
+    }
+
+    function updateChildrenMovingVisibility() {
+      var movingParty = fieldEls.movingParty.value || "";
+      var includesChildren = movingParty.includes("children");
+      if (childrenMovingFieldEl) childrenMovingFieldEl.classList.toggle("is-hidden", !includesChildren);
+      if (!includesChildren) fieldEls.childrenMovingCount.value = "";
+    }
+
+    function applyRegistrationLabel(countryValue, clearField) {
+      var key = countryValue && countryConfig[countryValue] ? countryValue : "Other";
+      var conf = countryConfig[key];
+      registrationNumberLabelEl.textContent = conf.label;
+      fieldEls.registrationNumber.placeholder = conf.placeholder;
+      if (clearField) fieldEls.registrationNumber.value = "";
+    }
+
+    function setUploadCard(type, fileMeta) {
+      var ui = uploadUi[type];
+      if (!ui) return;
+      var exists = !!(fileMeta && fileMeta.name);
+      if (ui.fileName) {
+        ui.fileName.textContent = exists ? fileMeta.name : "";
+        ui.fileName.classList.toggle("is-hidden", !exists);
+      }
+      var statusText = "", statusClass = "", actionText = "Upload document";
+      if (exists) {
+        if (fileMeta.status === "reviewed") {
+          statusText = "Reviewed"; statusClass = "reviewed"; actionText = "Replace";
+        } else if (fileMeta.status === "action_required") {
+          statusText = "Action required"; statusClass = "action"; actionText = "Replace";
+        } else {
+          statusText = "Uploaded"; statusClass = "uploaded"; actionText = "Replace";
+        }
+      }
+      if (ui.status) {
+        ui.status.textContent = statusText;
+        ui.status.className = "upload-status" + (statusClass ? " " + statusClass : "");
+        ui.status.classList.toggle("is-hidden", !exists);
+      }
+      if (ui.action) {
+        ui.action.textContent = type === "profilePhoto" ? "Change photo" : actionText;
+      }
+      if (ui.updated) {
+        ui.updated.textContent = fileMeta && fileMeta.updatedAt ? "Updated " + formatTimestamp(fileMeta.updatedAt) : "";
+      }
+    }
+
+    function computeCompleteness() {
+      var completed = 0;
+      var checks = [
+        fieldEls.firstName.value.trim(),
+        fieldEls.lastName.value.trim(),
+        fieldEls.email.value.trim(),
+        fieldEls.phone.value.trim(),
+        state.profile.specialistCountry,
+        fieldEls.registrationNumber.value.trim(),
+        state.profile.files.idCopy && state.profile.files.idCopy.name,
+        state.profile.files.cv && state.profile.files.cv.name
+      ];
+      checks.forEach(function(v) { if (v) completed += 1; });
+      return Math.round((completed / checks.length) * 100);
+    }
+
+    function renderSummary() {
+      var first = fieldEls.firstName.value.trim();
+      var last = fieldEls.lastName.value.trim();
+      var email = fieldEls.email.value.trim();
+      var fullName = (first + " " + last).trim();
+      var displayName = fullName ? "Dr " + last : "Dr";
+
+      if (heroNameEl) heroNameEl.textContent = fullName || "Dr";
+      if (heroEmailEl) heroEmailEl.textContent = email || "Not provided yet";
+      if (headerNameEl) headerNameEl.textContent = displayName;
+      if (headerAvatarEl) headerAvatarEl.textContent = (first.charAt(0) + last.charAt(0)).toUpperCase() || "GP";
+
+      var percent = computeCompleteness();
+      if (heroProgressBarEl) heroProgressBarEl.style.width = percent + "%";
+      if (heroProgressLabelEl) heroProgressLabelEl.textContent = percent + "% complete";
+
+      var photo = state.profile.files.profilePhoto;
+      var avatarSrc = photo && photo.url ? photo.url : buildAvatarPlaceholder(first, last);
+      if (heroAvatarEl) heroAvatarEl.src = avatarSrc;
+      if (docAvatarImgEl) docAvatarImgEl.src = avatarSrc;
+    }
+
+    function updateSaveButtonState() {
+      var dirty = JSON.stringify(formSnapshot()) !== JSON.stringify(state.lastSavedSnapshot || {});
+      saveBtnEl.disabled = !dirty || state.isSaving;
+      if (!state.isSaving && dirty) setSaveState("Changes not saved", "");
+    }
+
+    function applyProfileToForm(profile) {
+      var previousCountry = state.profile.specialistCountry;
+      state.profile = normalizeProfile(profile);
+      var countryChanged = !!(previousCountry && previousCountry !== state.profile.specialistCountry);
+      fieldEls.firstName.value = state.profile.firstName;
+      fieldEls.lastName.value = state.profile.lastName;
+      fieldEls.email.value = state.profile.email;
+      fieldEls.phone.value = state.profile.phone;
+      fieldEls.specialistCountryDisplay.value = state.profile.specialistCountry || "Not provided yet";
+      applyRegistrationLabel(state.profile.specialistCountry, countryChanged);
+      fieldEls.registrationNumber.value = countryChanged ? "" : state.profile.registrationNumber;
+      fieldEls.cityOfChoice.value = state.profile.cityOfChoice || "";
+      fieldEls.preferredStartDate.value = state.profile.preferredStartDate || "";
+      fieldEls.movingParty.value = state.profile.movingParty || "";
+      fieldEls.childrenMovingCount.value = state.profile.childrenMovingCount || "";
+      updateChildrenMovingVisibility();
+      passwordStateTextEl.textContent = state.profile.hasPassword ? "Secure login enabled" : "Password last updated: --";
+
+      setUploadCard("profilePhoto", state.profile.files.profilePhoto);
+      setUploadCard("idCopy", state.profile.files.idCopy);
+      setUploadCard("cv", state.profile.files.cv);
+
+      state.lastSavedSnapshot = formSnapshot();
+      renderSummary();
+      updateSaveButtonState();
+      if (state.profile.updatedAt) {
+        setSaveState("Saved " + formatTimestamp(state.profile.updatedAt), "saved");
+      } else {
+        setSaveState("Changes not saved", "");
+      }
+    }
+
+    /* ─── API ─── */
+    function readFileAsDataUrl(file) {
+      return new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function() { resolve(typeof reader.result === "string" ? reader.result : ""); };
+        reader.onerror = function() { reject(new Error("file_read_failed")); };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function loadProfileFromBackend() {
+      var response = await fetch("/api/profile", { credentials: "same-origin" });
+      if (!response.ok) throw new Error("profile_load_failed");
+      var data = await response.json();
+      return data && data.profile ? data.profile : {};
+    }
+
+    async function saveProfileToBackend(payload) {
+      var response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ profile: payload })
+      });
+      if (!response.ok) throw new Error("profile_save_failed");
+      var data = await response.json();
+      return data && data.profile ? data.profile : payload;
+    }
+
+    async function uploadFileToBackend(type, file, hadExisting) {
+      var nextMeta = {
+        name: file.name,
+        status: hadExisting ? "replaced" : "uploaded",
+        updatedAt: new Date().toISOString(),
+        url: ""
+      };
+      if ((type === "profilePhoto" || type === "idCopy") && file.type.startsWith("image/")) {
+        nextMeta.url = await readFileAsDataUrl(file);
+      }
+      state.profile.files[type] = nextMeta;
+      var payload = collectSavePayload();
+      payload.profilePhotoName = state.profile.files.profilePhoto && state.profile.files.profilePhoto.name ? state.profile.files.profilePhoto.name : "";
+      payload.profilePhotoDataUrl = state.profile.files.profilePhoto && state.profile.files.profilePhoto.url ? state.profile.files.profilePhoto.url : "";
+      payload.idCopyName = state.profile.files.idCopy && state.profile.files.idCopy.name ? state.profile.files.idCopy.name : "";
+      payload.idCopyDataUrl = state.profile.files.idCopy && state.profile.files.idCopy.url ? state.profile.files.idCopy.url : "";
+      payload.cvFileName = state.profile.files.cv && state.profile.files.cv.name ? state.profile.files.cv.name : "";
+      var saved = await saveProfileToBackend(payload);
+      state.profile.updatedAt = saved.updatedAt || nextMeta.updatedAt;
+      setUploadCard(type, nextMeta);
+      renderSummary();
+      setSaveState("Saved " + formatTimestamp(state.profile.updatedAt), "saved");
+    }
+
+    function collectSavePayload() {
+      return {
+        firstName: fieldEls.firstName.value.trim(),
+        lastName: fieldEls.lastName.value.trim(),
+        email: fieldEls.email.value.trim(),
+        phone: fieldEls.phone.value.trim(),
+        registrationNumber: fieldEls.registrationNumber.value.trim(),
+        cityOfChoice: fieldEls.cityOfChoice.value,
+        preferredStartDate: fieldEls.preferredStartDate.value,
+        movingParty: fieldEls.movingParty.value,
+        childrenMovingCount: fieldEls.childrenMovingCount.value
+      };
+    }
+
+    async function saveProfileChanges(force) {
+      var dirty = JSON.stringify(formSnapshot()) !== JSON.stringify(state.lastSavedSnapshot || {});
+      if (!force && !dirty) return;
+      if (state.isSaving) {
+        if (!force) state.pendingAutoSave = true;
+        return;
+      }
+      state.isSaving = true;
+      updateSaveButtonState();
+      setSaveState("Saving...", "saving");
+      try {
+        var saved = await saveProfileToBackend(collectSavePayload());
+        var merged = normalizeProfile(Object.assign({}, state.profile, saved, { files: state.profile.files }));
+        merged.updatedAt = saved.updatedAt || new Date().toISOString();
+        state.profile = merged;
+        state.lastSavedSnapshot = formSnapshot();
+        setSaveState("Saved " + formatTimestamp(state.profile.updatedAt), "saved");
+      } catch (err) {
+        setSaveState("Couldn't save. Check your connection and try again.", "error");
+      } finally {
+        state.isSaving = false;
+        renderSummary();
+        updateSaveButtonState();
+        if (state.pendingAutoSave) {
+          state.pendingAutoSave = false;
+          saveProfileChanges(false);
+        }
+      }
+    }
+
+    function queueAutoSave() {
+      window.clearTimeout(state.autoSaveTimer);
+      state.autoSaveTimer = window.setTimeout(function() {
+        saveProfileChanges(false);
+      }, 1000);
+    }
+
+    /* ─── PASSWORD ─── */
+    async function handleSetPassword() {
+      var current = currentPasswordEl.value;
+      var next = newPasswordEl.value;
+      var confirm = confirmPasswordEl.value;
+      if (next !== confirm) { setPasswordActionStatus("Passwords do not match.", true); return; }
+      if (!isStrongPassword(next)) { setPasswordActionStatus("12+ chars with upper, lower, number, and symbol required.", true); return; }
+      setPasswordActionStatus("Saving...", false);
+      setPasswordBtnEl.disabled = true;
+      try {
+        var response = await fetch("/api/auth/set-password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ currentPassword: current, newPassword: next })
+        });
+        var data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data && data.message ? data.message : "Couldn't update password.");
+        currentPasswordEl.value = ""; newPasswordEl.value = ""; confirmPasswordEl.value = "";
+        state.profile.hasPassword = true;
+        passwordStateTextEl.textContent = "Secure login enabled";
+        setPasswordActionStatus("Password updated.", false);
+      } catch (err) {
+        setPasswordActionStatus(err.message || "Couldn't save. Check connection.", true);
+      } finally {
+        setPasswordBtnEl.disabled = false;
+      }
+    }
+
+    async function handleForgotPassword() {
+      var email = fieldEls.email.value.trim();
+      if (!email) { setPasswordActionStatus("Email required for reset.", true); return; }
+      forgotPasswordBtnEl.disabled = true;
+      setPasswordActionStatus("Sending...", false);
+      try {
+        var response = await fetch("/api/auth/request-password-reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email })
+        });
+        var data = await response.json();
+        if (!response.ok || !data.ok) throw new Error("Couldn't submit reset.");
+        setPasswordActionStatus("If your account exists, a reset link will be sent.", false);
+      } catch (err) {
+        setPasswordActionStatus("Couldn't send. Check connection.", true);
+      } finally {
+        forgotPasswordBtnEl.disabled = false;
+      }
+    }
+
+    /* ─── EVENT LISTENERS ─── */
+    [fieldEls.firstName, fieldEls.lastName, fieldEls.phone, fieldEls.registrationNumber].forEach(function(el) {
+      el.addEventListener("input", function() { renderSummary(); updateSaveButtonState(); queueAutoSave(); });
+      el.addEventListener("blur", function() { saveProfileChanges(false); });
+    });
+
+    fieldEls.cityOfChoice.addEventListener("change", function() { renderSummary(); updateSaveButtonState(); queueAutoSave(); });
+    fieldEls.cityOfChoice.addEventListener("blur", function() { saveProfileChanges(false); });
+
+    [fieldEls.preferredStartDate, fieldEls.childrenMovingCount].forEach(function(el) {
+      el.addEventListener("change", function() { renderSummary(); updateSaveButtonState(); queueAutoSave(); });
+      el.addEventListener("blur", function() { saveProfileChanges(false); });
+    });
+
+    fieldEls.movingParty.addEventListener("change", function() {
+      updateChildrenMovingVisibility(); renderSummary(); updateSaveButtonState(); queueAutoSave();
+    });
+    fieldEls.movingParty.addEventListener("blur", function() { saveProfileChanges(false); });
+
+    saveBtnEl.addEventListener("click", function() { saveProfileChanges(true); });
+
+    resetBtnEl.addEventListener("click", async function() {
+      window.clearTimeout(state.autoSaveTimer);
+      state.pendingAutoSave = false;
+      try {
+        var latest = await loadProfileFromBackend();
+        applyProfileToForm(latest);
+      } catch (err) {
+        setSaveState("Couldn't load. Check connection.", "error");
+      }
+    });
+
+    setPasswordBtnEl.addEventListener("click", handleSetPassword);
+    forgotPasswordBtnEl.addEventListener("click", handleForgotPassword);
+
+    if (securityToggleBtnEl && securityContentEl && securityToggleIconEl) {
+      securityToggleBtnEl.addEventListener("click", function() {
+        var expanded = securityToggleBtnEl.getAttribute("aria-expanded") === "true";
+        securityToggleBtnEl.setAttribute("aria-expanded", expanded ? "false" : "true");
+        securityToggleIconEl.textContent = expanded ? "+" : "-";
+        securityToggleIconEl.style.transform = expanded ? "rotate(0deg)" : "rotate(45deg)";
+        securityContentEl.classList.toggle("is-open", !expanded);
+      });
+    }
+
+    if (accountSignOutBtnEl) {
+      accountSignOutBtnEl.addEventListener("click", async function() {
+        accountSignOutBtnEl.disabled = true;
+        accountSignOutBtnEl.textContent = "Signing out...";
+        if (window.gpLinkStateSync && window.gpLinkStateSync.shutdown) {
+          window.gpLinkStateSync.shutdown();
+        }
+        try {
+          await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+        } catch (err) {}
+        finally { window.location.href = "/logout"; }
+      });
+    }
+
+    Object.entries(uploadUi).forEach(function(entry) {
+      var type = entry[0], ui = entry[1];
+      if (!ui.input || !ui.action) return;
+      ui.action.addEventListener("click", function() { ui.input.click(); });
+      ui.input.addEventListener("change", async function() {
+        var file = ui.input.files && ui.input.files[0];
+        if (!file) return;
+        ui.action.disabled = true;
+        setSaveState("Saving...", "saving");
+        try {
+          var hadExisting = !!(state.profile.files[type] && state.profile.files[type].name);
+          await uploadFileToBackend(type, file, hadExisting);
+        } catch (err) {
+          setSaveState("Couldn't save. Check connection.", "error");
+        } finally {
+          ui.action.disabled = false;
+          ui.input.value = "";
+        }
+      });
+    });
+
+    /* ─── INIT ─── */
+    (async function init() {
+      try {
+        var profile = await loadProfileFromBackend();
+        applyProfileToForm(profile);
+      } catch (err) {
+        applyProfileToForm({});
+        setSaveState("Couldn't load profile. Check connection.", "error");
+      }
+      positionSlider(false);
+    })();
+  </script>
+</body>
+</html>

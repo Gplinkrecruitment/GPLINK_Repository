@@ -1,0 +1,2072 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>MyIntealth - GP Link</title>
+  <script src="../js/auth-guard.js?v=20260311f" defer></script>
+  <script src="../js/state-sync.js?v=20260314b" defer></script>
+  <script src="../js/updates-sync.js?v=20260309c" defer></script>
+  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260310a" defer></script>
+  <script src="../js/account-dropdown.js" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --green: #10b981;
+      --green2: #16a34a;
+      --orange: #f59e0b;
+      --orange2: #f97316;
+      --red: #dc2626;
+      --card: rgba(255, 255, 255, 0.92);
+      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    img, video { max-width: 100%; height: auto; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: #f0f4fa;
+      min-height: 100dvh;
+    }
+
+    .dash-wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 16px 120px;
+    }
+
+    /* ---- HEADER ---- */
+    .app-header {
+      display: flex; align-items: center;
+      justify-content: space-between; padding: 18px 0 14px;
+    }
+    .header-greeting { display: flex; align-items: center; gap: 12px; }
+    .header-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 800; font-size: 18px;
+      flex-shrink: 0; border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .header-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+    .header-text p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+    .header-icon-btn {
+      width: 42px; height: 42px; border-radius: 14px;
+      border: 1px solid #e2e8f0; background: #fff;
+      display: grid; place-items: center; cursor: pointer;
+      position: relative; transition: all .15s ease; color: #475569;
+    }
+    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
+    .header-icon-btn svg {
+      width: 20px; height: 20px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 10px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #f0f4fa;
+    }
+
+    /* ---- STEP TABS (horizontal navigation) ---- */
+    .step-tabs {
+      display: flex; align-items: center;
+      gap: 4px; padding: 8px 0 12px;
+      position: relative;
+      overflow-x: auto;
+      -ms-overflow-style: none; scrollbar-width: none;
+    }
+    .step-tabs::-webkit-scrollbar { display: none; }
+
+    .step-tab-glass {
+      position: absolute; z-index: 1;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(191, 220, 255, 0.9);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px -10px rgba(37, 99, 235, 0.35);
+      pointer-events: none;
+      transition: left .35s cubic-bezier(.22,.9,.18,1.05),
+                  width .35s cubic-bezier(.22,.9,.18,1.05);
+    }
+
+    .step-tab {
+      position: relative; z-index: 2;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px; border-radius: 14px;
+      font-size: 13px; font-weight: 600; color: #64748b;
+      cursor: pointer; border: 0; background: transparent;
+      font-family: inherit; white-space: nowrap;
+      transition: color .2s;
+      flex-shrink: 0;
+    }
+    .step-tab:hover { color: var(--text); }
+    .step-tab.active { color: var(--blue); font-weight: 700; }
+    .step-tab.done { color: #059669; }
+    .step-tab:disabled { opacity: .4; cursor: not-allowed; }
+    .step-tab:disabled:hover { color: #64748b; }
+
+    .step-tab-num {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 11px; font-weight: 700;
+      background: #e8edf5; color: #64748b;
+      flex-shrink: 0; transition: all .2s;
+    }
+    .step-tab-num svg {
+      width: 13px; height: 13px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .step-tab-num.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px -2px rgba(37,99,235,.4); }
+    .step-tab-num.done { background: var(--green); color: #fff; }
+    .step-tab-num.locked { background: #f1f5f9; color: #94a3b8; }
+
+    /* ---- TUTORIAL VIDEO ---- */
+    .tutorial-card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-bottom: 16px;
+    }
+    .tutorial-title {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 4px;
+    }
+    .tutorial-title svg {
+      width: 20px; height: 20px; stroke: var(--blue);
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .tutorial-title span { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+    .tutorial-desc { font-size: 13px; color: var(--muted); font-weight: 500; margin-bottom: 12px; }
+    .tutorial-video {
+      width: 100%; border-radius: 12px;
+      border: 1px solid #e2e8f0; background: #000;
+    }
+
+    /* ---- STEP CONTENT PANEL ---- */
+    .step-content {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 22px;
+      margin-bottom: 16px; position: relative; overflow: hidden;
+    }
+    .step-content::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
+    }
+    .step-content.waiting-state::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+    .step-content.done-state::before { background: linear-gradient(90deg, #16a34a, #22c55e); }
+
+    .step-content-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; margin-bottom: 8px;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+    }
+    .step-content-badge.waiting { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
+    .step-content-badge.done { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+
+    .step-content-title {
+      font-size: 20px; font-weight: 800;
+      letter-spacing: -0.01em; line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .step-content-sub {
+      font-size: 13px; color: #475569;
+      font-weight: 500; line-height: 1.5; margin-bottom: 16px;
+    }
+
+    .step-content-warning {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: #fffbeb; border: 1px solid #fde68a;
+      border-radius: 14px; padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .step-content-warning.hidden { display: none; }
+    .step-content-warning-icon {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: #fef3c7; display: grid; place-items: center; flex-shrink: 0;
+    }
+    .step-content-warning-icon svg {
+      width: 18px; height: 18px; stroke: #b45309;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .step-content-warning-title { font-size: 13px; font-weight: 700; color: #92400e; margin-bottom: 2px; }
+    .step-content-warning-text { font-size: 12px; color: #a16207; font-weight: 500; line-height: 1.45; }
+
+    .step-info-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; margin-bottom: 16px;
+    }
+    .step-info-item {
+      background: #f8fafc; border-radius: 12px;
+      border: 1px solid #e8edf5; padding: 14px;
+    }
+    .step-info-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .step-info-value {
+      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4;
+    }
+    .step-info-action-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .step-info-download {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: fit-content;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #0f172a;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform .15s ease, background .15s ease, border-color .15s ease;
+    }
+    .step-info-download:hover {
+      transform: translateY(-1px);
+      background: #f8fafc;
+      border-color: #94a3b8;
+    }
+    .step-info-download:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .step-info-download svg {
+      width: 15px;
+      height: 15px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .step-info-download.cta-pulse-dark {
+      position: relative;
+      overflow: visible;
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+      box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.45);
+    }
+    .step-info-download.cta-pulse-dark::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 14px;
+      border: 2px solid rgba(15, 23, 42, 0.55);
+      animation: ctaPulseRing 1.5s ease-out infinite;
+      pointer-events: none;
+    }
+    @media (min-width: 768px) {
+      .step-info-action-stack .step-info-download {
+        margin-left: auto;
+        margin-right: auto;
+      }
+    }
+
+    .step-actions {
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .step-nav-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .step-nav-actions .btn-action {
+      min-width: 140px;
+      justify-content: center;
+    }
+    .step-nav-actions .spacer {
+      width: 1px;
+      height: 1px;
+    }
+
+    .btn-action {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 20px; border-radius: 12px;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; border: 1px solid;
+      transition: all .15s ease; cursor: pointer;
+      font-family: inherit;
+    }
+    .btn-action:hover { transform: translateY(-1px); }
+    .btn-action svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .btn-action.primary {
+      background: var(--blue); color: #fff; border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .btn-action.primary:hover { background: var(--blue2); }
+    .btn-action.complete {
+      background: #fff; color: #059669; border-color: #bbf7d0;
+    }
+    .btn-action.complete:hover { background: #ecfdf5; }
+    .btn-action.secondary {
+      background: #fff; color: #334155; border-color: #e2e8f0; box-shadow: none;
+    }
+    .btn-action.secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+    .btn-action:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    .btn-action.cta-pulse {
+      position: relative;
+      overflow: visible;
+    }
+    .btn-action.cta-pulse::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      border-radius: 14px;
+      border: 2px solid rgba(37, 99, 235, 0.55);
+      animation: ctaPulseRing 1.5s ease-out infinite;
+      pointer-events: none;
+    }
+    .btn-action .cta-cursor {
+      position: absolute;
+      top: -12px;
+      right: -10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #fff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      box-shadow: 0 6px 14px -8px rgba(30, 64, 175, 0.55);
+      animation: ctaCursorBounce 1.2s ease-in-out infinite;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .btn-action .cta-cursor::before {
+      content: "";
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 7px solid #1d4ed8;
+      transform: translateY(1px);
+    }
+    @keyframes ctaPulseRing {
+      0% { transform: scale(0.98); opacity: .9; }
+      70% { transform: scale(1.06); opacity: .15; }
+      100% { transform: scale(1.08); opacity: 0; }
+    }
+    @keyframes ctaCursorBounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+
+    /* Progress bar in step content */
+    .step-progress-row {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 16px;
+    }
+    .step-progress-track {
+      flex: 1; height: 6px; border-radius: 999px;
+      background: #e8edf5; overflow: hidden;
+    }
+    .step-progress-fill {
+      height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, #2563eb, #3b82f6);
+      transition: width .5s ease;
+    }
+    .step-progress-fill.complete { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .step-progress-text {
+      font-size: 12px; font-weight: 700; color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* ---- HELP CARD ---- */
+    .help-card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; padding: 18px;
+      margin-bottom: 16px;
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    }
+    .help-card .txt {
+      font-size: 13px; font-weight: 500; color: #334155;
+      line-height: 1.5; max-width: 600px;
+    }
+    .help-card .txt strong {
+      display: block; font-weight: 800; font-size: 15px;
+      color: var(--text); margin-bottom: 4px;
+    }
+    .help-card .trust-grid {
+      width: 100%;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    }
+    .help-card .trust-col {
+      border: 1px solid #e8edf5; border-radius: 14px;
+      background: #fafbfd; padding: 14px;
+    }
+    .help-card .trust-col h4 {
+      font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 8px;
+    }
+    .help-card .trust-col ul { list-style: none; display: grid; gap: 6px; }
+    .help-card .trust-col li {
+      font-size: 12px; font-weight: 500; color: #334155;
+      display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
+    }
+    .help-card .trust-col li::before {
+      content: "";
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--blue); flex-shrink: 0; margin-top: 5px;
+    }
+    .help-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .btn-modern {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 16px; border-radius: 12px;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; border: 1px solid;
+      transition: all .15s ease; cursor: pointer; font-family: inherit;
+    }
+    .btn-modern:hover { transform: translateY(-1px); }
+    .btn-primary {
+      background: var(--blue); color: #fff; border-color: var(--blue);
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+    }
+    .btn-primary:hover { background: var(--blue2); }
+    .btn-outline {
+      background: #fff; color: #334155; border-color: #e2e8f0;
+    }
+    .btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; }
+
+    .footer-links {
+      text-align: center; padding: 16px 0;
+      font-size: 12px; color: #94a3b8; font-weight: 600;
+    }
+    .footer-links a { color: #475569; text-decoration: underline; }
+
+    /* ---- SPINNER ---- */
+    .spin-icon {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(100, 116, 139, 0.3);
+      border-top-color: currentColor; border-radius: 50%;
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- DESKTOP TOPBAR ---- */
+    .desktop-topbar {
+      padding: 12px 16px; border-radius: 16px;
+      margin-bottom: 6px; background: #fff;
+      border: 1px solid #e8edf5; box-shadow: var(--shadow2);
+    }
+    .topbar-row {
+      display: grid; grid-template-columns: auto 1fr auto;
+      align-items: center; min-height: 52px; gap: 14px;
+    }
+    .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
+    .brand-logo img { display: block; width: 160px; height: auto; }
+    .nav-menu {
+      display: flex; gap: 6px; align-items: center;
+      justify-content: center; position: relative; padding: 4px; border-radius: 14px;
+    }
+    .nav-item { position: relative; z-index: 2; }
+    .nav-link, .nav-action, .account-pill {
+      text-decoration: none; border: 0; background: transparent; color: #64748b;
+      padding: 8px 14px; font-size: 13px; font-weight: 600; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 6px; line-height: 1.15;
+      border-radius: 12px; cursor: pointer; font-family: inherit; transition: color .15s ease;
+    }
+    .nav-link:hover, .nav-action:hover, .account-pill:hover { color: var(--text); }
+    .nav-link.active, .nav-action.active, .account-pill.active { color: var(--text); font-weight: 700; }
+    .nav-icon {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .nav-icon-wrap { position: relative; display: inline-grid; place-items: center; }
+    .nav-alert {
+      position: absolute; top: -6px; right: -8px;
+      width: 14px; height: 14px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 900; color: #fff;
+      background: #dc2626; pointer-events: none; z-index: 2;
+      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.6);
+    }
+    .nav-glass {
+      position: absolute; top: 0; left: 0;
+      width: 100px; height: 40px; border-radius: 12px;
+      background: rgba(37, 99, 235, 0.06);
+      border: 1px solid rgba(37, 99, 235, 0.1);
+      z-index: 1; pointer-events: none;
+      transition: left .3s cubic-bezier(.22,.9,.18,1.05), top .3s cubic-bezier(.22,.9,.18,1.05), width .3s cubic-bezier(.22,.9,.18,1.05), height .3s cubic-bezier(.22,.9,.18,1.05);
+    }
+    .nav-glass.engulf { background: rgba(37, 99, 235, 0.1); }
+
+    /* ---- REGISTRATION DROPDOWN ---- */
+    .reg-dropdown {
+      position: absolute; top: calc(100% + 4px); right: 0;
+      width: min(700px, 90vw); border-radius: 18px;
+      border: 1px solid #e8edf5; background: #fff;
+      box-shadow: 0 20px 40px -16px rgba(15, 23, 42, 0.18);
+      padding: 14px; z-index: 70;
+      opacity: 0; transform: translateY(6px);
+      pointer-events: none; visibility: hidden;
+      transition: opacity .15s ease, transform .15s ease, visibility .15s ease;
+    }
+    .reg-dropdown.show { opacity: 1; transform: translateY(0); pointer-events: auto; visibility: visible; }
+    .reg-head { margin: 0 0 10px; font-size: 14px; font-weight: 800; }
+    .reg-table { display: grid; gap: 8px; }
+    .reg-row {
+      display: grid; grid-template-columns: 1.2fr auto auto;
+      align-items: center; gap: 10px;
+      border: 1px solid #e8edf5; background: #fafbfd;
+      border-radius: 14px; padding: 10px 12px;
+      position: relative;
+      overflow: hidden;
+    }
+    .reg-name { font-size: 13px; font-weight: 700; }
+    .reg-sub { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .reg-row.done {
+      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+      border-color: #86efac;
+    }
+    .reg-row.done .reg-name,
+    .reg-row.done .reg-sub {
+      color: #166534;
+      text-decoration: line-through;
+      text-decoration-thickness: 1.5px;
+    }
+    .reg-row.done::before,
+    .reg-row.done::after {
+      content: "";
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      top: 50%;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+      pointer-events: none;
+    }
+    .reg-row.done::before { transform: rotate(6deg); }
+    .reg-row.done::after { transform: rotate(-6deg); }
+    .reg-pill {
+      font-size: 10px; text-transform: uppercase; font-weight: 800;
+      border-radius: 999px; padding: 4px 10px;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+    }
+    .reg-pill.done { background: #16a34a; color: #fff; border-color: #16a34a; }
+    .reg-pill.locked { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+    .reg-btn {
+      text-decoration: none; padding: 8px 14px; border-radius: 10px;
+      font-size: 12px; font-weight: 700; white-space: nowrap;
+      color: var(--blue); background: #eff6ff;
+      border: 1px solid #bfdbfe; transition: all .15s ease;
+    }
+    .reg-btn:hover { background: #dbeafe; }
+    .reg-btn.done {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #166534;
+      cursor: not-allowed;
+    }
+    .reg-btn.locked { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
+    .reg-btn:disabled { cursor: not-allowed; }
+
+    /* ---- MOBILE REG SHEET ---- */
+    .mobile-reg-backdrop {
+      position: fixed; inset: 0; background: rgba(2, 6, 23, 0.4);
+      opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 54;
+    }
+    .mobile-reg-backdrop.show { opacity: 1; pointer-events: auto; }
+    .mobile-reg-sheet {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      background: #fff; border-radius: 20px 20px 0 0;
+      border-top: 1px solid #e2e8f0;
+      box-shadow: 0 -16px 40px -20px rgba(15, 23, 42, 0.3);
+      padding: 10px 14px 18px; z-index: 55;
+      max-height: 74vh; overflow: auto;
+      transform: translateY(100%); transition: transform .25s ease; touch-action: pan-y;
+    }
+    .mobile-reg-sheet.show { transform: translateY(0); }
+    .mobile-reg-grab { width: 40px; height: 4px; border-radius: 999px; background: #d1d5db; margin: 4px auto 12px; }
+    .mobile-reg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .mobile-reg-title { font-size: 16px; font-weight: 800; }
+    .mobile-reg-close {
+      border: 0; background: #f1f5f9; color: #475569;
+      border-radius: 50%; width: 32px; height: 32px;
+      font-size: 16px; font-weight: 800; cursor: pointer; display: grid; place-items: center;
+    }
+    .mobile-reg-table { display: grid; gap: 8px; }
+    .mobile-reg-table .reg-row { grid-template-columns: 1fr auto; }
+    .mobile-reg-table .reg-btn { grid-column: 1 / -1; width: 100%; text-align: center; margin-top: 2px; }
+
+    /* ---- BOTTOM NAV ---- */
+    .bottom-nav {
+      position: fixed; left: 50%; bottom: 0; transform: translateX(-50%);
+      width: 100%; max-width: 560px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid #e2e8f0;
+      padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
+      display: none; grid-template-columns: repeat(5, 1fr); gap: 4px; z-index: 50; overflow: visible;
+    }
+    .bottom-tab {
+      text-decoration: none; border: 0; background: transparent; color: #94a3b8;
+      border-radius: 12px; min-height: 46px; padding: 6px 4px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 0; cursor: pointer; font: inherit; transition: all .15s ease;
+    }
+    .bottom-tab svg {
+      width: 22px; height: 22px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .bottom-tab-label { display: none; }
+    .bottom-tab-active { color: var(--blue); background: rgba(37, 99, 235, 0.08); }
+    .bottom-tab-icon { position: relative; display: inline-grid; place-items: center; }
+    .bottom-tab-scan { transform: none; }
+    .bottom-tab-scan .bottom-tab-icon {
+      width: 36px; height: 36px; border-radius: 999px;
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      color: #fff;
+      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      animation: scanHaloPulse 2.8s ease-in-out infinite;
+    }
+    .bottom-tab-scan .bottom-tab-icon svg { width: 19px; height: 19px; }
+    @keyframes scanHaloPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78);
+      }
+    }
+    .bottom-tab-badge {
+      position: absolute; top: -5px; right: -8px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 9px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid #fff;
+    }
+
+    /* ---- MODALS ---- */
+    .modal {
+      position: fixed; inset: 0;
+      background: rgba(240, 244, 250, 0.34);
+      backdrop-filter: blur(0px) saturate(1.02);
+      -webkit-backdrop-filter: blur(0px) saturate(1.02);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px; z-index: 60;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity .24s ease, backdrop-filter .24s ease, -webkit-backdrop-filter .24s ease;
+    }
+    .modal.show {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      backdrop-filter: blur(16px) saturate(1.05);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+    }
+    .modal-card {
+      width: min(480px, 100%); background: #fff;
+      border-radius: var(--radius); border: 1px solid #e8edf5;
+      box-shadow: 0 24px 48px -16px rgba(15, 23, 42, 0.25);
+      padding: 20px; display: grid; gap: 12px;
+      transform: translateY(20px) scale(0.92);
+      opacity: 0;
+      transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
+      transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
+    }
+    .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
+    .modal-card h4 { font-size: 18px; font-weight: 800; }
+    .modal-card p { font-size: 13px; color: #475569; line-height: 1.5; font-weight: 500; }
+    .modal-card textarea {
+      width: 100%; min-height: 90px; border-radius: 12px;
+      border: 1px solid #e2e8f0; padding: 12px;
+      resize: vertical; font: inherit; font-size: 13px;
+    }
+
+    /* ---- TOAST ---- */
+    .toast {
+      position: fixed; right: 12px; bottom: 92px; z-index: 95;
+      border-radius: 10px; background: #111827; color: #fff;
+      padding: 9px 14px; font-size: 12px; font-weight: 650;
+      opacity: 0; transform: translateY(8px);
+      transition: opacity .2s ease, transform .2s ease; pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ---- RESPONSIVE ---- */
+    @media (min-width: 768px) {
+      .app-header { display: none; }
+      .desktop-topbar { display: block; }
+      .bottom-nav { display: none; }
+      .dash-wrap { padding-bottom: 40px; }
+      .step-actions { justify-content: center; }
+    }
+    @media (max-width: 767px) {
+      .desktop-topbar { display: none; }
+      .bottom-nav { display: grid; }
+      .app-header { display: flex; }
+      .step-info-grid { grid-template-columns: 1fr; }
+      .btn-action { width: 100%; justify-content: center; }
+      .step-nav-actions .btn-action { width: auto; }
+      .desktop-only-section { display: none; }
+      .dash-wrap { padding-bottom: 80px; }
+      .step-tab { padding: 8px 12px; font-size: 12px; }
+      .step-tab-num { width: 22px; height: 22px; font-size: 10px; }
+      .step-tab-num svg { width: 11px; height: 11px; }
+    }
+    @media (max-width: 480px) {
+      .step-content-title { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash-wrap">
+    <!-- MOBILE HEADER -->
+    <header class="app-header">
+      <div class="header-greeting">
+        <div class="header-avatar" id="headerAvatarMobile">GP</div>
+        <div class="header-text">
+          <h1>MyIntealth</h1>
+          <p>EPIC Verification Process</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-icon-btn" id="mobileHeaderChatBtn" type="button" aria-label="Messages">
+          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- DESKTOP TOPBAR -->
+    <header class="desktop-topbar">
+      <div class="topbar-row">
+        <a class="brand-logo" href="/pages/index.html" aria-label="GP Link Home">
+          <img src="../media/images/gp-link-logo.png" alt="GP Link" />
+        </a>
+        <nav class="nav-menu" aria-label="Main navigation">
+          <span class="nav-glass" id="navGlass" aria-hidden="true"></span>
+          <a class="nav-link nav-item" href="/pages/index.html" data-nav="home">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>
+            <span>Home</span>
+          </a>
+          <button class="nav-action nav-item active" id="registrationMenuBtn" type="button" data-nav="registration">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+            <span>Registration</span>
+          </button>
+          <a class="nav-link nav-item" href="/pages/my-documents.html" data-nav="documents">
+            <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span>My Documents</span>
+          </a>
+          <button class="nav-action nav-item" id="topSupportBtn" type="button" data-nav="support">
+            <span class="nav-icon-wrap"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg><span class="nav-alert" data-inbox-alert hidden aria-hidden="true">!</span></span>
+            <span>Messages</span>
+          </button>
+          <a class="account-pill nav-item" href="/pages/account.html" data-nav="account">
+            <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            <span>Account</span>
+          </a>
+          <div class="reg-dropdown" id="registrationDropdown">
+            <p class="reg-head">Registration Process</p>
+            <div class="reg-table" id="regTable"></div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <!-- HORIZONTAL STEP TABS -->
+    <nav class="step-tabs" id="stepTabs" aria-label="Step navigation">
+      <div class="step-tab-glass" id="stepTabGlass"></div>
+    </nav>
+
+    <!-- TUTORIAL VIDEO -->
+    <div class="tutorial-card" id="tutorialCard">
+      <div class="tutorial-title">
+        <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span>Video Walkthrough</span>
+      </div>
+      <p class="tutorial-desc" id="tutorialDesc">Create your MyIntealth account by following this walkthrough.</p>
+      <video class="tutorial-video" id="tutorialVideo" controls playsinline preload="metadata">
+        <source id="tutorialSource" src="../media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
+        Your browser does not support the video tag.
+      </video>
+    </div>
+
+    <!-- STEP CONTENT -->
+    <div class="step-content" id="stepContent">
+      <div class="step-content-badge" id="stepBadge">What to do now</div>
+      <h2 class="step-content-title" id="stepTitle">Create Your Account</h2>
+      <p class="step-content-sub" id="stepSub">Set up your MyIntealth account and verify your identity.</p>
+
+      <div class="step-progress-row">
+        <div class="step-progress-track">
+          <div class="step-progress-fill" id="stepProgressFill" style="width:2%"></div>
+        </div>
+        <span class="step-progress-text" id="stepProgressText">0 of 4 complete</span>
+      </div>
+
+      <div class="step-content-warning hidden" id="stepWarning">
+        <div class="step-content-warning-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+        </div>
+        <div>
+          <div class="step-content-warning-title" id="stepWarningTitle">Attention needed</div>
+          <div class="step-content-warning-text" id="stepWarningText">-</div>
+        </div>
+      </div>
+
+      <div class="step-info-grid" id="stepInfoGrid"></div>
+
+      <div class="step-actions" id="stepActions"></div>
+
+      <div class="step-nav-actions" id="stepNavActions"></div>
+    </div>
+
+    <!-- HELP CARD -->
+    <div class="help-card desktop-only-section">
+      <div class="txt">
+        <strong>We're Here For You!</strong>
+        Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
+      </div>
+      <div class="trust-grid">
+        <div class="trust-col">
+          <h4>You do:</h4>
+          <ul>
+            <li>Upload required documents</li>
+            <li>Complete key forms</li>
+            <li>Confirm details when requested</li>
+          </ul>
+        </div>
+        <div class="trust-col">
+          <h4>We do:</h4>
+          <ul>
+            <li>Guide each step in order</li>
+            <li>Check progress and timelines</li>
+            <li>Flag issues and coordinate support</li>
+          </ul>
+        </div>
+      </div>
+      <div class="help-actions">
+        <a class="btn-modern btn-primary" href="/pages/messages.html">Contact Support <span>&#8594;</span></a>
+        <a class="btn-modern btn-outline" href="/pages/support-cases.html">View Support Cases <span>&#8594;</span></a>
+      </div>
+    </div>
+
+    <div class="footer-links">
+      <div><a href="/pages/privacy.html">Privacy Policy</a> &middot; <a href="/pages/terms.html">Terms of Service</a></div>
+      <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV (Mobile) -->
+  <nav class="bottom-nav" aria-label="Mobile navigation">
+    <a class="bottom-tab" href="/pages/index.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg></span>
+      <span class="bottom-tab-label">Home</span>
+    </a>
+    <button class="bottom-tab bottom-tab-active" id="mobileRegistrationBtn" type="button">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></span>
+      <span class="bottom-tab-label">Registration</span>
+    </button>
+    <button class="bottom-tab bottom-tab-scan" data-qual-scan-trigger="mobile" type="button" aria-label="Scan document">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2"></path><path d="M20 7V5a1 1 0 0 0-1-1h-2"></path><path d="M4 17v2a1 1 0 0 0 1 1h2"></path><path d="M20 17v2a1 1 0 0 1-1 1h-2"></path><path d="M8 12h8"></path><path d="M12 8v8"></path></svg></span>
+      <span class="bottom-tab-label">Scan</span>
+    </button>
+    <button class="bottom-tab" id="mobileSupportBtn" type="button">
+      <span class="bottom-tab-icon">
+        <svg viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5H7l-4 3v-6A8.5 8.5 0 1 1 21 12z"/></svg>
+        <span class="bottom-tab-badge" data-inbox-alert hidden aria-hidden="true">!</span>
+      </span>
+      <span class="bottom-tab-label">Messages</span>
+    </button>
+    <a class="bottom-tab" href="/pages/account.html">
+      <span class="bottom-tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg></span>
+      <span class="bottom-tab-label">Account</span>
+    </a>
+  </nav>
+
+  <!-- MOBILE REGISTRATION SHEET -->
+  <div class="mobile-reg-backdrop" id="mobileRegBackdrop"></div>
+  <aside class="mobile-reg-sheet" id="mobileRegSheet" aria-label="Registration stages">
+    <div class="mobile-reg-grab" aria-hidden="true"></div>
+    <div class="mobile-reg-head">
+      <p class="mobile-reg-title">Registration Process</p>
+      <button class="mobile-reg-close" id="mobileRegCloseBtn" type="button">&times;</button>
+    </div>
+    <div class="mobile-reg-table" id="mobileRegTable"></div>
+  </aside>
+
+  <!-- SUPPORT MODAL -->
+  <div class="modal" id="supportModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+      <h4 id="supportTitle">New support case</h4>
+      <p>Create a support case from your current step. GP Link will follow up with next actions.</p>
+      <div style="display:grid; gap:10px;">
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          What is this about?
+          <select id="supportCategory" class="input">
+            <option value="EPIC">EPIC</option>
+            <option value="AMC">AMC</option>
+            <option value="Documents">Documents</option>
+            <option value="AHPRA">AHPRA</option>
+            <option value="Provider">Provider</option>
+            <option value="Contract">Contract</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          Brief summary
+          <input id="supportSummary" class="input" type="text" maxlength="120" placeholder="Short summary of your issue" />
+        </label>
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          Describe the issue
+          <textarea id="supportMessage" placeholder="What happened and what do you need help with?"></textarea>
+        </label>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-primary" id="supportSubmitBtn" type="button">Submit request</button>
+        <button class="btn-modern btn-outline" data-close="supportModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Progress saved</div>
+
+  <script>
+    // ─── CONSTANTS ───────────────────────────────────────────────
+    const STORAGE_KEY = "gp_epic_progress";
+    const TUTORIAL_SEEN_KEY = "gp_epic_tutorial_seen";
+    const AMC_KEY = "gp_amc_progress";
+    const AHPRA_KEY = "gp_ahpra_progress";
+    const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
+    const SAVE_BATCH_SIZE = 3;
+    const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
+    const MYINTEALTH_URL = "https://applicant.myintealth.app/s/";
+    const ONBOARDING_DOWNLOAD_KEYS = ["onboarding_specialist_qualification", "onboarding_primary_med_degree"];
+
+    // Internal stages (keep waiting_verification in completed state for backward compat only)
+    const STAGES = ["create_account", "account_establishment", "upload_qualifications", "verification_issued"];
+
+    // Visible tabs (3 steps only)
+    const TAB_STAGES = ["create_account", "account_establishment", "upload_qualifications"];
+    const TAB_LABELS = {
+      create_account: "Account",
+      account_establishment: "Establishment",
+      upload_qualifications: "Qualifications"
+    };
+
+    const stageMeta = {
+      create_account: {
+        label: "Account",
+        full: "Create Your Account",
+        short: "Set up your MyIntealth account and verify your identity.",
+        doNow: "Create your account and complete identity verification.",
+        time: "10-20 minutes",
+        support: "We monitor your progress and can help if verification stalls.",
+        next: "After account creation, you'll establish your EPIC account.",
+        cta: "Open MyIntealth",
+        ctaType: "open"
+      },
+      account_establishment: {
+        label: "Establishment",
+        full: "Establish EPIC Account",
+        short: "Complete your NotaryCam session to establish your EPIC account.",
+        doNow: "Establish your EPIC account and complete your NotaryCam session.",
+        time: "10-20 minutes",
+        support: "We track this step and follow up if establishment is delayed.",
+        next: "Once established, you'll upload your specialist qualifications.",
+        cta: "Open MyIntealth",
+        ctaType: "open"
+      },
+      upload_qualifications: {
+        label: "Qualifications",
+        full: "Upload Qualifications",
+        short: "Upload your specialist qualification and nominate AMC.",
+        doNow: "Upload your specialist qualification and ensure AMC is nominated.",
+        time: "10-20 minutes",
+        support: "We check your submission is correct and chase delays.",
+        next: "Once complete, you will move straight to the AMC Portfolio.",
+        cta: "Open MyIntealth",
+        ctaType: "open"
+      },
+      verification_issued: {
+        label: "Complete",
+        full: "MyIntealth Complete",
+        short: "Your MyIntealth qualification step is complete. You can move to the AMC Portfolio.",
+        doNow: "Proceed to your AMC Portfolio and continue your registration.",
+        time: "5 minutes",
+        support: "We continue tracking your AMC stage and can help if issues appear.",
+        next: "You will start AMC portfolio setup and document submission.",
+        cta: "Go to AMC Portfolio",
+        ctaType: "amc"
+      }
+    };
+
+    const stageRouteMap = {
+      create_account: "account",
+      account_establishment: "establish",
+      upload_qualifications: "upload",
+      verification_issued: "complete"
+    };
+    const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([k, v]) => [v, k]));
+
+    const tutorialByStage = {
+      create_account: { text: "Create your MyIntealth account by following this walkthrough.", src: "../media/videos/myintealth-tutorial-1.mp4" },
+      account_establishment: { text: "Establish your EPIC account and complete your NotaryCam session.", src: "../media/videos/myintealth-tutorial-3.mp4" },
+      upload_qualifications: { text: "Upload your specialist qualifications by following this walkthrough.", src: "../media/videos/myintealth-tutorial-2.mp4" }
+    };
+
+    // ─── STATE MANAGEMENT ────────────────────────────────────────
+    function loadBatchMeta(metaKey) {
+      const raw = localStorage.getItem(metaKey);
+      if (!raw) return { pending: 0, lastValue: "" };
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return { pending: 0, lastValue: "" };
+        return { pending: Number.isInteger(parsed.pending) ? parsed.pending : 0, lastValue: typeof parsed.lastValue === "string" ? parsed.lastValue : "" };
+      } catch (e) { return { pending: 0, lastValue: "" }; }
+    }
+
+    function queueBatchedSave(storageKey, value, force) {
+      const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+      const meta = loadBatchMeta(metaKey);
+      meta.pending += 1;
+      meta.lastValue = value;
+      if (force || meta.pending >= SAVE_BATCH_SIZE) {
+        localStorage.setItem(storageKey, value);
+        meta.pending = 0;
+      }
+      localStorage.setItem(metaKey, JSON.stringify(meta));
+    }
+
+    function flushBatchedSave(storageKey) {
+      const metaKey = `${storageKey}${SAVE_BATCH_META_SUFFIX}`;
+      const meta = loadBatchMeta(metaKey);
+      if (meta.pending > 0 && meta.lastValue) {
+        localStorage.setItem(storageKey, meta.lastValue);
+        meta.pending = 0;
+        localStorage.setItem(metaKey, JSON.stringify(meta));
+      }
+    }
+
+    function flushAllBatchedSaves() {
+      [STORAGE_KEY, TUTORIAL_SEEN_KEY].forEach(flushBatchedSave);
+    }
+
+    window.addEventListener("beforeunload", flushAllBatchedSaves);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushAllBatchedSaves();
+    });
+
+    function defaultProgress() {
+      return {
+        stage: "create_account",
+        completed: { create_account: false, upload_qualifications: false, waiting_verification: false, account_establishment: false, verification_issued: false },
+        downloadedOnboardingDocs: false,
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    function isValidProgress(v) {
+      if (!v || typeof v !== "object") return false;
+      if (!STAGES.includes(v.stage)) return false;
+      if (!v.completed || typeof v.completed !== "object") return false;
+      for (const k of STAGES) { if (typeof v.completed[k] !== "boolean") return false; }
+      if (typeof v.downloadedOnboardingDocs !== "boolean") return false;
+      return typeof v.updatedAt === "string";
+    }
+
+    function migrateProgress(v) {
+      if (!v || typeof v !== "object" || !v.completed || typeof v.completed !== "object") return null;
+      const base = defaultProgress();
+      if (typeof v.stage === "string") {
+        if (v.stage === "waiting_verification") base.stage = "upload_qualifications";
+        else if (STAGES.includes(v.stage)) base.stage = v.stage;
+      }
+      for (const k of STAGES) { if (typeof v.completed[k] === "boolean") base.completed[k] = v.completed[k]; }
+      if (typeof v.completed.waiting_verification === "boolean") base.completed.waiting_verification = v.completed.waiting_verification;
+      if (base.completed.upload_qualifications || base.completed.waiting_verification || base.completed.verification_issued) {
+        base.completed.account_establishment = true;
+      }
+      if (base.completed.upload_qualifications && (base.completed.waiting_verification || base.completed.verification_issued)) {
+        base.completed.verification_issued = true;
+      }
+      if (typeof v.downloadedOnboardingDocs === "boolean") base.downloadedOnboardingDocs = v.downloadedOnboardingDocs;
+      if (typeof v.updatedAt === "string") base.updatedAt = v.updatedAt;
+      return base;
+    }
+
+    function saveProgress(progress, force) {
+      progress.updatedAt = new Date().toISOString();
+      queueBatchedSave(STORAGE_KEY, JSON.stringify(progress), force);
+    }
+
+    function expectedStageFromCompleted(completed) {
+      if (!completed.create_account) return "create_account";
+      if (!completed.account_establishment) return "account_establishment";
+      if (!completed.upload_qualifications) return "upload_qualifications";
+      return "verification_issued";
+    }
+
+    function normalizeProgress(progress) {
+      const expected = expectedStageFromCompleted(progress.completed);
+      if (progress.stage !== expected) {
+        progress.stage = expected;
+        saveProgress(progress, true);
+      }
+      return progress;
+    }
+
+    function loadProgress() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) { const f = defaultProgress(); saveProgress(f, true); return f; }
+      try {
+        const parsed = JSON.parse(raw);
+        const migrated = migrateProgress(parsed);
+        if (!migrated || !isValidProgress(migrated)) { const f = defaultProgress(); saveProgress(f, true); return f; }
+        const normalized = normalizeProgress(migrated);
+        if (JSON.stringify(parsed) !== JSON.stringify(normalized)) saveProgress(normalized, true);
+        return normalized;
+      } catch (e) { const f = defaultProgress(); saveProgress(f, true); return f; }
+    }
+
+    function stageStatus(progress, key) {
+      if (progress.completed[key]) return "done";
+      if (progress.stage === key) return "current";
+      const idx = STAGES.indexOf(key);
+      if (idx === 0) return "current";
+      if (!progress.completed[STAGES[idx - 1]]) return "locked";
+      return "current";
+    }
+
+    // Get the active tab stage (maps the hidden completion state back to Qualifications for display)
+    function activeTabStage(progress) {
+      if (progress.stage === "verification_issued") return "upload_qualifications";
+      return progress.stage;
+    }
+
+    function stageFromRoute(pathname) {
+      const parts = String(pathname || "").split("/").filter(Boolean);
+      if (parts.length < 3 || parts[0] !== "registration" || (parts[1] !== "myintealth" && parts[1] !== "myinthealth")) return null;
+      if (parts[2] === "verify") return "upload_qualifications";
+      const routeStage = routeStageMap[parts[2]];
+      return STAGES.includes(routeStage) ? routeStage : null;
+    }
+
+    function pickTabFromRoute(progress) {
+      const routeStage = stageFromRoute(window.location.pathname);
+      if (!routeStage) return null;
+      const viewStage = routeStage === "verification_issued" ? "upload_qualifications" : routeStage;
+      if (!TAB_STAGES.includes(viewStage)) return null;
+      return stageStatus(progress, viewStage) === "locked" ? null : viewStage;
+    }
+
+    function syncRouteForStage(key, replace) {
+      const slug = stageRouteMap[key];
+      if (!slug || !window.history || typeof window.history.pushState !== "function") return;
+      const target = `/registration/myintealth/${slug}`;
+      if (window.location.pathname === target) return;
+      if (replace) window.history.replaceState({ stage: key }, "", target);
+      else window.history.pushState({ stage: key }, "", target);
+    }
+
+    // ─── DOM REFS ────────────────────────────────────────────────
+    const toastEl = document.getElementById("toast");
+    const supportModalEl = document.getElementById("supportModal");
+    const supportCategoryEl = document.getElementById("supportCategory");
+    const supportSummaryEl = document.getElementById("supportSummary");
+    const supportMessageEl = document.getElementById("supportMessage");
+    const supportSubmitBtnEl = document.getElementById("supportSubmitBtn");
+    const tutorialVideoEl = document.getElementById("tutorialVideo");
+    const tutorialSourceEl = document.getElementById("tutorialSource");
+    const tutorialDescEl = document.getElementById("tutorialDesc");
+    const stepTabsEl = document.getElementById("stepTabs");
+    const stepTabGlassEl = document.getElementById("stepTabGlass");
+
+    let currentTabKey = null; // tracks which tab is selected/viewed
+
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toastEl.classList.remove("show"), 1400);
+    }
+
+    function openMyIntealthExternal() {
+      const popup = window.open(MYINTEALTH_URL, "_blank", "noopener,noreferrer");
+      if (popup) {
+        try { popup.opener = null; } catch (e) {}
+        return;
+      }
+
+      const link = document.createElement("a");
+      link.href = MYINTEALTH_URL;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer external";
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          window.location.assign(MYINTEALTH_URL);
+        }
+      }, 500);
+    }
+
+    let lastFocusedElement = null;
+    const modalTriggerByEl = new WeakMap();
+    function openModal(el, triggerEl) {
+      if (!el) return;
+      const card = el.querySelector(".modal-card");
+      const source = triggerEl instanceof HTMLElement
+        ? triggerEl
+        : (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+      if (source) modalTriggerByEl.set(el, source);
+      if (card) {
+        let originX = window.innerWidth / 2;
+        let originY = window.innerHeight / 2;
+        if (source) {
+          const rect = source.getBoundingClientRect();
+          originX = rect.left + (rect.width / 2);
+          originY = rect.top + (rect.height / 2);
+        }
+        card.style.setProperty("--modal-origin-x", `${Math.round(originX)}px`);
+        card.style.setProperty("--modal-origin-y", `${Math.round(originY)}px`);
+      }
+      lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      el.classList.add("show");
+      el.setAttribute("aria-hidden", "false");
+      const firstFocusable = el.querySelector("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])");
+      if (firstFocusable instanceof HTMLElement) firstFocusable.focus();
+    }
+    function closeModal(el) {
+      if (!el) return;
+      const card = el.querySelector(".modal-card");
+      const source = modalTriggerByEl.get(el);
+      if (card && source instanceof HTMLElement) {
+        const rect = source.getBoundingClientRect();
+        card.style.setProperty("--modal-origin-x", `${Math.round(rect.left + (rect.width / 2))}px`);
+        card.style.setProperty("--modal-origin-y", `${Math.round(rect.top + (rect.height / 2))}px`);
+      }
+      el.classList.remove("show");
+      el.setAttribute("aria-hidden", "true");
+      const focusTarget = lastFocusedElement;
+      if (focusTarget && typeof focusTarget.focus === "function") {
+        window.setTimeout(() => {
+          try { focusTarget.focus(); } catch (e) {}
+        }, 170);
+      }
+      lastFocusedElement = null;
+    }
+
+    function getCurrentSupportContext() {
+      const key = currentTabKey || activeTabStage(loadProgress());
+      const effectiveKey = key === "upload_qualifications" && loadProgress().completed.verification_issued ? "verification_issued" : key;
+      const meta = stageMeta[effectiveKey] || stageMeta[key] || stageMeta.create_account;
+      return {
+        category: "EPIC",
+        stepKey: key || "create_account",
+        summary: meta && meta.full ? meta.full : "MyIntealth support request"
+      };
+    }
+
+    function openSupportCaseModal(triggerEl) {
+      const context = getCurrentSupportContext();
+      if (supportCategoryEl) supportCategoryEl.value = context.category;
+      if (supportSummaryEl) supportSummaryEl.value = context.summary;
+      if (supportMessageEl) {
+        supportMessageEl.value = "";
+        supportMessageEl.placeholder = `What happened during "${context.summary}" and what do you need help with?`;
+      }
+      openModal(supportModalEl, triggerEl);
+    }
+
+    function createSupportTicket(category, title, message) {
+      const key = "gpLinkSupportCases";
+      let tickets = [];
+      try { const raw = localStorage.getItem(key); tickets = raw ? JSON.parse(raw) : []; if (!Array.isArray(tickets)) tickets = []; } catch (e) { tickets = []; }
+      const text = String(message || "").trim() || "Help requested from MyIntealth registration page.";
+      const summary = String(title || "").trim() || "MyIntealth support request";
+      const ticketCategory = String(category || "EPIC").trim() || "EPIC";
+      tickets.unshift({
+        id: `case_${Date.now()}`, category: ticketCategory, title: summary,
+        detail: text, status: "open", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        thread: [{ from: "me", text, ts: new Date().toISOString() }], unread: true
+      });
+      localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
+    }
+
+    // ─── MARK COMPLETE / UNDO ────────────────────────────────────
+    function markStageComplete(progress, key) {
+      if (progress.stage !== key) return;
+      progress.completed[key] = true;
+
+      if (key === "upload_qualifications") {
+        progress.completed.waiting_verification = true;
+        progress.completed.verification_issued = true;
+        progress.stage = "verification_issued";
+        saveProgress(progress, true);
+        syncRouteForStage(progress.stage);
+        currentTabKey = activeTabStage(progress);
+        window.location.assign("/pages/amc.html");
+        return;
+      }
+
+      const idx = STAGES.indexOf(key);
+      const next = STAGES[idx + 1];
+      if (next) progress.stage = next;
+      saveProgress(progress, true);
+      syncRouteForStage(progress.stage);
+      currentTabKey = activeTabStage(progress);
+      renderPage(progress);
+      showToast("Progress saved");
+    }
+
+    function undoToStage(progress, key) {
+      const idx = STAGES.indexOf(key);
+      if (idx === -1) return;
+      for (let i = idx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
+      progress.stage = key;
+      saveProgress(progress, true);
+      syncRouteForStage(key);
+      currentTabKey = activeTabStage(progress);
+      renderPage(progress);
+      showToast("Progress reverted");
+    }
+
+    function rewindToPreviousStep(progress, key) {
+      const tabIdx = TAB_STAGES.indexOf(key);
+      if (tabIdx <= 0) return;
+      const previous = TAB_STAGES[tabIdx - 1];
+      progress.completed[key] = false;
+      progress.completed[previous] = false;
+      if (key === "upload_qualifications") {
+        progress.completed.waiting_verification = false;
+        progress.completed.verification_issued = false;
+      }
+      progress.stage = previous;
+      saveProgress(progress, true);
+      syncRouteForStage(previous);
+      currentTabKey = previous;
+      renderPage(progress);
+      showToast("Progress reverted");
+    }
+
+    function resetProgressToStage(progress, key) {
+      const stageIdx = STAGES.indexOf(key);
+      if (stageIdx === -1) return;
+      for (let i = stageIdx; i < STAGES.length; i++) progress.completed[STAGES[i]] = false;
+      progress.stage = key;
+      saveProgress(progress, true);
+      currentTabKey = key;
+      syncRouteForStage(key);
+      renderPage(progress);
+    }
+
+    // ─── RENDER: STEP TABS ──────────────────────────────────────
+    let tabElements = [];
+
+    function renderStepTabs(progress) {
+      // Remove old tab buttons (keep the glass)
+      tabElements.forEach(el => el.remove());
+      tabElements = [];
+      const isMobileView = window.matchMedia("(max-width: 767px)").matches;
+
+      TAB_STAGES.forEach((key, idx) => {
+        const status = stageStatus(progress, key);
+        const isDone = status === "done";
+        const isActive = currentTabKey === key;
+        const isLocked = status === "locked";
+        const isSelectable = !isLocked && (!isMobileView || isDone || isActive);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "step-tab";
+        if (isActive) btn.classList.add("active");
+        if (isDone && !isActive) btn.classList.add("done");
+        if (!isSelectable) btn.disabled = true;
+
+        let numClass = "step-tab-num";
+        if (isDone) numClass += " done";
+        else if (isActive) numClass += " active";
+        else if (isLocked) numClass += " locked";
+
+        const numContent = isDone
+          ? '<svg viewBox="0 0 16 16"><path d="M13 4.5L6.5 11 3 7.5"/></svg>'
+          : (idx + 1);
+
+        btn.innerHTML = `<span class="${numClass}">${numContent}</span>${TAB_LABELS[key]}`;
+
+        if (isSelectable) {
+          btn.addEventListener("click", () => {
+            resetProgressToStage(progress, key);
+          });
+        } else {
+          btn.addEventListener("click", () => showToast("Complete the previous step first."));
+        }
+
+        stepTabsEl.appendChild(btn);
+        tabElements.push(btn);
+      });
+
+      // Position glass on active tab
+      requestAnimationFrame(() => positionTabGlass(true));
+    }
+
+    function setTabGlassToButton(targetBtn, animate) {
+      if (!targetBtn) { stepTabGlassEl.style.opacity = "0"; return; }
+      stepTabGlassEl.style.opacity = "1";
+      const parentRect = stepTabsEl.getBoundingClientRect();
+      const rect = targetBtn.getBoundingClientRect();
+      const left = rect.left - parentRect.left + stepTabsEl.scrollLeft;
+      if (!animate) {
+        const prev = stepTabGlassEl.style.transition;
+        stepTabGlassEl.style.transition = "none";
+        stepTabGlassEl.style.left = `${left}px`;
+        stepTabGlassEl.style.width = `${rect.width}px`;
+        stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        stepTabGlassEl.style.height = `${rect.height}px`;
+        void stepTabGlassEl.offsetWidth;
+        stepTabGlassEl.style.transition = prev;
+      } else {
+        stepTabGlassEl.style.left = `${left}px`;
+        stepTabGlassEl.style.width = `${rect.width}px`;
+        stepTabGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        stepTabGlassEl.style.height = `${rect.height}px`;
+      }
+    }
+
+    function positionTabGlass(animate) {
+      const activeBtn = stepTabsEl.querySelector(".step-tab.active");
+      if (!activeBtn) { stepTabGlassEl.style.opacity = "0"; return; }
+      setTabGlassToButton(activeBtn, animate);
+
+      // Scroll active tab into view
+      const scrollTarget = activeBtn.offsetLeft - stepTabsEl.offsetWidth / 2 + activeBtn.offsetWidth / 2;
+      stepTabsEl.scrollTo({ left: Math.max(0, scrollTarget), behavior: animate ? "smooth" : "auto" });
+    }
+
+    // ─── RENDER: STEP CONTENT ───────────────────────────────────
+    function renderStepContent(progress) {
+      const key = currentTabKey;
+      const effectiveKey = (key === "upload_qualifications" && progress.completed.verification_issued) ? "verification_issued" : key;
+      const meta = stageMeta[effectiveKey];
+      if (!meta) return;
+      const status = stageStatus(progress, key);
+      const isDone = status === "done";
+      const isCurrent = status === "current";
+      const isAction = key === "upload_qualifications" && isCurrent;
+      const allDone = STAGES.every(k => progress.completed[k]);
+
+      // Card accent
+      const card = document.getElementById("stepContent");
+      card.className = "step-content";
+      if (isDone || allDone) card.classList.add("done-state");
+
+      // Badge
+      const badge = document.getElementById("stepBadge");
+      if (isDone) { badge.className = "step-content-badge done"; badge.textContent = "Complete"; }
+      else { badge.className = "step-content-badge"; badge.textContent = "What to do now"; }
+
+      // Title & sub
+      document.getElementById("stepTitle").textContent = meta.full;
+      document.getElementById("stepSub").textContent = meta.short;
+
+      // Progress bar
+      const doneCount = TAB_STAGES.filter(k => progress.completed[k]).length;
+      const pct = Math.round((doneCount / TAB_STAGES.length) * 100);
+      const fill = document.getElementById("stepProgressFill");
+      fill.style.width = `${Math.max(2, pct)}%`;
+      fill.classList.toggle("complete", doneCount === TAB_STAGES.length);
+      document.getElementById("stepProgressText").textContent = `${doneCount} of ${TAB_STAGES.length} complete`;
+
+      // Warning
+      const warning = document.getElementById("stepWarning");
+      if (isAction) {
+        warning.classList.remove("hidden");
+        document.getElementById("stepWarningTitle").textContent = "Documents need uploading";
+        document.getElementById("stepWarningText").textContent = "You need to upload your specialist qualification to EPIC via MyIntealth. Make sure to nominate AMC as the recipient.";
+      } else {
+        warning.classList.add("hidden");
+      }
+
+      // Info grid
+      const doNow = meta.doNow;
+      const shouldPulseDownload = key === "upload_qualifications" && !progress.downloadedOnboardingDocs;
+      const actionValueHtml = key === "upload_qualifications"
+        ? `<div class="step-info-action-stack"><div>${doNow}</div><button class="step-info-download ${shouldPulseDownload ? "cta-pulse-dark" : ""}" id="downloadMyDocumentsBtn" type="button"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download my documents</button></div>`
+        : doNow;
+
+      document.getElementById("stepInfoGrid").innerHTML = `
+        <div class="step-info-item">
+          <div class="step-info-label">Your Action</div>
+          <div class="step-info-value">${actionValueHtml}</div>
+        </div>
+        <div class="step-info-item">
+          <div class="step-info-label">Estimated Time</div>
+          <div class="step-info-value">${meta.time}</div>
+        </div>
+        <div class="step-info-item">
+          <div class="step-info-label">GP Link Support</div>
+          <div class="step-info-value">${meta.support}</div>
+        </div>
+        <div class="step-info-item">
+          <div class="step-info-label">What Happens Next</div>
+          <div class="step-info-value">${meta.next}</div>
+        </div>
+      `;
+
+      // Actions
+      const actionsEl = document.getElementById("stepActions");
+      const navActionsEl = document.getElementById("stepNavActions");
+      let html = '';
+      let navHtml = '';
+
+      // Previous button
+      const tabIdx = TAB_STAGES.indexOf(key);
+      const hasPrev = tabIdx > 0;
+
+      if (effectiveKey === "verification_issued") {
+        html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
+      } else if (isCurrent) {
+        html += `<button class="btn-action primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
+      }
+
+      const markDisabled = !isCurrent || isDone;
+      const markLabel = isDone ? "Completed" : "Mark Complete";
+      if (effectiveKey !== "verification_issued") {
+        navHtml += hasPrev
+          ? `<button class="btn-action secondary" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
+          : `<span class="spacer" aria-hidden="true"></span>`;
+      navHtml += `<button class="btn-action complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      }
+      actionsEl.innerHTML = html;
+      navActionsEl.innerHTML = navHtml;
+
+      const downloadBtn = document.getElementById("downloadMyDocumentsBtn");
+      if (downloadBtn) {
+        downloadBtn.addEventListener("click", () => handleDownloadMyDocuments(downloadBtn, progress));
+      }
+
+      // Wire buttons
+      const openBtn = document.getElementById("actionOpenBtn");
+      if (openBtn) {
+        if (effectiveKey === "verification_issued") {
+          openBtn.classList.add("cta-pulse");
+          if (!openBtn.querySelector(".cta-cursor")) {
+            const hint = document.createElement("span");
+            hint.className = "cta-cursor";
+            hint.textContent = "Click Here";
+            openBtn.appendChild(hint);
+          }
+        }
+        openBtn.addEventListener("click", () => {
+          if (meta.ctaType === "open") openMyIntealthExternal();
+          else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
+          else if (meta.ctaType === "amc") {
+            const target = "/pages/amc.html";
+            if (window.location.pathname !== target) window.location.assign(target);
+            else window.location.reload();
+          }
+        });
+      }
+
+      const markBtn = document.getElementById("actionMarkBtn");
+      if (markBtn && !markBtn.disabled) {
+        markBtn.addEventListener("click", () => markStageComplete(progress, key));
+      }
+
+      const prevBtn = document.getElementById("actionPrevBtn");
+      if (prevBtn) {
+        prevBtn.addEventListener("click", () => {
+          rewindToPreviousStep(progress, key);
+        });
+      }
+
+    }
+
+    // ─── RENDER: TUTORIAL ───────────────────────────────────────
+    function renderTutorial(progress) {
+      const key = currentTabKey;
+      const config = tutorialByStage[key];
+      const card = document.getElementById("tutorialCard");
+
+      if (!config) {
+        card.style.display = "none";
+        return;
+      }
+
+      card.style.display = "block";
+      if (tutorialDescEl) tutorialDescEl.textContent = config.text;
+      if (tutorialSourceEl) {
+        const currentSrc = tutorialSourceEl.getAttribute("src");
+        if (currentSrc !== config.src) {
+          tutorialSourceEl.src = config.src;
+          if (tutorialVideoEl) tutorialVideoEl.load();
+        }
+      }
+    }
+
+    // ─── MAIN RENDER ────────────────────────────────────────────
+    function renderPage(progress) {
+      renderStepTabs(progress);
+      renderTutorial(progress);
+      renderStepContent(progress);
+    }
+
+    // ─── REGISTRATION DROPDOWN ──────────────────────────────────
+    const registrationMenuBtn = document.getElementById("registrationMenuBtn");
+    const registrationDropdown = document.getElementById("registrationDropdown");
+    const regTableEl = document.getElementById("regTable");
+    const mobileRegistrationBtn = document.getElementById("mobileRegistrationBtn");
+    const mobileRegBackdrop = document.getElementById("mobileRegBackdrop");
+    const mobileRegSheet = document.getElementById("mobileRegSheet");
+    const mobileRegTable = document.getElementById("mobileRegTable");
+    const mobileRegCloseBtn = document.getElementById("mobileRegCloseBtn");
+    const navGlassEl = document.getElementById("navGlass");
+    const navMenuEl = document.querySelector(".nav-menu");
+    const navItems = [...document.querySelectorAll(".nav-menu .nav-item")];
+    let activeNavItem = null;
+    let hoveredNavItem = null;
+    let navGlassInitialized = false;
+
+    function parseStorage(key) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (e) { return null; }
+    }
+
+    function getRegistrationReturnOverrides() {
+      const parsed = parseStorage(REGISTRATION_RETURN_KEY);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+
+    function isRegistrationReturnAllowed(stepKey) {
+      return getRegistrationReturnOverrides()[stepKey] === true;
+    }
+
+    function buildRegistrationRow(stepKey, config) {
+      const locked = !!config.locked;
+      const done = !!config.done;
+      const returnable = done && isRegistrationReturnAllowed(stepKey);
+      return {
+        title: config.title,
+        sub: config.sub,
+        status: locked ? "Locked" : done ? "Done" : "Current",
+        locked,
+        done,
+        current: !locked && !done,
+        returnable,
+        href: !locked && (!done || returnable) ? config.href : "#",
+        cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+      };
+    }
+
+    function getOnboardingCountry() {
+      const onboarding = parseStorage("gp_onboarding");
+      return onboarding && typeof onboarding.country === "string" ? onboarding.country : "";
+    }
+
+    function buildOnboardingDownloadUrl(country, key) {
+      return `/api/onboarding-documents/download?country=${encodeURIComponent(country)}&key=${encodeURIComponent(key)}`;
+    }
+
+    async function handleDownloadMyDocuments(buttonEl, progress) {
+      const country = getOnboardingCountry();
+      if (!country) {
+        showToast("Finish onboarding first to access your saved documents.");
+        return;
+      }
+
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.dataset.originalText = buttonEl.textContent;
+        buttonEl.innerHTML = '<span class="spin-icon"></span> Preparing downloads...';
+      }
+
+      try {
+        const response = await fetch(`/api/onboarding-documents?country=${encodeURIComponent(country)}`, {
+          credentials: "same-origin"
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data || !data.ok) {
+          throw new Error((data && data.message) || "Could not load your onboarding documents.");
+        }
+
+        const docs = data.docs && typeof data.docs === "object" ? data.docs : {};
+        const keysToDownload = ONBOARDING_DOWNLOAD_KEYS.filter((key) => docs[key] && docs[key].downloadUrl);
+        if (!keysToDownload.length) {
+          throw new Error("Your onboarding documents are not available yet.");
+        }
+
+        keysToDownload.forEach((key, index) => {
+          window.setTimeout(() => {
+            const link = document.createElement("a");
+            link.href = buildOnboardingDownloadUrl(country, key);
+            link.rel = "noopener";
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          }, index * 220);
+        });
+
+        if (progress && !progress.downloadedOnboardingDocs) {
+          progress.downloadedOnboardingDocs = true;
+          saveProgress(progress, true);
+          renderStepContent(progress);
+        }
+
+        showToast(keysToDownload.length === 2 ? "Your onboarding documents are downloading." : "Your saved onboarding document is downloading.");
+      } catch (err) {
+        showToast(err && err.message ? err.message : "Unable to download your onboarding documents.");
+      } finally {
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          buttonEl.textContent = buttonEl.dataset.originalText || "Download my documents";
+        }
+      }
+    }
+
+    function getRegistrationRows() {
+      const epic = parseStorage(STORAGE_KEY);
+      const amc = parseStorage(AMC_KEY);
+      const ahpra = parseStorage(AHPRA_KEY);
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      return [
+        buildRegistrationRow("myinthealth", {
+          title: "1. MyIntealth Account",
+          sub: "Create account and complete EPIC verification.",
+          done: epicDone,
+          href: "myinthealth.html"
+        }),
+        buildRegistrationRow("amc", {
+          title: "2. AMC Portfolio",
+          sub: "Create AMC candidate portfolio and upload credentials.",
+          locked: !epicDone,
+          done: amcDone,
+          href: "amc.html"
+        }),
+        buildRegistrationRow("ahpra", {
+          title: "3. AHPRA Registration",
+          sub: "Specialist registration submission.",
+          locked: !amcDone,
+          done: ahpraDone,
+          href: "ahpra.html"
+        })
+      ];
+    }
+
+    function renderRegistrationRows() {
+      regTableEl.innerHTML = "";
+      mobileRegTable.innerHTML = "";
+      getRegistrationRows().forEach(row => {
+        const sc = row.done ? "done" : row.locked ? "locked" : "";
+        const actionDisabled = row.locked || (row.done && !row.returnable);
+        const el = document.createElement("div");
+        el.className = `reg-row ${row.done ? "done" : ""}`.trim();
+        const textWrap = document.createElement("div");
+        textWrap.innerHTML = `<div class="reg-name">${row.title}</div><div class="reg-sub">${row.sub}</div>`;
+        const pill = document.createElement("span");
+        pill.className = `reg-pill ${sc}`.trim();
+        pill.textContent = row.status;
+        const ctaEl = actionDisabled ? document.createElement("button") : document.createElement("a");
+        ctaEl.className = `reg-btn ${sc}`.trim();
+        ctaEl.textContent = row.cta;
+        if (actionDisabled) {
+          ctaEl.type = "button";
+          ctaEl.disabled = true;
+        } else {
+          ctaEl.href = row.href;
+        }
+        el.appendChild(textWrap);
+        el.appendChild(pill);
+        el.appendChild(ctaEl);
+        regTableEl.appendChild(el);
+        mobileRegTable.appendChild(el.cloneNode(true));
+      });
+    }
+
+    function moveNavGlass(target, animate) {
+      if (!target || !navGlassEl) return;
+      const parentRect = target.parentElement.getBoundingClientRect();
+      const rect = target.getBoundingClientRect();
+      if (!animate || !navGlassInitialized) {
+        const prev = navGlassEl.style.transition;
+        navGlassEl.style.transition = "none";
+        navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+        navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+        navGlassEl.style.width = `${rect.width}px`;
+        navGlassEl.style.height = `${rect.height}px`;
+        void navGlassEl.offsetWidth;
+        navGlassEl.style.transition = prev;
+        navGlassInitialized = true;
+        return;
+      }
+      navGlassEl.style.left = `${rect.left - parentRect.left}px`;
+      navGlassEl.style.top = `${rect.top - parentRect.top}px`;
+      navGlassEl.style.width = `${rect.width}px`;
+      navGlassEl.style.height = `${rect.height}px`;
+    }
+
+    function setActiveNav(target, animate) {
+      navItems.forEach(i => i.classList.remove("active"));
+      if (target) { target.classList.add("active"); activeNavItem = target; }
+      moveNavGlass(target || activeNavItem, animate);
+    }
+
+    let registrationHoverCloseTimer = null;
+    function openRegistrationDropdown() {
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      renderRegistrationRows();
+      registrationDropdown.classList.add("show");
+      navGlassEl.classList.add("engulf");
+      moveNavGlass(registrationMenuBtn, true);
+    }
+    function closeRegistrationDropdown(immediate) {
+      const doClose = () => { registrationDropdown.classList.remove("show"); navGlassEl.classList.remove("engulf"); };
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      if (immediate) { doClose(); return; }
+      registrationHoverCloseTimer = setTimeout(doClose, 140);
+    }
+
+    registrationMenuBtn.addEventListener("click", () => {
+      setActiveNav(registrationMenuBtn);
+      if (registrationDropdown.classList.contains("show")) closeRegistrationDropdown(true);
+      else openRegistrationDropdown();
+    });
+    registrationMenuBtn.addEventListener("mouseenter", () => openRegistrationDropdown());
+    registrationDropdown.addEventListener("mouseenter", () => {
+      if (registrationHoverCloseTimer) { clearTimeout(registrationHoverCloseTimer); registrationHoverCloseTimer = null; }
+      navGlassEl.classList.add("engulf"); moveNavGlass(registrationMenuBtn, true);
+    });
+    registrationMenuBtn.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    registrationDropdown.addEventListener("mouseleave", () => closeRegistrationDropdown());
+    document.addEventListener("click", e => {
+      if (!registrationDropdown.contains(e.target) && !registrationMenuBtn.contains(e.target)) closeRegistrationDropdown(true);
+    });
+
+    function openMobileRegistration() {
+      renderRegistrationRows();
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.add("show");
+      mobileRegSheet.classList.add("show");
+    }
+    function closeMobileRegistration() {
+      mobileRegSheet.style.transform = "";
+      mobileRegBackdrop.classList.remove("show");
+      mobileRegSheet.classList.remove("show");
+    }
+
+    mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
+    mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
+    mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
+
+    navItems.forEach(item => {
+      item.addEventListener("mouseenter", () => { if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); } });
+      item.addEventListener("focus", () => { if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); } });
+      if (item !== registrationMenuBtn && item.id !== "topSupportBtn") {
+        item.addEventListener("click", () => setActiveNav(item));
+      }
+    });
+
+    // ─── EVENT LISTENERS ────────────────────────────────────────
+    // mobileSupportBtn click is handled by updates-sync.js (alert panel)
+
+    if (supportSubmitBtnEl) {
+      supportSubmitBtnEl.addEventListener("click", () => {
+        createSupportTicket(
+          supportCategoryEl ? supportCategoryEl.value : "EPIC",
+          supportSummaryEl ? supportSummaryEl.value : "MyIntealth support request",
+          supportMessageEl ? supportMessageEl.value : ""
+        );
+        if (supportCategoryEl) supportCategoryEl.value = "EPIC";
+        if (supportSummaryEl) supportSummaryEl.value = "";
+        if (supportMessageEl) supportMessageEl.value = "";
+        closeModal(supportModalEl);
+        showToast("Support request submitted");
+      });
+    }
+
+    document.querySelectorAll("[data-close]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-close");
+        const modal = document.getElementById(id);
+        if (modal) closeModal(modal);
+      });
+    });
+
+    supportModalEl.addEventListener("click", e => { if (e.target === supportModalEl) closeModal(supportModalEl); });
+    supportModalEl.addEventListener("keydown", e => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeModal(supportModalEl);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusables = [...supportModalEl.querySelectorAll("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])")]
+        .filter(el => !el.hasAttribute("disabled"));
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+
+    // Touch drag for mobile reg sheet
+    let startY = 0, deltaY = 0, dragging = false;
+    mobileRegSheet.addEventListener("touchstart", e => {
+      if (!mobileRegSheet.classList.contains("show")) return;
+      startY = e.touches[0].clientY; deltaY = 0; dragging = true;
+    }, { passive: true });
+    mobileRegSheet.addEventListener("touchmove", e => {
+      if (!dragging) return;
+      deltaY = Math.max(0, e.touches[0].clientY - startY);
+      if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+    }, { passive: true });
+    mobileRegSheet.addEventListener("touchend", () => {
+      if (!dragging) return; dragging = false;
+      if (deltaY > 90) closeMobileRegistration(); else mobileRegSheet.style.transform = "";
+    });
+
+    let hoveredStepTabBtn = null;
+    stepTabsEl.addEventListener("mousemove", e => {
+      if (!tabElements.length) return;
+      const x = e.clientX;
+      let closest = null;
+      let min = Number.POSITIVE_INFINITY;
+      tabElements.forEach(btn => {
+        const r = btn.getBoundingClientRect();
+        const cx = r.left + (r.width / 2);
+        const d = Math.abs(cx - x);
+        if (d < min) { min = d; closest = btn; }
+      });
+      if (closest && closest !== hoveredStepTabBtn) {
+        hoveredStepTabBtn = closest;
+        setTabGlassToButton(closest, true);
+      }
+    });
+    stepTabsEl.addEventListener("mouseleave", () => {
+      hoveredStepTabBtn = null;
+      positionTabGlass(true);
+    });
+
+    // Reposition glass on resize
+    window.addEventListener("resize", () => {
+      if (activeNavItem) moveNavGlass(activeNavItem, false);
+      positionTabGlass(false);
+    });
+
+    // ─── INIT ───────────────────────────────────────────────────
+    activeNavItem = document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null;
+    setActiveNav(activeNavItem, false);
+    function getClosestNavItemByX(clientX) {
+      let closest = null;
+      let minDistance = Number.POSITIVE_INFINITY;
+      navItems.forEach((item) => {
+        const rect = item.getBoundingClientRect();
+        const center = rect.left + (rect.width / 2);
+        const distance = Math.abs(center - clientX);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = item;
+        }
+      });
+      return closest;
+    }
+
+    if (navMenuEl) {
+      navMenuEl.addEventListener("mousemove", e => {
+        const hit = getClosestNavItemByX(e.clientX);
+        if (hit && hit !== hoveredNavItem) { hoveredNavItem = hit; moveNavGlass(hit, true); }
+      });
+      navMenuEl.addEventListener("mouseleave", () => {
+        hoveredNavItem = null;
+        if (activeNavItem) moveNavGlass(activeNavItem, true);
+      });
+    }
+
+    function redirectToAllowedStage() {
+      const epic = parseStorage(STORAGE_KEY);
+      const amc = parseStorage(AMC_KEY);
+      const ahpra = parseStorage(AHPRA_KEY);
+      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
+      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+
+      if (!epicDone || isRegistrationReturnAllowed("myinthealth")) return false;
+      if (!amcDone) {
+        window.location.replace("/pages/amc.html");
+        return true;
+      }
+      if (!ahpraDone) {
+        window.location.replace("/pages/ahpra.html");
+        return true;
+      }
+      window.location.replace("/pages/index.html");
+      return true;
+    }
+
+    if (!redirectToAllowedStage()) {
+      const initialProgress = loadProgress();
+
+      const routeTab = pickTabFromRoute(initialProgress);
+      currentTabKey = routeTab || activeTabStage(initialProgress);
+      if (!routeTab) syncRouteForStage(initialProgress.stage, true);
+      renderPage(initialProgress);
+
+      window.addEventListener("popstate", () => {
+        const progress = loadProgress();
+        const tabFromRoute = pickTabFromRoute(progress);
+        currentTabKey = tabFromRoute || activeTabStage(progress);
+        renderPage(progress);
+      });
+      // Re-render after state-sync hydrates the current user's data
+      window.addEventListener("gp-state-hydrated", function () {
+        if (redirectToAllowedStage()) return;
+        const progress = loadProgress();
+        currentTabKey = activeTabStage(progress);
+        renderPage(progress);
+      }, { once: true });
+    }
+  </script>
+</body>
+</html>

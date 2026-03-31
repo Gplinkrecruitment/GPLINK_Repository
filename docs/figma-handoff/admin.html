@@ -1,0 +1,1508 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard - GP Link</title>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --panel: #ffffff;
+      --line: #dfe6f2;
+      --text: #0f172a;
+      --muted: #64748b;
+      --blue: #2563eb;
+      --green: #16a34a;
+      --amber: #b45309;
+      --red: #dc2626;
+      --purple-1: #7c3aed;
+      --purple-2: #6366f1;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --shadow: 0 20px 36px -28px rgba(15, 23, 42, 0.5);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(1000px 560px at 50% -12%, #fff, var(--bg));
+      padding: 16px;
+    }
+
+    .app {
+      max-width: 1240px;
+      margin: 0 auto;
+      display: grid;
+      gap: 12px;
+    }
+
+    .hero {
+      border-radius: var(--radius-lg);
+      background: linear-gradient(120deg, var(--purple-1), var(--purple-2));
+      color: #fff;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+    .hero h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: -0.03em;
+      font-weight: 760;
+    }
+    .hero p {
+      margin: 6px 0 0;
+      font-size: 13px;
+      opacity: 0.92;
+      font-weight: 560;
+    }
+    .hero-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 4px;
+    }
+    .stat .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .stat .value {
+      font-size: 26px;
+      letter-spacing: -0.02em;
+      font-weight: 760;
+      line-height: 1.1;
+    }
+    .stat .sub {
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--line);
+      background: #f8fafc;
+    }
+
+    .tab {
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      color: #1f2937;
+      font: inherit;
+      padding: 12px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      min-width: 220px;
+    }
+    .tab.active {
+      color: var(--blue);
+      background: #eff6ff;
+      box-shadow: inset 0 -2px 0 var(--blue);
+    }
+
+    .toolbar {
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .input,
+    .btn {
+      border-radius: 8px;
+      font: inherit;
+      font-size: 13px;
+    }
+    .input {
+      border: 1px solid #cdd7e6;
+      padding: 10px;
+      width: 100%;
+    }
+    .btn {
+      border: 1px solid #c7d9ff;
+      background: #f2f7ff;
+      color: #1d4ed8;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+    .btn.hero-btn {
+      border-color: rgba(255, 255, 255, 0.7);
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+    }
+
+    .content {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-height: 320px;
+      background: #fbfdff;
+    }
+
+    .row {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .row-top {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .name {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 760;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+      display: grid;
+      gap: 2px;
+    }
+
+    .badge {
+      border-radius: 999px;
+      border: 1px solid #dbe3ee;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      display: inline-flex;
+      width: fit-content;
+      background: #f8fafc;
+      color: #334155;
+    }
+    .badge.active { background: #ebf9f0; border-color: #b9e8c8; color: #166534; }
+    .badge.stalled { background: #fff7ed; border-color: #fdba74; color: #9a3412; }
+    .badge.action_required { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+    .badge.complete { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .badge.ticket-open { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .badge.ticket-closed { background: #f1f5f9; border-color: #dbe4ef; color: #475569; }
+
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .bar {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow: hidden;
+    }
+    .bar > span {
+      display: block;
+      height: 100%;
+      background: #2563eb;
+      border-radius: 999px;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .empty {
+      border: 1px dashed #ced9ea;
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+      background: #fff;
+    }
+
+    .inline-note {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+      margin-left: 2px;
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.52);
+      padding: 14px;
+    }
+    .modal.open { display: flex; }
+    .modal-card {
+      width: min(760px, 100%);
+      max-height: calc(100vh - 28px);
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #d8e2f0;
+      border-radius: 14px;
+      box-shadow: 0 32px 60px -42px rgba(15, 23, 42, 0.85);
+    }
+    .modal-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .modal-title {
+      margin: 0;
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .modal-close {
+      border: 0;
+      background: transparent;
+      color: #334155;
+      font-size: 26px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .modal-body {
+      padding: 14px 16px 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .candidate-top {
+      display: grid;
+      gap: 8px;
+    }
+    .candidate-top-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .candidate-name {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 760;
+      letter-spacing: -0.02em;
+    }
+    .candidate-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+    }
+    .field-label {
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 650;
+      margin: 0;
+    }
+    .field-value {
+      color: #0f172a;
+      font-size: 14px;
+      font-weight: 650;
+      margin: 2px 0 0;
+    }
+    .progress-panel h4 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      font-weight: 760;
+    }
+    .stepper-shell {
+      margin-top: 8px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #eef5ff 0%, #f8fbff 55%, #f1efff 100%);
+      padding: 10px;
+    }
+    .stepper-nav {
+      border-radius: 14px;
+      background: #ffffff;
+      border: 1px solid #e8eef9;
+      box-shadow: 0 14px 30px -24px rgba(15, 23, 42, 0.45);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 12px 14px 10px;
+    }
+    .step-item {
+      position: relative;
+      flex: 1 1 0;
+      min-width: 0;
+      text-align: center;
+    }
+    .step-item::after {
+      content: "";
+      position: absolute;
+      top: 12px;
+      left: calc(50% + 14px);
+      width: calc(100% - 28px);
+      height: 1px;
+      background: #d9deea;
+    }
+    .step-item:last-child::after { display: none; }
+    .step-marker {
+      width: 24px;
+      height: 24px;
+      margin: 0 auto 6px;
+      border-radius: 999px;
+      border: 1px solid #7845ff;
+      background: #7845ff;
+      color: #ffffff;
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .step-label {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 650;
+      color: #1f2937;
+      line-height: 1.2;
+    }
+    .step-help {
+      margin: 2px 0 0;
+      font-size: 10px;
+      color: #6b7280;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .btn.ghost {
+      border: 1px solid #d4deee;
+      background: #f8fafc;
+      color: #1f2937;
+    }
+    .info-section {
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .info-section h5 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 760;
+      color: #0f172a;
+    }
+    .ticket-split {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .mini-list {
+      border: 1px solid #dbe5f2;
+      border-radius: 10px;
+      background: #fbfdff;
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+      min-height: 74px;
+    }
+    .mini-list-title {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+    }
+    .mini-item {
+      border: 1px solid #e2eaf6;
+      border-radius: 8px;
+      background: #fff;
+      padding: 6px 8px;
+      display: grid;
+      gap: 2px;
+    }
+    .mini-item-title {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .mini-item-meta {
+      margin: 0;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 600;
+    }
+    .docs-table {
+      border: 1px solid #dbe5f2;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .docs-head,
+    .docs-row {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+    }
+    .docs-head {
+      background: #f8fbff;
+      border-bottom: 1px solid #e3ebf7;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+    }
+    .docs-row {
+      border-bottom: 1px solid #eef3fa;
+      font-size: 12px;
+      color: #1f2937;
+      font-weight: 650;
+    }
+    .docs-row:last-child { border-bottom: 0; }
+    .doc-pill {
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border: 1px solid #dce7f5;
+      background: #f8fafc;
+      color: #475569;
+      justify-self: start;
+    }
+    .doc-pill.accepted { border-color: #b9e8c8; background: #ebf9f0; color: #166534; }
+    .doc-pill.under_review { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+    .doc-pill.rejected { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+    .doc-pill.pending { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+
+    @media (max-width: 1024px) {
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .tab { min-width: 0; flex: 1; }
+      .toolbar { grid-template-columns: 1fr; }
+      .ticket-split { grid-template-columns: 1fr; }
+      .docs-head,
+      .docs-row { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 10px; }
+      .hero h1 { font-size: 24px; }
+      .stats { grid-template-columns: 1fr; }
+      .modal-title { font-size: 24px; }
+      .candidate-grid { grid-template-columns: 1fr; }
+      .stepper-nav {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .step-item {
+        text-align: left;
+        display: grid;
+        grid-template-columns: 24px 1fr;
+        column-gap: 8px;
+        align-items: center;
+      }
+      .step-item::after { display: none; }
+      .step-marker { margin: 0; }
+      .step-copy { min-width: 0; }
+      .step-help { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <div class="hero-top">
+        <h1>Admin Dashboard</h1>
+        <button class="btn hero-btn" id="logoutBtn" type="button">Sign Out</button>
+      </div>
+      <p>Manage GP registrations, verify certificates, and respond to support tickets.</p>
+      <p id="refreshText" class="inline-note">Loading...</p>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="panel">
+      <div class="tabs">
+        <button class="tab active" type="button" data-tab="registrations">GP Registrations</button>
+        <button class="tab" type="button" data-tab="verifications">Certificate Verifications</button>
+        <button class="tab" type="button" data-tab="tickets">Support Tickets</button>
+      </div>
+
+      <div class="toolbar">
+        <input class="input" id="searchInput" type="search" placeholder="Search GP by name, email, or country..." />
+        <button class="btn" id="refreshBtn" type="button">Refresh</button>
+        <button class="btn primary" id="exportBtn" type="button">Export</button>
+      </div>
+
+      <div class="content" id="content"></div>
+    </section>
+  </div>
+  <div class="modal" id="candidateModal" role="dialog" aria-modal="true" aria-labelledby="candidateModalTitle">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h2 class="modal-title" id="candidateModalTitle">GP Details</h2>
+        <button class="modal-close" id="candidateModalClose" type="button" aria-label="Close">×</button>
+      </header>
+      <div class="modal-body" id="candidateModalBody"></div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      dashboard: null,
+      tab: "registrations",
+      query: "",
+      refreshTimer: null,
+      isLoading: false
+    };
+    const LOCAL_DEMO_DASHBOARD = {
+      summary: {
+        totalGps: 5,
+        activeGps: 4,
+        pendingVerifications: 4,
+        openSupportTickets: 4,
+        averageProgress: 53
+      },
+      candidates: [
+        {
+          id: "olivia.turner.demo@gplink.test",
+          email: "olivia.turner.demo@gplink.test",
+          name: "Olivia Turner",
+          phone: "+61 410222011",
+          country: "UK",
+          registeredAt: "2026-01-20T09:10:00.000Z",
+          lastActiveAt: "2026-03-03T09:50:00.000Z",
+          progressPercent: 25,
+          currentStepLabel: "EPIC verification",
+          currentStepIndex: 2,
+          totalSteps: 8,
+          pendingVerification: true,
+          actionRequired: false,
+          stalled: false,
+          status: "active",
+          openTickets: 1,
+          documentsPending: 1
+        },
+        {
+          id: "harry.watson.demo@gplink.test",
+          email: "harry.watson.demo@gplink.test",
+          name: "Harry Watson",
+          phone: "+61 423119870",
+          country: "Ireland",
+          registeredAt: "2025-12-12T07:45:00.000Z",
+          lastActiveAt: "2026-03-03T03:35:00.000Z",
+          progressPercent: 75,
+          currentStepLabel: "AHPRA assessment",
+          currentStepIndex: 7,
+          totalSteps: 8,
+          pendingVerification: true,
+          actionRequired: true,
+          stalled: false,
+          status: "action_required",
+          openTickets: 1,
+          documentsPending: 1
+        },
+        {
+          id: "sophia.khan.demo@gplink.test",
+          email: "sophia.khan.demo@gplink.test",
+          name: "Sophia Khan",
+          phone: "+61 401998721",
+          country: "Canada",
+          registeredAt: "2026-01-28T10:00:00.000Z",
+          lastActiveAt: "2026-03-03T01:40:00.000Z",
+          progressPercent: 25,
+          currentStepLabel: "EPIC verification",
+          currentStepIndex: 2,
+          totalSteps: 8,
+          pendingVerification: true,
+          actionRequired: false,
+          stalled: false,
+          status: "active",
+          openTickets: 2,
+          documentsPending: 1
+        },
+        {
+          id: "luke.bennett.demo@gplink.test",
+          email: "luke.bennett.demo@gplink.test",
+          name: "Luke Bennett",
+          phone: "+61 447871902",
+          country: "UK",
+          registeredAt: "2025-11-15T07:20:00.000Z",
+          lastActiveAt: "2026-03-02T00:20:00.000Z",
+          progressPercent: 100,
+          currentStepLabel: "Completed",
+          currentStepIndex: 8,
+          totalSteps: 8,
+          pendingVerification: false,
+          actionRequired: false,
+          stalled: false,
+          status: "complete",
+          openTickets: 0,
+          documentsPending: 0
+        },
+        {
+          id: "mia.reynolds.demo@gplink.test",
+          email: "mia.reynolds.demo@gplink.test",
+          name: "Mia Reynolds",
+          phone: "+61 435770121",
+          country: "New Zealand",
+          registeredAt: "2026-02-01T06:20:00.000Z",
+          lastActiveAt: "2026-02-20T08:10:00.000Z",
+          progressPercent: 13,
+          currentStepLabel: "EPIC verification",
+          currentStepIndex: 2,
+          totalSteps: 8,
+          pendingVerification: true,
+          actionRequired: false,
+          stalled: true,
+          status: "stalled",
+          openTickets: 0,
+          documentsPending: 0
+        }
+      ],
+      verificationQueue: [
+        {
+          id: "olivia.turner.demo@gplink.test",
+          email: "olivia.turner.demo@gplink.test",
+          name: "Olivia Turner",
+          currentStepLabel: "EPIC verification",
+          progressPercent: 25,
+          actionRequired: false,
+          documentsPending: 1
+        },
+        {
+          id: "harry.watson.demo@gplink.test",
+          email: "harry.watson.demo@gplink.test",
+          name: "Harry Watson",
+          currentStepLabel: "AHPRA assessment",
+          progressPercent: 75,
+          actionRequired: true,
+          documentsPending: 1
+        },
+        {
+          id: "sophia.khan.demo@gplink.test",
+          email: "sophia.khan.demo@gplink.test",
+          name: "Sophia Khan",
+          currentStepLabel: "EPIC verification",
+          progressPercent: 25,
+          actionRequired: false,
+          documentsPending: 1
+        },
+        {
+          id: "mia.reynolds.demo@gplink.test",
+          email: "mia.reynolds.demo@gplink.test",
+          name: "Mia Reynolds",
+          currentStepLabel: "EPIC verification",
+          progressPercent: 13,
+          actionRequired: false,
+          documentsPending: 0
+        }
+      ],
+      tickets: [
+        {
+          id: "case_demo_ot_01",
+          title: "Need review for CCT notarisation",
+          category: "Documents",
+          priority: "high",
+          status: "open",
+          createdAt: "2026-03-01T04:00:00.000Z",
+          updatedAt: "2026-03-03T03:20:00.000Z",
+          messagesCount: 2,
+          lastMessage: "Received, we are validating the signature and seal now.",
+          candidateId: "olivia.turner.demo@gplink.test",
+          candidateName: "Olivia Turner",
+          candidateEmail: "olivia.turner.demo@gplink.test"
+        },
+        {
+          id: "case_demo_hw_02",
+          title: "AHPRA asked for additional proof of identity",
+          category: "AHPRA",
+          priority: "urgent",
+          status: "open",
+          createdAt: "2026-03-02T16:20:00.000Z",
+          updatedAt: "2026-03-03T02:55:00.000Z",
+          messagesCount: 2,
+          lastMessage: "Please upload a second photo ID and recent proof of address.",
+          candidateId: "harry.watson.demo@gplink.test",
+          candidateName: "Harry Watson",
+          candidateEmail: "harry.watson.demo@gplink.test"
+        },
+        {
+          id: "case_demo_sk_05",
+          title: "Need help with Certificate of Good Standing",
+          category: "Documents",
+          priority: "normal",
+          status: "open",
+          createdAt: "2026-03-02T14:05:00.000Z",
+          updatedAt: "2026-03-03T01:10:00.000Z",
+          messagesCount: 2,
+          lastMessage: "Submit the full verification certificate with issue date visible.",
+          candidateId: "sophia.khan.demo@gplink.test",
+          candidateName: "Sophia Khan",
+          candidateEmail: "sophia.khan.demo@gplink.test"
+        },
+        {
+          id: "case_demo_sk_06",
+          title: "Follow-up on EPIC upload timeout",
+          category: "EPIC",
+          priority: "normal",
+          status: "open",
+          createdAt: "2026-03-02T10:45:00.000Z",
+          updatedAt: "2026-03-02T22:30:00.000Z",
+          messagesCount: 2,
+          lastMessage: "Retry with a file under 10MB; we can validate once uploaded.",
+          candidateId: "sophia.khan.demo@gplink.test",
+          candidateName: "Sophia Khan",
+          candidateEmail: "sophia.khan.demo@gplink.test"
+        },
+        {
+          id: "case_demo_lb_04",
+          title: "Final registration confirmation",
+          category: "Registration",
+          priority: "normal",
+          status: "closed",
+          createdAt: "2026-02-27T08:00:00.000Z",
+          updatedAt: "2026-03-01T09:00:00.000Z",
+          messagesCount: 1,
+          lastMessage: "Your registration is complete. Congratulations.",
+          candidateId: "luke.bennett.demo@gplink.test",
+          candidateName: "Luke Bennett",
+          candidateEmail: "luke.bennett.demo@gplink.test"
+        }
+      ]
+    };
+
+    const statsEl = document.getElementById("stats");
+    const contentEl = document.getElementById("content");
+    const refreshTextEl = document.getElementById("refreshText");
+    const searchInputEl = document.getElementById("searchInput");
+    const logoutBtnEl = document.getElementById("logoutBtn");
+    const candidateModalEl = document.getElementById("candidateModal");
+    const candidateModalBodyEl = document.getElementById("candidateModalBody");
+    const candidateModalCloseEl = document.getElementById("candidateModalClose");
+    const DOCUMENT_SOURCE_LABELS = {
+      prepared_by_you: "Prepared by you",
+      institution_docs: "Institution documents",
+      gplink_pack: "GP Link pack"
+    };
+
+    function fmtDate(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "-";
+      return date.toLocaleDateString();
+    }
+
+    function fmtRelative(value) {
+      if (!value) return "No activity yet";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "No activity yet";
+      const diffMs = Date.now() - date.getTime();
+      const mins = Math.max(1, Math.round(diffMs / 60000));
+      if (mins < 60) return `Last active: ${mins} min ago`;
+      const hours = Math.round(mins / 60);
+      if (hours < 24) return `Last active: ${hours} hour${hours === 1 ? "" : "s"} ago`;
+      const days = Math.round(hours / 24);
+      return `Last active: ${days} day${days === 1 ? "" : "s"} ago`;
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function statusLabel(status) {
+      if (status === "action_required") return "Action Required";
+      if (status === "stalled") return "Stalled";
+      if (status === "complete") return "Complete";
+      return "Active";
+    }
+
+    function normalizePathwaySteps(candidate) {
+      if (Array.isArray(candidate.pathwaySteps) && candidate.pathwaySteps.length) {
+        return candidate.pathwaySteps.map((step, index) => ({
+          stepIndex: index + 1,
+          name: step.label || `Step ${index + 1}`,
+          state: step.status === "done" ? "complete" : (step.status === "current" ? "current" : "pending"),
+          substeps: Array.isArray(step.substeps) ? step.substeps.map((sub) => ({
+            label: sub.label || sub.key || "Sub-step",
+            state: sub.status === "done" ? "done" : (sub.status === "current" ? "current" : "pending")
+          })) : [],
+          openByDefault: step.status === "current"
+        }));
+      }
+
+      return [
+        {
+          stepIndex: 1,
+          name: "MyIntealth Account",
+          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("epic") ? "current" : ((candidate.progressPercent || 0) >= 25 ? "complete" : "current"),
+          substeps: [
+            { label: "Create account", state: (candidate.progressPercent || 0) >= 6 ? "done" : "current" },
+            { label: "Account establishment", state: (candidate.progressPercent || 0) >= 13 ? "done" : "pending" },
+            { label: "Upload qualifications", state: (candidate.progressPercent || 0) >= 19 ? "done" : "pending" },
+            { label: "Verification issued", state: (candidate.progressPercent || 0) >= 25 ? "done" : "pending" }
+          ],
+          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("epic")
+        },
+        {
+          stepIndex: 2,
+          name: "AMC Portfolio",
+          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("amc") ? "current" : ((candidate.progressPercent || 0) >= 50 ? "complete" : "pending"),
+          substeps: [
+            { label: "Create AMC account", state: (candidate.progressPercent || 0) >= 34 ? "done" : "pending" },
+            { label: "Upload credentials", state: (candidate.progressPercent || 0) >= 42 ? "done" : "pending" },
+            { label: "Qualifications verified", state: (candidate.progressPercent || 0) >= 50 ? "done" : "pending" }
+          ],
+          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("amc")
+        },
+        {
+          stepIndex: 3,
+          name: "Documents",
+          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("document") ? "current" : ((candidate.progressPercent || 0) >= 63 ? "complete" : "pending"),
+          substeps: [
+            { label: "Prepared by you", state: (candidate.progressPercent || 0) >= 55 ? "done" : "pending" },
+            { label: "Institution documents", state: (candidate.progressPercent || 0) >= 59 ? "done" : "pending" },
+            { label: "GP Link pack", state: (candidate.progressPercent || 0) >= 63 ? "done" : "pending" }
+          ],
+          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("document")
+        },
+        {
+          stepIndex: 4,
+          name: "AHPRA Registration",
+          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("ahpra") ? "current" : ((candidate.progressPercent || 0) >= 100 ? "complete" : "pending"),
+          substeps: [
+            { label: "Stage 1: Setup", state: (candidate.progressPercent || 0) >= 75 ? "done" : "pending" },
+            { label: "Stage 2: Submission", state: (candidate.progressPercent || 0) >= 88 ? "done" : "pending" },
+            { label: "Stage 3: Assessment", state: (candidate.progressPercent || 0) >= 94 ? "done" : "pending" },
+            { label: "Stage 4: Outcome", state: (candidate.progressPercent || 0) >= 100 ? "done" : "pending" }
+          ],
+          openByDefault: !candidate.currentStepLabel || candidate.currentStepLabel.toLowerCase().includes("ahpra")
+        }
+      ];
+    }
+
+    function getCandidateTickets(candidate) {
+      const all = state.dashboard && Array.isArray(state.dashboard.tickets) ? state.dashboard.tickets : [];
+      const id = String(candidate.id || "");
+      const email = String(candidate.email || "").toLowerCase();
+      const rows = all.filter((ticket) => {
+        const candidateId = String(ticket.candidateId || "");
+        const candidateEmail = String(ticket.candidateEmail || "").toLowerCase();
+        return (id && candidateId === id) || (email && candidateEmail === email);
+      });
+      return {
+        active: rows.filter((item) => item.status !== "closed"),
+        past: rows.filter((item) => item.status === "closed")
+      };
+    }
+
+    function getCandidateDocuments(candidate) {
+      if (candidate.documents && Array.isArray(candidate.documents.items)) return candidate.documents.items;
+      const pending = Math.max(0, Number(candidate.documentsPending || 0));
+      const fallbackLabels = [
+        "Primary medical degree",
+        "MRCGP certificate",
+        "CCT certificate",
+        "Signed CV",
+        "Certificate of good standing",
+        "Confirmation of training",
+        "Criminal history check",
+        "SPPA-00",
+        "Section G",
+        "Position description",
+        "Offer/contract",
+        "Supervisor CV"
+      ];
+      return fallbackLabels.map((label, index) => {
+        const isPending = index < pending;
+        return {
+          label,
+          source: index < 4 ? "prepared_by_you" : (index < 7 ? "institution_docs" : "gplink_pack"),
+          uploaded: !isPending,
+          status: isPending ? "pending" : "accepted",
+          fileName: isPending ? "" : "Uploaded"
+        };
+      });
+    }
+
+    function closeCandidateModal() {
+      candidateModalEl.classList.remove("open");
+      document.body.style.overflow = "";
+    }
+
+    function openCandidateModal(candidate) {
+      const steps = normalizePathwaySteps(candidate);
+      const tickets = getCandidateTickets(candidate);
+      const docs = getCandidateDocuments(candidate);
+      const activeTicketMarkup = tickets.active.length
+        ? tickets.active.map((item) => `
+          <article class="mini-item">
+            <p class="mini-item-title">${escapeHtml(item.title || "Support request")}</p>
+            <p class="mini-item-meta">${escapeHtml(item.category || "General")} • ${escapeHtml(item.priority || "normal")} • ${new Date(item.updatedAt).toLocaleDateString()}</p>
+          </article>
+        `).join("")
+        : `<div class="mini-item"><p class="mini-item-meta">No active tickets.</p></div>`;
+      const pastTicketMarkup = tickets.past.length
+        ? tickets.past.map((item) => `
+          <article class="mini-item">
+            <p class="mini-item-title">${escapeHtml(item.title || "Support request")}</p>
+            <p class="mini-item-meta">${escapeHtml(item.category || "General")} • closed • ${new Date(item.updatedAt).toLocaleDateString()}</p>
+          </article>
+        `).join("")
+        : `<div class="mini-item"><p class="mini-item-meta">No past tickets.</p></div>`;
+      const docsMarkup = docs.length
+        ? docs.map((doc) => `
+          <div class="docs-row">
+            <span>${escapeHtml(doc.label || doc.key || "-")}</span>
+            <span>${escapeHtml(DOCUMENT_SOURCE_LABELS[doc.source] || doc.source || "-")}</span>
+            <span class="doc-pill ${escapeHtml(doc.status || "pending")}">${escapeHtml((doc.status || "pending").replace(/_/g, " "))}</span>
+            <span>${escapeHtml(doc.fileName || (doc.uploaded ? "Uploaded" : "Not uploaded"))}</span>
+          </div>
+        `).join("")
+        : `<div class="docs-row"><span>No document data available.</span><span>-</span><span class="doc-pill pending">pending</span><span>-</span></div>`;
+      const navSteps = steps.slice(0, 3);
+      while (navSteps.length < 3) {
+        navSteps.push({
+          name: "Step Title"
+        });
+      }
+      const stepMarkup = `
+        <div class="stepper-shell">
+          <nav class="stepper-nav" aria-label="Registration progress">
+            ${navSteps.map((step) => `
+              <div class="step-item">
+                <span class="step-marker">✓</span>
+                <div class="step-copy">
+                  <p class="step-label">${escapeHtml(step.name || "Step Title")}</p>
+                  <p class="step-help">Explain your step here.</p>
+                </div>
+              </div>
+            `).join("")}
+          </nav>
+        </div>
+      `;
+
+      candidateModalBodyEl.innerHTML = `
+        <section class="candidate-top">
+          <div class="candidate-top-row">
+            <h3 class="candidate-name">${escapeHtml(candidate.name || "-")}</h3>
+            <span class="badge ${escapeHtml(candidate.status || "active")}">${escapeHtml(statusLabel(candidate.status || "active"))}</span>
+          </div>
+          <div class="candidate-grid">
+            <div><p class="field-label">Email</p><p class="field-value">${escapeHtml(candidate.email || "-")}</p></div>
+            <div><p class="field-label">Phone</p><p class="field-value">${escapeHtml(candidate.phone || "-")}</p></div>
+            <div><p class="field-label">Country</p><p class="field-value">${escapeHtml(candidate.country || "-")}</p></div>
+            <div><p class="field-label">Certificate</p><p class="field-value">${escapeHtml(candidate.currentStepLabel || "-")}</p></div>
+            <div><p class="field-label">Registration Date</p><p class="field-value">${escapeHtml(fmtDate(candidate.registeredAt))}</p></div>
+            <div><p class="field-label">Last Activity</p><p class="field-value">${escapeHtml(fmtRelative(candidate.lastActiveAt).replace(/^Last active: /, ""))}</p></div>
+          </div>
+        </section>
+        <section class="progress-panel">
+          <h4>Registration Progress</h4>
+          ${stepMarkup}
+        </section>
+        <section class="info-section">
+          <h5>Support Tickets</h5>
+          <div class="ticket-split">
+            <div class="mini-list">
+              <p class="mini-list-title">Active</p>
+              ${activeTicketMarkup}
+            </div>
+            <div class="mini-list">
+              <p class="mini-list-title">Past</p>
+              ${pastTicketMarkup}
+            </div>
+          </div>
+        </section>
+        <section class="info-section">
+          <h5>Documents (${docs.length ? docs.filter((d) => d.uploaded).length : 0}/${docs.length || 0} uploaded)</h5>
+          <div class="docs-table">
+            <div class="docs-head">
+              <span>Document</span>
+              <span>Source</span>
+              <span>Status</span>
+              <span>File</span>
+            </div>
+            ${docsMarkup}
+          </div>
+        </section>
+        <div class="modal-actions">
+          <button class="btn primary" type="button" data-email-gp="${escapeHtml(candidate.email || "")}">Email GP</button>
+          <button class="btn ghost" type="button" data-close-modal="true">Close</button>
+        </div>
+      `;
+
+      candidateModalEl.classList.add("open");
+      document.body.style.overflow = "hidden";
+    }
+
+    function renderStats() {
+      const summary = state.dashboard ? state.dashboard.summary : null;
+      const rows = [
+        {
+          label: "Total GPs",
+          value: summary ? summary.totalGps : 0,
+          sub: `${summary ? summary.activeGps : 0} active`
+        },
+        {
+          label: "Pending Verifications",
+          value: summary ? summary.pendingVerifications : 0,
+          sub: "Awaiting review"
+        },
+        {
+          label: "Open Support Tickets",
+          value: summary ? summary.openSupportTickets : 0,
+          sub: "Urgent work queue"
+        },
+        {
+          label: "Average Progress",
+          value: `${summary ? summary.averageProgress : 0}%`,
+          sub: "Across all GPs"
+        }
+      ];
+
+      statsEl.innerHTML = rows.map((row) => `
+        <article class="stat">
+          <div class="label">${row.label}</div>
+          <div class="value">${row.value}</div>
+          <div class="sub">${row.sub}</div>
+        </article>
+      `).join("");
+    }
+
+    function filteredCandidates() {
+      const list = state.dashboard ? state.dashboard.candidates : [];
+      const query = state.query.trim().toLowerCase();
+      if (!query) return list;
+      return list.filter((item) => {
+        const text = `${item.name} ${item.email} ${item.country || ""}`.toLowerCase();
+        return text.includes(query);
+      });
+    }
+
+    function filteredVerifications() {
+      const list = state.dashboard ? state.dashboard.verificationQueue : [];
+      const query = state.query.trim().toLowerCase();
+      if (!query) return list;
+      return list.filter((item) => {
+        const text = `${item.name} ${item.email} ${item.currentStepLabel}`.toLowerCase();
+        return text.includes(query);
+      });
+    }
+
+    function filteredTickets() {
+      const list = state.dashboard ? state.dashboard.tickets : [];
+      const query = state.query.trim().toLowerCase();
+      if (!query) return list;
+      return list.filter((item) => {
+        const text = `${item.title} ${item.candidateName} ${item.candidateEmail} ${item.category}`.toLowerCase();
+        return text.includes(query);
+      });
+    }
+
+    function renderRegistrations() {
+      const list = filteredCandidates();
+      if (!list.length) {
+        contentEl.innerHTML = `<div class="empty">No GP registrations match your search.</div>`;
+        return;
+      }
+
+      contentEl.innerHTML = list.map((candidate) => `
+        <article class="row">
+          <div class="row-top">
+            <div>
+              <h3 class="name">${candidate.name}</h3>
+              <div class="meta">
+                <span>${candidate.email}</span>
+                <span>${candidate.phone || "Phone not provided"}</span>
+                <span>Registered: ${fmtDate(candidate.registeredAt)}</span>
+                <span>${fmtRelative(candidate.lastActiveAt)}</span>
+              </div>
+            </div>
+            <span class="badge ${candidate.status}">${candidate.status.replace(/_/g, " ")}</span>
+          </div>
+          <div class="progress-meta">
+            <span>Progress: Step ${candidate.currentStepIndex}/${candidate.totalSteps} • ${candidate.currentStepLabel}</span>
+            <span>${candidate.progressPercent}%</span>
+          </div>
+          <div class="bar"><span style="width:${candidate.progressPercent}%"></span></div>
+          <div class="row-actions">
+            <button class="btn" data-view-candidate="${candidate.id}" type="button">View</button>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderVerifications() {
+      const list = filteredVerifications();
+      if (!list.length) {
+        contentEl.innerHTML = `<div class="empty">No certificate checks pending right now.</div>`;
+        return;
+      }
+
+      contentEl.innerHTML = list.map((candidate) => `
+        <article class="row">
+          <div class="row-top">
+            <div>
+              <h3 class="name">${candidate.name}</h3>
+              <div class="meta">
+                <span>${candidate.email}</span>
+                <span>Current step: ${candidate.currentStepLabel}</span>
+                <span>Documents pending: ${candidate.documentsPending}</span>
+              </div>
+            </div>
+            <span class="badge ${candidate.actionRequired ? "action_required" : "active"}">${candidate.actionRequired ? "Action required" : "Awaiting review"}</span>
+          </div>
+          <div class="progress-meta">
+            <span>Registration progress</span>
+            <span>${candidate.progressPercent}%</span>
+          </div>
+          <div class="bar"><span style="width:${candidate.progressPercent}%"></span></div>
+          <div class="row-actions">
+            <button class="btn" data-view-candidate="${candidate.id}" type="button">View</button>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderTickets() {
+      const list = filteredTickets();
+      if (!list.length) {
+        contentEl.innerHTML = `<div class="empty">No support tickets match your search.</div>`;
+        return;
+      }
+
+      contentEl.innerHTML = list.map((ticket) => `
+        <article class="row">
+          <div class="row-top">
+            <div>
+              <h3 class="name">${ticket.title}</h3>
+              <div class="meta">
+                <span>${ticket.candidateName} • ${ticket.candidateEmail}</span>
+                <span>${ticket.category} • Priority: ${ticket.priority}</span>
+                <span>Updated: ${new Date(ticket.updatedAt).toLocaleString()}</span>
+              </div>
+            </div>
+            <span class="badge ticket-${ticket.status}">${ticket.status}</span>
+          </div>
+          <div class="meta">${ticket.lastMessage || "No messages yet."}</div>
+          <div class="row-actions">
+            <button class="btn" data-reply-ticket="${ticket.id}" data-candidate-email="${ticket.candidateEmail || ""}" data-candidate-user-id="${ticket.candidateUserId || ""}" type="button">Reply</button>
+            <button class="btn primary" data-toggle-ticket="${ticket.id}" data-candidate-email="${ticket.candidateEmail || ""}" data-candidate-user-id="${ticket.candidateUserId || ""}" data-next-status="${ticket.status === "closed" ? "open" : "closed"}" type="button">${ticket.status === "closed" ? "Reopen" : "Close"}</button>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderContent() {
+      if (!state.dashboard) {
+        contentEl.innerHTML = `<div class="empty">Loading dashboard...</div>`;
+        return;
+      }
+      if (state.tab === "registrations") renderRegistrations();
+      if (state.tab === "verifications") renderVerifications();
+      if (state.tab === "tickets") renderTickets();
+    }
+
+    function renderTabLabels() {
+      const summary = state.dashboard ? state.dashboard.summary : { totalGps: 0, pendingVerifications: 0, openSupportTickets: 0 };
+      const labels = {
+        registrations: `GP Registrations (${summary.totalGps})`,
+        verifications: `Certificate Verifications (${summary.pendingVerifications})`,
+        tickets: `Support Tickets (${summary.openSupportTickets})`
+      };
+
+      document.querySelectorAll(".tab").forEach((tab) => {
+        const key = tab.getAttribute("data-tab");
+        tab.textContent = labels[key] || tab.textContent;
+        tab.classList.toggle("active", key === state.tab);
+      });
+    }
+
+    async function loadDashboard(force = false) {
+      if (state.isLoading && !force) return;
+      state.isLoading = true;
+      refreshTextEl.textContent = "Loading latest data...";
+      try {
+        const response = await fetch("/api/admin/dashboard", { credentials: "same-origin" });
+        if (response.status === 401) {
+          window.location.href = "/pages/admin-signin.html";
+          return;
+        }
+        if (response.status === 403) {
+          throw new Error("This account does not have admin access. Set ADMIN_EMAILS in your environment.");
+        }
+        if (!response.ok) {
+          throw new Error("Failed to load admin dashboard.");
+        }
+        const data = await response.json();
+        state.dashboard = data;
+        renderStats();
+        renderTabLabels();
+        renderContent();
+        refreshTextEl.textContent = `Updated ${new Date(data.refreshedAt).toLocaleString()}`;
+      } catch (err) {
+        state.dashboard = {
+          summary: { totalGps: 0, activeGps: 0, pendingVerifications: 0, openSupportTickets: 0, averageProgress: 0 },
+          candidates: [],
+          verificationQueue: [],
+          tickets: []
+        };
+        renderStats();
+        renderTabLabels();
+        renderContent();
+        refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}).`;
+      } finally {
+        state.isLoading = false;
+      }
+    }
+
+    async function updateTicket(ticketId, payload) {
+      const response = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload || {})
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || "Unable to update ticket.");
+      }
+    }
+
+    function exportCurrentTab() {
+      if (!state.dashboard) return;
+      const rows = state.tab === "tickets"
+        ? filteredTickets().map((item) => ({
+            title: item.title,
+            candidate: item.candidateName,
+            email: item.candidateEmail,
+            category: item.category,
+            status: item.status,
+            priority: item.priority,
+            updatedAt: item.updatedAt
+          }))
+        : (state.tab === "verifications" ? filteredVerifications() : filteredCandidates()).map((item) => ({
+            name: item.name,
+            email: item.email,
+            country: item.country,
+            currentStep: item.currentStepLabel,
+            progress: `${item.progressPercent}%`,
+            status: item.status,
+            openTickets: item.openTickets,
+            lastActiveAt: item.lastActiveAt
+          }));
+
+      if (!rows.length) return;
+      const headers = Object.keys(rows[0]);
+      const lines = [headers.join(",")];
+      rows.forEach((row) => {
+        const line = headers.map((header) => {
+          const value = String(row[header] == null ? "" : row[header]);
+          if (value.includes(",") || value.includes("\n") || value.includes('"')) return `"${value.replace(/"/g, '""')}"`;
+          return value;
+        }).join(",");
+        lines.push(line);
+      });
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `gp-link-admin-${state.tab}-${Date.now()}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    }
+
+    function openCandidateSnapshot(candidateId) {
+      const list = state.dashboard ? state.dashboard.candidates : [];
+      const candidate = list.find((item) => item.id === candidateId);
+      if (!candidate) return;
+      openCandidateModal(candidate);
+    }
+
+    function bindEvents() {
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          state.tab = tab.getAttribute("data-tab");
+          renderTabLabels();
+          renderContent();
+        });
+      });
+
+      searchInputEl.addEventListener("input", (event) => {
+        state.query = event.target.value || "";
+        renderContent();
+      });
+
+      document.getElementById("refreshBtn").addEventListener("click", () => {
+        loadDashboard(true);
+      });
+
+      document.getElementById("exportBtn").addEventListener("click", () => {
+        exportCurrentTab();
+      });
+      logoutBtnEl.addEventListener("click", async () => {
+        logoutBtnEl.disabled = true;
+        try {
+          await fetch("/api/admin/auth/logout", {
+            method: "POST",
+            credentials: "same-origin"
+          });
+        } catch (err) {
+          // Continue redirecting on any error.
+        } finally {
+          window.location.href = "/pages/admin-signin.html";
+        }
+      });
+      candidateModalCloseEl.addEventListener("click", () => {
+        closeCandidateModal();
+      });
+      candidateModalEl.addEventListener("click", (event) => {
+        if (event.target === candidateModalEl || event.target.closest("[data-close-modal]")) {
+          closeCandidateModal();
+          return;
+        }
+        const emailBtn = event.target.closest("[data-email-gp]");
+        if (emailBtn) {
+          const email = emailBtn.getAttribute("data-email-gp");
+          if (email) window.location.href = `mailto:${email}`;
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && candidateModalEl.classList.contains("open")) {
+          closeCandidateModal();
+        }
+      });
+
+      contentEl.addEventListener("click", async (event) => {
+        const viewBtn = event.target.closest("[data-view-candidate]");
+        if (viewBtn) {
+          openCandidateSnapshot(viewBtn.getAttribute("data-view-candidate"));
+          return;
+        }
+
+        const replyBtn = event.target.closest("[data-reply-ticket]");
+        if (replyBtn) {
+          const ticketId = replyBtn.getAttribute("data-reply-ticket");
+          const candidateEmail = replyBtn.getAttribute("data-candidate-email") || "";
+          const candidateUserId = replyBtn.getAttribute("data-candidate-user-id") || "";
+          const message = window.prompt("Send reply to candidate:");
+          if (!message || !message.trim()) return;
+          replyBtn.disabled = true;
+          try {
+            await updateTicket(ticketId, {
+              adminReply: message.trim(),
+              candidateEmail,
+              candidateUserId
+            });
+            await loadDashboard();
+          } catch (err) {
+            window.alert(err.message);
+          } finally {
+            replyBtn.disabled = false;
+          }
+          return;
+        }
+
+        const toggleBtn = event.target.closest("[data-toggle-ticket]");
+        if (toggleBtn) {
+          const ticketId = toggleBtn.getAttribute("data-toggle-ticket");
+          const status = toggleBtn.getAttribute("data-next-status");
+          const candidateEmail = toggleBtn.getAttribute("data-candidate-email") || "";
+          const candidateUserId = toggleBtn.getAttribute("data-candidate-user-id") || "";
+          toggleBtn.disabled = true;
+          try {
+            await updateTicket(ticketId, { status, candidateEmail, candidateUserId });
+            await loadDashboard();
+          } catch (err) {
+            window.alert(err.message);
+          } finally {
+            toggleBtn.disabled = false;
+          }
+        }
+      });
+    }
+
+    function startAutoRefresh() {
+      if (state.refreshTimer) clearInterval(state.refreshTimer);
+      state.refreshTimer = setInterval(() => {
+        if (document.visibilityState !== "visible") return;
+        loadDashboard();
+      }, 15000);
+    }
+
+    bindEvents();
+    loadDashboard();
+    startAutoRefresh();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") loadDashboard();
+    });
+  </script>
+</body>
+</html>
