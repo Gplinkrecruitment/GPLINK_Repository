@@ -121,7 +121,7 @@ const DOMAIN_API_CLIENT_SECRET = String(process.env.DOMAIN_API_CLIENT_SECRET || 
 const DOMAIN_API_SCOPE = String(process.env.DOMAIN_API_SCOPE || 'api_listings_read').trim() || 'api_listings_read';
 const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https://auth.domain.com.au/v1/connect/token').trim() || 'https://auth.domain.com.au/v1/connect/token';
 const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = String(process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK || 'false').trim().toLowerCase() === 'true';
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 10;
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 11;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE = Math.max(10, Number(process.env.DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE || 40) || 40);
@@ -6860,6 +6860,70 @@ function extractAustralianPostcode(value) {
   return match ? match[1] : '';
 }
 
+function getCareerLocationPrimaryLabel(value) {
+  return String(value || '')
+    .trim()
+    .replace(/,\s*Australia\s*$/i, '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)[0] || '';
+}
+
+function isBroadCareerLocationLabel(value) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return false;
+  return /\b(region|shire|district|council|municipality|tablelands|hinterland|peninsula|ranges|riverina|coast|suburbs|surrounds|corridor)\b/.test(normalized)
+    || /\b(central coast|fraser coast|sunshine coast|gold coast|greater [a-z]+|inner west|north shore|south west|south east|north west|north east)\b/.test(normalized);
+}
+
+function extractCareerRoleLifestyleSuburb(roleRow) {
+  const raw = getCareerRoleRawPayload(roleRow);
+  return String(getZohoField(raw, [
+    'Suburb',
+    'Practice_Suburb',
+    'Location_Suburb',
+    'Clinic_Suburb',
+    'Town'
+  ]) || '').trim();
+}
+
+function extractCareerRoleLifestylePostcode(roleRow) {
+  const explicit = extractAustralianPostcode(roleRow && (roleRow.location_postcode || roleRow.location_zip));
+  if (explicit) return explicit;
+  const raw = getCareerRoleRawPayload(roleRow);
+  return extractAustralianPostcode(getZohoField(raw, [
+    'Zip_Code',
+    'Postcode',
+    'Postal_Code',
+    'ZipCode',
+    'Work_Postcode',
+    'Location_Postcode'
+  ]));
+}
+
+function resolveCareerLifestyleSuburb({ roleMeta, roleRow, parsed }) {
+  const directSuburb = extractCareerRoleLifestyleSuburb(roleRow);
+  const roleMetaSuburb = String(roleMeta && roleMeta.suburb || '').trim();
+  const labelPrimary = getCareerLocationPrimaryLabel(roleRow && roleRow.location_label ? roleRow.location_label : parsed && parsed.label);
+  const parsedSuburb = String(parsed && parsed.suburb || '').trim();
+  const city = String(roleRow && roleRow.location_city || '').trim();
+  const candidates = [
+    directSuburb,
+    roleMetaSuburb,
+    labelPrimary,
+    parsedSuburb,
+    city
+  ].filter(Boolean);
+  const specific = candidates.find((candidate) => !isBroadCareerLocationLabel(candidate));
+  if (specific) return specific;
+  return city || candidates[0] || '';
+}
+
 function parsePlacementLocationContext(locationValue) {
   const value = String(locationValue || '').trim().replace(/,\s*Australia\s*$/i, '');
   const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
@@ -6885,18 +6949,15 @@ function parsePlacementLocationContext(locationValue) {
 
 function buildLifestyleLocationContext(locationValue, roleMeta, roleRow) {
   const parsed = parsePlacementLocationContext(locationValue);
-  const suburb = String(
-    roleMeta && roleMeta.suburb
-    || roleRow && roleRow.location_city
-    || parsed.suburb
-    || ''
-  ).trim();
+  const rawRole = getCareerRoleRawPayload(roleRow);
+  const suburb = resolveCareerLifestyleSuburb({ roleMeta, roleRow, parsed });
   const state = normalizeAustralianStateAbbreviation(
     roleRow && roleRow.location_state
+    || getZohoField(rawRole, ['State', 'Region', 'Province', 'Work_State', 'Location_State'])
     || parsed.state
     || ''
   );
-  const postcode = String(roleRow && roleRow.location_postcode || parsed.postcode || '').trim();
+  const postcode = String(extractCareerRoleLifestylePostcode(roleRow) || parsed.postcode || '').trim();
   return {
     ...parsed,
     suburb,
@@ -6943,10 +7004,18 @@ async function enrichLifestyleLocationContextForHomely(value, practiceCoords = n
   let locationContext = normalizeLifestyleSearchLocationContext(value);
   const reverseContext = await reverseGeocodeCareerLocationContext(practiceCoords);
   if (reverseContext) {
+    const mergedSuburb = resolveCareerLifestyleSuburb({
+      roleMeta: { suburb: locationContext.suburb },
+      roleRow: {
+        location_city: reverseContext.suburb,
+        location_label: locationContext.label || reverseContext.label
+      },
+      parsed: reverseContext
+    });
     locationContext = {
       ...reverseContext,
       ...locationContext,
-      suburb: String(locationContext.suburb || reverseContext.suburb || '').trim(),
+      suburb: String(mergedSuburb || reverseContext.suburb || locationContext.suburb || '').trim(),
       state: normalizeAustralianStateAbbreviation(locationContext.state || reverseContext.state || ''),
       postcode: String(locationContext.postcode || reverseContext.postcode || '').trim(),
       country: String(locationContext.country || reverseContext.country || 'Australia').trim() || 'Australia',
