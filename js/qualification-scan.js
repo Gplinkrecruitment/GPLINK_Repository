@@ -65,6 +65,220 @@
     return /\.(jpg|jpeg|png|webp|gif|bmp|tif|tiff|heic|heif|avif)$/i.test(name);
   }
 
+  function stripHtml(s) {
+    return String(s || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function getFriendlyTargetLabel(options) {
+    var title = options && options.documentTitle ? stripHtml(options.documentTitle) : "";
+    title = title.replace(/^certified copy of\s+/i, "").trim();
+    return title || "the requested document";
+  }
+
+  function humanizeScanIssue(issue, options) {
+    var clean = stripHtml(issue);
+    var lower = clean.toLowerCase();
+    var targetLabel = getFriendlyTargetLabel(options);
+    var wrongDocMatch = clean.match(/appears to be\s+(.+?),\s+not\s+(.+?)(?:\.|$)/i);
+
+    if (!clean) {
+      return "We could not complete the scan. Please try again with a clear image of the full document.";
+    }
+    if (/does not match your account|doesn.?t match your profile|same name as your qualifications/.test(lower)) {
+      return "The name on this document does not match the name on your account. Upload a document showing the same full name, or update your account details first.";
+    }
+    if (/could not confidently match the full name|full name on this document|full name on your id|name .*not readable|completely unreadable/.test(lower)) {
+      return "We could not clearly read the full name on this document. Please upload a clearer photo with the full name fully visible.";
+    }
+    if (/too blurry|blurry to read|illegible|not readable|clearer photo|clearer document/.test(lower)) {
+      return "We could not read this document clearly. Retake the photo in good light and make sure all text is sharp and fully visible.";
+    }
+    if (/identified this as .*could not verify the certification/.test(lower)) {
+      return "We can see this is the correct document, but we cannot confirm the certification from this file. Upload a clear photo of the certified copy showing the certifier's statement, signature, printed name, occupation and date.";
+    }
+    if (/does not appear to be properly certified|without any certification markings|certification markings|certification statement|certifier/.test(lower)) {
+      return "We could not confirm that this is a certified copy. Please upload a clear image showing the certifier's statement, signature, printed name and date.";
+    }
+    if (/does not appear to be the correct document|wrong document|correct document type/.test(lower)) {
+      return "This looks like a different document from the one needed here. Please upload " + targetLabel + ".";
+    }
+    if (wrongDocMatch) {
+      return "This looks like " + wrongDocMatch[1] + ", not " + targetLabel + ". Please upload the correct document for this step.";
+    }
+    if (/dated before|date on the document must be from|issue date/.test(lower)) {
+      return "The issue date on this document is outside the accepted date range for this pathway. Please upload the correct certificate or a later version if available.";
+    }
+    if (/passport or driver.?s licence|identity document/.test(lower)) {
+      return "Please upload a passport or driver's licence with the full name clearly visible.";
+    }
+    if (/verification capacity reached|queued for review|manual review/.test(lower)) {
+      return "We could not finish the automatic scan right now, so your document has been sent for manual review.";
+    }
+    if (/document verification is not ready yet|still loading/.test(lower)) {
+      return "The scan tool is still loading. Please refresh the page and try again.";
+    }
+    if (/could not connect|failed to connect|network error|ai service returned an error/.test(lower)) {
+      return "We could not reach the scan service just now. Please try again in a moment.";
+    }
+    if (/please upload a pdf or image file/.test(lower)) {
+      return "Please upload a PDF or image file for the scan.";
+    }
+    if (/failed to read file|could not read that file/.test(lower)) {
+      return "We could not read that file. Please upload it again as a PDF or image.";
+    }
+    if (/could not verify this document/.test(lower)) {
+      return "We could not verify this document automatically. Please make sure the full document is visible, clear and uploaded in the correct place.";
+    }
+    return clean;
+  }
+
+  function humanizeScanIssues(issues, options) {
+    var list = Array.isArray(issues) ? issues : [issues];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var message = humanizeScanIssue(list[i], options);
+      if (message && out.indexOf(message) === -1) out.push(message);
+    }
+    if (!out.length) {
+      out.push("We could not complete the scan. Please try again with a clear image of the full document.");
+    }
+    return out;
+  }
+
+  function humanizeScanIssuesHtml(issues, options) {
+    return humanizeScanIssues(issues, options).map(esc).join("<br>");
+  }
+
+  window.gpFriendlyScanIssues = humanizeScanIssues;
+  window.gpFriendlyScanIssuesHtml = humanizeScanIssuesHtml;
+
+  function getProfileName() {
+    if (!window.gpSessionProfile) return "";
+    if (window.gpSessionProfile.full_name) return window.gpSessionProfile.full_name;
+    if (window.gpSessionProfile.name) return window.gpSessionProfile.name;
+    var first = window.gpSessionProfile.firstName || window.gpSessionProfile.first_name || "";
+    var last = window.gpSessionProfile.lastName || window.gpSessionProfile.last_name || "";
+    var full = (first + " " + last).trim();
+    return full || "";
+  }
+
+  function getSelectedCountryCode() {
+    var raw = "";
+    try { raw = localStorage.getItem("gp_selected_country") || ""; } catch (e) { raw = ""; }
+    if (!raw) return "GB";
+    try { raw = JSON.parse(raw); } catch (e2) {}
+    var lower = String(raw || "").toLowerCase().trim();
+    if (lower === "uk" || lower === "gb" || lower === "united kingdom") return "GB";
+    if (lower === "ie" || lower === "ireland") return "IE";
+    if (lower === "nz" || lower === "new zealand") return "NZ";
+    return "GB";
+  }
+
+  function getExpectedQualificationDocumentType(docKey, fallbackTitle) {
+    var mapped = DOC_LABELS[docKey];
+    if (mapped) return mapped;
+    var title = String(fallbackTitle || "").replace(/^certified copy of\s+/i, "").trim();
+    return title || "qualification document";
+  }
+
+  function verifyQualificationDocument(file, options) {
+    var opts = options || {};
+    return fileToBase64(file).then(function (base64) {
+      return fetch("/api/ai/verify-qualification", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType: file.type || "application/octet-stream",
+          documentType: getExpectedQualificationDocumentType(opts.docKey, opts.documentType),
+          expectedCountry: opts.expectedCountry || getSelectedCountryCode(),
+          profileName: opts.profileName || getProfileName()
+        })
+      });
+    }).then(function (res) {
+      return res.json();
+    });
+  }
+
+  function verifyCertificationDocument(file, options) {
+    var opts = options || {};
+    return fileToBase64(file).then(function (base64) {
+      return fetch("/api/ai/verify-certification", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType: file.type || "application/octet-stream",
+          documentType: getExpectedQualificationDocumentType(opts.docKey, opts.documentType)
+        })
+      });
+    }).then(function (res) {
+      return res.json();
+    });
+  }
+
+  function verifyCertifiedDocument(file, options) {
+    var opts = options || {};
+    return verifyQualificationDocument(file, opts).then(function (qualData) {
+      if (!qualData || !qualData.ok || !qualData.verification) {
+        throw new Error((qualData && qualData.message) || "Could not verify this document.");
+      }
+
+      var qualVerification = qualData.verification;
+      var nameMatch = qualVerification.nameMatch || "unknown";
+      var nameConfirmed = nameMatch === "exact" || nameMatch === "fuzzy";
+      var qualIssues = Array.isArray(qualVerification.issues) && qualVerification.issues.length
+        ? qualVerification.issues.slice()
+        : ["The document details could not be verified against your account."];
+      var friendlyQualIssues = humanizeScanIssues(qualIssues, {
+        documentTitle: getExpectedQualificationDocumentType(opts.docKey, opts.documentType),
+        mode: "qualification"
+      });
+
+      if (!qualVerification.verified || !nameConfirmed) {
+        return {
+          ok: true,
+          certified: false,
+          verification: {
+            certified: false,
+            nameFound: qualVerification.nameFound || null,
+            nameMatch: nameMatch,
+            qualificationVerification: qualVerification,
+            issues: friendlyQualIssues
+          }
+        };
+      }
+
+      return verifyCertificationDocument(file, opts).then(function (certData) {
+        if (!certData || !certData.ok || !certData.verification) {
+          throw new Error((certData && certData.message) || "Could not verify this document.");
+        }
+        var certVerification = certData.verification;
+        certVerification.qualificationVerification = qualVerification;
+        certVerification.nameFound = qualVerification.nameFound || null;
+        certVerification.nameMatch = nameMatch;
+        if (!certVerification.certified) {
+          var certIssues = Array.isArray(certVerification.issues) && certVerification.issues.length
+            ? certVerification.issues
+            : ["The document does not appear to be properly certified."];
+          certVerification.issues = humanizeScanIssues(certIssues, {
+            documentTitle: getExpectedQualificationDocumentType(opts.docKey, opts.documentType),
+            mode: "certification"
+          });
+        }
+        return {
+          ok: true,
+          certified: !!certVerification.certified,
+          verification: certVerification
+        };
+      });
+    });
+  }
+
+  window.gpVerifyCertifiedDocument = verifyCertifiedDocument;
+
   /* ── Styles ── */
   function injectStyles() {
     if (document.getElementById(STYLE_ID)) return;
@@ -213,7 +427,7 @@
   /* ── File selection ── */
   function pickFile(file) {
     if (!isAiScannableFile(file)) {
-      showScanError("Please upload a PDF or image file so Claude can scan it.");
+      showScanError("Please upload a PDF or image file for the scan.");
       return;
     }
     selectedFile = file;
@@ -257,18 +471,10 @@
       var imageBase64 = "";
       fileToBase64(file).then(function (base64) {
         imageBase64 = base64;
-        return fetch("/api/ai/verify-certification", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            imageBase64: base64,
-            mimeType: file.type || "application/octet-stream",
-            documentType: ctx.title || "qualification document"
-          })
+        return verifyCertifiedDocument(file, {
+          docKey: ctx.key,
+          documentType: ctx.title || "qualification document"
         });
-      }).then(function (res) {
-        return res.json();
       }).then(function (data) {
           if (data.ok && data.verification) {
             var v = data.verification;
@@ -279,10 +485,13 @@
               resultEl.innerHTML =
                 '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
                 '<h4>Scan Successful</h4>' +
-                '<p>Certification verified for <strong>' + esc(ctx.title) + '</strong></p>' +
+                '<p>Document and certification verified for <strong>' + esc(ctx.title) + '</strong></p>' +
                 '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
             } else {
-              var issuesList = (v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."];
+              var issuesList = humanizeScanIssues((v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."], {
+                documentTitle: ctx.title,
+                mode: "certification"
+              });
               resultEl.innerHTML =
                 '<div class="err"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
                 '<h4>Scan Failed</h4>' +
@@ -307,7 +516,7 @@
           throw new Error(data.message || "Could not verify this document.");
         }
       }).catch(function (err) {
-        showScanError(esc(err.message));
+        showScanError(err && err.message ? err.message : err);
       });
       return;
     }
@@ -333,14 +542,15 @@
         });
       }).then(function(res) { return res.json(); }).then(function(data) {
         if (data.ok && data.classification && data.classification.matches) {
-          var certifyIssue = "Claude identified this as " + ctx2.title + ", but could not verify the certification from this file. Upload a clear image showing the certification statement, signature, occupation and date.";
+          var certifyIssue = "We can see this is " + ctx2.title + ", but we cannot confirm the certification from this file. Upload a clear image showing the certifier's statement, signature, printed name, occupation and date.";
           if (data.classification && data.classification.reason) {
             certifyIssue += " " + data.classification.reason;
           }
+          var certifyIssueList = humanizeScanIssues([certifyIssue], { documentTitle: ctx2.title, mode: "certification" });
           if (ctx2.callback) ctx2.callback({
             fileName: file.name,
             certified: false,
-            verification: { issues: [certifyIssue] },
+            verification: { issues: certifyIssueList },
             mimeType: file.type || "application/pdf",
             fileSize: Number(file.size || 0),
             fileDataUrl: docDataUrl
@@ -349,7 +559,7 @@
             resultEl2.innerHTML =
               '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
               '<h4>Scan Failed</h4>' +
-              '<p>' + esc(certifyIssue) + '</p>' +
+              '<p>' + certifyIssueList.map(esc).join("<br>") + '</p>' +
               '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
               '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
           }
@@ -368,7 +578,7 @@
           if (ctx2.callback) ctx2.callback({
             fileName: file.name,
             certified: false,
-            verification: { issues: [reasonPlain] },
+            verification: { issues: humanizeScanIssues([reasonPlain], { documentTitle: ctx2.title, mode: "classification" }) },
             mimeType: file.type || "application/pdf",
             fileSize: Number(file.size || 0),
             fileDataUrl: docDataUrl
@@ -385,10 +595,11 @@
         }
       }).catch(function(err) {
         var failureMessage = err && err.message ? err.message : "Could not verify this document.";
+        var friendlyFailureList = humanizeScanIssues([failureMessage], { documentTitle: ctx2.title, mode: "certification" });
         if (ctx2.callback) ctx2.callback({
           fileName: file.name,
           certified: false,
-          verification: { issues: [failureMessage] },
+          verification: { issues: friendlyFailureList },
           mimeType: file.type || "application/pdf",
           fileSize: Number(file.size || 0),
           fileDataUrl: docDataUrl
@@ -397,7 +608,7 @@
           resultEl2.innerHTML =
             '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
             '<h4>Scan Failed</h4>' +
-            '<p>' + esc(failureMessage) + '</p>' +
+            '<p>' + friendlyFailureList.map(esc).join("<br>") + '</p>' +
             '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
             '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
         }
@@ -430,6 +641,8 @@
       }).then(function (data) {
         if (data.ok && data.verification) {
           var v = data.verification;
+          var friendlyIssues = humanizeScanIssues(v.issues, { documentTitle: v.documentType || "Document", mode: "qualification" });
+          v.issues = friendlyIssues;
           var docType = v.documentType || "Document";
           var nameFound = v.nameFound || "";
           var dateFound = v.dateFound || "";
@@ -464,8 +677,8 @@
           var resultEl = document.getElementById("gpScanResult");
           if (resultEl) {
             var issuesHtml = "";
-            if (v.issues && v.issues.length > 0) {
-              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + v.issues.map(esc).join("<br>") + '</p>';
+            if (friendlyIssues && friendlyIssues.length > 0) {
+              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + friendlyIssues.map(esc).join("<br>") + '</p>';
             }
             var nameColor = nameMismatch ? "#dc2626" : "#64748b";
             var nameLabel = nameMismatch ? "Name (mismatch): " : "Name: ";
@@ -485,7 +698,7 @@
           throw new Error(data.message || "Could not verify this document.");
         }
       }).catch(function (err) {
-        showScanError(esc(err.message));
+        showScanError(err && err.message ? err.message : err);
       });
     } else {
       // For PDFs/non-images, use the same AI verification endpoint (supports PDFs)
@@ -512,6 +725,8 @@
       }).then(function (data) {
         if (data.ok && data.verification) {
           var v = data.verification;
+          var friendlyIssues = humanizeScanIssues(v.issues, { documentTitle: v.documentType || "Document", mode: "qualification" });
+          v.issues = friendlyIssues;
           var docType = v.documentType || "Document";
           var nameFound = v.nameFound || "";
           var dateFound = v.dateFound || "";
@@ -544,8 +759,8 @@
           var resultEl = document.getElementById("gpScanResult");
           if (resultEl) {
             var issuesHtml = "";
-            if (v.issues && v.issues.length > 0) {
-              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + v.issues.map(esc).join("<br>") + '</p>';
+            if (friendlyIssues && friendlyIssues.length > 0) {
+              issuesHtml = '<p style="color:#dc2626;font-size:12px;">' + friendlyIssues.map(esc).join("<br>") + '</p>';
             }
             var nameColor = nameMismatch ? "#dc2626" : "#64748b";
             var nameLabel = nameMismatch ? "Name (mismatch): " : "Name: ";
@@ -565,7 +780,7 @@
           throw new Error(data.message || "Could not verify this document.");
         }
       }).catch(function (err) {
-        showScanError(esc(err.message));
+        showScanError(err && err.message ? err.message : err);
       });
     }
   }
@@ -573,11 +788,12 @@
   function showScanError(msg) {
     scanInProgress = false;
     var resultEl = document.getElementById("gpScanResult");
+    var friendlyIssues = humanizeScanIssues([msg || "Something went wrong."], {});
     if (resultEl) {
       resultEl.innerHTML =
         '<div class="err"><svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" fill="none" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>' +
         '<h4>Scan Failed</h4>' +
-        '<p>' + esc(msg || "Something went wrong.") + '</p>' +
+        '<p>' + friendlyIssues.map(esc).join("<br>") + '</p>' +
         '<button class="scan-btn-outline" data-scan-action="another" type="button">Try again</button>';
     }
     showStep("result");

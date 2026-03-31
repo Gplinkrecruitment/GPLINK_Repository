@@ -165,9 +165,76 @@
       if (window.gpSessionProfile.name) return window.gpSessionProfile.name;
       var fn = (window.gpSessionProfile.firstName || "") + " " + (window.gpSessionProfile.lastName || "");
       if (fn.trim()) return fn.trim();
-      if (window.gpSessionProfile.email) return window.gpSessionProfile.email.split("@")[0];
     }
     return "";
+  }
+
+  function stripIssueHtml(s) {
+    return String(s || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function getFriendlyIssueTarget(options) {
+    var title = options && options.documentTitle ? stripIssueHtml(options.documentTitle) : "";
+    title = title.replace(/^certified copy of\s+/i, "").trim();
+    return title || "the requested document";
+  }
+
+  function humanizeScanIssue(issue, options) {
+    var clean = stripIssueHtml(issue);
+    var lower = clean.toLowerCase();
+    var targetLabel = getFriendlyIssueTarget(options);
+    var wrongDocMatch = clean.match(/appears to be\s+(.+?),\s+not\s+(.+?)(?:\.|$)/i);
+
+    if (!clean) {
+      return "We could not complete the scan. Please try again with a clear image of the full document.";
+    }
+    if (/does not match your account|doesn.?t match your profile|same name as your qualifications/.test(lower)) {
+      return "The name on this document does not match the name on your account. Upload a document showing the same full name, or update your account details first.";
+    }
+    if (/could not confidently match the full name|full name on this document|full name on your id|name .*not readable|completely unreadable/.test(lower)) {
+      return "We could not clearly read the full name on this document. Please upload a clearer photo with the full name fully visible.";
+    }
+    if (/too blurry|blurry to read|illegible|not readable|clearer photo|clearer document/.test(lower)) {
+      return "We could not read this document clearly. Retake the photo in good light and make sure all text is sharp and fully visible.";
+    }
+    if (/does not appear to be the correct document|wrong document|correct document type/.test(lower)) {
+      return "This looks like a different document from the one needed here. Please upload " + targetLabel + ".";
+    }
+    if (wrongDocMatch) {
+      return "This looks like " + wrongDocMatch[1] + ", not " + targetLabel + ". Please upload the correct document for this step.";
+    }
+    if (/dated before|date on the document must be from|issue date/.test(lower)) {
+      return "The issue date on this document is outside the accepted date range for this pathway. Please upload the correct certificate or a later version if available.";
+    }
+    if (/passport or driver.?s licence|identity document/.test(lower)) {
+      return "Please upload a passport or driver's licence with the full name clearly visible.";
+    }
+    if (/queued for review|manual review|verification capacity reached/.test(lower)) {
+      return "We could not finish the automatic scan right now, so your document has been sent for manual review.";
+    }
+    if (/could not connect|failed to connect|network error|ai service returned an error/.test(lower)) {
+      return "We could not reach the scan service just now. Please try again in a moment.";
+    }
+    if (/could not verify identity/.test(lower)) {
+      return "We could not verify your identity from this image. Please upload a clear photo of your passport or driver's licence with the full name visible.";
+    }
+    if (/could not verify this document/.test(lower)) {
+      return "We could not verify this document automatically. Please make sure the full document is visible, clear and uploaded in the correct place.";
+    }
+    return clean;
+  }
+
+  function humanizeScanIssues(issues, options) {
+    var list = Array.isArray(issues) ? issues : [issues];
+    var out = [];
+    list.forEach(function (item) {
+      var message = humanizeScanIssue(item, options);
+      if (message && out.indexOf(message) === -1) out.push(message);
+    });
+    if (!out.length) {
+      out.push("We could not complete the scan. Please try again with a clear image of the full document.");
+    }
+    return out;
   }
 
   function canBypassOnboardingValidation() {
@@ -214,8 +281,8 @@
         infoHtml = '<div class="qual-doc-slot-info error">Max attempts reached. Will be reviewed manually.</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "failed") {
-        const issues = (docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues.join(", ") : "Verification failed";
-        infoHtml = '<div class="qual-doc-slot-info error">' + issues + '</div>';
+        const issues = humanizeScanIssues((docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues : ["Verification failed"], { documentTitle: doc.label, mode: "qualification" });
+        infoHtml = '<div class="qual-doc-slot-info error">' + issues.map(escHtml).join("<br>") + '</div>';
         infoHtml += '<div class="qual-doc-slot-retry">Attempt ' + retryCount + ' of ' + MAX_RETRIES + '</div>';
         // Actionable tips based on retry count
         var tips = ["Try removing any frame or cover", "Ensure there is no glare on the document", "Hold camera steady and use good lighting", "Try uploading a flat scan or screenshot instead"];
@@ -226,7 +293,8 @@
       } else if (status === "support_requested") {
         infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Support team will verify manually via email</div>';
       } else if (status === "manual_review") {
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Flagged for manual review</div>';
+        var reviewIssues = humanizeScanIssues((docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues : ["Queued for review"], { documentTitle: doc.label, mode: "qualification" });
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Sent for manual review.<br>' + reviewIssues.map(escHtml).join("<br>") + '</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       }
 
@@ -301,24 +369,103 @@
     });
   }
 
-  // Fuzzy name comparison (client-side mirror of server logic)
-  function namesMatch(name1, name2) {
-    var normalize = function (n) { return String(n || "").toLowerCase().trim().replace(/[^a-z\s]/g, ""); };
-    var parts1 = normalize(name1).split(/\s+/).filter(Boolean);
-    var parts2 = normalize(name2).split(/\s+/).filter(Boolean);
-    if (parts1.length === 0 || parts2.length === 0) return false;
-    if (parts1.join(" ") === parts2.join(" ")) return true;
-    // First+last match
-    if (parts1[0] === parts2[0] && parts1[parts1.length - 1] === parts2[parts2.length - 1]) return true;
-    // Subset match
-    if (parts2.every(function (p) { return parts1.includes(p); })) return true;
-    if (parts1.every(function (p) { return parts2.includes(p); })) return true;
-    return false;
+  function getNameMatchLevel(name1, name2) {
+    var noiseParts = {
+      dr: true,
+      mr: true,
+      mrs: true,
+      ms: true,
+      miss: true,
+      mx: true,
+      sir: true,
+      prof: true,
+      professor: true,
+      md: true,
+      mbbs: true,
+      mbchb: true,
+      phd: true
+    };
+    var normalize = function (n) {
+      return String(n || "")
+        .toLowerCase()
+        .trim()
+        .replace(/['’]/g, "")
+        .replace(/-/g, " ")
+        .replace(/[^a-z\s]/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter(function (part) { return !noiseParts[part]; });
+    };
+    var parts1 = normalize(name1);
+    var parts2 = normalize(name2);
+    if (parts1.length < 2 || parts2.length < 2) return "unknown";
+    if (parts1.join(" ") === parts2.join(" ")) return "exact";
+    if (parts1[0] !== parts2[0] || parts1[parts1.length - 1] !== parts2[parts2.length - 1]) return "mismatch";
+
+    var middle1 = parts1.slice(1, -1);
+    var middle2 = parts2.slice(1, -1);
+    if (!middle1.length || !middle2.length) return "fuzzy";
+
+    var shorter = middle1.length <= middle2.length ? middle1 : middle2;
+    var longer = middle1.length <= middle2.length ? middle2 : middle1;
+    var longIdx = 0;
+    for (var i = 0; i < shorter.length; i++) {
+      var token = shorter[i];
+      var matched = false;
+      while (longIdx < longer.length) {
+        var candidate = longer[longIdx++];
+        if (!candidate) continue;
+        if (token === candidate || token.charAt(0) === candidate.charAt(0)) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) return "mismatch";
+    }
+    return "fuzzy";
   }
 
-  // After a doc is verified, check if both specialist + medical degree names match each other.
-  // If both match each other but not the account, auto-update account name to medical degree name.
-  function crossDocNameCheck(serverData) {
+  // Fuzzy name comparison (client-side mirror of server logic)
+  function namesMatch(name1, name2) {
+    var match = getNameMatchLevel(name1, name2);
+    return match === "exact" || match === "fuzzy";
+  }
+
+  function appendIssueOnce(list, message) {
+    var next = Array.isArray(list) ? list.slice() : [];
+    if (next.indexOf(message) === -1) next.push(message);
+    return next;
+  }
+
+  function autoUpdateAccountName(docName) {
+    var parts = String(docName || "").trim().split(/\s+/);
+    if (parts.length < 2) return Promise.resolve(false);
+    var firstName = parts[0];
+    var lastName = parts.slice(1).join(" ");
+
+    return fetch("/api/account/update-name", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ firstName: firstName, lastName: lastName }),
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (!data || !data.ok) return false;
+      if (window.gpSessionProfile) {
+        window.gpSessionProfile.first_name = firstName;
+        window.gpSessionProfile.last_name = lastName;
+        window.gpSessionProfile.firstName = firstName;
+        window.gpSessionProfile.lastName = lastName;
+        window.gpSessionProfile.full_name = firstName + " " + lastName;
+        window.gpSessionProfile.name = firstName + " " + lastName;
+      }
+      return true;
+    }).catch(function () {
+      return false;
+    });
+  }
+
+  // After both docs are scanned, confirm the names align with each other and with the account.
+  function crossDocNameCheck() {
     var docs = COUNTRY_DOCS[state.country] || [];
     var specialistKey = docs.find(function (d) { return d.key !== "primary_med_degree"; });
     var medDegreeKey = docs.find(function (d) { return d.key === "primary_med_degree"; });
@@ -338,55 +485,44 @@
     if (!specName || !medName) return;
 
     var profileName = getProfileName();
-    var docsMatchEachOther = namesMatch(specName, medName);
+    var docsMatchLevel = getNameMatchLevel(specName, medName);
+    var accountMatchLevel = getNameMatchLevel(medName, profileName);
+    var docsMatchEachOther = docsMatchLevel === "exact" || docsMatchLevel === "fuzzy";
 
-    if (docsMatchEachOther) {
-      var matchesAccount = namesMatch(medName, profileName);
-      // Both docs verified — mark both as verified
+    if (docsMatchEachOther && accountMatchLevel === "exact") {
       specDoc.status = "verified";
       medDoc.status = "verified";
-
-      if (!matchesAccount) {
-        // Names on docs match each other but not the account — auto-update account name
-        autoUpdateAccountName(medName);
-      }
-    } else {
-      // Documents have different names — flag for manual review
-      specDoc.status = "failed";
-      medDoc.status = "failed";
-      var msg = "Names on your specialist qualification and medical degree do not match each other.";
-      specDoc.scanResult.issues = (specDoc.scanResult.issues || []).concat([msg]);
-      medDoc.scanResult.issues = (medDoc.scanResult.issues || []).concat([msg]);
-      state.accountReviewFlag = true;
+      return;
     }
-  }
 
-  function autoUpdateAccountName(docName) {
-    // Parse the name from the medical degree — use it to update the account
-    var parts = String(docName || "").trim().split(/\s+/);
-    if (parts.length < 2) return;
-    var firstName = parts[0];
-    var lastName = parts.slice(1).join(" ");
-
-    fetch("/api/account/update-name", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ firstName: firstName, lastName: lastName }),
-    }).then(function (r) { return r.json(); }).then(function (data) {
-      if (data.ok) {
-        console.log("[Onboarding] Account name auto-updated to match documents:", firstName, lastName);
-        // Update session profile so subsequent checks use new name
-        if (window.gpSessionProfile) {
-          window.gpSessionProfile.first_name = firstName;
-          window.gpSessionProfile.last_name = lastName;
-          window.gpSessionProfile.full_name = firstName + " " + lastName;
-          window.gpSessionProfile.name = firstName + " " + lastName;
+    if (docsMatchEachOther && accountMatchLevel === "fuzzy") {
+      specDoc.status = "verified";
+      medDoc.status = "verified";
+      autoUpdateAccountName(medName).then(function (updated) {
+        if (!updated) {
+          var msg = "We verified your documents, but could not update your account name automatically. Please refresh or contact support if the name does not update.";
+          specDoc.scanResult = specDoc.scanResult || {};
+          medDoc.scanResult = medDoc.scanResult || {};
+          specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, msg);
+          medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, msg);
+          saveState();
+          renderQualDocSlots();
         }
-      }
-    }).catch(function (err) {
-      console.error("[Onboarding] Failed to auto-update account name:", err);
-    });
+      });
+      return;
+    }
+
+    specDoc.status = "manual_review";
+    medDoc.status = "manual_review";
+    specDoc.scanResult = specDoc.scanResult || {};
+    medDoc.scanResult = medDoc.scanResult || {};
+
+    var msg = docsMatchEachOther
+      ? "Your documents show the same name, but it does not match your account profile. Please update your account details or contact support for manual review."
+      : "Names on your specialist qualification and medical degree do not match each other.";
+    specDoc.scanResult.issues = appendIssueOnce(specDoc.scanResult.issues, msg);
+    medDoc.scanResult.issues = appendIssueOnce(medDoc.scanResult.issues, msg);
+    state.accountReviewFlag = true;
   }
 
   // ── Support popup ──────────────────────────
@@ -516,34 +652,28 @@
 
       if (data.ok && data.verification) {
         const v = data.verification;
+        const nameConfirmed = v.nameMatch === "exact" || v.nameMatch === "fuzzy";
         let shouldPersistDocument = false;
-        if (v.verified && v.nameMatch !== "mismatch") {
+        if (v.verified && nameConfirmed) {
           state.qualDocs[docKey].status = "verified";
           state.qualDocs[docKey].scanResult = v;
           state.qualDocs[docKey].nameMatch = v.nameMatch;
-          shouldPersistDocument = true;
-        } else if (v.verified && v.nameMatch === "mismatch") {
-          // Document itself is valid but name doesn't match account — check cross-doc matching
-          state.qualDocs[docKey].scanResult = v;
-          state.qualDocs[docKey].nameMatch = v.nameMatch;
-          // We'll resolve this after checking both docs below
-          state.qualDocs[docKey].status = "verified_name_pending";
           shouldPersistDocument = true;
         } else if (v.nameMatch === "mismatch") {
           state.qualDocs[docKey].status = "failed";
           state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
           var nameIssues = (v.issues && v.issues.length > 0) ? v.issues : ["Name on document doesn't match your profile."];
-          state.qualDocs[docKey].scanResult = { ...v, issues: nameIssues };
+          state.qualDocs[docKey].scanResult = { ...v, issues: humanizeScanIssues(nameIssues, { documentTitle: doc.label, mode: "qualification" }) };
           state.accountReviewFlag = true;
         } else {
           state.qualDocs[docKey].status = "failed";
           state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
           var failIssues = (v.issues && v.issues.length > 0) ? v.issues : ["Document could not be verified. Check it's the correct document type and clearly visible."];
-          state.qualDocs[docKey].scanResult = { ...v, issues: failIssues };
+          state.qualDocs[docKey].scanResult = { ...v, issues: humanizeScanIssues(failIssues, { documentTitle: doc.label, mode: "qualification" }) };
         }
 
         // Cross-document name matching: check if both docs have names that match each other
-        crossDocNameCheck(data);
+        crossDocNameCheck();
 
         if (shouldPersistDocument) {
           const savedDoc = await saveOnboardingDocumentFile(docKey, fileName, mimeType, fileDataUrl);
@@ -553,11 +683,11 @@
         }
       } else if (data.queued) {
         state.qualDocs[docKey].status = "manual_review";
-        state.qualDocs[docKey].scanResult = { issues: [data.message || "Queued for review"] };
+        state.qualDocs[docKey].scanResult = { issues: humanizeScanIssues([data.message || "Queued for review"], { documentTitle: doc.label, mode: "qualification" }) };
       } else {
         state.qualDocs[docKey].status = "failed";
         state.qualDocs[docKey].retryCount = (state.qualDocs[docKey].retryCount || 0) + 1;
-        state.qualDocs[docKey].scanResult = { issues: [data.message || "Verification failed"] };
+        state.qualDocs[docKey].scanResult = { issues: humanizeScanIssues([data.message || "Verification failed"], { documentTitle: doc.label, mode: "qualification" }) };
       }
 
       // If max retries reached and still failed, flag for review (skip for unlimited accounts)
@@ -571,7 +701,7 @@
       console.error("[QualVerify] Error:", err);
       state.qualDocs[docKey].status = "failed";
       // Network/system errors don't count as verification retries
-      state.qualDocs[docKey].scanResult = { issues: [err.message || "Network error. Please try again."] };
+      state.qualDocs[docKey].scanResult = { issues: humanizeScanIssues([err.message || "Network error. Please try again."], { documentTitle: doc.label, mode: "qualification" }) };
     }
 
     delete activeDocUploads[docKey];
@@ -687,8 +817,8 @@
       statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity verified — document has been deleted</div>';
       actionsEl.style.display = "none";
     } else if (status === "failed") {
-      const issues = (idState.issues && idState.issues.length) ? idState.issues.map(function(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }).join(", ") : "Verification failed";
-      statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues + '</div>';
+      const issues = humanizeScanIssues((idState.issues && idState.issues.length) ? idState.issues : ["Verification failed"], { mode: "identity" });
+      statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues.map(escHtml).join("<br>") + '</div>';
       actionsEl.style.display = "";
     } else if (status === "support_requested") {
       statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--blue);">Support team will verify manually via email</div>';
@@ -729,13 +859,16 @@
       if (data.ok && data.verification && data.verification.verified) {
         state.idVerification = { status: "verified", fileName: fileName, nameFound: data.verification.nameFound };
       } else {
-        const issues = (data.verification && data.verification.issues && data.verification.issues.length)
-          ? data.verification.issues
-          : [data.message || "Could not verify identity. Please try again with a clear photo of your passport or driver's licence."];
+        const issues = humanizeScanIssues(
+          (data.verification && data.verification.issues && data.verification.issues.length)
+            ? data.verification.issues
+            : [data.message || "Could not verify identity. Please try again with a clear photo of your passport or driver's licence."],
+          { mode: "identity" }
+        );
         state.idVerification = { status: "failed", fileName: fileName, issues: issues };
       }
     } catch (err) {
-      state.idVerification = { status: "failed", fileName: fileName, issues: [err.message || "Network error. Please try again."] };
+      state.idVerification = { status: "failed", fileName: fileName, issues: humanizeScanIssues([err.message || "Network error. Please try again."], { mode: "identity" }) };
     }
 
     idVerifyInProgress = false;

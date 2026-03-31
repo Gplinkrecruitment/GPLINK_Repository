@@ -8,7 +8,7 @@
   <script src="../js/state-sync.js?v=20260314b" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
   <script src="../js/qualification-camera.js?v=20260312g" defer></script>
-  <script src="../js/qualification-scan.js?v=20260322a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260331b" defer></script>
   <script src="../js/account-dropdown.js?v=20260316a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -2089,6 +2089,35 @@
       const cfg = getCountryConfig(country);
       var panelsWrap = document.querySelector(".doc-panels-wrap");
 
+      function escapePopupText(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function hasPopupHtml(value) {
+        return /<[^>]+>/.test(String(value || ""));
+      }
+
+      function getFriendlyScanMessages(input, options) {
+        if (typeof window.gpFriendlyScanIssues === "function") {
+          return window.gpFriendlyScanIssues(input, options);
+        }
+        var list = Array.isArray(input) ? input : [input];
+        return list.map(function(item) { return String(item || "").trim(); }).filter(Boolean);
+      }
+
+      function getFriendlyScanMessageHtml(message, options) {
+        if (hasPopupHtml(message)) return String(message);
+        return getFriendlyScanMessages([message], options).map(escapePopupText).join("<br>");
+      }
+
+      function getFriendlyScanIssuesHtml(issues, options) {
+        return getFriendlyScanMessages(issues, options).map(escapePopupText).join("<br>");
+      }
+
       function showCertResultPopup(success, title, message, options) {
         var opts = options && typeof options === "object" ? options : {};
         var existing = document.getElementById("certResultPopup");
@@ -2166,7 +2195,7 @@
         deletePreparedDocumentFile(country, key);
         persistDocsState(state, true);
         renderAll(country, state);
-        showCertResultPopup(false, "Scan Failed", msg + extra, { showSupport: showSupport });
+        showCertResultPopup(false, "Scan Failed", getFriendlyScanMessageHtml(msg, { documentTitle: title, mode: "certification" }) + extra, { showSupport: showSupport });
       }
 
       function buildClassificationFailureMessage(docTitle, data) {
@@ -2185,7 +2214,11 @@
         deletePreparedDocumentFile(country, key);
         persistDocsState(state, true);
         renderAll(country, state);
-        showCertResultPopup(false, title || "Wrong Document", message || ("This file does not appear to be the correct document for <strong>" + docTitle + "</strong>."));
+        showCertResultPopup(
+          false,
+          title || "Wrong Document",
+          getFriendlyScanMessageHtml(message || ("This file does not appear to be the correct document for <strong>" + docTitle + "</strong>."), { documentTitle: docTitle, mode: "classification" })
+        );
       }
 
       function runPreparedDocumentClassificationCheck(file, key, docTitle, state, country) {
@@ -2225,7 +2258,7 @@
                 }, savedFile);
                 persistDocsState(state, true);
                 renderAll(country, state);
-                showCertResultPopup(true, "Document Uploaded", "<strong>" + docTitle + "</strong> passed AI document checks and has been uploaded.");
+                showCertResultPopup(true, "Document Uploaded", "<strong>" + docTitle + "</strong> passed the automatic document checks and has been uploaded.");
               }).catch(function() {
                 delete state.docs[key];
                 persistDocsState(state, true);
@@ -2278,7 +2311,7 @@
               });
             }).then(function(res) { return res.json(); }).then(function(data) {
               if (data.ok && data.classification && data.classification.matches) {
-                var certifyReason = "Claude identified this as <strong>" + docTitle + "</strong>, but could not verify the certification from this file. Upload a clear image that shows the certification statement, signature, occupation and date.";
+                var certifyReason = "We can see this is <strong>" + docTitle + "</strong>, but we cannot confirm the certification from this file. Upload a clear image showing the certifier's statement, signature, printed name, occupation and date.";
                 if (data.classification && data.classification.reason) {
                   certifyReason += '<br><span style="color:#64748b;font-size:12px;">' + data.classification.reason + '</span>';
                 }
@@ -2306,19 +2339,15 @@
           persistDocsState(state, true);
           renderAll(country, state);
 
-          window.gpFileToBase64(file).then(function(base64) {
-            return fetch("/api/ai/verify-certification", {
-              method: "POST",
-              credentials: "same-origin",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                imageBase64: base64,
-                mimeType: file.type || "application/octet-stream",
-                documentType: docTitle || "qualification document"
-              })
-            });
-          }).then(function(res) {
-            return res.json();
+          if (typeof window.gpVerifyCertifiedDocument !== "function") {
+            state.docs[key] = { uploaded: false, fileName: file.name };
+            handleCertFailure(key, state, country, docTitle, "Document verification is not ready yet. Please refresh and try again.");
+            return;
+          }
+
+          window.gpVerifyCertifiedDocument(file, {
+            docKey: key,
+            documentType: docTitle || "qualification document"
           }).then(function(data) {
             if (data.ok && data.verification) {
               var v = data.verification;
@@ -2341,7 +2370,7 @@
                   }, savedFile);
                   persistDocsState(state, true);
                   renderAll(country, state);
-                  showCertResultPopup(true, "Scan Successful", "Certification verified for <strong>" + docTitle + "</strong>");
+                  showCertResultPopup(true, "Scan Successful", "Document and certification verified for <strong>" + docTitle + "</strong>");
                 }).catch(function() {
                   delete state.docs[key];
                   persistDocsState(state, true);
@@ -2351,15 +2380,21 @@
               } else {
                 var issues = v.issues && v.issues.length > 0 ? v.issues : ["The document does not appear to be properly certified."];
                 state.docs[key] = { uploaded: false, fileName: file.name };
-                handleCertFailure(key, state, country, docTitle, issues.join("<br>"));
+                handleCertFailure(key, state, country, docTitle, getFriendlyScanIssuesHtml(issues, { documentTitle: docTitle, mode: "certification" }));
               }
             } else {
               state.docs[key] = { uploaded: false, fileName: file.name };
               handleCertFailure(key, state, country, docTitle, data.message || "Could not verify this document. Please try again.");
             }
-          }).catch(function() {
+          }).catch(function(err) {
             state.docs[key] = { uploaded: false, fileName: file.name };
-            handleCertFailure(key, state, country, docTitle, "Could not connect to verification service. Please try again.");
+            handleCertFailure(
+              key,
+              state,
+              country,
+              docTitle,
+              (err && err.message) ? err.message : "Could not connect to verification service. Please try again."
+            );
           });
         }).catch(function() {
           showCertResultPopup(false, "Upload Failed", "We could not read that file. Please try again.");
@@ -2384,7 +2419,7 @@
           return;
         }
         if (!isAiScannableFile(file)) {
-          showCertResultPopup(false, "File Not Accepted", "Please upload a PDF or image file so Claude can scan it.");
+          showCertResultPopup(false, "File Not Accepted", "Please upload a PDF or image file for the scan.");
           return;
         }
 
@@ -2445,7 +2480,7 @@
                   }, savedFile);
                   persistDocsState(state, true);
                   renderAll(country, state);
-                  showCertResultPopup(true, "Scan Successful", "Certification verified for <strong>" + scanDoc.title + "</strong>");
+                  showCertResultPopup(true, "Scan Successful", "Document and certification verified for <strong>" + scanDoc.title + "</strong>");
                 }).catch(function() {
                   showCertResultPopup(false, "Upload Failed", "We could not store that document. Please try again.");
                 });
