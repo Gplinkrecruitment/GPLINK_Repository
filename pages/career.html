@@ -3318,6 +3318,607 @@
       color: #64748b;
     }
 
+    .practice-lifestyle-dashboard {
+      margin: 0 4px 32px;
+    }
+
+    .practice-lifestyle-dashboard-card {
+      overflow: hidden;
+      border-radius: 16px;
+      background: #ffffff;
+      border: 1px solid #eaedf1;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      color: #1a1d23;
+    }
+
+    .practice-lifestyle-dashboard-card button {
+      font: inherit;
+    }
+
+    .practice-lifestyle-dashboard-card svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex-shrink: 0;
+    }
+
+    .practice-lifestyle-dashboard-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 20px 20px 12px;
+    }
+
+    .practice-lifestyle-dashboard-titleblock {
+      min-width: 0;
+    }
+
+    .practice-lifestyle-dashboard-title,
+    .practice-lifestyle-dashboard-subtitle,
+    .practice-lifestyle-property-title,
+    .practice-lifestyle-property-address,
+    .practice-lifestyle-school-title,
+    .practice-lifestyle-school-meta-line,
+    .practice-lifestyle-school-rank {
+      margin: 0;
+    }
+
+    .practice-lifestyle-dashboard-subtitle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      color: #9ca3af;
+    }
+
+    .practice-lifestyle-property-title,
+    .practice-lifestyle-school-title,
+    .practice-lifestyle-dashboard-title {
+      color: #1a1d23;
+    }
+
+    .practice-lifestyle-school-meta-line {
+      margin-top: 2px;
+      color: #9ca3af;
+    }
+
+    .practice-lifestyle-dashboard-toggle {
+      display: inline-flex;
+      gap: 0;
+      padding: 2px;
+      border-radius: 12px;
+      background: #f4f6f8;
+      flex-shrink: 0;
+    }
+
+    .practice-lifestyle-dashboard-segment {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: transparent;
+      color: #9ca3af;
+      cursor: pointer;
+      transition: background .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease;
+    }
+
+    .practice-lifestyle-dashboard-segment.is-active {
+      background: #ffffff;
+      color: #1a1d23;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+
+    .practice-lifestyle-dashboard-controls {
+      padding: 0 20px 12px;
+    }
+
+    .practice-lifestyle-market-tabs,
+    .practice-lifestyle-school-filters {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .practice-lifestyle-market-tabs {
+      gap: 20px;
+    }
+
+    .practice-lifestyle-market-tab {
+      position: relative;
+      border: 0;
+      padding: 0 0 8px;
+      background: transparent;
+      color: #9ca3af;
+      cursor: pointer;
+    }
+
+    .practice-lifestyle-market-tab.is-active {
+      color: #2563eb;
+    }
+
+    .practice-lifestyle-market-underline {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      border-radius: 999px;
+      background: #2563eb;
+    }
+
+    .practice-lifestyle-school-filter {
+      border: 0;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: #f4f6f8;
+      color: #9ca3af;
+      cursor: pointer;
+      transition: background .18s ease, color .18s ease;
+    }
+
+    .practice-lifestyle-school-filter.is-active {
+      background: #eef2ff;
+      color: #2563eb;
+    }
+
+    .practice-lifestyle-panel-divider,
+    .practice-lifestyle-divider-row {
+      height: 1px;
+      background: #eaedf1;
+    }
+
+    .practice-lifestyle-dashboard-body {
+      animation: practiceLifestyleDashboardIn .2s ease both;
+    }
+
+    .practice-lifestyle-hero-property {
+      padding: 20px 20px 0;
+      cursor: pointer;
+    }
+
+    .practice-lifestyle-hero-media {
+      position: relative;
+      overflow: hidden;
+      border-radius: 12px;
+      height: 180px;
+      background: #f4f6f8;
+    }
+
+    .practice-lifestyle-hero-media img,
+    .practice-lifestyle-compact-thumb img,
+    .practice-lifestyle-school-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .practice-lifestyle-hero-gradient {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.45) 0%, transparent 40%);
+    }
+
+    .practice-lifestyle-floating-badge,
+    .practice-lifestyle-floating-heart,
+    .practice-lifestyle-mini-heart {
+      position: absolute;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 0;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      color: #4b5563;
+    }
+
+    .practice-lifestyle-floating-badge {
+      top: 12px;
+      left: 12px;
+      padding: 4px 8px;
+      border-radius: 8px;
+    }
+
+    .practice-lifestyle-floating-heart {
+      top: 12px;
+      right: 12px;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      color: #9ca3af;
+    }
+
+    .practice-lifestyle-mini-heart {
+      top: 4px;
+      right: 4px;
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      color: #9ca3af;
+    }
+
+    .practice-lifestyle-floating-heart svg,
+    .practice-lifestyle-mini-heart svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .practice-lifestyle-mini-heart svg {
+      width: 10px;
+      height: 10px;
+    }
+
+    .practice-lifestyle-floating-heart.is-saved,
+    .practice-lifestyle-mini-heart.is-saved {
+      color: #e11d48;
+    }
+
+    .practice-lifestyle-floating-heart.is-pulsing,
+    .practice-lifestyle-mini-heart.is-pulsing {
+      animation: practiceLifestyleHeartPulse .15s ease;
+    }
+
+    .practice-lifestyle-hero-price {
+      position: absolute;
+      left: 16px;
+      bottom: 12px;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+      color: #ffffff;
+      z-index: 1;
+    }
+
+    .practice-lifestyle-hero-price-suffix {
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .practice-lifestyle-hero-copy {
+      padding: 12px 0 0;
+    }
+
+    .practice-lifestyle-property-address {
+      margin-top: 2px;
+      color: #9ca3af;
+    }
+
+    .practice-lifestyle-property-metrics,
+    .practice-lifestyle-compact-metrics {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      color: #4b5563;
+    }
+
+    .practice-lifestyle-compact-metrics {
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .practice-lifestyle-inline-metric {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #4b5563;
+      min-width: 0;
+    }
+
+    .practice-lifestyle-inline-metric svg {
+      color: #9ca3af;
+    }
+
+    .practice-lifestyle-property-expanded {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #eaedf1;
+      animation: practiceLifestyleExpandIn .2s ease both;
+    }
+
+    .practice-lifestyle-property-distance,
+    .practice-lifestyle-property-note {
+      margin: 0;
+    }
+
+    .practice-lifestyle-property-distance {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #2563eb;
+    }
+
+    .practice-lifestyle-property-note {
+      margin-top: 8px;
+      color: #9ca3af;
+      line-height: 1.5;
+    }
+
+    .practice-lifestyle-primary-cta {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: #2563eb;
+      color: #ffffff;
+      text-decoration: none;
+    }
+
+    .practice-lifestyle-primary-cta svg,
+    .practice-lifestyle-footer-link svg {
+      stroke: currentColor;
+    }
+
+    .practice-lifestyle-compact-list {
+      padding: 16px 20px 0;
+    }
+
+    .practice-lifestyle-divider-row.is-first {
+      margin-top: 0;
+    }
+
+    .practice-lifestyle-compact-property {
+      padding: 14px 0;
+      cursor: pointer;
+    }
+
+    .practice-lifestyle-compact-row {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .practice-lifestyle-compact-thumb {
+      position: relative;
+      width: 72px;
+      height: 72px;
+      border-radius: 12px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: #f4f6f8;
+    }
+
+    .practice-lifestyle-compact-copy {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 2px 0;
+    }
+
+    .practice-lifestyle-property-title.is-compact,
+    .practice-lifestyle-property-address.is-compact {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .practice-lifestyle-compact-bottom {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .practice-lifestyle-compact-price {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 5px;
+      color: #1a1d23;
+      min-width: 0;
+    }
+
+    .practice-lifestyle-compact-price span:last-child {
+      color: #9ca3af;
+    }
+
+    .practice-lifestyle-compact-drive {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: #9ca3af;
+      flex-shrink: 0;
+    }
+
+    .practice-lifestyle-footer-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 16px 20px 18px;
+      color: #2563eb;
+      text-decoration: none;
+    }
+
+    .practice-lifestyle-schools-list {
+      padding: 0 20px;
+    }
+
+    .practice-lifestyle-school-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px 0;
+    }
+
+    .practice-lifestyle-school-thumb {
+      position: relative;
+      width: 72px;
+      height: 72px;
+      border-radius: 12px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: #f4f6f8;
+    }
+
+    .practice-lifestyle-school-sector {
+      position: absolute;
+      left: 4px;
+      bottom: 4px;
+      width: 20px;
+      height: 20px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .practice-lifestyle-school-sector svg {
+      width: 10px;
+      height: 10px;
+    }
+
+    .practice-lifestyle-school-sector.is-public {
+      background: #eef2ff;
+      color: #2563eb;
+    }
+
+    .practice-lifestyle-school-sector.is-private {
+      background: #f3e8ff;
+      color: #7c3aed;
+    }
+
+    .practice-lifestyle-school-sector.is-catholic {
+      background: #fef3c7;
+      color: #d97706;
+    }
+
+    .practice-lifestyle-school-copy {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .practice-lifestyle-school-catchment {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin: 10px 0 0;
+    }
+
+    .practice-lifestyle-school-catchment.is-catchment {
+      color: #16a34a;
+    }
+
+    .practice-lifestyle-school-catchment.is-outside {
+      color: #d97706;
+    }
+
+    .practice-lifestyle-school-rating {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .practice-lifestyle-school-stars,
+    .practice-lifestyle-school-rank {
+      margin: 0;
+    }
+
+    .practice-lifestyle-school-stars {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: #d97706;
+    }
+
+    .practice-lifestyle-school-stars svg {
+      fill: currentColor;
+      stroke: currentColor;
+    }
+
+    .practice-lifestyle-school-rank {
+      color: #9ca3af;
+      text-align: right;
+    }
+
+    .practice-lifestyle-empty-state {
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+      padding: 40px 20px;
+      color: #9ca3af;
+    }
+
+    .practice-lifestyle-empty-icon {
+      color: #d1d5db;
+    }
+
+    .practice-lifestyle-empty-icon svg {
+      width: 28px;
+      height: 28px;
+    }
+
+    @media (max-width: 760px) {
+      .practice-lifestyle-dashboard-header {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .practice-lifestyle-dashboard-toggle {
+        width: 100%;
+      }
+
+      .practice-lifestyle-dashboard-segment {
+        flex: 1;
+        justify-content: center;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .practice-lifestyle-dashboard {
+        margin: 0 0 28px;
+      }
+
+      .practice-lifestyle-dashboard-header,
+      .practice-lifestyle-dashboard-controls,
+      .practice-lifestyle-hero-property,
+      .practice-lifestyle-compact-list,
+      .practice-lifestyle-schools-list,
+      .practice-lifestyle-footer-link {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .practice-lifestyle-market-tabs {
+        gap: 14px;
+      }
+
+      .practice-lifestyle-hero-media {
+        height: 168px;
+      }
+
+      .practice-lifestyle-school-row {
+        align-items: center;
+      }
+
+      .practice-lifestyle-school-rating {
+        align-items: flex-start;
+      }
+
+      .practice-lifestyle-school-row {
+        flex-wrap: wrap;
+      }
+    }
+
     @media (max-width: 420px) {
       .practice-lifestyle-map-shell {
         min-height: 412px;
@@ -3334,6 +3935,49 @@
 
       .practice-lifestyle-dock-inner {
         width: min(100%, 246px);
+      }
+
+      .practice-lifestyle-compact-bottom,
+      .practice-lifestyle-school-row {
+        align-items: flex-start;
+      }
+
+      .practice-lifestyle-hero-media {
+        height: 158px;
+      }
+    }
+
+    @keyframes practiceLifestyleDashboardIn {
+      0% {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes practiceLifestyleExpandIn {
+      0% {
+        opacity: 0;
+        transform: translateY(-4px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes practiceLifestyleHeartPulse {
+      0% {
+        transform: scale(1);
+      }
+      50% {
+        transform: scale(1.15);
+      }
+      100% {
+        transform: scale(1);
       }
     }
 
@@ -5584,11 +6228,31 @@
       }
     };
 
+    const PRACTICE_LIFESTYLE_PROPERTY_IMAGES = Object.freeze([
+      "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1570129477492-45c003edd2be?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&q=80"
+    ]);
+
+    const PRACTICE_LIFESTYLE_SCHOOL_IMAGES = Object.freeze({
+      tweed_heads_south_public_school: "https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&w=600&q=80",
+      st_james_primary_school_banora_point: "https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?auto=format&fit=crop&w=600&q=80",
+      lindisfarne_anglican_grammar_school_junior_school: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=600&q=80",
+      st_josephs_primary_school_tweed_heads: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=600&q=80",
+      tweed_river_high_school: "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=600&q=80",
+      st_josephs_college_banora_point: "https://images.unsplash.com/photo-1509062522246-3755977927d7?auto=format&fit=crop&w=600&q=80",
+      lindisfarne_anglican_grammar_school: "https://images.unsplash.com/photo-1562774053-701939374585?auto=format&fit=crop&w=600&q=80",
+      pacific_coast_christian_school: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=600&q=80"
+    });
+
     const PRACTICE_LIFESTYLE_SEEDS = Object.freeze({
       tweed_heads_nsw: {
         key: "tweed_heads_nsw",
-        title: "Tweed Heads, NSW",
-        subtitle: "Established mixed-billing centre with strong demand",
+        title: "Tweed Heads South, NSW",
+        subtitle: "Live homes, schools and travel around Kennedy Drive Medical Centre",
+        practiceLabel: "Kennedy Drive Medical Centre",
         map: {
           center: { lat: -28.1883, lng: 153.5375 },
           zoom: 12,
@@ -5598,222 +6262,314 @@
         housing: {
           defaultMode: "rent",
           defaultRadiusKm: 5,
-          partySummary: "1 adult",
-          recommendedBedrooms: 1,
+          partySummary: "your move",
+          recommendedBedrooms: 2,
+          viewAllRentUrl: "https://www.homely.com.au/for-rent/tweed-heads-south-nsw-2486/real-estate",
+          viewAllBuyUrl: "https://www.homely.com.au/for-sale/tweed-heads-south-nsw-2486/real-estate",
           rent: [
             {
               id: "tweed-rent-1",
-              price: "$680/wk",
-              beds: "3 bed",
+              title: "Single-Level Holden Street Home",
+              price: "$870/wk",
               bedrooms: 3,
-              distanceKm: 2.1,
+              bathrooms: 2,
+              carSpaces: 2,
+              areaSqm: 613,
+              distanceKm: 2.2,
               driveTime: "5 min drive",
-              imageUrl: "../media/images/account-header-sunset-exact.jpg",
-              imagePosition: "center 38%",
-              lat: -28.1781,
-              lng: 153.5261,
-              x: 30,
-              y: 46
+              imageUrl: PRACTICE_LIFESTYLE_PROPERTY_IMAGES[0],
+              imagePosition: "center",
+              address: "18 Holden Street, Tweed Heads South",
+              suburb: "Tweed Heads South",
+              propertyType: "House",
+              summary: "Single-level family home close to the river, Tweed City and local schools.",
+              sourceLabel: "Homely",
+              sourceUrl: "https://www.homely.com.au/homes/18-holden-street-tweed-heads-south-nsw-2486/12994171",
+              lat: -28.1917,
+              lng: 153.5296
             },
             {
               id: "tweed-rent-2",
-              price: "$820/wk",
-              beds: "4 bed",
-              bedrooms: 4,
-              distanceKm: 4.8,
-              driveTime: "8 min drive",
-              imageUrl: "../media/images/account-header.webp",
-              imagePosition: "center 52%",
-              lat: -28.2075,
-              lng: 153.5554,
-              x: 68,
-              y: 34
+              title: "William Street Townhouse",
+              price: "$780/wk",
+              bedrooms: 3,
+              bathrooms: 2,
+              carSpaces: 2,
+              distanceKm: 2.4,
+              driveTime: "5 min drive",
+              imageUrl: PRACTICE_LIFESTYLE_PROPERTY_IMAGES[1],
+              imagePosition: "center",
+              address: "7/16 William Street, Tweed Heads South",
+              suburb: "Tweed Heads South",
+              propertyType: "Townhouse",
+              summary: "Freshly painted townhome with dual patios and a short run to Tweed River and the beaches.",
+              sourceLabel: "realestate.com.au",
+              sourceUrl: "https://www.realestate.com.au/property-townhouse-nsw-tweed%2Bheads%2Bsouth-442864268",
+              lat: -28.1838,
+              lng: 153.5453
             },
             {
               id: "tweed-rent-3",
-              price: "$740/wk",
-              beds: "3 bed",
+              title: "Lorikeet Drive Townhome",
+              price: "$750/wk",
               bedrooms: 3,
-              distanceKm: 3.2,
-              driveTime: "6 min drive",
-              imageUrl: "../media/images/australian-landscape-illustration-vector-design-600nw-2188905367.webp",
+              bathrooms: 2,
+              carSpaces: 1,
+              distanceKm: 3.6,
+              driveTime: "7 min drive",
+              imageUrl: PRACTICE_LIFESTYLE_PROPERTY_IMAGES[2],
               imagePosition: "center",
-              lat: -28.2018,
-              lng: 153.53,
-              x: 74,
-              y: 66
+              address: "39/14 Lorikeet Drive, Tweed Heads South",
+              suburb: "Tweed Heads South",
+              propertyType: "Townhouse",
+              summary: "Architect-designed townhome with ducted air, coastal access and quality school links.",
+              sourceLabel: "realestate.com.au",
+              sourceUrl: "https://www.realestate.com.au/property-townhouse-nsw-tweed%2Bheads%2Bsouth-442910916",
+              lat: -28.1989,
+              lng: 153.5228
+            },
+            {
+              id: "tweed-rent-4",
+              title: "Vintage Lakes Villa",
+              price: "$750/wk",
+              bedrooms: 3,
+              bathrooms: 1,
+              carSpaces: 2,
+              areaSqm: 310,
+              distanceKm: 4.4,
+              driveTime: "8 min drive",
+              imageUrl: PRACTICE_LIFESTYLE_PROPERTY_IMAGES[3],
+              imagePosition: "center",
+              address: "6/6 Merlot Court, Tweed Heads South",
+              suburb: "Tweed Heads South",
+              propertyType: "Villa",
+              summary: "Low-maintenance Vintage Lakes villa with courtyard living and nearby shopping.",
+              sourceLabel: "realestate.com.au",
+              sourceUrl: "https://www.realestate.com.au/property-house-nsw-tweed%2Bheads%2Bsouth-443281020",
+              lat: -28.2059,
+              lng: 153.5272
             }
           ],
           buy: [
             {
               id: "tweed-buy-1",
-              price: "$1.18m",
-              beds: "4 bed",
-              bedrooms: 4,
-              distanceKm: 2.6,
+              title: "Merlot Court Villa",
+              price: "Guide $930,000",
+              bedrooms: 3,
+              bathrooms: 1,
+              carSpaces: 2,
+              areaSqm: 343,
+              distanceKm: 4.3,
               driveTime: "6 min drive",
-              imageUrl: "../media/images/account-header-sunset-exact.jpg",
-              imagePosition: "center 26%",
-              lat: -28.1759,
-              lng: 153.5277,
-              x: 28,
-              y: 48
+              imageUrl: PRACTICE_LIFESTYLE_PROPERTY_IMAGES[4],
+              imagePosition: "center",
+              address: "5/6 Merlot Court, Tweed Heads South",
+              suburb: "Tweed Heads South",
+              propertyType: "Villa",
+              summary: "Boutique cul-de-sac villa with private yard, modern comfort and strong local amenity access.",
+              sourceLabel: "realestate.com.au",
+              sourceUrl: "https://www.realestate.com.au/property-house-nsw-tweed%2Bheads%2Bsouth-149842556",
+              lat: -28.2058,
+              lng: 153.5267
             },
             {
               id: "tweed-buy-2",
-              price: "$1.34m",
-              beds: "5 bed",
-              bedrooms: 5,
-              distanceKm: 5.4,
-              driveTime: "10 min drive",
-              imageUrl: "../media/images/account-header.webp",
-              imagePosition: "center 44%",
-              lat: -28.2109,
-              lng: 153.5619,
-              x: 70,
-              y: 35
+              title: "Blundell Boulevard Duplex",
+              price: "$939,000",
+              bedrooms: 3,
+              bathrooms: 1,
+              carSpaces: 1,
+              areaSqm: 107,
+              distanceKm: 2.8,
+              driveTime: "5 min drive",
+              imageUrl: PRACTICE_LIFESTYLE_PROPERTY_IMAGES[0],
+              imagePosition: "center",
+              address: "2/46 Blundell Boulevard, Tweed Heads South",
+              suburb: "Tweed Heads South",
+              propertyType: "Duplex",
+              summary: "Renovated duplex with flexible third bedroom, new kitchen and an oversized courtyard.",
+              sourceLabel: "view.com.au",
+              sourceUrl: "https://view.com.au/property/nsw/tweed-heads-south-2486/2-46-blundell-boulevard-17634537/",
+              lat: -28.1848,
+              lng: 153.5403
             },
             {
               id: "tweed-buy-3",
-              price: "$1.06m",
-              beds: "3 bed",
-              bedrooms: 3,
-              distanceKm: 3.8,
-              driveTime: "7 min drive",
-              imageUrl: "../media/images/australian-landscape-illustration-vector-design-600nw-2188905367.webp",
+              title: "Easy-Care Kirkwood Villa",
+              price: "$780,000 - $810,000",
+              bedrooms: 2,
+              bathrooms: 1,
+              carSpaces: 1,
+              areaSqm: 232,
+              distanceKm: 1.8,
+              driveTime: "4 min drive",
+              imageUrl: PRACTICE_LIFESTYLE_PROPERTY_IMAGES[1],
               imagePosition: "center",
-              lat: -28.2047,
-              lng: 153.5258,
-              x: 73,
-              y: 67
+              address: "22/22B Kirkwood Road, Tweed Heads South",
+              suburb: "Tweed Heads South",
+              propertyType: "Villa",
+              summary: "Renovated single-level villa with solar, ducted air and walk-through access to Tweed City.",
+              sourceLabel: "realestate.com.au",
+              sourceUrl: "https://www.realestate.com.au/property-villa-nsw-tweed%2Bheads%2Bsouth-150316232",
+              lat: -28.1806,
+              lng: 153.5372
+            },
+            {
+              id: "tweed-buy-4",
+              title: "Cox Drive Family Home",
+              price: "$1,200,000",
+              bedrooms: 3,
+              bathrooms: 1,
+              carSpaces: 5,
+              areaSqm: 740,
+              distanceKm: 3.1,
+              driveTime: "6 min drive",
+              imageUrl: PRACTICE_LIFESTYLE_PROPERTY_IMAGES[2],
+              imagePosition: "center",
+              address: "16 Cox Drive, Tweed Heads South",
+              suburb: "Tweed Heads South",
+              propertyType: "House",
+              summary: "Flat river-adjacent block with polished timber floors and future upside for a family move.",
+              sourceLabel: "Real Search",
+              sourceUrl: "https://realsearch.com.au/house-16-cox-drive-tweed-heads-south-nsw-2486",
+              lat: -28.1769,
+              lng: 153.5462
             }
           ]
         },
         schools: {
-          defaultPhase: "primary",
+          defaultPhase: "all",
           defaultSector: "all",
           primary: [
             {
               id: "tweed-school-primary-1",
-              name: "Tweed Heads Public School",
+              name: "Tweed Heads South Public School",
               sector: "Public",
               sectorGroup: "public",
-              distanceKm: 1.4,
+              distanceKm: 1.1,
+              driveTime: "3 min drive",
+              starRating: 4.2,
+              rankLabel: "Above Average",
               rating: "Above Average",
-              rankingScore: 78,
+              rankingScore: 82,
               catchment: true,
-              lat: -28.1758,
-              lng: 153.5429,
-              x: 30,
-              y: 44
+              imageUrl: PRACTICE_LIFESTYLE_SCHOOL_IMAGES.tweed_heads_south_public_school,
+              lat: -28.1834,
+              lng: 153.5441
             },
             {
               id: "tweed-school-primary-2",
-              name: "St James Primary",
+              name: "St James' Primary School Banora Point",
               sector: "Catholic",
-              sectorGroup: "private",
-              distanceKm: 2.1,
+              sectorGroup: "catholic",
+              distanceKm: 4.8,
+              driveTime: "8 min drive",
+              starRating: 4.0,
+              rankLabel: "Above Average",
               rating: "Above Average",
-              rankingScore: 82,
+              rankingScore: 80,
               catchment: false,
-              eligibilityLabel: "Application",
-              eligibilityTone: "open",
-              lat: -28.1914,
-              lng: 153.5312,
-              x: 66,
-              y: 31
+              imageUrl: PRACTICE_LIFESTYLE_SCHOOL_IMAGES.st_james_primary_school_banora_point,
+              lat: -28.2068,
+              lng: 153.5357
             },
             {
               id: "tweed-school-primary-3",
-              name: "Lindisfarne Anglican School",
+              name: "Lindisfarne Anglican Grammar School, Junior School",
               sector: "Private",
               sectorGroup: "private",
-              distanceKm: 4.2,
-              rating: "Excellent",
-              rankingScore: 90,
+              distanceKm: 1.7,
+              driveTime: "4 min drive",
+              starRating: 4.7,
+              rankLabel: "Top 15%",
+              rating: "Top 15%",
+              rankingScore: 94,
               catchment: false,
-              eligibilityLabel: "Application",
-              eligibilityTone: "open",
-              lat: -28.2034,
-              lng: 153.5157,
-              x: 74,
-              y: 58
+              imageUrl: PRACTICE_LIFESTYLE_SCHOOL_IMAGES.lindisfarne_anglican_grammar_school_junior_school,
+              lat: -28.1837,
+              lng: 153.5215
             },
             {
               id: "tweed-school-primary-4",
-              name: "Banora Point Public School",
-              sector: "Public",
-              sectorGroup: "public",
-              distanceKm: 3.6,
+              name: "St Joseph's Primary School Tweed Heads",
+              sector: "Catholic",
+              sectorGroup: "catholic",
+              distanceKm: 4.2,
+              driveTime: "7 min drive",
+              starRating: 4.1,
+              rankLabel: "Above Average",
               rating: "Above Average",
-              rankingScore: 74,
-              catchment: true,
-              lat: -28.2082,
-              lng: 153.5341,
-              x: 27,
-              y: 66
+              rankingScore: 79,
+              catchment: false,
+              imageUrl: PRACTICE_LIFESTYLE_SCHOOL_IMAGES.st_josephs_primary_school_tweed_heads,
+              lat: -28.1718,
+              lng: 153.5456
             }
           ],
           secondary: [
             {
               id: "tweed-school-secondary-1",
-              name: "Lindisfarne Anglican Grammar",
+              name: "Lindisfarne Anglican Grammar School",
               sector: "Private",
               sectorGroup: "private",
-              distanceKm: 3.8,
-              rating: "Top 15% ATAR",
+              distanceKm: 4.1,
+              driveTime: "7 min drive",
+              starRating: 4.7,
+              rankLabel: "Top 15%",
+              rating: "Top 15%",
               rankingScore: 95,
               catchment: false,
-              eligibilityLabel: "Application",
-              eligibilityTone: "open",
+              imageUrl: PRACTICE_LIFESTYLE_SCHOOL_IMAGES.lindisfarne_anglican_grammar_school,
               lat: -28.2034,
-              lng: 153.5157,
-              x: 66,
-              y: 31
+              lng: 153.5157
             },
             {
               id: "tweed-school-secondary-2",
-              name: "Palm Beach Currumbin SHS",
-              sector: "Public",
-              sectorGroup: "public",
-              distanceKm: 6.2,
-              rating: "Top 25% ATAR",
-              rankingScore: 87,
+              name: "Pacific Coast Christian School",
+              sector: "Private",
+              sectorGroup: "private",
+              distanceKm: 0.9,
+              driveTime: "3 min drive",
+              starRating: 4.3,
+              rankLabel: "Well Regarded",
+              rating: "Well Regarded",
+              rankingScore: 84,
               catchment: false,
-              lat: -28.1199,
-              lng: 153.4667,
-              x: 29,
-              y: 65
+              imageUrl: PRACTICE_LIFESTYLE_SCHOOL_IMAGES.pacific_coast_christian_school,
+              lat: -28.1813,
+              lng: 153.5352
             },
             {
               id: "tweed-school-secondary-3",
               name: "Tweed River High School",
               sector: "Public",
               sectorGroup: "public",
-              distanceKm: 2.9,
+              distanceKm: 1.6,
+              driveTime: "4 min drive",
+              starRating: 4.4,
+              rankLabel: "Above Average",
               rating: "Above Average",
-              rankingScore: 80,
+              rankingScore: 86,
               catchment: true,
+              imageUrl: PRACTICE_LIFESTYLE_SCHOOL_IMAGES.tweed_river_high_school,
               lat: -28.1778,
-              lng: 153.5386,
-              x: 31,
-              y: 43
+              lng: 153.5386
             },
             {
               id: "tweed-school-secondary-4",
               name: "St Joseph's College Banora Point",
               sector: "Catholic",
-              sectorGroup: "private",
+              sectorGroup: "catholic",
               distanceKm: 4.4,
-              rating: "Strong pastoral support",
-              rankingScore: 76,
+              driveTime: "8 min drive",
+              starRating: 4.1,
+              rankLabel: "Above Average",
+              rating: "Above Average",
+              rankingScore: 81,
               catchment: false,
-              eligibilityLabel: "Application",
-              eligibilityTone: "open",
+              imageUrl: PRACTICE_LIFESTYLE_SCHOOL_IMAGES.st_josephs_college_banora_point,
               lat: -28.2124,
-              lng: 153.5369,
-              x: 74,
-              y: 57
+              lng: 153.5369
             }
           ]
         },
@@ -6170,6 +6926,7 @@
     let currentChecklistOpenKey = "";
     let currentPracticeLifestyleKey = "";
     let practiceLifestyleHousingSearchTimer = 0;
+    let practiceLifestyleHeartPulseTimer = 0;
 
     function createPracticeLifestyleRemoteHousingBucket() {
       return {
@@ -6199,13 +6956,15 @@
       priceMin: "",
       priceMax: "",
       sortOrder: "price_asc",
-      schoolPhase: "primary",
+      schoolPhase: "all",
       schoolSector: "all",
       activeHousingPopupId: "",
       selectedHousingIds: {
         rent: "",
         buy: ""
       },
+      savedHousingIds: [],
+      heartPulseId: "",
       remoteHousing: createPracticeLifestyleRemoteHousingState()
     };
     let practiceLifestyleMapRuntime = {
@@ -6496,8 +7255,9 @@
         key: lifestylePayload.key || base.key,
         title: lifestylePayload.title || base.title,
         subtitle: lifestylePayload.subtitle || base.subtitle,
-        heading: lifestylePayload.heading || "Life Around This Practice",
-        intro: lifestylePayload.intro || "Explore housing and schooling around the practice before you relocate.",
+        practiceLabel: lifestylePayload.practiceLabel || base.practiceLabel || "",
+        heading: lifestylePayload.heading || "Relocation Explorer",
+        intro: lifestylePayload.intro || "Explore live homes and nearby schools around the practice before you relocate.",
         mapImageUrl: lifestylePayload.mapImageUrl || base.mapImageUrl,
         map: {
           ...baseMap,
@@ -6512,9 +7272,9 @@
           ...housingPayload,
           partySummary: housingPayload.partySummary || base.housing.partySummary || "",
           recommendedBedrooms: Number(housingPayload.recommendedBedrooms || base.housing.recommendedBedrooms || 0) || 0,
-          // Preserve explicit empty arrays from the server so fake seeded homes do not reappear.
-          rent: hasExplicitRentListings ? housingPayload.rent : base.housing.rent,
-          buy: hasExplicitBuyListings ? housingPayload.buy : base.housing.buy
+          // Live property results must come from the server; never fall back to example homes in the UI.
+          rent: hasExplicitRentListings ? housingPayload.rent : [],
+          buy: hasExplicitBuyListings ? housingPayload.buy : []
         },
         schools: {
           ...base.schools,
@@ -6688,37 +7448,28 @@
       const maxPrice = Number(practiceLifestyleState.priceMax || 0);
       const query = sanitizePracticeLifestyleSearchQuery(practiceLifestyleState.searchQuery).toLowerCase();
       return listings
-        .filter((item) => Number(item && item.distanceKm || 0) <= Number(practiceLifestyleState.radiusKm || 5))
+        .map((item, index) => ({ item, index }))
+        .filter((entry) => Number(entry.item && entry.item.distanceKm || 0) <= Number(practiceLifestyleState.radiusKm || 5))
         .filter((item) => {
           if (!query) return true;
           const haystack = [
-            item && item.title,
-            item && item.address,
-            item && item.suburb,
-            item && item.propertyType,
-            item && item.summary
+            item.item && item.item.title,
+            item.item && item.item.address,
+            item.item && item.item.suburb,
+            item.item && item.item.propertyType,
+            item.item && item.item.summary
           ].join(" ").toLowerCase();
           return haystack.includes(query);
         })
         .filter((item) => {
-          const numericPrice = parsePracticeLifestylePriceValue(item && item.priceValue, market)
-            || parsePracticeLifestylePriceValue(item && item.price, market);
+          const numericPrice = parsePracticeLifestylePriceValue(item.item && item.item.priceValue, market)
+            || parsePracticeLifestylePriceValue(item.item && item.item.price, market);
           if (minPrice > 0 && numericPrice > 0 && numericPrice < minPrice) return false;
           if (maxPrice > 0 && numericPrice > 0 && numericPrice > maxPrice) return false;
           return true;
         })
-        .sort((left, right) => {
-          const leftPrice = parsePracticeLifestylePriceValue(left && left.priceValue, market)
-            || parsePracticeLifestylePriceValue(left && left.price, market);
-          const rightPrice = parsePracticeLifestylePriceValue(right && right.priceValue, market)
-            || parsePracticeLifestylePriceValue(right && right.price, market);
-          if (practiceLifestyleState.sortOrder === "price_desc") {
-            if (rightPrice !== leftPrice) return rightPrice - leftPrice;
-          } else {
-            if (leftPrice !== rightPrice) return leftPrice - rightPrice;
-          }
-          return Number(left && left.distanceKm || 0) - Number(right && right.distanceKm || 0);
-        });
+        .sort((left, right) => left.index - right.index)
+        .map((entry) => entry.item);
     }
 
     function getPracticeLifestyleSelectedHousingId(lifestyle) {
@@ -6774,9 +7525,19 @@
 
     function getPracticeLifestyleVisibleSchools(lifestyle) {
       const groups = lifestyle && lifestyle.schools ? lifestyle.schools : {};
-      const sourceList = Array.isArray(groups[practiceLifestyleState.schoolPhase]) ? groups[practiceLifestyleState.schoolPhase] : [];
+      const sourceList = practiceLifestyleState.schoolPhase === "all"
+        ? []
+          .concat(Array.isArray(groups.primary) ? groups.primary : [])
+          .concat(Array.isArray(groups.secondary) ? groups.secondary : [])
+        : (Array.isArray(groups[practiceLifestyleState.schoolPhase]) ? groups[practiceLifestyleState.schoolPhase] : []);
       const selectedListingId = getPracticeLifestyleSelectedHousingId(lifestyle);
-      return sourceList
+      const bySchoolId = new Map();
+      sourceList.forEach((item) => {
+        const key = String(item && item.id || item && item.name || "").trim();
+        if (!key || bySchoolId.has(key)) return;
+        bySchoolId.set(key, item);
+      });
+      return Array.from(bySchoolId.values())
         .filter((item) => practiceLifestyleState.schoolSector === "all" || item.sectorGroup === practiceLifestyleState.schoolSector)
         .map((item) => {
           const eligibility = buildPracticeLifestyleSchoolEligibility(item, selectedListingId);
@@ -6810,13 +7571,17 @@
           priceMin: "",
           priceMax: "",
           sortOrder: "price_asc",
-          schoolPhase: lifestyle.schools && lifestyle.schools.defaultPhase === "secondary" ? "secondary" : "primary",
+          schoolPhase: lifestyle.schools && lifestyle.schools.defaultPhase === "secondary"
+            ? "secondary"
+            : (lifestyle.schools && lifestyle.schools.defaultPhase === "primary" ? "primary" : "all"),
           schoolSector: lifestyle.schools && lifestyle.schools.defaultSector === "private" ? "private" : "all",
           activeHousingPopupId: "",
           selectedHousingIds: {
             rent: "",
             buy: ""
           },
+          savedHousingIds: [],
+          heartPulseId: "",
           remoteHousing: createPracticeLifestyleRemoteHousingState()
         };
       }
@@ -6837,10 +7602,16 @@
         practiceLifestyleState.priceMax = practiceLifestyleState.priceMin;
       }
       practiceLifestyleState.sortOrder = practiceLifestyleState.sortOrder === "price_desc" ? "price_desc" : "price_asc";
-      practiceLifestyleState.schoolPhase = practiceLifestyleState.schoolPhase === "secondary" ? "secondary" : "primary";
-      practiceLifestyleState.schoolSector = ["all", "public", "private"].includes(practiceLifestyleState.schoolSector)
+      practiceLifestyleState.schoolPhase = ["all", "primary", "secondary"].includes(practiceLifestyleState.schoolPhase)
+        ? practiceLifestyleState.schoolPhase
+        : "all";
+      practiceLifestyleState.schoolSector = ["all", "public", "private", "catholic"].includes(practiceLifestyleState.schoolSector)
         ? practiceLifestyleState.schoolSector
         : "all";
+      if (!Array.isArray(practiceLifestyleState.savedHousingIds)) {
+        practiceLifestyleState.savedHousingIds = [];
+      }
+      practiceLifestyleState.heartPulseId = String(practiceLifestyleState.heartPulseId || "");
       if (!practiceLifestyleState.remoteHousing || typeof practiceLifestyleState.remoteHousing !== "object") {
         practiceLifestyleState.remoteHousing = createPracticeLifestyleRemoteHousingState();
       }
@@ -6884,13 +7655,99 @@
       if (name === "clock") {
         return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg>';
       }
+      if (name === "bed-double") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8v10"></path><path d="M22 17H2"></path><path d="M4 17V9a1 1 0 0 1 1-1h5a2 2 0 0 1 2 2v7"></path><path d="M12 17V11a2 2 0 0 1 2-2h5a1 1 0 0 1 1 1v7"></path></svg>';
+      }
+      if (name === "bath") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4 8 6"></path><path d="M17 19H7a4 4 0 0 1-4-4v-5h18v5a4 4 0 0 1-4 4Z"></path><path d="M6 10V6a2 2 0 0 1 2-2h3"></path><path d="M8 19v2"></path><path d="M16 19v2"></path></svg>';
+      }
+      if (name === "car" || name === "car-front") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 16H9"></path><path d="M15 3H9l-4 6v8h14V9l-4-6Z"></path><circle cx="7.5" cy="17.5" r="1.5"></circle><circle cx="16.5" cy="17.5" r="1.5"></circle></svg>';
+      }
+      if (name === "ruler") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.3 6.7-4-4a1 1 0 0 0-1.4 0L2.7 15.9a1 1 0 0 0 0 1.4l4 4a1 1 0 0 0 1.4 0L21.3 8.1a1 1 0 0 0 0-1.4Z"></path><path d="m7.5 10.5 2 2"></path><path d="m10.5 7.5 2 2"></path><path d="m13.5 4.5 2 2"></path><path d="m4.5 13.5 2 2"></path></svg>';
+      }
+      if (name === "arrow-right") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>';
+      }
+      if (name === "chevron-right") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>';
+      }
+      if (name === "heart") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 20.5-1.35-1.23C5.4 14.5 2 11.43 2 7.93A4.93 4.93 0 0 1 6.93 3c1.86 0 3.64.88 4.77 2.28A6.03 6.03 0 0 1 16.47 3 4.93 4.93 0 0 1 21.4 7.93c0 3.5-3.4 6.57-8.65 11.34Z"></path></svg>';
+      }
+      if (name === "heart-filled") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="currentColor" d="m12 20.5-1.35-1.23C5.4 14.5 2 11.43 2 7.93A4.93 4.93 0 0 1 6.93 3c1.86 0 3.64.88 4.77 2.28A6.03 6.03 0 0 1 16.47 3 4.93 4.93 0 0 1 21.4 7.93c0 3.5-3.4 6.57-8.65 11.34Z"></path></svg>';
+      }
       if (name === "check") {
         return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg>';
+      }
+      if (name === "check-circle-2") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m9.5 12 1.8 1.8L15 10.2"></path></svg>';
       }
       if (name === "alert") {
         return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 16H3L12 3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>';
       }
+      if (name === "alert-circle") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>';
+      }
+      if (name === "star" || name === "star-filled") {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="currentColor" d="m12 3.6 2.55 5.16 5.7.83-4.12 4.02.97 5.68L12 16.6l-5.1 2.69.98-5.68-4.13-4.02 5.7-.83L12 3.6Z"></path></svg>';
+      }
       return "";
+    }
+
+    function getPracticeLifestylePracticeLabel(lifestyle) {
+      return String(
+        lifestyle && (lifestyle.practiceLabel || lifestyle.practiceName || lifestyle.title)
+        || "your practice"
+      ).trim() || "your practice";
+    }
+
+    function isPracticeLifestyleHousingSaved(listingId) {
+      const id = String(listingId || "").trim();
+      return !!(id && Array.isArray(practiceLifestyleState.savedHousingIds) && practiceLifestyleState.savedHousingIds.includes(id));
+    }
+
+    function formatPracticeLifestyleDriveBadge(value) {
+      const label = String(value || "").trim();
+      return label.replace(/\s*drive$/i, "").trim();
+    }
+
+    function formatPracticeLifestyleArea(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return "";
+      return `${numeric.toLocaleString()}m²`;
+    }
+
+    function formatPracticeLifestylePriceParts(listing, market) {
+      const label = String(listing && listing.price || "").trim();
+      if (!label) return { primary: market === "buy" ? "Price on request" : "Rent on request", secondary: "" };
+      if (market === "rent") {
+        const match = label.replace(/\s+/g, "").match(/^(\$[\d,.]+)(\/wk)$/i);
+        if (match) return { primary: match[1], secondary: match[2].toLowerCase() };
+      }
+      return { primary: label, secondary: "" };
+    }
+
+    function formatPracticeLifestyleRating(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return "";
+      return numeric % 1 === 0 ? String(numeric.toFixed(0)) : String(numeric.toFixed(1));
+    }
+
+    function getPracticeLifestyleSchoolSectorKey(school) {
+      const sectorGroup = String(school && school.sectorGroup || "").trim().toLowerCase();
+      if (sectorGroup === "catholic") return "catholic";
+      if (sectorGroup === "private") return "private";
+      return "public";
+    }
+
+    function getPracticeLifestyleSchoolImageUrl(school) {
+      const explicit = String(school && school.imageUrl || "").trim();
+      if (explicit) return explicit;
+      const key = normalizeStatusKey(school && school.name || "");
+      return PRACTICE_LIFESTYLE_SCHOOL_IMAGES[key] || PRACTICE_LIFESTYLE_SCHOOL_IMAGES.tweed_heads_south_public_school;
     }
 
     const PRACTICE_LIFESTYLE_DEFAULT_GOOGLE_MAPS = {
@@ -7634,17 +8491,309 @@
       `;
     }
 
+    function buildPracticeLifestylePropertyMetric(iconName, label) {
+      if (!label) return "";
+      return `
+        <span class="practice-lifestyle-inline-metric">
+          ${buildPracticeLifestyleIcon(iconName)}
+          <span>${escapeHtml(label)}</span>
+        </span>
+      `;
+    }
+
+    function buildPracticeLifestyleExpandedPropertyHtml(lifestyle, listing) {
+      const viewAllUrl = practiceLifestyleState.housingMode === "buy"
+        ? String(lifestyle && lifestyle.housing && lifestyle.housing.viewAllBuyUrl || "").trim()
+        : String(lifestyle && lifestyle.housing && lifestyle.housing.viewAllRentUrl || "").trim();
+      const ctaUrl = String(listing && listing.sourceUrl || viewAllUrl || "").trim();
+      const practiceLabel = getPracticeLifestylePracticeLabel(lifestyle);
+      const distanceLabel = formatLifestyleDistance(listing && listing.distanceKm);
+      return `
+        <div class="practice-lifestyle-property-expanded">
+          <div class="practice-lifestyle-property-expanded-copy">
+            <p class="practice-lifestyle-property-distance">
+              ${buildPracticeLifestyleIcon("map-pin")}
+              <span style="font-size:12px;font-weight:400;">${escapeHtml(distanceLabel ? `${distanceLabel} from your practice` : `Close to ${practiceLabel}`)}</span>
+            </p>
+            <p class="practice-lifestyle-property-note" style="font-size:12px;font-weight:400;">Curated by GP Link based on your family profile and proximity to ${escapeHtml(practiceLabel)}.</p>
+          </div>
+          ${ctaUrl ? `
+            <a class="practice-lifestyle-primary-cta" href="${escapeHtml(ctaUrl)}" target="_blank" rel="noreferrer" data-housing-cta="${escapeHtml(listing.id)}">
+              <span style="font-size:14px;font-weight:600;">Request Inspection</span>
+              ${buildPracticeLifestyleIcon("arrow-right")}
+            </a>
+          ` : ""}
+        </div>
+      `;
+    }
+
+    function buildPracticeLifestyleHeroPropertyHtml(lifestyle, listing) {
+      if (!listing) return "";
+      const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      const price = formatPracticeLifestylePriceParts(listing, market);
+      const isExpanded = getPracticeLifestyleActiveHousingId(lifestyle) === listing.id;
+      const isSaved = isPracticeLifestyleHousingSaved(listing.id);
+      const isPulsing = practiceLifestyleState.heartPulseId === listing.id;
+      const metricLabels = [
+        buildPracticeLifestylePropertyMetric("bed-double", `${Math.max(1, Number(listing && listing.bedrooms || 0) || 1)}`),
+        buildPracticeLifestylePropertyMetric("bath", `${Math.max(0, Number(listing && listing.bathrooms || 0))}`),
+        buildPracticeLifestylePropertyMetric("car", `${Math.max(0, Number(listing && listing.carSpaces || 0))}`),
+        buildPracticeLifestylePropertyMetric("ruler", formatPracticeLifestyleArea(listing && listing.areaSqm))
+      ].filter(Boolean).join("");
+      return `
+        <article class="practice-lifestyle-hero-property${isExpanded ? " is-expanded" : ""}" data-housing-select="${escapeHtml(listing.id)}">
+          <div class="practice-lifestyle-hero-media">
+            <img src="${escapeHtml(listing.imageUrl || PRACTICE_LIFESTYLE_PROPERTY_IMAGES[0])}" alt="${escapeHtml(listing.title || listing.address || "Featured property")}" loading="lazy">
+            <span class="practice-lifestyle-hero-gradient"></span>
+            <span class="practice-lifestyle-floating-badge is-drive">
+              ${buildPracticeLifestyleIcon("car-front")}
+              <span style="font-size:11px;font-weight:500;">${escapeHtml(formatPracticeLifestyleDriveBadge(listing.driveTime) || "Short drive")}</span>
+            </span>
+            <button
+              class="practice-lifestyle-floating-heart${isSaved ? " is-saved" : ""}${isPulsing ? " is-pulsing" : ""}"
+              type="button"
+              aria-label="${isSaved ? "Remove saved property" : "Save property"}"
+              data-housing-save="${escapeHtml(listing.id)}">
+              ${buildPracticeLifestyleIcon(isSaved ? "heart-filled" : "heart")}
+            </button>
+            <div class="practice-lifestyle-hero-price">
+              <span style="font-size:18px;font-weight:700;">${escapeHtml(price.primary)}</span>
+              ${price.secondary ? `<span class="practice-lifestyle-hero-price-suffix" style="font-size:13px;font-weight:400;">${escapeHtml(price.secondary)}</span>` : ""}
+            </div>
+          </div>
+          <div class="practice-lifestyle-hero-copy">
+            <p class="practice-lifestyle-property-title" style="font-size:15px;font-weight:600;">${escapeHtml(listing.title || listing.address || "Featured property")}</p>
+            <p class="practice-lifestyle-property-address" style="font-size:12px;font-weight:400;">${escapeHtml(listing.address || listing.suburb || "")}</p>
+            <div class="practice-lifestyle-property-metrics">${metricLabels}</div>
+          </div>
+          ${isExpanded ? buildPracticeLifestyleExpandedPropertyHtml(lifestyle, listing) : ""}
+        </article>
+      `;
+    }
+
+    function buildPracticeLifestyleCompactPropertyHtml(lifestyle, listing) {
+      const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      const price = formatPracticeLifestylePriceParts(listing, market);
+      const isExpanded = getPracticeLifestyleActiveHousingId(lifestyle) === listing.id;
+      const isSaved = isPracticeLifestyleHousingSaved(listing.id);
+      const isPulsing = practiceLifestyleState.heartPulseId === listing.id;
+      return `
+        <article class="practice-lifestyle-compact-property${isExpanded ? " is-expanded" : ""}" data-housing-select="${escapeHtml(listing.id)}">
+          <div class="practice-lifestyle-compact-row">
+            <div class="practice-lifestyle-compact-thumb">
+              <img src="${escapeHtml(listing.imageUrl || PRACTICE_LIFESTYLE_PROPERTY_IMAGES[1])}" alt="${escapeHtml(listing.title || listing.address || "Property")}" loading="lazy">
+              <button
+                class="practice-lifestyle-mini-heart${isSaved ? " is-saved" : ""}${isPulsing ? " is-pulsing" : ""}"
+                type="button"
+                aria-label="${isSaved ? "Remove saved property" : "Save property"}"
+                data-housing-save="${escapeHtml(listing.id)}">
+                ${buildPracticeLifestyleIcon(isSaved ? "heart-filled" : "heart")}
+              </button>
+            </div>
+            <div class="practice-lifestyle-compact-copy">
+              <div>
+                <p class="practice-lifestyle-property-title is-compact" style="font-size:14px;font-weight:600;">${escapeHtml(listing.title || listing.address || "Property option")}</p>
+                <p class="practice-lifestyle-property-address is-compact" style="font-size:11px;font-weight:400;">${escapeHtml(listing.address || listing.suburb || "")}</p>
+              </div>
+              <div class="practice-lifestyle-compact-metrics">
+                ${buildPracticeLifestylePropertyMetric("bed-double", `${Math.max(1, Number(listing && listing.bedrooms || 0) || 1)}`)}
+                ${buildPracticeLifestylePropertyMetric("bath", `${Math.max(0, Number(listing && listing.bathrooms || 0))}`)}
+                ${buildPracticeLifestylePropertyMetric("car", `${Math.max(0, Number(listing && listing.carSpaces || 0))}`)}
+              </div>
+              <div class="practice-lifestyle-compact-bottom">
+                <div class="practice-lifestyle-compact-price">
+                  <span style="font-size:14px;font-weight:700;">${escapeHtml(price.primary)}</span>
+                  ${price.secondary ? `<span style="font-size:11px;font-weight:400;">${escapeHtml(price.secondary)}</span>` : ""}
+                </div>
+                <span class="practice-lifestyle-compact-drive">
+                  ${buildPracticeLifestyleIcon("clock")}
+                  <span style="font-size:11px;font-weight:400;">${escapeHtml(formatPracticeLifestyleDriveBadge(listing.driveTime) || "")}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+          ${isExpanded ? buildPracticeLifestyleExpandedPropertyHtml(lifestyle, listing) : ""}
+        </article>
+      `;
+    }
+
+    function buildPracticeLifestylePropertiesDashboardHtml(lifestyle) {
+      const market = practiceLifestyleState.housingMode === "buy" ? "buy" : "rent";
+      const listings = getPracticeLifestyleVisibleHousing(lifestyle).slice(0, 4);
+      const featured = listings[0] || null;
+      const compact = listings.slice(1);
+      const footerUrl = market === "buy"
+        ? String(lifestyle && lifestyle.housing && lifestyle.housing.viewAllBuyUrl || "").trim()
+        : String(lifestyle && lifestyle.housing && lifestyle.housing.viewAllRentUrl || "").trim();
+      if (!featured) {
+        return `
+          <div class="practice-lifestyle-dashboard-body">
+            <div class="practice-lifestyle-empty-state">
+              <div class="practice-lifestyle-empty-icon">${buildPracticeLifestyleIcon("home")}</div>
+              <p style="font-size:13px;font-weight:400;">No properties available right now.</p>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="practice-lifestyle-dashboard-body">
+          ${buildPracticeLifestyleHeroPropertyHtml(lifestyle, featured)}
+          <div class="practice-lifestyle-compact-list">
+            ${compact.map((listing, index) => `
+              <div class="practice-lifestyle-divider-row${index === 0 ? " is-first" : ""}"></div>
+              ${buildPracticeLifestyleCompactPropertyHtml(lifestyle, listing)}
+            `).join("")}
+          </div>
+          ${footerUrl ? `
+            <a class="practice-lifestyle-footer-link" href="${escapeHtml(footerUrl)}" target="_blank" rel="noreferrer" data-housing-cta="all">
+              <span style="font-size:13px;font-weight:500;">${market === "rent" ? "View all rentals" : "View all listings"}</span>
+              ${buildPracticeLifestyleIcon("chevron-right")}
+            </a>
+          ` : ""}
+        </div>
+      `;
+    }
+
+    function buildPracticeLifestyleSchoolRowHtml(school) {
+      const sectorKey = getPracticeLifestyleSchoolSectorKey(school);
+      const ratingLabel = formatPracticeLifestyleRating(school && school.starRating);
+      const metaBits = [
+        String(school && school.sector || "").trim(),
+        formatLifestyleDistance(school && school.distanceKm),
+        String(school && school.driveTime || formatPracticeLifestyleDriveBadge(school && school.driveTime) || "").trim()
+      ].filter(Boolean);
+      return `
+        <article class="practice-lifestyle-school-row">
+          <div class="practice-lifestyle-school-thumb">
+            <img src="${escapeHtml(getPracticeLifestyleSchoolImageUrl(school))}" alt="${escapeHtml(school.name || "School")}" loading="lazy">
+            <span class="practice-lifestyle-school-sector is-${escapeHtml(sectorKey)}">
+              ${buildPracticeLifestyleIcon("graduation")}
+            </span>
+          </div>
+          <div class="practice-lifestyle-school-copy">
+            <div>
+              <p class="practice-lifestyle-school-title" style="font-size:14px;font-weight:600;">${escapeHtml(school.name || "School")}</p>
+              <p class="practice-lifestyle-school-meta-line" style="font-size:11px;font-weight:400;">${escapeHtml(metaBits.join(" · "))}</p>
+            </div>
+            <p class="practice-lifestyle-school-catchment is-${escapeHtml(school.eligibilityTone === "catchment" ? "catchment" : "outside")}">
+              ${buildPracticeLifestyleIcon(school.eligibilityTone === "catchment" ? "check-circle-2" : "alert-circle")}
+              <span style="font-size:11px;font-weight:500;">${escapeHtml(school.eligibilityLabel || "Outside")}</span>
+            </p>
+          </div>
+          <div class="practice-lifestyle-school-rating">
+            <p class="practice-lifestyle-school-stars">
+              ${buildPracticeLifestyleIcon("star-filled")}
+              <span style="font-size:13px;font-weight:600;">${escapeHtml(ratingLabel || "4.0")}</span>
+            </p>
+            <p class="practice-lifestyle-school-rank" style="font-size:11px;font-weight:400;">${escapeHtml(String(school && (school.rankLabel || school.rating) || "Well Regarded").trim())}</p>
+          </div>
+        </article>
+      `;
+    }
+
+    function buildPracticeLifestyleSchoolsDashboardHtml(lifestyle) {
+      const schools = getPracticeLifestyleVisibleSchools(lifestyle);
+      if (!schools.length) {
+        return `
+          <div class="practice-lifestyle-dashboard-body">
+            <div class="practice-lifestyle-empty-state">
+              <div class="practice-lifestyle-empty-icon">${buildPracticeLifestyleIcon("graduation")}</div>
+              <p style="font-size:13px;font-weight:400;">No schools match your filter</p>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="practice-lifestyle-dashboard-body">
+          <div class="practice-lifestyle-schools-list">
+            ${schools.map((school, index) => `
+              ${index ? '<div class="practice-lifestyle-divider-row"></div>' : ""}
+              ${buildPracticeLifestyleSchoolRowHtml(school)}
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function buildPracticeLifestyleDashboardHtml(lifestyle) {
+      const activeMode = practiceLifestyleState.mode === "schools" ? "schools" : "housing";
+      const practiceLabel = getPracticeLifestylePracticeLabel(lifestyle);
+      const schoolFilters = [
+        { key: "all", label: "All" },
+        { key: "primary", label: "Primary" },
+        { key: "secondary", label: "Secondary" }
+      ];
+      return `
+        <div class="practice-lifestyle-dashboard">
+          <div class="practice-lifestyle-dashboard-card">
+            <div class="practice-lifestyle-dashboard-header">
+              <div class="practice-lifestyle-dashboard-titleblock">
+                <p class="practice-lifestyle-dashboard-title" style="font-size:16px;font-weight:600;">Explore Your Area</p>
+                <p class="practice-lifestyle-dashboard-subtitle" style="font-size:12px;font-weight:400;">
+                  ${buildPracticeLifestyleIcon("map-pin")}
+                  <span>Near ${escapeHtml(practiceLabel)}</span>
+                </p>
+              </div>
+              <div class="practice-lifestyle-dashboard-toggle" role="tablist" aria-label="Lifestyle view">
+                ${[
+                  { key: "housing", label: "Properties", icon: "home" },
+                  { key: "schools", label: "Schools", icon: "graduation" }
+                ].map((item) => `
+                  <button
+                    class="practice-lifestyle-dashboard-segment${activeMode === item.key ? " is-active" : ""}"
+                    type="button"
+                    role="tab"
+                    aria-selected="${activeMode === item.key ? "true" : "false"}"
+                    data-lifestyle-mode="${item.key}">
+                    ${buildPracticeLifestyleIcon(item.icon)}
+                    <span style="font-size:13px;font-weight:${activeMode === item.key ? "600" : "400"};">${escapeHtml(item.label)}</span>
+                  </button>
+                `).join("")}
+              </div>
+            </div>
+            <div class="practice-lifestyle-dashboard-controls">
+              ${activeMode === "housing" ? `
+                <div class="practice-lifestyle-market-tabs" role="tablist" aria-label="Property market">
+                  ${["rent", "buy"].map((item) => `
+                    <button
+                      class="practice-lifestyle-market-tab${practiceLifestyleState.housingMode === item ? " is-active" : ""}"
+                      type="button"
+                      role="tab"
+                      aria-selected="${practiceLifestyleState.housingMode === item ? "true" : "false"}"
+                      data-housing-market="${item}">
+                      <span style="font-size:13px;font-weight:${practiceLifestyleState.housingMode === item ? "600" : "400"};">${item === "rent" ? "Rent" : "Buy"}</span>
+                      ${practiceLifestyleState.housingMode === item ? '<span class="practice-lifestyle-market-underline"></span>' : ""}
+                    </button>
+                  `).join("")}
+                </div>
+              ` : `
+                <div class="practice-lifestyle-school-filters" role="group" aria-label="School level filter">
+                  ${schoolFilters.map((item) => `
+                    <button
+                      class="practice-lifestyle-school-filter${practiceLifestyleState.schoolPhase === item.key ? " is-active" : ""}"
+                      type="button"
+                      data-school-phase="${item.key}">
+                      <span style="font-size:12px;font-weight:${practiceLifestyleState.schoolPhase === item.key ? "500" : "400"};">${escapeHtml(item.label)}</span>
+                    </button>
+                  `).join("")}
+                </div>
+              `}
+            </div>
+            <div class="practice-lifestyle-panel-divider"></div>
+            ${activeMode === "housing"
+              ? buildPracticeLifestylePropertiesDashboardHtml(lifestyle)
+              : buildPracticeLifestyleSchoolsDashboardHtml(lifestyle)}
+          </div>
+        </div>
+      `;
+    }
+
     function renderPracticeLifestyleExplorer(lifestyle) {
       if (!securedLifestyleExplorerEl) return;
       syncPracticeLifestyleState(lifestyle);
       securedLifestyleExplorerEl.classList.add("is-open");
-      securedLifestyleExplorerEl.innerHTML = `${buildPracticeLifestyleMapMarkup(lifestyle)}${buildPracticeLifestyleDrawerHtml(lifestyle)}`;
-      if (!canRenderPracticeLifestyleGoogleMap(lifestyle)) {
-        resetPracticeLifestyleMapRuntime();
-      }
-      window.requestAnimationFrame(() => {
-        renderPracticeLifestyleGoogleMap(lifestyle);
-      });
+      resetPracticeLifestyleMapRuntime();
+      securedLifestyleExplorerEl.innerHTML = buildPracticeLifestyleDashboardHtml(lifestyle);
     }
 
     function resolveSecuredPlacement() {
@@ -8609,21 +9758,47 @@
         practiceLifestyleState.activeHousingPopupId = "";
         const lifestyle = resolveSecuredPlacement().lifestyle;
         renderPracticeLifestyleExplorer(lifestyle);
-        schedulePracticeLifestyleHousingSearch(lifestyle, 0);
+        return;
+      }
+
+      const housingSaveBtn = event.target.closest("[data-housing-save]");
+      if (housingSaveBtn) {
+        const listingId = String(housingSaveBtn.getAttribute("data-housing-save") || "").trim();
+        if (!listingId) return;
+        const saved = Array.isArray(practiceLifestyleState.savedHousingIds) ? practiceLifestyleState.savedHousingIds : [];
+        practiceLifestyleState.savedHousingIds = saved.includes(listingId)
+          ? saved.filter((item) => item !== listingId)
+          : [...saved, listingId];
+        practiceLifestyleState.heartPulseId = listingId;
+        window.clearTimeout(practiceLifestyleHeartPulseTimer);
+        practiceLifestyleHeartPulseTimer = window.setTimeout(() => {
+          if (practiceLifestyleState.heartPulseId === listingId) {
+            practiceLifestyleState.heartPulseId = "";
+            renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+          }
+        }, 180);
+        renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
+        return;
+      }
+
+      const housingCtaBtn = event.target.closest("[data-housing-cta]");
+      if (housingCtaBtn) {
         return;
       }
 
       const housingSelectBtn = event.target.closest("[data-housing-select]");
       if (housingSelectBtn) {
-        practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode] = housingSelectBtn.getAttribute("data-housing-select") || "";
-        practiceLifestyleState.activeHousingPopupId = practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode];
+        const listingId = housingSelectBtn.getAttribute("data-housing-select") || "";
+        practiceLifestyleState.selectedHousingIds[practiceLifestyleState.housingMode] = listingId;
+        practiceLifestyleState.activeHousingPopupId = practiceLifestyleState.activeHousingPopupId === listingId ? "" : listingId;
         renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
         return;
       }
 
       const schoolPhaseBtn = event.target.closest("[data-school-phase]");
       if (schoolPhaseBtn) {
-        practiceLifestyleState.schoolPhase = schoolPhaseBtn.getAttribute("data-school-phase") === "secondary" ? "secondary" : "primary";
+        const nextPhase = schoolPhaseBtn.getAttribute("data-school-phase") || "all";
+        practiceLifestyleState.schoolPhase = ["all", "primary", "secondary"].includes(nextPhase) ? nextPhase : "all";
         renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
         return;
       }
@@ -8631,7 +9806,7 @@
       const schoolSectorBtn = event.target.closest("[data-school-sector]");
       if (schoolSectorBtn) {
         const nextSector = schoolSectorBtn.getAttribute("data-school-sector") || "all";
-        practiceLifestyleState.schoolSector = ["all", "public", "private"].includes(nextSector) ? nextSector : "all";
+        practiceLifestyleState.schoolSector = ["all", "public", "private", "catholic"].includes(nextSector) ? nextSector : "all";
         renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
         return;
       }

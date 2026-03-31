@@ -121,7 +121,7 @@ const DOMAIN_API_CLIENT_SECRET = String(process.env.DOMAIN_API_CLIENT_SECRET || 
 const DOMAIN_API_SCOPE = String(process.env.DOMAIN_API_SCOPE || 'api_listings_read').trim() || 'api_listings_read';
 const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https://auth.domain.com.au/v1/connect/token').trim() || 'https://auth.domain.com.au/v1/connect/token';
 const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = String(process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK || 'false').trim().toLowerCase() === 'true';
-const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 7;
+const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 9;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE = Math.max(10, Number(process.env.DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE || 40) || 40);
@@ -133,6 +133,9 @@ const DOMAIN_LIFESTYLE_AGENCY_BRANDS = Array.from(new Set(
     .map((value) => value.trim())
     .filter(Boolean)
 )).slice(0, 8);
+const HOMELY_BASE_URL = 'https://www.homely.com.au';
+const HOMELY_LIFESTYLE_MAX_PAGES = Math.max(1, Math.min(5, Number(process.env.HOMELY_LIFESTYLE_MAX_PAGES || 4) || 4));
+const HOMELY_LIFESTYLE_USER_AGENT = 'Mozilla/5.0 (compatible; GP Link Live Listings/1.0; +https://app.mygplink.com.au)';
 const NSW_SCHOOL_FINDER_SQL_ENDPOINT = 'https://cesensw.carto.com/api/v2/sql';
 const SCHOOL_FINDER_TABLE_SCHOOLS = 'dec_schools_2020';
 const SCHOOL_FINDER_TABLE_CATCHMENTS = 'catchments_2020';
@@ -4248,6 +4251,41 @@ async function fetchCareerSuburbCoordinates(context = {}) {
   return null;
 }
 
+async function fetchCareerSuburbPostcode(context = {}) {
+  const query = buildCareerGeocodeQuery(context);
+  if (!query) return '';
+
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('q', query);
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('limit', '5');
+    url.searchParams.set('countrycodes', 'au');
+    url.searchParams.set('addressdetails', '1');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': HOMELY_LIFESTYLE_USER_AGENT,
+        Accept: 'application/json'
+      }
+    });
+    if (!response.ok) return '';
+
+    const payload = await response.json().catch(() => null);
+    const matches = Array.isArray(payload) ? payload : [];
+    for (const match of matches) {
+      const postcode = extractAustralianPostcode(
+        match && match.address && match.address.postcode
+          ? match.address.postcode
+          : (match && match.display_name)
+      );
+      if (postcode) return postcode;
+    }
+  } catch (err) {}
+
+  return '';
+}
+
 async function resolveCareerSuburbCoordinates(context = {}) {
   const checkedAt = Date.now();
   const cached = await readCareerSuburbGeoCache(context);
@@ -6738,6 +6776,11 @@ function normalizeAustralianStateAbbreviation(value) {
   return aliases[key] || '';
 }
 
+function extractAustralianPostcode(value) {
+  const match = String(value || '').match(/\b(\d{4})\b/);
+  return match ? match[1] : '';
+}
+
 function parsePlacementLocationContext(locationValue) {
   const value = String(locationValue || '').trim().replace(/,\s*Australia\s*$/i, '');
   const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
@@ -6747,11 +6790,10 @@ function parsePlacementLocationContext(locationValue) {
     ? parts[2]
     : (parts[0] || '');
   const state = normalizeAustralianStateAbbreviation(second || parts.find((part) => normalizeAustralianStateAbbreviation(part)) || '');
-  const postcodeMatch = value.match(/\b(\d{4})\b/);
   return {
     suburb,
     state,
-    postcode: postcodeMatch ? postcodeMatch[1] : '',
+    postcode: extractAustralianPostcode(value),
     country: 'Australia',
     label: value
   };
@@ -6788,7 +6830,7 @@ function normalizeLifestyleSearchLocationContext(value) {
   const source = value && typeof value === 'object' ? value : {};
   const suburb = String(source.suburb || '').trim();
   const state = normalizeAustralianStateAbbreviation(source.state || '');
-  const postcode = String(source.postcode || source.postCode || '').trim();
+  const postcode = String(source.postcode || source.postCode || extractAustralianPostcode(source.label) || '').trim();
   const country = String(source.country || 'Australia').trim() || 'Australia';
   const label = String(source.label || '').trim() || buildLocationLabel([
     suburb,
@@ -6801,6 +6843,22 @@ function normalizeLifestyleSearchLocationContext(value) {
     postcode,
     country,
     label
+  };
+}
+
+async function enrichLifestyleLocationContextForHomely(value) {
+  const locationContext = normalizeLifestyleSearchLocationContext(value);
+  if (locationContext.postcode) return locationContext;
+  const postcode = await fetchCareerSuburbPostcode(locationContext);
+  if (!postcode) return locationContext;
+  return {
+    ...locationContext,
+    postcode,
+    label: locationContext.label || buildLocationLabel([
+      locationContext.suburb,
+      buildLocationLabel([locationContext.state, postcode]),
+      locationContext.country || 'Australia'
+    ])
   };
 }
 
@@ -6909,9 +6967,11 @@ function offsetCoordinate(base, deltaLat, deltaLng) {
 
 function buildLifestyleImage(index = 0) {
   const images = [
-    '../media/images/account-header-sunset-exact.jpg',
-    '../media/images/account-header.webp',
-    '../media/images/australian-landscape-illustration-vector-design-600nw-2188905367.webp'
+    'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1570129477492-45c003edd2be?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&q=80'
   ];
   return images[index % images.length];
 }
@@ -6963,17 +7023,352 @@ function resizeDomainImageUrl(value, width = 720, height = 540) {
   return source;
 }
 
+function buildHomelyLifestyleLocationSlug(locationContext) {
+  const suburb = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
+  const state = String(locationContext && locationContext.state || '').trim().toLowerCase();
+  const postcode = extractAustralianPostcode(locationContext && locationContext.postcode);
+  if (!suburb || !state || !postcode) return '';
+  return `${suburb}-${state}-${postcode}`;
+}
+
+function buildHomelyLifestyleSearchUrl(locationContext, market = 'rent', pageNumber = 1) {
+  const slug = buildHomelyLifestyleLocationSlug(locationContext);
+  if (!slug) return '';
+  const mode = market === 'buy' ? 'for-sale' : 'for-rent';
+  const page = Math.max(1, parseWholeNumber(pageNumber, 1));
+  const baseUrl = `${HOMELY_BASE_URL}/${mode}/${slug}/real-estate`;
+  return page > 1 ? `${baseUrl}/page-${page}` : baseUrl;
+}
+
+function buildHomelyListingUrl(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  if (/^https?:\/\//i.test(source)) return source;
+  if (source.startsWith('/')) return `${HOMELY_BASE_URL}${source}`;
+  return `${HOMELY_BASE_URL}/${source.replace(/^\/+/, '')}`;
+}
+
+function normalizeHomelyPriceLabel(value, market = 'rent') {
+  const source = String(value || '').trim();
+  if (!source) return market === 'buy' ? 'Price on request' : 'Rent on request';
+  if (market !== 'rent') return source;
+  const compact = source.replace(/\s+/g, '');
+  const match = compact.match(/^(\$[\d,.]+)(?:pw|p\/w|\/wk|\/week)$/i);
+  if (match) return `${match[1]}/wk`;
+  return source;
+}
+
+function buildHomelyListingSummary(record) {
+  const bits = [
+    pickFirstDefined(
+      record && record.statusLabels && record.statusLabels.daysOnMarket,
+      ''
+    ),
+    pickFirstDefined(
+      record && record.statusLabels && record.statusLabels.nextInspection,
+      ''
+    ),
+    (() => {
+      const officeName = String(record && record.contactDetails && record.contactDetails.office && record.contactDetails.office.name || '').trim();
+      return officeName ? `via ${officeName}` : '';
+    })()
+  ].filter(Boolean);
+  return bits.join(' · ');
+}
+
+function normalizeHomelyListing(record, practiceCoords, market) {
+  if (!record || typeof record !== 'object') return null;
+  if (String(record.statusType || '').trim().toLowerCase() !== 'available') return null;
+  const coords = buildLifestyleCoordinate(
+    record && record.location && record.location.latLong && record.location.latLong.latitude,
+    record && record.location && record.location.latLong && record.location.latLong.longitude
+  );
+  if (!coords) return null;
+  const distanceKm = practiceCoords ? calculateDistanceKm(practiceCoords, coords) : null;
+  const features = record && record.features && typeof record.features === 'object' ? record.features : {};
+  const landFeatures = record && record.landFeatures && typeof record.landFeatures === 'object' ? record.landFeatures : {};
+  const priceLabel = normalizeHomelyPriceLabel(
+    pickFirstDefined(
+      record && record.priceDetails && record.priceDetails.shortDescription,
+      record && record.priceDetails && record.priceDetails.longDescription,
+      market === 'buy' && record && record.saleDetails && record.saleDetails.soldDetails && record.saleDetails.soldDetails.displayPrice
+        ? pickFirstDefined(
+            record.saleDetails.soldDetails.displayPrice.shortDescription,
+            record.saleDetails.soldDetails.displayPrice.longDescription
+          )
+        : ''
+    ),
+    market
+  );
+  const priceValue = parseLifestylePriceValue(priceLabel, market)
+    || parseLifestylePriceValue(
+      record && record.priceDetails && pickFirstDefined(
+        record.priceDetails.longDescription,
+        record.priceDetails.shortDescription
+      ),
+      market
+    )
+    || (market === 'buy'
+      ? parseWholeNumber(record && record.saleDetails && record.saleDetails.loanPrice, 0)
+      : 0);
+  const propertyTypeLabel = String(
+    record && record.statusLabels && record.statusLabels.propertyTypeDescription
+      || ''
+  ).trim();
+  const propertyType = propertyTypeLabel.replace(/\s+for\s+(rent|sale)\s*$/i, '').trim()
+    || (market === 'buy' ? 'Property' : 'Rental');
+  const photos = Array.isArray(record && record.media && record.media.photos) ? record.media.photos : [];
+  const image = photos.find((photo) => photo && (photo.webHeroURI || photo.webDefaultURI)) || null;
+  const address = String(
+    pickFirstDefined(
+      record && record.address && record.address.longAddress,
+      record && record.location && record.location.address
+    ) || ''
+  ).trim();
+  return {
+    id: `homely-${String(record && record.id || '').trim() || crypto.randomUUID()}`,
+    price: priceLabel,
+    priceValue,
+    bedrooms: parseWholeNumber(features && features.bedrooms, 0),
+    bathrooms: parseWholeNumber(features && features.bathrooms, 0),
+    carSpaces: parseWholeNumber(features && features.cars, 0),
+    areaSqm: parseWholeNumber(landFeatures && landFeatures.areaSqm, 0),
+    beds: formatBedroomsLabel(features && features.bedrooms),
+    distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
+    driveTime: formatLifestyleDriveTime(distanceKm || 0),
+    imageUrl: String(
+      pickFirstDefined(
+        image && image.webHeroURI,
+        image && image.webDefaultURI
+      ) || ''
+    ).trim(),
+    imagePosition: 'center',
+    address,
+    title: String(record && record.title || address || propertyType).trim(),
+    suburb: String(address.split(',')[1] || '').replace(/\bNSW\b|\bQLD\b|\bVIC\b|\bSA\b|\bWA\b|\bTAS\b|\bNT\b|\bACT\b|\b\d{4}\b/g, '').trim() || '',
+    propertyType,
+    summary: buildHomelyListingSummary(record),
+    sourceLabel: 'Homely',
+    sourceUrl: buildHomelyListingUrl(
+      pickFirstDefined(
+        record && record.canonicalUri,
+        record && record.uri
+      )
+    ),
+    lat: coords.lat,
+    lng: coords.lng,
+    market
+  };
+}
+
+async function fetchHomelyLifestyleSearchPage(url) {
+  const requestUrl = String(url || '').trim();
+  if (!requestUrl) return { listings: [], totalPages: 0 };
+  try {
+    const response = await fetch(requestUrl, {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
+      }
+    });
+    if (!response.ok) return { listings: [], totalPages: 0 };
+    const html = await response.text().catch(() => '');
+    const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/i);
+    if (!nextDataMatch || !nextDataMatch[1]) return { listings: [], totalPages: 0 };
+    const payload = JSON.parse(nextDataMatch[1]);
+    const pageProps = payload && payload.props && payload.props.pageProps && typeof payload.props.pageProps === 'object'
+      ? payload.props.pageProps
+      : {};
+    const ssrData = pageProps && pageProps.ssrData && typeof pageProps.ssrData === 'object'
+      ? pageProps.ssrData
+      : {};
+    const paging = ssrData && ssrData.paging && typeof ssrData.paging === 'object'
+      ? ssrData.paging
+      : {};
+    return {
+      listings: Array.isArray(ssrData.listings) ? ssrData.listings : [],
+      totalPages: Math.max(1, parseWholeNumber(paging.totalPages, 1))
+    };
+  } catch (err) {
+    return { listings: [], totalPages: 0 };
+  }
+}
+
+async function fetchHomelyLifestyleListings(locationContext, practiceCoords, market, household, options = {}) {
+  const searchUrl = buildHomelyLifestyleSearchUrl(locationContext, market, 1);
+  if (!searchUrl) return [];
+  const deduped = new Map();
+  let totalPages = 1;
+  const maxPages = Math.max(1, HOMELY_LIFESTYLE_MAX_PAGES);
+
+  for (let page = 1; page <= Math.min(totalPages, maxPages); page += 1) {
+    const pageUrl = buildHomelyLifestyleSearchUrl(locationContext, market, page);
+    const payload = await fetchHomelyLifestyleSearchPage(pageUrl);
+    totalPages = Math.max(totalPages, payload.totalPages || 1);
+    (Array.isArray(payload.listings) ? payload.listings : []).forEach((record) => {
+      const normalized = normalizeHomelyListing(record, practiceCoords, market);
+      if (!normalized || !normalized.sourceUrl || !normalized.imageUrl) return;
+      deduped.set(normalized.id, normalized);
+    });
+
+    const rows = Array.from(deduped.values());
+    const bedroomFiltered = rows.filter((item) => (
+      Number(item && item.bedrooms || 0) >= (household && household.recommendedBedrooms ? household.recommendedBedrooms : 1)
+    ));
+    const candidateRows = bedroomFiltered.length ? bedroomFiltered : rows;
+    const filteredRows = applyLifestyleHousingFilters(candidateRows, options, market)
+      .slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
+    if (filteredRows.length >= DOMAIN_LIFESTYLE_RESULT_LIMIT) return filteredRows;
+  }
+
+  const rows = Array.from(deduped.values());
+  const bedroomFiltered = rows.filter((item) => (
+    Number(item && item.bedrooms || 0) >= (household && household.recommendedBedrooms ? household.recommendedBedrooms : 1)
+  ));
+  const candidateRows = bedroomFiltered.length ? bedroomFiltered : rows;
+  return applyLifestyleHousingFilters(candidateRows, options, market)
+    .slice(0, DOMAIN_LIFESTYLE_RESULT_LIMIT);
+}
+
 function buildTweedLifestyleHousingSeeds(practiceCoords) {
   return {
     rent: [
-      { id: 'tweed-rent-1', price: '$680/wk', bedrooms: 3, imageUrl: buildLifestyleImage(0), coords: offsetCoordinate(practiceCoords, 0.0102, -0.0114), address: 'Marine Parade, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' },
-      { id: 'tweed-rent-2', price: '$820/wk', bedrooms: 4, imageUrl: buildLifestyleImage(1), coords: offsetCoordinate(practiceCoords, -0.0192, 0.0181), address: 'Kennedy Drive, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' },
-      { id: 'tweed-rent-3', price: '$740/wk', bedrooms: 3, imageUrl: buildLifestyleImage(2), coords: offsetCoordinate(practiceCoords, -0.0135, -0.0075), address: 'Minjungbal Drive, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' }
+      {
+        id: 'tweed-rent-1',
+        title: 'Single-Level Holden Street Home',
+        price: '$870/wk',
+        bedrooms: 3,
+        bathrooms: 2,
+        carSpaces: 2,
+        areaSqm: 613,
+        imageUrl: buildLifestyleImage(0),
+        coords: buildLifestyleCoordinate(-28.1917, 153.5296) || offsetCoordinate(practiceCoords, -0.0034, -0.0079),
+        address: '18 Holden Street, Tweed Heads South',
+        suburb: 'Tweed Heads South',
+        propertyType: 'House',
+        summary: 'Single-level family home close to the river, Tweed City and local schools.',
+        sourceUrl: 'https://www.homely.com.au/homes/18-holden-street-tweed-heads-south-nsw-2486/12994171',
+        sourceLabel: 'Homely'
+      },
+      {
+        id: 'tweed-rent-2',
+        title: 'William Street Townhouse',
+        price: '$780/wk',
+        bedrooms: 3,
+        bathrooms: 2,
+        carSpaces: 2,
+        imageUrl: buildLifestyleImage(1),
+        coords: buildLifestyleCoordinate(-28.1838, 153.5453) || offsetCoordinate(practiceCoords, 0.0045, 0.0078),
+        address: '7/16 William Street, Tweed Heads South',
+        suburb: 'Tweed Heads South',
+        propertyType: 'Townhouse',
+        summary: 'Freshly painted townhome with dual patios and a short run to Tweed River and the beaches.',
+        sourceUrl: 'https://www.realestate.com.au/property-townhouse-nsw-tweed%2Bheads%2Bsouth-442864268',
+        sourceLabel: 'realestate.com.au'
+      },
+      {
+        id: 'tweed-rent-3',
+        title: 'Lorikeet Drive Townhome',
+        price: '$750/wk',
+        bedrooms: 3,
+        bathrooms: 2,
+        carSpaces: 1,
+        imageUrl: buildLifestyleImage(2),
+        coords: buildLifestyleCoordinate(-28.1989, 153.5228) || offsetCoordinate(practiceCoords, -0.0106, -0.0147),
+        address: '39/14 Lorikeet Drive, Tweed Heads South',
+        suburb: 'Tweed Heads South',
+        propertyType: 'Townhouse',
+        summary: 'Architect-designed townhome with ducted air, coastal access and quality school links.',
+        sourceUrl: 'https://www.realestate.com.au/property-townhouse-nsw-tweed%2Bheads%2Bsouth-442910916',
+        sourceLabel: 'realestate.com.au'
+      },
+      {
+        id: 'tweed-rent-4',
+        title: 'Vintage Lakes Villa',
+        price: '$750/wk',
+        bedrooms: 3,
+        bathrooms: 1,
+        carSpaces: 2,
+        areaSqm: 310,
+        imageUrl: buildLifestyleImage(3),
+        coords: buildLifestyleCoordinate(-28.2059, 153.5272) || offsetCoordinate(practiceCoords, -0.0176, -0.0103),
+        address: '6/6 Merlot Court, Tweed Heads South',
+        suburb: 'Tweed Heads South',
+        propertyType: 'Villa',
+        summary: 'Low-maintenance Vintage Lakes villa with courtyard living and nearby shopping.',
+        sourceUrl: 'https://www.realestate.com.au/property-house-nsw-tweed%2Bheads%2Bsouth-443281020',
+        sourceLabel: 'realestate.com.au'
+      }
     ],
     buy: [
-      { id: 'tweed-buy-1', price: '$1.18m', bedrooms: 4, imageUrl: buildLifestyleImage(0), coords: offsetCoordinate(practiceCoords, 0.0124, -0.0098), address: 'Brett Street, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' },
-      { id: 'tweed-buy-2', price: '$1.34m', bedrooms: 5, imageUrl: buildLifestyleImage(1), coords: offsetCoordinate(practiceCoords, -0.0226, 0.0244), address: 'Phillip Street, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' },
-      { id: 'tweed-buy-3', price: '$1.06m', bedrooms: 3, imageUrl: buildLifestyleImage(2), coords: offsetCoordinate(practiceCoords, -0.0164, -0.0117), address: 'Myles Avenue, Tweed Heads', sourceUrl: 'https://www.domain.com.au/', sourceLabel: 'Domain' }
+      {
+        id: 'tweed-buy-1',
+        title: 'Merlot Court Villa',
+        price: 'Guide $930,000',
+        bedrooms: 3,
+        bathrooms: 1,
+        carSpaces: 2,
+        areaSqm: 343,
+        imageUrl: buildLifestyleImage(4),
+        coords: buildLifestyleCoordinate(-28.2058, 153.5267) || offsetCoordinate(practiceCoords, -0.0175, -0.0108),
+        address: '5/6 Merlot Court, Tweed Heads South',
+        suburb: 'Tweed Heads South',
+        propertyType: 'Villa',
+        summary: 'Boutique cul-de-sac villa with private yard, modern comfort and strong local amenity access.',
+        sourceUrl: 'https://www.realestate.com.au/property-house-nsw-tweed%2Bheads%2Bsouth-149842556',
+        sourceLabel: 'realestate.com.au'
+      },
+      {
+        id: 'tweed-buy-2',
+        title: 'Blundell Boulevard Duplex',
+        price: '$939,000',
+        bedrooms: 3,
+        bathrooms: 1,
+        carSpaces: 1,
+        areaSqm: 107,
+        imageUrl: buildLifestyleImage(0),
+        coords: buildLifestyleCoordinate(-28.1848, 153.5403) || offsetCoordinate(practiceCoords, 0.0035, 0.0028),
+        address: '2/46 Blundell Boulevard, Tweed Heads South',
+        suburb: 'Tweed Heads South',
+        propertyType: 'Duplex',
+        summary: 'Renovated duplex with flexible third bedroom, new kitchen and an oversized courtyard.',
+        sourceUrl: 'https://view.com.au/property/nsw/tweed-heads-south-2486/2-46-blundell-boulevard-17634537/',
+        sourceLabel: 'view.com.au'
+      },
+      {
+        id: 'tweed-buy-3',
+        title: 'Easy-Care Kirkwood Villa',
+        price: '$780,000 - $810,000',
+        bedrooms: 2,
+        bathrooms: 1,
+        carSpaces: 1,
+        areaSqm: 232,
+        imageUrl: buildLifestyleImage(1),
+        coords: buildLifestyleCoordinate(-28.1806, 153.5372) || offsetCoordinate(practiceCoords, 0.0077, -0.0003),
+        address: '22/22B Kirkwood Road, Tweed Heads South',
+        suburb: 'Tweed Heads South',
+        propertyType: 'Villa',
+        summary: 'Renovated single-level villa with solar, ducted air and walk-through access to Tweed City.',
+        sourceUrl: 'https://www.realestate.com.au/property-villa-nsw-tweed%2Bheads%2Bsouth-150316232',
+        sourceLabel: 'realestate.com.au'
+      },
+      {
+        id: 'tweed-buy-4',
+        title: 'Cox Drive Family Home',
+        price: '$1,200,000',
+        bedrooms: 3,
+        bathrooms: 1,
+        carSpaces: 5,
+        areaSqm: 740,
+        imageUrl: buildLifestyleImage(2),
+        coords: buildLifestyleCoordinate(-28.1769, 153.5462) || offsetCoordinate(practiceCoords, 0.0114, 0.0087),
+        address: '16 Cox Drive, Tweed Heads South',
+        suburb: 'Tweed Heads South',
+        propertyType: 'House',
+        summary: 'Flat river-adjacent block with polished timber floors and future upside for a family move.',
+        sourceUrl: 'https://realsearch.com.au/house-16-cox-drive-tweed-heads-south-nsw-2486',
+        sourceLabel: 'Real Search'
+      }
     ]
   };
 }
@@ -7000,8 +7395,8 @@ function buildGenericLifestyleHousingSeeds(practiceCoords, locationContext) {
       imagePosition: 'center',
       coords: offsetCoordinate(practiceCoords, item.delta[0], item.delta[1]),
       address: `${suburb} home option ${index + 1}`,
-      sourceUrl: 'https://www.domain.com.au/',
-      sourceLabel: 'Domain'
+      sourceUrl: '',
+      sourceLabel: 'GP Link'
     }));
   };
   return { rent: build('rent'), buy: build('buy') };
@@ -7028,7 +7423,8 @@ function normalizeLifestyleListing(seed, practiceCoords, market, locationContext
     suburb: String(seed && seed.suburb || locationContext && locationContext.suburb || ''),
     propertyType: String(seed && seed.propertyType || 'House'),
     summary: String(seed && seed.summary || ''),
-    sourceLabel: String(seed && seed.sourceLabel || 'Domain'),
+    areaSqm: parseWholeNumber(seed && seed.areaSqm, 0),
+    sourceLabel: String(seed && seed.sourceLabel || 'GP Link'),
     sourceUrl: normalizeDomainSourceUrl(seed && seed.sourceUrl),
     lat: coords ? coords.lat : null,
     lng: coords ? coords.lng : null,
@@ -7300,7 +7696,8 @@ async function fetchDomainSelectedAgencyLifestyleListings(locationContext, pract
 }
 
 function buildLifestyleHousingFallbackCatalog(locationContext, practiceCoords) {
-  return normalizeCareerHeroCityKey(locationContext && locationContext.suburb) === 'tweed_heads'
+  const suburbKey = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
+  return (suburbKey === 'tweed_heads' || suburbKey === 'tweed_heads_south')
     ? buildTweedLifestyleHousingSeeds(practiceCoords)
     : buildGenericLifestyleHousingSeeds(practiceCoords, locationContext);
 }
@@ -7723,23 +8120,23 @@ function inferSchoolSector(name) {
 function buildTweedSchoolHints() {
   return {
     primary: [
-      { key: 'tweed heads public school', sector: 'Public', sectorGroup: 'public', rating: 'Above Average', rankingScore: 78, coords: { lat: -28.1758, lng: 153.5429 } },
-      { key: 'st james primary', sector: 'Catholic', sectorGroup: 'private', rating: 'Above Average', rankingScore: 82, coords: { lat: -28.1914, lng: 153.5312 }, eligibilityLabel: 'Application', eligibilityTone: 'open' },
-      { key: 'lindisfarne anglican school', sector: 'Private', sectorGroup: 'private', rating: 'Excellent', rankingScore: 90, coords: { lat: -28.2034, lng: 153.5157 }, eligibilityLabel: 'Application', eligibilityTone: 'open' },
-      { key: 'banora point public school', sector: 'Public', sectorGroup: 'public', rating: 'Above Average', rankingScore: 74, coords: { lat: -28.2082, lng: 153.5341 } }
+      { key: 'tweed heads south public school', sector: 'Public', sectorGroup: 'public', rating: 'Above Average', rankLabel: 'Above Average', rankingScore: 82, starRating: 4.2, coords: { lat: -28.1834, lng: 153.5441 } },
+      { key: "st james' primary school banora point", sector: 'Catholic', sectorGroup: 'catholic', rating: 'Above Average', rankLabel: 'Above Average', rankingScore: 80, starRating: 4.0, coords: { lat: -28.2068, lng: 153.5357 } },
+      { key: 'lindisfarne anglican grammar school junior school', sector: 'Private', sectorGroup: 'private', rating: 'Top 15%', rankLabel: 'Top 15%', rankingScore: 94, starRating: 4.7, coords: { lat: -28.1837, lng: 153.5215 } },
+      { key: "st joseph's primary school tweed heads", sector: 'Catholic', sectorGroup: 'catholic', rating: 'Above Average', rankLabel: 'Above Average', rankingScore: 79, starRating: 4.1, coords: { lat: -28.1718, lng: 153.5456 } }
     ],
     secondary: [
-      { key: 'lindisfarne anglican grammar', sector: 'Private', sectorGroup: 'private', rating: 'Top 15% ATAR', rankingScore: 95, coords: { lat: -28.2034, lng: 153.5157 }, eligibilityLabel: 'Application', eligibilityTone: 'open' },
-      { key: 'palm beach currumbin shs', sector: 'Public', sectorGroup: 'public', rating: 'Top 25% ATAR', rankingScore: 87, coords: { lat: -28.1199, lng: 153.4667 } },
-      { key: 'tweed river high school', sector: 'Public', sectorGroup: 'public', rating: 'Above Average', rankingScore: 80, coords: { lat: -28.1778, lng: 153.5386 } },
-      { key: 'st joseph', sector: 'Catholic', sectorGroup: 'private', rating: 'Strong pastoral support', rankingScore: 76, coords: { lat: -28.2124, lng: 153.5369 }, eligibilityLabel: 'Application', eligibilityTone: 'open' }
+      { key: 'lindisfarne anglican grammar school', sector: 'Private', sectorGroup: 'private', rating: 'Top 15%', rankLabel: 'Top 15%', rankingScore: 95, starRating: 4.7, coords: { lat: -28.2034, lng: 153.5157 } },
+      { key: 'pacific coast christian school', sector: 'Private', sectorGroup: 'private', rating: 'Well Regarded', rankLabel: 'Well Regarded', rankingScore: 84, starRating: 4.3, coords: { lat: -28.1813, lng: 153.5352 } },
+      { key: 'tweed river high school', sector: 'Public', sectorGroup: 'public', rating: 'Above Average', rankLabel: 'Above Average', rankingScore: 86, starRating: 4.4, coords: { lat: -28.1778, lng: 153.5386 } },
+      { key: "st joseph's college banora point", sector: 'Catholic', sectorGroup: 'catholic', rating: 'Above Average', rankLabel: 'Above Average', rankingScore: 81, starRating: 4.1, coords: { lat: -28.2124, lng: 153.5369 } }
     ]
   };
 }
 
 function getLifestyleSchoolHints(locationContext) {
   const suburb = normalizeCareerHeroCityKey(locationContext && locationContext.suburb);
-  if (suburb === 'tweed_heads') return buildTweedSchoolHints();
+  if (suburb === 'tweed_heads' || suburb === 'tweed_heads_south') return buildTweedSchoolHints();
   return { primary: [], secondary: [] };
 }
 
@@ -7763,8 +8160,11 @@ function normalizeLifestyleSchoolEntry(source, phase, practiceCoords, hints = {}
     sector: String(pickFirstDefined(source && source.sector, hint && hint.sector) || 'Public'),
     sectorGroup: String(pickFirstDefined(source && source.sectorGroup, hint && hint.sectorGroup) || 'public'),
     distanceKm: distanceKm ? Number(distanceKm.toFixed(1)) : 0,
+    driveTime: formatLifestyleDriveTime(distanceKm || 0),
     rating: String(pickFirstDefined(source && source.rating, source && source.rating_label, hint && hint.rating) || (phase === 'secondary' ? 'ATAR data pending' : 'Primary catchment option')),
+    rankLabel: String(pickFirstDefined(source && source.rankLabel, hint && hint.rankLabel) || ''),
     rankingScore: Number(pickFirstDefined(source && source.rankingScore, source && source.atar_rank, hint && hint.rankingScore) || 0) || 0,
+    starRating: Number(pickFirstDefined(source && source.starRating, hint && hint.starRating) || 0) || 0,
     lat: coords ? coords.lat : null,
     lng: coords ? coords.lng : null,
     eligibilityByListing,
@@ -7782,7 +8182,7 @@ async function buildLifestyleSchools(practiceCoords, housingByMarket, locationCo
 
   const phases = ['primary', 'secondary'];
   const output = {
-    defaultPhase: 'primary',
+    defaultPhase: 'all',
     defaultSector: 'all',
     primary: [],
     secondary: []
@@ -7819,7 +8219,9 @@ async function buildLifestyleSchools(practiceCoords, housingByMarket, locationCo
           existingByName.sector = existingByName.sector || hint.sector;
           existingByName.sectorGroup = existingByName.sectorGroup || hint.sectorGroup;
           existingByName.rating = existingByName.rating && !/pending/i.test(existingByName.rating) ? existingByName.rating : hint.rating;
+          existingByName.rankLabel = existingByName.rankLabel || hint.rankLabel || '';
           existingByName.rankingScore = Number(existingByName.rankingScore || 0) || Number(hint.rankingScore || 0) || 0;
+          existingByName.starRating = Number(existingByName.starRating || 0) || Number(hint.starRating || 0) || 0;
           existingByName.eligibilityLabel = existingByName.eligibilityLabel || hint.eligibilityLabel || '';
           existingByName.eligibilityTone = existingByName.eligibilityTone || hint.eligibilityTone || '';
           return;
@@ -7830,7 +8232,9 @@ async function buildLifestyleSchools(practiceCoords, housingByMarket, locationCo
           sector: hint.sector,
           sectorGroup: hint.sectorGroup,
           rating: hint.rating,
+          rankLabel: hint.rankLabel,
           rankingScore: hint.rankingScore,
+          starRating: hint.starRating,
           latitude: hint.coords && hint.coords.lat,
           longitude: hint.coords && hint.coords.lng,
           eligibilityLabel: hint.eligibilityLabel,
@@ -7901,84 +8305,46 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
   }
 
   const roleMeta = getCareerRoleGpLinkMeta(roleRow);
-  const locationContext = buildLifestyleLocationContext(location, roleMeta, roleRow);
+  const baseLocationContext = buildLifestyleLocationContext(location, roleMeta, roleRow);
+  const locationContext = await enrichLifestyleLocationContextForHomely(baseLocationContext);
   const geocoded = await resolveCareerSuburbCoordinates({
     suburb: roleMeta && roleMeta.suburb ? roleMeta.suburb : locationContext.suburb,
     state: roleRow && roleRow.location_state ? roleRow.location_state : locationContext.state,
     country: roleRow && roleRow.location_country ? roleRow.location_country : locationContext.country
   });
+  const locationSuburbKey = normalizeCareerHeroCityKey(locationContext.suburb);
   const practiceCoords = buildLifestyleCoordinate(geocoded && geocoded.latitude, geocoded && geocoded.longitude)
-    || (normalizeCareerHeroCityKey(locationContext.suburb) === 'tweed_heads' ? { lat: -28.1883, lng: 153.5375 } : null);
-
-  const liveDomainEnabled = isDomainLifestyleConfigured();
-  const allowLifestyleHousingFallback = isDomainLifestyleFallbackEnabled();
-  const fallbackHousing = buildLifestyleHousingFallbackCatalog(locationContext, practiceCoords);
-
-  const [liveRentListings, liveBuyListings] = liveDomainEnabled
-    ? await Promise.all([
-        fetchDomainLifestyleListings(locationContext, practiceCoords, 'rent', household, {
-          radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
-        }),
-        fetchDomainLifestyleListings(locationContext, practiceCoords, 'buy', household, {
-          radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
-        })
-      ])
-    : [[], []];
-  const [agencyRentListings, agencyBuyListings] = liveDomainEnabled
-    ? await Promise.all([
-        liveRentListings.length
-          ? Promise.resolve([])
-          : fetchDomainSelectedAgencyLifestyleListings(locationContext, practiceCoords, 'rent', household, {
-              radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
-            }),
-        liveBuyListings.length
-          ? Promise.resolve([])
-          : fetchDomainSelectedAgencyLifestyleListings(locationContext, practiceCoords, 'buy', household, {
-              radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
-            })
-      ])
-    : [[], []];
-
-  function selectLifestyleHousing(liveRows, agencyRows, fallbackRows, market) {
-    const filteredLive = (Array.isArray(liveRows) ? liveRows : [])
-      .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
-      .slice(0, 18);
-    if (filteredLive.length) return filteredLive;
-    const filteredAgency = (Array.isArray(agencyRows) ? agencyRows : [])
-      .filter((item) => Number(item && item.bedrooms || 0) >= household.recommendedBedrooms)
-      .slice(0, 18);
-    if (filteredAgency.length) return filteredAgency;
-    if (!allowLifestyleHousingFallback) return [];
-    return buildLifestyleFallbackListings(
-      fallbackRows,
-      practiceCoords,
-      market,
-      locationContext,
-      household,
-      { radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM }
-    );
-  }
+    || ((locationSuburbKey === 'tweed_heads' || locationSuburbKey === 'tweed_heads_south') ? { lat: -28.1883, lng: 153.5375 } : null);
+  const [liveRentListings, liveBuyListings] = await Promise.all([
+    fetchHomelyLifestyleListings(locationContext, practiceCoords, 'rent', household, {
+      radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
+    }),
+    fetchHomelyLifestyleListings(locationContext, practiceCoords, 'buy', household, {
+      radiusKm: DOMAIN_LIFESTYLE_MAX_RADIUS_KM
+    })
+  ]);
 
   const housingByMarket = {
-    rent: selectLifestyleHousing(liveRentListings, agencyRentListings, fallbackHousing.rent, 'rent'),
-    buy: selectLifestyleHousing(liveBuyListings, agencyBuyListings, fallbackHousing.buy, 'buy')
+    rent: liveRentListings,
+    buy: liveBuyListings
   };
   const housingSources = {
-    rent: liveRentListings.length ? 'domain' : (agencyRentListings.length ? 'selected_agencies' : (allowLifestyleHousingFallback ? 'fallback' : 'none')),
-    buy: liveBuyListings.length ? 'domain' : (agencyBuyListings.length ? 'selected_agencies' : (allowLifestyleHousingFallback ? 'fallback' : 'none'))
+    rent: liveRentListings.length ? 'homely' : 'none',
+    buy: liveBuyListings.length ? 'homely' : 'none'
   };
 
   const schools = practiceCoords
     ? await buildLifestyleSchools(practiceCoords, housingByMarket, locationContext)
-    : { defaultPhase: 'primary', defaultSector: 'all', primary: [], secondary: [] };
+    : { defaultPhase: 'all', defaultSector: 'all', primary: [], secondary: [] };
   const flights = practiceCoords ? buildLifestyleFlights(practiceCoords, locationContext) : [];
 
   const payload = hydrateCareerLifestylePayload({
     key: normalizeCareerHeroCityKey(`${locationContext.suburb}-${locationContext.state}`) || 'practice_lifestyle',
-    heading: 'Life Around This Practice',
-    intro: `Curated housing, schooling and travel planning for ${household.partySummary || 'your move'}.`,
+    practiceLabel: practiceName || locationContext.label || location || '',
+    heading: 'Relocation Explorer',
+    intro: `Explore live homes and nearby schools around ${practiceName || 'the practice'} before you relocate.`,
     title: locationContext.label || location || practiceName,
-    subtitle: 'Live map context with homes, schools and travel around the practice',
+    subtitle: `Live homes, schools and travel around ${practiceName || 'the practice'}`,
     map: {
       center: practiceCoords,
       zoom: 12,
@@ -7989,12 +8355,14 @@ async function resolvePracticeLifestylePayload({ applicationId, practiceName, lo
       defaultRadiusKm: 5,
       recommendedBedrooms: household.recommendedBedrooms,
       partySummary: household.partySummary,
-      liveSource: housingSources.rent === 'domain' || housingSources.buy === 'domain' ? 'domain' : 'selected_agencies',
-      liveEnabled: liveDomainEnabled,
-      fallbackEnabled: allowLifestyleHousingFallback,
-      selectedAgencyBrands: DOMAIN_LIFESTYLE_AGENCY_BRANDS,
+      liveSource: 'homely',
+      liveEnabled: true,
+      fallbackEnabled: false,
+      selectedAgencyBrands: [],
       searchContext: locationContext,
       sources: housingSources,
+      viewAllRentUrl: buildHomelyLifestyleSearchUrl(locationContext, 'rent'),
+      viewAllBuyUrl: buildHomelyLifestyleSearchUrl(locationContext, 'buy'),
       rent: housingByMarket.rent,
       buy: housingByMarket.buy
     },
@@ -9593,7 +9961,7 @@ async function handleApi(req, res, pathname) {
     }
 
     const market = body && body.market === 'buy' ? 'buy' : 'rent';
-    const locationContext = normalizeLifestyleSearchLocationContext(body && body.locationContext);
+    const locationContext = await enrichLifestyleLocationContextForHomely(body && body.locationContext);
     if (!locationContext.label && !locationContext.suburb && !locationContext.state && !locationContext.postcode) {
       sendJson(res, 400, { ok: false, message: 'Missing housing search location.' });
       return;
@@ -9615,19 +9983,17 @@ async function handleApi(req, res, pathname) {
       priceMax: body && body.priceMax,
       sortOrder: body && body.sortOrder
     };
-    const fallbackCatalog = buildLifestyleHousingFallbackCatalog(locationContext, practiceCoords);
-    const listings = buildLifestyleFallbackListings(
-      fallbackCatalog[market],
+    const listings = await fetchHomelyLifestyleListings(
+      locationContext,
       practiceCoords,
       market,
-      locationContext,
       household,
       searchOptions
     );
-    const source = 'fallback';
-    const liveUsed = false;
-    const liveEnabled = false;
-    const fallbackEnabled = true;
+    const source = listings.length ? 'homely' : 'none';
+    const liveUsed = listings.length > 0;
+    const liveEnabled = true;
+    const fallbackEnabled = false;
 
     sendJson(res, 200, {
       ok: true,
@@ -12771,7 +13137,24 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const application = Array.isArray(result.data) && result.data.length > 0 ? result.data[0] : null;
-    sendJson(res, 200, { ok: true, application });
+
+    // Fetch related data if case exists
+    let documents = [];
+    let updates = [];
+    let timelineEvents = [];
+    if (application) {
+      const caseId = encodeURIComponent(application.id);
+      const [docsRes, updatesRes, eventsRes] = await Promise.all([
+        supabaseDbRequest('visa_documents', `select=*&visa_application_id=eq.${caseId}&order=uploaded_at.desc`),
+        supabaseDbRequest('visa_updates', `select=*&visa_case_id=eq.${caseId}&visibility=eq.gp&order=created_at.desc`),
+        supabaseDbRequest('visa_timeline_events', `select=*&visa_case_id=eq.${caseId}&visible_to_gp=eq.true&order=created_at.desc`)
+      ]);
+      if (docsRes.ok && Array.isArray(docsRes.data)) documents = docsRes.data;
+      if (updatesRes.ok && Array.isArray(updatesRes.data)) updates = updatesRes.data;
+      if (eventsRes.ok && Array.isArray(eventsRes.data)) timelineEvents = eventsRes.data;
+    }
+
+    sendJson(res, 200, { ok: true, application, documents, updates, timelineEvents });
     return;
   }
 
@@ -12810,6 +13193,21 @@ Return ONLY valid JSON with no markdown formatting:
     }
     if (sponsorStatus !== undefined) updatePayload.sponsor_status = sponsorStatus;
 
+    // V2 case management fields
+    const v2StringFields = {
+      visa_type: 'visaType', responsible_party: 'responsibleParty',
+      estimated_timeline: 'estimatedTimeline', current_action_title: 'currentActionTitle',
+      current_action_description: 'currentActionDescription', current_action_owner: 'currentActionOwner',
+      sponsor_name: 'sponsorName', sponsor_contact: 'sponsorContact',
+      reference_number: 'referenceNumber', status_message: 'statusMessage'
+    };
+    for (const [dbCol, bodyKey] of Object.entries(v2StringFields)) {
+      if (body && typeof body[bodyKey] === 'string') updatePayload[dbCol] = body[bodyKey].trim().slice(0, 500);
+    }
+    if (body && body.currentActionDueDate) {
+      updatePayload.current_action_due_date = typeof body.currentActionDueDate === 'string' ? body.currentActionDueDate.slice(0, 10) : null;
+    }
+
     // If we have an applicationId, update directly
     let filterQuery;
     if (applicationId) {
@@ -12839,7 +13237,18 @@ Return ONLY valid JSON with no markdown formatting:
           notes: noteText ? [{ text: noteText, author: adminCtx.email, ts: new Date().toISOString() }] : [],
           nomination_date: body && body.nominationDate || null,
           lodgement_date: body && body.lodgementDate || null,
-          grant_date: body && body.grantDate || null
+          grant_date: body && body.grantDate || null,
+          visa_type: body && typeof body.visaType === 'string' ? body.visaType.trim().slice(0, 200) : null,
+          responsible_party: body && typeof body.responsibleParty === 'string' ? body.responsibleParty.trim().slice(0, 200) : null,
+          estimated_timeline: body && typeof body.estimatedTimeline === 'string' ? body.estimatedTimeline.trim().slice(0, 200) : null,
+          current_action_title: body && typeof body.currentActionTitle === 'string' ? body.currentActionTitle.trim().slice(0, 500) : null,
+          current_action_description: body && typeof body.currentActionDescription === 'string' ? body.currentActionDescription.trim().slice(0, 2000) : null,
+          current_action_owner: body && typeof body.currentActionOwner === 'string' ? body.currentActionOwner.trim().slice(0, 200) : null,
+          current_action_due_date: body && typeof body.currentActionDueDate === 'string' ? body.currentActionDueDate.slice(0, 10) : null,
+          sponsor_name: body && typeof body.sponsorName === 'string' ? body.sponsorName.trim().slice(0, 200) : null,
+          sponsor_contact: body && typeof body.sponsorContact === 'string' ? body.sponsorContact.trim().slice(0, 200) : null,
+          reference_number: body && typeof body.referenceNumber === 'string' ? body.referenceNumber.trim().slice(0, 100) : null,
+          status_message: body && typeof body.statusMessage === 'string' ? body.statusMessage.trim().slice(0, 500) : null
         };
         const createResult = await supabaseDbRequest('visa_applications', '', {
           method: 'POST',
@@ -12943,7 +13352,10 @@ Return ONLY valid JSON with no markdown formatting:
         visa_application_id: visaApplicationId,
         document_type: documentType,
         file_path: storagePath,
-        verified: false
+        verified: false,
+        status: 'uploaded',
+        original_file_name: fileName,
+        uploaded_by_user_id: userId
       }]
     });
     if (!docResult.ok) {
@@ -12952,6 +13364,13 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     const doc = Array.isArray(docResult.data) && docResult.data.length > 0 ? docResult.data[0] : null;
+
+    // Auto-create timeline event for the upload
+    await supabaseDbRequest('visa_timeline_events', '', {
+      method: 'POST',
+      body: [{ visa_case_id: visaApplicationId, event_title: documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' uploaded', visible_to_gp: true, created_by: 'system' }]
+    });
+
     sendJson(res, 201, { ok: true, document: doc });
     return;
   }
@@ -13016,6 +13435,161 @@ Return ONLY valid JSON with no markdown formatting:
     });
 
     sendJson(res, 200, { ok: true, timeline });
+    return;
+  }
+
+  // ── Visa Updates (GP reads, admin writes) ──
+  if (pathname === '/api/visa/updates' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const caseId = parsedUrl.searchParams.get('caseId');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing caseId.' }); return; }
+    // Verify ownership
+    const own = await supabaseDbRequest('visa_applications', `select=id&id=eq.${encodeURIComponent(caseId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    if (!own.ok || !Array.isArray(own.data) || own.data.length === 0) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
+    const updatesRes = await supabaseDbRequest('visa_updates', `select=*&visa_case_id=eq.${encodeURIComponent(caseId)}&visibility=eq.gp&order=created_at.desc`);
+    sendJson(res, 200, { ok: true, updates: updatesRes.ok && Array.isArray(updatesRes.data) ? updatesRes.data : [] });
+    return;
+  }
+
+  if (pathname === '/api/visa/updates' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx2 = requireAdminSession(req, res);
+    if (!adminCtx2) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const caseId = String(body && body.caseId || '').trim();
+    const noteBody = String(body && body.body || '').trim().slice(0, 4000);
+    const visibility = body && body.visibility === 'internal' ? 'internal' : 'gp';
+    if (!caseId || !noteBody) { sendJson(res, 400, { ok: false, message: 'Missing caseId or body.' }); return; }
+    const insertRes = await supabaseDbRequest('visa_updates', '', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: [{ visa_case_id: caseId, body: noteBody, visibility, created_by: adminCtx2.email }]
+    });
+    if (!insertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to create update.' }); return; }
+    // Auto-create timeline event for GP-visible updates
+    if (visibility === 'gp') {
+      await supabaseDbRequest('visa_timeline_events', '', {
+        method: 'POST',
+        body: [{ visa_case_id: caseId, event_title: 'New update from GP Link team', visible_to_gp: true, created_by: adminCtx2.email }]
+      });
+    }
+    const update = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
+    sendJson(res, 201, { ok: true, update });
+    return;
+  }
+
+  // ── Visa Timeline Events (admin creates) ──
+  if (pathname === '/api/visa/events' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx3 = requireAdminSession(req, res);
+    if (!adminCtx3) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const caseId = String(body && body.caseId || '').trim();
+    const eventTitle = String(body && body.eventTitle || '').trim().slice(0, 500);
+    const eventDescription = body && typeof body.eventDescription === 'string' ? body.eventDescription.trim().slice(0, 2000) : null;
+    const visibleToGp = body && body.visibleToGp === false ? false : true;
+    if (!caseId || !eventTitle) { sendJson(res, 400, { ok: false, message: 'Missing caseId or eventTitle.' }); return; }
+    const insertRes = await supabaseDbRequest('visa_timeline_events', '', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: [{ visa_case_id: caseId, event_title: eventTitle, event_description: eventDescription, visible_to_gp: visibleToGp, created_by: adminCtx3.email }]
+    });
+    if (!insertRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to create event.' }); return; }
+    const evt = Array.isArray(insertRes.data) && insertRes.data.length > 0 ? insertRes.data[0] : null;
+    sendJson(res, 201, { ok: true, event: evt });
+    return;
+  }
+
+  // ── Visa Document Review (admin approves/rejects) ──
+  if (pathname === '/api/visa/documents/review' && req.method === 'POST') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx4 = requireAdminSession(req, res);
+    if (!adminCtx4) return;
+    let body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const documentId = String(body && body.documentId || '').trim();
+    const status = String(body && body.status || '').trim();
+    if (!documentId || !['approved', 'rejected', 'under_review'].includes(status)) {
+      sendJson(res, 400, { ok: false, message: 'Missing documentId or invalid status (approved|rejected|under_review).' }); return;
+    }
+    const payload = { status, verified: status === 'approved', reviewed_by: adminCtx4.email, reviewed_at: new Date().toISOString() };
+    if (status === 'rejected' && body && typeof body.rejectionReason === 'string') {
+      payload.rejection_reason = body.rejectionReason.trim().slice(0, 1000);
+    }
+    if (status !== 'rejected') payload.rejection_reason = null;
+    const updateRes = await supabaseDbRequest('visa_documents', `id=eq.${encodeURIComponent(documentId)}`, {
+      method: 'PATCH', headers: { Prefer: 'return=representation' }, body: payload
+    });
+    if (!updateRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to review document.' }); return; }
+    const doc = Array.isArray(updateRes.data) && updateRes.data.length > 0 ? updateRes.data[0] : null;
+    // Auto-create timeline event
+    if (doc && doc.visa_application_id) {
+      const docLabel = (doc.document_type || 'Document').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      await supabaseDbRequest('visa_timeline_events', '', {
+        method: 'POST',
+        body: [{ visa_case_id: doc.visa_application_id, event_title: docLabel + ' ' + status, visible_to_gp: true, created_by: adminCtx4.email }]
+      });
+    }
+    sendJson(res, 200, { ok: true, document: doc });
+    return;
+  }
+
+  // ── Admin: List All Visa Cases ──
+  if (pathname === '/api/admin/visa/cases' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx5 = requireAdminSession(req, res);
+    if (!adminCtx5) return;
+    const casesRes = await supabaseDbRequest('visa_applications', 'select=*&order=updated_at.desc&limit=100');
+    if (!casesRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to fetch visa cases.' }); return; }
+    const cases = Array.isArray(casesRes.data) ? casesRes.data : [];
+    // Enrich with user profile names
+    const userIds = [...new Set(cases.map(c => c.user_id).filter(Boolean))];
+    let profileMap = {};
+    if (userIds.length > 0) {
+      const profilesRes = await supabaseDbRequest('user_profiles', `select=user_id,first_name,last_name,email&user_id=in.(${userIds.map(encodeURIComponent).join(',')})`);
+      if (profilesRes.ok && Array.isArray(profilesRes.data)) {
+        for (const p of profilesRes.data) profileMap[p.user_id] = p;
+      }
+    }
+    const enriched = cases.map(c => ({ ...c, profile: profileMap[c.user_id] || null }));
+    sendJson(res, 200, { ok: true, cases: enriched });
+    return;
+  }
+
+  // ── Admin: Get Full Visa Case Detail ──
+  if (pathname === '/api/admin/visa/case' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx6 = requireAdminSession(req, res);
+    if (!adminCtx6) return;
+    const caseId = parsedUrl.searchParams.get('id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    const caseIdEnc = encodeURIComponent(caseId);
+    const [caseRes, docsRes, updatesRes, eventsRes] = await Promise.all([
+      supabaseDbRequest('visa_applications', `select=*&id=eq.${caseIdEnc}&limit=1`),
+      supabaseDbRequest('visa_documents', `select=*&visa_application_id=eq.${caseIdEnc}&order=uploaded_at.desc`),
+      supabaseDbRequest('visa_updates', `select=*&visa_case_id=eq.${caseIdEnc}&order=created_at.desc`),
+      supabaseDbRequest('visa_timeline_events', `select=*&visa_case_id=eq.${caseIdEnc}&order=created_at.desc`)
+    ]);
+    const application = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data.length > 0 ? caseRes.data[0] : null;
+    if (!application) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    // Get profile
+    let profile = null;
+    if (application.user_id) {
+      const profRes = await supabaseDbRequest('user_profiles', `select=*&user_id=eq.${encodeURIComponent(application.user_id)}&limit=1`);
+      if (profRes.ok && Array.isArray(profRes.data) && profRes.data.length > 0) profile = profRes.data[0];
+    }
+    sendJson(res, 200, {
+      ok: true, application, profile,
+      documents: docsRes.ok && Array.isArray(docsRes.data) ? docsRes.data : [],
+      updates: updatesRes.ok && Array.isArray(updatesRes.data) ? updatesRes.data : [],
+      timelineEvents: eventsRes.ok && Array.isArray(eventsRes.data) ? eventsRes.data : []
+    });
     return;
   }
 
@@ -13562,7 +14136,7 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html') && !isAllowedAdminHost(req)) {
+  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html' || pathname === '/pages/admin-visa.html') && !isAllowedAdminHost(req)) {
     res.writeHead(404);
     res.end('Not found');
     return;
