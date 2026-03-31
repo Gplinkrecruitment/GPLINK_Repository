@@ -898,6 +898,19 @@ function normalizeNameParts(name) {
     .filter((part) => !NAME_NOISE_PARTS.has(part));
 }
 
+function getFullNameFromProfileLike(source) {
+  const profile = source && typeof source === 'object' ? source : {};
+  if (typeof profile.full_name === 'string' && profile.full_name.trim()) return profile.full_name.trim();
+  if (typeof profile.name === 'string' && profile.name.trim()) return profile.name.trim();
+  const first = String(profile.firstName || profile.first_name || '').trim();
+  const last = String(profile.lastName || profile.last_name || '').trim();
+  return `${first} ${last}`.trim();
+}
+
+function hasUsableFullName(name) {
+  return normalizeNameParts(name).length >= 2;
+}
+
 function middleNamesCompatible(partsA, partsB) {
   if (!partsA.length || !partsB.length) return true;
   const shorter = partsA.length <= partsB.length ? partsA : partsB;
@@ -937,6 +950,80 @@ function isConfirmedNameMatch(match) {
   return match === 'exact' || match === 'fuzzy';
 }
 
+function pushVerificationIssue(verification, message) {
+  const clean = sanitizeUserString(message, 400);
+  if (!clean) return;
+  verification.issues = Array.isArray(verification.issues) ? verification.issues : [];
+  if (!verification.issues.includes(clean)) verification.issues.push(clean);
+}
+
+async function resolveVerificationProfileName(session, suppliedProfileName) {
+  const directName = sanitizeUserString(suppliedProfileName, 200);
+  if (hasUsableFullName(directName)) return directName;
+
+  const sessionName = sanitizeUserString(getFullNameFromProfileLike(session && session.userProfile), 200);
+  if (hasUsableFullName(sessionName)) return sessionName;
+
+  const email = getSessionEmail(session);
+  if (!email) return '';
+
+  if (isSupabaseDbConfigured()) {
+    try {
+      const remoteProfile = await getSupabaseUserProfile(email, getSessionSupabaseUserId(session));
+      const remoteName = sanitizeUserString(getFullNameFromProfileLike(remoteProfile), 200);
+      if (hasUsableFullName(remoteName)) return remoteName;
+    } catch (err) {
+      /* non-critical — fall through to local fallback */
+    }
+  }
+
+  const fallbackProfile = buildFallbackApiProfile(email, session && session.userProfile);
+  const fallbackName = sanitizeUserString(getFullNameFromProfileLike(fallbackProfile), 200);
+  return hasUsableFullName(fallbackName) ? fallbackName : '';
+}
+
+function applyQualificationNameMatchPolicy(verification, profileName, verifiedNames) {
+  const normalizedProfileName = hasUsableFullName(profileName) ? profileName : '';
+  const normalizedVerifiedNames = Array.isArray(verifiedNames)
+    ? verifiedNames.filter((name) => hasUsableFullName(name))
+    : [];
+
+  const nameCheck = crossCheckDocumentName(
+    verification && verification.nameFound,
+    normalizedProfileName,
+    normalizedVerifiedNames
+  );
+
+  verification.nameMatch = nameCheck.match;
+  verification.nameMatchedAgainst = nameCheck.matchedAgainst;
+
+  if (!normalizedProfileName && verification && verification.verified) {
+    verification.verified = false;
+    pushVerificationIssue(
+      verification,
+      'We could not compare the name on this document because your account does not have a full first and last name yet. Please update your account name and try again.'
+    );
+    return;
+  }
+
+  if (nameCheck.match === 'mismatch') {
+    verification.verified = false;
+    pushVerificationIssue(
+      verification,
+      'The name on this document does not match your account name. Please upload a document with the name matching your profile.'
+    );
+    return;
+  }
+
+  if (normalizedProfileName && !isConfirmedNameMatch(nameCheck.match)) {
+    verification.verified = false;
+    pushVerificationIssue(
+      verification,
+      'We could not confidently match the full name on this document to your account. Please upload a clearer document showing the full name.'
+    );
+  }
+}
+
 /**
  * Extract names from previously verified documents in a user's onboarding state.
  * Returns an array of non-empty name strings found on verified/verified_name_pending docs.
@@ -969,9 +1056,8 @@ function crossCheckDocumentName(docName, profileName, verifiedNames) {
   // Check against profile name first
   if (profileName) {
     const profileMatch = matchNames(docName, profileName);
-    if (profileMatch !== 'mismatch') {
-      return { match: profileMatch, matchedAgainst: 'profile' };
-    }
+    if (profileMatch === 'mismatch') return { match: 'mismatch', matchedAgainst: 'profile' };
+    if (profileMatch !== 'unknown') return { match: profileMatch, matchedAgainst: 'profile' };
   }
 
   // Check against previously verified document names
@@ -10355,11 +10441,7 @@ async function handleApi(req, res, pathname) {
     const { imageBase64, mimeType } = body || {};
     const expectedCountry = sanitizeUserString(body.expectedCountry, 20);
     const documentType = sanitizeUserString(body.documentType, 200);
-    let profileName = sanitizeUserString(body.profileName, 200);
-    // Fallback: derive profile name from session token if not provided by client
-    if (!profileName && session && session.userProfile) {
-      profileName = ((session.userProfile.firstName || '') + ' ' + (session.userProfile.lastName || '')).trim();
-    }
+    const profileName = await resolveVerificationProfileName(session, body.profileName);
     if (!imageBase64 || !documentType || !expectedCountry) {
       sendJson(res, 400, { ok: false, message: 'Missing required fields: imageBase64, documentType, expectedCountry.' });
       return;
@@ -10505,19 +10587,7 @@ Verify this document.`;
         } catch (e) { /* non-critical — proceed with profile name only */ }
       }
 
-      const hasReferenceNames = !!profileName || verifiedNames.length > 0;
-      const nameCheck = crossCheckDocumentName(verification.nameFound, profileName, verifiedNames);
-      verification.nameMatch = nameCheck.match;
-      verification.nameMatchedAgainst = nameCheck.matchedAgainst;
-      if (nameCheck.match === 'mismatch') {
-        verification.verified = false;
-        verification.issues = verification.issues || [];
-        verification.issues.push('The name on this document does not match your account name. Please upload a document with the name matching your profile.');
-      } else if (hasReferenceNames && !isConfirmedNameMatch(nameCheck.match)) {
-        verification.verified = false;
-        verification.issues = verification.issues || [];
-        verification.issues.push('We could not confidently match the full name on this document to your account. Please upload a clearer document showing the full name.');
-      }
+      applyQualificationNameMatchPolicy(verification, profileName, verifiedNames);
 
       sendJson(res, 200, {
         ok: true,
@@ -10936,10 +11006,7 @@ Classify this document.`;
 
     const { imageBase64, mimeType } = body || {};
     const qualificationName = sanitizeUserString(body.qualificationName, 200);
-    let profileName = sanitizeUserString(body.profileName, 200);
-    if (!profileName && session && session.userProfile) {
-      profileName = ((session.userProfile.firstName || '') + ' ' + (session.userProfile.lastName || '')).trim();
-    }
+    const profileName = await resolveVerificationProfileName(session, body.profileName);
     if (!imageBase64) {
       sendJson(res, 400, { ok: false, message: 'Missing image data.' });
       return;
@@ -13617,11 +13684,13 @@ if (process.env.VERCEL) {
 
 module.exports.createServer = createServer;
 module.exports.__testUtils = {
+  applyQualificationNameMatchPolicy,
   buildDomainAgencyBrandSearchQueries,
   buildDomainResidentialSearchPayload,
   collectDomainResidentialSearchListings,
   extractDomainListingCoordinates,
   crossCheckDocumentName,
+  hasUsableFullName,
   matchNames,
   matchesDomainAgencyListingMarket,
   normalizeDomainAgencyListing,

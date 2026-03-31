@@ -163,7 +163,7 @@
     if (window.gpSessionProfile) {
       if (window.gpSessionProfile.full_name) return window.gpSessionProfile.full_name;
       if (window.gpSessionProfile.name) return window.gpSessionProfile.name;
-      var fn = (window.gpSessionProfile.firstName || "") + " " + (window.gpSessionProfile.lastName || "");
+      var fn = (window.gpSessionProfile.firstName || window.gpSessionProfile.first_name || "") + " " + (window.gpSessionProfile.lastName || window.gpSessionProfile.last_name || "");
       if (fn.trim()) return fn.trim();
     }
     return "";

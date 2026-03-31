@@ -133,13 +133,14 @@
   }
 
   function humanizeScanIssues(issues, options) {
-    var list = Array.isArray(issues) ? issues : [issues];
+    var opts = options || {};
+    var list = Array.isArray(issues) ? issues : (issues ? [issues] : []);
     var out = [];
     for (var i = 0; i < list.length; i++) {
-      var message = humanizeScanIssue(list[i], options);
+      var message = humanizeScanIssue(list[i], opts);
       if (message && out.indexOf(message) === -1) out.push(message);
     }
-    if (!out.length) {
+    if (!out.length && !opts.allowEmpty) {
       out.push("We could not complete the scan. Please try again with a clear image of the full document.");
     }
     return out;
@@ -619,11 +620,6 @@
     if (isImage) {
       // Use the Claude AI verification endpoint (standard qualification scan)
       fileToBase64(file).then(function (base64) {
-        var profileName = "";
-        if (window.gpSessionProfile) {
-          profileName = window.gpSessionProfile.full_name || window.gpSessionProfile.name || ((window.gpSessionProfile.firstName || "") + " " + (window.gpSessionProfile.lastName || "")).trim() || "";
-        }
-
         return fetch("/api/ai/verify-qualification", {
           method: "POST",
           credentials: "same-origin",
@@ -633,7 +629,7 @@
             mimeType: file.type || "application/octet-stream",
             documentType: "Unknown - identify this document",
             expectedCountry: "any",
-            profileName: profileName
+            profileName: getProfileName()
           })
         });
       }).then(function (res) {
@@ -641,7 +637,7 @@
       }).then(function (data) {
         if (data.ok && data.verification) {
           var v = data.verification;
-          var friendlyIssues = humanizeScanIssues(v.issues, { documentTitle: v.documentType || "Document", mode: "qualification" });
+          var friendlyIssues = humanizeScanIssues(v.issues, { documentTitle: v.documentType || "Document", mode: "qualification", allowEmpty: true });
           v.issues = friendlyIssues;
           var docType = v.documentType || "Document";
           var nameFound = v.nameFound || "";
@@ -703,11 +699,6 @@
     } else {
       // For PDFs/non-images, use the same AI verification endpoint (supports PDFs)
       fileToBase64(file).then(function (base64) {
-        var profileName = "";
-        if (window.gpSessionProfile) {
-          profileName = window.gpSessionProfile.full_name || window.gpSessionProfile.name || ((window.gpSessionProfile.firstName || "") + " " + (window.gpSessionProfile.lastName || "")).trim() || "";
-        }
-
         return fetch("/api/ai/verify-qualification", {
           method: "POST",
           credentials: "same-origin",
@@ -717,7 +708,7 @@
             mimeType: file.type || "application/pdf",
             documentType: "Unknown - identify this document",
             expectedCountry: "any",
-            profileName: profileName
+            profileName: getProfileName()
           })
         });
       }).then(function (res) {
@@ -725,7 +716,7 @@
       }).then(function (data) {
         if (data.ok && data.verification) {
           var v = data.verification;
-          var friendlyIssues = humanizeScanIssues(v.issues, { documentTitle: v.documentType || "Document", mode: "qualification" });
+          var friendlyIssues = humanizeScanIssues(v.issues, { documentTitle: v.documentType || "Document", mode: "qualification", allowEmpty: true });
           v.issues = friendlyIssues;
           var docType = v.documentType || "Document";
           var nameFound = v.nameFound || "";
