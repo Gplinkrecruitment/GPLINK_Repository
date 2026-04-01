@@ -21,327 +21,160 @@
       --radius-md: 10px;
       --shadow: 0 20px 36px -28px rgba(15, 23, 42, 0.5);
     }
-
     * { box-sizing: border-box; margin: 0; }
     body {
       font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text);
-      background: var(--bg);
-      height: 100vh;
-      overflow: hidden;
+      color: var(--text); background: var(--bg);
+      height: 100vh; overflow: hidden;
     }
 
     /* ── Top Bar ── */
     .top-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 10px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; padding: 10px 20px;
       background: linear-gradient(120deg, var(--purple-1), var(--purple-2));
-      color: #fff;
-      flex-wrap: wrap;
+      color: #fff; flex-wrap: wrap;
     }
-    .top-bar-left {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-    .top-bar h1 {
-      font-size: 18px;
-      font-weight: 760;
-      letter-spacing: -0.02em;
-    }
-    .top-bar-chips {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
+    .top-bar-left { display: flex; align-items: center; gap: 14px; }
+    .top-bar h1 { font-size: 18px; font-weight: 760; letter-spacing: -0.02em; }
+    .top-bar-chips { display: flex; gap: 6px; flex-wrap: wrap; }
     .top-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 700;
-      background: rgba(255,255,255,0.16);
-      border: 1px solid rgba(255,255,255,0.24);
-      color: #fff;
-      cursor: default;
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 11px; font-weight: 700;
+      background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.24); color: #fff;
     }
-    .top-chip .chip-num {
-      font-weight: 900;
-      font-size: 12px;
-    }
+    .top-chip .chip-num { font-weight: 900; font-size: 12px; }
     .top-chip.urgent { background: rgba(220,38,38,0.35); border-color: rgba(220,38,38,0.5); }
-    .top-bar-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .top-bar-meta {
-      font-size: 11px;
-      opacity: 0.85;
-      font-weight: 600;
-    }
+    .top-bar-right { display: flex; align-items: center; gap: 10px; }
+    .top-bar-meta { font-size: 11px; opacity: 0.85; font-weight: 600; }
     .btn-signout {
-      border: 1px solid rgba(255,255,255,0.5);
-      background: rgba(255,255,255,0.14);
-      color: #fff;
-      padding: 6px 14px;
-      border-radius: 8px;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.5); background: rgba(255,255,255,0.14);
+      color: #fff; padding: 6px 14px; border-radius: 8px;
+      font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
     }
     .btn-signout:hover { background: rgba(255,255,255,0.24); }
 
     /* ── Main Layout ── */
     .main-layout {
-      display: grid;
-      grid-template-columns: 340px 1fr;
-      height: calc(100vh - 52px);
-      overflow: hidden;
+      display: grid; grid-template-columns: 320px 1fr;
+      height: calc(100vh - 52px); overflow: hidden;
     }
 
-    /* ── Left Panel: GP List ── */
+    /* ── Left Panel ── */
     .gp-list-panel {
-      border-right: 1px solid var(--line);
-      background: #fff;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      border-right: 1px solid var(--line); background: #fff;
+      display: flex; flex-direction: column; overflow: hidden;
     }
-    .gp-search-bar {
-      padding: 12px;
-      border-bottom: 1px solid var(--line);
-      display: grid;
-      gap: 8px;
-    }
+    .gp-search-bar { padding: 10px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
     .gp-search-input {
-      width: 100%;
-      border: 1px solid #cdd7e6;
-      border-radius: 8px;
-      padding: 9px 10px;
-      font: inherit;
-      font-size: 13px;
-      background: #f8fafc;
+      width: 100%; border: 1px solid #cdd7e6; border-radius: 8px;
+      padding: 8px 10px; font: inherit; font-size: 13px; background: #f8fafc;
     }
     .gp-search-input:focus { outline: 2px solid var(--purple-1); outline-offset: -1px; border-color: var(--purple-1); }
-    .gp-filters {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-    }
+    .gp-filters { display: flex; gap: 4px; flex-wrap: wrap; }
     .gp-filter-btn {
-      border: 1px solid #dce4f0;
-      background: #f8fafc;
-      color: #475569;
-      padding: 4px 10px;
-      border-radius: 6px;
-      font: inherit;
-      font-size: 11px;
-      font-weight: 700;
-      cursor: pointer;
+      border: 1px solid #dce4f0; background: #f8fafc; color: #475569;
+      padding: 3px 8px; border-radius: 6px; font: inherit; font-size: 10px; font-weight: 700; cursor: pointer;
     }
-    .gp-filter-btn.active {
-      background: var(--purple-1);
-      border-color: var(--purple-1);
-      color: #fff;
-    }
-    .gp-filter-btn .filter-count {
-      margin-left: 3px;
-      font-weight: 900;
-    }
-    .gp-list-scroll {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px;
-    }
+    .gp-filter-btn.active { background: var(--purple-1); border-color: var(--purple-1); color: #fff; }
+    .gp-filter-btn .fc { margin-left: 2px; font-weight: 900; }
+    .gp-list-scroll { flex: 1; overflow-y: auto; padding: 6px; }
 
     /* ── GP Card ── */
     .gp-card {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 10px 12px;
-      margin-bottom: 6px;
-      cursor: pointer;
-      transition: border-color .12s, background .12s;
-      background: #fff;
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 9px 10px; margin-bottom: 5px; cursor: pointer;
+      transition: border-color .12s, background .12s; background: #fff;
     }
     .gp-card:hover { border-color: #b4c3e0; background: #fafbff; }
-    .gp-card.selected {
-      border-color: var(--purple-1);
-      background: #f5f0ff;
-      box-shadow: 0 0 0 2px rgba(124,58,237,0.12);
-    }
-    .gp-card-top {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    .gp-card.selected { border-color: var(--purple-1); background: #f5f0ff; box-shadow: 0 0 0 2px rgba(124,58,237,0.12); }
+    .gp-card-top { display: flex; align-items: center; gap: 8px; }
     .gp-avatar {
-      width: 36px;
-      height: 36px;
-      border-radius: 999px;
-      background: linear-gradient(135deg, #e8e0ff, #d4c8ff);
-      color: var(--purple-1);
-      display: grid;
-      place-items: center;
-      font-size: 14px;
-      font-weight: 800;
-      flex-shrink: 0;
+      width: 32px; height: 32px; border-radius: 999px;
+      background: linear-gradient(135deg, #e8e0ff, #d4c8ff); color: var(--purple-1);
+      display: grid; place-items: center; font-size: 12px; font-weight: 800; flex-shrink: 0;
     }
     .gp-card-info { flex: 1; min-width: 0; }
-    .gp-card-name {
-      font-size: 13px;
-      font-weight: 720;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .gp-card-name { font-size: 12px; font-weight: 720; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gp-card-sub { font-size: 10px; color: var(--muted); font-weight: 560; }
+    .gp-card-journey { display: flex; align-items: center; gap: 2px; margin-top: 6px; }
+    .jdot { width: 7px; height: 7px; border-radius: 999px; background: #e2e8f0; flex-shrink: 0; }
+    .jdot.done { background: var(--green); }
+    .jdot.current { background: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
+    .jdot.locked { background: #e2e8f0; opacity: 0.4; }
+    .jline { flex: 1; height: 2px; background: #e2e8f0; min-width: 3px; }
+    .jline.done { background: var(--green); }
+    .gp-card-action {
+      margin-top: 5px; font-size: 10px; font-weight: 650;
+      color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .gp-card-sub {
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 560;
-      margin-top: 1px;
+    .gp-card-action.ok { color: var(--green); }
+    .gp-card-action.info { color: var(--blue); }
+
+    /* ── Right Panel ── */
+    .gp-detail-panel { overflow-y: auto; padding: 20px 24px; background: var(--bg); }
+
+    /* ── Global Work Queue (default view) ── */
+    .work-queue-view { max-width: 720px; margin: 0 auto; }
+    .wq-header { margin-bottom: 16px; }
+    .wq-header h2 { font-size: 20px; font-weight: 780; letter-spacing: -0.02em; }
+    .wq-header p { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .wq-section { margin-bottom: 18px; }
+    .wq-section-title {
+      font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
     }
-    .gp-card-attention {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      padding: 2px 7px;
-      border-radius: 6px;
-      font-size: 10px;
-      font-weight: 800;
-      background: #fef2f2;
-      color: #b91c1c;
-      border: 1px solid #fecaca;
-      flex-shrink: 0;
+    .wq-section-title .wq-count {
+      padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 900;
     }
-    .gp-card-attention.ok { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
-    .gp-card-journey {
-      display: flex;
-      align-items: center;
-      gap: 3px;
-      margin-top: 8px;
+    .wq-section-title .wq-count.red { background: #fef2f2; color: #b91c1c; }
+    .wq-section-title .wq-count.amber { background: #fff7ed; color: #9a3412; }
+    .wq-section-title .wq-count.blue { background: #eff6ff; color: #1d4ed8; }
+    .wq-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 12px; background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      margin-bottom: 5px; cursor: pointer; transition: border-color .12s;
     }
-    .journey-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: #e2e8f0;
-      flex-shrink: 0;
+    .wq-item:hover { border-color: #b4c3e0; }
+    .wq-dot { width: 8px; height: 8px; border-radius: 999px; margin-top: 5px; flex-shrink: 0; }
+    .wq-dot.urgent { background: var(--red); }
+    .wq-dot.high { background: var(--amber); }
+    .wq-dot.normal { background: var(--blue); }
+    .wq-body { flex: 1; min-width: 0; }
+    .wq-gp { font-size: 11px; font-weight: 760; color: var(--purple-1); }
+    .wq-label { font-size: 13px; font-weight: 660; color: var(--text); margin-top: 1px; }
+    .wq-detail { font-size: 11px; color: var(--muted); font-weight: 560; margin-top: 2px; }
+    .wq-tag {
+      padding: 2px 7px; border-radius: 5px; font-size: 9px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; margin-top: 4px;
     }
-    .journey-dot.done { background: var(--green); }
-    .journey-dot.current { background: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.25); }
-    .journey-dot.attention { background: var(--amber); }
-    .journey-dot.locked { background: #e2e8f0; opacity: 0.5; }
-    .journey-line {
-      flex: 1;
-      height: 2px;
-      background: #e2e8f0;
-      min-width: 4px;
-    }
-    .journey-line.done { background: var(--green); }
-    .gp-card-step {
-      font-size: 10px;
-      color: var(--muted);
-      font-weight: 650;
-      margin-top: 4px;
+    .wq-tag.account { background: #fef2f2; color: #991b1b; }
+    .wq-tag.verification { background: #ede9fe; color: #5b21b6; }
+    .wq-tag.visa { background: #eff6ff; color: #1d4ed8; }
+    .wq-tag.pbs { background: #f0fdf4; color: #166534; }
+    .wq-tag.ticket { background: #fff7ed; color: #9a3412; }
+    .wq-tag.followup { background: #f8fafc; color: #475569; }
+    .wq-tag.documents { background: #fefce8; color: #854d0e; }
+    .wq-empty {
+      padding: 28px; text-align: center; font-size: 14px; color: var(--muted);
+      border: 1px dashed #ced9ea; border-radius: 12px; background: #fff;
     }
 
-    /* ── Right Panel: GP Detail ── */
-    .gp-detail-panel {
-      overflow-y: auto;
-      padding: 20px 24px;
-      background: var(--bg);
-    }
-    .detail-empty {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100%;
-      color: var(--muted);
-      text-align: center;
-      gap: 12px;
-    }
-    .detail-empty-icon {
-      width: 56px;
-      height: 56px;
-      border-radius: 16px;
-      background: #ede9fe;
-      display: grid;
-      place-items: center;
-    }
-    .detail-empty-icon svg { width: 28px; height: 28px; stroke: var(--purple-1); fill: none; stroke-width: 1.5; }
-    .detail-empty h2 {
-      font-size: 18px;
-      font-weight: 720;
-      color: var(--text);
-      margin: 0;
-    }
-    .detail-empty p {
-      font-size: 13px;
-      max-width: 340px;
-      line-height: 1.5;
-    }
-
-    /* ── GP Detail Header ── */
+    /* ── Detail Header ── */
     .detail-header {
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      padding: 16px 18px;
-      display: grid;
-      gap: 12px;
-      margin-bottom: 14px;
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius-lg);
+      padding: 14px 16px; display: grid; gap: 10px; margin-bottom: 12px;
     }
-    .detail-header-top {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .detail-header-info { display: grid; gap: 4px; }
-    .detail-name {
-      font-size: 22px;
-      font-weight: 780;
-      letter-spacing: -0.02em;
-    }
-    .detail-meta {
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 560;
-    }
-    .detail-meta span { display: inline-flex; align-items: center; gap: 4px; }
-    .detail-actions {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
+    .detail-header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .detail-header-info { display: grid; gap: 3px; }
+    .detail-name { font-size: 20px; font-weight: 780; letter-spacing: -0.02em; }
+    .detail-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); font-weight: 560; }
+    .detail-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .btn {
-      border: 1px solid #c7d9ff;
-      background: #f2f7ff;
-      color: #1d4ed8;
-      padding: 7px 12px;
-      border-radius: 8px;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      white-space: nowrap;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
+      border: 1px solid #c7d9ff; background: #f2f7ff; color: #1d4ed8;
+      padding: 6px 11px; border-radius: 8px; font: inherit; font-size: 11px; font-weight: 700;
+      cursor: pointer; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
     }
     .btn:hover { background: #e8f0ff; }
     .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
@@ -350,444 +183,214 @@
     .btn.amber { background: #fffbeb; border-color: #fde68a; color: #92400e; }
     .btn.red { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
     .btn.ghost { background: #f8fafc; border-color: #d4deee; color: #1f2937; }
-    .detail-progress-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    .detail-progress-row { display: flex; align-items: center; gap: 10px; }
+    .detail-progress-bar { flex: 1; height: 5px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+    .detail-progress-bar > span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--purple-1), var(--blue)); }
+    .detail-progress-label { font-size: 11px; font-weight: 700; color: var(--text); flex-shrink: 0; }
+
+    /* ── Next Action Card ── */
+    .next-action-card {
+      background: linear-gradient(135deg, #eff6ff 0%, #f5f0ff 100%);
+      border: 1px solid #c7d2fe; border-radius: var(--radius-lg);
+      padding: 14px 16px; margin-bottom: 12px; display: grid; gap: 6px;
     }
-    .detail-progress-bar {
-      flex: 1;
-      height: 6px;
-      border-radius: 999px;
-      background: #e2e8f0;
-      overflow: hidden;
-    }
-    .detail-progress-bar > span {
-      display: block;
-      height: 100%;
-      border-radius: 999px;
-      background: linear-gradient(90deg, var(--purple-1), var(--blue));
-    }
-    .detail-progress-label {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-      flex-shrink: 0;
-    }
+    .next-action-kicker { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--purple-1); }
+    .next-action-label { font-size: 15px; font-weight: 720; color: var(--text); line-height: 1.35; }
+    .next-action-detail { font-size: 12px; color: var(--muted); font-weight: 560; }
+    .next-action-actions { display: flex; gap: 6px; margin-top: 4px; }
 
     /* ── Section Card ── */
     .section-card {
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      padding: 16px 18px;
-      margin-bottom: 14px;
+      background: #fff; border: 1px solid var(--line); border-radius: var(--radius-lg);
+      padding: 14px 16px; margin-bottom: 12px;
     }
     .section-title {
-      font-size: 15px;
-      font-weight: 760;
-      letter-spacing: -0.01em;
-      margin-bottom: 12px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      font-size: 14px; font-weight: 760; letter-spacing: -0.01em;
+      margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
     }
-    .section-title .count-badge {
-      padding: 2px 7px;
-      border-radius: 6px;
-      font-size: 10px;
-      font-weight: 800;
-      background: #ede9fe;
-      color: var(--purple-1);
+    .section-title .cnt {
+      padding: 1px 6px; border-radius: 5px; font-size: 10px; font-weight: 800;
+      background: #ede9fe; color: var(--purple-1);
     }
 
-    /* ── To-Do List ── */
-    .todo-list { display: grid; gap: 6px; }
+    /* ── Todo ── */
+    .todo-list { display: grid; gap: 5px; }
     .todo-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 10px 12px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #fbfdff;
-      cursor: pointer;
-      transition: border-color .12s;
+      display: flex; align-items: flex-start; gap: 9px;
+      padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
+      background: #fbfdff; cursor: pointer; transition: border-color .12s;
     }
     .todo-item:hover { border-color: #b4c3e0; }
-    .todo-priority {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      margin-top: 5px;
-      flex-shrink: 0;
+    .tp { width: 7px; height: 7px; border-radius: 999px; margin-top: 5px; flex-shrink: 0; }
+    .tp.urgent { background: var(--red); }
+    .tp.high { background: var(--amber); }
+    .tp.normal { background: var(--blue); }
+    .tc { flex: 1; min-width: 0; }
+    .tc-label { font-size: 12px; font-weight: 680; color: var(--text); }
+    .tc-detail { font-size: 10px; color: var(--muted); font-weight: 560; margin-top: 1px; }
+    .tt {
+      padding: 2px 6px; border-radius: 5px; font-size: 9px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; margin-top: 2px;
     }
-    .todo-priority.urgent { background: var(--red); }
-    .todo-priority.high { background: var(--amber); }
-    .todo-priority.normal { background: var(--blue); }
-    .todo-content { flex: 1; min-width: 0; }
-    .todo-label {
-      font-size: 13px;
-      font-weight: 680;
-      color: var(--text);
-    }
-    .todo-detail {
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 560;
-      margin-top: 2px;
-    }
-    .todo-category {
-      padding: 2px 7px;
-      border-radius: 5px;
-      font-size: 9px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      flex-shrink: 0;
-      margin-top: 2px;
-    }
-    .todo-category.account { background: #fef2f2; color: #991b1b; }
-    .todo-category.verification { background: #ede9fe; color: #5b21b6; }
-    .todo-category.visa { background: #eff6ff; color: #1d4ed8; }
-    .todo-category.pbs { background: #f0fdf4; color: #166534; }
-    .todo-category.ticket { background: #fff7ed; color: #9a3412; }
-    .todo-category.followup { background: #f8fafc; color: #475569; }
-    .todo-category.documents { background: #fefce8; color: #854d0e; }
+    .tt.account { background: #fef2f2; color: #991b1b; }
+    .tt.verification { background: #ede9fe; color: #5b21b6; }
+    .tt.visa { background: #eff6ff; color: #1d4ed8; }
+    .tt.pbs { background: #f0fdf4; color: #166534; }
+    .tt.ticket { background: #fff7ed; color: #9a3412; }
+    .tt.followup { background: #f8fafc; color: #475569; }
+    .tt.documents { background: #fefce8; color: #854d0e; }
     .todo-empty {
-      padding: 14px;
-      text-align: center;
-      font-size: 13px;
-      color: var(--muted);
-      font-weight: 560;
-      border: 1px dashed #ced9ea;
-      border-radius: 10px;
+      padding: 12px; text-align: center; font-size: 12px; color: var(--muted);
+      border: 1px dashed #ced9ea; border-radius: 9px;
     }
 
-    /* ── Journey Stepper (vertical) ── */
+    /* ── Journey Stepper ── */
     .journey-stepper { display: grid; gap: 0; }
-    .journey-step {
-      display: grid;
-      grid-template-columns: 32px 1fr;
-      gap: 12px;
-      position: relative;
+    .journey-step { display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
+    .journey-step-track { display: flex; flex-direction: column; align-items: center; }
+    .jsd {
+      width: 24px; height: 24px; border-radius: 999px; display: grid; place-items: center;
+      font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0; z-index: 1;
     }
-    .journey-step-track {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .journey-step-dot {
-      width: 28px;
-      height: 28px;
-      border-radius: 999px;
-      display: grid;
-      place-items: center;
-      font-size: 12px;
-      font-weight: 800;
-      color: #fff;
-      flex-shrink: 0;
-      z-index: 1;
-    }
-    .journey-step-dot.done { background: var(--green); }
-    .journey-step-dot.current { background: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
-    .journey-step-dot.pending { background: #cbd5e1; }
-    .journey-step-dot.locked { background: #e2e8f0; color: #94a3b8; }
-    .journey-step-dot.attention { background: var(--amber); }
-    .journey-step-line {
-      width: 2px;
-      flex: 1;
-      background: #e2e8f0;
-      min-height: 12px;
-    }
-    .journey-step-line.done { background: var(--green); }
-    .journey-step-body {
-      padding-bottom: 16px;
-    }
+    .jsd.done { background: var(--green); }
+    .jsd.current { background: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.16); }
+    .jsd.pending { background: #cbd5e1; }
+    .jsd.locked { background: #e2e8f0; color: #94a3b8; }
+    .jsl { width: 2px; flex: 1; background: #e2e8f0; min-height: 10px; }
+    .jsl.done { background: var(--green); }
+    .journey-step-body { padding-bottom: 14px; }
     .journey-step:last-child .journey-step-body { padding-bottom: 0; }
-    .journey-step:last-child .journey-step-line { display: none; }
+    .journey-step:last-child .jsl { display: none; }
     .journey-step-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      min-height: 28px;
-      cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between; gap: 6px;
+      min-height: 24px; cursor: pointer;
     }
-    .journey-step-name {
-      font-size: 14px;
-      font-weight: 720;
-      color: var(--text);
+    .jsn { font-size: 13px; font-weight: 720; color: var(--text); }
+    .journey-step.locked .jsn { color: #94a3b8; }
+    .jsn-time { font-size: 10px; color: var(--muted); font-weight: 600; margin-left: 6px; }
+    .jsb {
+      padding: 2px 7px; border-radius: 5px; font-size: 9px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.03em;
     }
-    .journey-step.locked .journey-step-name { color: #94a3b8; }
-    .journey-step-badge {
-      padding: 2px 8px;
-      border-radius: 6px;
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-    }
-    .journey-step-badge.done { background: #f0fdf4; color: #166534; }
-    .journey-step-badge.current { background: #eff6ff; color: #1d4ed8; }
-    .journey-step-badge.pending { background: #f8fafc; color: #64748b; }
-    .journey-step-badge.locked { background: #f8fafc; color: #94a3b8; }
-    .journey-step-badge.attention { background: #fff7ed; color: #9a3412; }
-    .journey-step-expand {
-      margin-top: 10px;
-      display: none;
-    }
+    .jsb.done { background: #f0fdf4; color: #166534; }
+    .jsb.current { background: #eff6ff; color: #1d4ed8; }
+    .jsb.pending { background: #f8fafc; color: #64748b; }
+    .jsb.locked { background: #f8fafc; color: #94a3b8; }
+    .journey-step-expand { margin-top: 8px; display: none; }
     .journey-step.open .journey-step-expand { display: block; }
-    .substep-list { display: grid; gap: 5px; }
+    .step-playbook {
+      font-size: 11px; color: var(--muted); line-height: 1.5; margin-bottom: 8px;
+      border-left: 2px solid #e2e8f0; padding-left: 10px;
+    }
+    .step-playbook strong { color: var(--text); font-weight: 700; }
+    .substep-list { display: grid; gap: 4px; }
     .substep-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text);
-      background: #fbfdff;
-      border: 1px solid #eef3fa;
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 9px; border-radius: 7px; font-size: 11px; font-weight: 600;
+      color: var(--text); background: #fbfdff; border: 1px solid #eef3fa;
     }
-    .substep-icon {
-      width: 16px;
-      height: 16px;
-      border-radius: 999px;
-      display: grid;
-      place-items: center;
-      flex-shrink: 0;
-      font-size: 9px;
-    }
-    .substep-icon.done { background: #dcfce7; color: var(--green); }
-    .substep-icon.current { background: #dbeafe; color: var(--blue); }
-    .substep-icon.pending { background: #f1f5f9; color: #94a3b8; }
-    .step-actions {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      margin-top: 10px;
-    }
+    .si { width: 14px; height: 14px; border-radius: 999px; display: grid; place-items: center; flex-shrink: 0; font-size: 8px; }
+    .si.done { background: #dcfce7; color: var(--green); }
+    .si.current { background: #dbeafe; color: var(--blue); }
+    .si.pending { background: #f1f5f9; color: #94a3b8; }
+    .step-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
 
-    /* ── Case Summary Cards ── */
-    .case-summary-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
+    /* ── Case Cards ── */
+    .case-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .case-card {
+      border: 1px solid var(--line); border-radius: 11px; padding: 12px;
+      background: #fbfdff; display: grid; gap: 6px;
     }
-    .case-summary {
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 14px;
-      background: #fbfdff;
-      display: grid;
-      gap: 8px;
+    .case-card-title {
+      font-size: 12px; font-weight: 760; display: flex; align-items: center;
+      justify-content: space-between; gap: 5px;
     }
-    .case-summary-title {
-      font-size: 13px;
-      font-weight: 760;
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
+    .cp {
+      display: inline-block; padding: 2px 6px; border-radius: 5px;
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
     }
-    .case-summary-fields {
-      display: grid;
-      gap: 4px;
-    }
-    .case-field {
-      display: flex;
-      justify-content: space-between;
-      font-size: 11px;
-    }
-    .case-field-label { color: var(--muted); font-weight: 600; }
-    .case-field-value { font-weight: 700; color: var(--text); }
-    .case-pill {
-      display: inline-block;
-      padding: 2px 7px;
-      border-radius: 5px;
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-    }
-    .case-pill.green { background: #f0fdf4; color: #166534; }
-    .case-pill.blue { background: #eff6ff; color: #1d4ed8; }
-    .case-pill.amber { background: #fff7ed; color: #9a3412; }
-    .case-pill.red { background: #fef2f2; color: #991b1b; }
-    .case-pill.gray { background: #f8fafc; color: #64748b; }
+    .cp.green { background: #f0fdf4; color: #166534; }
+    .cp.blue { background: #eff6ff; color: #1d4ed8; }
+    .cp.amber { background: #fff7ed; color: #9a3412; }
+    .cp.red { background: #fef2f2; color: #991b1b; }
+    .cp.gray { background: #f8fafc; color: #64748b; }
+    .case-fields { display: grid; gap: 3px; }
+    .cf { display: flex; justify-content: space-between; font-size: 10px; }
+    .cf-l { color: var(--muted); font-weight: 600; }
+    .cf-v { font-weight: 700; color: var(--text); }
+    .case-next { font-size: 10px; font-weight: 650; color: var(--purple-1); font-style: italic; }
 
-    /* ── Ticket List ── */
+    /* ── Tickets ── */
     .ticket-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 10px 12px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      margin-bottom: 6px;
-      background: #fbfdff;
+      display: flex; align-items: flex-start; gap: 9px;
+      padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
+      margin-bottom: 5px; background: #fbfdff;
     }
     .ticket-info { flex: 1; min-width: 0; }
-    .ticket-title-text {
-      font-size: 13px;
-      font-weight: 680;
-      color: var(--text);
-    }
-    .ticket-meta-text {
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 560;
-      margin-top: 2px;
-    }
+    .ticket-title-text { font-size: 12px; font-weight: 680; }
+    .ticket-meta-text { font-size: 10px; color: var(--muted); font-weight: 560; margin-top: 1px; }
 
     /* ── Modal ── */
     .modal {
-      position: fixed;
-      inset: 0;
-      z-index: 1200;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      background: rgba(15, 23, 42, 0.52);
-      padding: 14px;
+      position: fixed; inset: 0; z-index: 1200; display: none;
+      align-items: center; justify-content: center;
+      background: rgba(15,23,42,0.52); padding: 14px;
     }
     .modal.open { display: flex; }
     .modal-card {
-      width: min(640px, 100%);
-      max-height: calc(100vh - 28px);
-      overflow: auto;
-      background: #fff;
-      border: 1px solid #d8e2f0;
-      border-radius: 14px;
-      box-shadow: 0 32px 60px -42px rgba(15, 23, 42, 0.85);
+      width: min(620px, 100%); max-height: calc(100vh - 28px); overflow: auto;
+      background: #fff; border: 1px solid #d8e2f0; border-radius: 14px;
+      box-shadow: 0 32px 60px -42px rgba(15,23,42,0.85);
     }
     .modal-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--line);
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line);
     }
-    .modal-title {
-      font-size: 18px;
-      font-weight: 780;
-      letter-spacing: -0.02em;
-    }
-    .modal-close {
-      border: 0;
-      background: transparent;
-      color: #334155;
-      font-size: 24px;
-      line-height: 1;
-      cursor: pointer;
-      padding: 4px;
-    }
-    .modal-body {
-      padding: 14px 16px 18px;
-      display: grid;
-      gap: 12px;
-    }
-    .input {
-      width: 100%;
-      border: 1px solid #cdd7e6;
-      border-radius: 8px;
-      padding: 9px 10px;
-      font: inherit;
-      font-size: 13px;
-    }
+    .modal-title { font-size: 16px; font-weight: 780; letter-spacing: -0.02em; }
+    .modal-close { border: 0; background: transparent; color: #334155; font-size: 22px; line-height: 1; cursor: pointer; padding: 4px; }
+    .modal-body { padding: 12px 16px 16px; display: grid; gap: 10px; }
     .textarea {
-      width: 100%;
-      border: 1px solid #cdd7e6;
-      border-radius: 8px;
-      padding: 9px 10px;
-      font: inherit;
-      font-size: 13px;
-      resize: vertical;
-      min-height: 80px;
+      width: 100%; border: 1px solid #cdd7e6; border-radius: 8px;
+      padding: 8px 10px; font: inherit; font-size: 12px; resize: vertical; min-height: 70px;
     }
 
-    /* ── Executive Panel (super_admin only) ── */
-    .executive-toggle {
-      display: none;
-      margin-bottom: 14px;
+    /* ── Executive ── */
+    .exec-toggle { margin-bottom: 12px; }
+    .exec-toggle-btn {
+      border: 1px solid #d4deee; background: #fff; color: var(--text);
+      padding: 7px 12px; border-radius: 8px; font: inherit; font-size: 11px;
+      font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
     }
-    .executive-toggle.visible { display: block; }
-    .executive-toggle-btn {
-      border: 1px solid #d4deee;
-      background: #fff;
-      color: var(--text);
-      padding: 8px 14px;
-      border-radius: 8px;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .executive-toggle-btn:hover { background: #f8fafc; }
-    .executive-collapse { display: none; margin-bottom: 14px; }
-    .executive-collapse.open { display: block; }
-    .executive-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-    }
-    .executive-metric {
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 12px;
-      display: grid;
-      gap: 3px;
-    }
-    .executive-metric-label { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
-    .executive-metric-value { font-size: 26px; font-weight: 800; letter-spacing: -0.03em; }
-    .executive-metric-sub { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .exec-collapse { display: none; margin-bottom: 12px; }
+    .exec-collapse.open { display: block; }
+    .exec-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .exec-m { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 2px; }
+    .exec-m-l { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+    .exec-m-v { font-size: 24px; font-weight: 800; letter-spacing: -0.03em; }
+    .exec-m-s { font-size: 10px; color: var(--muted); font-weight: 600; }
 
-    /* ── Mobile Back Button ── */
-    .mobile-back {
-      display: none;
-      margin-bottom: 12px;
-    }
-    .mobile-back .btn { font-size: 13px; }
-
-    /* ── Responsive ── */
+    /* ── Mobile ── */
+    .mobile-back { display: none; margin-bottom: 10px; }
     @media (max-width: 900px) {
-      .main-layout {
-        grid-template-columns: 1fr;
-      }
-      .gp-list-panel {
-        border-right: 0;
-        height: auto;
-        max-height: 100%;
-      }
-      .gp-detail-panel {
-        display: none;
-      }
+      .main-layout { grid-template-columns: 1fr; }
+      .gp-list-panel { border-right: 0; }
+      .gp-detail-panel { display: none; }
       .main-layout.detail-open .gp-list-panel { display: none; }
       .main-layout.detail-open .gp-detail-panel { display: block; height: calc(100vh - 52px); }
       .mobile-back { display: block; }
-      .case-summary-grid { grid-template-columns: 1fr; }
-      .executive-grid { grid-template-columns: repeat(2, 1fr); }
+      .case-grid { grid-template-columns: 1fr; }
+      .exec-grid { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 640px) {
       .top-bar { padding: 8px 12px; }
       .top-bar h1 { font-size: 15px; }
-      .top-chip { font-size: 10px; padding: 3px 7px; }
-      .gp-detail-panel { padding: 14px; }
-      .detail-name { font-size: 18px; }
-      .executive-grid { grid-template-columns: 1fr; }
+      .gp-detail-panel { padding: 12px; }
+      .detail-name { font-size: 17px; }
+      .exec-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <!-- ── Top Bar ── -->
   <header class="top-bar">
     <div class="top-bar-left">
       <h1 id="topTitle">VA Command Centre</h1>
@@ -799,33 +402,19 @@
     </div>
   </header>
 
-  <!-- ── Main Layout ── -->
   <div class="main-layout" id="mainLayout">
-    <!-- Left: GP List -->
     <aside class="gp-list-panel">
       <div class="gp-search-bar">
-        <input class="gp-search-input" id="searchInput" type="search" placeholder="Search by name, email, country..." />
+        <input class="gp-search-input" id="searchInput" type="search" placeholder="Search name, email, country..." />
         <div class="gp-filters" id="filterBar"></div>
       </div>
-      <div class="gp-list-scroll" id="gpList">
-        <div class="todo-empty">Loading GP roster...</div>
-      </div>
+      <div class="gp-list-scroll" id="gpList"><div class="todo-empty">Loading...</div></div>
     </aside>
-
-    <!-- Right: GP Detail -->
     <main class="gp-detail-panel" id="gpDetail">
-      <div class="detail-empty" id="detailEmpty">
-        <div class="detail-empty-icon">
-          <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="7" r="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 21v-2a4 4 0 0 0-3-3.87" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </div>
-        <h2>Select a GP</h2>
-        <p>Choose a GP from the list to view their full registration journey, to-do items, and case status.</p>
-      </div>
-      <div id="detailContent" style="display:none;"></div>
+      <div id="detailContent"></div>
     </main>
   </div>
 
-  <!-- ── Modal ── -->
   <div class="modal" id="actionModal" role="dialog" aria-modal="true">
     <div class="modal-card">
       <header class="modal-head">
@@ -837,25 +426,15 @@
   </div>
 
   <script>
-    /* ═══════════════════════════════════════════════════
-       STATE & CONSTANTS
-       ═══════════════════════════════════════════════════ */
-    const state = {
-      viewer: null,
-      hostScope: "",
-      hostLabel: "",
-      dashboard: null,
-      visaCases: [],
-      pbsCases: [],
-      selectedGpId: null,
-      searchQuery: "",
-      filter: "all",
-      refreshTimer: null,
-      isLoading: false,
-      expandedSteps: {}
+    /* ══════ STATE ══════ */
+    const S = {
+      viewer: null, hostScope: "", hostLabel: "",
+      dashboard: null, visaCases: [], pbsCases: [],
+      selectedGpId: null, query: "", filter: "all",
+      refreshTimer: null, loading: false, expanded: {}
     };
 
-    const JOURNEY_STEPS = [
+    const STEPS = [
       { key: "myintealth", label: "MyIntealth Account", num: 1 },
       { key: "amc", label: "AMC Portfolio", num: 2 },
       { key: "career", label: "Career & Documents", num: 3 },
@@ -865,989 +444,447 @@
       { key: "commencement", label: "Commencement", num: 7 }
     ];
 
-    const STATUS_PILL_TONE = {
-      not_started: "gray", in_progress: "blue", submitted: "blue",
-      approved: "green", complete: "green", granted: "green",
-      rejected: "red", blocked: "red",
-      waiting_on_gp: "amber", under_review: "amber",
+    const PLAYBOOK = {
+      myintealth: {
+        gp: "Create MyIntealth account, complete onboarding, upload qualification certificates.",
+        va: "Verify uploaded documents match GP credentials. Approve verification or request re-upload if rejected.",
+      },
+      amc: {
+        gp: "Create AMC account, upload credentials and portfolio documents.",
+        va: "Confirm AMC account created. Help GP gather required credentials. Check qualifications are accepted.",
+      },
+      career: {
+        gp: "Browse jobs, apply to positions, complete document preparation checklist.",
+        va: "Match GP with suitable positions. Ensure all documents prepared. Confirm placement is secured.",
+      },
+      ahpra: {
+        gp: "Complete AHPRA registration form, submit documents, respond to assessment queries.",
+        va: "Guide through AHPRA stages. Ensure submission is complete. Monitor assessment. Escalate if stuck.",
+      },
+      visa: {
+        gp: "Upload required visa documents, respond to document requests from VA.",
+        va: "Create visa case in admin-visa. Review documents. Request missing items. Track visa progress.",
+      },
+      pbs: {
+        gp: "Upload Medicare/PBS documents, provide practice details when requested.",
+        va: "Create PBS case in admin-pbs. Apply for Medicare Provider Number and PBS Prescriber Number.",
+      },
+      commencement: {
+        gp: "Complete pre-arrival checklist, confirm arrival date.",
+        va: "Prepare welcome pack. Coordinate with practice. Confirm all registrations complete.",
+      }
     };
 
-    /* ═══════════════════════════════════════════════════
-       UTILITY FUNCTIONS
-       ═══════════════════════════════════════════════════ */
-    function escapeHtml(value) {
-      return String(value == null ? "" : value)
-        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-    }
+    const TONE = { not_started:"gray", in_progress:"blue", submitted:"blue", approved:"green",
+      complete:"green", granted:"green", rejected:"red", blocked:"red",
+      waiting_on_gp:"amber", under_review:"amber" };
 
-    function fmtDate(v) {
-      if (!v) return "-";
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? "-" : d.toLocaleDateString();
-    }
+    /* ══════ UTILS ══════ */
+    const esc = v => String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+    const fmtD = v => { if(!v) return "-"; const d=new Date(v); return isNaN(d)?"-":d.toLocaleDateString(); };
+    const fmtR = v => { if(!v) return "No activity"; const d=new Date(v); if(isNaN(d)) return "No activity"; const m=Math.max(1,Math.round((Date.now()-d)/60000)); if(m<60) return m+"m ago"; const h=Math.round(m/60); if(h<24) return h+"h ago"; return Math.round(h/24)+"d ago"; };
+    const ini = n => { const p=String(n||"?").trim().split(/\s+/); return p.length>=2?(p[0][0]+p[p.length-1][0]).toUpperCase():(p[0]||"?").slice(0,2).toUpperCase(); };
+    const sLabel = s => String(s||"unknown").replace(/_/g," ");
+    const sTone = s => TONE[s]||"gray";
+    const isSA = () => S.hostScope==="super_admin"||!!(S.viewer&&S.viewer.adminRole==="super_admin");
+    const daysAgo = v => { if(!v) return 0; const d=new Date(v); return isNaN(d)?0:Math.max(0,Math.round((Date.now()-d)/86400000)); };
 
-    function fmtRelative(v) {
-      if (!v) return "No activity";
-      const d = new Date(v);
-      if (isNaN(d.getTime())) return "No activity";
-      const ms = Date.now() - d.getTime();
-      const mins = Math.max(1, Math.round(ms / 60000));
-      if (mins < 60) return `${mins}m ago`;
-      const hrs = Math.round(mins / 60);
-      if (hrs < 24) return `${hrs}h ago`;
-      const days = Math.round(hrs / 24);
-      return `${days}d ago`;
-    }
-
-    function initials(name) {
-      const parts = String(name || "?").trim().split(/\s+/);
-      if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-      return (parts[0] || "?").slice(0, 2).toUpperCase();
-    }
-
-    function statusPillTone(status) {
-      return STATUS_PILL_TONE[status] || "gray";
-    }
-
-    function statusLabel(status) {
-      return String(status || "unknown").replace(/_/g, " ");
-    }
-
-    function isSuperAdmin() {
-      return state.hostScope === "super_admin" || !!(state.viewer && state.viewer.adminRole === "super_admin");
-    }
-
-    /* ═══════════════════════════════════════════════════
-       API FUNCTIONS
-       ═══════════════════════════════════════════════════ */
-    async function loadAdminSession() {
-      const r = await fetch("/api/admin/auth/session", { credentials: "same-origin" });
-      const d = await r.json().catch(() => ({}));
-      if (r.status === 401) {
-        state.hostScope = d.hostScope || "";
-        state.hostLabel = d.hostLabel || "";
-        window.location.href = "/pages/admin-signin.html";
-        return false;
-      }
-      if (r.status === 403) throw new Error(d.message || "Admin access required.");
-      if (!r.ok || !d.ok) throw new Error(d.message || "Unable to verify admin session.");
-      state.viewer = d.profile || null;
-      state.hostScope = d.hostScope || "";
-      state.hostLabel = d.hostLabel || "";
+    /* ══════ API ══════ */
+    async function loadSession() {
+      const r=await fetch("/api/admin/auth/session",{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(r.status===401){S.hostScope=d.hostScope||"";S.hostLabel=d.hostLabel||"";window.location.href="/pages/admin-signin.html";return false;}
+      if(r.status===403) throw new Error(d.message||"Admin access required.");
+      if(!r.ok||!d.ok) throw new Error(d.message||"Cannot verify session.");
+      S.viewer=d.profile||null; S.hostScope=d.hostScope||""; S.hostLabel=d.hostLabel||"";
       return true;
     }
+    async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin.html";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch(_){}}
+    async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch(_){}}
+    async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch(_){}}
+    async function loadAll(f){if(S.loading&&!f)return;S.loading=true;await Promise.all([loadDash(),loadVisa(),loadPbs()]);S.loading=false;renderAll();}
 
-    async function loadDashboard() {
-      try {
-        const r = await fetch("/api/admin/dashboard", { credentials: "same-origin" });
-        if (r.status === 401) { window.location.href = "/pages/admin-signin.html"; return; }
-        const d = await r.json().catch(() => ({}));
-        if (r.ok) state.dashboard = d;
-      } catch (_) {}
-    }
+    /* ══════ DATA ══════ */
+    const gps = () => S.dashboard&&Array.isArray(S.dashboard.candidates)?S.dashboard.candidates:[];
+    const tix = () => S.dashboard&&Array.isArray(S.dashboard.tickets)?S.dashboard.tickets:[];
+    function findVisa(gp){const e=(gp.email||"").toLowerCase(),u=gp.userId||"";return S.visaCases.find(c=>(u&&c.user_id===u)||(e&&(c.gp_email||"").toLowerCase()===e))||null;}
+    function findPbs(gp){const e=(gp.email||"").toLowerCase(),u=gp.userId||"";return S.pbsCases.find(c=>(u&&c.user_id===u)||(e&&(c.gp_email||"").toLowerCase()===e))||null;}
+    function gpTix(gp){const id=gp.id||"",e=(gp.email||"").toLowerCase();return tix().filter(t=>{const ti=t.candidateId||"",te=(t.candidateEmail||"").toLowerCase();return(id&&ti===id)||(e&&te===e);});}
 
-    async function loadVisaCases() {
-      try {
-        const r = await fetch("/api/admin/visa/cases", { credentials: "same-origin" });
-        const d = await r.json().catch(() => ({}));
-        if (d.ok && Array.isArray(d.cases)) state.visaCases = d.cases;
-      } catch (_) {}
-    }
-
-    async function loadPbsCases() {
-      try {
-        const r = await fetch("/api/admin/pbs/cases", { credentials: "same-origin" });
-        const d = await r.json().catch(() => ({}));
-        if (d.ok && Array.isArray(d.cases)) state.pbsCases = d.cases;
-      } catch (_) {}
-    }
-
-    async function loadAllData(force) {
-      if (state.isLoading && !force) return;
-      state.isLoading = true;
-      await Promise.all([loadDashboard(), loadVisaCases(), loadPbsCases()]);
-      state.isLoading = false;
-      renderAll();
-    }
-
-    async function updateTicketStatus(ticketId, nextStatus, candidateEmail) {
-      return fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}/status`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ status: nextStatus, candidateEmail })
-      });
-    }
-
-    async function replyToTicket(ticketId, text, candidateEmail) {
-      return fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}/reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ text, candidateEmail })
-      });
-    }
-
-    /* ═══════════════════════════════════════════════════
-       DATA HELPERS
-       ═══════════════════════════════════════════════════ */
-    function getCandidates() {
-      return state.dashboard && Array.isArray(state.dashboard.candidates) ? state.dashboard.candidates : [];
-    }
-
-    function getTickets() {
-      return state.dashboard && Array.isArray(state.dashboard.tickets) ? state.dashboard.tickets : [];
-    }
-
-    function findVisaCase(gp) {
-      const email = (gp.email || "").toLowerCase();
-      const userId = gp.userId || "";
-      return state.visaCases.find(c =>
-        (userId && c.user_id === userId) || (email && (c.gp_email || "").toLowerCase() === email)
-      ) || null;
-    }
-
-    function findPbsCase(gp) {
-      const email = (gp.email || "").toLowerCase();
-      const userId = gp.userId || "";
-      return state.pbsCases.find(c =>
-        (userId && c.user_id === userId) || (email && (c.gp_email || "").toLowerCase() === email)
-      ) || null;
-    }
-
-    function getGpTickets(gp) {
-      const id = gp.id || "";
-      const email = (gp.email || "").toLowerCase();
-      return getTickets().filter(t => {
-        const tid = t.candidateId || "";
-        const te = (t.candidateEmail || "").toLowerCase();
-        return (id && tid === id) || (email && te === email);
-      });
-    }
-
-    /* Build unified 7-step journey from pathwaySteps + visa/PBS data */
-    function buildJourney(gp) {
-      const pw = Array.isArray(gp.pathwaySteps) ? gp.pathwaySteps : [];
-      const visaCase = findVisaCase(gp);
-      const pbsCase = findPbsCase(gp);
-
-      const myintealth = pw.find(s => s.id === "myintealth");
-      const amc = pw.find(s => s.id === "amc");
-      const docs = pw.find(s => s.id === "documents");
-      const ahpra = pw.find(s => s.id === "ahpra");
-
-      function mapStatus(step) {
-        if (!step) return "pending";
-        if (step.status === "done") return "done";
-        if (step.status === "current") return "current";
-        return "pending";
-      }
-
-      function mapSubsteps(step) {
-        if (!step || !Array.isArray(step.substeps)) return [];
-        return step.substeps.map(s => ({
-          label: s.label || s.key || "",
-          status: s.status === "done" ? "done" : s.status === "current" ? "current" : "pending"
-        }));
-      }
-
-      // Step 1: MyIntealth
-      const s1status = mapStatus(myintealth);
-
-      // Step 2: AMC
-      const s2status = mapStatus(amc);
-
-      // Step 3: Career & Documents
-      const docsStatus = mapStatus(docs);
-      // Career is considered part of documents step; if docs done, career is progressing
-      const s3status = docsStatus;
-
-      // Step 4: AHPRA
-      const s4status = mapStatus(ahpra);
-
-      // Steps 5-7 unlock after career/docs are done
-      const postCareerUnlocked = s3status === "done";
-
-      // Step 5: Visa
-      let s5status = "locked";
-      let s5substeps = [];
-      if (postCareerUnlocked || visaCase) {
-        if (visaCase) {
-          const vs = visaCase.status || "not_started";
-          if (vs === "complete" || vs === "approved" || vs === "granted") {
-            s5status = "done";
-          } else if (vs === "not_started") {
-            s5status = "pending";
-          } else {
-            s5status = "current";
-          }
-          s5substeps = [
-            { label: `Status: ${statusLabel(vs)}`, status: s5status === "done" ? "done" : "current" },
-            { label: `Type: ${visaCase.visa_type || "Not set"}`, status: "current" }
-          ];
-          if (visaCase.reference_number) {
-            s5substeps.push({ label: `Ref: ${visaCase.reference_number}`, status: "current" });
-          }
-        } else {
-          s5status = "pending";
-          s5substeps = [{ label: "No visa case created yet", status: "pending" }];
-        }
-      }
-
-      // Step 6: PBS
-      let s6status = "locked";
-      let s6substeps = [];
-      if (postCareerUnlocked || pbsCase) {
-        if (pbsCase) {
-          const ps = pbsCase.status || "not_started";
-          if (ps === "complete" || ps === "approved") {
-            s6status = "done";
-          } else if (ps === "not_started") {
-            s6status = "pending";
-          } else {
-            s6status = "current";
-          }
-          s6substeps = [
-            { label: `Status: ${statusLabel(ps)}`, status: s6status === "done" ? "done" : "current" },
-            { label: `Type: ${pbsCase.application_type || "Not set"}`, status: "current" }
-          ];
-          if (pbsCase.provider_number) {
-            s6substeps.push({ label: `Provider #: ${pbsCase.provider_number}`, status: "done" });
-          }
-          if (pbsCase.prescriber_number) {
-            s6substeps.push({ label: `Prescriber #: ${pbsCase.prescriber_number}`, status: "done" });
-          }
-        } else {
-          s6status = "pending";
-          s6substeps = [{ label: "No PBS case created yet", status: "pending" }];
-        }
-      }
-
-      // Step 7: Commencement
-      const allPriorDone = s1status === "done" && s2status === "done" && s3status === "done" && s4status === "done" && s5status === "done" && s6status === "done";
-      const s7status = allPriorDone ? (gp.progressPercent >= 100 ? "done" : "current") : "locked";
-
-      return [
-        { ...JOURNEY_STEPS[0], status: s1status, substeps: mapSubsteps(myintealth) },
-        { ...JOURNEY_STEPS[1], status: s2status, substeps: mapSubsteps(amc) },
-        { ...JOURNEY_STEPS[2], status: s3status, substeps: mapSubsteps(docs) },
-        { ...JOURNEY_STEPS[3], status: s4status, substeps: mapSubsteps(ahpra) },
-        { ...JOURNEY_STEPS[4], status: s5status, substeps: s5substeps },
-        { ...JOURNEY_STEPS[5], status: s6status, substeps: s6substeps },
-        { ...JOURNEY_STEPS[6], status: s7status, substeps: [] }
+    function buildJourney(gp){
+      const pw=Array.isArray(gp.pathwaySteps)?gp.pathwaySteps:[];
+      const ms=s=>{if(!s)return"pending";return s.status==="done"?"done":s.status==="current"?"current":"pending";};
+      const msub=s=>{if(!s||!Array.isArray(s.substeps))return[];return s.substeps.map(x=>({label:x.label||x.key||"",status:x.status==="done"?"done":x.status==="current"?"current":"pending"}));};
+      const s1=ms(pw.find(s=>s.id==="myintealth")),s2=ms(pw.find(s=>s.id==="amc")),s3=ms(pw.find(s=>s.id==="documents")),s4=ms(pw.find(s=>s.id==="ahpra"));
+      const vc=findVisa(gp),pc=findPbs(gp);
+      const unlocked=s3==="done";
+      let s5="locked",s5s=[],s6="locked",s6s=[];
+      if(unlocked||vc){if(vc){const vs=vc.status||"not_started";s5=vs==="complete"||vs==="approved"||vs==="granted"?"done":vs==="not_started"?"pending":"current";s5s=[{label:"Status: "+sLabel(vs),status:s5==="done"?"done":"current"}];if(vc.visa_type)s5s.push({label:"Type: "+vc.visa_type,status:"current"});if(vc.reference_number)s5s.push({label:"Ref: "+vc.reference_number,status:"current"});}else{s5="pending";s5s=[{label:"No visa case created yet",status:"pending"}];}}
+      if(unlocked||pc){if(pc){const ps=pc.status||"not_started";s6=ps==="complete"||ps==="approved"?"done":ps==="not_started"?"pending":"current";s6s=[{label:"Status: "+sLabel(ps),status:s6==="done"?"done":"current"}];if(pc.provider_number)s6s.push({label:"Provider #: "+pc.provider_number,status:"done"});if(pc.prescriber_number)s6s.push({label:"Prescriber #: "+pc.prescriber_number,status:"done"});}else{s6="pending";s6s=[{label:"No PBS case created yet",status:"pending"}];}}
+      const allDone=s1==="done"&&s2==="done"&&s3==="done"&&s4==="done"&&s5==="done"&&s6==="done";
+      const s7=allDone?(gp.progressPercent>=100?"done":"current"):"locked";
+      return[
+        {...STEPS[0],status:s1,substeps:msub(pw.find(s=>s.id==="myintealth"))},
+        {...STEPS[1],status:s2,substeps:msub(pw.find(s=>s.id==="amc"))},
+        {...STEPS[2],status:s3,substeps:msub(pw.find(s=>s.id==="documents"))},
+        {...STEPS[3],status:s4,substeps:msub(pw.find(s=>s.id==="ahpra"))},
+        {...STEPS[4],status:s5,substeps:s5s},
+        {...STEPS[5],status:s6,substeps:s6s},
+        {...STEPS[6],status:s7,substeps:[]}
       ];
     }
 
-    /* Generate VA to-do items for a GP */
-    function generateTodos(gp) {
-      const todos = [];
-      const visaCase = findVisaCase(gp);
-      const pbsCase = findPbsCase(gp);
-      const tickets = getGpTickets(gp);
-      const openTickets = tickets.filter(t => t.status !== "closed");
+    /* ══════ SMART TODO GENERATION ══════ */
+    function makeTodos(gp){
+      const todos=[];
+      const vc=findVisa(gp), pc=findPbs(gp), tickets=gpTix(gp), open=tickets.filter(t=>t.status!=="closed");
+      const days=daysAgo(gp.lastActiveAt);
 
-      // Account under review
-      if (gp.status === "action_required" || gp.actionRequired) {
-        todos.push({
-          priority: "urgent",
-          category: "account",
-          label: "Action required on account",
-          detail: "This GP's registration needs admin attention",
-          action: { type: "scroll", target: "journey" }
-        });
-      }
+      // Urgent: action required
+      if(gp.actionRequired) todos.push({p:"urgent",cat:"account",label:`Review ${gp.name}'s account \u2014 action required by AHPRA or admin flag`,detail:"Open their journey and check AHPRA step for details",action:{type:"scroll",target:"journey"}});
 
-      // Pending verification
-      if (gp.pendingVerification) {
-        todos.push({
-          priority: "high",
-          category: "verification",
-          label: "Review qualification verification",
-          detail: `${gp.documentsPending || 0} document(s) pending review`,
-          action: { type: "scroll", target: "journey" }
-        });
-      }
-
-      // Open tickets
-      openTickets.forEach(ticket => {
-        todos.push({
-          priority: ticket.priority === "urgent" || ticket.priority === "time_sensitive" ? "urgent" : (ticket.priority === "high" ? "high" : "normal"),
-          category: "ticket",
-          label: `Respond to: ${ticket.title || "Support ticket"}`,
-          detail: `${ticket.category || "General"} \u2022 ${ticket.messagesCount || 0} messages`,
-          action: { type: "ticket", ticketId: ticket.id, candidateEmail: ticket.candidateEmail }
-        });
+      // Urgent/high: open tickets
+      open.forEach(t=>{
+        const age=daysAgo(t.updatedAt||t.createdAt);
+        const pri=t.priority==="urgent"||t.priority==="time_sensitive"?"urgent":t.priority==="high"?"high":"normal";
+        todos.push({p:pri,cat:"ticket",label:`Reply to "${t.title||"Support ticket"}"`,detail:`${t.category||"General"} \u2022 ${t.messagesCount||0} msgs \u2022 ${age}d since last update`,action:{type:"ticket",ticketId:t.id,email:t.candidateEmail}});
       });
 
-      // Visa case needs attention
-      if (visaCase) {
-        const vs = visaCase.status || "not_started";
-        if (["submitted", "under_review", "in_progress"].includes(vs)) {
-          todos.push({
-            priority: "normal",
-            category: "visa",
-            label: `Review visa case \u2014 ${statusLabel(vs)}`,
-            detail: visaCase.visa_type || "Visa application",
-            action: { type: "link", href: `/pages/admin-visa.html` }
-          });
-        }
-        if (vs === "waiting_on_gp") {
-          todos.push({
-            priority: "normal",
-            category: "visa",
-            label: "Waiting on GP for visa documents",
-            detail: "Check if GP needs help with document upload",
-            action: { type: "link", href: `/pages/admin-visa.html` }
-          });
-        }
+      // High: pending verification
+      if(gp.pendingVerification) todos.push({p:"high",cat:"verification",label:`Verify ${gp.name}'s qualification documents`,detail:`${gp.documentsPending||0} document(s) awaiting your review. Check MyIntealth or AMC step.`,action:{type:"scroll",target:"journey"}});
+
+      // Visa case actions
+      if(vc){
+        const vs=vc.status||"not_started";
+        if(vs==="submitted") todos.push({p:"high",cat:"visa",label:`Review submitted visa application`,detail:`${gp.name}'s visa was submitted. Verify all documents and update status.`,action:{type:"link",href:"/pages/admin-visa.html"}});
+        else if(vs==="under_review") todos.push({p:"normal",cat:"visa",label:`Visa under review \u2014 monitor progress`,detail:`Check for any updates or required actions. Last updated ${fmtR(vc.updated_at)}.`,action:{type:"link",href:"/pages/admin-visa.html"}});
+        else if(vs==="waiting_on_gp") todos.push({p:"normal",cat:"visa",label:`Chase ${gp.name} for visa documents`,detail:`Visa case is waiting on GP. ${days>3?"Consider sending a reminder email.":"GP was active "+fmtR(gp.lastActiveAt)+"."}`,action:{type:"email",email:gp.email}});
+        else if(vs==="in_progress") todos.push({p:"normal",cat:"visa",label:`Continue visa case management`,detail:`${vc.visa_type||"Visa"} in progress. Open admin-visa to review.`,action:{type:"link",href:"/pages/admin-visa.html"}});
       }
 
-      // PBS case needs attention
-      if (pbsCase) {
-        const ps = pbsCase.status || "not_started";
-        if (["submitted", "under_review", "in_progress"].includes(ps)) {
-          todos.push({
-            priority: "normal",
-            category: "pbs",
-            label: `Review PBS case \u2014 ${statusLabel(ps)}`,
-            detail: pbsCase.application_type || "PBS application",
-            action: { type: "link", href: `/pages/admin-pbs.html` }
-          });
-        }
-        if (ps === "waiting_on_gp") {
-          todos.push({
-            priority: "normal",
-            category: "pbs",
-            label: "Waiting on GP for PBS documents",
-            detail: "Check if GP needs help with Medicare/PBS process",
-            action: { type: "link", href: `/pages/admin-pbs.html` }
-          });
-        }
+      // PBS case actions
+      if(pc){
+        const ps=pc.status||"not_started";
+        if(ps==="submitted") todos.push({p:"high",cat:"pbs",label:`Review submitted PBS application`,detail:`${gp.name}'s PBS application submitted. Verify documents and approve.`,action:{type:"link",href:"/pages/admin-pbs.html"}});
+        else if(ps==="under_review") todos.push({p:"normal",cat:"pbs",label:`PBS under review \u2014 monitor progress`,detail:`Check for updates. Last updated ${fmtR(pc.updated_at)}.`,action:{type:"link",href:"/pages/admin-pbs.html"}});
+        else if(ps==="waiting_on_gp") todos.push({p:"normal",cat:"pbs",label:`Chase ${gp.name} for PBS documents`,detail:`PBS case waiting on GP. ${days>3?"Send a reminder.":"GP was active "+fmtR(gp.lastActiveAt)+"."}`,action:{type:"email",email:gp.email}});
+        else if(ps==="in_progress") todos.push({p:"normal",cat:"pbs",label:`Continue PBS case management`,detail:`${pc.application_type||"PBS"} in progress. Open admin-pbs to review.`,action:{type:"link",href:"/pages/admin-pbs.html"}});
       }
 
       // Documents pending
-      if (gp.documentsPending > 0) {
-        todos.push({
-          priority: "normal",
-          category: "documents",
-          label: `${gp.documentsPending} document(s) need review`,
-          detail: "Check uploaded qualification documents",
-          action: { type: "scroll", target: "journey" }
-        });
+      if(gp.documentsPending>0&&!gp.pendingVerification) todos.push({p:"normal",cat:"documents",label:`Review ${gp.documentsPending} uploaded document(s)`,detail:"Documents have been uploaded and need your review.",action:{type:"scroll",target:"journey"}});
+
+      // Stalled
+      if(gp.stalled) todos.push({p:days>14?"high":"normal",cat:"followup",label:`Follow up with ${gp.name} \u2014 inactive ${days}d`,detail:days>14?"GP has been inactive for over 2 weeks. Send a check-in email or call.":"Send a friendly nudge to keep them progressing.",action:{type:"email",email:gp.email}});
+
+      // Stage-specific proactive guidance (only if no higher-priority items for this step)
+      const journey=buildJourney(gp);
+      const cur=journey.find(s=>s.status==="current");
+      if(cur&&todos.length<2){
+        const pb=PLAYBOOK[cur.key];
+        if(pb) todos.push({p:"normal",cat:cur.key==="visa"?"visa":cur.key==="pbs"?"pbs":"documents",label:`Guide ${gp.name} through ${cur.label}`,detail:`VA task: ${pb.va.split(".")[0]}.`,action:{type:"scroll",target:"journey"}});
       }
 
-      // Stalled GP
-      if (gp.stalled) {
-        const last = gp.lastActiveAt ? new Date(gp.lastActiveAt) : null;
-        const days = last ? Math.round((Date.now() - last.getTime()) / 86400000) : 0;
-        todos.push({
-          priority: "normal",
-          category: "followup",
-          label: "Follow up \u2014 GP inactive",
-          detail: days > 0 ? `No activity for ${days} day${days === 1 ? "" : "s"}` : "No recent activity",
-          action: { type: "email", email: gp.email }
-        });
-      }
-
-      // Stage-specific guidance
-      const journey = buildJourney(gp);
-      const currentStep = journey.find(s => s.status === "current");
-      if (currentStep) {
-        if (currentStep.key === "myintealth") {
-          if (!gp.pendingVerification) {
-            todos.push({ priority: "normal", category: "verification", label: "Guide GP through MyIntealth setup", detail: "Ensure account creation and qualification upload", action: { type: "scroll", target: "journey" } });
-          }
-        } else if (currentStep.key === "amc") {
-          todos.push({ priority: "normal", category: "documents", label: "Guide GP through AMC portfolio", detail: "Help with credential upload and verification", action: { type: "scroll", target: "journey" } });
-        } else if (currentStep.key === "career") {
-          todos.push({ priority: "normal", category: "documents", label: "Support career placement", detail: "Help with document preparation and job matching", action: { type: "scroll", target: "journey" } });
-        } else if (currentStep.key === "ahpra") {
-          todos.push({ priority: "normal", category: "verification", label: "Guide AHPRA registration", detail: "Support through AHPRA stages", action: { type: "scroll", target: "journey" } });
-        }
-      }
-
-      // Sort by priority
-      const order = { urgent: 0, high: 1, normal: 2 };
-      todos.sort((a, b) => (order[a.priority] ?? 2) - (order[b.priority] ?? 2));
+      const ord={urgent:0,high:1,normal:2};
+      todos.sort((a,b)=>(ord[a.p]??2)-(ord[b.p]??2));
       return todos;
     }
 
-    /* ═══════════════════════════════════════════════════
-       FILTERING
-       ═══════════════════════════════════════════════════ */
-    function getFilteredCandidates() {
-      let list = getCandidates();
-      const q = state.searchQuery.trim().toLowerCase();
-      if (q) {
-        list = list.filter(gp => {
-          const text = `${gp.name} ${gp.email} ${gp.country || ""}`.toLowerCase();
-          return text.includes(q);
+    /* ══════ GLOBAL WORK QUEUE ══════ */
+    function buildGlobalQueue(){
+      const all=[];
+      gps().forEach(gp=>{
+        makeTodos(gp).forEach(t=>{
+          all.push({...t,gpName:gp.name||gp.email,gpId:gp.id||gp.userId||gp.email});
         });
-      }
-      if (state.filter === "attention") {
-        list = list.filter(gp => gp.actionRequired || gp.stalled || gp.pendingVerification || gp.openTickets > 0);
-      } else if (state.filter === "active") {
-        list = list.filter(gp => gp.status === "active");
-      } else if (state.filter === "stalled") {
-        list = list.filter(gp => gp.stalled);
-      } else if (state.filter === "complete") {
-        list = list.filter(gp => gp.status === "complete");
-      }
-      // Sort: action_required first, then stalled, then by last active
-      list.sort((a, b) => {
-        const pa = a.actionRequired ? 0 : a.stalled ? 1 : a.status === "complete" ? 3 : 2;
-        const pb = b.actionRequired ? 0 : b.stalled ? 1 : b.status === "complete" ? 3 : 2;
-        if (pa !== pb) return pa - pb;
-        const at = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
-        const bt = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
-        return bt - at;
       });
+      const ord={urgent:0,high:1,normal:2};
+      all.sort((a,b)=>(ord[a.p]??2)-(ord[b.p]??2));
+      return all;
+    }
+
+    /* ══════ FILTERING ══════ */
+    function filtered(){
+      let list=gps();
+      const q=S.query.trim().toLowerCase();
+      if(q) list=list.filter(g=>`${g.name} ${g.email} ${g.country||""}`.toLowerCase().includes(q));
+      if(S.filter==="attention") list=list.filter(g=>g.actionRequired||g.stalled||g.pendingVerification||g.openTickets>0);
+      else if(S.filter==="active") list=list.filter(g=>g.status==="active");
+      else if(S.filter==="stalled") list=list.filter(g=>g.stalled);
+      else if(S.filter==="complete") list=list.filter(g=>g.status==="complete");
+      list.sort((a,b)=>{const pa=a.actionRequired?0:a.stalled?1:a.status==="complete"?3:2,pb=b.actionRequired?0:b.stalled?1:b.status==="complete"?3:2;if(pa!==pb)return pa-pb;return(b.lastActiveAt?new Date(b.lastActiveAt):0)-(a.lastActiveAt?new Date(a.lastActiveAt):0);});
       return list;
     }
+    function counts(){const a=gps();return{all:a.length,attention:a.filter(g=>g.actionRequired||g.stalled||g.pendingVerification||g.openTickets>0).length,active:a.filter(g=>g.status==="active").length,stalled:a.filter(g=>g.stalled).length,complete:a.filter(g=>g.status==="complete").length};}
 
-    function getFilterCounts() {
-      const all = getCandidates();
-      return {
-        all: all.length,
-        attention: all.filter(gp => gp.actionRequired || gp.stalled || gp.pendingVerification || gp.openTickets > 0).length,
-        active: all.filter(gp => gp.status === "active").length,
-        stalled: all.filter(gp => gp.stalled).length,
-        complete: all.filter(gp => gp.status === "complete").length
-      };
-    }
-
-    /* ═══════════════════════════════════════════════════
-       RENDERING
-       ═══════════════════════════════════════════════════ */
-
-    function renderTopBar() {
-      const titleEl = document.getElementById("topTitle");
-      const chipsEl = document.getElementById("topChips");
-      const metaEl = document.getElementById("topMeta");
-
-      titleEl.textContent = isSuperAdmin() ? "CEO Command Centre" : "VA Command Centre";
-
-      const summary = state.dashboard ? state.dashboard.summary : null;
-      const counts = getFilterCounts();
-      chipsEl.innerHTML = [
-        `<span class="top-chip"><span class="chip-num">${counts.all}</span> GPs</span>`,
-        counts.attention > 0 ? `<span class="top-chip urgent"><span class="chip-num">${counts.attention}</span> Need Action</span>` : "",
-        `<span class="top-chip"><span class="chip-num">${summary ? summary.pendingVerifications : 0}</span> Pending</span>`,
-        `<span class="top-chip"><span class="chip-num">${summary ? summary.openSupportTickets : 0}</span> Tickets</span>`
+    /* ══════ RENDER ══════ */
+    function renderTopBar(){
+      document.getElementById("topTitle").textContent=isSA()?"CEO Command Centre":"VA Command Centre";
+      const c=counts(),sm=S.dashboard?S.dashboard.summary:null;
+      document.getElementById("topChips").innerHTML=[
+        `<span class="top-chip"><span class="chip-num">${c.all}</span> GPs</span>`,
+        c.attention?`<span class="top-chip urgent"><span class="chip-num">${c.attention}</span> Need Action</span>`:"",
+        `<span class="top-chip"><span class="chip-num">${sm?sm.openSupportTickets:0}</span> Tickets</span>`
       ].filter(Boolean).join("");
-
-      const email = state.viewer && state.viewer.email ? state.viewer.email : "";
-      const role = state.viewer && state.viewer.roleLabel ? state.viewer.roleLabel : state.hostLabel || "Admin";
-      metaEl.textContent = email ? `${role} \u2022 ${email}` : role;
+      const em=S.viewer&&S.viewer.email?S.viewer.email:"",rl=S.viewer&&S.viewer.roleLabel?S.viewer.roleLabel:S.hostLabel||"Admin";
+      document.getElementById("topMeta").textContent=em?`${rl} \u2022 ${em}`:rl;
     }
 
-    function renderFilters() {
-      const counts = getFilterCounts();
-      const bar = document.getElementById("filterBar");
-      const filters = [
-        { key: "all", label: "All", count: counts.all },
-        { key: "attention", label: "Needs Action", count: counts.attention },
-        { key: "active", label: "Active", count: counts.active },
-        { key: "stalled", label: "Stalled", count: counts.stalled },
-        { key: "complete", label: "Complete", count: counts.complete }
-      ];
-      bar.innerHTML = filters.map(f =>
-        `<button class="gp-filter-btn ${f.key === state.filter ? "active" : ""}" data-filter="${escapeHtml(f.key)}">${escapeHtml(f.label)}<span class="filter-count">${f.count}</span></button>`
-      ).join("");
+    function renderFilters(){
+      const c=counts();
+      document.getElementById("filterBar").innerHTML=[
+        {k:"all",l:"All",c:c.all},{k:"attention",l:"Needs Action",c:c.attention},
+        {k:"active",l:"Active",c:c.active},{k:"stalled",l:"Stalled",c:c.stalled},
+        {k:"complete",l:"Complete",c:c.complete}
+      ].map(f=>`<button class="gp-filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
     }
 
-    function renderGpList() {
-      const listEl = document.getElementById("gpList");
-      const candidates = getFilteredCandidates();
+    function renderGpList(){
+      const el=document.getElementById("gpList"),list=filtered();
+      if(!list.length){el.innerHTML=`<div class="todo-empty">${S.dashboard?"No GPs match filter.":"Loading..."}</div>`;return;}
+      el.innerHTML=list.map(gp=>{
+        const j=buildJourney(gp),todos=makeTodos(gp);
+        const sel=S.selectedGpId===(gp.id||gp.userId||gp.email);
+        const dots=j.map((s,i)=>`<span class="jdot ${s.status}"></span>${i<j.length-1?`<span class="jline${s.status==="done"?" done":""}"></span>`:""}`).join("");
+        const cur=j.find(s=>s.status==="current");
+        const topTodo=todos[0];
+        let actionText="",actionClass="info";
+        if(topTodo){
+          actionText=topTodo.label;
+          actionClass=topTodo.p==="urgent"?"":"high"===topTodo.p?"":"info";
+          if(topTodo.p==="urgent") actionClass="";
+          if(topTodo.p==="high") actionClass="";
+          // color based on priority
+          actionClass=topTodo.p==="urgent"?"":topTodo.p==="high"?"":"ok";
+        }else if(gp.status==="complete"){actionText="Journey complete";actionClass="ok";}
+        else{actionText=cur?`Step ${cur.num}: ${cur.label}`:"";actionClass="info";}
 
-      if (!candidates.length) {
-        listEl.innerHTML = `<div class="todo-empty">${state.dashboard ? "No GPs match your filter." : "Loading GP roster..."}</div>`;
-        return;
-      }
-
-      listEl.innerHTML = candidates.map(gp => {
-        const journey = buildJourney(gp);
-        const todoCount = generateTodos(gp).filter(t => t.priority === "urgent" || t.priority === "high").length;
-        const isSelected = state.selectedGpId === (gp.id || gp.userId || gp.email);
-
-        const dotsHtml = journey.map((step, i) => {
-          let dotClass = step.status;
-          if (step.status === "done") dotClass = "done";
-          else if (step.status === "current") dotClass = "current";
-          else if (step.status === "locked") dotClass = "locked";
-          else dotClass = ""; // pending
-          const lineClass = i < journey.length - 1 ? (journey[i].status === "done" ? " done" : "") : "";
-          return `<span class="journey-dot ${dotClass}"></span>${i < journey.length - 1 ? `<span class="journey-line${lineClass}"></span>` : ""}`;
-        }).join("");
-
-        const currentStep = journey.find(s => s.status === "current");
-        const stepLabel = currentStep ? `Step ${currentStep.num}: ${currentStep.label}` : (gp.progressPercent >= 100 ? "Completed" : gp.currentStepLabel || "");
-
-        return `
-          <div class="gp-card ${isSelected ? "selected" : ""}" data-gp-id="${escapeHtml(gp.id || gp.userId || gp.email)}">
-            <div class="gp-card-top">
-              <div class="gp-avatar">${escapeHtml(initials(gp.name))}</div>
-              <div class="gp-card-info">
-                <div class="gp-card-name">${escapeHtml(gp.name || gp.email)}</div>
-                <div class="gp-card-sub">${escapeHtml(gp.country || "—")} \u2022 ${escapeHtml(fmtRelative(gp.lastActiveAt))}</div>
-              </div>
-              ${todoCount > 0
-                ? `<span class="gp-card-attention">${todoCount}</span>`
-                : (gp.status === "complete" ? `<span class="gp-card-attention ok">\u2713</span>` : "")}
+        return `<div class="gp-card ${sel?"selected":""}" data-gp-id="${esc(gp.id||gp.userId||gp.email)}">
+          <div class="gp-card-top">
+            <div class="gp-avatar">${esc(ini(gp.name))}</div>
+            <div class="gp-card-info">
+              <div class="gp-card-name">${esc(gp.name||gp.email)}</div>
+              <div class="gp-card-sub">${esc(gp.country||"\u2014")} \u2022 ${esc(fmtR(gp.lastActiveAt))} \u2022 ${gp.progressPercent||0}%</div>
             </div>
-            <div class="gp-card-journey">${dotsHtml}</div>
-            <div class="gp-card-step">${escapeHtml(stepLabel)} \u2022 ${gp.progressPercent || 0}%</div>
           </div>
-        `;
+          <div class="gp-card-journey">${dots}</div>
+          <div class="gp-card-action${topTodo&&topTodo.p==="urgent"?"":(actionClass==="ok"?" ok":" info")}">${topTodo&&topTodo.p!=="normal"?"\u26a1 ":""}${esc(actionText)}</div>
+        </div>`;
       }).join("");
     }
 
-    function renderGpDetail() {
-      const detailEmpty = document.getElementById("detailEmpty");
-      const detailContent = document.getElementById("detailContent");
-
-      if (!state.selectedGpId) {
-        detailEmpty.style.display = "";
-        detailContent.style.display = "none";
+    function renderDetail(){
+      const el=document.getElementById("detailContent");
+      // No GP selected → show global work queue
+      if(!S.selectedGpId){
+        const q=buildGlobalQueue();
+        const urgent=q.filter(t=>t.p==="urgent"),high=q.filter(t=>t.p==="high"),normal=q.filter(t=>t.p==="normal");
+        let h=`<div class="work-queue-view">`;
+        h+=`<div class="wq-header"><h2>Today's Work Queue</h2><p>All pending actions across every GP, sorted by urgency. Click any item to jump to that GP.</p></div>`;
+        if(!q.length){h+=`<div class="wq-empty">No pending actions. All GPs are on track.</div>`;}
+        else{
+          if(urgent.length){h+=`<div class="wq-section"><div class="wq-section-title">Urgent <span class="wq-count red">${urgent.length}</span></div>`;urgent.forEach(t=>{h+=wqItem(t);});h+=`</div>`;}
+          if(high.length){h+=`<div class="wq-section"><div class="wq-section-title">High Priority <span class="wq-count amber">${high.length}</span></div>`;high.forEach(t=>{h+=wqItem(t);});h+=`</div>`;}
+          if(normal.length){h+=`<div class="wq-section"><div class="wq-section-title">Normal <span class="wq-count blue">${normal.length}</span></div>`;normal.forEach(t=>{h+=wqItem(t);});h+=`</div>`;}
+        }
+        h+=`</div>`;
+        el.innerHTML=h;
         return;
       }
 
-      const gp = getCandidates().find(c => (c.id || c.userId || c.email) === state.selectedGpId);
-      if (!gp) {
-        detailEmpty.style.display = "";
-        detailContent.style.display = "none";
-        return;
-      }
+      const gp=gps().find(c=>(c.id||c.userId||c.email)===S.selectedGpId);
+      if(!gp){el.innerHTML=`<div class="todo-empty">GP not found.</div>`;return;}
 
-      detailEmpty.style.display = "none";
-      detailContent.style.display = "block";
+      const journey=buildJourney(gp),todos=makeTodos(gp),vc=findVisa(gp),pc=findPbs(gp),tickets=gpTix(gp),openTix=tickets.filter(t=>t.status!=="closed");
+      let h="";
 
-      const journey = buildJourney(gp);
-      const todos = generateTodos(gp);
-      const visaCase = findVisaCase(gp);
-      const pbsCase = findPbsCase(gp);
-      const tickets = getGpTickets(gp);
-      const openTickets = tickets.filter(t => t.status !== "closed");
-
-      let html = "";
-
-      // Mobile back button
-      html += `<div class="mobile-back"><button class="btn ghost" data-back-to-list>&#8592; Back to GP list</button></div>`;
+      // Mobile back
+      h+=`<div class="mobile-back"><button class="btn ghost" data-back>\u2190 Back</button></div>`;
 
       // Header
-      html += `
-        <div class="detail-header">
-          <div class="detail-header-top">
-            <div class="detail-header-info">
-              <h2 class="detail-name">${escapeHtml(gp.name || gp.email)}</h2>
-              <div class="detail-meta">
-                <span>${escapeHtml(gp.email || "—")}</span>
-                <span>${escapeHtml(gp.phone || "No phone")}</span>
-                <span>${escapeHtml(gp.country || "—")}</span>
-                <span>Joined ${escapeHtml(fmtDate(gp.registeredAt))}</span>
-                <span>Active ${escapeHtml(fmtRelative(gp.lastActiveAt))}</span>
-              </div>
-            </div>
-            <div class="detail-actions">
-              <a class="btn" href="mailto:${escapeHtml(gp.email || "")}">Email GP</a>
-              <button class="btn ghost" data-export-gp="${escapeHtml(gp.id || "")}">Export</button>
+      h+=`<div class="detail-header">
+        <div class="detail-header-top">
+          <div class="detail-header-info">
+            <h2 class="detail-name">${esc(gp.name||gp.email)}</h2>
+            <div class="detail-meta">
+              <span>${esc(gp.email||"\u2014")}</span><span>${esc(gp.phone||"No phone")}</span>
+              <span>${esc(gp.country||"\u2014")}</span><span>Joined ${esc(fmtD(gp.registeredAt))}</span>
+              <span>Active ${esc(fmtR(gp.lastActiveAt))}</span>
             </div>
           </div>
-          <div class="detail-progress-row">
-            <div class="detail-progress-bar"><span style="width:${gp.progressPercent || 0}%"></span></div>
-            <span class="detail-progress-label">${gp.progressPercent || 0}% \u2022 Step ${gp.currentStepIndex || 1}/${gp.totalSteps || 8}</span>
-          </div>
+          <div class="detail-actions"><a class="btn" href="mailto:${esc(gp.email||"")}">Email GP</a></div>
         </div>
-      `;
+        <div class="detail-progress-row">
+          <div class="detail-progress-bar"><span style="width:${gp.progressPercent||0}%"></span></div>
+          <span class="detail-progress-label">${gp.progressPercent||0}%</span>
+        </div>
+      </div>`;
 
-      // Executive toggle for super admin
-      if (isSuperAdmin()) {
-        html += `
-          <div class="executive-toggle visible">
-            <button class="executive-toggle-btn" data-toggle-executive>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20M5 20V8l7-5 7 5v12"/></svg>
-              Executive Overview
-            </button>
+      // Next Action Card
+      if(todos.length){
+        const t=todos[0];
+        h+=`<div class="next-action-card">
+          <div class="next-action-kicker">Next Action</div>
+          <div class="next-action-label">${esc(t.label)}</div>
+          <div class="next-action-detail">${esc(t.detail)}</div>
+          <div class="next-action-actions">
+            <button class="btn primary" data-todo-action='${esc(JSON.stringify(t.action))}'>Do This Now</button>
           </div>
-          <div class="executive-collapse" id="executiveCollapse">
-            ${renderExecutivePanel()}
-          </div>
-        `;
-      }
-
-      // VA To-Do List
-      html += `<div class="section-card" id="todoSection">`;
-      html += `<h3 class="section-title">VA To-Do <span class="count-badge">${todos.length}</span></h3>`;
-      if (todos.length) {
-        html += `<div class="todo-list">`;
-        html += todos.map(todo => `
-          <div class="todo-item" data-todo-action='${escapeHtml(JSON.stringify(todo.action))}'>
-            <span class="todo-priority ${escapeHtml(todo.priority)}"></span>
-            <div class="todo-content">
-              <div class="todo-label">${escapeHtml(todo.label)}</div>
-              <div class="todo-detail">${escapeHtml(todo.detail)}</div>
-            </div>
-            <span class="todo-category ${escapeHtml(todo.category)}">${escapeHtml(todo.category)}</span>
-          </div>
-        `).join("");
-        html += `</div>`;
-      } else {
-        html += `<div class="todo-empty">No action items for this GP right now.</div>`;
-      }
-      html += `</div>`;
-
-      // Journey Progress
-      html += `<div class="section-card" id="journeySection">`;
-      html += `<h3 class="section-title">Registration Journey</h3>`;
-      html += `<div class="journey-stepper">`;
-      journey.forEach((step, idx) => {
-        const isOpen = state.expandedSteps[step.key] || step.status === "current";
-        const dotIcon = step.status === "done" ? "\u2713" : (step.status === "locked" ? "\u2014" : step.num);
-
-        let actionsHtml = "";
-        if (step.key === "visa") {
-          actionsHtml = `<div class="step-actions"><a class="btn" href="/pages/admin-visa.html">Manage Visa Case</a></div>`;
-        } else if (step.key === "pbs") {
-          actionsHtml = `<div class="step-actions"><a class="btn" href="/pages/admin-pbs.html">Manage PBS Case</a></div>`;
-        }
-
-        const substepsHtml = step.substeps.length ? `
-          <div class="substep-list">
-            ${step.substeps.map(sub => `
-              <div class="substep-item">
-                <span class="substep-icon ${escapeHtml(sub.status)}">${sub.status === "done" ? "\u2713" : sub.status === "current" ? "\u2022" : "\u2014"}</span>
-                ${escapeHtml(sub.label)}
-              </div>
-            `).join("")}
-          </div>
-        ` : `<div style="font-size:12px;color:var(--muted);padding:4px 0;">No substep data available.</div>`;
-
-        const badgeLabel = step.status === "done" ? "Complete" : step.status === "current" ? "In Progress" : step.status === "locked" ? "Locked" : "Pending";
-
-        html += `
-          <div class="journey-step ${step.status === "locked" ? "locked" : ""} ${isOpen ? "open" : ""}" data-step-key="${escapeHtml(step.key)}">
-            <div class="journey-step-track">
-              <div class="journey-step-dot ${escapeHtml(step.status)}">${dotIcon}</div>
-              <div class="journey-step-line ${idx > 0 && journey[idx - 1].status === "done" ? "done" : ""}"></div>
-            </div>
-            <div class="journey-step-body">
-              <div class="journey-step-header" data-toggle-step="${escapeHtml(step.key)}">
-                <span class="journey-step-name">${escapeHtml(step.label)}</span>
-                <span class="journey-step-badge ${escapeHtml(step.status)}">${escapeHtml(badgeLabel)}</span>
-              </div>
-              <div class="journey-step-expand">
-                ${substepsHtml}
-                ${actionsHtml}
-              </div>
-            </div>
-          </div>
-        `;
-      });
-      html += `</div></div>`;
-
-      // Case Summary Cards (Visa + PBS)
-      html += `<div class="section-card">`;
-      html += `<h3 class="section-title">Case Management</h3>`;
-      html += `<div class="case-summary-grid">`;
-
-      // Visa card
-      html += `<div class="case-summary">`;
-      html += `<div class="case-summary-title">Visa Application `;
-      if (visaCase) {
-        const tone = statusPillTone(visaCase.status);
-        html += `<span class="case-pill ${tone}">${escapeHtml(statusLabel(visaCase.status))}</span>`;
-      } else {
-        html += `<span class="case-pill gray">No Case</span>`;
-      }
-      html += `</div>`;
-      if (visaCase) {
-        html += `<div class="case-summary-fields">
-          <div class="case-field"><span class="case-field-label">Type</span><span class="case-field-value">${escapeHtml(visaCase.visa_type || "—")}</span></div>
-          <div class="case-field"><span class="case-field-label">Reference</span><span class="case-field-value">${escapeHtml(visaCase.reference_number || "—")}</span></div>
-          <div class="case-field"><span class="case-field-label">Updated</span><span class="case-field-value">${escapeHtml(fmtDate(visaCase.updated_at))}</span></div>
         </div>`;
-        html += `<a class="btn" href="/pages/admin-visa.html" style="justify-self:start;">Open Visa Management</a>`;
-      } else {
-        html += `<div style="font-size:12px;color:var(--muted);">No visa case has been created yet.</div>`;
       }
-      html += `</div>`;
 
-      // PBS card
-      html += `<div class="case-summary">`;
-      html += `<div class="case-summary-title">PBS & Medicare `;
-      if (pbsCase) {
-        const tone = statusPillTone(pbsCase.status);
-        html += `<span class="case-pill ${tone}">${escapeHtml(statusLabel(pbsCase.status))}</span>`;
-      } else {
-        html += `<span class="case-pill gray">No Case</span>`;
+      // Executive toggle
+      if(isSA()){
+        h+=`<div class="exec-toggle"><button class="exec-toggle-btn" data-toggle-exec>Executive Overview</button></div>`;
+        h+=`<div class="exec-collapse" id="execCollapse">${renderExec()}</div>`;
       }
-      html += `</div>`;
-      if (pbsCase) {
-        html += `<div class="case-summary-fields">
-          <div class="case-field"><span class="case-field-label">Type</span><span class="case-field-value">${escapeHtml(pbsCase.application_type || "—")}</span></div>
-          <div class="case-field"><span class="case-field-label">Provider #</span><span class="case-field-value">${escapeHtml(pbsCase.provider_number || "—")}</span></div>
-          <div class="case-field"><span class="case-field-label">Updated</span><span class="case-field-value">${escapeHtml(fmtDate(pbsCase.updated_at))}</span></div>
-        </div>`;
-        html += `<a class="btn" href="/pages/admin-pbs.html" style="justify-self:start;">Open PBS Management</a>`;
-      } else {
-        html += `<div style="font-size:12px;color:var(--muted);">No PBS case has been created yet.</div>`;
-      }
-      html += `</div>`;
 
-      html += `</div></div>`;
-
-      // Support Tickets
-      html += `<div class="section-card">`;
-      html += `<h3 class="section-title">Support Tickets <span class="count-badge">${openTickets.length} open</span></h3>`;
-      if (tickets.length) {
-        tickets.forEach(ticket => {
-          const isOpen = ticket.status !== "closed";
-          html += `
-            <div class="ticket-row">
-              <div class="ticket-info">
-                <div class="ticket-title-text">${escapeHtml(ticket.title || "Support ticket")}</div>
-                <div class="ticket-meta-text">${escapeHtml(ticket.category || "General")} \u2022 ${escapeHtml(ticket.priority || "normal")} \u2022 ${ticket.messagesCount || 0} msgs \u2022 ${escapeHtml(fmtRelative(ticket.updatedAt))}</div>
-              </div>
-              <span class="case-pill ${isOpen ? "blue" : "gray"}">${escapeHtml(ticket.status)}</span>
-              <button class="btn" data-view-thread="${escapeHtml(ticket.id)}" data-candidate-email="${escapeHtml(ticket.candidateEmail || "")}">View</button>
-            </div>
-          `;
+      // Remaining To-Dos
+      if(todos.length>1){
+        h+=`<div class="section-card" id="todoSection"><h3 class="section-title">Action Items <span class="cnt">${todos.length-1}</span></h3><div class="todo-list">`;
+        todos.slice(1).forEach(t=>{
+          h+=`<div class="todo-item" data-todo-action='${esc(JSON.stringify(t.action))}'><span class="tp ${esc(t.p)}"></span><div class="tc"><div class="tc-label">${esc(t.label)}</div><div class="tc-detail">${esc(t.detail)}</div></div><span class="tt ${esc(t.cat)}">${esc(t.cat)}</span></div>`;
         });
-      } else {
-        html += `<div class="todo-empty">No support tickets for this GP.</div>`;
+        h+=`</div></div>`;
       }
-      html += `</div>`;
 
-      detailContent.innerHTML = html;
+      // Journey
+      h+=`<div class="section-card" id="journeySection"><h3 class="section-title">Registration Journey</h3><div class="journey-stepper">`;
+      journey.forEach((step,idx)=>{
+        const isOpen=S.expanded[step.key]||step.status==="current";
+        const icon=step.status==="done"?"\u2713":step.status==="locked"?"\u2014":step.num;
+        const badge=step.status==="done"?"Complete":step.status==="current"?"In Progress":step.status==="locked"?"Locked":"Pending";
+        const pb=PLAYBOOK[step.key];
+        const playbookHtml=pb&&step.status!=="locked"?`<div class="step-playbook"><strong>GP:</strong> ${esc(pb.gp)}<br><strong>Your task:</strong> ${esc(pb.va)}</div>`:"";
+        const subsHtml=step.substeps.length?`<div class="substep-list">${step.substeps.map(s=>`<div class="substep-item"><span class="si ${esc(s.status)}">${s.status==="done"?"\u2713":s.status==="current"?"\u2022":"\u2014"}</span>${esc(s.label)}</div>`).join("")}</div>`:"";
+        let actionsHtml="";
+        if(step.key==="visa")actionsHtml=`<div class="step-actions"><a class="btn" href="/pages/admin-visa.html">Manage Visa Case</a></div>`;
+        else if(step.key==="pbs")actionsHtml=`<div class="step-actions"><a class="btn" href="/pages/admin-pbs.html">Manage PBS Case</a></div>`;
+
+        h+=`<div class="journey-step ${step.status==="locked"?"locked":""} ${isOpen?"open":""}" data-step-key="${esc(step.key)}">
+          <div class="journey-step-track"><div class="jsd ${esc(step.status)}">${icon}</div><div class="jsl${idx>0&&journey[idx-1].status==="done"?" done":""}"></div></div>
+          <div class="journey-step-body">
+            <div class="journey-step-header" data-toggle-step="${esc(step.key)}">
+              <span class="jsn">${esc(step.label)}</span>
+              <span class="jsb ${esc(step.status)}">${esc(badge)}</span>
+            </div>
+            <div class="journey-step-expand">${playbookHtml}${subsHtml}${actionsHtml}</div>
+          </div>
+        </div>`;
+      });
+      h+=`</div></div>`;
+
+      // Case Cards
+      h+=`<div class="section-card"><h3 class="section-title">Case Management</h3><div class="case-grid">`;
+      // Visa
+      h+=`<div class="case-card"><div class="case-card-title">Visa ${vc?`<span class="cp ${sTone(vc.status)}">${esc(sLabel(vc.status))}</span>`:`<span class="cp gray">No Case</span>`}</div>`;
+      if(vc){
+        const vs=vc.status||"not_started";
+        const nextVisa=vs==="not_started"?"Create the visa case and begin document collection.":vs==="in_progress"?"Continue collecting and reviewing documents.":vs==="submitted"?"Review submission and verify all documents.":vs==="waiting_on_gp"?"Waiting on GP \u2014 consider sending a reminder.":vs==="under_review"?"Monitor progress and check for updates.":vs==="approved"||vs==="granted"?"Visa approved. Move to next step.":"Check current status.";
+        h+=`<div class="case-fields"><div class="cf"><span class="cf-l">Type</span><span class="cf-v">${esc(vc.visa_type||"\u2014")}</span></div><div class="cf"><span class="cf-l">Ref</span><span class="cf-v">${esc(vc.reference_number||"\u2014")}</span></div><div class="cf"><span class="cf-l">Updated</span><span class="cf-v">${esc(fmtD(vc.updated_at))}</span></div></div>`;
+        h+=`<div class="case-next">\u2192 ${esc(nextVisa)}</div>`;
+        h+=`<a class="btn" href="/pages/admin-visa.html" style="justify-self:start;margin-top:4px;">Open Visa Management</a>`;
+      }else{h+=`<div class="case-next">No visa case yet. Create one when GP reaches visa step.</div>`;}
+      h+=`</div>`;
+      // PBS
+      h+=`<div class="case-card"><div class="case-card-title">PBS & Medicare ${pc?`<span class="cp ${sTone(pc.status)}">${esc(sLabel(pc.status))}</span>`:`<span class="cp gray">No Case</span>`}</div>`;
+      if(pc){
+        const ps=pc.status||"not_started";
+        const nextPbs=ps==="not_started"?"Begin Medicare Provider Number application.":ps==="in_progress"?"Continue processing. Check for missing documents.":ps==="submitted"?"Review and verify all PBS documents.":ps==="waiting_on_gp"?"Waiting on GP \u2014 consider sending a reminder.":ps==="under_review"?"Monitor approval progress.":ps==="approved"?"PBS approved. Move to commencement.":"Check current status.";
+        h+=`<div class="case-fields"><div class="cf"><span class="cf-l">Type</span><span class="cf-v">${esc(pc.application_type||"\u2014")}</span></div><div class="cf"><span class="cf-l">Provider #</span><span class="cf-v">${esc(pc.provider_number||"\u2014")}</span></div><div class="cf"><span class="cf-l">Updated</span><span class="cf-v">${esc(fmtD(pc.updated_at))}</span></div></div>`;
+        h+=`<div class="case-next">\u2192 ${esc(nextPbs)}</div>`;
+        h+=`<a class="btn" href="/pages/admin-pbs.html" style="justify-self:start;margin-top:4px;">Open PBS Management</a>`;
+      }else{h+=`<div class="case-next">No PBS case yet. Create one when GP reaches PBS step.</div>`;}
+      h+=`</div></div></div>`;
+
+      // Tickets
+      h+=`<div class="section-card"><h3 class="section-title">Support Tickets <span class="cnt">${openTix.length} open</span></h3>`;
+      if(tickets.length){tickets.forEach(t=>{const isO=t.status!=="closed";h+=`<div class="ticket-row"><div class="ticket-info"><div class="ticket-title-text">${esc(t.title||"Support ticket")}</div><div class="ticket-meta-text">${esc(t.category||"General")} \u2022 ${t.messagesCount||0} msgs \u2022 ${esc(fmtR(t.updatedAt))}</div></div><span class="cp ${isO?"blue":"gray"}">${esc(t.status)}</span><button class="btn" data-view-thread="${esc(t.id)}" data-email="${esc(t.candidateEmail||"")}">View</button></div>`;});}
+      else{h+=`<div class="todo-empty">No tickets for this GP.</div>`;}
+      h+=`</div>`;
+
+      el.innerHTML=h;
     }
 
-    function renderExecutivePanel() {
-      if (!state.dashboard || !state.dashboard.executive) return "";
-      const exec = state.dashboard.executive;
-      const overview = exec.overview || {};
-      const metrics = [
-        { label: "Active Pipeline", value: overview.activePipeline || 0, sub: `${overview.registrations30d || 0} new in 30d` },
-        { label: "Completed", value: overview.completedCandidates || 0, sub: "Pathway complete" },
-        { label: "Verification Backlog", value: overview.verificationBacklog || 0, sub: `${overview.documentsBacklog || 0} doc backlog` },
-        { label: "At-Risk Cases", value: (overview.actionRequired || 0) + (overview.stalled14d || 0), sub: `${overview.urgentTickets || 0} urgent tickets` }
-      ];
-      return `<div class="executive-grid">${metrics.map(m => `
-        <article class="executive-metric">
-          <div class="executive-metric-label">${escapeHtml(m.label)}</div>
-          <div class="executive-metric-value">${escapeHtml(String(m.value))}</div>
-          <div class="executive-metric-sub">${escapeHtml(m.sub)}</div>
-        </article>
-      `).join("")}</div>`;
+    function wqItem(t){
+      return `<div class="wq-item" data-wq-gp="${esc(t.gpId)}" data-todo-action='${esc(JSON.stringify(t.action))}'>
+        <span class="wq-dot ${esc(t.p)}"></span>
+        <div class="wq-body"><div class="wq-gp">${esc(t.gpName)}</div><div class="wq-label">${esc(t.label)}</div><div class="wq-detail">${esc(t.detail)}</div></div>
+        <span class="wq-tag ${esc(t.cat)}">${esc(t.cat)}</span>
+      </div>`;
     }
 
-    function renderAll() {
-      renderTopBar();
-      renderFilters();
-      renderGpList();
-      renderGpDetail();
+    function renderExec(){
+      if(!S.dashboard||!S.dashboard.executive)return"";
+      const o=(S.dashboard.executive.overview||{});
+      return`<div class="exec-grid">${[
+        {l:"Active Pipeline",v:o.activePipeline||0,s:`${o.registrations30d||0} new in 30d`},
+        {l:"Completed",v:o.completedCandidates||0,s:"Pathway complete"},
+        {l:"Verification Backlog",v:o.verificationBacklog||0,s:`${o.documentsBacklog||0} doc backlog`},
+        {l:"At-Risk",v:(o.actionRequired||0)+(o.stalled14d||0),s:`${o.urgentTickets||0} urgent tickets`}
+      ].map(m=>`<article class="exec-m"><div class="exec-m-l">${esc(m.l)}</div><div class="exec-m-v">${esc(String(m.v))}</div><div class="exec-m-s">${esc(m.s)}</div></article>`).join("")}</div>`;
     }
 
-    /* ═══════════════════════════════════════════════════
-       TICKET THREAD MODAL
-       ═══════════════════════════════════════════════════ */
-    function openTicketModal(ticketId, candidateEmail) {
-      const tickets = getTickets();
-      const ticket = tickets.find(t => t.id === ticketId);
-      if (!ticket) return;
+    function renderAll(){renderTopBar();renderFilters();renderGpList();renderDetail();}
 
-      const thread = Array.isArray(ticket.thread) ? ticket.thread : [];
-      const threadHtml = thread.length
-        ? thread.map(entry => {
-            const isAdmin = entry.from === "gp";
-            return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;${isAdmin ? "background:#eff6ff;" : "background:#fff;"}margin-bottom:6px;">
-              <div style="font-size:12px;font-weight:700;color:#334155;">${escapeHtml(isAdmin ? "GP Link Team" : (ticket.candidateName || "User"))}</div>
-              <div style="font-size:13px;color:#1f2937;margin:4px 0;line-height:1.4;">${escapeHtml(entry.text || "")}</div>
-              <div style="font-size:11px;color:#64748b;">${new Date(entry.ts || Date.now()).toLocaleString()}</div>
-            </div>`;
-          }).join("")
-        : `<div class="todo-empty">No messages in this thread.</div>`;
-
-      document.getElementById("modalTitle").textContent = ticket.title || "Support Ticket";
-      document.getElementById("modalBody").innerHTML = `
-        <div style="max-height:280px;overflow-y:auto;padding:2px;">${threadHtml}</div>
+    /* ══════ TICKET MODAL ══════ */
+    function openTicketModal(tid,email){
+      const t=tix().find(x=>x.id===tid);if(!t)return;
+      const thread=Array.isArray(t.thread)?t.thread:[];
+      const thHtml=thread.length?thread.map(e=>{const isA=e.from==="gp";return`<div style="border:1px solid #e2e8f0;border-radius:9px;padding:9px;${isA?"background:#eff6ff;":"background:#fff;"}margin-bottom:5px;"><div style="font-size:11px;font-weight:700;color:#334155;">${esc(isA?"GP Link Team":(t.candidateName||"User"))}</div><div style="font-size:12px;color:#1f2937;margin:3px 0;line-height:1.4;">${esc(e.text||"")}</div><div style="font-size:10px;color:#64748b;">${new Date(e.ts||Date.now()).toLocaleString()}</div></div>`;}).join(""):`<div class="todo-empty">No messages.</div>`;
+      document.getElementById("modalTitle").textContent=t.title||"Support Ticket";
+      document.getElementById("modalBody").innerHTML=`
+        <div style="max-height:260px;overflow-y:auto;padding:2px;">${thHtml}</div>
         <textarea id="replyInput" class="textarea" placeholder="Type your reply..."></textarea>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn primary" id="sendReplyBtn">Send Reply</button>
-          <button class="btn ${ticket.status === "closed" ? "green" : "amber"}" id="toggleTicketBtn" data-next="${ticket.status === "closed" ? "open" : "closed"}">${ticket.status === "closed" ? "Reopen" : "Close Ticket"}</button>
+          <button class="btn ${t.status==="closed"?"green":"amber"}" id="toggleTixBtn" data-next="${t.status==="closed"?"open":"closed"}">${t.status==="closed"?"Reopen":"Close Ticket"}</button>
           <button class="btn ghost" data-close-modal>Close</button>
-        </div>
-      `;
-
-      const modal = document.getElementById("actionModal");
-      modal.classList.add("open");
-      document.body.style.overflow = "hidden";
-
-      document.getElementById("sendReplyBtn").addEventListener("click", async () => {
-        const input = document.getElementById("replyInput");
-        const text = input ? input.value.trim() : "";
-        if (!text) return;
-        const btn = document.getElementById("sendReplyBtn");
-        btn.disabled = true;
-        btn.textContent = "Sending...";
-        try {
-          await replyToTicket(ticketId, text, candidateEmail || ticket.candidateEmail);
-          await loadAllData(true);
-          openTicketModal(ticketId, candidateEmail);
-        } catch (err) {
-          alert(err.message || "Failed to send reply.");
-          btn.disabled = false;
-          btn.textContent = "Send Reply";
-        }
+        </div>`;
+      document.getElementById("actionModal").classList.add("open");
+      document.body.style.overflow="hidden";
+      document.getElementById("sendReplyBtn").addEventListener("click",async()=>{
+        const txt=document.getElementById("replyInput").value.trim();if(!txt)return;
+        const btn=document.getElementById("sendReplyBtn");btn.disabled=true;btn.textContent="Sending...";
+        try{await fetch(`/api/admin/tickets/${encodeURIComponent(tid)}/reply`,{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text:txt,candidateEmail:email||t.candidateEmail})});await loadAll(true);openTicketModal(tid,email);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Send Reply";}
       });
-
-      document.getElementById("toggleTicketBtn").addEventListener("click", async () => {
-        const btn = document.getElementById("toggleTicketBtn");
-        const next = btn.getAttribute("data-next");
-        btn.disabled = true;
-        try {
-          await updateTicketStatus(ticketId, next, candidateEmail || ticket.candidateEmail);
-          await loadAllData(true);
-          openTicketModal(ticketId, candidateEmail);
-        } catch (err) {
-          alert(err.message || "Failed to update ticket.");
-          btn.disabled = false;
-        }
+      document.getElementById("toggleTixBtn").addEventListener("click",async()=>{
+        const btn=document.getElementById("toggleTixBtn"),nx=btn.getAttribute("data-next");btn.disabled=true;
+        try{await fetch(`/api/admin/tickets/${encodeURIComponent(tid)}/status`,{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:nx,candidateEmail:email||t.candidateEmail})});await loadAll(true);openTicketModal(tid,email);}catch(e){alert(e.message);btn.disabled=false;}
       });
     }
+    function closeModal(){document.getElementById("actionModal").classList.remove("open");document.body.style.overflow="";}
 
-    function closeModal() {
-      document.getElementById("actionModal").classList.remove("open");
-      document.body.style.overflow = "";
+    /* ══════ EVENTS ══════ */
+    function bind(){
+      document.getElementById("searchInput").addEventListener("input",e=>{S.query=e.target.value||"";renderGpList();});
+      document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderGpList();});
+      document.getElementById("gpList").addEventListener("click",e=>{const c=e.target.closest("[data-gp-id]");if(!c)return;S.selectedGpId=c.getAttribute("data-gp-id");S.expanded={};renderGpList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");});
+
+      document.getElementById("detailContent").addEventListener("click",e=>{
+        if(e.target.closest("[data-back]")){S.selectedGpId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderDetail();return;}
+        const st=e.target.closest("[data-toggle-step]");
+        if(st){const k=st.getAttribute("data-toggle-step");S.expanded[k]=!S.expanded[k];const el=st.closest(".journey-step");if(el)el.classList.toggle("open",S.expanded[k]);return;}
+        if(e.target.closest("[data-toggle-exec]")){const c=document.getElementById("execCollapse");if(c)c.classList.toggle("open");return;}
+        const tb=e.target.closest("[data-view-thread]");
+        if(tb){openTicketModal(tb.getAttribute("data-view-thread"),tb.getAttribute("data-email")||"");return;}
+        // Work queue item → select that GP
+        const wq=e.target.closest("[data-wq-gp]");
+        if(wq){S.selectedGpId=wq.getAttribute("data-wq-gp");S.expanded={};renderGpList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
+        const ta=e.target.closest("[data-todo-action]");
+        if(ta){try{const a=JSON.parse(ta.getAttribute("data-todo-action"));if(a.type==="link"&&a.href)window.location.href=a.href;else if(a.type==="email"&&a.email)window.location.href="mailto:"+a.email;else if(a.type==="ticket"&&a.ticketId)openTicketModal(a.ticketId,a.email||"");else if(a.type==="scroll"&&a.target){const el=document.getElementById(a.target+"Section");if(el)el.scrollIntoView({behavior:"smooth",block:"start"});}}catch(_){}return;}
+      });
+
+      document.getElementById("modalClose").addEventListener("click",closeModal);
+      document.getElementById("actionModal").addEventListener("click",e=>{if(e.target===document.getElementById("actionModal")||e.target.closest("[data-close-modal]"))closeModal();});
+      document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+      document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch(_){}window.location.href="/pages/admin-signin.html";});
     }
 
-    /* ═══════════════════════════════════════════════════
-       EVENT HANDLING
-       ═══════════════════════════════════════════════════ */
-    function bindEvents() {
-      // Search
-      document.getElementById("searchInput").addEventListener("input", e => {
-        state.searchQuery = e.target.value || "";
-        renderGpList();
-      });
-
-      // Filter buttons
-      document.getElementById("filterBar").addEventListener("click", e => {
-        const btn = e.target.closest("[data-filter]");
-        if (!btn) return;
-        state.filter = btn.getAttribute("data-filter");
-        renderFilters();
-        renderGpList();
-      });
-
-      // GP card click
-      document.getElementById("gpList").addEventListener("click", e => {
-        const card = e.target.closest("[data-gp-id]");
-        if (!card) return;
-        state.selectedGpId = card.getAttribute("data-gp-id");
-        state.expandedSteps = {};
-        renderGpList();
-        renderGpDetail();
-        // Mobile: show detail
-        document.getElementById("mainLayout").classList.add("detail-open");
-      });
-
-      // Detail panel delegated events
-      document.getElementById("detailContent").addEventListener("click", e => {
-        // Back button (mobile)
-        if (e.target.closest("[data-back-to-list]")) {
-          state.selectedGpId = null;
-          document.getElementById("mainLayout").classList.remove("detail-open");
-          renderGpDetail();
-          return;
-        }
-
-        // Toggle journey step
-        const stepToggle = e.target.closest("[data-toggle-step]");
-        if (stepToggle) {
-          const key = stepToggle.getAttribute("data-toggle-step");
-          state.expandedSteps[key] = !state.expandedSteps[key];
-          const stepEl = stepToggle.closest(".journey-step");
-          if (stepEl) stepEl.classList.toggle("open", state.expandedSteps[key]);
-          return;
-        }
-
-        // Executive toggle
-        if (e.target.closest("[data-toggle-executive]")) {
-          const collapse = document.getElementById("executiveCollapse");
-          if (collapse) collapse.classList.toggle("open");
-          return;
-        }
-
-        // View ticket thread
-        const threadBtn = e.target.closest("[data-view-thread]");
-        if (threadBtn) {
-          openTicketModal(
-            threadBtn.getAttribute("data-view-thread"),
-            threadBtn.getAttribute("data-candidate-email") || ""
-          );
-          return;
-        }
-
-        // To-do item action
-        const todoItem = e.target.closest("[data-todo-action]");
-        if (todoItem) {
-          try {
-            const action = JSON.parse(todoItem.getAttribute("data-todo-action"));
-            if (action.type === "link" && action.href) {
-              window.location.href = action.href;
-            } else if (action.type === "email" && action.email) {
-              window.location.href = `mailto:${action.email}`;
-            } else if (action.type === "ticket" && action.ticketId) {
-              openTicketModal(action.ticketId, action.candidateEmail || "");
-            } else if (action.type === "scroll" && action.target) {
-              const el = document.getElementById(action.target + "Section");
-              if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-            }
-          } catch (_) {}
-          return;
-        }
-      });
-
-      // Modal close
-      document.getElementById("modalClose").addEventListener("click", closeModal);
-      document.getElementById("actionModal").addEventListener("click", e => {
-        if (e.target === document.getElementById("actionModal") || e.target.closest("[data-close-modal]")) {
-          closeModal();
-        }
-      });
-      document.addEventListener("keydown", e => {
-        if (e.key === "Escape") closeModal();
-      });
-
-      // Sign out
-      document.getElementById("logoutBtn").addEventListener("click", async () => {
-        try { await fetch("/api/admin/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (_) {}
-        window.location.href = "/pages/admin-signin.html";
-      });
-    }
-
-    /* ═══════════════════════════════════════════════════
-       INITIALIZATION
-       ═══════════════════════════════════════════════════ */
-    bindEvents();
-    loadAdminSession()
-      .then(ok => {
-        if (!ok) return;
-        loadAllData();
-        // Auto-refresh every 10 seconds
-        state.refreshTimer = setInterval(() => {
-          if (document.visibilityState !== "visible") return;
-          loadAllData();
-        }, 10000);
-      })
-      .catch(err => {
-        document.getElementById("gpList").innerHTML = `<div class="todo-empty">${escapeHtml(err.message || "Unable to verify admin session.")}</div>`;
-      });
-
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") loadAllData();
-    });
+    /* ══════ INIT ══════ */
+    bind();
+    loadSession().then(ok=>{if(!ok)return;loadAll();S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll();},10000);}).catch(err=>{document.getElementById("gpList").innerHTML=`<div class="todo-empty">${esc(err.message||"Cannot verify session.")}</div>`;});
+    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll();});
   </script>
 </body>
 </html>
