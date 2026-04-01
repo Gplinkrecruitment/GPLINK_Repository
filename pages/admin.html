@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Dashboard - GP Link</title>
+  <title>VA Command Centre - GP Link</title>
   <style>
     :root {
       --bg: #f4f6fb;
@@ -22,603 +22,628 @@
       --shadow: 0 20px 36px -28px rgba(15, 23, 42, 0.5);
     }
 
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; }
     body {
-      margin: 0;
       font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
-      background: radial-gradient(1000px 560px at 50% -12%, #fff, var(--bg));
-      padding: 16px;
+      background: var(--bg);
+      height: 100vh;
+      overflow: hidden;
     }
 
-    .app {
-      max-width: 1240px;
-      margin: 0 auto;
-      display: grid;
-      gap: 12px;
-    }
-
-    .hero {
-      border-radius: var(--radius-lg);
+    /* ── Top Bar ── */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 20px;
       background: linear-gradient(120deg, var(--purple-1), var(--purple-2));
       color: #fff;
-      padding: 18px;
-      box-shadow: var(--shadow);
+      flex-wrap: wrap;
     }
-    .hero h1 {
-      margin: 0;
-      font-size: 30px;
-      letter-spacing: -0.03em;
-      font-weight: 760;
-    }
-    .hero p {
-      margin: 6px 0 0;
-      font-size: 13px;
-      opacity: 0.92;
-      font-weight: 560;
-    }
-    .hero-top {
+    .top-bar-left {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
+      gap: 14px;
     }
-    .hero-meta {
+    .top-bar h1 {
+      font-size: 18px;
+      font-weight: 760;
+      letter-spacing: -0.02em;
+    }
+    .top-bar-chips {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
-      margin-top: 12px;
     }
-    .hero-chip {
+    .top-chip {
       display: inline-flex;
       align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
       border-radius: 999px;
-      padding: 6px 10px;
       font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      background: rgba(255, 255, 255, 0.16);
-      border: 1px solid rgba(255, 255, 255, 0.28);
+      font-weight: 700;
+      background: rgba(255,255,255,0.16);
+      border: 1px solid rgba(255,255,255,0.24);
       color: #fff;
+      cursor: default;
     }
-    .hero-chip.super-admin {
-      background: rgba(15, 23, 42, 0.22);
-      border-color: rgba(255, 255, 255, 0.34);
-    }
-    .hero-chip.email {
-      text-transform: none;
-      letter-spacing: 0;
-      font-weight: 700;
-    }
-
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .integration-panel {
-      padding: 16px;
-      display: grid;
-      gap: 14px;
-    }
-    .integration-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .integration-title {
-      margin: 0;
-      font-size: 20px;
-      font-weight: 780;
-      letter-spacing: -0.02em;
-    }
-    .integration-copy {
-      margin: 4px 0 0;
-      font-size: 13px;
-      color: var(--muted);
-      font-weight: 560;
-    }
-    .integration-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .pill-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .status-chip {
-      border-radius: 999px;
-      padding: 6px 10px;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      border: 1px solid #dbe3ee;
-      background: #f8fafc;
-      color: #334155;
-    }
-    .status-chip.connected {
-      background: #ebf9f0;
-      border-color: #b9e8c8;
-      color: #166534;
-    }
-    .status-chip.pending {
-      background: #fff7ed;
-      border-color: #fdba74;
-      color: #9a3412;
-    }
-    .status-chip.error {
-      background: #fef2f2;
-      border-color: #fecaca;
-      color: #b91c1c;
-    }
-    .status-chip.disconnected {
-      background: #eff6ff;
-      border-color: #bfdbfe;
-      color: #1d4ed8;
-    }
-    .integration-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .integration-tile {
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: #fbfdff;
-      padding: 12px;
-      display: grid;
-      gap: 4px;
-    }
-    .integration-label {
-      font-size: 11px;
-      font-weight: 800;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .integration-value {
-      font-size: 16px;
-      font-weight: 760;
-      color: #0f172a;
-      line-height: 1.25;
-      word-break: break-word;
-    }
-    .integration-sub {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 560;
-    }
-    .integration-banner {
-      border-radius: 10px;
-      padding: 10px 12px;
-      font-size: 12px;
-      font-weight: 650;
-      border: 1px solid #dbe3ee;
-      background: #f8fafc;
-      color: #334155;
-    }
-    .integration-banner.success {
-      background: #ebf9f0;
-      border-color: #b9e8c8;
-      color: #166534;
-    }
-    .integration-banner.error {
-      background: #fef2f2;
-      border-color: #fecaca;
-      color: #b91c1c;
-    }
-    .integration-banner.pending {
-      background: #fff7ed;
-      border-color: #fdba74;
-      color: #9a3412;
-    }
-    .integration-note {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      flex-wrap: wrap;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 560;
-    }
-    .mono-inline {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 11px;
-      color: #334155;
-      background: #f8fafc;
-      border: 1px solid #dbe3ee;
-      border-radius: 8px;
-      padding: 2px 6px;
-    }
-    .executive-panel {
-      padding: 16px;
-      display: grid;
-      gap: 14px;
-      background:
-        radial-gradient(420px 200px at 100% 0%, rgba(99, 102, 241, 0.12), transparent 70%),
-        linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
-    }
-    .executive-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .executive-kicker {
-      margin: 0 0 4px;
-      color: #5b21b6;
-      font-size: 11px;
+    .top-chip .chip-num {
       font-weight: 900;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .executive-title {
-      margin: 0;
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: #0f172a;
-    }
-    .executive-copy {
-      margin: 5px 0 0;
-      font-size: 13px;
-      color: var(--muted);
-      font-weight: 560;
-      max-width: 720px;
-    }
-    .executive-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .executive-metric {
-      border: 1px solid #dde7f5;
-      border-radius: 14px;
-      background: #ffffff;
-      padding: 12px;
-      display: grid;
-      gap: 4px;
-      box-shadow: 0 14px 30px -26px rgba(15, 23, 42, 0.45);
-    }
-    .executive-metric-label {
-      color: #64748b;
-      font-size: 11px;
-      font-weight: 850;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    .executive-metric-value {
-      font-size: 30px;
-      line-height: 1;
-      font-weight: 820;
-      letter-spacing: -0.04em;
-      color: #0f172a;
-    }
-    .executive-metric-sub {
       font-size: 12px;
-      color: var(--muted);
-      font-weight: 650;
     }
-    .executive-columns {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .executive-card {
-      border: 1px solid #dde7f5;
-      border-radius: 14px;
-      background: #ffffff;
-      padding: 14px;
-      display: grid;
-      gap: 12px;
-      min-height: 100%;
-    }
-    .executive-card-title {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 780;
-      letter-spacing: -0.02em;
-      color: #0f172a;
-    }
-    .executive-card-copy {
-      margin: 4px 0 0;
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 560;
-    }
-    .funnel-list,
-    .risk-list,
-    .stack-list {
-      display: grid;
-      gap: 8px;
-    }
-    .funnel-row,
-    .risk-item,
-    .stack-item {
-      border: 1px solid #e3ebf7;
-      border-radius: 12px;
-      background: #fbfdff;
-      padding: 10px 12px;
-    }
-    .funnel-row {
-      display: grid;
-      gap: 8px;
-    }
-    .funnel-meta,
-    .stack-meta {
+    .top-chip.urgent { background: rgba(220,38,38,0.35); border-color: rgba(220,38,38,0.5); }
+    .top-bar-right {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      color: #0f172a;
+      gap: 10px;
     }
-    .funnel-meta small,
-    .stack-meta small {
-      color: var(--muted);
+    .top-bar-meta {
       font-size: 11px;
-      font-weight: 700;
-    }
-    .funnel-bar {
-      width: 100%;
-      height: 8px;
-      border-radius: 999px;
-      background: #e8eef9;
-      overflow: hidden;
-    }
-    .funnel-bar > span {
-      display: block;
-      height: 100%;
-      border-radius: 999px;
-      background: linear-gradient(90deg, #7c3aed 0%, #2563eb 100%);
-    }
-    .risk-item {
-      display: grid;
-      gap: 6px;
-    }
-    .risk-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-    .risk-label {
-      font-size: 13px;
-      font-weight: 760;
-      color: #0f172a;
-    }
-    .risk-value {
-      font-size: 22px;
-      font-weight: 820;
-      letter-spacing: -0.03em;
-      color: #0f172a;
-    }
-    .risk-note {
-      margin: 0;
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 560;
-      line-height: 1.4;
-    }
-    .stack-item {
-      display: grid;
-      gap: 4px;
-    }
-    .stack-sub {
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 650;
-    }
-
-    .stat {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-      padding: 12px;
-      box-shadow: var(--shadow);
-      display: grid;
-      gap: 4px;
-    }
-    .stat .label {
-      color: var(--muted);
-      font-size: 12px;
+      opacity: 0.85;
       font-weight: 600;
     }
-    .stat .value {
-      font-size: 26px;
-      letter-spacing: -0.02em;
-      font-weight: 760;
-      line-height: 1.1;
-    }
-    .stat .sub {
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid var(--line);
-      background: #f8fafc;
-    }
-
-    .tab {
-      border: 0;
-      border-right: 1px solid var(--line);
-      background: transparent;
-      color: #1f2937;
+    .btn-signout {
+      border: 1px solid rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.14);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 8px;
       font: inherit;
-      padding: 12px 14px;
       font-size: 12px;
       font-weight: 700;
       cursor: pointer;
-      min-width: 220px;
     }
-    .tab.active {
-      color: var(--blue);
-      background: #eff6ff;
-      box-shadow: inset 0 -2px 0 var(--blue);
-    }
+    .btn-signout:hover { background: rgba(255,255,255,0.24); }
 
-    .toolbar {
-      padding: 12px;
+    /* ── Main Layout ── */
+    .main-layout {
       display: grid;
-      grid-template-columns: 1fr auto auto;
-      gap: 8px;
-      border-bottom: 1px solid var(--line);
-      background: #fff;
+      grid-template-columns: 340px 1fr;
+      height: calc(100vh - 52px);
+      overflow: hidden;
     }
 
-    .input,
-    .btn {
+    /* ── Left Panel: GP List ── */
+    .gp-list-panel {
+      border-right: 1px solid var(--line);
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .gp-search-bar {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 8px;
+    }
+    .gp-search-input {
+      width: 100%;
+      border: 1px solid #cdd7e6;
       border-radius: 8px;
+      padding: 9px 10px;
       font: inherit;
       font-size: 13px;
+      background: #f8fafc;
     }
-    .input {
-      border: 1px solid #cdd7e6;
-      padding: 10px;
-      width: 100%;
+    .gp-search-input:focus { outline: 2px solid var(--purple-1); outline-offset: -1px; border-color: var(--purple-1); }
+    .gp-filters {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .gp-filter-btn {
+      border: 1px solid #dce4f0;
+      background: #f8fafc;
+      color: #475569;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .gp-filter-btn.active {
+      background: var(--purple-1);
+      border-color: var(--purple-1);
+      color: #fff;
+    }
+    .gp-filter-btn .filter-count {
+      margin-left: 3px;
+      font-weight: 900;
+    }
+    .gp-list-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    /* ── GP Card ── */
+    .gp-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: border-color .12s, background .12s;
+      background: #fff;
+    }
+    .gp-card:hover { border-color: #b4c3e0; background: #fafbff; }
+    .gp-card.selected {
+      border-color: var(--purple-1);
+      background: #f5f0ff;
+      box-shadow: 0 0 0 2px rgba(124,58,237,0.12);
+    }
+    .gp-card-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .gp-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #e8e0ff, #d4c8ff);
+      color: var(--purple-1);
+      display: grid;
+      place-items: center;
+      font-size: 14px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .gp-card-info { flex: 1; min-width: 0; }
+    .gp-card-name {
+      font-size: 13px;
+      font-weight: 720;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .gp-card-sub {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 560;
+      margin-top: 1px;
+    }
+    .gp-card-attention {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+      flex-shrink: 0;
+    }
+    .gp-card-attention.ok { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+    .gp-card-journey {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      margin-top: 8px;
+    }
+    .journey-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      flex-shrink: 0;
+    }
+    .journey-dot.done { background: var(--green); }
+    .journey-dot.current { background: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.25); }
+    .journey-dot.attention { background: var(--amber); }
+    .journey-dot.locked { background: #e2e8f0; opacity: 0.5; }
+    .journey-line {
+      flex: 1;
+      height: 2px;
+      background: #e2e8f0;
+      min-width: 4px;
+    }
+    .journey-line.done { background: var(--green); }
+    .gp-card-step {
+      font-size: 10px;
+      color: var(--muted);
+      font-weight: 650;
+      margin-top: 4px;
+    }
+
+    /* ── Right Panel: GP Detail ── */
+    .gp-detail-panel {
+      overflow-y: auto;
+      padding: 20px 24px;
+      background: var(--bg);
+    }
+    .detail-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--muted);
+      text-align: center;
+      gap: 12px;
+    }
+    .detail-empty-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: #ede9fe;
+      display: grid;
+      place-items: center;
+    }
+    .detail-empty-icon svg { width: 28px; height: 28px; stroke: var(--purple-1); fill: none; stroke-width: 1.5; }
+    .detail-empty h2 {
+      font-size: 18px;
+      font-weight: 720;
+      color: var(--text);
+      margin: 0;
+    }
+    .detail-empty p {
+      font-size: 13px;
+      max-width: 340px;
+      line-height: 1.5;
+    }
+
+    /* ── GP Detail Header ── */
+    .detail-header {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      display: grid;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .detail-header-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .detail-header-info { display: grid; gap: 4px; }
+    .detail-name {
+      font-size: 22px;
+      font-weight: 780;
+      letter-spacing: -0.02em;
+    }
+    .detail-meta {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 560;
+    }
+    .detail-meta span { display: inline-flex; align-items: center; gap: 4px; }
+    .detail-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .btn {
       border: 1px solid #c7d9ff;
       background: #f2f7ff;
       color: #1d4ed8;
-      padding: 10px 12px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font: inherit;
+      font-size: 12px;
       font-weight: 700;
       cursor: pointer;
       white-space: nowrap;
-    }
-    .btn.primary {
-      border-color: var(--blue);
-      background: var(--blue);
-      color: #fff;
-    }
-    .btn.hero-btn {
-      border-color: rgba(255, 255, 255, 0.7);
-      background: rgba(255, 255, 255, 0.18);
-      color: #fff;
-    }
-
-    .content {
-      padding: 12px;
-      display: grid;
-      gap: 10px;
-      min-height: 320px;
-      background: #fbfdff;
-    }
-
-    .row {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #fff;
-      padding: 12px;
-      display: grid;
-      gap: 8px;
-    }
-
-    .row-top {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px;
-      align-items: start;
-    }
-
-    .name {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 760;
-    }
-    .meta {
-      color: var(--muted);
-      font-size: 12px;
-      display: grid;
-      gap: 2px;
-    }
-
-    .badge {
-      border-radius: 999px;
-      border: 1px solid #dbe3ee;
-      padding: 3px 8px;
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      text-decoration: none;
       display: inline-flex;
-      width: fit-content;
-      background: #f8fafc;
-      color: #334155;
+      align-items: center;
+      gap: 5px;
     }
-    .badge.active { background: #ebf9f0; border-color: #b9e8c8; color: #166534; }
-    .badge.stalled { background: #fff7ed; border-color: #fdba74; color: #9a3412; }
-    .badge.action_required { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
-    .badge.complete { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
-    .badge.ticket-open { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
-    .badge.ticket-closed { background: #f1f5f9; border-color: #dbe4ef; color: #475569; }
-
-    .progress-meta {
+    .btn:hover { background: #e8f0ff; }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn.primary:hover { background: #1d4ed8; }
+    .btn.green { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+    .btn.amber { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .btn.red { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+    .btn.ghost { background: #f8fafc; border-color: #d4deee; color: #1f2937; }
+    .detail-progress-row {
       display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      color: #334155;
-      font-size: 11px;
-      font-weight: 650;
+      align-items: center;
+      gap: 10px;
     }
-
-    .bar {
-      width: 100%;
+    .detail-progress-bar {
+      flex: 1;
       height: 6px;
       border-radius: 999px;
       background: #e2e8f0;
       overflow: hidden;
     }
-    .bar > span {
+    .detail-progress-bar > span {
       display: block;
       height: 100%;
-      background: #2563eb;
       border-radius: 999px;
+      background: linear-gradient(90deg, var(--purple-1), var(--blue));
     }
-
-    .row-actions {
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
-      flex-wrap: wrap;
-    }
-
-    .empty {
-      border: 1px dashed #ced9ea;
-      border-radius: 10px;
-      padding: 14px;
-      font-size: 13px;
-      color: var(--muted);
-      text-align: center;
-      background: #fff;
-    }
-
-    .inline-note {
+    .detail-progress-label {
       font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+      flex-shrink: 0;
+    }
+
+    /* ── Section Card ── */
+    .section-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      margin-bottom: 14px;
+    }
+    .section-title {
+      font-size: 15px;
+      font-weight: 760;
+      letter-spacing: -0.01em;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title .count-badge {
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      background: #ede9fe;
+      color: var(--purple-1);
+    }
+
+    /* ── To-Do List ── */
+    .todo-list { display: grid; gap: 6px; }
+    .todo-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfdff;
+      cursor: pointer;
+      transition: border-color .12s;
+    }
+    .todo-item:hover { border-color: #b4c3e0; }
+    .todo-priority {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      margin-top: 5px;
+      flex-shrink: 0;
+    }
+    .todo-priority.urgent { background: var(--red); }
+    .todo-priority.high { background: var(--amber); }
+    .todo-priority.normal { background: var(--blue); }
+    .todo-content { flex: 1; min-width: 0; }
+    .todo-label {
+      font-size: 13px;
+      font-weight: 680;
+      color: var(--text);
+    }
+    .todo-detail {
+      font-size: 11px;
       color: var(--muted);
       font-weight: 560;
-      margin-left: 2px;
+      margin-top: 2px;
     }
+    .todo-category {
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .todo-category.account { background: #fef2f2; color: #991b1b; }
+    .todo-category.verification { background: #ede9fe; color: #5b21b6; }
+    .todo-category.visa { background: #eff6ff; color: #1d4ed8; }
+    .todo-category.pbs { background: #f0fdf4; color: #166534; }
+    .todo-category.ticket { background: #fff7ed; color: #9a3412; }
+    .todo-category.followup { background: #f8fafc; color: #475569; }
+    .todo-category.documents { background: #fefce8; color: #854d0e; }
+    .todo-empty {
+      padding: 14px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 560;
+      border: 1px dashed #ced9ea;
+      border-radius: 10px;
+    }
+
+    /* ── Journey Stepper (vertical) ── */
+    .journey-stepper { display: grid; gap: 0; }
+    .journey-step {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 12px;
+      position: relative;
+    }
+    .journey-step-track {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .journey-step-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 800;
+      color: #fff;
+      flex-shrink: 0;
+      z-index: 1;
+    }
+    .journey-step-dot.done { background: var(--green); }
+    .journey-step-dot.current { background: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
+    .journey-step-dot.pending { background: #cbd5e1; }
+    .journey-step-dot.locked { background: #e2e8f0; color: #94a3b8; }
+    .journey-step-dot.attention { background: var(--amber); }
+    .journey-step-line {
+      width: 2px;
+      flex: 1;
+      background: #e2e8f0;
+      min-height: 12px;
+    }
+    .journey-step-line.done { background: var(--green); }
+    .journey-step-body {
+      padding-bottom: 16px;
+    }
+    .journey-step:last-child .journey-step-body { padding-bottom: 0; }
+    .journey-step:last-child .journey-step-line { display: none; }
+    .journey-step-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 28px;
+      cursor: pointer;
+    }
+    .journey-step-name {
+      font-size: 14px;
+      font-weight: 720;
+      color: var(--text);
+    }
+    .journey-step.locked .journey-step-name { color: #94a3b8; }
+    .journey-step-badge {
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .journey-step-badge.done { background: #f0fdf4; color: #166534; }
+    .journey-step-badge.current { background: #eff6ff; color: #1d4ed8; }
+    .journey-step-badge.pending { background: #f8fafc; color: #64748b; }
+    .journey-step-badge.locked { background: #f8fafc; color: #94a3b8; }
+    .journey-step-badge.attention { background: #fff7ed; color: #9a3412; }
+    .journey-step-expand {
+      margin-top: 10px;
+      display: none;
+    }
+    .journey-step.open .journey-step-expand { display: block; }
+    .substep-list { display: grid; gap: 5px; }
+    .substep-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      background: #fbfdff;
+      border: 1px solid #eef3fa;
+    }
+    .substep-icon {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      font-size: 9px;
+    }
+    .substep-icon.done { background: #dcfce7; color: var(--green); }
+    .substep-icon.current { background: #dbeafe; color: var(--blue); }
+    .substep-icon.pending { background: #f1f5f9; color: #94a3b8; }
+    .step-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    /* ── Case Summary Cards ── */
+    .case-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .case-summary {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      background: #fbfdff;
+      display: grid;
+      gap: 8px;
+    }
+    .case-summary-title {
+      font-size: 13px;
+      font-weight: 760;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .case-summary-fields {
+      display: grid;
+      gap: 4px;
+    }
+    .case-field {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .case-field-label { color: var(--muted); font-weight: 600; }
+    .case-field-value { font-weight: 700; color: var(--text); }
+    .case-pill {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .case-pill.green { background: #f0fdf4; color: #166534; }
+    .case-pill.blue { background: #eff6ff; color: #1d4ed8; }
+    .case-pill.amber { background: #fff7ed; color: #9a3412; }
+    .case-pill.red { background: #fef2f2; color: #991b1b; }
+    .case-pill.gray { background: #f8fafc; color: #64748b; }
+
+    /* ── Ticket List ── */
+    .ticket-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      margin-bottom: 6px;
+      background: #fbfdff;
+    }
+    .ticket-info { flex: 1; min-width: 0; }
+    .ticket-title-text {
+      font-size: 13px;
+      font-weight: 680;
+      color: var(--text);
+    }
+    .ticket-meta-text {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 560;
+      margin-top: 2px;
+    }
+
+    /* ── Modal ── */
     .modal {
       position: fixed;
       inset: 0;
@@ -631,7 +656,7 @@
     }
     .modal.open { display: flex; }
     .modal-card {
-      width: min(760px, 100%);
+      width: min(640px, 100%);
       max-height: calc(100vh - 28px);
       overflow: auto;
       background: #fff;
@@ -648,16 +673,15 @@
       border-bottom: 1px solid var(--line);
     }
     .modal-title {
-      margin: 0;
-      font-size: 30px;
-      font-weight: 800;
+      font-size: 18px;
+      font-weight: 780;
       letter-spacing: -0.02em;
     }
     .modal-close {
       border: 0;
       background: transparent;
       color: #334155;
-      font-size: 26px;
+      font-size: 24px;
       line-height: 1;
       cursor: pointer;
       padding: 4px;
@@ -665,1997 +689,1164 @@
     .modal-body {
       padding: 14px 16px 18px;
       display: grid;
-      gap: 14px;
+      gap: 12px;
     }
-    .candidate-top {
-      display: grid;
-      gap: 8px;
-    }
-    .candidate-top-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .candidate-name {
-      margin: 0;
-      font-size: 22px;
-      font-weight: 760;
-      letter-spacing: -0.02em;
-    }
-    .candidate-grid {
-      display: grid;
-      gap: 10px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      border-bottom: 1px solid var(--line);
-      padding-bottom: 12px;
-    }
-    .field-label {
-      color: #64748b;
-      font-size: 12px;
-      font-weight: 650;
-      margin: 0;
-    }
-    .field-value {
-      color: #0f172a;
-      font-size: 14px;
-      font-weight: 650;
-      margin: 2px 0 0;
-    }
-    .progress-panel h4 {
-      margin: 0 0 10px;
-      font-size: 16px;
-      font-weight: 760;
-    }
-    .stepper-shell {
-      margin-top: 8px;
-      border-radius: 16px;
-      background: linear-gradient(135deg, #eef5ff 0%, #f8fbff 55%, #f1efff 100%);
-      padding: 10px;
-    }
-    .stepper-nav {
-      border-radius: 14px;
-      background: #ffffff;
-      border: 1px solid #e8eef9;
-      box-shadow: 0 14px 30px -24px rgba(15, 23, 42, 0.45);
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 6px;
-      padding: 12px 14px 10px;
-    }
-    .step-item {
-      position: relative;
-      flex: 1 1 0;
-      min-width: 0;
-      text-align: center;
-    }
-    .step-item::after {
-      content: "";
-      position: absolute;
-      top: 12px;
-      left: calc(50% + 14px);
-      width: calc(100% - 28px);
-      height: 1px;
-      background: #d9deea;
-    }
-    .step-item:last-child::after { display: none; }
-    .step-marker {
-      width: 24px;
-      height: 24px;
-      margin: 0 auto 6px;
-      border-radius: 999px;
-      border: 1px solid #7845ff;
-      background: #7845ff;
-      color: #ffffff;
-      display: grid;
-      place-items: center;
-      font-size: 13px;
-      font-weight: 800;
-      line-height: 1;
-    }
-    .step-label {
-      margin: 0;
-      font-size: 12px;
-      font-weight: 650;
-      color: #1f2937;
-      line-height: 1.2;
-    }
-    .step-help {
-      margin: 2px 0 0;
-      font-size: 10px;
-      color: #6b7280;
-      line-height: 1.2;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .modal-actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      border-top: 1px solid var(--line);
-      padding-top: 10px;
-    }
-    .btn.ghost {
-      border: 1px solid #d4deee;
-      background: #f8fafc;
-      color: #1f2937;
-    }
-    .info-section {
-      border-top: 1px solid var(--line);
-      padding-top: 10px;
-    }
-    .info-section h5 {
-      margin: 0 0 8px;
-      font-size: 14px;
-      font-weight: 760;
-      color: #0f172a;
-    }
-    .ticket-split {
-      display: grid;
-      gap: 8px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .mini-list {
-      border: 1px solid #dbe5f2;
-      border-radius: 10px;
-      background: #fbfdff;
-      padding: 8px;
-      display: grid;
-      gap: 6px;
-      min-height: 74px;
-    }
-    .mini-list-title {
-      margin: 0;
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: #64748b;
-    }
-    .mini-item {
-      border: 1px solid #e2eaf6;
+    .input {
+      width: 100%;
+      border: 1px solid #cdd7e6;
       border-radius: 8px;
-      background: #fff;
-      padding: 6px 8px;
-      display: grid;
-      gap: 2px;
+      padding: 9px 10px;
+      font: inherit;
+      font-size: 13px;
     }
-    .mini-item-title {
-      margin: 0;
+    .textarea {
+      width: 100%;
+      border: 1px solid #cdd7e6;
+      border-radius: 8px;
+      padding: 9px 10px;
+      font: inherit;
+      font-size: 13px;
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    /* ── Executive Panel (super_admin only) ── */
+    .executive-toggle {
+      display: none;
+      margin-bottom: 14px;
+    }
+    .executive-toggle.visible { display: block; }
+    .executive-toggle-btn {
+      border: 1px solid #d4deee;
+      background: #fff;
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font: inherit;
       font-size: 12px;
       font-weight: 700;
-      color: #111827;
-    }
-    .mini-item-meta {
-      margin: 0;
-      font-size: 11px;
-      color: #64748b;
-      font-weight: 600;
-    }
-    .docs-table {
-      border: 1px solid #dbe5f2;
-      border-radius: 10px;
-      overflow: hidden;
-      background: #fff;
-    }
-    .docs-head,
-    .docs-row {
-      display: grid;
-      grid-template-columns: 1.5fr 1fr auto auto;
-      gap: 8px;
+      cursor: pointer;
+      display: inline-flex;
       align-items: center;
-      padding: 8px 10px;
+      gap: 6px;
     }
-    .docs-head {
-      background: #f8fbff;
-      border-bottom: 1px solid #e3ebf7;
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: #64748b;
+    .executive-toggle-btn:hover { background: #f8fafc; }
+    .executive-collapse { display: none; margin-bottom: 14px; }
+    .executive-collapse.open { display: block; }
+    .executive-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
     }
-    .docs-row {
-      border-bottom: 1px solid #eef3fa;
-      font-size: 12px;
-      color: #1f2937;
-      font-weight: 650;
+    .executive-metric {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      display: grid;
+      gap: 3px;
     }
-    .docs-row:last-child { border-bottom: 0; }
-    .doc-pill {
-      border-radius: 999px;
-      padding: 2px 7px;
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      border: 1px solid #dce7f5;
-      background: #f8fafc;
-      color: #475569;
-      justify-self: start;
-    }
-    .doc-pill.accepted { border-color: #b9e8c8; background: #ebf9f0; color: #166534; }
-    .doc-pill.under_review { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
-    .doc-pill.rejected { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
-    .doc-pill.pending { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+    .executive-metric-label { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+    .executive-metric-value { font-size: 26px; font-weight: 800; letter-spacing: -0.03em; }
+    .executive-metric-sub { font-size: 11px; color: var(--muted); font-weight: 600; }
 
-    @media (max-width: 1024px) {
-      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .executive-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .executive-columns { grid-template-columns: 1fr; }
-      .integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .tab { min-width: 0; flex: 1; }
-      .toolbar { grid-template-columns: 1fr; }
-      .ticket-split { grid-template-columns: 1fr; }
-      .docs-head,
-      .docs-row { grid-template-columns: 1fr; }
+    /* ── Mobile Back Button ── */
+    .mobile-back {
+      display: none;
+      margin-bottom: 12px;
     }
+    .mobile-back .btn { font-size: 13px; }
 
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .main-layout {
+        grid-template-columns: 1fr;
+      }
+      .gp-list-panel {
+        border-right: 0;
+        height: auto;
+        max-height: 100%;
+      }
+      .gp-detail-panel {
+        display: none;
+      }
+      .main-layout.detail-open .gp-list-panel { display: none; }
+      .main-layout.detail-open .gp-detail-panel { display: block; height: calc(100vh - 52px); }
+      .mobile-back { display: block; }
+      .case-summary-grid { grid-template-columns: 1fr; }
+      .executive-grid { grid-template-columns: repeat(2, 1fr); }
+    }
     @media (max-width: 640px) {
-      body { padding: 10px; }
-      .hero h1 { font-size: 24px; }
-      .stats { grid-template-columns: 1fr; }
+      .top-bar { padding: 8px 12px; }
+      .top-bar h1 { font-size: 15px; }
+      .top-chip { font-size: 10px; padding: 3px 7px; }
+      .gp-detail-panel { padding: 14px; }
+      .detail-name { font-size: 18px; }
       .executive-grid { grid-template-columns: 1fr; }
-      .integration-grid { grid-template-columns: 1fr; }
-      .executive-title { font-size: 21px; }
-      .executive-metric-value { font-size: 26px; }
-      .modal-title { font-size: 24px; }
-      .candidate-grid { grid-template-columns: 1fr; }
-      .stepper-nav {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 8px;
-      }
-      .step-item {
-        text-align: left;
-        display: grid;
-        grid-template-columns: 24px 1fr;
-        column-gap: 8px;
-        align-items: center;
-      }
-      .step-item::after { display: none; }
-      .step-marker { margin: 0; }
-      .step-copy { min-width: 0; }
-      .step-help { white-space: normal; }
-    }
-    /* ── Admin Quick Actions Bar ── */
-    .admin-actions-bar {
-      display: flex; gap: 8px; flex-wrap: wrap;
-    }
-    .admin-action-link {
-      display: inline-flex; align-items: center; gap: 7px;
-      padding: 10px 16px; border-radius: var(--radius-md);
-      background: var(--panel); border: 1px solid var(--line);
-      font-size: 13px; font-weight: 660; color: var(--text);
-      text-decoration: none; transition: all .15s;
-      box-shadow: 0 2px 8px -4px rgba(15,23,42,0.08);
-    }
-    .admin-action-link:hover { border-color: #a5b4fc; background: #f8faff; }
-    .admin-action-link svg {
-      width: 16px; height: 16px; stroke: var(--purple-1);
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-      flex-shrink: 0;
-    }
-    .admin-action-count {
-      margin-left: 2px; padding: 1px 7px; border-radius: 6px;
-      font-size: 10px; font-weight: 800; background: #ede9fe; color: var(--purple-1);
     }
   </style>
 </head>
 <body>
-  <div class="app">
-    <header class="hero">
-      <div class="hero-top">
-        <h1 id="heroTitle">Admin Dashboard</h1>
-        <button class="btn hero-btn" id="logoutBtn" type="button">Sign Out</button>
-      </div>
-      <p id="heroSubtitle">Manage GP registrations, verify certificates, and respond to support tickets.</p>
-      <div class="hero-meta" id="heroMeta">
-        <span class="hero-chip" id="heroHostBadge">Loading portal...</span>
-        <span class="hero-chip" id="heroRoleBadge" hidden></span>
-        <span class="hero-chip email" id="heroEmailBadge" hidden></span>
-      </div>
-      <p id="refreshText" class="inline-note">Loading...</p>
-    </header>
-
-    <div class="admin-actions-bar" id="adminActionsBar">
-      <a class="admin-action-link" href="/pages/admin-visa.html">
-        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        Visa Cases
-        <span class="admin-action-count" id="visaCaseCount" hidden>0</span>
-      </a>
-      <a class="admin-action-link" href="/pages/admin-pbs.html">
-        <svg viewBox="0 0 24 24"><path d="M9 12h6M12 9v6"/><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
-        PBS & Medicare
-        <span class="admin-action-count" id="pbsCaseCount" hidden>0</span>
-      </a>
+  <!-- ── Top Bar ── -->
+  <header class="top-bar">
+    <div class="top-bar-left">
+      <h1 id="topTitle">VA Command Centre</h1>
+      <div class="top-bar-chips" id="topChips"></div>
     </div>
+    <div class="top-bar-right">
+      <span class="top-bar-meta" id="topMeta"></span>
+      <button class="btn-signout" id="logoutBtn" type="button">Sign Out</button>
+    </div>
+  </header>
 
-    <section class="panel executive-panel" id="executivePanel" hidden>
-      <div class="executive-head">
-        <div>
-          <p class="executive-kicker">CEO Command Centre</p>
-          <h2 class="executive-title">Operational signal across pipeline, demand, and risk.</h2>
-          <p class="executive-copy">A board-style summary of GP pipeline momentum, role demand, and cases that need executive attention.</p>
+  <!-- ── Main Layout ── -->
+  <div class="main-layout" id="mainLayout">
+    <!-- Left: GP List -->
+    <aside class="gp-list-panel">
+      <div class="gp-search-bar">
+        <input class="gp-search-input" id="searchInput" type="search" placeholder="Search by name, email, country..." />
+        <div class="gp-filters" id="filterBar"></div>
+      </div>
+      <div class="gp-list-scroll" id="gpList">
+        <div class="todo-empty">Loading GP roster...</div>
+      </div>
+    </aside>
+
+    <!-- Right: GP Detail -->
+    <main class="gp-detail-panel" id="gpDetail">
+      <div class="detail-empty" id="detailEmpty">
+        <div class="detail-empty-icon">
+          <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="7" r="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 21v-2a4 4 0 0 0-3-3.87" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <div class="pill-row" id="executiveBadges"></div>
+        <h2>Select a GP</h2>
+        <p>Choose a GP from the list to view their full registration journey, to-do items, and case status.</p>
       </div>
-      <div class="executive-grid" id="executiveMetrics"></div>
-      <div class="executive-columns">
-        <article class="executive-card">
-          <div>
-            <h3 class="executive-card-title">Pipeline Funnel</h3>
-            <p class="executive-card-copy">Track how many GPs are sitting in each major registration stage right now.</p>
-          </div>
-          <div class="funnel-list" id="executiveFunnel"></div>
-        </article>
-        <article class="executive-card">
-          <div>
-            <h3 class="executive-card-title">Risk Radar</h3>
-            <p class="executive-card-copy">See where the business is exposed to delay, backlog, or urgent intervention.</p>
-          </div>
-          <div class="risk-list" id="executiveRisk"></div>
-        </article>
-      </div>
-      <div class="executive-columns">
-        <article class="executive-card">
-          <div>
-            <h3 class="executive-card-title">Market Footprint</h3>
-            <p class="executive-card-copy">Understand where your GP demand and candidate volume are concentrated.</p>
-          </div>
-          <div class="stack-list" id="executiveCountries"></div>
-        </article>
-        <article class="executive-card">
-          <div>
-            <h3 class="executive-card-title">Commercial Flow</h3>
-            <p class="executive-card-copy">Role volume, application momentum, and top practice demand in one view.</p>
-          </div>
-          <div class="stack-list" id="executiveCommercial"></div>
-        </article>
-      </div>
-    </section>
-
-    <section class="panel integration-panel" id="zohoRecruitPanel">
-      <div class="empty">Loading Zoho Recruit status...</div>
-    </section>
-
-    <section class="stats" id="stats"></section>
-
-    <section class="panel">
-      <div class="tabs">
-        <button class="tab active" type="button" data-tab="registrations">GP Registrations</button>
-        <button class="tab" type="button" data-tab="verifications">Certificate Verifications</button>
-        <button class="tab" type="button" data-tab="tickets">Support Tickets</button>
-      </div>
-
-      <div class="toolbar">
-        <input class="input" id="searchInput" type="search" placeholder="Search GP by name, email, or country..." />
-        <button class="btn" id="refreshBtn" type="button">Refresh</button>
-        <button class="btn primary" id="exportBtn" type="button">Export</button>
-      </div>
-
-      <div class="content" id="content"></div>
-    </section>
+      <div id="detailContent" style="display:none;"></div>
+    </main>
   </div>
-  <div class="modal" id="candidateModal" role="dialog" aria-modal="true" aria-labelledby="candidateModalTitle">
+
+  <!-- ── Modal ── -->
+  <div class="modal" id="actionModal" role="dialog" aria-modal="true">
     <div class="modal-card">
       <header class="modal-head">
-        <h2 class="modal-title" id="candidateModalTitle">GP Details</h2>
-        <button class="modal-close" id="candidateModalClose" type="button" aria-label="Close">×</button>
+        <h2 class="modal-title" id="modalTitle">Action</h2>
+        <button class="modal-close" id="modalClose" type="button" aria-label="Close">&times;</button>
       </header>
-      <div class="modal-body" id="candidateModalBody"></div>
+      <div class="modal-body" id="modalBody"></div>
     </div>
   </div>
 
   <script>
+    /* ═══════════════════════════════════════════════════
+       STATE & CONSTANTS
+       ═══════════════════════════════════════════════════ */
     const state = {
-      dashboard: null,
-      zohoRecruit: null,
-      zohoRecruitNotice: null,
       viewer: null,
       hostScope: "",
       hostLabel: "",
-      tab: "registrations",
-      query: "",
+      dashboard: null,
+      visaCases: [],
+      pbsCases: [],
+      selectedGpId: null,
+      searchQuery: "",
+      filter: "all",
       refreshTimer: null,
       isLoading: false,
-      isZohoLoading: false,
-      isZohoSyncing: false
-    };
-    const LOCAL_DEMO_DASHBOARD = {
-      summary: {
-        totalGps: 5,
-        activeGps: 4,
-        pendingVerifications: 4,
-        openSupportTickets: 4,
-        averageProgress: 53
-      },
-      candidates: [
-        {
-          id: "olivia.turner.demo@gplink.test",
-          email: "olivia.turner.demo@gplink.test",
-          name: "Olivia Turner",
-          phone: "+61 410222011",
-          country: "UK",
-          registeredAt: "2026-01-20T09:10:00.000Z",
-          lastActiveAt: "2026-03-03T09:50:00.000Z",
-          progressPercent: 25,
-          currentStepLabel: "EPIC verification",
-          currentStepIndex: 2,
-          totalSteps: 8,
-          pendingVerification: true,
-          actionRequired: false,
-          stalled: false,
-          status: "active",
-          openTickets: 1,
-          documentsPending: 1
-        },
-        {
-          id: "harry.watson.demo@gplink.test",
-          email: "harry.watson.demo@gplink.test",
-          name: "Harry Watson",
-          phone: "+61 423119870",
-          country: "Ireland",
-          registeredAt: "2025-12-12T07:45:00.000Z",
-          lastActiveAt: "2026-03-03T03:35:00.000Z",
-          progressPercent: 75,
-          currentStepLabel: "AHPRA assessment",
-          currentStepIndex: 7,
-          totalSteps: 8,
-          pendingVerification: true,
-          actionRequired: true,
-          stalled: false,
-          status: "action_required",
-          openTickets: 1,
-          documentsPending: 1
-        },
-        {
-          id: "sophia.khan.demo@gplink.test",
-          email: "sophia.khan.demo@gplink.test",
-          name: "Sophia Khan",
-          phone: "+61 401998721",
-          country: "Canada",
-          registeredAt: "2026-01-28T10:00:00.000Z",
-          lastActiveAt: "2026-03-03T01:40:00.000Z",
-          progressPercent: 25,
-          currentStepLabel: "EPIC verification",
-          currentStepIndex: 2,
-          totalSteps: 8,
-          pendingVerification: true,
-          actionRequired: false,
-          stalled: false,
-          status: "active",
-          openTickets: 2,
-          documentsPending: 1
-        },
-        {
-          id: "luke.bennett.demo@gplink.test",
-          email: "luke.bennett.demo@gplink.test",
-          name: "Luke Bennett",
-          phone: "+61 447871902",
-          country: "UK",
-          registeredAt: "2025-11-15T07:20:00.000Z",
-          lastActiveAt: "2026-03-02T00:20:00.000Z",
-          progressPercent: 100,
-          currentStepLabel: "Completed",
-          currentStepIndex: 8,
-          totalSteps: 8,
-          pendingVerification: false,
-          actionRequired: false,
-          stalled: false,
-          status: "complete",
-          openTickets: 0,
-          documentsPending: 0
-        },
-        {
-          id: "mia.reynolds.demo@gplink.test",
-          email: "mia.reynolds.demo@gplink.test",
-          name: "Mia Reynolds",
-          phone: "+61 435770121",
-          country: "New Zealand",
-          registeredAt: "2026-02-01T06:20:00.000Z",
-          lastActiveAt: "2026-02-20T08:10:00.000Z",
-          progressPercent: 13,
-          currentStepLabel: "EPIC verification",
-          currentStepIndex: 2,
-          totalSteps: 8,
-          pendingVerification: true,
-          actionRequired: false,
-          stalled: true,
-          status: "stalled",
-          openTickets: 0,
-          documentsPending: 0
-        }
-      ],
-      verificationQueue: [
-        {
-          id: "olivia.turner.demo@gplink.test",
-          email: "olivia.turner.demo@gplink.test",
-          name: "Olivia Turner",
-          currentStepLabel: "EPIC verification",
-          progressPercent: 25,
-          actionRequired: false,
-          documentsPending: 1
-        },
-        {
-          id: "harry.watson.demo@gplink.test",
-          email: "harry.watson.demo@gplink.test",
-          name: "Harry Watson",
-          currentStepLabel: "AHPRA assessment",
-          progressPercent: 75,
-          actionRequired: true,
-          documentsPending: 1
-        },
-        {
-          id: "sophia.khan.demo@gplink.test",
-          email: "sophia.khan.demo@gplink.test",
-          name: "Sophia Khan",
-          currentStepLabel: "EPIC verification",
-          progressPercent: 25,
-          actionRequired: false,
-          documentsPending: 1
-        },
-        {
-          id: "mia.reynolds.demo@gplink.test",
-          email: "mia.reynolds.demo@gplink.test",
-          name: "Mia Reynolds",
-          currentStepLabel: "EPIC verification",
-          progressPercent: 13,
-          actionRequired: false,
-          documentsPending: 0
-        }
-      ],
-      tickets: [
-        {
-          id: "case_demo_ot_01",
-          title: "Need review for CCT notarisation",
-          category: "Documents",
-          priority: "high",
-          status: "open",
-          createdAt: "2026-03-01T04:00:00.000Z",
-          updatedAt: "2026-03-03T03:20:00.000Z",
-          messagesCount: 2,
-          lastMessage: "Received, we are validating the signature and seal now.",
-          candidateId: "olivia.turner.demo@gplink.test",
-          candidateName: "Olivia Turner",
-          candidateEmail: "olivia.turner.demo@gplink.test"
-        },
-        {
-          id: "case_demo_hw_02",
-          title: "AHPRA asked for additional proof of identity",
-          category: "AHPRA",
-          priority: "urgent",
-          status: "open",
-          createdAt: "2026-03-02T16:20:00.000Z",
-          updatedAt: "2026-03-03T02:55:00.000Z",
-          messagesCount: 2,
-          lastMessage: "Please upload a second photo ID and recent proof of address.",
-          candidateId: "harry.watson.demo@gplink.test",
-          candidateName: "Harry Watson",
-          candidateEmail: "harry.watson.demo@gplink.test"
-        },
-        {
-          id: "case_demo_sk_05",
-          title: "Need help with Certificate of Good Standing",
-          category: "Documents",
-          priority: "normal",
-          status: "open",
-          createdAt: "2026-03-02T14:05:00.000Z",
-          updatedAt: "2026-03-03T01:10:00.000Z",
-          messagesCount: 2,
-          lastMessage: "Submit the full verification certificate with issue date visible.",
-          candidateId: "sophia.khan.demo@gplink.test",
-          candidateName: "Sophia Khan",
-          candidateEmail: "sophia.khan.demo@gplink.test"
-        },
-        {
-          id: "case_demo_sk_06",
-          title: "Follow-up on EPIC upload timeout",
-          category: "EPIC",
-          priority: "normal",
-          status: "open",
-          createdAt: "2026-03-02T10:45:00.000Z",
-          updatedAt: "2026-03-02T22:30:00.000Z",
-          messagesCount: 2,
-          lastMessage: "Retry with a file under 10MB; we can validate once uploaded.",
-          candidateId: "sophia.khan.demo@gplink.test",
-          candidateName: "Sophia Khan",
-          candidateEmail: "sophia.khan.demo@gplink.test"
-        },
-        {
-          id: "case_demo_lb_04",
-          title: "Final registration confirmation",
-          category: "Registration",
-          priority: "normal",
-          status: "closed",
-          createdAt: "2026-02-27T08:00:00.000Z",
-          updatedAt: "2026-03-01T09:00:00.000Z",
-          messagesCount: 1,
-          lastMessage: "Your registration is complete. Congratulations.",
-          candidateId: "luke.bennett.demo@gplink.test",
-          candidateName: "Luke Bennett",
-          candidateEmail: "luke.bennett.demo@gplink.test"
-        }
-      ]
+      expandedSteps: {}
     };
 
-    const statsEl = document.getElementById("stats");
-    const contentEl = document.getElementById("content");
-    const refreshTextEl = document.getElementById("refreshText");
-    const heroTitleEl = document.getElementById("heroTitle");
-    const heroSubtitleEl = document.getElementById("heroSubtitle");
-    const heroHostBadgeEl = document.getElementById("heroHostBadge");
-    const heroRoleBadgeEl = document.getElementById("heroRoleBadge");
-    const heroEmailBadgeEl = document.getElementById("heroEmailBadge");
-    const executivePanelEl = document.getElementById("executivePanel");
-    const executiveBadgesEl = document.getElementById("executiveBadges");
-    const executiveMetricsEl = document.getElementById("executiveMetrics");
-    const executiveFunnelEl = document.getElementById("executiveFunnel");
-    const executiveRiskEl = document.getElementById("executiveRisk");
-    const executiveCountriesEl = document.getElementById("executiveCountries");
-    const executiveCommercialEl = document.getElementById("executiveCommercial");
-    const zohoRecruitPanelEl = document.getElementById("zohoRecruitPanel");
-    const searchInputEl = document.getElementById("searchInput");
-    const logoutBtnEl = document.getElementById("logoutBtn");
-    const candidateModalEl = document.getElementById("candidateModal");
-    const candidateModalBodyEl = document.getElementById("candidateModalBody");
-    const candidateModalCloseEl = document.getElementById("candidateModalClose");
-    const DOCUMENT_SOURCE_LABELS = {
-      prepared_by_you: "Prepared by you",
-      institution_docs: "Institution documents",
-      gplink_pack: "GP Link pack"
+    const JOURNEY_STEPS = [
+      { key: "myintealth", label: "MyIntealth Account", num: 1 },
+      { key: "amc", label: "AMC Portfolio", num: 2 },
+      { key: "career", label: "Career & Documents", num: 3 },
+      { key: "ahpra", label: "AHPRA Registration", num: 4 },
+      { key: "visa", label: "Visa Application", num: 5 },
+      { key: "pbs", label: "PBS & Medicare", num: 6 },
+      { key: "commencement", label: "Commencement", num: 7 }
+    ];
+
+    const STATUS_PILL_TONE = {
+      not_started: "gray", in_progress: "blue", submitted: "blue",
+      approved: "green", complete: "green", granted: "green",
+      rejected: "red", blocked: "red",
+      waiting_on_gp: "amber", under_review: "amber",
     };
-    state.zohoRecruitNotice = buildZohoNoticeFromParams();
 
-    function fmtDate(value) {
-      if (!value) return "-";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "-";
-      return date.toLocaleDateString();
-    }
-
-    function fmtDateTime(value) {
-      if (!value) return "Never";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "Never";
-      return date.toLocaleString();
-    }
-
-    function fmtRelative(value) {
-      if (!value) return "No activity yet";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "No activity yet";
-      const diffMs = Date.now() - date.getTime();
-      const mins = Math.max(1, Math.round(diffMs / 60000));
-      if (mins < 60) return `Last active: ${mins} min ago`;
-      const hours = Math.round(mins / 60);
-      if (hours < 24) return `Last active: ${hours} hour${hours === 1 ? "" : "s"} ago`;
-      const days = Math.round(hours / 24);
-      return `Last active: ${days} day${days === 1 ? "" : "s"} ago`;
-    }
-
-    function isSuperAdminView() {
-      return state.hostScope === "super_admin" || !!(state.viewer && state.viewer.adminRole === "super_admin");
-    }
-
-    function createEmptyExecutiveData() {
-      return {
-        overview: {
-          activePipeline: 0,
-          registrations30d: 0,
-          liveRoles: Number(state.zohoRecruit && state.zohoRecruit.roleCount ? state.zohoRecruit.roleCount : 0),
-          applications30d: 0,
-          stalled7d: 0,
-          stalled14d: 0,
-          actionRequired: 0,
-          urgentTickets: 0,
-          activeCountries: 0,
-          completedCandidates: 0,
-          verificationBacklog: 0,
-          documentsBacklog: 0
-        },
-        funnel: [
-          { id: "registered", label: "Registered", count: 0, share: 0 },
-          { id: "epic", label: "EPIC", count: 0, share: 0 },
-          { id: "amc", label: "AMC", count: 0, share: 0 },
-          { id: "documents", label: "Documents", count: 0, share: 0 },
-          { id: "ahpra", label: "AHPRA", count: 0, share: 0 },
-          { id: "complete", label: "Completed", count: 0, share: 0 }
-        ],
-        risk: [],
-        countries: [],
-        practices: [],
-        roles: { live: Number(state.zohoRecruit && state.zohoRecruit.roleCount ? state.zohoRecruit.roleCount : 0), regional: 0, metro: 0 },
-        applications: { total: 0, recent7d: 0, recent30d: 0, byStatus: [] }
-      };
-    }
-
-    function getExecutiveData() {
-      const base = createEmptyExecutiveData();
-      const raw = state.dashboard && state.dashboard.executive && typeof state.dashboard.executive === "object"
-        ? state.dashboard.executive
-        : {};
-      const merged = {
-        ...base,
-        ...raw,
-        overview: { ...base.overview, ...(raw.overview || {}) },
-        roles: { ...base.roles, ...(raw.roles || {}) },
-        applications: { ...base.applications, ...(raw.applications || {}) }
-      };
-      if (!merged.roles.live && state.zohoRecruit && state.zohoRecruit.roleCount) {
-        merged.roles.live = Number(state.zohoRecruit.roleCount || 0);
-      }
-      return merged;
-    }
-
-    function applyAdminViewerContext() {
-      const hostLabel = state.hostLabel || "Admin";
-      if (heroHostBadgeEl) {
-        heroHostBadgeEl.textContent = hostLabel;
-        heroHostBadgeEl.classList.toggle("super-admin", state.hostScope === "super_admin");
-      }
-      if (heroRoleBadgeEl) {
-        const roleLabel = state.viewer && state.viewer.roleLabel ? state.viewer.roleLabel : "";
-        heroRoleBadgeEl.hidden = !roleLabel;
-        heroRoleBadgeEl.textContent = roleLabel || "";
-        heroRoleBadgeEl.classList.toggle("super-admin", state.viewer && state.viewer.adminRole === "super_admin");
-      }
-      if (heroEmailBadgeEl) {
-        const email = state.viewer && state.viewer.email ? state.viewer.email : "";
-        heroEmailBadgeEl.hidden = !email;
-        heroEmailBadgeEl.textContent = email || "";
-      }
-      if (heroTitleEl) {
-        heroTitleEl.textContent = isSuperAdminView() ? "CEO Dashboard" : "Admin Dashboard";
-      }
-      if (heroSubtitleEl) {
-        heroSubtitleEl.textContent = isSuperAdminView()
-          ? "Monitor GP pipeline health, role demand, and executive risk across the business."
-          : "Manage GP registrations, verify certificates, and respond to support tickets.";
-      }
-    }
-
-    async function loadAdminSession() {
-      const response = await fetch("/api/admin/auth/session", { credentials: "same-origin" });
-      const data = await response.json().catch(() => ({}));
-      if (response.status === 401) {
-        state.hostScope = data.hostScope || "";
-        state.hostLabel = data.hostLabel || "";
-        applyAdminViewerContext();
-        window.location.href = "/pages/admin-signin.html";
-        return false;
-      }
-      if (response.status === 403) {
-        throw new Error(data.message || "Admin access required.");
-      }
-      if (!response.ok || !data.ok) {
-        throw new Error(data.message || "Unable to verify admin session.");
-      }
-      state.viewer = data.profile || null;
-      state.hostScope = data.hostScope || "";
-      state.hostLabel = data.hostLabel || "";
-      applyAdminViewerContext();
-      return true;
-    }
-
+    /* ═══════════════════════════════════════════════════
+       UTILITY FUNCTIONS
+       ═══════════════════════════════════════════════════ */
     function escapeHtml(value) {
       return String(value == null ? "" : value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
-    function toTitleLabel(value) {
-      const raw = String(value || "").trim();
-      if (!raw) return "-";
-      return raw
-        .replace(/[_-]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .replace(/\b\w/g, (char) => char.toUpperCase());
+    function fmtDate(v) {
+      if (!v) return "-";
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? "-" : d.toLocaleDateString();
     }
 
-    function buildZohoNoticeFromParams() {
-      const params = new URLSearchParams(window.location.search);
-      const zohoState = String(params.get("zohoRecruit") || "").trim();
-      const syncState = String(params.get("sync") || "").trim();
-      const roles = String(params.get("roles") || "").trim();
-      const message = String(params.get("message") || "").trim();
-      if (!zohoState && !syncState && !message && !roles) return null;
+    function fmtRelative(v) {
+      if (!v) return "No activity";
+      const d = new Date(v);
+      if (isNaN(d.getTime())) return "No activity";
+      const ms = Date.now() - d.getTime();
+      const mins = Math.max(1, Math.round(ms / 60000));
+      if (mins < 60) return `${mins}m ago`;
+      const hrs = Math.round(mins / 60);
+      if (hrs < 24) return `${hrs}h ago`;
+      const days = Math.round(hrs / 24);
+      return `${days}d ago`;
+    }
 
-      let tone = "pending";
-      let text = "Zoho Recruit status updated.";
-      if (syncState === "success") {
-        tone = "success";
-        text = roles
-          ? `Zoho Recruit connected and synced successfully. ${roles} live roles are now available.`
-          : "Zoho Recruit connected and synced successfully.";
-      } else if (syncState === "error" || zohoState === "error") {
-        tone = "error";
-        text = message || "Zoho Recruit connection or sync failed.";
-      } else if (zohoState === "connected") {
-        tone = "success";
-        text = "Zoho Recruit is connected.";
-      } else if (message) {
-        tone = "pending";
-        text = message;
-      }
+    function initials(name) {
+      const parts = String(name || "?").trim().split(/\s+/);
+      if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      return (parts[0] || "?").slice(0, 2).toUpperCase();
+    }
 
-      ["zohoRecruit", "sync", "roles", "message"].forEach((key) => params.delete(key));
-      const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}${window.location.hash || ""}`;
-      window.history.replaceState({}, document.title, nextUrl);
-      return { tone, text };
+    function statusPillTone(status) {
+      return STATUS_PILL_TONE[status] || "gray";
     }
 
     function statusLabel(status) {
-      if (status === "action_required") return "Action Required";
-      if (status === "stalled") return "Stalled";
-      if (status === "complete") return "Complete";
-      return "Active";
+      return String(status || "unknown").replace(/_/g, " ");
     }
 
-    function normalizePathwaySteps(candidate) {
-      if (Array.isArray(candidate.pathwaySteps) && candidate.pathwaySteps.length) {
-        return candidate.pathwaySteps.map((step, index) => ({
-          stepIndex: index + 1,
-          name: step.label || `Step ${index + 1}`,
-          state: step.status === "done" ? "complete" : (step.status === "current" ? "current" : "pending"),
-          substeps: Array.isArray(step.substeps) ? step.substeps.map((sub) => ({
-            label: sub.label || sub.key || "Sub-step",
-            state: sub.status === "done" ? "done" : (sub.status === "current" ? "current" : "pending")
-          })) : [],
-          openByDefault: step.status === "current"
-        }));
+    function isSuperAdmin() {
+      return state.hostScope === "super_admin" || !!(state.viewer && state.viewer.adminRole === "super_admin");
+    }
+
+    /* ═══════════════════════════════════════════════════
+       API FUNCTIONS
+       ═══════════════════════════════════════════════════ */
+    async function loadAdminSession() {
+      const r = await fetch("/api/admin/auth/session", { credentials: "same-origin" });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 401) {
+        state.hostScope = d.hostScope || "";
+        state.hostLabel = d.hostLabel || "";
+        window.location.href = "/pages/admin-signin.html";
+        return false;
       }
-
-      return [
-        {
-          stepIndex: 1,
-          name: "MyIntealth Account",
-          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("epic") ? "current" : ((candidate.progressPercent || 0) >= 25 ? "complete" : "current"),
-          substeps: [
-            { label: "Create account", state: (candidate.progressPercent || 0) >= 6 ? "done" : "current" },
-            { label: "Account establishment", state: (candidate.progressPercent || 0) >= 13 ? "done" : "pending" },
-            { label: "Upload qualifications", state: (candidate.progressPercent || 0) >= 19 ? "done" : "pending" },
-            { label: "Verification issued", state: (candidate.progressPercent || 0) >= 25 ? "done" : "pending" }
-          ],
-          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("epic")
-        },
-        {
-          stepIndex: 2,
-          name: "AMC Portfolio",
-          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("amc") ? "current" : ((candidate.progressPercent || 0) >= 50 ? "complete" : "pending"),
-          substeps: [
-            { label: "Create AMC account", state: (candidate.progressPercent || 0) >= 34 ? "done" : "pending" },
-            { label: "Upload credentials", state: (candidate.progressPercent || 0) >= 42 ? "done" : "pending" },
-            { label: "Qualifications verified", state: (candidate.progressPercent || 0) >= 50 ? "done" : "pending" }
-          ],
-          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("amc")
-        },
-        {
-          stepIndex: 3,
-          name: "Documents",
-          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("document") ? "current" : ((candidate.progressPercent || 0) >= 63 ? "complete" : "pending"),
-          substeps: [
-            { label: "Prepared by you", state: (candidate.progressPercent || 0) >= 55 ? "done" : "pending" },
-            { label: "Institution documents", state: (candidate.progressPercent || 0) >= 59 ? "done" : "pending" },
-            { label: "GP Link pack", state: (candidate.progressPercent || 0) >= 63 ? "done" : "pending" }
-          ],
-          openByDefault: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("document")
-        },
-        {
-          stepIndex: 4,
-          name: "AHPRA Registration",
-          state: candidate.currentStepLabel && candidate.currentStepLabel.toLowerCase().includes("ahpra") ? "current" : ((candidate.progressPercent || 0) >= 100 ? "complete" : "pending"),
-          substeps: [
-            { label: "Stage 1: Setup", state: (candidate.progressPercent || 0) >= 75 ? "done" : "pending" },
-            { label: "Stage 2: Submission", state: (candidate.progressPercent || 0) >= 88 ? "done" : "pending" },
-            { label: "Stage 3: Assessment", state: (candidate.progressPercent || 0) >= 94 ? "done" : "pending" },
-            { label: "Stage 4: Outcome", state: (candidate.progressPercent || 0) >= 100 ? "done" : "pending" }
-          ],
-          openByDefault: !candidate.currentStepLabel || candidate.currentStepLabel.toLowerCase().includes("ahpra")
-        }
-      ];
+      if (r.status === 403) throw new Error(d.message || "Admin access required.");
+      if (!r.ok || !d.ok) throw new Error(d.message || "Unable to verify admin session.");
+      state.viewer = d.profile || null;
+      state.hostScope = d.hostScope || "";
+      state.hostLabel = d.hostLabel || "";
+      return true;
     }
 
-    function getCandidateTickets(candidate) {
-      const all = state.dashboard && Array.isArray(state.dashboard.tickets) ? state.dashboard.tickets : [];
-      const id = String(candidate.id || "");
-      const email = String(candidate.email || "").toLowerCase();
-      const rows = all.filter((ticket) => {
-        const candidateId = String(ticket.candidateId || "");
-        const candidateEmail = String(ticket.candidateEmail || "").toLowerCase();
-        return (id && candidateId === id) || (email && candidateEmail === email);
-      });
-      return {
-        active: rows.filter((item) => item.status !== "closed"),
-        past: rows.filter((item) => item.status === "closed")
-      };
-    }
-
-    function getCandidateDocuments(candidate) {
-      if (candidate.documents && Array.isArray(candidate.documents.items)) return candidate.documents.items;
-      const pending = Math.max(0, Number(candidate.documentsPending || 0));
-      const fallbackLabels = [
-        "Primary medical degree",
-        "MRCGP certificate",
-        "CCT certificate",
-        "Signed CV",
-        "Certificate of good standing",
-        "Confirmation of training",
-        "Criminal history check",
-        "SPPA-00",
-        "Section G",
-        "Position description",
-        "Offer/contract",
-        "Supervisor CV"
-      ];
-      return fallbackLabels.map((label, index) => {
-        const isPending = index < pending;
-        return {
-          label,
-          source: index < 4 ? "prepared_by_you" : (index < 7 ? "institution_docs" : "gplink_pack"),
-          uploaded: !isPending,
-          status: isPending ? "pending" : "accepted",
-          fileName: isPending ? "" : "Uploaded"
-        };
-      });
-    }
-
-    function closeCandidateModal() {
-      candidateModalEl.classList.remove("open");
-      document.body.style.overflow = "";
-    }
-
-    function openCandidateModal(candidate) {
-      const steps = normalizePathwaySteps(candidate);
-      const tickets = getCandidateTickets(candidate);
-      const docs = getCandidateDocuments(candidate);
-      const activeTicketMarkup = tickets.active.length
-        ? tickets.active.map((item) => `
-          <article class="mini-item">
-            <p class="mini-item-title">${escapeHtml(item.title || "Support request")}</p>
-            <p class="mini-item-meta">${escapeHtml(item.category || "General")} • ${escapeHtml(item.priority || "normal")} • ${new Date(item.updatedAt).toLocaleDateString()}</p>
-          </article>
-        `).join("")
-        : `<div class="mini-item"><p class="mini-item-meta">No active tickets.</p></div>`;
-      const pastTicketMarkup = tickets.past.length
-        ? tickets.past.map((item) => `
-          <article class="mini-item">
-            <p class="mini-item-title">${escapeHtml(item.title || "Support request")}</p>
-            <p class="mini-item-meta">${escapeHtml(item.category || "General")} • closed • ${new Date(item.updatedAt).toLocaleDateString()}</p>
-          </article>
-        `).join("")
-        : `<div class="mini-item"><p class="mini-item-meta">No past tickets.</p></div>`;
-      const docsMarkup = docs.length
-        ? docs.map((doc) => `
-          <div class="docs-row">
-            <span>${escapeHtml(doc.label || doc.key || "-")}</span>
-            <span>${escapeHtml(DOCUMENT_SOURCE_LABELS[doc.source] || doc.source || "-")}</span>
-            <span class="doc-pill ${escapeHtml(doc.status || "pending")}">${escapeHtml((doc.status || "pending").replace(/_/g, " "))}</span>
-            <span>${escapeHtml(doc.fileName || (doc.uploaded ? "Uploaded" : "Not uploaded"))}</span>
-          </div>
-        `).join("")
-        : `<div class="docs-row"><span>No document data available.</span><span>-</span><span class="doc-pill pending">pending</span><span>-</span></div>`;
-      const navSteps = steps.slice(0, 3);
-      while (navSteps.length < 3) {
-        navSteps.push({
-          name: "Step Title"
-        });
-      }
-      const stepMarkup = `
-        <div class="stepper-shell">
-          <nav class="stepper-nav" aria-label="Registration progress">
-            ${navSteps.map((step) => `
-              <div class="step-item">
-                <span class="step-marker">✓</span>
-                <div class="step-copy">
-                  <p class="step-label">${escapeHtml(step.name || "Step Title")}</p>
-                  <p class="step-help">Explain your step here.</p>
-                </div>
-              </div>
-            `).join("")}
-          </nav>
-        </div>
-      `;
-
-      candidateModalBodyEl.innerHTML = `
-        <section class="candidate-top">
-          <div class="candidate-top-row">
-            <h3 class="candidate-name">${escapeHtml(candidate.name || "-")}</h3>
-            <span class="badge ${escapeHtml(candidate.status || "active")}">${escapeHtml(statusLabel(candidate.status || "active"))}</span>
-          </div>
-          <div class="candidate-grid">
-            <div><p class="field-label">Email</p><p class="field-value">${escapeHtml(candidate.email || "-")}</p></div>
-            <div><p class="field-label">Phone</p><p class="field-value">${escapeHtml(candidate.phone || "-")}</p></div>
-            <div><p class="field-label">Country</p><p class="field-value">${escapeHtml(candidate.country || "-")}</p></div>
-            <div><p class="field-label">Certificate</p><p class="field-value">${escapeHtml(candidate.currentStepLabel || "-")}</p></div>
-            <div><p class="field-label">Registration Date</p><p class="field-value">${escapeHtml(fmtDate(candidate.registeredAt))}</p></div>
-            <div><p class="field-label">Last Activity</p><p class="field-value">${escapeHtml(fmtRelative(candidate.lastActiveAt).replace(/^Last active: /, ""))}</p></div>
-          </div>
-        </section>
-        <section class="progress-panel">
-          <h4>Registration Progress</h4>
-          ${stepMarkup}
-        </section>
-        <section class="info-section">
-          <h5>Support Tickets</h5>
-          <div class="ticket-split">
-            <div class="mini-list">
-              <p class="mini-list-title">Active</p>
-              ${activeTicketMarkup}
-            </div>
-            <div class="mini-list">
-              <p class="mini-list-title">Past</p>
-              ${pastTicketMarkup}
-            </div>
-          </div>
-        </section>
-        <section class="info-section">
-          <h5>Documents (${docs.length ? docs.filter((d) => d.uploaded).length : 0}/${docs.length || 0} uploaded)</h5>
-          <div class="docs-table">
-            <div class="docs-head">
-              <span>Document</span>
-              <span>Source</span>
-              <span>Status</span>
-              <span>File</span>
-            </div>
-            ${docsMarkup}
-          </div>
-        </section>
-        <div class="modal-actions">
-          <button class="btn primary" type="button" data-email-gp="${escapeHtml(candidate.email || "")}">Email GP</button>
-          <button class="btn ghost" type="button" data-close-modal="true">Close</button>
-        </div>
-      `;
-
-      candidateModalEl.classList.add("open");
-      document.body.style.overflow = "hidden";
-    }
-
-    function renderExecutivePanel() {
-      if (!executivePanelEl) return;
-      if (!isSuperAdminView()) {
-        executivePanelEl.hidden = true;
-        return;
-      }
-
-      const executive = getExecutiveData();
-      const overview = executive.overview || {};
-      const zoho = state.zohoRecruit || null;
-      const liveRoles = Number(executive.roles && executive.roles.live ? executive.roles.live : 0);
-
-      executivePanelEl.hidden = false;
-
-      const badges = [
-        `<span class="status-chip ${escapeHtml(zoho && zoho.connected ? "connected" : "disconnected")}">Zoho ${escapeHtml(zoho && zoho.connected ? "connected" : "not connected")}</span>`,
-        `<span class="status-chip ${escapeHtml(zoho && zoho.cronConfigured ? "connected" : "pending")}">Scheduler ${escapeHtml(zoho && zoho.cronConfigured ? "ready" : "needs secret")}</span>`,
-        `<span class="status-chip ${escapeHtml(Number(overview.stalled14d || 0) > 0 ? "error" : "connected")}">${escapeHtml(String(overview.stalled14d || 0))} stalled 14d</span>`,
-        `<span class="status-chip ${escapeHtml(Number(overview.actionRequired || 0) > 0 ? "pending" : "connected")}">${escapeHtml(String(overview.actionRequired || 0))} action required</span>`
-      ];
-      executiveBadgesEl.innerHTML = badges.join("");
-
-      const metricRows = [
-        {
-          label: "New Registrations",
-          value: overview.registrations30d || 0,
-          sub: "Created in the last 30 days"
-        },
-        {
-          label: "Completed Pathway",
-          value: overview.completedCandidates || 0,
-          sub: "Files currently marked complete"
-        },
-        {
-          label: "Verification Backlog",
-          value: overview.verificationBacklog || 0,
-          sub: `${overview.documentsBacklog || 0} with document backlog`
-        },
-        {
-          label: "Active Countries",
-          value: overview.activeCountries || 0,
-          sub: `${liveRoles} live role${liveRoles === 1 ? "" : "s"} supporting demand`
-        }
-      ];
-      executiveMetricsEl.innerHTML = metricRows.map((row) => `
-        <article class="executive-metric">
-          <div class="executive-metric-label">${escapeHtml(row.label)}</div>
-          <div class="executive-metric-value">${escapeHtml(String(row.value))}</div>
-          <div class="executive-metric-sub">${escapeHtml(row.sub)}</div>
-        </article>
-      `).join("");
-
-      const funnelItems = Array.isArray(executive.funnel) ? executive.funnel : [];
-      executiveFunnelEl.innerHTML = funnelItems.length
-        ? funnelItems.map((item) => `
-          <div class="funnel-row">
-            <div class="funnel-meta">
-              <span>${escapeHtml(item.label || item.id || "Stage")}</span>
-              <small>${escapeHtml(String(item.count || 0))} GP${Number(item.count || 0) === 1 ? "" : "s"} • ${escapeHtml(String(item.share || 0))}%</small>
-            </div>
-            <div class="funnel-bar"><span style="width:${Math.max(Number(item.count || 0) > 0 ? 8 : 0, Number(item.share || 0))}%"></span></div>
-          </div>
-        `).join("")
-        : `<div class="empty">Executive funnel data will appear here once GP activity is available.</div>`;
-
-      const riskItems = Array.isArray(executive.risk) ? executive.risk : [];
-      executiveRiskEl.innerHTML = riskItems.length
-        ? riskItems.map((item) => `
-          <article class="risk-item">
-            <div class="risk-top">
-              <span class="risk-label">${escapeHtml(item.label || "Risk")}</span>
-              <span class="status-chip ${escapeHtml(item.tone || "pending")}">${escapeHtml(String(item.value || 0))}</span>
-            </div>
-            <p class="risk-note">${escapeHtml(item.detail || "")}</p>
-          </article>
-        `).join("")
-        : `<div class="empty">No executive risk items are available yet.</div>`;
-
-      const countryItems = [];
-      countryItems.push(`
-        <div class="stack-item">
-          <div class="stack-meta">
-            <span>Role Mix</span>
-            <small>${escapeHtml(String(executive.roles && executive.roles.live ? executive.roles.live : 0))} live roles</small>
-          </div>
-          <div class="stack-sub">${escapeHtml(String(executive.roles && executive.roles.regional ? executive.roles.regional : 0))} regional • ${escapeHtml(String(executive.roles && executive.roles.metro ? executive.roles.metro : 0))} metro</div>
-        </div>
-      `);
-      if (Array.isArray(executive.countries) && executive.countries.length) {
-        executive.countries.forEach((item) => {
-          countryItems.push(`
-            <div class="stack-item">
-              <div class="stack-meta">
-                <span>${escapeHtml(item.label || "-")}</span>
-                <small>${escapeHtml(String(item.count || 0))} GP${Number(item.count || 0) === 1 ? "" : "s"}</small>
-              </div>
-              <div class="stack-sub">Active candidate concentration by registration country.</div>
-            </div>
-          `);
-        });
-      } else {
-        countryItems.push(`<div class="empty">Country concentration will appear as candidate volume grows.</div>`);
-      }
-      executiveCountriesEl.innerHTML = countryItems.join("");
-
-      const commercialItems = [
-        `
-          <div class="stack-item">
-            <div class="stack-meta">
-              <span>Application Momentum</span>
-              <small>${escapeHtml(String(executive.applications && executive.applications.total ? executive.applications.total : 0))} total</small>
-            </div>
-            <div class="stack-sub">${escapeHtml(String(executive.applications && executive.applications.recent7d ? executive.applications.recent7d : 0))} in the last 7 days • ${escapeHtml(String(executive.applications && executive.applications.recent30d ? executive.applications.recent30d : 0))} in the last 30 days</div>
-          </div>
-        `
-      ];
-      if (Array.isArray(executive.practices) && executive.practices.length) {
-        executive.practices.forEach((item) => {
-          commercialItems.push(`
-            <div class="stack-item">
-              <div class="stack-meta">
-                <span>${escapeHtml(item.label || "Practice demand")}</span>
-                <small>${escapeHtml(String(item.count || 0))} live role${Number(item.count || 0) === 1 ? "" : "s"}</small>
-              </div>
-              <div class="stack-sub">Current demand concentration by practice or location.</div>
-            </div>
-          `);
-        });
-      }
-      if (Array.isArray(executive.applications && executive.applications.byStatus) && executive.applications.byStatus.length) {
-        executive.applications.byStatus.forEach((item) => {
-          commercialItems.push(`
-            <div class="stack-item">
-              <div class="stack-meta">
-                <span>${escapeHtml(toTitleLabel(item.label || "applied"))}</span>
-                <small>${escapeHtml(String(item.count || 0))}</small>
-              </div>
-              <div class="stack-sub">Application records currently carrying this status.</div>
-            </div>
-          `);
-        });
-      }
-      executiveCommercialEl.innerHTML = commercialItems.join("");
-    }
-
-    function renderStats() {
-      const summary = state.dashboard ? state.dashboard.summary : null;
-      const executive = getExecutiveData();
-      const atRiskCount = Number(executive.overview.actionRequired || 0) + Number(executive.overview.stalled14d || 0);
-      const rows = isSuperAdminView()
-        ? [
-            {
-              label: "Active Pipeline",
-              value: executive.overview.activePipeline || 0,
-              sub: `${executive.overview.registrations30d || 0} new in 30 days`
-            },
-            {
-              label: "Live Roles",
-              value: executive.roles.live || 0,
-              sub: `${executive.roles.regional || 0} regional • ${executive.roles.metro || 0} metro`
-            },
-            {
-              label: "Applications (30d)",
-              value: executive.applications.recent30d || 0,
-              sub: `${executive.applications.recent7d || 0} in the last 7 days`
-            },
-            {
-              label: "At-Risk Cases",
-              value: atRiskCount,
-              sub: `${executive.overview.urgentTickets || 0} urgent tickets open`
-            }
-          ]
-        : [
-            {
-              label: "Total GPs",
-              value: summary ? summary.totalGps : 0,
-              sub: `${summary ? summary.activeGps : 0} active`
-            },
-            {
-              label: "Pending Verifications",
-              value: summary ? summary.pendingVerifications : 0,
-              sub: "Awaiting review"
-            },
-            {
-              label: "Open Support Tickets",
-              value: summary ? summary.openSupportTickets : 0,
-              sub: "Urgent work queue"
-            },
-            {
-              label: "Average Progress",
-              value: `${summary ? summary.averageProgress : 0}%`,
-              sub: "Across all GPs"
-            }
-          ];
-
-      statsEl.innerHTML = rows.map((row) => `
-        <article class="stat">
-          <div class="label">${row.label}</div>
-          <div class="value">${row.value}</div>
-          <div class="sub">${row.sub}</div>
-        </article>
-      `).join("");
-    }
-
-    function renderZohoRecruitPanel() {
-      if (state.isZohoLoading && !state.zohoRecruit) {
-        zohoRecruitPanelEl.innerHTML = `<div class="empty">Loading Zoho Recruit status...</div>`;
-        return;
-      }
-
-      const data = state.zohoRecruit;
-      if (!data) {
-        zohoRecruitPanelEl.innerHTML = `<div class="empty">Zoho Recruit status is unavailable right now.</div>`;
-        return;
-      }
-
-      const connection = data.connection || null;
-      const connectionStatus = data.connected
-        ? ((connection && connection.status === "error") ? "error" : "connected")
-        : "disconnected";
-      const lastSyncStatus = connection && connection.lastSyncStatus
-        ? String(connection.lastSyncStatus).trim().toLowerCase()
-        : (data.connected ? "pending" : "disconnected");
-      const lastSyncTone = lastSyncStatus === "success"
-        ? "connected"
-        : (lastSyncStatus === "error" ? "error" : (lastSyncStatus === "disconnected" ? "disconnected" : "pending"));
-      const needsReconnect = !!data.needsReconnect;
-      const connectLabel = needsReconnect ? "Reconnect Zoho Recruit" : "Connect Zoho Recruit";
-      const syncButtonDisabled = state.isZohoSyncing || state.isZohoLoading || !data.connected;
-      const banner = state.zohoRecruitNotice
-        ? `<div class="integration-banner ${escapeHtml(state.zohoRecruitNotice.tone)}">${escapeHtml(state.zohoRecruitNotice.text)}</div>`
-        : "";
-      const reconnectBanner = needsReconnect
-        ? `<div class="integration-banner pending">Zoho Recruit needs to be reconnected with read-only scopes. ${escapeHtml(Array.isArray(data.missingRequiredScopes) && data.missingRequiredScopes.length ? `Missing: ${data.missingRequiredScopes.join(", ")}` : "")}${Array.isArray(data.overbroadGrantedScopes) && data.overbroadGrantedScopes.length ? `${Array.isArray(data.missingRequiredScopes) && data.missingRequiredScopes.length ? " " : ""}Too broad: ${data.overbroadGrantedScopes.join(", ")}` : ""}</div>`
-        : "";
-      const errorBanner = connection && connection.lastSyncError
-        ? `<div class="integration-banner error">${escapeHtml(connection.lastSyncError)}</div>`
-        : "";
-
-      zohoRecruitPanelEl.innerHTML = `
-        <div class="integration-head">
-          <div>
-            <h2 class="integration-title">Zoho Recruit Sync</h2>
-            <p class="integration-copy">Monitor connection health, automatic scheduler readiness, and the latest synced career role volume.</p>
-          </div>
-          <div class="integration-actions">
-            <button class="btn" data-zoho-connect type="button">${escapeHtml(connectLabel)}</button>
-            <button class="btn primary" data-zoho-sync type="button" ${syncButtonDisabled ? "disabled" : ""}>${state.isZohoSyncing ? "Syncing..." : "Sync Now"}</button>
-          </div>
-        </div>
-        ${banner}
-        ${reconnectBanner}
-        ${errorBanner}
-        <div class="pill-row">
-          <span class="status-chip ${escapeHtml(connectionStatus)}">${escapeHtml(data.connected ? "Connected" : "Not connected")}</span>
-          <span class="status-chip ${escapeHtml(lastSyncTone)}">Last sync: ${escapeHtml(toTitleLabel(lastSyncStatus))}</span>
-          <span class="status-chip ${escapeHtml(data.cronConfigured ? "connected" : "pending")}">Scheduler: ${escapeHtml(data.cronConfigured ? "Ready" : "Needs secret")}</span>
-          <span class="status-chip ${escapeHtml(needsReconnect ? "pending" : "connected")}">Scopes: ${escapeHtml(needsReconnect ? "Reconnect required" : "Ready")}</span>
-        </div>
-        <div class="integration-grid">
-          <article class="integration-tile">
-            <div class="integration-label">Connected Email</div>
-            <div class="integration-value">${escapeHtml(connection && connection.connectedEmail ? connection.connectedEmail : "Not connected")}</div>
-            <div class="integration-sub">Admin account that completed the Zoho OAuth link.</div>
-          </article>
-          <article class="integration-tile">
-            <div class="integration-label">Live Roles</div>
-            <div class="integration-value">${escapeHtml(String(data.roleCount || 0))}</div>
-            <div class="integration-sub">Career roles currently stored in Supabase.</div>
-          </article>
-          <article class="integration-tile">
-            <div class="integration-label">Last Successful Sync</div>
-            <div class="integration-value">${escapeHtml(fmtDateTime(connection && connection.lastSyncAt))}</div>
-            <div class="integration-sub">Latest completed pull from Zoho Recruit.</div>
-          </article>
-          <article class="integration-tile">
-            <div class="integration-label">Token Refreshed</div>
-            <div class="integration-value">${escapeHtml(fmtDateTime(connection && connection.tokenLastRefreshedAt))}</div>
-            <div class="integration-sub">Last time GP Link refreshed the Zoho access token.</div>
-          </article>
-          <article class="integration-tile">
-            <div class="integration-label">Scheduler Endpoint</div>
-            <div class="integration-value"><span class="mono-inline">${escapeHtml(data.cronPath || "/api/integrations/zoho-recruit/cron-sync")}</span></div>
-            <div class="integration-sub">External scheduler should call this every 15 minutes with the cron bearer secret.</div>
-          </article>
-          <article class="integration-tile">
-            <div class="integration-label">API Domain</div>
-            <div class="integration-value">${escapeHtml(connection && connection.apiDomain ? connection.apiDomain : data.accountsServer || "-")}</div>
-            <div class="integration-sub">Zoho tenant domain currently serving Recruit data.</div>
-          </article>
-        </div>
-        <div class="integration-note">
-          <span>Redirect URI: <span class="mono-inline">${escapeHtml(data.redirectUri || "-")}</span></span>
-          ${data.configuredRedirectUri && data.configuredRedirectUri !== data.redirectUri ? `<span>Configured Redirect: <span class="mono-inline">${escapeHtml(data.configuredRedirectUri)}</span></span>` : ""}
-          <span>Requested Scopes: <span class="mono-inline">${escapeHtml(Array.isArray(data.scopes) && data.scopes.length ? data.scopes.join(", ") : "-")}</span></span>
-          <span>Granted Scopes: <span class="mono-inline">${escapeHtml(Array.isArray(data.grantedScopes) && data.grantedScopes.length ? data.grantedScopes.join(", ") : "-")}</span></span>
-        </div>
-      `;
-    }
-
-    async function loadZohoRecruitStatus(force = false) {
-      if (state.isZohoLoading && !force) return;
-      state.isZohoLoading = true;
-      renderZohoRecruitPanel();
+    async function loadDashboard() {
       try {
-        const response = await fetch("/api/admin/integrations/zoho-recruit/status", {
-          credentials: "same-origin"
-        });
-        if (response.status === 401) {
-          window.location.href = "/pages/admin-signin.html";
-          return;
-        }
-        const data = await response.json().catch(() => ({}));
-        if (response.status === 403) {
-          throw new Error(data.message || "This account does not have admin access.");
-        }
-        if (!response.ok || !data.ok) {
-          throw new Error(data.message || "Failed to load Zoho Recruit status.");
-        }
-        state.zohoRecruit = data;
-      } catch (err) {
-        state.zohoRecruit = {
-          ok: false,
-          configured: false,
-          connected: false,
-          cronConfigured: false,
-          cronPath: "/api/integrations/zoho-recruit/cron-sync",
-          redirectUri: "",
-          configuredRedirectUri: "",
-          accountsServer: "",
-          scopes: [],
-          grantedScopes: [],
-          missingScopes: [],
-          missingRequiredScopes: [],
-          overbroadGrantedScopes: [],
-          needsReconnect: false,
-          connection: err && err.message ? { status: "error", lastSyncStatus: "error", lastSyncError: err.message } : null,
-          roleCount: 0
-        };
-        state.zohoRecruitNotice = { tone: "error", text: err.message || "Failed to load Zoho Recruit status." };
-      } finally {
-        state.isZohoLoading = false;
-        renderZohoRecruitPanel();
-        renderExecutivePanel();
-      }
+        const r = await fetch("/api/admin/dashboard", { credentials: "same-origin" });
+        if (r.status === 401) { window.location.href = "/pages/admin-signin.html"; return; }
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) state.dashboard = d;
+      } catch (_) {}
     }
 
-    async function triggerZohoRecruitSync() {
-      if (state.isZohoSyncing) return;
-      state.isZohoSyncing = true;
-      renderZohoRecruitPanel();
+    async function loadVisaCases() {
       try {
-        const response = await fetch("/api/admin/integrations/zoho-recruit/sync", {
-          method: "POST",
-          credentials: "same-origin"
-        });
-        if (response.status === 401) {
-          window.location.href = "/pages/admin-signin.html";
-          return;
-        }
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data.ok) {
-          throw new Error(data.message || "Failed to sync Zoho Recruit.");
-        }
-        const roleCount = Number(data.syncedRoleCount || 0);
-        state.zohoRecruitNotice = {
-          tone: "success",
-          text: `Zoho Recruit sync completed. ${roleCount} live role${roleCount === 1 ? "" : "s"} stored.`
-        };
-        await loadZohoRecruitStatus(true);
-      } catch (err) {
-        state.zohoRecruitNotice = {
-          tone: "error",
-          text: err.message || "Zoho Recruit sync failed."
-        };
-        renderZohoRecruitPanel();
-      } finally {
-        state.isZohoSyncing = false;
-        renderZohoRecruitPanel();
-      }
+        const r = await fetch("/api/admin/visa/cases", { credentials: "same-origin" });
+        const d = await r.json().catch(() => ({}));
+        if (d.ok && Array.isArray(d.cases)) state.visaCases = d.cases;
+      } catch (_) {}
     }
 
-    function filteredCandidates() {
-      const list = state.dashboard ? state.dashboard.candidates : [];
-      const query = state.query.trim().toLowerCase();
-      if (!query) return list;
-      return list.filter((item) => {
-        const text = `${item.name} ${item.email} ${item.country || ""}`.toLowerCase();
-        return text.includes(query);
-      });
+    async function loadPbsCases() {
+      try {
+        const r = await fetch("/api/admin/pbs/cases", { credentials: "same-origin" });
+        const d = await r.json().catch(() => ({}));
+        if (d.ok && Array.isArray(d.cases)) state.pbsCases = d.cases;
+      } catch (_) {}
     }
 
-    function filteredVerifications() {
-      const list = state.dashboard ? state.dashboard.verificationQueue : [];
-      const query = state.query.trim().toLowerCase();
-      if (!query) return list;
-      return list.filter((item) => {
-        const text = `${item.name} ${item.email} ${item.currentStepLabel}`.toLowerCase();
-        return text.includes(query);
-      });
-    }
-
-    function filteredTickets() {
-      const list = state.dashboard ? state.dashboard.tickets : [];
-      const query = state.query.trim().toLowerCase();
-      if (!query) return list;
-      return list.filter((item) => {
-        const text = `${item.title} ${item.candidateName} ${item.candidateEmail} ${item.category}`.toLowerCase();
-        return text.includes(query);
-      });
-    }
-
-    function renderRegistrations() {
-      const list = filteredCandidates();
-      if (!list.length) {
-        contentEl.innerHTML = `<div class="empty">No GP registrations match your search.</div>`;
-        return;
-      }
-
-      contentEl.innerHTML = list.map((candidate) => `
-        <article class="row">
-          <div class="row-top">
-            <div>
-              <h3 class="name">${candidate.name}</h3>
-              <div class="meta">
-                <span>${candidate.email}</span>
-                <span>${candidate.phone || "Phone not provided"}</span>
-                <span>Registered: ${fmtDate(candidate.registeredAt)}</span>
-                <span>${fmtRelative(candidate.lastActiveAt)}</span>
-              </div>
-            </div>
-            <span class="badge ${candidate.status}">${candidate.status.replace(/_/g, " ")}</span>
-          </div>
-          <div class="progress-meta">
-            <span>Progress: Step ${candidate.currentStepIndex}/${candidate.totalSteps} • ${candidate.currentStepLabel}</span>
-            <span>${candidate.progressPercent}%</span>
-          </div>
-          <div class="bar"><span style="width:${candidate.progressPercent}%"></span></div>
-          <div class="row-actions">
-            <button class="btn" data-view-candidate="${candidate.id}" type="button">View</button>
-          </div>
-        </article>
-      `).join("");
-    }
-
-    function renderVerifications() {
-      const list = filteredVerifications();
-      if (!list.length) {
-        contentEl.innerHTML = `<div class="empty">No certificate checks pending right now.</div>`;
-        return;
-      }
-
-      contentEl.innerHTML = list.map((candidate) => `
-        <article class="row">
-          <div class="row-top">
-            <div>
-              <h3 class="name">${candidate.name}</h3>
-              <div class="meta">
-                <span>${candidate.email}</span>
-                <span>Current step: ${candidate.currentStepLabel}</span>
-                <span>Documents pending: ${candidate.documentsPending}</span>
-              </div>
-            </div>
-            <span class="badge ${candidate.actionRequired ? "action_required" : "active"}">${candidate.actionRequired ? "Action required" : "Awaiting review"}</span>
-          </div>
-          <div class="progress-meta">
-            <span>Registration progress</span>
-            <span>${candidate.progressPercent}%</span>
-          </div>
-          <div class="bar"><span style="width:${candidate.progressPercent}%"></span></div>
-          <div class="row-actions">
-            <button class="btn" data-view-candidate="${candidate.id}" type="button">View</button>
-          </div>
-        </article>
-      `).join("");
-    }
-
-    function renderTickets() {
-      const list = filteredTickets();
-      if (!list.length) {
-        contentEl.innerHTML = `<div class="empty">No support tickets match your search.</div>`;
-        return;
-      }
-
-      const priorityBadge = (p) => {
-        if (p === "urgent" || p === "blocked" || p === "time_sensitive") return `<span class="badge action_required">Urgent</span>`;
-        if (p === "high") return `<span class="badge stalled">High</span>`;
-        return `<span class="badge active">Normal</span>`;
-      };
-
-      contentEl.innerHTML = list.map((ticket) => `
-        <article class="row" data-ticket-row="${escapeHtml(ticket.id)}">
-          <div class="row-top">
-            <div>
-              <h3 class="name">${escapeHtml(ticket.title)}</h3>
-              <div class="meta">
-                <span>${escapeHtml(ticket.candidateName || "Unknown")} &bull; ${escapeHtml(ticket.candidateEmail || "-")}</span>
-                <span>${escapeHtml(ticket.category || "Other")} &bull; ${escapeHtml(String(ticket.messagesCount || 0))} messages</span>
-                <span>Updated: ${new Date(ticket.updatedAt).toLocaleString()}</span>
-              </div>
-            </div>
-            <div style="display:flex;gap:6px;align-items:center;">
-              ${priorityBadge(ticket.priority)}
-              <span class="badge ticket-${escapeHtml(ticket.status)}">${escapeHtml(ticket.status)}</span>
-            </div>
-          </div>
-          <div class="meta" style="font-style:italic;">${escapeHtml(ticket.lastMessage || "No messages yet.")}</div>
-          <div class="row-actions">
-            <button class="btn" data-reply-ticket="${escapeHtml(ticket.id)}" data-candidate-email="${escapeHtml(ticket.candidateEmail || "")}" data-candidate-user-id="${escapeHtml(ticket.candidateUserId || "")}" data-ticket-title="${escapeHtml(ticket.title || "")}" type="button">Reply</button>
-            <button class="btn" data-view-thread="${escapeHtml(ticket.id)}" data-candidate-email="${escapeHtml(ticket.candidateEmail || "")}" type="button">View Thread</button>
-            <button class="btn primary" data-toggle-ticket="${escapeHtml(ticket.id)}" data-candidate-email="${escapeHtml(ticket.candidateEmail || "")}" data-candidate-user-id="${escapeHtml(ticket.candidateUserId || "")}" data-next-status="${ticket.status === "closed" ? "open" : "closed"}" type="button">${ticket.status === "closed" ? "Reopen" : "Close"}</button>
-          </div>
-        </article>
-      `).join("");
-    }
-
-    function renderContent() {
-      if (!state.dashboard) {
-        contentEl.innerHTML = `<div class="empty">Loading dashboard...</div>`;
-        return;
-      }
-      if (state.tab === "registrations") renderRegistrations();
-      if (state.tab === "verifications") renderVerifications();
-      if (state.tab === "tickets") renderTickets();
-    }
-
-    function renderTabLabels() {
-      const summary = state.dashboard ? state.dashboard.summary : { totalGps: 0, pendingVerifications: 0, openSupportTickets: 0 };
-      const labels = {
-        registrations: `GP Registrations (${summary.totalGps})`,
-        verifications: `Certificate Verifications (${summary.pendingVerifications})`,
-        tickets: `Support Tickets (${summary.openSupportTickets})`
-      };
-
-      document.querySelectorAll(".tab").forEach((tab) => {
-        const key = tab.getAttribute("data-tab");
-        tab.textContent = labels[key] || tab.textContent;
-        tab.classList.toggle("active", key === state.tab);
-      });
-    }
-
-    async function loadDashboard(force = false) {
+    async function loadAllData(force) {
       if (state.isLoading && !force) return;
       state.isLoading = true;
-      refreshTextEl.textContent = "Loading latest data...";
-      try {
-        const response = await fetch("/api/admin/dashboard", { credentials: "same-origin" });
-        if (response.status === 401) {
-          window.location.href = "/pages/admin-signin.html";
-          return;
-        }
-        const data = await response.json().catch(() => ({}));
-        if (response.status === 403) {
-          throw new Error(data.message || "This account does not have admin access.");
-        }
-        if (!response.ok) {
-          throw new Error(data.message || "Failed to load admin dashboard.");
-        }
-        state.dashboard = data;
-        renderStats();
-        renderExecutivePanel();
-        renderTabLabels();
-        renderContent();
-        refreshTextEl.textContent = `Updated ${new Date(data.refreshedAt).toLocaleString()}`;
-      } catch (err) {
-        state.dashboard = {
-          summary: { totalGps: 0, activeGps: 0, pendingVerifications: 0, openSupportTickets: 0, averageProgress: 0 },
-          executive: createEmptyExecutiveData(),
-          candidates: [],
-          verificationQueue: [],
-          tickets: []
-        };
-        renderStats();
-        renderExecutivePanel();
-        renderTabLabels();
-        renderContent();
-        refreshTextEl.textContent = `Unable to load live dashboard data (${err.message}).`;
-      } finally {
-        state.isLoading = false;
-      }
+      await Promise.all([loadDashboard(), loadVisaCases(), loadPbsCases()]);
+      state.isLoading = false;
+      renderAll();
     }
 
-    async function updateTicket(ticketId, payload) {
-      // Use new granular endpoints when possible
-      if (payload.adminReply && payload.candidateEmail) {
-        const res = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}/reply`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ text: payload.adminReply, candidateEmail: payload.candidateEmail })
-        });
-        if (!res.ok) {
-          // Fallback to old endpoint
-          const fallback = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-            body: JSON.stringify(payload)
-          });
-          if (!fallback.ok) { const d = await fallback.json().catch(() => ({})); throw new Error(d.message || "Unable to reply."); }
-        }
-        return;
-      }
-      if (payload.status && payload.candidateEmail) {
-        const res = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}/status`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ status: payload.status, candidateEmail: payload.candidateEmail })
-        });
-        if (!res.ok) {
-          const fallback = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-            body: JSON.stringify(payload)
-          });
-          if (!fallback.ok) { const d = await fallback.json().catch(() => ({})); throw new Error(d.message || "Unable to update."); }
-        }
-        return;
-      }
-      // Legacy fallback
-      const response = await fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}`, {
+    async function updateTicketStatus(ticketId, nextStatus, candidateEmail) {
+      return fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(payload || {})
+        body: JSON.stringify({ status: nextStatus, candidateEmail })
       });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.message || "Unable to update ticket.");
-      }
     }
 
-    // ─── TICKET THREAD VIEWER ───
-    async function viewTicketThread(ticketId, candidateEmail) {
-      const tickets = state.dashboard && Array.isArray(state.dashboard.tickets) ? state.dashboard.tickets : [];
-      const ticket = tickets.find((t) => t.id === ticketId);
+    async function replyToTicket(ticketId, text, candidateEmail) {
+      return fetch(`/api/admin/tickets/${encodeURIComponent(ticketId)}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ text, candidateEmail })
+      });
+    }
+
+    /* ═══════════════════════════════════════════════════
+       DATA HELPERS
+       ═══════════════════════════════════════════════════ */
+    function getCandidates() {
+      return state.dashboard && Array.isArray(state.dashboard.candidates) ? state.dashboard.candidates : [];
+    }
+
+    function getTickets() {
+      return state.dashboard && Array.isArray(state.dashboard.tickets) ? state.dashboard.tickets : [];
+    }
+
+    function findVisaCase(gp) {
+      const email = (gp.email || "").toLowerCase();
+      const userId = gp.userId || "";
+      return state.visaCases.find(c =>
+        (userId && c.user_id === userId) || (email && (c.gp_email || "").toLowerCase() === email)
+      ) || null;
+    }
+
+    function findPbsCase(gp) {
+      const email = (gp.email || "").toLowerCase();
+      const userId = gp.userId || "";
+      return state.pbsCases.find(c =>
+        (userId && c.user_id === userId) || (email && (c.gp_email || "").toLowerCase() === email)
+      ) || null;
+    }
+
+    function getGpTickets(gp) {
+      const id = gp.id || "";
+      const email = (gp.email || "").toLowerCase();
+      return getTickets().filter(t => {
+        const tid = t.candidateId || "";
+        const te = (t.candidateEmail || "").toLowerCase();
+        return (id && tid === id) || (email && te === email);
+      });
+    }
+
+    /* Build unified 7-step journey from pathwaySteps + visa/PBS data */
+    function buildJourney(gp) {
+      const pw = Array.isArray(gp.pathwaySteps) ? gp.pathwaySteps : [];
+      const visaCase = findVisaCase(gp);
+      const pbsCase = findPbsCase(gp);
+
+      const myintealth = pw.find(s => s.id === "myintealth");
+      const amc = pw.find(s => s.id === "amc");
+      const docs = pw.find(s => s.id === "documents");
+      const ahpra = pw.find(s => s.id === "ahpra");
+
+      function mapStatus(step) {
+        if (!step) return "pending";
+        if (step.status === "done") return "done";
+        if (step.status === "current") return "current";
+        return "pending";
+      }
+
+      function mapSubsteps(step) {
+        if (!step || !Array.isArray(step.substeps)) return [];
+        return step.substeps.map(s => ({
+          label: s.label || s.key || "",
+          status: s.status === "done" ? "done" : s.status === "current" ? "current" : "pending"
+        }));
+      }
+
+      // Step 1: MyIntealth
+      const s1status = mapStatus(myintealth);
+
+      // Step 2: AMC
+      const s2status = mapStatus(amc);
+
+      // Step 3: Career & Documents
+      const docsStatus = mapStatus(docs);
+      // Career is considered part of documents step; if docs done, career is progressing
+      const s3status = docsStatus;
+
+      // Step 4: AHPRA
+      const s4status = mapStatus(ahpra);
+
+      // Steps 5-7 unlock after career/docs are done
+      const postCareerUnlocked = s3status === "done";
+
+      // Step 5: Visa
+      let s5status = "locked";
+      let s5substeps = [];
+      if (postCareerUnlocked || visaCase) {
+        if (visaCase) {
+          const vs = visaCase.status || "not_started";
+          if (vs === "complete" || vs === "approved" || vs === "granted") {
+            s5status = "done";
+          } else if (vs === "not_started") {
+            s5status = "pending";
+          } else {
+            s5status = "current";
+          }
+          s5substeps = [
+            { label: `Status: ${statusLabel(vs)}`, status: s5status === "done" ? "done" : "current" },
+            { label: `Type: ${visaCase.visa_type || "Not set"}`, status: "current" }
+          ];
+          if (visaCase.reference_number) {
+            s5substeps.push({ label: `Ref: ${visaCase.reference_number}`, status: "current" });
+          }
+        } else {
+          s5status = "pending";
+          s5substeps = [{ label: "No visa case created yet", status: "pending" }];
+        }
+      }
+
+      // Step 6: PBS
+      let s6status = "locked";
+      let s6substeps = [];
+      if (postCareerUnlocked || pbsCase) {
+        if (pbsCase) {
+          const ps = pbsCase.status || "not_started";
+          if (ps === "complete" || ps === "approved") {
+            s6status = "done";
+          } else if (ps === "not_started") {
+            s6status = "pending";
+          } else {
+            s6status = "current";
+          }
+          s6substeps = [
+            { label: `Status: ${statusLabel(ps)}`, status: s6status === "done" ? "done" : "current" },
+            { label: `Type: ${pbsCase.application_type || "Not set"}`, status: "current" }
+          ];
+          if (pbsCase.provider_number) {
+            s6substeps.push({ label: `Provider #: ${pbsCase.provider_number}`, status: "done" });
+          }
+          if (pbsCase.prescriber_number) {
+            s6substeps.push({ label: `Prescriber #: ${pbsCase.prescriber_number}`, status: "done" });
+          }
+        } else {
+          s6status = "pending";
+          s6substeps = [{ label: "No PBS case created yet", status: "pending" }];
+        }
+      }
+
+      // Step 7: Commencement
+      const allPriorDone = s1status === "done" && s2status === "done" && s3status === "done" && s4status === "done" && s5status === "done" && s6status === "done";
+      const s7status = allPriorDone ? (gp.progressPercent >= 100 ? "done" : "current") : "locked";
+
+      return [
+        { ...JOURNEY_STEPS[0], status: s1status, substeps: mapSubsteps(myintealth) },
+        { ...JOURNEY_STEPS[1], status: s2status, substeps: mapSubsteps(amc) },
+        { ...JOURNEY_STEPS[2], status: s3status, substeps: mapSubsteps(docs) },
+        { ...JOURNEY_STEPS[3], status: s4status, substeps: mapSubsteps(ahpra) },
+        { ...JOURNEY_STEPS[4], status: s5status, substeps: s5substeps },
+        { ...JOURNEY_STEPS[5], status: s6status, substeps: s6substeps },
+        { ...JOURNEY_STEPS[6], status: s7status, substeps: [] }
+      ];
+    }
+
+    /* Generate VA to-do items for a GP */
+    function generateTodos(gp) {
+      const todos = [];
+      const visaCase = findVisaCase(gp);
+      const pbsCase = findPbsCase(gp);
+      const tickets = getGpTickets(gp);
+      const openTickets = tickets.filter(t => t.status !== "closed");
+
+      // Account under review
+      if (gp.status === "action_required" || gp.actionRequired) {
+        todos.push({
+          priority: "urgent",
+          category: "account",
+          label: "Action required on account",
+          detail: "This GP's registration needs admin attention",
+          action: { type: "scroll", target: "journey" }
+        });
+      }
+
+      // Pending verification
+      if (gp.pendingVerification) {
+        todos.push({
+          priority: "high",
+          category: "verification",
+          label: "Review qualification verification",
+          detail: `${gp.documentsPending || 0} document(s) pending review`,
+          action: { type: "scroll", target: "journey" }
+        });
+      }
+
+      // Open tickets
+      openTickets.forEach(ticket => {
+        todos.push({
+          priority: ticket.priority === "urgent" || ticket.priority === "time_sensitive" ? "urgent" : (ticket.priority === "high" ? "high" : "normal"),
+          category: "ticket",
+          label: `Respond to: ${ticket.title || "Support ticket"}`,
+          detail: `${ticket.category || "General"} \u2022 ${ticket.messagesCount || 0} messages`,
+          action: { type: "ticket", ticketId: ticket.id, candidateEmail: ticket.candidateEmail }
+        });
+      });
+
+      // Visa case needs attention
+      if (visaCase) {
+        const vs = visaCase.status || "not_started";
+        if (["submitted", "under_review", "in_progress"].includes(vs)) {
+          todos.push({
+            priority: "normal",
+            category: "visa",
+            label: `Review visa case \u2014 ${statusLabel(vs)}`,
+            detail: visaCase.visa_type || "Visa application",
+            action: { type: "link", href: `/pages/admin-visa.html` }
+          });
+        }
+        if (vs === "waiting_on_gp") {
+          todos.push({
+            priority: "normal",
+            category: "visa",
+            label: "Waiting on GP for visa documents",
+            detail: "Check if GP needs help with document upload",
+            action: { type: "link", href: `/pages/admin-visa.html` }
+          });
+        }
+      }
+
+      // PBS case needs attention
+      if (pbsCase) {
+        const ps = pbsCase.status || "not_started";
+        if (["submitted", "under_review", "in_progress"].includes(ps)) {
+          todos.push({
+            priority: "normal",
+            category: "pbs",
+            label: `Review PBS case \u2014 ${statusLabel(ps)}`,
+            detail: pbsCase.application_type || "PBS application",
+            action: { type: "link", href: `/pages/admin-pbs.html` }
+          });
+        }
+        if (ps === "waiting_on_gp") {
+          todos.push({
+            priority: "normal",
+            category: "pbs",
+            label: "Waiting on GP for PBS documents",
+            detail: "Check if GP needs help with Medicare/PBS process",
+            action: { type: "link", href: `/pages/admin-pbs.html` }
+          });
+        }
+      }
+
+      // Documents pending
+      if (gp.documentsPending > 0) {
+        todos.push({
+          priority: "normal",
+          category: "documents",
+          label: `${gp.documentsPending} document(s) need review`,
+          detail: "Check uploaded qualification documents",
+          action: { type: "scroll", target: "journey" }
+        });
+      }
+
+      // Stalled GP
+      if (gp.stalled) {
+        const last = gp.lastActiveAt ? new Date(gp.lastActiveAt) : null;
+        const days = last ? Math.round((Date.now() - last.getTime()) / 86400000) : 0;
+        todos.push({
+          priority: "normal",
+          category: "followup",
+          label: "Follow up \u2014 GP inactive",
+          detail: days > 0 ? `No activity for ${days} day${days === 1 ? "" : "s"}` : "No recent activity",
+          action: { type: "email", email: gp.email }
+        });
+      }
+
+      // Stage-specific guidance
+      const journey = buildJourney(gp);
+      const currentStep = journey.find(s => s.status === "current");
+      if (currentStep) {
+        if (currentStep.key === "myintealth") {
+          if (!gp.pendingVerification) {
+            todos.push({ priority: "normal", category: "verification", label: "Guide GP through MyIntealth setup", detail: "Ensure account creation and qualification upload", action: { type: "scroll", target: "journey" } });
+          }
+        } else if (currentStep.key === "amc") {
+          todos.push({ priority: "normal", category: "documents", label: "Guide GP through AMC portfolio", detail: "Help with credential upload and verification", action: { type: "scroll", target: "journey" } });
+        } else if (currentStep.key === "career") {
+          todos.push({ priority: "normal", category: "documents", label: "Support career placement", detail: "Help with document preparation and job matching", action: { type: "scroll", target: "journey" } });
+        } else if (currentStep.key === "ahpra") {
+          todos.push({ priority: "normal", category: "verification", label: "Guide AHPRA registration", detail: "Support through AHPRA stages", action: { type: "scroll", target: "journey" } });
+        }
+      }
+
+      // Sort by priority
+      const order = { urgent: 0, high: 1, normal: 2 };
+      todos.sort((a, b) => (order[a.priority] ?? 2) - (order[b.priority] ?? 2));
+      return todos;
+    }
+
+    /* ═══════════════════════════════════════════════════
+       FILTERING
+       ═══════════════════════════════════════════════════ */
+    function getFilteredCandidates() {
+      let list = getCandidates();
+      const q = state.searchQuery.trim().toLowerCase();
+      if (q) {
+        list = list.filter(gp => {
+          const text = `${gp.name} ${gp.email} ${gp.country || ""}`.toLowerCase();
+          return text.includes(q);
+        });
+      }
+      if (state.filter === "attention") {
+        list = list.filter(gp => gp.actionRequired || gp.stalled || gp.pendingVerification || gp.openTickets > 0);
+      } else if (state.filter === "active") {
+        list = list.filter(gp => gp.status === "active");
+      } else if (state.filter === "stalled") {
+        list = list.filter(gp => gp.stalled);
+      } else if (state.filter === "complete") {
+        list = list.filter(gp => gp.status === "complete");
+      }
+      // Sort: action_required first, then stalled, then by last active
+      list.sort((a, b) => {
+        const pa = a.actionRequired ? 0 : a.stalled ? 1 : a.status === "complete" ? 3 : 2;
+        const pb = b.actionRequired ? 0 : b.stalled ? 1 : b.status === "complete" ? 3 : 2;
+        if (pa !== pb) return pa - pb;
+        const at = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+        const bt = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+        return bt - at;
+      });
+      return list;
+    }
+
+    function getFilterCounts() {
+      const all = getCandidates();
+      return {
+        all: all.length,
+        attention: all.filter(gp => gp.actionRequired || gp.stalled || gp.pendingVerification || gp.openTickets > 0).length,
+        active: all.filter(gp => gp.status === "active").length,
+        stalled: all.filter(gp => gp.stalled).length,
+        complete: all.filter(gp => gp.status === "complete").length
+      };
+    }
+
+    /* ═══════════════════════════════════════════════════
+       RENDERING
+       ═══════════════════════════════════════════════════ */
+
+    function renderTopBar() {
+      const titleEl = document.getElementById("topTitle");
+      const chipsEl = document.getElementById("topChips");
+      const metaEl = document.getElementById("topMeta");
+
+      titleEl.textContent = isSuperAdmin() ? "CEO Command Centre" : "VA Command Centre";
+
+      const summary = state.dashboard ? state.dashboard.summary : null;
+      const counts = getFilterCounts();
+      chipsEl.innerHTML = [
+        `<span class="top-chip"><span class="chip-num">${counts.all}</span> GPs</span>`,
+        counts.attention > 0 ? `<span class="top-chip urgent"><span class="chip-num">${counts.attention}</span> Need Action</span>` : "",
+        `<span class="top-chip"><span class="chip-num">${summary ? summary.pendingVerifications : 0}</span> Pending</span>`,
+        `<span class="top-chip"><span class="chip-num">${summary ? summary.openSupportTickets : 0}</span> Tickets</span>`
+      ].filter(Boolean).join("");
+
+      const email = state.viewer && state.viewer.email ? state.viewer.email : "";
+      const role = state.viewer && state.viewer.roleLabel ? state.viewer.roleLabel : state.hostLabel || "Admin";
+      metaEl.textContent = email ? `${role} \u2022 ${email}` : role;
+    }
+
+    function renderFilters() {
+      const counts = getFilterCounts();
+      const bar = document.getElementById("filterBar");
+      const filters = [
+        { key: "all", label: "All", count: counts.all },
+        { key: "attention", label: "Needs Action", count: counts.attention },
+        { key: "active", label: "Active", count: counts.active },
+        { key: "stalled", label: "Stalled", count: counts.stalled },
+        { key: "complete", label: "Complete", count: counts.complete }
+      ];
+      bar.innerHTML = filters.map(f =>
+        `<button class="gp-filter-btn ${f.key === state.filter ? "active" : ""}" data-filter="${escapeHtml(f.key)}">${escapeHtml(f.label)}<span class="filter-count">${f.count}</span></button>`
+      ).join("");
+    }
+
+    function renderGpList() {
+      const listEl = document.getElementById("gpList");
+      const candidates = getFilteredCandidates();
+
+      if (!candidates.length) {
+        listEl.innerHTML = `<div class="todo-empty">${state.dashboard ? "No GPs match your filter." : "Loading GP roster..."}</div>`;
+        return;
+      }
+
+      listEl.innerHTML = candidates.map(gp => {
+        const journey = buildJourney(gp);
+        const todoCount = generateTodos(gp).filter(t => t.priority === "urgent" || t.priority === "high").length;
+        const isSelected = state.selectedGpId === (gp.id || gp.userId || gp.email);
+
+        const dotsHtml = journey.map((step, i) => {
+          let dotClass = step.status;
+          if (step.status === "done") dotClass = "done";
+          else if (step.status === "current") dotClass = "current";
+          else if (step.status === "locked") dotClass = "locked";
+          else dotClass = ""; // pending
+          const lineClass = i < journey.length - 1 ? (journey[i].status === "done" ? " done" : "") : "";
+          return `<span class="journey-dot ${dotClass}"></span>${i < journey.length - 1 ? `<span class="journey-line${lineClass}"></span>` : ""}`;
+        }).join("");
+
+        const currentStep = journey.find(s => s.status === "current");
+        const stepLabel = currentStep ? `Step ${currentStep.num}: ${currentStep.label}` : (gp.progressPercent >= 100 ? "Completed" : gp.currentStepLabel || "");
+
+        return `
+          <div class="gp-card ${isSelected ? "selected" : ""}" data-gp-id="${escapeHtml(gp.id || gp.userId || gp.email)}">
+            <div class="gp-card-top">
+              <div class="gp-avatar">${escapeHtml(initials(gp.name))}</div>
+              <div class="gp-card-info">
+                <div class="gp-card-name">${escapeHtml(gp.name || gp.email)}</div>
+                <div class="gp-card-sub">${escapeHtml(gp.country || "—")} \u2022 ${escapeHtml(fmtRelative(gp.lastActiveAt))}</div>
+              </div>
+              ${todoCount > 0
+                ? `<span class="gp-card-attention">${todoCount}</span>`
+                : (gp.status === "complete" ? `<span class="gp-card-attention ok">\u2713</span>` : "")}
+            </div>
+            <div class="gp-card-journey">${dotsHtml}</div>
+            <div class="gp-card-step">${escapeHtml(stepLabel)} \u2022 ${gp.progressPercent || 0}%</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderGpDetail() {
+      const detailEmpty = document.getElementById("detailEmpty");
+      const detailContent = document.getElementById("detailContent");
+
+      if (!state.selectedGpId) {
+        detailEmpty.style.display = "";
+        detailContent.style.display = "none";
+        return;
+      }
+
+      const gp = getCandidates().find(c => (c.id || c.userId || c.email) === state.selectedGpId);
+      if (!gp) {
+        detailEmpty.style.display = "";
+        detailContent.style.display = "none";
+        return;
+      }
+
+      detailEmpty.style.display = "none";
+      detailContent.style.display = "block";
+
+      const journey = buildJourney(gp);
+      const todos = generateTodos(gp);
+      const visaCase = findVisaCase(gp);
+      const pbsCase = findPbsCase(gp);
+      const tickets = getGpTickets(gp);
+      const openTickets = tickets.filter(t => t.status !== "closed");
+
+      let html = "";
+
+      // Mobile back button
+      html += `<div class="mobile-back"><button class="btn ghost" data-back-to-list>&#8592; Back to GP list</button></div>`;
+
+      // Header
+      html += `
+        <div class="detail-header">
+          <div class="detail-header-top">
+            <div class="detail-header-info">
+              <h2 class="detail-name">${escapeHtml(gp.name || gp.email)}</h2>
+              <div class="detail-meta">
+                <span>${escapeHtml(gp.email || "—")}</span>
+                <span>${escapeHtml(gp.phone || "No phone")}</span>
+                <span>${escapeHtml(gp.country || "—")}</span>
+                <span>Joined ${escapeHtml(fmtDate(gp.registeredAt))}</span>
+                <span>Active ${escapeHtml(fmtRelative(gp.lastActiveAt))}</span>
+              </div>
+            </div>
+            <div class="detail-actions">
+              <a class="btn" href="mailto:${escapeHtml(gp.email || "")}">Email GP</a>
+              <button class="btn ghost" data-export-gp="${escapeHtml(gp.id || "")}">Export</button>
+            </div>
+          </div>
+          <div class="detail-progress-row">
+            <div class="detail-progress-bar"><span style="width:${gp.progressPercent || 0}%"></span></div>
+            <span class="detail-progress-label">${gp.progressPercent || 0}% \u2022 Step ${gp.currentStepIndex || 1}/${gp.totalSteps || 8}</span>
+          </div>
+        </div>
+      `;
+
+      // Executive toggle for super admin
+      if (isSuperAdmin()) {
+        html += `
+          <div class="executive-toggle visible">
+            <button class="executive-toggle-btn" data-toggle-executive>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20M5 20V8l7-5 7 5v12"/></svg>
+              Executive Overview
+            </button>
+          </div>
+          <div class="executive-collapse" id="executiveCollapse">
+            ${renderExecutivePanel()}
+          </div>
+        `;
+      }
+
+      // VA To-Do List
+      html += `<div class="section-card" id="todoSection">`;
+      html += `<h3 class="section-title">VA To-Do <span class="count-badge">${todos.length}</span></h3>`;
+      if (todos.length) {
+        html += `<div class="todo-list">`;
+        html += todos.map(todo => `
+          <div class="todo-item" data-todo-action='${escapeHtml(JSON.stringify(todo.action))}'>
+            <span class="todo-priority ${escapeHtml(todo.priority)}"></span>
+            <div class="todo-content">
+              <div class="todo-label">${escapeHtml(todo.label)}</div>
+              <div class="todo-detail">${escapeHtml(todo.detail)}</div>
+            </div>
+            <span class="todo-category ${escapeHtml(todo.category)}">${escapeHtml(todo.category)}</span>
+          </div>
+        `).join("");
+        html += `</div>`;
+      } else {
+        html += `<div class="todo-empty">No action items for this GP right now.</div>`;
+      }
+      html += `</div>`;
+
+      // Journey Progress
+      html += `<div class="section-card" id="journeySection">`;
+      html += `<h3 class="section-title">Registration Journey</h3>`;
+      html += `<div class="journey-stepper">`;
+      journey.forEach((step, idx) => {
+        const isOpen = state.expandedSteps[step.key] || step.status === "current";
+        const dotIcon = step.status === "done" ? "\u2713" : (step.status === "locked" ? "\u2014" : step.num);
+
+        let actionsHtml = "";
+        if (step.key === "visa") {
+          actionsHtml = `<div class="step-actions"><a class="btn" href="/pages/admin-visa.html">Manage Visa Case</a></div>`;
+        } else if (step.key === "pbs") {
+          actionsHtml = `<div class="step-actions"><a class="btn" href="/pages/admin-pbs.html">Manage PBS Case</a></div>`;
+        }
+
+        const substepsHtml = step.substeps.length ? `
+          <div class="substep-list">
+            ${step.substeps.map(sub => `
+              <div class="substep-item">
+                <span class="substep-icon ${escapeHtml(sub.status)}">${sub.status === "done" ? "\u2713" : sub.status === "current" ? "\u2022" : "\u2014"}</span>
+                ${escapeHtml(sub.label)}
+              </div>
+            `).join("")}
+          </div>
+        ` : `<div style="font-size:12px;color:var(--muted);padding:4px 0;">No substep data available.</div>`;
+
+        const badgeLabel = step.status === "done" ? "Complete" : step.status === "current" ? "In Progress" : step.status === "locked" ? "Locked" : "Pending";
+
+        html += `
+          <div class="journey-step ${step.status === "locked" ? "locked" : ""} ${isOpen ? "open" : ""}" data-step-key="${escapeHtml(step.key)}">
+            <div class="journey-step-track">
+              <div class="journey-step-dot ${escapeHtml(step.status)}">${dotIcon}</div>
+              <div class="journey-step-line ${idx > 0 && journey[idx - 1].status === "done" ? "done" : ""}"></div>
+            </div>
+            <div class="journey-step-body">
+              <div class="journey-step-header" data-toggle-step="${escapeHtml(step.key)}">
+                <span class="journey-step-name">${escapeHtml(step.label)}</span>
+                <span class="journey-step-badge ${escapeHtml(step.status)}">${escapeHtml(badgeLabel)}</span>
+              </div>
+              <div class="journey-step-expand">
+                ${substepsHtml}
+                ${actionsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      html += `</div></div>`;
+
+      // Case Summary Cards (Visa + PBS)
+      html += `<div class="section-card">`;
+      html += `<h3 class="section-title">Case Management</h3>`;
+      html += `<div class="case-summary-grid">`;
+
+      // Visa card
+      html += `<div class="case-summary">`;
+      html += `<div class="case-summary-title">Visa Application `;
+      if (visaCase) {
+        const tone = statusPillTone(visaCase.status);
+        html += `<span class="case-pill ${tone}">${escapeHtml(statusLabel(visaCase.status))}</span>`;
+      } else {
+        html += `<span class="case-pill gray">No Case</span>`;
+      }
+      html += `</div>`;
+      if (visaCase) {
+        html += `<div class="case-summary-fields">
+          <div class="case-field"><span class="case-field-label">Type</span><span class="case-field-value">${escapeHtml(visaCase.visa_type || "—")}</span></div>
+          <div class="case-field"><span class="case-field-label">Reference</span><span class="case-field-value">${escapeHtml(visaCase.reference_number || "—")}</span></div>
+          <div class="case-field"><span class="case-field-label">Updated</span><span class="case-field-value">${escapeHtml(fmtDate(visaCase.updated_at))}</span></div>
+        </div>`;
+        html += `<a class="btn" href="/pages/admin-visa.html" style="justify-self:start;">Open Visa Management</a>`;
+      } else {
+        html += `<div style="font-size:12px;color:var(--muted);">No visa case has been created yet.</div>`;
+      }
+      html += `</div>`;
+
+      // PBS card
+      html += `<div class="case-summary">`;
+      html += `<div class="case-summary-title">PBS & Medicare `;
+      if (pbsCase) {
+        const tone = statusPillTone(pbsCase.status);
+        html += `<span class="case-pill ${tone}">${escapeHtml(statusLabel(pbsCase.status))}</span>`;
+      } else {
+        html += `<span class="case-pill gray">No Case</span>`;
+      }
+      html += `</div>`;
+      if (pbsCase) {
+        html += `<div class="case-summary-fields">
+          <div class="case-field"><span class="case-field-label">Type</span><span class="case-field-value">${escapeHtml(pbsCase.application_type || "—")}</span></div>
+          <div class="case-field"><span class="case-field-label">Provider #</span><span class="case-field-value">${escapeHtml(pbsCase.provider_number || "—")}</span></div>
+          <div class="case-field"><span class="case-field-label">Updated</span><span class="case-field-value">${escapeHtml(fmtDate(pbsCase.updated_at))}</span></div>
+        </div>`;
+        html += `<a class="btn" href="/pages/admin-pbs.html" style="justify-self:start;">Open PBS Management</a>`;
+      } else {
+        html += `<div style="font-size:12px;color:var(--muted);">No PBS case has been created yet.</div>`;
+      }
+      html += `</div>`;
+
+      html += `</div></div>`;
+
+      // Support Tickets
+      html += `<div class="section-card">`;
+      html += `<h3 class="section-title">Support Tickets <span class="count-badge">${openTickets.length} open</span></h3>`;
+      if (tickets.length) {
+        tickets.forEach(ticket => {
+          const isOpen = ticket.status !== "closed";
+          html += `
+            <div class="ticket-row">
+              <div class="ticket-info">
+                <div class="ticket-title-text">${escapeHtml(ticket.title || "Support ticket")}</div>
+                <div class="ticket-meta-text">${escapeHtml(ticket.category || "General")} \u2022 ${escapeHtml(ticket.priority || "normal")} \u2022 ${ticket.messagesCount || 0} msgs \u2022 ${escapeHtml(fmtRelative(ticket.updatedAt))}</div>
+              </div>
+              <span class="case-pill ${isOpen ? "blue" : "gray"}">${escapeHtml(ticket.status)}</span>
+              <button class="btn" data-view-thread="${escapeHtml(ticket.id)}" data-candidate-email="${escapeHtml(ticket.candidateEmail || "")}">View</button>
+            </div>
+          `;
+        });
+      } else {
+        html += `<div class="todo-empty">No support tickets for this GP.</div>`;
+      }
+      html += `</div>`;
+
+      detailContent.innerHTML = html;
+    }
+
+    function renderExecutivePanel() {
+      if (!state.dashboard || !state.dashboard.executive) return "";
+      const exec = state.dashboard.executive;
+      const overview = exec.overview || {};
+      const metrics = [
+        { label: "Active Pipeline", value: overview.activePipeline || 0, sub: `${overview.registrations30d || 0} new in 30d` },
+        { label: "Completed", value: overview.completedCandidates || 0, sub: "Pathway complete" },
+        { label: "Verification Backlog", value: overview.verificationBacklog || 0, sub: `${overview.documentsBacklog || 0} doc backlog` },
+        { label: "At-Risk Cases", value: (overview.actionRequired || 0) + (overview.stalled14d || 0), sub: `${overview.urgentTickets || 0} urgent tickets` }
+      ];
+      return `<div class="executive-grid">${metrics.map(m => `
+        <article class="executive-metric">
+          <div class="executive-metric-label">${escapeHtml(m.label)}</div>
+          <div class="executive-metric-value">${escapeHtml(String(m.value))}</div>
+          <div class="executive-metric-sub">${escapeHtml(m.sub)}</div>
+        </article>
+      `).join("")}</div>`;
+    }
+
+    function renderAll() {
+      renderTopBar();
+      renderFilters();
+      renderGpList();
+      renderGpDetail();
+    }
+
+    /* ═══════════════════════════════════════════════════
+       TICKET THREAD MODAL
+       ═══════════════════════════════════════════════════ */
+    function openTicketModal(ticketId, candidateEmail) {
+      const tickets = getTickets();
+      const ticket = tickets.find(t => t.id === ticketId);
       if (!ticket) return;
 
       const thread = Array.isArray(ticket.thread) ? ticket.thread : [];
       const threadHtml = thread.length
-        ? thread.map((entry) => {
-            const from = entry.from === "gp" ? "gp" : "user";
-            const who = from === "gp" ? "GP Link Team" : (ticket.candidateName || "User");
-            const bg = from === "gp" ? "background:#eff6ff;border-color:#bfdbfe;" : "background:#fff;";
-            return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;${bg}margin-bottom:6px;">
-              <div style="font-size:12px;font-weight:700;color:#334155;">${escapeHtml(who)}</div>
+        ? thread.map(entry => {
+            const isAdmin = entry.from === "gp";
+            return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px;${isAdmin ? "background:#eff6ff;" : "background:#fff;"}margin-bottom:6px;">
+              <div style="font-size:12px;font-weight:700;color:#334155;">${escapeHtml(isAdmin ? "GP Link Team" : (ticket.candidateName || "User"))}</div>
               <div style="font-size:13px;color:#1f2937;margin:4px 0;line-height:1.4;">${escapeHtml(entry.text || "")}</div>
               <div style="font-size:11px;color:#64748b;">${new Date(entry.ts || Date.now()).toLocaleString()}</div>
             </div>`;
           }).join("")
-        : `<div class="empty">No messages in this thread.</div>`;
+        : `<div class="todo-empty">No messages in this thread.</div>`;
 
-      candidateModalBodyEl.innerHTML = `
-        <section class="candidate-top">
-          <div class="candidate-top-row">
-            <h3 class="candidate-name">${escapeHtml(ticket.title || "Support Ticket")}</h3>
-            <span class="badge ticket-${escapeHtml(ticket.status)}">${escapeHtml(ticket.status)}</span>
-          </div>
-          <div class="candidate-grid">
-            <div><p class="field-label">Candidate</p><p class="field-value">${escapeHtml(ticket.candidateName || "-")}</p></div>
-            <div><p class="field-label">Email</p><p class="field-value">${escapeHtml(ticket.candidateEmail || "-")}</p></div>
-            <div><p class="field-label">Category</p><p class="field-value">${escapeHtml(ticket.category || "-")}</p></div>
-            <div><p class="field-label">Priority</p><p class="field-value">${escapeHtml(ticket.priority || "normal")}</p></div>
-            <div><p class="field-label">Created</p><p class="field-value">${new Date(ticket.createdAt || Date.now()).toLocaleString()}</p></div>
-            <div><p class="field-label">Last Updated</p><p class="field-value">${new Date(ticket.updatedAt || Date.now()).toLocaleString()}</p></div>
-          </div>
-        </section>
-        <section class="info-section">
-          <h5>Conversation Thread (${thread.length} message${thread.length === 1 ? "" : "s"})</h5>
-          <div style="max-height:340px;overflow-y:auto;padding:4px;">
-            ${threadHtml}
-          </div>
-        </section>
-        <section class="info-section">
-          <h5>Quick Reply</h5>
-          <textarea id="threadReplyInput" class="input" rows="3" placeholder="Type your reply..." style="width:100%;resize:vertical;min-height:60px;margin-bottom:8px;"></textarea>
-          <div class="modal-actions" style="border:0;padding:0;">
-            <button class="btn primary" id="threadReplyBtn" type="button">Send Reply</button>
-            <button class="btn" id="threadToggleBtn" type="button" data-ticket-status="${ticket.status === "closed" ? "open" : "closed"}">${ticket.status === "closed" ? "Reopen Ticket" : "Close Ticket"}</button>
-            <button class="btn ghost" type="button" data-close-modal="true">Close</button>
-          </div>
-        </section>
+      document.getElementById("modalTitle").textContent = ticket.title || "Support Ticket";
+      document.getElementById("modalBody").innerHTML = `
+        <div style="max-height:280px;overflow-y:auto;padding:2px;">${threadHtml}</div>
+        <textarea id="replyInput" class="textarea" placeholder="Type your reply..."></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn primary" id="sendReplyBtn">Send Reply</button>
+          <button class="btn ${ticket.status === "closed" ? "green" : "amber"}" id="toggleTicketBtn" data-next="${ticket.status === "closed" ? "open" : "closed"}">${ticket.status === "closed" ? "Reopen" : "Close Ticket"}</button>
+          <button class="btn ghost" data-close-modal>Close</button>
+        </div>
       `;
 
-      const replyBtn = document.getElementById("threadReplyBtn");
-      if (replyBtn) {
-        replyBtn.addEventListener("click", async () => {
-          const input = document.getElementById("threadReplyInput");
-          const text = input ? input.value.trim() : "";
-          if (!text) return;
-          replyBtn.disabled = true;
-          replyBtn.textContent = "Sending...";
-          try {
-            await updateTicket(ticketId, { adminReply: text, candidateEmail: candidateEmail || ticket.candidateEmail });
-            await loadDashboard();
-            viewTicketThread(ticketId, candidateEmail);
-          } catch (err) {
-            window.alert(err.message);
-            replyBtn.disabled = false;
-            replyBtn.textContent = "Send Reply";
-          }
-        });
-      }
-
-      const toggleBtn = document.getElementById("threadToggleBtn");
-      if (toggleBtn) {
-        toggleBtn.addEventListener("click", async () => {
-          const nextStatus = toggleBtn.getAttribute("data-ticket-status");
-          toggleBtn.disabled = true;
-          try {
-            await updateTicket(ticketId, { status: nextStatus, candidateEmail: candidateEmail || ticket.candidateEmail });
-            await loadDashboard();
-            viewTicketThread(ticketId, candidateEmail);
-          } catch (err) {
-            window.alert(err.message);
-            toggleBtn.disabled = false;
-          }
-        });
-      }
-
-      candidateModalEl.classList.add("open");
+      const modal = document.getElementById("actionModal");
+      modal.classList.add("open");
       document.body.style.overflow = "hidden";
-    }
 
-    function exportCurrentTab() {
-      if (!state.dashboard) return;
-      const rows = state.tab === "tickets"
-        ? filteredTickets().map((item) => ({
-            title: item.title,
-            candidate: item.candidateName,
-            email: item.candidateEmail,
-            category: item.category,
-            status: item.status,
-            priority: item.priority,
-            updatedAt: item.updatedAt
-          }))
-        : (state.tab === "verifications" ? filteredVerifications() : filteredCandidates()).map((item) => ({
-            name: item.name,
-            email: item.email,
-            country: item.country,
-            currentStep: item.currentStepLabel,
-            progress: `${item.progressPercent}%`,
-            status: item.status,
-            openTickets: item.openTickets,
-            lastActiveAt: item.lastActiveAt
-          }));
-
-      if (!rows.length) return;
-      const headers = Object.keys(rows[0]);
-      const lines = [headers.join(",")];
-      rows.forEach((row) => {
-        const line = headers.map((header) => {
-          const value = String(row[header] == null ? "" : row[header]);
-          if (value.includes(",") || value.includes("\n") || value.includes('"')) return `"${value.replace(/"/g, '""')}"`;
-          return value;
-        }).join(",");
-        lines.push(line);
-      });
-
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `gp-link-admin-${state.tab}-${Date.now()}.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
-    }
-
-    function openCandidateSnapshot(candidateId) {
-      const list = state.dashboard ? state.dashboard.candidates : [];
-      const candidate = list.find((item) => item.id === candidateId);
-      if (!candidate) return;
-      openCandidateModal(candidate);
-    }
-
-    function bindEvents() {
-      document.querySelectorAll(".tab").forEach((tab) => {
-        tab.addEventListener("click", () => {
-          state.tab = tab.getAttribute("data-tab");
-          renderTabLabels();
-          renderContent();
-        });
-      });
-
-      searchInputEl.addEventListener("input", (event) => {
-        state.query = event.target.value || "";
-        renderContent();
-      });
-
-      document.getElementById("refreshBtn").addEventListener("click", () => {
-        loadDashboard(true);
-        loadZohoRecruitStatus(true);
-      });
-
-      document.getElementById("exportBtn").addEventListener("click", () => {
-        exportCurrentTab();
-      });
-      logoutBtnEl.addEventListener("click", async () => {
-        logoutBtnEl.disabled = true;
+      document.getElementById("sendReplyBtn").addEventListener("click", async () => {
+        const input = document.getElementById("replyInput");
+        const text = input ? input.value.trim() : "";
+        if (!text) return;
+        const btn = document.getElementById("sendReplyBtn");
+        btn.disabled = true;
+        btn.textContent = "Sending...";
         try {
-          await fetch("/api/admin/auth/logout", {
-            method: "POST",
-            credentials: "same-origin"
-          });
+          await replyToTicket(ticketId, text, candidateEmail || ticket.candidateEmail);
+          await loadAllData(true);
+          openTicketModal(ticketId, candidateEmail);
         } catch (err) {
-          // Continue redirecting on any error.
-        } finally {
-          window.location.href = "/pages/admin-signin.html";
-        }
-      });
-      candidateModalCloseEl.addEventListener("click", () => {
-        closeCandidateModal();
-      });
-      candidateModalEl.addEventListener("click", (event) => {
-        if (event.target === candidateModalEl || event.target.closest("[data-close-modal]")) {
-          closeCandidateModal();
-          return;
-        }
-        const emailBtn = event.target.closest("[data-email-gp]");
-        if (emailBtn) {
-          const email = emailBtn.getAttribute("data-email-gp");
-          if (email) window.location.href = `mailto:${email}`;
-        }
-      });
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && candidateModalEl.classList.contains("open")) {
-          closeCandidateModal();
+          alert(err.message || "Failed to send reply.");
+          btn.disabled = false;
+          btn.textContent = "Send Reply";
         }
       });
 
-      contentEl.addEventListener("click", async (event) => {
-        const viewBtn = event.target.closest("[data-view-candidate]");
-        if (viewBtn) {
-          openCandidateSnapshot(viewBtn.getAttribute("data-view-candidate"));
+      document.getElementById("toggleTicketBtn").addEventListener("click", async () => {
+        const btn = document.getElementById("toggleTicketBtn");
+        const next = btn.getAttribute("data-next");
+        btn.disabled = true;
+        try {
+          await updateTicketStatus(ticketId, next, candidateEmail || ticket.candidateEmail);
+          await loadAllData(true);
+          openTicketModal(ticketId, candidateEmail);
+        } catch (err) {
+          alert(err.message || "Failed to update ticket.");
+          btn.disabled = false;
+        }
+      });
+    }
+
+    function closeModal() {
+      document.getElementById("actionModal").classList.remove("open");
+      document.body.style.overflow = "";
+    }
+
+    /* ═══════════════════════════════════════════════════
+       EVENT HANDLING
+       ═══════════════════════════════════════════════════ */
+    function bindEvents() {
+      // Search
+      document.getElementById("searchInput").addEventListener("input", e => {
+        state.searchQuery = e.target.value || "";
+        renderGpList();
+      });
+
+      // Filter buttons
+      document.getElementById("filterBar").addEventListener("click", e => {
+        const btn = e.target.closest("[data-filter]");
+        if (!btn) return;
+        state.filter = btn.getAttribute("data-filter");
+        renderFilters();
+        renderGpList();
+      });
+
+      // GP card click
+      document.getElementById("gpList").addEventListener("click", e => {
+        const card = e.target.closest("[data-gp-id]");
+        if (!card) return;
+        state.selectedGpId = card.getAttribute("data-gp-id");
+        state.expandedSteps = {};
+        renderGpList();
+        renderGpDetail();
+        // Mobile: show detail
+        document.getElementById("mainLayout").classList.add("detail-open");
+      });
+
+      // Detail panel delegated events
+      document.getElementById("detailContent").addEventListener("click", e => {
+        // Back button (mobile)
+        if (e.target.closest("[data-back-to-list]")) {
+          state.selectedGpId = null;
+          document.getElementById("mainLayout").classList.remove("detail-open");
+          renderGpDetail();
           return;
         }
 
-        const replyBtn = event.target.closest("[data-reply-ticket]");
-        if (replyBtn) {
-          const ticketId = replyBtn.getAttribute("data-reply-ticket");
-          const candidateEmail = replyBtn.getAttribute("data-candidate-email") || "";
-          viewTicketThread(ticketId, candidateEmail);
+        // Toggle journey step
+        const stepToggle = e.target.closest("[data-toggle-step]");
+        if (stepToggle) {
+          const key = stepToggle.getAttribute("data-toggle-step");
+          state.expandedSteps[key] = !state.expandedSteps[key];
+          const stepEl = stepToggle.closest(".journey-step");
+          if (stepEl) stepEl.classList.toggle("open", state.expandedSteps[key]);
           return;
         }
 
-        const viewThreadBtn = event.target.closest("[data-view-thread]");
-        if (viewThreadBtn) {
-          const ticketId = viewThreadBtn.getAttribute("data-view-thread");
-          const candidateEmail = viewThreadBtn.getAttribute("data-candidate-email") || "";
-          viewTicketThread(ticketId, candidateEmail);
+        // Executive toggle
+        if (e.target.closest("[data-toggle-executive]")) {
+          const collapse = document.getElementById("executiveCollapse");
+          if (collapse) collapse.classList.toggle("open");
           return;
         }
 
-        const toggleBtn = event.target.closest("[data-toggle-ticket]");
-        if (toggleBtn) {
-          const ticketId = toggleBtn.getAttribute("data-toggle-ticket");
-          const status = toggleBtn.getAttribute("data-next-status");
-          const candidateEmail = toggleBtn.getAttribute("data-candidate-email") || "";
-          const candidateUserId = toggleBtn.getAttribute("data-candidate-user-id") || "";
-          toggleBtn.disabled = true;
+        // View ticket thread
+        const threadBtn = e.target.closest("[data-view-thread]");
+        if (threadBtn) {
+          openTicketModal(
+            threadBtn.getAttribute("data-view-thread"),
+            threadBtn.getAttribute("data-candidate-email") || ""
+          );
+          return;
+        }
+
+        // To-do item action
+        const todoItem = e.target.closest("[data-todo-action]");
+        if (todoItem) {
           try {
-            await updateTicket(ticketId, { status, candidateEmail, candidateUserId });
-            await loadDashboard();
-          } catch (err) {
-            window.alert(err.message);
-          } finally {
-            toggleBtn.disabled = false;
-          }
-        }
-      });
-
-      zohoRecruitPanelEl.addEventListener("click", (event) => {
-        const connectBtn = event.target.closest("[data-zoho-connect]");
-        if (connectBtn) {
-          window.location.href = "/api/admin/integrations/zoho-recruit/connect";
+            const action = JSON.parse(todoItem.getAttribute("data-todo-action"));
+            if (action.type === "link" && action.href) {
+              window.location.href = action.href;
+            } else if (action.type === "email" && action.email) {
+              window.location.href = `mailto:${action.email}`;
+            } else if (action.type === "ticket" && action.ticketId) {
+              openTicketModal(action.ticketId, action.candidateEmail || "");
+            } else if (action.type === "scroll" && action.target) {
+              const el = document.getElementById(action.target + "Section");
+              if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          } catch (_) {}
           return;
         }
-        const syncBtn = event.target.closest("[data-zoho-sync]");
-        if (syncBtn) {
-          triggerZohoRecruitSync();
+      });
+
+      // Modal close
+      document.getElementById("modalClose").addEventListener("click", closeModal);
+      document.getElementById("actionModal").addEventListener("click", e => {
+        if (e.target === document.getElementById("actionModal") || e.target.closest("[data-close-modal]")) {
+          closeModal();
         }
+      });
+      document.addEventListener("keydown", e => {
+        if (e.key === "Escape") closeModal();
+      });
+
+      // Sign out
+      document.getElementById("logoutBtn").addEventListener("click", async () => {
+        try { await fetch("/api/admin/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (_) {}
+        window.location.href = "/pages/admin-signin.html";
       });
     }
 
-    function startAutoRefresh() {
-      if (state.refreshTimer) clearInterval(state.refreshTimer);
-      // Real-time polling: refresh every 10 seconds when visible
-      state.refreshTimer = setInterval(() => {
-        if (document.visibilityState !== "visible") return;
-        loadDashboard();
-        loadZohoRecruitStatus();
-      }, 10000);
-    }
-
-    // Fetch visa case count for action bar badge
-    async function loadVisaCaseCount() {
-      try {
-        const r = await fetch("/api/admin/visa/cases", { credentials: "same-origin" });
-        const d = await r.json();
-        if (d.ok && Array.isArray(d.cases) && d.cases.length > 0) {
-          const badge = document.getElementById("visaCaseCount");
-          if (badge) { badge.textContent = d.cases.length; badge.hidden = false; }
-        }
-      } catch (_) { /* non-critical */ }
-    }
-
-    async function loadPbsCaseCount() {
-      try {
-        const r = await fetch("/api/admin/pbs/cases", { credentials: "same-origin" });
-        const d = await r.json();
-        if (d.ok && Array.isArray(d.cases) && d.cases.length > 0) {
-          const badge = document.getElementById("pbsCaseCount");
-          if (badge) { badge.textContent = d.cases.length; badge.hidden = false; }
-        }
-      } catch (_) { /* non-critical */ }
-    }
-
+    /* ═══════════════════════════════════════════════════
+       INITIALIZATION
+       ═══════════════════════════════════════════════════ */
     bindEvents();
     loadAdminSession()
-      .then((ok) => {
+      .then(ok => {
         if (!ok) return;
-        loadDashboard();
-        loadZohoRecruitStatus();
-        loadVisaCaseCount();
-        loadPbsCaseCount();
-        startAutoRefresh();
+        loadAllData();
+        // Auto-refresh every 10 seconds
+        state.refreshTimer = setInterval(() => {
+          if (document.visibilityState !== "visible") return;
+          loadAllData();
+        }, 10000);
       })
-      .catch((err) => {
-        refreshTextEl.textContent = err && err.message ? err.message : "Unable to verify admin session.";
+      .catch(err => {
+        document.getElementById("gpList").innerHTML = `<div class="todo-empty">${escapeHtml(err.message || "Unable to verify admin session.")}</div>`;
       });
+
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") {
-        loadDashboard();
-        loadZohoRecruitStatus();
-      }
+      if (document.visibilityState === "visible") loadAllData();
     });
   </script>
 </body>
