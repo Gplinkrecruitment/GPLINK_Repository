@@ -5,886 +5,663 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VA Command Centre - GP Link</title>
   <style>
-    :root {
-      --bg: #f4f6fb;
-      --panel: #ffffff;
-      --line: #dfe6f2;
-      --text: #0f172a;
-      --muted: #64748b;
-      --blue: #2563eb;
-      --green: #16a34a;
-      --amber: #b45309;
-      --red: #dc2626;
-      --purple-1: #7c3aed;
-      --purple-2: #6366f1;
-      --radius-lg: 14px;
-      --radius-md: 10px;
-      --shadow: 0 20px 36px -28px rgba(15, 23, 42, 0.5);
-    }
-    * { box-sizing: border-box; margin: 0; }
-    body {
-      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text); background: var(--bg);
-      height: 100vh; overflow: hidden;
-    }
-
-    /* ── Top Bar ── */
-    .top-bar {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 10px; padding: 10px 20px;
-      background: linear-gradient(120deg, var(--purple-1), var(--purple-2));
-      color: #fff; flex-wrap: wrap;
-    }
-    .top-bar-left { display: flex; align-items: center; gap: 14px; }
-    .top-bar h1 { font-size: 18px; font-weight: 760; letter-spacing: -0.02em; }
-    .top-bar-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-    .top-chip {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 4px 10px; border-radius: 999px;
-      font-size: 11px; font-weight: 700;
-      background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.24); color: #fff;
-    }
-    .top-chip .chip-num { font-weight: 900; font-size: 12px; }
-    .top-chip.urgent { background: rgba(220,38,38,0.35); border-color: rgba(220,38,38,0.5); }
-    .top-bar-right { display: flex; align-items: center; gap: 10px; }
-    .top-bar-meta { font-size: 11px; opacity: 0.85; font-weight: 600; }
-    .btn-signout {
-      border: 1px solid rgba(255,255,255,0.5); background: rgba(255,255,255,0.14);
-      color: #fff; padding: 6px 14px; border-radius: 8px;
-      font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
-    }
-    .btn-signout:hover { background: rgba(255,255,255,0.24); }
-
-    /* ── Main Layout ── */
-    .main-layout {
-      display: grid; grid-template-columns: 320px 1fr;
-      height: calc(100vh - 52px); overflow: hidden;
-    }
-
-    /* ── Left Panel ── */
-    .gp-list-panel {
-      border-right: 1px solid var(--line); background: #fff;
-      display: flex; flex-direction: column; overflow: hidden;
-    }
-    .gp-search-bar { padding: 10px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
-    .gp-search-input {
-      width: 100%; border: 1px solid #cdd7e6; border-radius: 8px;
-      padding: 8px 10px; font: inherit; font-size: 13px; background: #f8fafc;
-    }
-    .gp-search-input:focus { outline: 2px solid var(--purple-1); outline-offset: -1px; border-color: var(--purple-1); }
-    .gp-filters { display: flex; gap: 4px; flex-wrap: wrap; }
-    .gp-filter-btn {
-      border: 1px solid #dce4f0; background: #f8fafc; color: #475569;
-      padding: 3px 8px; border-radius: 6px; font: inherit; font-size: 10px; font-weight: 700; cursor: pointer;
-    }
-    .gp-filter-btn.active { background: var(--purple-1); border-color: var(--purple-1); color: #fff; }
-    .gp-filter-btn .fc { margin-left: 2px; font-weight: 900; }
-    .gp-list-scroll { flex: 1; overflow-y: auto; padding: 6px; }
-
-    /* ── GP Card ── */
-    .gp-card {
-      border: 1px solid var(--line); border-radius: 10px;
-      padding: 9px 10px; margin-bottom: 5px; cursor: pointer;
-      transition: border-color .12s, background .12s; background: #fff;
-    }
-    .gp-card:hover { border-color: #b4c3e0; background: #fafbff; }
-    .gp-card.selected { border-color: var(--purple-1); background: #f5f0ff; box-shadow: 0 0 0 2px rgba(124,58,237,0.12); }
-    .gp-card-top { display: flex; align-items: center; gap: 8px; }
-    .gp-avatar {
-      width: 32px; height: 32px; border-radius: 999px;
-      background: linear-gradient(135deg, #e8e0ff, #d4c8ff); color: var(--purple-1);
-      display: grid; place-items: center; font-size: 12px; font-weight: 800; flex-shrink: 0;
-    }
-    .gp-card-info { flex: 1; min-width: 0; }
-    .gp-card-name { font-size: 12px; font-weight: 720; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .gp-card-sub { font-size: 10px; color: var(--muted); font-weight: 560; }
-    .gp-card-journey { display: flex; align-items: center; gap: 2px; margin-top: 6px; }
-    .jdot { width: 7px; height: 7px; border-radius: 999px; background: #e2e8f0; flex-shrink: 0; }
-    .jdot.done { background: var(--green); }
-    .jdot.current { background: var(--blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
-    .jdot.locked { background: #e2e8f0; opacity: 0.4; }
-    .jline { flex: 1; height: 2px; background: #e2e8f0; min-width: 3px; }
-    .jline.done { background: var(--green); }
-    .gp-card-action {
-      margin-top: 5px; font-size: 10px; font-weight: 650;
-      color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .gp-card-action.ok { color: var(--green); }
-    .gp-card-action.info { color: var(--blue); }
-
-    /* ── Right Panel ── */
-    .gp-detail-panel { overflow-y: auto; padding: 20px 24px; background: var(--bg); }
-
-    /* ── Global Work Queue (default view) ── */
-    .work-queue-view { max-width: 720px; margin: 0 auto; }
-    .wq-header { margin-bottom: 16px; }
-    .wq-header h2 { font-size: 20px; font-weight: 780; letter-spacing: -0.02em; }
-    .wq-header p { font-size: 13px; color: var(--muted); margin-top: 4px; }
-    .wq-section { margin-bottom: 18px; }
-    .wq-section-title {
-      font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
-      color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
-    }
-    .wq-section-title .wq-count {
-      padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 900;
-    }
-    .wq-section-title .wq-count.red { background: #fef2f2; color: #b91c1c; }
-    .wq-section-title .wq-count.amber { background: #fff7ed; color: #9a3412; }
-    .wq-section-title .wq-count.blue { background: #eff6ff; color: #1d4ed8; }
-    .wq-item {
-      display: flex; align-items: flex-start; gap: 10px;
-      padding: 10px 12px; background: #fff; border: 1px solid var(--line); border-radius: 10px;
-      margin-bottom: 5px; cursor: pointer; transition: border-color .12s;
-    }
-    .wq-item:hover { border-color: #b4c3e0; }
-    .wq-dot { width: 8px; height: 8px; border-radius: 999px; margin-top: 5px; flex-shrink: 0; }
-    .wq-dot.urgent { background: var(--red); }
-    .wq-dot.high { background: var(--amber); }
-    .wq-dot.normal { background: var(--blue); }
-    .wq-body { flex: 1; min-width: 0; }
-    .wq-gp { font-size: 11px; font-weight: 760; color: var(--purple-1); }
-    .wq-label { font-size: 13px; font-weight: 660; color: var(--text); margin-top: 1px; }
-    .wq-detail { font-size: 11px; color: var(--muted); font-weight: 560; margin-top: 2px; }
-    .wq-tag {
-      padding: 2px 7px; border-radius: 5px; font-size: 9px; font-weight: 800;
-      text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; margin-top: 4px;
-    }
-    .wq-tag.account { background: #fef2f2; color: #991b1b; }
-    .wq-tag.verification { background: #ede9fe; color: #5b21b6; }
-    .wq-tag.visa { background: #eff6ff; color: #1d4ed8; }
-    .wq-tag.pbs { background: #f0fdf4; color: #166534; }
-    .wq-tag.ticket { background: #fff7ed; color: #9a3412; }
-    .wq-tag.followup { background: #f8fafc; color: #475569; }
-    .wq-tag.documents { background: #fefce8; color: #854d0e; }
-    .wq-empty {
-      padding: 28px; text-align: center; font-size: 14px; color: var(--muted);
-      border: 1px dashed #ced9ea; border-radius: 12px; background: #fff;
-    }
-
-    /* ── Detail Header ── */
-    .detail-header {
-      background: #fff; border: 1px solid var(--line); border-radius: var(--radius-lg);
-      padding: 14px 16px; display: grid; gap: 10px; margin-bottom: 12px;
-    }
-    .detail-header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-    .detail-header-info { display: grid; gap: 3px; }
-    .detail-name { font-size: 20px; font-weight: 780; letter-spacing: -0.02em; }
-    .detail-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); font-weight: 560; }
-    .detail-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-    .btn {
-      border: 1px solid #c7d9ff; background: #f2f7ff; color: #1d4ed8;
-      padding: 6px 11px; border-radius: 8px; font: inherit; font-size: 11px; font-weight: 700;
-      cursor: pointer; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
-    }
-    .btn:hover { background: #e8f0ff; }
-    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
-    .btn.primary:hover { background: #1d4ed8; }
-    .btn.green { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
-    .btn.amber { background: #fffbeb; border-color: #fde68a; color: #92400e; }
-    .btn.red { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
-    .btn.ghost { background: #f8fafc; border-color: #d4deee; color: #1f2937; }
-    .detail-progress-row { display: flex; align-items: center; gap: 10px; }
-    .detail-progress-bar { flex: 1; height: 5px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
-    .detail-progress-bar > span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--purple-1), var(--blue)); }
-    .detail-progress-label { font-size: 11px; font-weight: 700; color: var(--text); flex-shrink: 0; }
-
-    /* ── Next Action Card ── */
-    .next-action-card {
-      background: linear-gradient(135deg, #eff6ff 0%, #f5f0ff 100%);
-      border: 1px solid #c7d2fe; border-radius: var(--radius-lg);
-      padding: 14px 16px; margin-bottom: 12px; display: grid; gap: 6px;
-    }
-    .next-action-kicker { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--purple-1); }
-    .next-action-label { font-size: 15px; font-weight: 720; color: var(--text); line-height: 1.35; }
-    .next-action-detail { font-size: 12px; color: var(--muted); font-weight: 560; }
-    .next-action-actions { display: flex; gap: 6px; margin-top: 4px; }
-
-    /* ── Section Card ── */
-    .section-card {
-      background: #fff; border: 1px solid var(--line); border-radius: var(--radius-lg);
-      padding: 14px 16px; margin-bottom: 12px;
-    }
-    .section-title {
-      font-size: 14px; font-weight: 760; letter-spacing: -0.01em;
-      margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
-    }
-    .section-title .cnt {
-      padding: 1px 6px; border-radius: 5px; font-size: 10px; font-weight: 800;
-      background: #ede9fe; color: var(--purple-1);
-    }
-
-    /* ── Todo ── */
-    .todo-list { display: grid; gap: 5px; }
-    .todo-item {
-      display: flex; align-items: flex-start; gap: 9px;
-      padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
-      background: #fbfdff; cursor: pointer; transition: border-color .12s;
-    }
-    .todo-item:hover { border-color: #b4c3e0; }
-    .tp { width: 7px; height: 7px; border-radius: 999px; margin-top: 5px; flex-shrink: 0; }
-    .tp.urgent { background: var(--red); }
-    .tp.high { background: var(--amber); }
-    .tp.normal { background: var(--blue); }
-    .tc { flex: 1; min-width: 0; }
-    .tc-label { font-size: 12px; font-weight: 680; color: var(--text); }
-    .tc-detail { font-size: 10px; color: var(--muted); font-weight: 560; margin-top: 1px; }
-    .tt {
-      padding: 2px 6px; border-radius: 5px; font-size: 9px; font-weight: 800;
-      text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; margin-top: 2px;
-    }
-    .tt.account { background: #fef2f2; color: #991b1b; }
-    .tt.verification { background: #ede9fe; color: #5b21b6; }
-    .tt.visa { background: #eff6ff; color: #1d4ed8; }
-    .tt.pbs { background: #f0fdf4; color: #166534; }
-    .tt.ticket { background: #fff7ed; color: #9a3412; }
-    .tt.followup { background: #f8fafc; color: #475569; }
-    .tt.documents { background: #fefce8; color: #854d0e; }
-    .todo-empty {
-      padding: 12px; text-align: center; font-size: 12px; color: var(--muted);
-      border: 1px dashed #ced9ea; border-radius: 9px;
-    }
-
-    /* ── Journey Stepper ── */
-    .journey-stepper { display: grid; gap: 0; }
-    .journey-step { display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
-    .journey-step-track { display: flex; flex-direction: column; align-items: center; }
-    .jsd {
-      width: 24px; height: 24px; border-radius: 999px; display: grid; place-items: center;
-      font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0; z-index: 1;
-    }
-    .jsd.done { background: var(--green); }
-    .jsd.current { background: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.16); }
-    .jsd.pending { background: #cbd5e1; }
-    .jsd.locked { background: #e2e8f0; color: #94a3b8; }
-    .jsl { width: 2px; flex: 1; background: #e2e8f0; min-height: 10px; }
-    .jsl.done { background: var(--green); }
-    .journey-step-body { padding-bottom: 14px; }
-    .journey-step:last-child .journey-step-body { padding-bottom: 0; }
-    .journey-step:last-child .jsl { display: none; }
-    .journey-step-header {
-      display: flex; align-items: center; justify-content: space-between; gap: 6px;
-      min-height: 24px; cursor: pointer;
-    }
-    .jsn { font-size: 13px; font-weight: 720; color: var(--text); }
-    .journey-step.locked .jsn { color: #94a3b8; }
-    .jsn-time { font-size: 10px; color: var(--muted); font-weight: 600; margin-left: 6px; }
-    .jsb {
-      padding: 2px 7px; border-radius: 5px; font-size: 9px; font-weight: 800;
-      text-transform: uppercase; letter-spacing: 0.03em;
-    }
-    .jsb.done { background: #f0fdf4; color: #166534; }
-    .jsb.current { background: #eff6ff; color: #1d4ed8; }
-    .jsb.pending { background: #f8fafc; color: #64748b; }
-    .jsb.locked { background: #f8fafc; color: #94a3b8; }
-    .journey-step-expand { margin-top: 8px; display: none; }
-    .journey-step.open .journey-step-expand { display: block; }
-    .step-playbook {
-      font-size: 11px; color: var(--muted); line-height: 1.5; margin-bottom: 8px;
-      border-left: 2px solid #e2e8f0; padding-left: 10px;
-    }
-    .step-playbook strong { color: var(--text); font-weight: 700; }
-    .substep-list { display: grid; gap: 4px; }
-    .substep-item {
-      display: flex; align-items: center; gap: 7px;
-      padding: 5px 9px; border-radius: 7px; font-size: 11px; font-weight: 600;
-      color: var(--text); background: #fbfdff; border: 1px solid #eef3fa;
-    }
-    .si { width: 14px; height: 14px; border-radius: 999px; display: grid; place-items: center; flex-shrink: 0; font-size: 8px; }
-    .si.done { background: #dcfce7; color: var(--green); }
-    .si.current { background: #dbeafe; color: var(--blue); }
-    .si.pending { background: #f1f5f9; color: #94a3b8; }
-    .step-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
-
-    /* ── Case Cards ── */
-    .case-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    .case-card {
-      border: 1px solid var(--line); border-radius: 11px; padding: 12px;
-      background: #fbfdff; display: grid; gap: 6px;
-    }
-    .case-card-title {
-      font-size: 12px; font-weight: 760; display: flex; align-items: center;
-      justify-content: space-between; gap: 5px;
-    }
-    .cp {
-      display: inline-block; padding: 2px 6px; border-radius: 5px;
-      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
-    }
-    .cp.green { background: #f0fdf4; color: #166534; }
-    .cp.blue { background: #eff6ff; color: #1d4ed8; }
-    .cp.amber { background: #fff7ed; color: #9a3412; }
-    .cp.red { background: #fef2f2; color: #991b1b; }
-    .cp.gray { background: #f8fafc; color: #64748b; }
-    .case-fields { display: grid; gap: 3px; }
-    .cf { display: flex; justify-content: space-between; font-size: 10px; }
-    .cf-l { color: var(--muted); font-weight: 600; }
-    .cf-v { font-weight: 700; color: var(--text); }
-    .case-next { font-size: 10px; font-weight: 650; color: var(--purple-1); font-style: italic; }
-
-    /* ── Tickets ── */
-    .ticket-row {
-      display: flex; align-items: flex-start; gap: 9px;
-      padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
-      margin-bottom: 5px; background: #fbfdff;
-    }
-    .ticket-info { flex: 1; min-width: 0; }
-    .ticket-title-text { font-size: 12px; font-weight: 680; }
-    .ticket-meta-text { font-size: 10px; color: var(--muted); font-weight: 560; margin-top: 1px; }
-
-    /* ── Modal ── */
-    .modal {
-      position: fixed; inset: 0; z-index: 1200; display: none;
-      align-items: center; justify-content: center;
-      background: rgba(15,23,42,0.52); padding: 14px;
-    }
-    .modal.open { display: flex; }
-    .modal-card {
-      width: min(620px, 100%); max-height: calc(100vh - 28px); overflow: auto;
-      background: #fff; border: 1px solid #d8e2f0; border-radius: 14px;
-      box-shadow: 0 32px 60px -42px rgba(15,23,42,0.85);
-    }
-    .modal-head {
-      display: flex; justify-content: space-between; align-items: center;
-      gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line);
-    }
-    .modal-title { font-size: 16px; font-weight: 780; letter-spacing: -0.02em; }
-    .modal-close { border: 0; background: transparent; color: #334155; font-size: 22px; line-height: 1; cursor: pointer; padding: 4px; }
-    .modal-body { padding: 12px 16px 16px; display: grid; gap: 10px; }
-    .textarea {
-      width: 100%; border: 1px solid #cdd7e6; border-radius: 8px;
-      padding: 8px 10px; font: inherit; font-size: 12px; resize: vertical; min-height: 70px;
-    }
-
-    /* ── Executive ── */
-    .exec-toggle { margin-bottom: 12px; }
-    .exec-toggle-btn {
-      border: 1px solid #d4deee; background: #fff; color: var(--text);
-      padding: 7px 12px; border-radius: 8px; font: inherit; font-size: 11px;
-      font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
-    }
-    .exec-collapse { display: none; margin-bottom: 12px; }
-    .exec-collapse.open { display: block; }
-    .exec-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-    .exec-m { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 2px; }
-    .exec-m-l { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
-    .exec-m-v { font-size: 24px; font-weight: 800; letter-spacing: -0.03em; }
-    .exec-m-s { font-size: 10px; color: var(--muted); font-weight: 600; }
-
-    /* ── Mobile ── */
-    .mobile-back { display: none; margin-bottom: 10px; }
-    @media (max-width: 900px) {
-      .main-layout { grid-template-columns: 1fr; }
-      .gp-list-panel { border-right: 0; }
-      .gp-detail-panel { display: none; }
-      .main-layout.detail-open .gp-list-panel { display: none; }
-      .main-layout.detail-open .gp-detail-panel { display: block; height: calc(100vh - 52px); }
-      .mobile-back { display: block; }
-      .case-grid { grid-template-columns: 1fr; }
-      .exec-grid { grid-template-columns: repeat(2, 1fr); }
-    }
-    @media (max-width: 640px) {
-      .top-bar { padding: 8px 12px; }
-      .top-bar h1 { font-size: 15px; }
-      .gp-detail-panel { padding: 12px; }
-      .detail-name { font-size: 17px; }
-      .exec-grid { grid-template-columns: 1fr; }
-    }
+    :root{--bg:#f4f6fb;--panel:#fff;--line:#dfe6f2;--text:#0f172a;--muted:#64748b;--blue:#2563eb;--green:#16a34a;--amber:#b45309;--red:#dc2626;--purple-1:#7c3aed;--purple-2:#6366f1;--radius:12px;--shadow:0 1px 3px rgba(15,23,42,.08)}
+    *{box-sizing:border-box;margin:0}
+    body{font-family:"SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);background:var(--bg);height:100vh;overflow:hidden}
+    .top-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 20px;background:linear-gradient(120deg,var(--purple-1),var(--purple-2));color:#fff;flex-wrap:wrap}
+    .top-bar h1{font-size:17px;font-weight:760;letter-spacing:-.02em}
+    .top-bar-left{display:flex;align-items:center;gap:14px}
+    .top-chips{display:flex;gap:6px;flex-wrap:wrap}
+    .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.24);color:#fff}
+    .chip b{font-weight:900;font-size:12px}
+    .chip.urgent{background:rgba(239,68,68,.35);border-color:rgba(239,68,68,.5)}
+    .top-right{display:flex;align-items:center;gap:10px}
+    .top-meta{font-size:11px;opacity:.8}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:10px;font-size:12px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--text);cursor:pointer;font-family:inherit;transition:all .12s}
+    .btn:hover{background:#f8fafc;border-color:#cbd5e1}
+    .btn.primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .btn.primary:hover{background:#1d4ed8}
+    .btn.sm{padding:5px 10px;font-size:11px}
+    .btn.ghost{background:transparent;border:0;color:#fff;opacity:.85}
+    .btn.ghost:hover{opacity:1}
+    .btn.red{color:var(--red);border-color:#fecaca}
+    .btn.green{color:var(--green);border-color:#bbf7d0}
+    .btn.amber{color:var(--amber);border-color:#fde68a}
+    .layout{display:grid;grid-template-columns:340px 1fr;height:calc(100vh - 48px);overflow:hidden}
+    @media(max-width:900px){.layout{grid-template-columns:1fr}.detail-panel{display:none}.layout.detail-open .list-panel{display:none}.layout.detail-open .detail-panel{display:flex}}
+    .list-panel{display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--panel);overflow:hidden}
+    .list-header{padding:12px 14px;border-bottom:1px solid var(--line)}
+    .search-input{width:100%;padding:8px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-family:inherit;outline:none;background:#f8fafc}
+    .search-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+    .view-tabs{display:flex;border-bottom:1px solid var(--line)}
+    .view-tab{flex:1;padding:8px 0;text-align:center;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+    .view-tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+    .view-tab:hover{color:var(--text)}
+    .filter-bar{display:flex;gap:4px;padding:8px 14px;overflow-x:auto;flex-wrap:nowrap}
+    .filter-btn{padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--muted);cursor:pointer;white-space:nowrap}
+    .filter-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .filter-btn .fc{margin-left:3px;opacity:.7}
+    .case-list{flex:1;overflow-y:auto;padding:6px}
+    .case-card{padding:10px 12px;border-radius:var(--radius);border:1px solid transparent;cursor:pointer;transition:all .12s;margin-bottom:2px}
+    .case-card:hover{background:#f8fafc;border-color:var(--line)}
+    .case-card.selected{background:#eff6ff;border-color:#bfdbfe}
+    .case-card-top{display:flex;align-items:center;gap:10px}
+    .case-avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--purple-1));display:grid;place-items:center;color:#fff;font-size:12px;font-weight:800;flex-shrink:0}
+    .case-card-info{flex:1;min-width:0}
+    .case-card-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .case-card-sub{font-size:11px;color:var(--muted);font-weight:500;margin-top:1px}
+    .case-stage-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+    .stage-myintealth{background:#eff6ff;color:#1d4ed8}.stage-amc{background:#faf5ff;color:#7c3aed}.stage-career{background:#fefce8;color:#a16207}.stage-ahpra{background:#ecfdf5;color:#166534}.stage-visa{background:#fff1f2;color:#be123c}.stage-pbs{background:#f0fdfa;color:#0d9488}.stage-commencement{background:#fdf4ff;color:#a21caf}.stage-complete{background:#f0fdf4;color:#16a34a}
+    .case-card-tasks{display:flex;gap:6px;margin-top:6px}
+    .task-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px}
+    .task-badge.urgent{background:#fef2f2;color:#dc2626}.task-badge.open{background:#eff6ff;color:#2563eb}.task-badge.overdue{background:#fffbeb;color:#b45309}
+    .detail-panel{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+    .detail-scroll{flex:1;overflow-y:auto;padding:16px 20px 80px}
+    .detail-empty{display:grid;place-items:center;height:100%;color:var(--muted);font-size:14px;font-weight:600;text-align:center;padding:40px}
+    .mobile-back{display:none;margin-bottom:10px}
+    @media(max-width:900px){.mobile-back{display:block}}
+    .d-header{background:var(--panel);border-radius:var(--radius);border:1px solid var(--line);padding:16px;margin-bottom:12px}
+    .d-header-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .d-name{font-size:18px;font-weight:800;letter-spacing:-.02em}
+    .d-meta{font-size:12px;color:var(--muted);font-weight:500;margin-top:2px;display:flex;flex-wrap:wrap;gap:8px}
+    .d-meta span{white-space:nowrap}
+    .d-progress{margin-top:10px;display:flex;align-items:center;gap:10px}
+    .d-progress-bar{flex:1;height:5px;border-radius:99px;background:#e8edf5;overflow:hidden}
+    .d-progress-bar span{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--blue),var(--purple-1));transition:width .4s}
+    .d-progress-label{font-size:11px;font-weight:800;color:var(--muted)}
+    .d-actions{display:flex;gap:6px;flex-wrap:wrap}
+    .section{background:var(--panel);border-radius:var(--radius);border:1px solid var(--line);padding:14px;margin-bottom:12px}
+    .section-title{font-size:14px;font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+    .section-title .cnt{font-size:11px;font-weight:700;color:var(--muted);background:#f1f5f9;padding:2px 8px;border-radius:6px}
+    .next-action{background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff;border-radius:var(--radius);padding:16px;margin-bottom:12px}
+    .next-action-kicker{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,.6);margin-bottom:4px}
+    .next-action-label{font-size:15px;font-weight:800;margin-bottom:2px}
+    .next-action-detail{font-size:12px;color:rgba(255,255,255,.7);font-weight:500;margin-bottom:10px}
+    .next-action .btn.primary{background:var(--blue);border-color:var(--blue)}
+    .task-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}
+    .task-row:last-child{border-bottom:0}
+    .tp{width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0}
+    .tp.urgent{background:var(--red)}.tp.high{background:var(--amber)}.tp.normal{background:var(--blue)}.tp.low{background:#94a3b8}
+    .task-body{flex:1;min-width:0}
+    .task-title{font-size:13px;font-weight:700}
+    .task-desc{font-size:11px;color:var(--muted);font-weight:500;margin-top:1px}
+    .task-actions{display:flex;gap:4px;margin-top:4px}
+    .task-tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;background:#f1f5f9;color:var(--muted)}
+    .task-tag.stage{background:#eff6ff;color:#1d4ed8}
+    .journey-stepper{display:grid;gap:0}
+    .j-step{display:flex;gap:12px;padding:10px 0}
+    .j-step-track{display:flex;flex-direction:column;align-items:center;gap:0;width:28px;flex-shrink:0}
+    .j-dot{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;border:2px solid var(--line);color:var(--muted);background:#fff;flex-shrink:0}
+    .j-dot.done{background:var(--green);color:#fff;border-color:var(--green)}.j-dot.current{background:var(--blue);color:#fff;border-color:var(--blue)}.j-dot.locked{opacity:.4}
+    .j-line{width:2px;flex:1;min-height:8px;background:var(--line)}.j-line.done{background:var(--green)}
+    .j-body{flex:1;min-width:0;padding-bottom:4px}
+    .j-label{font-size:13px;font-weight:700}
+    .j-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px}
+    .j-badge.done{background:#ecfdf5;color:#166534}.j-badge.current{background:#eff6ff;color:#1d4ed8}.j-badge.locked{background:#f1f5f9;color:#94a3b8}.j-badge.pending{background:#f8fafc;color:#64748b}
+    .j-subs{margin-top:6px;display:grid;gap:3px}
+    .j-sub{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:var(--muted)}
+    .j-sub-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:#cbd5e1}
+    .j-sub-dot.done{background:var(--green)}.j-sub-dot.current{background:var(--blue)}
+    .j-playbook{margin-top:6px;font-size:11px;color:var(--muted);background:#f8fafc;border-radius:8px;padding:8px 10px;line-height:1.5}
+    .j-playbook strong{color:var(--text);font-weight:700}
+    .case-mgmt{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    @media(max-width:600px){.case-mgmt{grid-template-columns:1fr}}
+    .case-field{display:grid;gap:3px}
+    .case-field label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+    .case-field select,.case-field input,.case-field textarea{padding:7px 10px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-family:inherit;background:#fff}
+    .case-field select:focus,.case-field input:focus,.case-field textarea:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+    .tl-item{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12px}
+    .tl-item:last-child{border-bottom:0}
+    .tl-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);flex-shrink:0;margin-top:4px}
+    .tl-dot.note{background:var(--amber)}.tl-dot.system{background:#94a3b8}.tl-dot.completed{background:var(--green)}
+    .tl-body{flex:1;min-width:0}
+    .tl-title{font-weight:700;color:var(--text)}
+    .tl-detail{color:var(--muted);margin-top:1px}
+    .tl-time{color:var(--muted);font-size:11px;white-space:nowrap;flex-shrink:0}
+    .wq-header h2{font-size:18px;font-weight:800;letter-spacing:-.02em;margin-bottom:2px}
+    .wq-header p{font-size:13px;color:var(--muted);font-weight:500;margin-bottom:14px}
+    .wq-section-title{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:12px 0 6px;display:flex;align-items:center;gap:6px}
+    .wq-count{font-size:11px;font-weight:800;padding:1px 7px;border-radius:6px}
+    .wq-count.red{background:#fef2f2;color:#dc2626}.wq-count.amber{background:#fffbeb;color:#b45309}.wq-count.blue{background:#eff6ff;color:#2563eb}
+    .wq-item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:var(--radius);border:1px solid var(--line);background:var(--panel);margin-bottom:6px;cursor:pointer;transition:all .12s}
+    .wq-item:hover{border-color:#bfdbfe;background:#fafbff}
+    .wq-gp{font-size:11px;font-weight:700;color:var(--blue)}
+    .wq-label{font-size:13px;font-weight:700}
+    .wq-detail{font-size:11px;color:var(--muted);margin-top:1px}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;display:none;place-items:center}
+    .modal-overlay.open{display:grid}
+    .modal{background:#fff;border-radius:16px;padding:20px;max-width:520px;width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 50px -12px rgba(0,0,0,.3)}
+    .modal h3{font-size:16px;font-weight:800;margin-bottom:12px}
+    .textarea{width:100%;min-height:60px;padding:10px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-family:inherit;resize:vertical;margin:8px 0}
+    .textarea:focus{border-color:var(--blue);outline:none}
+    .empty{text-align:center;padding:30px;color:var(--muted);font-size:13px;font-weight:600}
+    .ticket-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}
+    .ticket-row:last-child{border-bottom:0}
+    .ticket-info{flex:1;min-width:0}
+    .ticket-title{font-size:13px;font-weight:700}
+    .ticket-meta{font-size:11px;color:var(--muted)}
+    .status-pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px}
+    .status-pill.open{background:#eff6ff;color:#1d4ed8}.status-pill.closed{background:#f1f5f9;color:#64748b}
+    .case-card-vis{display:flex;gap:3px;margin-top:4px}
+    .jdot-sm{width:6px;height:6px;border-radius:50%;background:#cbd5e1}
+    .jdot-sm.done{background:var(--green)}.jdot-sm.current{background:var(--blue)}
   </style>
 </head>
 <body>
-  <header class="top-bar">
+  <div class="top-bar">
     <div class="top-bar-left">
       <h1 id="topTitle">VA Command Centre</h1>
-      <div class="top-bar-chips" id="topChips"></div>
+      <div class="top-chips" id="topChips"></div>
     </div>
-    <div class="top-bar-right">
-      <span class="top-bar-meta" id="topMeta"></span>
-      <button class="btn-signout" id="logoutBtn" type="button">Sign Out</button>
+    <div class="top-right">
+      <span class="top-meta" id="topMeta"></span>
+      <button class="btn ghost" id="syncBtn" title="Sync cases">Sync</button>
+      <button class="btn ghost" id="logoutBtn">Logout</button>
     </div>
-  </header>
-
-  <div class="main-layout" id="mainLayout">
-    <aside class="gp-list-panel">
-      <div class="gp-search-bar">
-        <input class="gp-search-input" id="searchInput" type="search" placeholder="Search name, email, country..." />
-        <div class="gp-filters" id="filterBar"></div>
+  </div>
+  <div class="layout" id="mainLayout">
+    <div class="list-panel">
+      <div class="list-header"><input class="search-input" id="searchInput" placeholder="Search GPs..." /></div>
+      <div class="view-tabs">
+        <div class="view-tab active" data-view="cases">Cases</div>
+        <div class="view-tab" data-view="queue">Work Queue</div>
       </div>
-      <div class="gp-list-scroll" id="gpList"><div class="todo-empty">Loading...</div></div>
-    </aside>
-    <main class="gp-detail-panel" id="gpDetail">
-      <div id="detailContent"></div>
-    </main>
-  </div>
-
-  <div class="modal" id="actionModal" role="dialog" aria-modal="true">
-    <div class="modal-card">
-      <header class="modal-head">
-        <h2 class="modal-title" id="modalTitle">Action</h2>
-        <button class="modal-close" id="modalClose" type="button" aria-label="Close">&times;</button>
-      </header>
-      <div class="modal-body" id="modalBody"></div>
+      <div class="filter-bar" id="filterBar"></div>
+      <div class="case-list" id="caseList"></div>
+    </div>
+    <div class="detail-panel">
+      <div class="detail-scroll" id="detailContent">
+        <div class="detail-empty">Select a case from the list, or use the Work Queue tab.</div>
+      </div>
     </div>
   </div>
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <h3 id="modalTitle"></h3>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+<script>
+(function(){
+  "use strict";
+  const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
+    selectedCaseId:null,view:"cases",filter:"all",query:"",expanded:{},refreshTimer:null};
+  const STEPS=[
+    {key:"myintealth",label:"MyIntealth",num:1},
+    {key:"amc",label:"AMC Portfolio",num:2},
+    {key:"career",label:"Career & Documents",num:3},
+    {key:"ahpra",label:"AHPRA Registration",num:4},
+    {key:"visa",label:"Visa Application",num:5},
+    {key:"pbs",label:"PBS & Medicare",num:6},
+    {key:"commencement",label:"Commencement",num:7}
+  ];
+  const PLAYBOOK={
+    myintealth:{gp:"Create MyIntealth account, complete onboarding, upload qualification certificates.",va:"Verify uploaded documents match GP credentials. Approve verification or request re-upload if rejected."},
+    amc:{gp:"Create AMC account, upload credentials and portfolio documents.",va:"Confirm AMC account created. Help GP gather required credentials. Check qualifications are accepted."},
+    career:{gp:"Browse jobs, apply to positions, complete document preparation checklist.",va:"Match GP with suitable positions. Ensure all documents prepared. Confirm placement is secured."},
+    ahpra:{gp:"Complete AHPRA registration form, submit documents, respond to assessment queries.",va:"Guide through AHPRA stages. Ensure submission is complete. Monitor assessment. Escalate if stuck."},
+    visa:{gp:"Upload required visa documents, respond to document requests from VA.",va:"Create visa case in admin-visa. Review documents. Request missing items. Track visa progress."},
+    pbs:{gp:"Upload Medicare/PBS documents, provide practice details when requested.",va:"Create PBS case in admin-pbs. Apply for Medicare Provider Number and PBS Prescriber Number."},
+    commencement:{gp:"Complete pre-arrival checklist, confirm arrival date.",va:"Prepare welcome pack. Coordinate with practice. Confirm all registrations complete."}
+  };
+  function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
+  function ini(n){return(n||"?").split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();}
+  function fmtD(d){if(!d)return"\u2014";try{return new Date(d).toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"});}catch{return"\u2014";}}
+  function fmtR(d){if(!d)return"never";const ms=Date.now()-new Date(d).getTime();if(ms<60000)return"just now";if(ms<3600000)return Math.floor(ms/60000)+"m ago";if(ms<86400000)return Math.floor(ms/3600000)+"h ago";return Math.floor(ms/86400000)+"d ago";}
+  function daysAgo(d){if(!d)return 999;return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
 
-  <script>
-    /* ══════ STATE ══════ */
-    const S = {
-      viewer: null, hostScope: "", hostLabel: "",
-      dashboard: null, visaCases: [], pbsCases: [],
-      selectedGpId: null, query: "", filter: "all",
-      refreshTimer: null, loading: false, expanded: {}
-    };
+  /* ══ Auth ══ */
+  async function loadSession(){
+    try{const r=await fetch("/api/admin/auth/session",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));
+    if(!d.authenticated){window.location.href="/pages/admin-signin.html";return false;}
+    S.viewer=d.session||{};S.hostLabel=d.hostLabel||"Admin";return true;}catch{return false;}
+  }
+  function isSA(){return S.viewer&&S.viewer.role==="super_admin";}
 
-    const STEPS = [
-      { key: "myintealth", label: "MyIntealth Account", num: 1 },
-      { key: "amc", label: "AMC Portfolio", num: 2 },
-      { key: "career", label: "Career & Documents", num: 3 },
-      { key: "ahpra", label: "AHPRA Registration", num: 4 },
-      { key: "visa", label: "Visa Application", num: 5 },
-      { key: "pbs", label: "PBS & Medicare", num: 6 },
-      { key: "commencement", label: "Commencement", num: 7 }
+  /* ══ Data Loading ══ */
+  async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin.html";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
+  async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.cases=d.cases;}catch{}}
+  async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
+  async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
+  async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch{}}
+  async function loadAll(force){if(S.loading&&!force)return;S.loading=true;await Promise.all([loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs()]);S.loading=false;renderAll();}
+  async function syncCases(){try{await fetch("/api/admin/cases/sync",{method:"POST",credentials:"same-origin"});await loadAll(true);}catch{}}
+
+  /* ══ Data Helpers ══ */
+  const gps=()=>S.dashboard&&Array.isArray(S.dashboard.candidates)?S.dashboard.candidates:[];
+  const tix=()=>S.dashboard&&Array.isArray(S.dashboard.tickets)?S.dashboard.tickets:[];
+  function findCase(gp){const uid=gp.userId||"",e=(gp.email||"").toLowerCase();return S.cases.find(c=>(uid&&c.user_id===uid)||(e&&(c.gp_email||"").toLowerCase()===e))||null;}
+  function findGp(rc){const uid=rc.user_id||"",e=(rc.gp_email||"").toLowerCase();return gps().find(g=>(uid&&g.userId===uid)||(e&&(g.email||"").toLowerCase()===e))||null;}
+  function findVisa(rc){const uid=rc.user_id||"",e=(rc.gp_email||"").toLowerCase();return S.visaCases.find(c=>(uid&&c.user_id===uid)||(e&&(c.gp_email||"").toLowerCase()===e))||null;}
+  function findPbs(rc){const uid=rc.user_id||"",e=(rc.gp_email||"").toLowerCase();return S.pbsCases.find(c=>(uid&&c.user_id===uid)||(e&&(c.gp_email||"").toLowerCase()===e))||null;}
+  function caseTasks(caseId){return S.tasks.filter(t=>t.case_id===caseId);}
+  function gpTix(rc){const e=(rc.gp_email||"").toLowerCase();return tix().filter(t=>(t.candidateEmail||"").toLowerCase()===e);}
+
+  function buildJourney(gp){
+    const pw=Array.isArray(gp.pathwaySteps)?gp.pathwaySteps:[];
+    const ms=s=>!s?"pending":s.status==="done"?"done":s.status==="current"?"current":"pending";
+    const msub=s=>!s||!Array.isArray(s.substeps)?[]:s.substeps.map(x=>({label:x.label||x.key||"",status:x.status==="done"?"done":x.status==="current"?"current":"pending"}));
+    const s1=ms(pw.find(s=>s.id==="myintealth")),s2=ms(pw.find(s=>s.id==="amc")),s3=ms(pw.find(s=>s.id==="documents")),s4=ms(pw.find(s=>s.id==="ahpra"));
+    return[
+      {...STEPS[0],status:s1,substeps:msub(pw.find(s=>s.id==="myintealth"))},
+      {...STEPS[1],status:s2,substeps:msub(pw.find(s=>s.id==="amc"))},
+      {...STEPS[2],status:s3,substeps:msub(pw.find(s=>s.id==="documents"))},
+      {...STEPS[3],status:s4,substeps:msub(pw.find(s=>s.id==="ahpra"))},
+      {...STEPS[4],status:"pending",substeps:[]},
+      {...STEPS[5],status:"pending",substeps:[]},
+      {...STEPS[6],status:"pending",substeps:[]}
     ];
+  }
 
-    const PLAYBOOK = {
-      myintealth: {
-        gp: "Create MyIntealth account, complete onboarding, upload qualification certificates.",
-        va: "Verify uploaded documents match GP credentials. Approve verification or request re-upload if rejected.",
-      },
-      amc: {
-        gp: "Create AMC account, upload credentials and portfolio documents.",
-        va: "Confirm AMC account created. Help GP gather required credentials. Check qualifications are accepted.",
-      },
-      career: {
-        gp: "Browse jobs, apply to positions, complete document preparation checklist.",
-        va: "Match GP with suitable positions. Ensure all documents prepared. Confirm placement is secured.",
-      },
-      ahpra: {
-        gp: "Complete AHPRA registration form, submit documents, respond to assessment queries.",
-        va: "Guide through AHPRA stages. Ensure submission is complete. Monitor assessment. Escalate if stuck.",
-      },
-      visa: {
-        gp: "Upload required visa documents, respond to document requests from VA.",
-        va: "Create visa case in admin-visa. Review documents. Request missing items. Track visa progress.",
-      },
-      pbs: {
-        gp: "Upload Medicare/PBS documents, provide practice details when requested.",
-        va: "Create PBS case in admin-pbs. Apply for Medicare Provider Number and PBS Prescriber Number.",
-      },
-      commencement: {
-        gp: "Complete pre-arrival checklist, confirm arrival date.",
-        va: "Prepare welcome pack. Coordinate with practice. Confirm all registrations complete.",
-      }
+  /* ══ Merged Case+GP List ══ */
+  function mergedCases(){
+    // Merge registration_cases with dashboard candidates
+    const caseMap=new Map();
+    S.cases.forEach(c=>{caseMap.set(c.user_id||c.gp_email,c);});
+    // Also include candidates without cases
+    const merged=[];
+    const seen=new Set();
+    S.cases.forEach(rc=>{
+      const gp=findGp(rc);
+      merged.push({rc,gp:gp||null,sort_stage:STEPS.findIndex(s=>s.key===rc.stage),sort_urgent:rc.urgent_tasks||0,sort_open:rc.open_tasks||0});
+      seen.add(rc.user_id);
+      if(gp)seen.add(gp.email);
+    });
+    gps().forEach(gp=>{
+      if(seen.has(gp.userId)||seen.has(gp.email))return;
+      merged.push({rc:null,gp,sort_stage:99,sort_urgent:0,sort_open:0});
+    });
+    return merged;
+  }
+
+  function filteredCases(){
+    let list=mergedCases();
+    const q=S.query.trim().toLowerCase();
+    if(q)list=list.filter(m=>{
+      const name=(m.rc?m.rc.gp_name:m.gp?m.gp.name:"")||"";
+      const email=(m.rc?m.rc.gp_email:m.gp?m.gp.email:"")||"";
+      return(name+" "+email).toLowerCase().includes(q);
+    });
+    if(S.filter==="urgent")list=list.filter(m=>m.rc&&m.rc.urgent_tasks>0);
+    else if(S.filter==="overdue")list=list.filter(m=>m.rc&&m.rc.overdue_tasks>0);
+    else if(S.filter==="blocked")list=list.filter(m=>m.rc&&m.rc.blocker_status);
+    else if(S.filter==="active")list=list.filter(m=>!m.rc||m.rc.status==="active");
+    else if(S.filter==="complete")list=list.filter(m=>m.rc&&m.rc.status==="complete");
+    list.sort((a,b)=>{
+      const au=a.rc?a.rc.urgent_tasks||0:0,bu=b.rc?b.rc.urgent_tasks||0:0;
+      if(au!==bu)return bu-au;
+      const ao=a.rc?a.rc.open_tasks||0:0,bo=b.rc?b.rc.open_tasks||0:0;
+      if(ao!==bo)return bo-ao;
+      return(a.sort_stage||99)-(b.sort_stage||99);
+    });
+    return list;
+  }
+
+  function counts(){
+    const all=mergedCases();
+    return{
+      all:all.length,
+      urgent:all.filter(m=>m.rc&&m.rc.urgent_tasks>0).length,
+      overdue:all.filter(m=>m.rc&&m.rc.overdue_tasks>0).length,
+      blocked:all.filter(m=>m.rc&&m.rc.blocker_status).length,
+      active:all.filter(m=>!m.rc||m.rc.status==="active").length,
+      complete:all.filter(m=>m.rc&&m.rc.status==="complete").length
     };
+  }
 
-    const TONE = { not_started:"gray", in_progress:"blue", submitted:"blue", approved:"green",
-      complete:"green", granted:"green", rejected:"red", blocked:"red",
-      waiting_on_gp:"amber", under_review:"amber" };
+  /* ══ Render ══ */
+  function renderTopBar(){
+    document.getElementById("topTitle").textContent=isSA()?"CEO Command Centre":"VA Command Centre";
+    const c=counts();
+    document.getElementById("topChips").innerHTML=[
+      `<span class="chip"><b>${c.all}</b> GPs</span>`,
+      c.urgent?`<span class="chip urgent"><b>${c.urgent}</b> Urgent</span>`:"",
+      c.overdue?`<span class="chip"><b>${c.overdue}</b> Overdue</span>`:"",
+      `<span class="chip"><b>${S.tasks.length}</b> Open Tasks</span>`
+    ].filter(Boolean).join("");
+    const em=S.viewer?S.viewer.email:"",rl=S.viewer?S.viewer.roleLabel||"Admin":"Admin";
+    document.getElementById("topMeta").textContent=em?rl+" \u2022 "+em:rl;
+  }
 
-    /* ══════ UTILS ══════ */
-    const esc = v => String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-    const fmtD = v => { if(!v) return "-"; const d=new Date(v); return isNaN(d)?"-":d.toLocaleDateString(); };
-    const fmtR = v => { if(!v) return "No activity"; const d=new Date(v); if(isNaN(d)) return "No activity"; const m=Math.max(1,Math.round((Date.now()-d)/60000)); if(m<60) return m+"m ago"; const h=Math.round(m/60); if(h<24) return h+"h ago"; return Math.round(h/24)+"d ago"; };
-    const ini = n => { const p=String(n||"?").trim().split(/\s+/); return p.length>=2?(p[0][0]+p[p.length-1][0]).toUpperCase():(p[0]||"?").slice(0,2).toUpperCase(); };
-    const sLabel = s => String(s||"unknown").replace(/_/g," ");
-    const sTone = s => TONE[s]||"gray";
-    const isSA = () => S.hostScope==="super_admin"||!!(S.viewer&&S.viewer.adminRole==="super_admin");
-    const daysAgo = v => { if(!v) return 0; const d=new Date(v); return isNaN(d)?0:Math.max(0,Math.round((Date.now()-d)/86400000)); };
+  function renderFilters(){
+    const c=counts();
+    const filters=[
+      {k:"all",l:"All",c:c.all},{k:"urgent",l:"Urgent",c:c.urgent},{k:"overdue",l:"Overdue",c:c.overdue},
+      {k:"blocked",l:"Blocked",c:c.blocked},{k:"active",l:"Active",c:c.active},{k:"complete",l:"Complete",c:c.complete}
+    ];
+    document.getElementById("filterBar").innerHTML=filters.map(f=>`<button class="filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
+  }
 
-    /* ══════ API ══════ */
-    async function loadSession() {
-      const r=await fetch("/api/admin/auth/session",{credentials:"same-origin"});
+  function renderCaseList(){
+    const el=document.getElementById("caseList");
+    if(S.view==="queue"){renderQueueList();return;}
+    const list=filteredCases();
+    if(!list.length){el.innerHTML=`<div class="empty">${S.cases.length||S.dashboard?"No cases match filter.":"Loading..."}</div>`;return;}
+    el.innerHTML=list.map(m=>{
+      const rc=m.rc;const gp=m.gp;
+      const id=rc?rc.id:(gp?gp.userId||gp.email:"");
+      const sel=S.selectedCaseId===id;
+      const name=rc?rc.gp_name:gp?gp.name||gp.email:"Unknown";
+      const stage=rc?rc.stage:gp?"no_case":"";
+      const email=rc?rc.gp_email:gp?gp.email:"";
+      const lastActive=gp?fmtR(gp.lastActiveAt):rc?fmtR(rc.last_gp_activity_at):"";
+      const openT=rc?rc.open_tasks||0:0;
+      const urgentT=rc?rc.urgent_tasks||0:0;
+      const overdueT=rc?rc.overdue_tasks||0:0;
+      const journey=gp?buildJourney(gp):[];
+      const dots=journey.length?journey.map(s=>`<span class="jdot-sm ${s.status}"></span>`).join(""):"";
+      return`<div class="case-card ${sel?"selected":""}" data-case-id="${esc(id)}" data-user-id="${esc(rc?rc.user_id:gp?gp.userId:"")}" data-rc-id="${esc(rc?rc.id:"")}">
+        <div class="case-card-top">
+          <div class="case-avatar">${esc(ini(name))}</div>
+          <div class="case-card-info">
+            <div class="case-card-name">${esc(name)}</div>
+            <div class="case-card-sub">${esc(lastActive)} ${stage?`\u2022 <span class="case-stage-pill stage-${esc(stage)}">${esc(stage)}</span>`:""}</div>
+          </div>
+        </div>
+        ${dots?`<div class="case-card-vis">${dots}</div>`:""}
+        <div class="case-card-tasks">
+          ${urgentT?`<span class="task-badge urgent">${urgentT} urgent</span>`:""}
+          ${openT?`<span class="task-badge open">${openT} open</span>`:""}
+          ${overdueT?`<span class="task-badge overdue">${overdueT} overdue</span>`:""}
+          ${rc&&rc.blocker_status?`<span class="task-badge overdue">${esc(rc.blocker_status.replace(/_/g," "))}</span>`:""}
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  function renderQueueList(){
+    const el=document.getElementById("caseList");
+    const tasks=S.tasks.slice().sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);});
+    if(!tasks.length){el.innerHTML=`<div class="empty">No open tasks.</div>`;return;}
+    el.innerHTML=tasks.map(t=>`<div class="wq-item" data-wq-case="${esc(t.case_id)}" data-wq-task="${esc(t.id)}">
+      <span class="tp ${esc(t.priority)}"></span>
+      <div style="flex:1;min-width:0">
+        <div class="wq-gp">${esc(t.gp_name||"")}</div>
+        <div class="wq-label">${esc(t.title)}</div>
+        <div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div>
+      </div>
+      <span class="task-tag stage">${esc(t.related_stage||"")}</span>
+    </div>`).join("");
+  }
+
+  async function renderDetail(){
+    const el=document.getElementById("detailContent");
+    if(!S.selectedCaseId){
+      // Global work queue
+      const tasks=S.tasks.slice().sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);});
+      const urgent=tasks.filter(t=>t.priority==="urgent"),high=tasks.filter(t=>t.priority==="high"),normal=tasks.filter(t=>t.priority!=="urgent"&&t.priority!=="high");
+      let h=`<div class="wq-header"><h2>Today's Work Queue</h2><p>All open tasks across every GP, sorted by urgency. Click any item to jump to that case.</p></div>`;
+      if(!tasks.length)h+=`<div class="empty">No pending tasks. All cases are on track.</div>`;
+      else{
+        if(urgent.length){h+=`<div class="wq-section-title">Urgent <span class="wq-count red">${urgent.length}</span></div>`;urgent.forEach(t=>{h+=wqItem(t);});}
+        if(high.length){h+=`<div class="wq-section-title">High Priority <span class="wq-count amber">${high.length}</span></div>`;high.forEach(t=>{h+=wqItem(t);});}
+        if(normal.length){h+=`<div class="wq-section-title">Normal <span class="wq-count blue">${normal.length}</span></div>`;normal.forEach(t=>{h+=wqItem(t);});}
+      }
+      el.innerHTML=h;return;
+    }
+
+    // Find case by ID
+    let rc=S.cases.find(c=>c.id===S.selectedCaseId);
+    let gp=rc?findGp(rc):gps().find(g=>(g.userId||g.email)===S.selectedCaseId);
+    if(!rc&&gp){rc={gp_name:gp.name||gp.email,gp_email:gp.email,stage:"unknown",status:"active",user_id:gp.userId};}
+    if(!rc&&!gp){el.innerHTML=`<div class="empty">Case not found.</div>`;return;}
+
+    const name=rc?rc.gp_name:gp?gp.name||gp.email:"Unknown";
+    const email=rc?rc.gp_email:gp?gp.email:"";
+    const progress=gp?gp.progressPercent||0:0;
+    const cTasks=rc&&rc.id?caseTasks(rc.id):[];
+    const openTasks=cTasks.filter(t=>t.status!=="completed"&&t.status!=="cancelled");
+    const journey=gp?buildJourney(gp):[];
+    const tickets=rc?gpTix(rc):[];
+    const vc=rc?findVisa(rc):null;
+    const pc=rc?findPbs(rc):null;
+
+    let h=`<div class="mobile-back"><button class="btn" data-back>\u2190 Back</button></div>`;
+
+    // Header
+    h+=`<div class="d-header"><div class="d-header-top"><div>
+      <div class="d-name">${esc(name)}</div>
+      <div class="d-meta"><span>${esc(email||"\u2014")}</span><span>Stage: <span class="case-stage-pill stage-${esc(rc?rc.stage:"")}">${esc(rc?rc.stage:"\u2014")}</span></span>
+      <span>Active ${esc(gp?fmtR(gp.lastActiveAt):fmtR(rc?rc.last_gp_activity_at:""))}</span>
+      ${rc&&rc.assigned_va?`<span>VA: ${esc(rc.assigned_va_email||rc.assigned_va)}</span>`:""}
+      ${rc&&rc.blocker_status?`<span style="color:var(--red)">Blocked: ${esc(rc.blocker_status.replace(/_/g," "))}</span>`:""}
+      </div></div>
+      <div class="d-actions"><a class="btn" href="mailto:${esc(email)}">Email GP</a></div>
+    </div>
+    <div class="d-progress"><div class="d-progress-bar"><span style="width:${progress}%"></span></div><span class="d-progress-label">${progress}%</span></div></div>`;
+
+    // Next Action
+    if(openTasks.length){
+      const t=openTasks.sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);})[0];
+      h+=`<div class="next-action"><div class="next-action-kicker">Next Action</div>
+        <div class="next-action-label">${esc(t.title)}</div>
+        <div class="next-action-detail">${esc(t.description||"")} ${t.due_date?"Due: "+fmtD(t.due_date):""}</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn primary" data-complete-task="${esc(t.id)}">Mark Complete</button>
+          <button class="btn sm" data-start-task="${esc(t.id)}" ${t.status==="in_progress"?"disabled":""}>Start</button>
+        </div></div>`;
+    }
+
+    // Active Tasks
+    h+=`<div class="section"><div class="section-title">Active Tasks <span class="cnt">${openTasks.length}</span>
+      <button class="btn sm" style="margin-left:auto" data-add-task>+ Add Task</button></div>`;
+    if(openTasks.length){
+      openTasks.forEach(t=>{
+        const overdue=t.due_date&&new Date(t.due_date)<new Date();
+        h+=`<div class="task-row">
+          <span class="tp ${esc(t.priority)}"></span>
+          <div class="task-body">
+            <div class="task-title">${esc(t.title)} ${overdue?`<span style="color:var(--red);font-size:10px">OVERDUE</span>`:""}</div>
+            <div class="task-desc">${esc(t.description||"")} ${t.due_date?"Due: "+fmtD(t.due_date):""} ${t.related_stage?"\u2022 "+t.related_stage:""}</div>
+            <div class="task-actions">
+              <button class="btn sm" data-complete-task="${esc(t.id)}">Complete</button>
+              <button class="btn sm" data-start-task="${esc(t.id)}" ${t.status==="in_progress"?"disabled":""}>Start</button>
+              ${t.task_type==="practice_pack_child"?`<span class="task-tag">${esc(t.related_document_key||"")}</span>`:""}
+              <span class="task-tag stage">${esc(t.related_stage||"")}</span>
+            </div>
+          </div>
+        </div>`;
+      });
+    } else h+=`<div class="empty">No open tasks.</div>`;
+    h+=`</div>`;
+
+    // Journey
+    h+=`<div class="section"><div class="section-title">Registration Journey</div><div class="journey-stepper">`;
+    journey.forEach((step,idx)=>{
+      const icon=step.status==="done"?"\u2713":step.status==="current"?step.num:step.num;
+      const badge=step.status==="done"?"done":step.status==="current"?"current":step.status==="locked"?"locked":"pending";
+      const pb=PLAYBOOK[step.key];
+      const isOpen=S.expanded[step.key]||step.status==="current";
+      h+=`<div class="j-step" data-toggle-step="${esc(step.key)}">
+        <div class="j-step-track"><div class="j-dot ${esc(step.status)}">${icon}</div>${idx<journey.length-1?`<div class="j-line${step.status==="done"?" done":""}"></div>`:""}</div>
+        <div class="j-body"><div class="j-label">${esc(step.label)} <span class="j-badge ${esc(badge)}">${badge==="done"?"Complete":badge==="current"?"In Progress":badge==="locked"?"Locked":"Pending"}</span></div>
+        ${isOpen?`${step.substeps.length?`<div class="j-subs">${step.substeps.map(s=>`<div class="j-sub"><span class="j-sub-dot ${esc(s.status)}"></span>${esc(s.label)}</div>`).join("")}</div>`:""}
+        ${pb&&step.status!=="locked"?`<div class="j-playbook"><strong>GP:</strong> ${esc(pb.gp)}<br><strong>Your task:</strong> ${esc(pb.va)}</div>`:""}
+        ${step.key==="visa"?`<a class="btn sm" href="/pages/admin-visa.html">Manage Visa</a>`:step.key==="pbs"?`<a class="btn sm" href="/pages/admin-pbs.html">Manage PBS</a>`:""}`:""}
+        </div></div>`;
+    });
+    h+=`</div></div>`;
+
+    // Case Management
+    if(rc&&rc.id){
+      h+=`<div class="section"><div class="section-title">Case Management</div><div class="case-mgmt">
+        <div class="case-field"><label>Status</label><select data-case-field="status">
+          ${["active","on_hold","blocked","complete","withdrawn"].map(s=>`<option value="${s}" ${rc.status===s?"selected":""}>${s}</option>`).join("")}
+        </select></div>
+        <div class="case-field"><label>Blocker</label><select data-case-field="blocker_status">
+          <option value="" ${!rc.blocker_status?"selected":""}>None</option>
+          ${["waiting_on_gp","waiting_on_practice","waiting_on_external","internal_review"].map(s=>`<option value="${s}" ${rc.blocker_status===s?"selected":""}>${s.replace(/_/g," ")}</option>`).join("")}
+        </select></div>
+        <div class="case-field"><label>Follow-up Date</label><input type="date" data-case-field="next_followup_date" value="${rc.next_followup_date||""}" /></div>
+        <div class="case-field"><label>Practice Name</label><input type="text" data-case-field="practice_name" value="${esc(rc.practice_name||"")}" placeholder="Enter practice..." /></div>
+        <div class="case-field" style="grid-column:1/-1"><label>Handover Notes</label><textarea data-case-field="handover_notes" rows="2" placeholder="Notes for handover...">${esc(rc.handover_notes||"")}</textarea></div>
+        <div class="case-field"><label>VA Verified Stage</label><select data-case-field="gp_verified_stage">
+          <option value="" ${!rc.gp_verified_stage?"selected":""}>Not verified</option>
+          ${STEPS.map(s=>`<option value="${s.key}" ${rc.gp_verified_stage===s.key?"selected":""}>${s.label}</option>`).join("")}
+        </select></div>
+        <div style="display:flex;gap:6px;align-items:end"><button class="btn primary" data-save-case="${esc(rc.id)}">Save Changes</button></div>
+      </div></div>`;
+
+      // Add Note
+      h+=`<div class="section"><div class="section-title">Add Note</div>
+        <textarea class="textarea" id="caseNoteInput" placeholder="Type a note..."></textarea>
+        <button class="btn primary sm" data-add-note="${esc(rc.id)}">Add Note</button></div>`;
+    }
+
+    // Tickets
+    const openTix=tickets.filter(t=>t.status!=="closed");
+    h+=`<div class="section"><div class="section-title">Support Tickets <span class="cnt">${openTix.length} open</span></div>`;
+    if(tickets.length){tickets.forEach(t=>{h+=`<div class="ticket-row"><div class="ticket-info"><div class="ticket-title">${esc(t.title||"Support ticket")}</div><div class="ticket-meta">${esc(t.category||"")} \u2022 ${t.messagesCount||0} msgs \u2022 ${esc(fmtR(t.updatedAt))}</div></div><span class="status-pill ${t.status==="closed"?"closed":"open"}">${esc(t.status)}</span><button class="btn sm" data-view-ticket="${esc(t.id)}" data-email="${esc(t.candidateEmail||"")}">View</button></div>`;});}
+    else h+=`<div class="empty">No tickets.</div>`;
+    h+=`</div>`;
+
+    // Timeline (load async)
+    if(rc&&rc.id){
+      h+=`<div class="section"><div class="section-title">Case Timeline</div><div id="timelineContent"><div class="empty">Loading...</div></div></div>`;
+    }
+
+    el.innerHTML=h;
+
+    // Load timeline
+    if(rc&&rc.id){loadTimeline(rc.id);}
+  }
+
+  async function loadTimeline(caseId){
+    const el=document.getElementById("timelineContent");if(!el)return;
+    try{
+      const r=await fetch("/api/admin/case?id="+encodeURIComponent(caseId),{credentials:"same-origin"});
       const d=await r.json().catch(()=>({}));
-      if(r.status===401){S.hostScope=d.hostScope||"";S.hostLabel=d.hostLabel||"";window.location.href="/pages/admin-signin.html";return false;}
-      if(r.status===403) throw new Error(d.message||"Admin access required.");
-      if(!r.ok||!d.ok) throw new Error(d.message||"Cannot verify session.");
-      S.viewer=d.profile||null; S.hostScope=d.hostScope||""; S.hostLabel=d.hostLabel||"";
-      return true;
-    }
-    async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin.html";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch(_){}}
-    async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch(_){}}
-    async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch(_){}}
-    async function loadAll(f){if(S.loading&&!f)return;S.loading=true;await Promise.all([loadDash(),loadVisa(),loadPbs()]);S.loading=false;renderAll();}
-
-    /* ══════ DATA ══════ */
-    const gps = () => S.dashboard&&Array.isArray(S.dashboard.candidates)?S.dashboard.candidates:[];
-    const tix = () => S.dashboard&&Array.isArray(S.dashboard.tickets)?S.dashboard.tickets:[];
-    function findVisa(gp){const e=(gp.email||"").toLowerCase(),u=gp.userId||"";return S.visaCases.find(c=>(u&&c.user_id===u)||(e&&(c.gp_email||"").toLowerCase()===e))||null;}
-    function findPbs(gp){const e=(gp.email||"").toLowerCase(),u=gp.userId||"";return S.pbsCases.find(c=>(u&&c.user_id===u)||(e&&(c.gp_email||"").toLowerCase()===e))||null;}
-    function gpTix(gp){const id=gp.id||"",e=(gp.email||"").toLowerCase();return tix().filter(t=>{const ti=t.candidateId||"",te=(t.candidateEmail||"").toLowerCase();return(id&&ti===id)||(e&&te===e);});}
-
-    function buildJourney(gp){
-      const pw=Array.isArray(gp.pathwaySteps)?gp.pathwaySteps:[];
-      const ms=s=>{if(!s)return"pending";return s.status==="done"?"done":s.status==="current"?"current":"pending";};
-      const msub=s=>{if(!s||!Array.isArray(s.substeps))return[];return s.substeps.map(x=>({label:x.label||x.key||"",status:x.status==="done"?"done":x.status==="current"?"current":"pending"}));};
-      const s1=ms(pw.find(s=>s.id==="myintealth")),s2=ms(pw.find(s=>s.id==="amc")),s3=ms(pw.find(s=>s.id==="documents")),s4=ms(pw.find(s=>s.id==="ahpra"));
-      const vc=findVisa(gp),pc=findPbs(gp);
-      const unlocked=s3==="done";
-      let s5="locked",s5s=[],s6="locked",s6s=[];
-      if(unlocked||vc){if(vc){const vs=vc.status||"not_started";s5=vs==="complete"||vs==="approved"||vs==="granted"?"done":vs==="not_started"?"pending":"current";s5s=[{label:"Status: "+sLabel(vs),status:s5==="done"?"done":"current"}];if(vc.visa_type)s5s.push({label:"Type: "+vc.visa_type,status:"current"});if(vc.reference_number)s5s.push({label:"Ref: "+vc.reference_number,status:"current"});}else{s5="pending";s5s=[{label:"No visa case created yet",status:"pending"}];}}
-      if(unlocked||pc){if(pc){const ps=pc.status||"not_started";s6=ps==="complete"||ps==="approved"?"done":ps==="not_started"?"pending":"current";s6s=[{label:"Status: "+sLabel(ps),status:s6==="done"?"done":"current"}];if(pc.provider_number)s6s.push({label:"Provider #: "+pc.provider_number,status:"done"});if(pc.prescriber_number)s6s.push({label:"Prescriber #: "+pc.prescriber_number,status:"done"});}else{s6="pending";s6s=[{label:"No PBS case created yet",status:"pending"}];}}
-      const allDone=s1==="done"&&s2==="done"&&s3==="done"&&s4==="done"&&s5==="done"&&s6==="done";
-      const s7=allDone?(gp.progressPercent>=100?"done":"current"):"locked";
-      return[
-        {...STEPS[0],status:s1,substeps:msub(pw.find(s=>s.id==="myintealth"))},
-        {...STEPS[1],status:s2,substeps:msub(pw.find(s=>s.id==="amc"))},
-        {...STEPS[2],status:s3,substeps:msub(pw.find(s=>s.id==="documents"))},
-        {...STEPS[3],status:s4,substeps:msub(pw.find(s=>s.id==="ahpra"))},
-        {...STEPS[4],status:s5,substeps:s5s},
-        {...STEPS[5],status:s6,substeps:s6s},
-        {...STEPS[6],status:s7,substeps:[]}
-      ];
-    }
-
-    /* ══════ SMART TODO GENERATION ══════ */
-    function makeTodos(gp){
-      const todos=[];
-      const vc=findVisa(gp), pc=findPbs(gp), tickets=gpTix(gp), open=tickets.filter(t=>t.status!=="closed");
-      const days=daysAgo(gp.lastActiveAt);
-
-      // Urgent: action required
-      if(gp.actionRequired) todos.push({p:"urgent",cat:"account",label:`Review ${gp.name}'s account \u2014 action required by AHPRA or admin flag`,detail:"Open their journey and check AHPRA step for details",action:{type:"scroll",target:"journey"}});
-
-      // Urgent/high: open tickets
-      open.forEach(t=>{
-        const age=daysAgo(t.updatedAt||t.createdAt);
-        const pri=t.priority==="urgent"||t.priority==="time_sensitive"?"urgent":t.priority==="high"?"high":"normal";
-        todos.push({p:pri,cat:"ticket",label:`Reply to "${t.title||"Support ticket"}"`,detail:`${t.category||"General"} \u2022 ${t.messagesCount||0} msgs \u2022 ${age}d since last update`,action:{type:"ticket",ticketId:t.id,email:t.candidateEmail}});
-      });
-
-      // High: pending verification
-      if(gp.pendingVerification) todos.push({p:"high",cat:"verification",label:`Verify ${gp.name}'s qualification documents`,detail:`${gp.documentsPending||0} document(s) awaiting your review. Check MyIntealth or AMC step.`,action:{type:"scroll",target:"journey"}});
-
-      // Visa case actions
-      if(vc){
-        const vs=vc.status||"not_started";
-        if(vs==="submitted") todos.push({p:"high",cat:"visa",label:`Review submitted visa application`,detail:`${gp.name}'s visa was submitted. Verify all documents and update status.`,action:{type:"link",href:"/pages/admin-visa.html"}});
-        else if(vs==="under_review") todos.push({p:"normal",cat:"visa",label:`Visa under review \u2014 monitor progress`,detail:`Check for any updates or required actions. Last updated ${fmtR(vc.updated_at)}.`,action:{type:"link",href:"/pages/admin-visa.html"}});
-        else if(vs==="waiting_on_gp") todos.push({p:"normal",cat:"visa",label:`Chase ${gp.name} for visa documents`,detail:`Visa case is waiting on GP. ${days>3?"Consider sending a reminder email.":"GP was active "+fmtR(gp.lastActiveAt)+"."}`,action:{type:"email",email:gp.email}});
-        else if(vs==="in_progress") todos.push({p:"normal",cat:"visa",label:`Continue visa case management`,detail:`${vc.visa_type||"Visa"} in progress. Open admin-visa to review.`,action:{type:"link",href:"/pages/admin-visa.html"}});
-      }
-
-      // PBS case actions
-      if(pc){
-        const ps=pc.status||"not_started";
-        if(ps==="submitted") todos.push({p:"high",cat:"pbs",label:`Review submitted PBS application`,detail:`${gp.name}'s PBS application submitted. Verify documents and approve.`,action:{type:"link",href:"/pages/admin-pbs.html"}});
-        else if(ps==="under_review") todos.push({p:"normal",cat:"pbs",label:`PBS under review \u2014 monitor progress`,detail:`Check for updates. Last updated ${fmtR(pc.updated_at)}.`,action:{type:"link",href:"/pages/admin-pbs.html"}});
-        else if(ps==="waiting_on_gp") todos.push({p:"normal",cat:"pbs",label:`Chase ${gp.name} for PBS documents`,detail:`PBS case waiting on GP. ${days>3?"Send a reminder.":"GP was active "+fmtR(gp.lastActiveAt)+"."}`,action:{type:"email",email:gp.email}});
-        else if(ps==="in_progress") todos.push({p:"normal",cat:"pbs",label:`Continue PBS case management`,detail:`${pc.application_type||"PBS"} in progress. Open admin-pbs to review.`,action:{type:"link",href:"/pages/admin-pbs.html"}});
-      }
-
-      // Documents pending
-      if(gp.documentsPending>0&&!gp.pendingVerification) todos.push({p:"normal",cat:"documents",label:`Review ${gp.documentsPending} uploaded document(s)`,detail:"Documents have been uploaded and need your review.",action:{type:"scroll",target:"journey"}});
-
-      // Stalled
-      if(gp.stalled) todos.push({p:days>14?"high":"normal",cat:"followup",label:`Follow up with ${gp.name} \u2014 inactive ${days}d`,detail:days>14?"GP has been inactive for over 2 weeks. Send a check-in email or call.":"Send a friendly nudge to keep them progressing.",action:{type:"email",email:gp.email}});
-
-      // Stage-specific proactive guidance (only if no higher-priority items for this step)
-      const journey=buildJourney(gp);
-      const cur=journey.find(s=>s.status==="current");
-      if(cur&&todos.length<2){
-        const pb=PLAYBOOK[cur.key];
-        if(pb) todos.push({p:"normal",cat:cur.key==="visa"?"visa":cur.key==="pbs"?"pbs":"documents",label:`Guide ${gp.name} through ${cur.label}`,detail:`VA task: ${pb.va.split(".")[0]}.`,action:{type:"scroll",target:"journey"}});
-      }
-
-      const ord={urgent:0,high:1,normal:2};
-      todos.sort((a,b)=>(ord[a.p]??2)-(ord[b.p]??2));
-      return todos;
-    }
-
-    /* ══════ GLOBAL WORK QUEUE ══════ */
-    function buildGlobalQueue(){
-      const all=[];
-      gps().forEach(gp=>{
-        makeTodos(gp).forEach(t=>{
-          all.push({...t,gpName:gp.name||gp.email,gpId:gp.id||gp.userId||gp.email});
-        });
-      });
-      const ord={urgent:0,high:1,normal:2};
-      all.sort((a,b)=>(ord[a.p]??2)-(ord[b.p]??2));
-      return all;
-    }
-
-    /* ══════ FILTERING ══════ */
-    function filtered(){
-      let list=gps();
-      const q=S.query.trim().toLowerCase();
-      if(q) list=list.filter(g=>`${g.name} ${g.email} ${g.country||""}`.toLowerCase().includes(q));
-      if(S.filter==="attention") list=list.filter(g=>g.actionRequired||g.stalled||g.pendingVerification||g.openTickets>0);
-      else if(S.filter==="active") list=list.filter(g=>g.status==="active");
-      else if(S.filter==="stalled") list=list.filter(g=>g.stalled);
-      else if(S.filter==="complete") list=list.filter(g=>g.status==="complete");
-      list.sort((a,b)=>{const pa=a.actionRequired?0:a.stalled?1:a.status==="complete"?3:2,pb=b.actionRequired?0:b.stalled?1:b.status==="complete"?3:2;if(pa!==pb)return pa-pb;return(b.lastActiveAt?new Date(b.lastActiveAt):0)-(a.lastActiveAt?new Date(a.lastActiveAt):0);});
-      return list;
-    }
-    function counts(){const a=gps();return{all:a.length,attention:a.filter(g=>g.actionRequired||g.stalled||g.pendingVerification||g.openTickets>0).length,active:a.filter(g=>g.status==="active").length,stalled:a.filter(g=>g.stalled).length,complete:a.filter(g=>g.status==="complete").length};}
-
-    /* ══════ RENDER ══════ */
-    function renderTopBar(){
-      document.getElementById("topTitle").textContent=isSA()?"CEO Command Centre":"VA Command Centre";
-      const c=counts(),sm=S.dashboard?S.dashboard.summary:null;
-      document.getElementById("topChips").innerHTML=[
-        `<span class="top-chip"><span class="chip-num">${c.all}</span> GPs</span>`,
-        c.attention?`<span class="top-chip urgent"><span class="chip-num">${c.attention}</span> Need Action</span>`:"",
-        `<span class="top-chip"><span class="chip-num">${sm?sm.openSupportTickets:0}</span> Tickets</span>`
-      ].filter(Boolean).join("");
-      const em=S.viewer&&S.viewer.email?S.viewer.email:"",rl=S.viewer&&S.viewer.roleLabel?S.viewer.roleLabel:S.hostLabel||"Admin";
-      document.getElementById("topMeta").textContent=em?`${rl} \u2022 ${em}`:rl;
-    }
-
-    function renderFilters(){
-      const c=counts();
-      document.getElementById("filterBar").innerHTML=[
-        {k:"all",l:"All",c:c.all},{k:"attention",l:"Needs Action",c:c.attention},
-        {k:"active",l:"Active",c:c.active},{k:"stalled",l:"Stalled",c:c.stalled},
-        {k:"complete",l:"Complete",c:c.complete}
-      ].map(f=>`<button class="gp-filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
-    }
-
-    function renderGpList(){
-      const el=document.getElementById("gpList"),list=filtered();
-      if(!list.length){el.innerHTML=`<div class="todo-empty">${S.dashboard?"No GPs match filter.":"Loading..."}</div>`;return;}
-      el.innerHTML=list.map(gp=>{
-        const j=buildJourney(gp),todos=makeTodos(gp);
-        const sel=S.selectedGpId===(gp.id||gp.userId||gp.email);
-        const dots=j.map((s,i)=>`<span class="jdot ${s.status}"></span>${i<j.length-1?`<span class="jline${s.status==="done"?" done":""}"></span>`:""}`).join("");
-        const cur=j.find(s=>s.status==="current");
-        const topTodo=todos[0];
-        let actionText="",actionClass="info";
-        if(topTodo){
-          actionText=topTodo.label;
-          actionClass=topTodo.p==="urgent"?"":"high"===topTodo.p?"":"info";
-          if(topTodo.p==="urgent") actionClass="";
-          if(topTodo.p==="high") actionClass="";
-          // color based on priority
-          actionClass=topTodo.p==="urgent"?"":topTodo.p==="high"?"":"ok";
-        }else if(gp.status==="complete"){actionText="Journey complete";actionClass="ok";}
-        else{actionText=cur?`Step ${cur.num}: ${cur.label}`:"";actionClass="info";}
-
-        return `<div class="gp-card ${sel?"selected":""}" data-gp-id="${esc(gp.id||gp.userId||gp.email)}">
-          <div class="gp-card-top">
-            <div class="gp-avatar">${esc(ini(gp.name))}</div>
-            <div class="gp-card-info">
-              <div class="gp-card-name">${esc(gp.name||gp.email)}</div>
-              <div class="gp-card-sub">${esc(gp.country||"\u2014")} \u2022 ${esc(fmtR(gp.lastActiveAt))} \u2022 ${gp.progressPercent||0}%</div>
-            </div>
-          </div>
-          <div class="gp-card-journey">${dots}</div>
-          <div class="gp-card-action${topTodo&&topTodo.p==="urgent"?"":(actionClass==="ok"?" ok":" info")}">${topTodo&&topTodo.p!=="normal"?"\u26a1 ":""}${esc(actionText)}</div>
-        </div>`;
+      if(!d.ok||!Array.isArray(d.timeline)){el.innerHTML=`<div class="empty">No timeline entries.</div>`;return;}
+      if(!d.timeline.length){el.innerHTML=`<div class="empty">No timeline entries yet.</div>`;return;}
+      el.innerHTML=d.timeline.map(e=>{
+        const dotClass=e.event_type==="note"?"note":e.event_type==="completed"?"completed":"system";
+        return`<div class="tl-item"><span class="tl-dot ${dotClass}"></span><div class="tl-body"><div class="tl-title">${esc(e.title)}</div>${e.detail?`<div class="tl-detail">${esc(e.detail)}</div>`:""}<div class="tl-detail">${esc(e.actor||"system")}</div></div><span class="tl-time">${fmtR(e.created_at)}</span></div>`;
       }).join("");
-    }
+    }catch{el.innerHTML=`<div class="empty">Failed to load timeline.</div>`;}
+  }
 
-    function renderDetail(){
-      const el=document.getElementById("detailContent");
-      // No GP selected → show global work queue
-      if(!S.selectedGpId){
-        const q=buildGlobalQueue();
-        const urgent=q.filter(t=>t.p==="urgent"),high=q.filter(t=>t.p==="high"),normal=q.filter(t=>t.p==="normal");
-        let h=`<div class="work-queue-view">`;
-        h+=`<div class="wq-header"><h2>Today's Work Queue</h2><p>All pending actions across every GP, sorted by urgency. Click any item to jump to that GP.</p></div>`;
-        if(!q.length){h+=`<div class="wq-empty">No pending actions. All GPs are on track.</div>`;}
-        else{
-          if(urgent.length){h+=`<div class="wq-section"><div class="wq-section-title">Urgent <span class="wq-count red">${urgent.length}</span></div>`;urgent.forEach(t=>{h+=wqItem(t);});h+=`</div>`;}
-          if(high.length){h+=`<div class="wq-section"><div class="wq-section-title">High Priority <span class="wq-count amber">${high.length}</span></div>`;high.forEach(t=>{h+=wqItem(t);});h+=`</div>`;}
-          if(normal.length){h+=`<div class="wq-section"><div class="wq-section-title">Normal <span class="wq-count blue">${normal.length}</span></div>`;normal.forEach(t=>{h+=wqItem(t);});h+=`</div>`;}
-        }
-        h+=`</div>`;
-        el.innerHTML=h;
-        return;
-      }
+  function wqItem(t){
+    return`<div class="wq-item" data-wq-case="${esc(t.case_id)}">
+      <span class="tp ${esc(t.priority)}"></span>
+      <div style="flex:1;min-width:0"><div class="wq-gp">${esc(t.gp_name||"")}</div><div class="wq-label">${esc(t.title)}</div><div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div></div>
+      <span class="task-tag stage">${esc(t.related_stage||"")}</span>
+    </div>`;
+  }
 
-      const gp=gps().find(c=>(c.id||c.userId||c.email)===S.selectedGpId);
-      if(!gp){el.innerHTML=`<div class="todo-empty">GP not found.</div>`;return;}
+  function renderAll(){renderTopBar();renderFilters();renderCaseList();renderDetail();}
 
-      const journey=buildJourney(gp),todos=makeTodos(gp),vc=findVisa(gp),pc=findPbs(gp),tickets=gpTix(gp),openTix=tickets.filter(t=>t.status!=="closed");
-      let h="";
-
-      // Mobile back
-      h+=`<div class="mobile-back"><button class="btn ghost" data-back>\u2190 Back</button></div>`;
-
-      // Header
-      h+=`<div class="detail-header">
-        <div class="detail-header-top">
-          <div class="detail-header-info">
-            <h2 class="detail-name">${esc(gp.name||gp.email)}</h2>
-            <div class="detail-meta">
-              <span>${esc(gp.email||"\u2014")}</span><span>${esc(gp.phone||"No phone")}</span>
-              <span>${esc(gp.country||"\u2014")}</span><span>Joined ${esc(fmtD(gp.registeredAt))}</span>
-              <span>Active ${esc(fmtR(gp.lastActiveAt))}</span>
-            </div>
-          </div>
-          <div class="detail-actions"><a class="btn" href="mailto:${esc(gp.email||"")}">Email GP</a></div>
-        </div>
-        <div class="detail-progress-row">
-          <div class="detail-progress-bar"><span style="width:${gp.progressPercent||0}%"></span></div>
-          <span class="detail-progress-label">${gp.progressPercent||0}%</span>
-        </div>
+  /* ══ Ticket Modal ══ */
+  function openTicketModal(tid,email){
+    const t=tix().find(x=>x.id===tid);if(!t)return;
+    const thread=Array.isArray(t.thread)?t.thread:[];
+    const thHtml=thread.length?thread.map(e=>{const isA=e.from==="gp";return`<div style="border:1px solid #e2e8f0;border-radius:9px;padding:9px;${isA?"background:#eff6ff;":"background:#fff;"}margin-bottom:5px"><div style="font-size:11px;font-weight:700">${esc(isA?"GP Link Team":"User")}</div><div style="font-size:12px;margin:3px 0;line-height:1.4">${esc(e.text||"")}</div><div style="font-size:10px;color:#64748b">${new Date(e.ts||Date.now()).toLocaleString()}</div></div>`;}).join(""):`<div class="empty">No messages.</div>`;
+    document.getElementById("modalTitle").textContent=t.title||"Support Ticket";
+    document.getElementById("modalBody").innerHTML=`<div style="max-height:260px;overflow-y:auto">${thHtml}</div>
+      <textarea id="replyInput" class="textarea" placeholder="Type your reply..."></textarea>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn primary" id="sendReplyBtn">Send Reply</button>
+        <button class="btn ${t.status==="closed"?"green":"amber"}" id="toggleTixBtn" data-next="${t.status==="closed"?"open":"closed"}">${t.status==="closed"?"Reopen":"Close Ticket"}</button>
+        <button class="btn" data-close-modal>Close</button>
       </div>`;
+    document.getElementById("modalOverlay").classList.add("open");
+    document.getElementById("sendReplyBtn").addEventListener("click",async()=>{
+      const txt=document.getElementById("replyInput").value.trim();if(!txt)return;
+      const btn=document.getElementById("sendReplyBtn");btn.disabled=true;btn.textContent="Sending...";
+      try{await fetch("/api/admin/tickets/"+encodeURIComponent(tid)+"/reply",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text:txt,candidateEmail:email||t.candidateEmail})});await loadAll(true);openTicketModal(tid,email);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Send Reply";}
+    });
+    document.getElementById("toggleTixBtn").addEventListener("click",async()=>{
+      const btn=document.getElementById("toggleTixBtn"),nx=btn.getAttribute("data-next");btn.disabled=true;
+      try{await fetch("/api/admin/tickets/"+encodeURIComponent(tid)+"/status",{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:nx,candidateEmail:email||t.candidateEmail})});await loadAll(true);openTicketModal(tid,email);}catch(e){alert(e.message);btn.disabled=false;}
+    });
+  }
 
-      // Next Action Card
-      if(todos.length){
-        const t=todos[0];
-        h+=`<div class="next-action-card">
-          <div class="next-action-kicker">Next Action</div>
-          <div class="next-action-label">${esc(t.label)}</div>
-          <div class="next-action-detail">${esc(t.detail)}</div>
-          <div class="next-action-actions">
-            <button class="btn primary" data-todo-action='${esc(JSON.stringify(t.action))}'>Do This Now</button>
-          </div>
-        </div>`;
-      }
+  /* ══ Task Modal ══ */
+  function openAddTaskModal(caseId){
+    document.getElementById("modalTitle").textContent="Create Task";
+    document.getElementById("modalBody").innerHTML=`
+      <div class="case-field" style="margin-bottom:8px"><label>Title</label><input id="newTaskTitle" type="text" placeholder="Task title..." style="width:100%" /></div>
+      <div class="case-field" style="margin-bottom:8px"><label>Description</label><textarea id="newTaskDesc" class="textarea" placeholder="Details..."></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div class="case-field"><label>Priority</label><select id="newTaskPriority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></div>
+        <div class="case-field"><label>Due Date</label><input id="newTaskDue" type="date" /></div>
+        <div class="case-field"><label>Stage</label><select id="newTaskStage"><option value="">Any</option>${STEPS.map(s=>`<option value="${s.key}">${s.label}</option>`).join("")}</select></div>
+      </div>
+      <div style="display:flex;gap:6px"><button class="btn primary" id="createTaskBtn">Create</button><button class="btn" data-close-modal>Cancel</button></div>`;
+    document.getElementById("modalOverlay").classList.add("open");
+    document.getElementById("createTaskBtn").addEventListener("click",async()=>{
+      const title=document.getElementById("newTaskTitle").value.trim();if(!title){alert("Title required");return;}
+      const btn=document.getElementById("createTaskBtn");btn.disabled=true;btn.textContent="Creating...";
+      try{await fetch("/api/admin/tasks",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({case_id:caseId,title,description:document.getElementById("newTaskDesc").value.trim(),priority:document.getElementById("newTaskPriority").value,due_date:document.getElementById("newTaskDue").value||null,related_stage:document.getElementById("newTaskStage").value||null})});closeModal();await loadAll(true);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Create";}
+    });
+  }
 
-      // Executive toggle
-      if(isSA()){
-        h+=`<div class="exec-toggle"><button class="exec-toggle-btn" data-toggle-exec>Executive Overview</button></div>`;
-        h+=`<div class="exec-collapse" id="execCollapse">${renderExec()}</div>`;
-      }
+  function closeModal(){document.getElementById("modalOverlay").classList.remove("open");}
 
-      // Remaining To-Dos
-      if(todos.length>1){
-        h+=`<div class="section-card" id="todoSection"><h3 class="section-title">Action Items <span class="cnt">${todos.length-1}</span></h3><div class="todo-list">`;
-        todos.slice(1).forEach(t=>{
-          h+=`<div class="todo-item" data-todo-action='${esc(JSON.stringify(t.action))}'><span class="tp ${esc(t.p)}"></span><div class="tc"><div class="tc-label">${esc(t.label)}</div><div class="tc-detail">${esc(t.detail)}</div></div><span class="tt ${esc(t.cat)}">${esc(t.cat)}</span></div>`;
-        });
-        h+=`</div></div>`;
-      }
+  /* ══ API Actions ══ */
+  async function completeTask(taskId){
+    await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"completed"})});
+    await loadAll(true);
+  }
+  async function startTask(taskId){
+    await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"in_progress"})});
+    await loadAll(true);
+  }
+  async function saveCase(caseId){
+    const fields={};
+    document.querySelectorAll("[data-case-field]").forEach(el=>{
+      const key=el.getAttribute("data-case-field");
+      fields[key]=el.value||null;
+    });
+    await fetch("/api/admin/case?id="+encodeURIComponent(caseId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(fields)});
+    await loadAll(true);
+  }
+  async function addCaseNote(caseId){
+    const input=document.getElementById("caseNoteInput");
+    const text=input?input.value.trim():"";if(!text)return;
+    await fetch("/api/admin/case/note?id="+encodeURIComponent(caseId),{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text})});
+    if(input)input.value="";
+    await loadAll(true);
+  }
 
-      // Journey
-      h+=`<div class="section-card" id="journeySection"><h3 class="section-title">Registration Journey</h3><div class="journey-stepper">`;
-      journey.forEach((step,idx)=>{
-        const isOpen=S.expanded[step.key]||step.status==="current";
-        const icon=step.status==="done"?"\u2713":step.status==="locked"?"\u2014":step.num;
-        const badge=step.status==="done"?"Complete":step.status==="current"?"In Progress":step.status==="locked"?"Locked":"Pending";
-        const pb=PLAYBOOK[step.key];
-        const playbookHtml=pb&&step.status!=="locked"?`<div class="step-playbook"><strong>GP:</strong> ${esc(pb.gp)}<br><strong>Your task:</strong> ${esc(pb.va)}</div>`:"";
-        const subsHtml=step.substeps.length?`<div class="substep-list">${step.substeps.map(s=>`<div class="substep-item"><span class="si ${esc(s.status)}">${s.status==="done"?"\u2713":s.status==="current"?"\u2022":"\u2014"}</span>${esc(s.label)}</div>`).join("")}</div>`:"";
-        let actionsHtml="";
-        if(step.key==="visa")actionsHtml=`<div class="step-actions"><a class="btn" href="/pages/admin-visa.html">Manage Visa Case</a></div>`;
-        else if(step.key==="pbs")actionsHtml=`<div class="step-actions"><a class="btn" href="/pages/admin-pbs.html">Manage PBS Case</a></div>`;
+  /* ══ Events ══ */
+  function bind(){
+    document.getElementById("searchInput").addEventListener("input",e=>{S.query=e.target.value||"";renderCaseList();});
+    document.querySelector(".view-tabs").addEventListener("click",e=>{const tab=e.target.closest("[data-view]");if(!tab)return;S.view=tab.getAttribute("data-view");document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t===tab));renderCaseList();});
+    document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
+    document.getElementById("caseList").addEventListener("click",e=>{
+      const card=e.target.closest("[data-case-id]");
+      if(card){S.selectedCaseId=card.getAttribute("data-rc-id")||card.getAttribute("data-case-id");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
+      const wq=e.target.closest("[data-wq-case]");
+      if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="cases";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
+    });
+    document.getElementById("detailContent").addEventListener("click",e=>{
+      if(e.target.closest("[data-back]")){S.selectedCaseId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderDetail();return;}
+      const ct=e.target.closest("[data-complete-task]");if(ct){completeTask(ct.getAttribute("data-complete-task"));return;}
+      const st=e.target.closest("[data-start-task]");if(st){startTask(st.getAttribute("data-start-task"));return;}
+      const sc=e.target.closest("[data-save-case]");if(sc){saveCase(sc.getAttribute("data-save-case"));return;}
+      const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
+      const at=e.target.closest("[data-add-task]");if(at){const rc=S.cases.find(c=>c.id===S.selectedCaseId);if(rc)openAddTaskModal(rc.id);return;}
+      const vt=e.target.closest("[data-view-ticket]");if(vt){openTicketModal(vt.getAttribute("data-view-ticket"),vt.getAttribute("data-email")||"");return;}
+      const ts=e.target.closest("[data-toggle-step]");if(ts){const k=ts.getAttribute("data-toggle-step");S.expanded[k]=!S.expanded[k];renderDetail();return;}
+      const wq=e.target.closest("[data-wq-case]");if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
+    });
+    document.getElementById("modalOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("modalOverlay")||e.target.closest("[data-close-modal]"))closeModal();});
+    document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+    document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin.html";});
+    document.getElementById("syncBtn").addEventListener("click",syncCases);
+  }
 
-        h+=`<div class="journey-step ${step.status==="locked"?"locked":""} ${isOpen?"open":""}" data-step-key="${esc(step.key)}">
-          <div class="journey-step-track"><div class="jsd ${esc(step.status)}">${icon}</div><div class="jsl${idx>0&&journey[idx-1].status==="done"?" done":""}"></div></div>
-          <div class="journey-step-body">
-            <div class="journey-step-header" data-toggle-step="${esc(step.key)}">
-              <span class="jsn">${esc(step.label)}</span>
-              <span class="jsb ${esc(step.status)}">${esc(badge)}</span>
-            </div>
-            <div class="journey-step-expand">${playbookHtml}${subsHtml}${actionsHtml}</div>
-          </div>
-        </div>`;
-      });
-      h+=`</div></div>`;
-
-      // Case Cards
-      h+=`<div class="section-card"><h3 class="section-title">Case Management</h3><div class="case-grid">`;
-      // Visa
-      h+=`<div class="case-card"><div class="case-card-title">Visa ${vc?`<span class="cp ${sTone(vc.status)}">${esc(sLabel(vc.status))}</span>`:`<span class="cp gray">No Case</span>`}</div>`;
-      if(vc){
-        const vs=vc.status||"not_started";
-        const nextVisa=vs==="not_started"?"Create the visa case and begin document collection.":vs==="in_progress"?"Continue collecting and reviewing documents.":vs==="submitted"?"Review submission and verify all documents.":vs==="waiting_on_gp"?"Waiting on GP \u2014 consider sending a reminder.":vs==="under_review"?"Monitor progress and check for updates.":vs==="approved"||vs==="granted"?"Visa approved. Move to next step.":"Check current status.";
-        h+=`<div class="case-fields"><div class="cf"><span class="cf-l">Type</span><span class="cf-v">${esc(vc.visa_type||"\u2014")}</span></div><div class="cf"><span class="cf-l">Ref</span><span class="cf-v">${esc(vc.reference_number||"\u2014")}</span></div><div class="cf"><span class="cf-l">Updated</span><span class="cf-v">${esc(fmtD(vc.updated_at))}</span></div></div>`;
-        h+=`<div class="case-next">\u2192 ${esc(nextVisa)}</div>`;
-        h+=`<a class="btn" href="/pages/admin-visa.html" style="justify-self:start;margin-top:4px;">Open Visa Management</a>`;
-      }else{h+=`<div class="case-next">No visa case yet. Create one when GP reaches visa step.</div>`;}
-      h+=`</div>`;
-      // PBS
-      h+=`<div class="case-card"><div class="case-card-title">PBS & Medicare ${pc?`<span class="cp ${sTone(pc.status)}">${esc(sLabel(pc.status))}</span>`:`<span class="cp gray">No Case</span>`}</div>`;
-      if(pc){
-        const ps=pc.status||"not_started";
-        const nextPbs=ps==="not_started"?"Begin Medicare Provider Number application.":ps==="in_progress"?"Continue processing. Check for missing documents.":ps==="submitted"?"Review and verify all PBS documents.":ps==="waiting_on_gp"?"Waiting on GP \u2014 consider sending a reminder.":ps==="under_review"?"Monitor approval progress.":ps==="approved"?"PBS approved. Move to commencement.":"Check current status.";
-        h+=`<div class="case-fields"><div class="cf"><span class="cf-l">Type</span><span class="cf-v">${esc(pc.application_type||"\u2014")}</span></div><div class="cf"><span class="cf-l">Provider #</span><span class="cf-v">${esc(pc.provider_number||"\u2014")}</span></div><div class="cf"><span class="cf-l">Updated</span><span class="cf-v">${esc(fmtD(pc.updated_at))}</span></div></div>`;
-        h+=`<div class="case-next">\u2192 ${esc(nextPbs)}</div>`;
-        h+=`<a class="btn" href="/pages/admin-pbs.html" style="justify-self:start;margin-top:4px;">Open PBS Management</a>`;
-      }else{h+=`<div class="case-next">No PBS case yet. Create one when GP reaches PBS step.</div>`;}
-      h+=`</div></div></div>`;
-
-      // Tickets
-      h+=`<div class="section-card"><h3 class="section-title">Support Tickets <span class="cnt">${openTix.length} open</span></h3>`;
-      if(tickets.length){tickets.forEach(t=>{const isO=t.status!=="closed";h+=`<div class="ticket-row"><div class="ticket-info"><div class="ticket-title-text">${esc(t.title||"Support ticket")}</div><div class="ticket-meta-text">${esc(t.category||"General")} \u2022 ${t.messagesCount||0} msgs \u2022 ${esc(fmtR(t.updatedAt))}</div></div><span class="cp ${isO?"blue":"gray"}">${esc(t.status)}</span><button class="btn" data-view-thread="${esc(t.id)}" data-email="${esc(t.candidateEmail||"")}">View</button></div>`;});}
-      else{h+=`<div class="todo-empty">No tickets for this GP.</div>`;}
-      h+=`</div>`;
-
-      el.innerHTML=h;
-    }
-
-    function wqItem(t){
-      return `<div class="wq-item" data-wq-gp="${esc(t.gpId)}" data-todo-action='${esc(JSON.stringify(t.action))}'>
-        <span class="wq-dot ${esc(t.p)}"></span>
-        <div class="wq-body"><div class="wq-gp">${esc(t.gpName)}</div><div class="wq-label">${esc(t.label)}</div><div class="wq-detail">${esc(t.detail)}</div></div>
-        <span class="wq-tag ${esc(t.cat)}">${esc(t.cat)}</span>
-      </div>`;
-    }
-
-    function renderExec(){
-      if(!S.dashboard||!S.dashboard.executive)return"";
-      const o=(S.dashboard.executive.overview||{});
-      return`<div class="exec-grid">${[
-        {l:"Active Pipeline",v:o.activePipeline||0,s:`${o.registrations30d||0} new in 30d`},
-        {l:"Completed",v:o.completedCandidates||0,s:"Pathway complete"},
-        {l:"Verification Backlog",v:o.verificationBacklog||0,s:`${o.documentsBacklog||0} doc backlog`},
-        {l:"At-Risk",v:(o.actionRequired||0)+(o.stalled14d||0),s:`${o.urgentTickets||0} urgent tickets`}
-      ].map(m=>`<article class="exec-m"><div class="exec-m-l">${esc(m.l)}</div><div class="exec-m-v">${esc(String(m.v))}</div><div class="exec-m-s">${esc(m.s)}</div></article>`).join("")}</div>`;
-    }
-
-    function renderAll(){renderTopBar();renderFilters();renderGpList();renderDetail();}
-
-    /* ══════ TICKET MODAL ══════ */
-    function openTicketModal(tid,email){
-      const t=tix().find(x=>x.id===tid);if(!t)return;
-      const thread=Array.isArray(t.thread)?t.thread:[];
-      const thHtml=thread.length?thread.map(e=>{const isA=e.from==="gp";return`<div style="border:1px solid #e2e8f0;border-radius:9px;padding:9px;${isA?"background:#eff6ff;":"background:#fff;"}margin-bottom:5px;"><div style="font-size:11px;font-weight:700;color:#334155;">${esc(isA?"GP Link Team":(t.candidateName||"User"))}</div><div style="font-size:12px;color:#1f2937;margin:3px 0;line-height:1.4;">${esc(e.text||"")}</div><div style="font-size:10px;color:#64748b;">${new Date(e.ts||Date.now()).toLocaleString()}</div></div>`;}).join(""):`<div class="todo-empty">No messages.</div>`;
-      document.getElementById("modalTitle").textContent=t.title||"Support Ticket";
-      document.getElementById("modalBody").innerHTML=`
-        <div style="max-height:260px;overflow-y:auto;padding:2px;">${thHtml}</div>
-        <textarea id="replyInput" class="textarea" placeholder="Type your reply..."></textarea>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="btn primary" id="sendReplyBtn">Send Reply</button>
-          <button class="btn ${t.status==="closed"?"green":"amber"}" id="toggleTixBtn" data-next="${t.status==="closed"?"open":"closed"}">${t.status==="closed"?"Reopen":"Close Ticket"}</button>
-          <button class="btn ghost" data-close-modal>Close</button>
-        </div>`;
-      document.getElementById("actionModal").classList.add("open");
-      document.body.style.overflow="hidden";
-      document.getElementById("sendReplyBtn").addEventListener("click",async()=>{
-        const txt=document.getElementById("replyInput").value.trim();if(!txt)return;
-        const btn=document.getElementById("sendReplyBtn");btn.disabled=true;btn.textContent="Sending...";
-        try{await fetch(`/api/admin/tickets/${encodeURIComponent(tid)}/reply`,{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text:txt,candidateEmail:email||t.candidateEmail})});await loadAll(true);openTicketModal(tid,email);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Send Reply";}
-      });
-      document.getElementById("toggleTixBtn").addEventListener("click",async()=>{
-        const btn=document.getElementById("toggleTixBtn"),nx=btn.getAttribute("data-next");btn.disabled=true;
-        try{await fetch(`/api/admin/tickets/${encodeURIComponent(tid)}/status`,{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:nx,candidateEmail:email||t.candidateEmail})});await loadAll(true);openTicketModal(tid,email);}catch(e){alert(e.message);btn.disabled=false;}
-      });
-    }
-    function closeModal(){document.getElementById("actionModal").classList.remove("open");document.body.style.overflow="";}
-
-    /* ══════ EVENTS ══════ */
-    function bind(){
-      document.getElementById("searchInput").addEventListener("input",e=>{S.query=e.target.value||"";renderGpList();});
-      document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderGpList();});
-      document.getElementById("gpList").addEventListener("click",e=>{const c=e.target.closest("[data-gp-id]");if(!c)return;S.selectedGpId=c.getAttribute("data-gp-id");S.expanded={};renderGpList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");});
-
-      document.getElementById("detailContent").addEventListener("click",e=>{
-        if(e.target.closest("[data-back]")){S.selectedGpId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderDetail();return;}
-        const st=e.target.closest("[data-toggle-step]");
-        if(st){const k=st.getAttribute("data-toggle-step");S.expanded[k]=!S.expanded[k];const el=st.closest(".journey-step");if(el)el.classList.toggle("open",S.expanded[k]);return;}
-        if(e.target.closest("[data-toggle-exec]")){const c=document.getElementById("execCollapse");if(c)c.classList.toggle("open");return;}
-        const tb=e.target.closest("[data-view-thread]");
-        if(tb){openTicketModal(tb.getAttribute("data-view-thread"),tb.getAttribute("data-email")||"");return;}
-        // Work queue item → select that GP
-        const wq=e.target.closest("[data-wq-gp]");
-        if(wq){S.selectedGpId=wq.getAttribute("data-wq-gp");S.expanded={};renderGpList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
-        const ta=e.target.closest("[data-todo-action]");
-        if(ta){try{const a=JSON.parse(ta.getAttribute("data-todo-action"));if(a.type==="link"&&a.href)window.location.href=a.href;else if(a.type==="email"&&a.email)window.location.href="mailto:"+a.email;else if(a.type==="ticket"&&a.ticketId)openTicketModal(a.ticketId,a.email||"");else if(a.type==="scroll"&&a.target){const el=document.getElementById(a.target+"Section");if(el)el.scrollIntoView({behavior:"smooth",block:"start"});}}catch(_){}return;}
-      });
-
-      document.getElementById("modalClose").addEventListener("click",closeModal);
-      document.getElementById("actionModal").addEventListener("click",e=>{if(e.target===document.getElementById("actionModal")||e.target.closest("[data-close-modal]"))closeModal();});
-      document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
-      document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch(_){}window.location.href="/pages/admin-signin.html";});
-    }
-
-    /* ══════ INIT ══════ */
-    bind();
-    loadSession().then(ok=>{if(!ok)return;loadAll();S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll();},10000);}).catch(err=>{document.getElementById("gpList").innerHTML=`<div class="todo-empty">${esc(err.message||"Cannot verify session.")}</div>`;});
-    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll();});
-  </script>
+  /* ══ Init ══ */
+  bind();
+  loadSession().then(ok=>{
+    if(!ok)return;
+    loadAll();
+    S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll();},15000);
+  }).catch(err=>{
+    document.getElementById("caseList").innerHTML=`<div class="empty">${esc(err.message||"Cannot verify session.")}</div>`;
+  });
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll();});
+})();
+</script>
 </body>
 </html>

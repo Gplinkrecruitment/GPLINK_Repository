@@ -2445,6 +2445,234 @@ function invalidateAdminDashboardCache() {
   adminDashboardCache.data = null;
 }
 
+// ══════ Registration Case & Task Automation ══════
+
+function _parseStateVal(v) {
+  if (!v) return {};
+  if (typeof v === 'object' && !Array.isArray(v)) return v;
+  if (typeof v === 'string') { try { return JSON.parse(v); } catch { return {}; } }
+  return {};
+}
+
+function _deriveStageFromState(state) {
+  const epic = _parseStateVal(state.gp_epic_progress);
+  const amc = _parseStateVal(state.gp_amc_progress);
+  const ahpra = _parseStateVal(state.gp_ahpra_progress);
+  const career = _parseStateVal(state.gp_career_state);
+  const ec = epic && epic.completed ? epic.completed : {};
+  const ac = amc && amc.completed ? amc.completed : {};
+  const hc = ahpra && ahpra.completed ? ahpra.completed : {};
+  if (ec.verification_issued !== true) return 'myintealth';
+  if (ac.qualifications_verified !== true) return 'amc';
+  let careerSecured = career.career_secured === true || career.secured === true;
+  if (!careerSecured && Array.isArray(career.applications)) {
+    for (const a of career.applications) { if (a && a.isPlacementSecured === true) { careerSecured = true; break; } }
+  }
+  if (!careerSecured) return 'career';
+  if (hc.verification_issued !== true) return 'ahpra';
+  return 'visa';
+}
+
+async function _ensureRegCase(userId) {
+  if (!isSupabaseDbConfigured()) return null;
+  const q = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  if (q.ok && Array.isArray(q.data) && q.data.length > 0) return q.data[0];
+  const ins = await supabaseDbRequest('registration_cases', '', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
+    body: [{ user_id: userId, stage: 'myintealth', status: 'active' }]
+  });
+  return ins.ok && Array.isArray(ins.data) && ins.data.length > 0 ? ins.data[0] : null;
+}
+
+async function _createRegTask(caseId, data) {
+  if (!isSupabaseDbConfigured()) return null;
+  const actor = data._actor || 'system';
+  const payload = { case_id: caseId };
+  for (const [k, v] of Object.entries(data)) { if (k !== '_actor') payload[k] = v; }
+  const r = await supabaseDbRequest('registration_tasks', '', {
+    method: 'POST', headers: { Prefer: 'return=representation' }, body: [payload]
+  });
+  const task = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+  if (task) {
+    await supabaseDbRequest('task_timeline', '', {
+      method: 'POST', body: [{ task_id: task.id, case_id: caseId, event_type: 'created', title: 'Task created', detail: task.title, actor: actor }]
+    });
+  }
+  return task;
+}
+
+async function _completeRegTask(taskId, caseId, actor) {
+  if (!isSupabaseDbConfigured()) return;
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+    method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: actor || 'system' }
+  });
+  await supabaseDbRequest('task_timeline', '', {
+    method: 'POST', body: [{ task_id: taskId, case_id: caseId, event_type: 'completed', title: 'Task completed', actor: actor || 'system' }]
+  });
+}
+
+async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor) {
+  if (!isSupabaseDbConfigured()) return;
+  await supabaseDbRequest('task_timeline', '', {
+    method: 'POST', body: [{ case_id: caseId, task_id: taskId || null, event_type: eventType, title: title, detail: detail || null, actor: actor || 'system' }]
+  });
+}
+
+async function _hasOpenTask(caseId, stage, type) {
+  if (!isSupabaseDbConfigured()) return false;
+  const q = await supabaseDbRequest('registration_tasks',
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.' + encodeURIComponent(stage) + '&task_type=eq.' + encodeURIComponent(type) + '&status=in.(open,in_progress,waiting)&limit=1');
+  return q.ok && Array.isArray(q.data) && q.data.length > 0;
+}
+
+async function _hasOpenTaskForDoc(caseId, docKey) {
+  if (!isSupabaseDbConfigured()) return false;
+  const q = await supabaseDbRequest('registration_tasks',
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(docKey) + '&status=in.(open,in_progress,waiting)&limit=1');
+  return q.ok && Array.isArray(q.data) && q.data.length > 0;
+}
+
+async function processRegistrationTaskAutomation(userId, email, prevState, nextState) {
+  if (!isSupabaseDbConfigured()) return;
+  try {
+    const regCase = await _ensureRegCase(userId);
+    if (!regCase) return;
+    const caseId = regCase.id;
+
+    const prev = {
+      epic: _parseStateVal(prevState.gp_epic_progress),
+      amc: _parseStateVal(prevState.gp_amc_progress),
+      ahpra: _parseStateVal(prevState.gp_ahpra_progress),
+      career: _parseStateVal(prevState.gp_career_state),
+      docs: _parseStateVal(prevState.gp_documents_prep),
+      tickets: (function () { const v = prevState.gpLinkSupportCases; if (Array.isArray(v)) return v; if (typeof v === 'string') { try { return JSON.parse(v); } catch { return []; } } return []; })()
+    };
+    const nxt = {
+      epic: _parseStateVal(nextState.gp_epic_progress),
+      amc: _parseStateVal(nextState.gp_amc_progress),
+      ahpra: _parseStateVal(nextState.gp_ahpra_progress),
+      career: _parseStateVal(nextState.gp_career_state),
+      docs: _parseStateVal(nextState.gp_documents_prep),
+      tickets: (function () { const v = nextState.gpLinkSupportCases; if (Array.isArray(v)) return v; if (typeof v === 'string') { try { return JSON.parse(v); } catch { return []; } } return []; })()
+    };
+
+    const pc = prev.epic.completed || {};
+    const nc = nxt.epic.completed || {};
+
+    // ── MyIntealth transitions ──
+    const epicLabels = { create_account: 'Confirm MyIntealth account created', account_establishment: 'Verify account establishment documents', upload_qualifications: 'Review uploaded qualification documents', verification_issued: 'Confirm EPIC verification issued' };
+    for (const key of ['create_account', 'account_establishment', 'upload_qualifications', 'verification_issued']) {
+      if (!pc[key] && nc[key] === true) {
+        if (!(await _hasOpenTask(caseId, 'myintealth', 'verify'))) {
+          await _createRegTask(caseId, { task_type: 'verify', title: epicLabels[key], priority: key === 'upload_qualifications' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'myintealth', related_substage: key, _actor: 'system' });
+        }
+        if (key === 'verification_issued') {
+          const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.myintealth&status=in.(open,in_progress,waiting)');
+          if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
+          if (!(await _hasOpenTask(caseId, 'amc', 'kickoff'))) {
+            await _createRegTask(caseId, { task_type: 'kickoff', title: 'AMC stage started — confirm GP has created portfolio', source_trigger: 'stage_advance', related_stage: 'amc', _actor: 'system' });
+          }
+        }
+      }
+    }
+
+    // ── AMC transitions ──
+    const pac = prev.amc.completed || {};
+    const nac = nxt.amc.completed || {};
+    const amcLabels = { create_portfolio: 'Confirm AMC portfolio created', upload_credentials: 'Review AMC credentials uploaded', waiting_verification: 'Monitor AMC verification progress', qualifications_verified: 'Confirm AMC qualifications verified' };
+    for (const key of ['create_portfolio', 'upload_credentials', 'waiting_verification', 'qualifications_verified']) {
+      if (!pac[key] && nac[key] === true) {
+        if (!(await _hasOpenTask(caseId, 'amc', 'verify'))) {
+          await _createRegTask(caseId, { task_type: 'verify', title: amcLabels[key], priority: key === 'upload_credentials' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'amc', related_substage: key, _actor: 'system' });
+        }
+        if (key === 'qualifications_verified') {
+          const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.amc&status=in.(open,in_progress,waiting)');
+          if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
+          if (!(await _hasOpenTask(caseId, 'career', 'kickoff'))) {
+            await _createRegTask(caseId, { task_type: 'kickoff', title: 'Career & documents stage — help GP secure placement', source_trigger: 'stage_advance', related_stage: 'career', _actor: 'system' });
+          }
+        }
+      }
+    }
+
+    // ── Career secured ──
+    let prevSecured = prev.career.career_secured === true || prev.career.secured === true;
+    if (!prevSecured && Array.isArray(prev.career.applications)) { prevSecured = prev.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
+    let nextSecured = nxt.career.career_secured === true || nxt.career.secured === true;
+    if (!nextSecured && Array.isArray(nxt.career.applications)) { nextSecured = nxt.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
+    if (!prevSecured && nextSecured) {
+      const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.career&status=in.(open,in_progress,waiting)');
+      if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
+      await _createRegTask(caseId, { task_type: 'verify', title: 'Verify secured placement with practice', priority: 'high', source_trigger: 'career_secured', related_stage: 'career', _actor: 'system' });
+      if (!(await _hasOpenTask(caseId, 'career', 'practice_pack'))) {
+        const parent = await _createRegTask(caseId, { task_type: 'practice_pack', title: 'Complete practice pack', source_trigger: 'career_secured', related_stage: 'career', _actor: 'system' });
+        if (parent) {
+          const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };
+          for (const dk of Object.keys(packLabels)) {
+            await _createRegTask(caseId, { task_type: 'practice_pack_child', title: packLabels[dk], parent_task_id: parent.id, source_trigger: 'career_secured', related_stage: 'career', related_document_key: dk, _actor: 'system' });
+          }
+        }
+      }
+      if (!(await _hasOpenTask(caseId, 'ahpra', 'kickoff'))) {
+        await _createRegTask(caseId, { task_type: 'kickoff', title: 'AHPRA stage unlocked — guide GP through registration', source_trigger: 'career_secured', related_stage: 'ahpra', _actor: 'system' });
+      }
+    }
+
+    // ── Document uploads ──
+    const prevDocs = prev.docs.docs || {};
+    const nextDocs = nxt.docs.docs || {};
+    for (const key of Object.keys(nextDocs)) {
+      const pv = prevDocs[key] || {};
+      const nv = nextDocs[key] || {};
+      if (nv.uploaded === true && !pv.uploaded) {
+        if (!(await _hasOpenTaskForDoc(caseId, key))) {
+          await _createRegTask(caseId, { task_type: 'review', title: 'Review uploaded: ' + key.replace(/_/g, ' '), source_trigger: 'doc_upload', related_stage: 'ahpra', related_document_key: key, _actor: 'system' });
+        }
+      }
+    }
+
+    // ── AHPRA transitions ──
+    const phc = prev.ahpra.completed || {};
+    const nhc = nxt.ahpra.completed || {};
+    const ahpraLabels = { create_account: 'Confirm AHPRA account created', account_establishment: 'Verify AHPRA profile details', upload_qualifications: 'Confirm all AHPRA supporting docs ready', waiting_verification: 'Monitor AHPRA assessment', verification_issued: 'Verify AHPRA registration outcome' };
+    for (const key of ['create_account', 'account_establishment', 'upload_qualifications', 'waiting_verification', 'verification_issued']) {
+      if (!phc[key] && nhc[key] === true) {
+        if (!(await _hasOpenTask(caseId, 'ahpra', 'verify'))) {
+          await _createRegTask(caseId, { task_type: 'verify', title: ahpraLabels[key], priority: key === 'upload_qualifications' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'ahpra', related_substage: key, _actor: 'system' });
+        }
+        if (key === 'verification_issued') {
+          const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.ahpra&status=in.(open,in_progress,waiting)');
+          if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
+          if (!(await _hasOpenTask(caseId, 'visa', 'kickoff'))) {
+            await _createRegTask(caseId, { task_type: 'kickoff', title: 'Visa stage — create visa case and begin document collection', priority: 'high', source_trigger: 'stage_advance', related_stage: 'visa', _actor: 'system' });
+          }
+        }
+      }
+    }
+
+    // ── New support tickets ──
+    const prevTids = new Set(Array.isArray(prev.tickets) ? prev.tickets.map(function (t) { return t && t.id; }).filter(Boolean) : []);
+    if (Array.isArray(nxt.tickets)) {
+      for (const ticket of nxt.tickets) {
+        if (ticket && ticket.id && !prevTids.has(ticket.id) && ticket.status !== 'closed') {
+          await _createRegTask(caseId, { task_type: 'blocker', title: 'Support ticket: ' + (ticket.title || 'New request'), priority: ticket.priority === 'urgent' ? 'urgent' : 'high', source_trigger: 'ticket_created', related_stage: _deriveStageFromState(nextState), related_ticket_id: ticket.id, _actor: 'system' });
+        }
+      }
+    }
+
+    // ── Update case stage ──
+    const newStage = _deriveStageFromState(nextState);
+    const caseUpdate = { last_gp_activity_at: new Date().toISOString() };
+    if (newStage !== regCase.stage) { caseUpdate.stage = newStage; }
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseUpdate });
+    if (newStage !== regCase.stage) {
+      await _logCaseEvent(caseId, null, 'stage_change', 'Stage advanced to ' + newStage, null, 'system');
+    }
+  } catch (err) {
+    // Non-blocking: do not fail the state update
+  }
+}
+
 function getTimestampMs(value) {
   if (!value) return 0;
   const ts = new Date(value).getTime();
@@ -13409,6 +13637,12 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     invalidateAdminDashboardCache();
+
+    // Fire-and-forget: detect state transitions and create/complete tasks
+    if (resolvedUserId) {
+      processRegistrationTaskAutomation(resolvedUserId, email, current, next).catch(function () {});
+    }
+
     sendJson(res, 200, { ok: true, updatedAt });
     return;
   }
@@ -13431,6 +13665,255 @@ Return ONLY valid JSON with no markdown formatting:
       refreshedAt: new Date().toISOString(),
       ...dashboard
     });
+    return;
+  }
+
+  // ══════ Registration Cases & Tasks API ══════
+
+  // ── List all cases ──
+  if (pathname === '/api/admin/cases' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const casesRes = await supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc');
+    if (!casesRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load cases.' }); return; }
+    const cases = Array.isArray(casesRes.data) ? casesRes.data : [];
+    const userIds = [...new Set(cases.map(function (c) { return c.user_id; }).filter(Boolean))];
+    let profileMap = {};
+    if (userIds.length > 0) {
+      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
+    }
+    // Get open task counts per case
+    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting)');
+    const tasksByCase = {};
+    if (tasksRes.ok && Array.isArray(tasksRes.data)) {
+      tasksRes.data.forEach(function (t) {
+        if (!tasksByCase[t.case_id]) tasksByCase[t.case_id] = { open: 0, urgent: 0, overdue: 0 };
+        tasksByCase[t.case_id].open++;
+        if (t.priority === 'urgent') tasksByCase[t.case_id].urgent++;
+        if (t.due_date && new Date(t.due_date) < new Date()) tasksByCase[t.case_id].overdue++;
+      });
+    }
+    const enriched = cases.map(function (c) {
+      const p = profileMap[c.user_id] || {};
+      const tc = tasksByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
+      return Object.assign({}, c, {
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_email: p.email || '',
+        open_tasks: tc.open, urgent_tasks: tc.urgent, overdue_tasks: tc.overdue
+      });
+    });
+    sendJson(res, 200, { ok: true, cases: enriched });
+    return;
+  }
+
+  // ── Single case detail with tasks + timeline ──
+  if (pathname === '/api/admin/case' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    const [caseRes, tasksRes, tlRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(caseId) + '&limit=1'),
+      supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc'),
+      supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=100')
+    ]);
+    if (!caseRes.ok || !Array.isArray(caseRes.data) || caseRes.data.length === 0) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    const regCase = caseRes.data[0];
+    const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone_number&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+    const profile = pRes.ok && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data[0] : {};
+    regCase.gp_name = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || 'Unknown';
+    regCase.gp_email = profile.email || '';
+    regCase.gp_phone = profile.phone_number || '';
+    sendJson(res, 200, {
+      ok: true,
+      case: regCase,
+      tasks: tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [],
+      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : []
+    });
+    return;
+  }
+
+  // ── Update case ──
+  if (pathname === '/api/admin/case' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const allowed = ['assigned_va', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date', 'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage'];
+    const patch = {};
+    for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    patch.last_va_action_at = new Date().toISOString();
+    const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update case.' }); return; }
+    // Log timeline
+    const changes = Object.keys(patch).filter(function (k) { return k !== 'last_va_action_at'; });
+    if (changes.length > 0) {
+      await _logCaseEvent(caseId, null, changes.includes('blocker_status') ? (patch.blocker_status ? 'blocker_set' : 'blocker_cleared') : 'status_change', 'Case updated: ' + changes.join(', '), JSON.stringify(patch), adminCtx.email);
+    }
+    sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
+    return;
+  }
+
+  // ── Add case note ──
+  if (pathname === '/api/admin/case/note' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const text = body && typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) { sendJson(res, 400, { ok: false, message: 'Missing text.' }); return; }
+    await _logCaseEvent(caseId, null, 'note', 'Note added', text, adminCtx.email);
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── List tasks (with case/GP enrichment) ──
+  if (pathname === '/api/admin/tasks' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting';
+    const statuses = statusFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=*&status=in.(' + statuses.join(',') + ')&order=priority.asc,created_at.desc&limit=200');
+    if (!tasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load tasks.' }); return; }
+    const tasks = Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    // Enrich with case + GP info
+    const caseIds = [...new Set(tasks.map(function (t) { return t.case_id; }).filter(Boolean))];
+    let caseMap = {};
+    if (caseIds.length > 0) {
+      const cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,assigned_va&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
+      if (cRes.ok && Array.isArray(cRes.data)) { cRes.data.forEach(function (c) { caseMap[c.id] = c; }); }
+    }
+    const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
+    let profileMap = {};
+    if (userIds.length > 0) {
+      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
+    }
+    const enriched = tasks.map(function (t) {
+      const c = caseMap[t.case_id] || {};
+      const p = profileMap[c.user_id] || {};
+      return Object.assign({}, t, {
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_email: p.email || '',
+        case_stage: c.stage || '',
+        case_status: c.status || ''
+      });
+    });
+    sendJson(res, 200, { ok: true, tasks: enriched });
+    return;
+  }
+
+  // ── Create task ──
+  if (pathname === '/api/admin/tasks' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    if (!body || !body.case_id || !body.title) { sendJson(res, 400, { ok: false, message: 'case_id and title required.' }); return; }
+    const task = await _createRegTask(body.case_id, {
+      task_type: body.task_type || 'manual',
+      title: body.title,
+      description: body.description || null,
+      priority: body.priority || 'normal',
+      due_date: body.due_date || null,
+      related_stage: body.related_stage || null,
+      related_document_key: body.related_document_key || null,
+      parent_task_id: body.parent_task_id || null,
+      source_trigger: 'va_manual',
+      _actor: adminCtx.email
+    });
+    if (!task) { sendJson(res, 502, { ok: false, message: 'Failed to create task.' }); return; }
+    // Update case last_va_action_at
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(body.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+    sendJson(res, 201, { ok: true, task: task });
+    return;
+  }
+
+  // ── Update task ──
+  if (pathname === '/api/admin/task' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const taskId = url.searchParams.get('id');
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description'];
+    const patch = {};
+    for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    if (patch.status === 'completed') {
+      patch.completed_at = new Date().toISOString();
+      patch.completed_by = adminCtx.email;
+    }
+    const r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update task.' }); return; }
+    const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+    // Timeline
+    const evType = patch.status === 'completed' ? 'completed' : patch.status === 'cancelled' ? 'cancelled' : patch.priority ? 'priority_change' : 'status_change';
+    if (updated) {
+      await _logCaseEvent(updated.case_id, taskId, evType, 'Task updated: ' + Object.keys(patch).join(', '), JSON.stringify(patch), adminCtx.email);
+      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+    }
+    sendJson(res, 200, { ok: true, task: updated });
+    return;
+  }
+
+  // ── Add task note ──
+  if (pathname === '/api/admin/task/note' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const taskId = url.searchParams.get('id');
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const text = body && typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) { sendJson(res, 400, { ok: false, message: 'Missing text.' }); return; }
+    // Get task to find case_id
+    const tRes = await supabaseDbRequest('registration_tasks', 'select=case_id&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    const caseId = tRes.ok && Array.isArray(tRes.data) && tRes.data.length > 0 ? tRes.data[0].case_id : null;
+    if (!caseId) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    await _logCaseEvent(caseId, taskId, 'note', 'Note added', text, adminCtx.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Sync: bulk create cases for all GPs ──
+  if (pathname === '/api/admin/cases/sync' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    // Get all users with state
+    const stateRes = await supabaseDbRequest('user_state', 'select=user_id,state');
+    if (!stateRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load user states.' }); return; }
+    const states = Array.isArray(stateRes.data) ? stateRes.data : [];
+    let created = 0, updated = 0, skipped = 0;
+    for (const row of states) {
+      if (!row.user_id || !row.state) { skipped++; continue; }
+      const state = typeof row.state === 'object' ? row.state : {};
+      const regCase = await _ensureRegCase(row.user_id);
+      if (!regCase) { skipped++; continue; }
+      const stage = _deriveStageFromState(state);
+      if (stage !== regCase.stage) {
+        await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(regCase.id), { method: 'PATCH', body: { stage: stage } });
+        updated++;
+      }
+      // Create kickoff task if none exist for current stage
+      const existingTasks = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(regCase.id) + '&related_stage=eq.' + encodeURIComponent(stage) + '&limit=1');
+      if (existingTasks.ok && Array.isArray(existingTasks.data) && existingTasks.data.length === 0) {
+        await _createRegTask(regCase.id, { task_type: 'kickoff', title: 'Review ' + stage + ' stage progress', source_trigger: 'sync', related_stage: stage, _actor: adminCtx.email });
+        created++;
+      }
+    }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, synced: states.length, created: created, updated: updated, skipped: skipped });
     return;
   }
 
