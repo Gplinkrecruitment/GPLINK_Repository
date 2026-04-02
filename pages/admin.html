@@ -145,6 +145,79 @@
     .case-card-vis{display:flex;gap:3px;margin-top:4px}
     .jdot-sm{width:6px;height:6px;border-radius:50%;background:#cbd5e1}
     .jdot-sm.done{background:var(--green)}.jdot-sm.current{background:var(--blue)}
+
+    /* ══ Ops Queue Tab ══ */
+    .ops-panel{display:none;flex-direction:column;height:calc(100vh - 48px);overflow:hidden;background:var(--bg)}
+    .ops-panel.active{display:flex}
+    .ops-stats{display:flex;gap:10px;padding:14px 20px 0;flex-wrap:wrap}
+    .ops-stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 16px;flex:1;min-width:120px}
+    .ops-stat-val{font-size:22px;font-weight:900;letter-spacing:-.02em}
+    .ops-stat-val.red{color:var(--red)}.ops-stat-val.amber{color:var(--amber)}.ops-stat-val.blue{color:var(--blue)}
+    .ops-stat-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin-top:2px}
+    .ops-filters{display:flex;gap:8px;padding:12px 20px;flex-wrap:wrap;align-items:center}
+    .ops-filters select{padding:6px 10px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-family:inherit;background:#fff;cursor:pointer}
+    .ops-filters select:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+    .ops-filters label.ops-cb{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer}
+    .ops-filters label.ops-cb input{accent-color:var(--red)}
+    .ops-table-wrap{flex:1;overflow:auto;padding:0 20px 20px}
+    .ops-table{width:100%;border-collapse:collapse;font-size:12px}
+    .ops-table thead{position:sticky;top:0;z-index:2}
+    .ops-table th{background:#f1f5f9;padding:8px 10px;text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);border-bottom:1px solid var(--line);white-space:nowrap}
+    .ops-table td{padding:8px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+    .ops-table tr.ops-row{cursor:pointer;transition:background .1s}
+    .ops-table tr.ops-row:hover{background:#f8fafc}
+    .ops-table tr.ops-row.overdue{background:#fef2f2}
+    .ops-table tr.ops-row.overdue:hover{background:#fee2e2}
+    .ops-table tr.ops-row.selected{background:#eff6ff}
+    .ops-domain-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+    .ops-domain-badge.registration{background:#ecfdf5;color:#166534}
+    .ops-domain-badge.visa{background:#eff6ff;color:#1d4ed8}
+    .ops-domain-badge.questionnaire{background:#faf5ff;color:#7c3aed}
+    .ops-domain-badge.sponsor{background:#fffbeb;color:#a16207}
+    .ops-domain-badge.document{background:#f1f5f9;color:#64748b}
+    .ops-domain-badge.system{background:#fef2f2;color:#dc2626}
+    .ops-status-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800}
+    .ops-status-pill.open{background:#eff6ff;color:#1d4ed8}
+    .ops-status-pill.in_progress{background:#fffbeb;color:#b45309}
+    .ops-status-pill.waiting_on_gp{background:#fffbeb;color:#b45309}
+    .ops-status-pill.waiting_on_practice{background:#fffbeb;color:#b45309}
+    .ops-status-pill.waiting_on_external{background:#fffbeb;color:#b45309}
+    .ops-status-pill.blocked{background:#fef2f2;color:#dc2626}
+    .ops-status-pill.completed{background:#ecfdf5;color:#166534}
+    .ops-status-pill.cancelled{background:#f1f5f9;color:#64748b}
+    .ops-pri-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800}
+    .ops-pri-pill.urgent{background:#fef2f2;color:#dc2626}
+    .ops-pri-pill.high{background:#fffbeb;color:#b45309}
+    .ops-pri-pill.normal{background:#eff6ff;color:#1d4ed8}
+    .ops-pri-pill.low{background:#f1f5f9;color:#64748b}
+    .ops-detail-row td{padding:0;background:#f8fafc;border-bottom:1px solid var(--line)}
+    .ops-detail-inner{padding:16px 20px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .ops-detail-inner .case-field{display:grid;gap:3px}
+    .ops-detail-inner .case-field label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+    .ops-detail-inner .case-field select,.ops-detail-inner .case-field input{padding:7px 10px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-family:inherit;background:#fff}
+    .ops-detail-inner .case-field select:focus,.ops-detail-inner .case-field input:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+    .ops-detail-info{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:10px 0;border-bottom:1px solid var(--line);margin-bottom:4px}
+    .ops-detail-info-item{font-size:11px;color:var(--muted)}
+    .ops-detail-info-item strong{display:block;font-size:12px;color:var(--text);font-weight:700;margin-bottom:1px}
+    .ops-detail-actions{grid-column:1/-1;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    .ops-note-area{grid-column:1/-1;display:flex;gap:8px;align-items:flex-start}
+    .ops-note-area textarea{flex:1;min-height:36px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-family:inherit;resize:vertical}
+    .ops-note-area textarea:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+    .ops-gp-name{font-weight:700;font-size:12px;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
+    .ops-task-title{font-weight:700;font-size:12px;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ops-due{font-size:11px;white-space:nowrap}
+    .ops-due.overdue{color:var(--red);font-weight:700}
+    .ops-created{font-size:11px;color:var(--muted);white-space:nowrap}
+    @media(max-width:900px){
+      .ops-stats{gap:6px;padding:10px 12px 0}
+      .ops-stat{padding:8px 10px;min-width:80px}
+      .ops-stat-val{font-size:18px}
+      .ops-filters{padding:10px 12px;gap:6px}
+      .ops-table-wrap{padding:0 12px 12px}
+      .ops-table .hide-mobile{display:none}
+      .ops-detail-inner{grid-template-columns:1fr}
+      .ops-detail-info{grid-template-columns:1fr 1fr}
+    }
   </style>
 </head>
 <body>
@@ -165,6 +238,7 @@
       <div class="view-tabs">
         <div class="view-tab active" data-view="cases">Cases</div>
         <div class="view-tab" data-view="queue">Work Queue</div>
+        <div class="view-tab" data-view="ops">Ops Queue</div>
       </div>
       <div class="filter-bar" id="filterBar"></div>
       <div class="case-list" id="caseList"></div>
@@ -173,6 +247,57 @@
       <div class="detail-scroll" id="detailContent">
         <div class="detail-empty">Select a case from the list, or use the Work Queue tab.</div>
       </div>
+    </div>
+  </div>
+  <div class="ops-panel" id="opsPanel">
+    <div class="ops-stats" id="opsStats"></div>
+    <div class="ops-filters" id="opsFilters">
+      <select id="opsDomain">
+        <option value="">All Domains</option>
+        <option value="registration">Registration</option>
+        <option value="visa">Visa</option>
+        <option value="questionnaire">Questionnaire</option>
+        <option value="sponsor">Sponsor</option>
+        <option value="document">Document</option>
+        <option value="system">System</option>
+      </select>
+      <select id="opsStatus">
+        <option value="open">Open</option>
+        <option value="in_progress">In Progress</option>
+        <option value="waiting_on_gp">Waiting on GP</option>
+        <option value="waiting_on_practice">Waiting on Practice</option>
+        <option value="waiting_on_external">Waiting on External</option>
+        <option value="blocked">Blocked</option>
+        <option value="all_active">All Active</option>
+        <option value="completed">Completed</option>
+      </select>
+      <select id="opsPriority">
+        <option value="">All Priorities</option>
+        <option value="urgent">Urgent</option>
+        <option value="high">High</option>
+        <option value="normal">Normal</option>
+        <option value="low">Low</option>
+      </select>
+      <label class="ops-cb"><input type="checkbox" id="opsOverdue" /> Overdue only</label>
+      <button class="btn sm" id="opsSlaBtn">Run SLA Check</button>
+      <button class="btn sm primary" id="opsRefreshBtn">Refresh</button>
+    </div>
+    <div class="ops-table-wrap">
+      <table class="ops-table">
+        <thead>
+          <tr>
+            <th>GP Name</th>
+            <th>Title</th>
+            <th>Domain</th>
+            <th>Status</th>
+            <th>Priority</th>
+            <th>Due Date</th>
+            <th class="hide-mobile">Stage</th>
+            <th class="hide-mobile">Created</th>
+          </tr>
+        </thead>
+        <tbody id="opsTableBody"></tbody>
+      </table>
     </div>
   </div>
   <div class="modal-overlay" id="modalOverlay">
@@ -185,7 +310,8 @@
 (function(){
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
-    selectedCaseId:null,view:"cases",filter:"all",query:"",expanded:{},refreshTimer:null};
+    selectedCaseId:null,view:"cases",filter:"all",query:"",expanded:{},refreshTimer:null,
+    opsTasks:[],opsExpandedId:null,opsLoading:false};
   const STEPS=[
     {key:"myintealth",label:"MyIntealth",num:1},
     {key:"amc",label:"AMC Portfolio",num:2},
@@ -623,10 +749,156 @@
     await loadAll(true);
   }
 
+  /* ══ Ops Queue ══ */
+  async function loadOpsQueue(){
+    if(S.opsLoading)return;S.opsLoading=true;
+    const domain=document.getElementById("opsDomain").value;
+    const status=document.getElementById("opsStatus").value;
+    const priority=document.getElementById("opsPriority").value;
+    const overdue=document.getElementById("opsOverdue").checked;
+    let url="/api/admin/ops/queue?limit=200";
+    if(domain)url+="&domain="+encodeURIComponent(domain);
+    if(status&&status!=="all_active")url+="&status="+encodeURIComponent(status);
+    if(status==="all_active")url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked";
+    if(priority)url+="&priority="+encodeURIComponent(priority);
+    if(overdue)url+="&overdue=true";
+    try{
+      const r=await fetch(url,{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d.ok&&Array.isArray(d.tasks))S.opsTasks=d.tasks;
+    }catch{}
+    S.opsLoading=false;
+    renderOpsStats();
+    renderOpsTable();
+  }
+
+  function renderOpsStats(){
+    const all=S.opsTasks;
+    const now=new Date();
+    const openC=all.filter(t=>t.status==="open").length;
+    const urgentC=all.filter(t=>t.priority==="urgent").length;
+    const overdueC=all.filter(t=>{if(!t.due_date&&!t.sla_due_date)return false;const d=new Date(t.sla_due_date||t.due_date);return d<now&&t.status!=="completed"&&t.status!=="cancelled";}).length;
+    const waitGp=all.filter(t=>t.status==="waiting_on_gp").length;
+    const waitPrac=all.filter(t=>t.status==="waiting_on_practice").length;
+    document.getElementById("opsStats").innerHTML=
+      `<div class="ops-stat"><div class="ops-stat-val blue">${openC}</div><div class="ops-stat-label">Open Tasks</div></div>`+
+      `<div class="ops-stat"><div class="ops-stat-val red">${urgentC}</div><div class="ops-stat-label">Urgent</div></div>`+
+      `<div class="ops-stat"><div class="ops-stat-val ${overdueC?"red":""}">${overdueC}</div><div class="ops-stat-label">Overdue</div></div>`+
+      `<div class="ops-stat"><div class="ops-stat-val amber">${waitGp}</div><div class="ops-stat-label">Waiting on GP</div></div>`+
+      `<div class="ops-stat"><div class="ops-stat-val amber">${waitPrac}</div><div class="ops-stat-label">Waiting on Practice</div></div>`;
+  }
+
+  function renderOpsTable(){
+    const tbody=document.getElementById("opsTableBody");
+    const now=new Date();
+    if(!S.opsTasks.length){tbody.innerHTML=`<tr><td colspan="8" class="empty">No tasks match the current filters.</td></tr>`;return;}
+    let html="";
+    S.opsTasks.forEach(t=>{
+      const isOverdue=t.status!=="completed"&&t.status!=="cancelled"&&(t.due_date||t.sla_due_date)&&new Date(t.sla_due_date||t.due_date)<now;
+      const isExpanded=S.opsExpandedId===t.id;
+      const statusLabel=(t.status||"open").replace(/_/g," ");
+      html+=`<tr class="ops-row${isOverdue?" overdue":""}${isExpanded?" selected":""}" data-ops-task-id="${esc(t.id)}">
+        <td><span class="ops-gp-name">${esc(t.gp_name||"\u2014")}</span></td>
+        <td><span class="ops-task-title" title="${esc(t.title||"")}">${esc(t.title||"\u2014")}</span></td>
+        <td><span class="ops-domain-badge ${esc(t.domain||"")}">${esc(t.domain||"\u2014")}</span></td>
+        <td><span class="ops-status-pill ${esc(t.status||"")}">${esc(statusLabel)}</span></td>
+        <td><span class="ops-pri-pill ${esc(t.priority||"normal")}">${esc(t.priority||"normal")}</span></td>
+        <td><span class="ops-due${isOverdue?" overdue":""}">${isOverdue?"OVERDUE \u2022 ":""}${fmtD(t.due_date||t.sla_due_date)}</span></td>
+        <td class="hide-mobile"><span class="task-tag stage">${esc(t.related_stage||t.case_stage||"\u2014")}</span></td>
+        <td class="hide-mobile"><span class="ops-created">${fmtR(t.created_at)}</span></td>
+      </tr>`;
+      if(isExpanded){
+        html+=`<tr class="ops-detail-row" data-ops-detail-for="${esc(t.id)}"><td colspan="8"><div class="ops-detail-inner">
+          <div class="ops-detail-info">
+            <div class="ops-detail-info-item"><strong>${esc(t.title||"")}</strong>${esc(t.description||"No description")}</div>
+            <div class="ops-detail-info-item"><strong>Domain</strong>${esc(t.domain||"\u2014")} \u2022 ${esc(t.related_stage||"\u2014")}</div>
+            <div class="ops-detail-info-item"><strong>Created</strong>${fmtD(t.created_at)}</div>
+          </div>
+          <div class="case-field"><label>Status</label><select data-ops-field="status" data-ops-id="${esc(t.id)}">
+            ${["open","in_progress","waiting_on_gp","waiting_on_practice","waiting_on_external","blocked","completed","cancelled"].map(s=>`<option value="${s}" ${t.status===s?"selected":""}>${s.replace(/_/g," ")}</option>`).join("")}
+          </select></div>
+          <div class="case-field"><label>Priority</label><select data-ops-field="priority" data-ops-id="${esc(t.id)}">
+            ${["urgent","high","normal","low"].map(p=>`<option value="${p}" ${t.priority===p?"selected":""}>${p}</option>`).join("")}
+          </select></div>
+          <div class="case-field"><label>Due Date</label><input type="date" data-ops-field="due_date" data-ops-id="${esc(t.id)}" value="${t.due_date?t.due_date.substring(0,10):""}" /></div>
+          <div class="case-field"><label>Assignee</label><input type="text" data-ops-field="assignee" data-ops-id="${esc(t.id)}" value="${esc(t.assignee||"")}" placeholder="Assignee..." /></div>
+          <div class="ops-detail-actions">
+            <button class="btn primary sm" data-ops-save="${esc(t.id)}">Save Changes</button>
+            ${t.case_id?`<button class="btn sm" data-ops-view-case="${esc(t.case_id)}">View Case</button>`:""}
+          </div>
+          <div class="ops-note-area">
+            <textarea id="opsNote_${esc(t.id)}" placeholder="Add a note..."></textarea>
+            <button class="btn sm" data-ops-add-note="${esc(t.id)}">Add Note</button>
+          </div>
+        </div></td></tr>`;
+      }
+    });
+    tbody.innerHTML=html;
+  }
+
+  async function saveOpsTask(taskId){
+    const row=document.querySelector(`[data-ops-detail-for="${taskId}"]`);if(!row)return;
+    const fields={};
+    row.querySelectorAll("[data-ops-field]").forEach(el=>{
+      const key=el.getAttribute("data-ops-field");
+      fields[key]=el.value||null;
+    });
+    try{
+      const r=await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(fields)});
+      const d=await r.json().catch(()=>({}));
+      if(d.ok){showOpsToast("Task updated");loadOpsQueue();}
+      else showOpsToast(d.error||"Update failed","red");
+    }catch(e){showOpsToast(e.message||"Network error","red");}
+  }
+
+  async function addOpsNote(taskId){
+    const ta=document.getElementById("opsNote_"+taskId);if(!ta)return;
+    const text=ta.value.trim();if(!text){showOpsToast("Note cannot be empty","amber");return;}
+    try{
+      const r=await fetch("/api/admin/task/note?id="+encodeURIComponent(taskId),{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text})});
+      const d=await r.json().catch(()=>({}));
+      if(d.ok){ta.value="";showOpsToast("Note added");}
+      else showOpsToast(d.error||"Failed to add note","red");
+    }catch(e){showOpsToast(e.message||"Network error","red");}
+  }
+
+  async function runSlaCheck(){
+    const btn=document.getElementById("opsSlaBtn");btn.disabled=true;btn.textContent="Running...";
+    try{
+      const r=await fetch("/api/admin/sla/check",{method:"POST",credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d.ok)showOpsToast("SLA check complete"+(d.created?" \u2022 "+d.created+" tasks created":""));
+      else showOpsToast(d.error||"SLA check failed","red");
+    }catch(e){showOpsToast(e.message||"Network error","red");}
+    btn.disabled=false;btn.textContent="Run SLA Check";
+    loadOpsQueue();
+  }
+
+  function showOpsToast(msg,color){
+    // Reuse existing showToast if available, otherwise create inline toast
+    if(typeof showToast==="function"){showToast(msg);return;}
+    const t=document.createElement("div");
+    t.textContent=msg;
+    t.style.cssText="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;color:#fff;z-index:9999;animation:fadeout .4s 2.2s forwards;background:"+(color==="red"?"var(--red)":color==="amber"?"var(--amber)":"var(--green)");
+    document.body.appendChild(t);
+    setTimeout(()=>t.remove(),2800);
+  }
+
+  function switchToOps(){
+    document.getElementById("mainLayout").style.display="none";
+    document.getElementById("opsPanel").classList.add("active");
+    loadOpsQueue();
+  }
+
+  function switchFromOps(){
+    document.getElementById("mainLayout").style.display="grid";
+    document.getElementById("opsPanel").classList.remove("active");
+  }
+
   /* ══ Events ══ */
   function bind(){
     document.getElementById("searchInput").addEventListener("input",e=>{S.query=e.target.value||"";renderCaseList();});
-    document.querySelector(".view-tabs").addEventListener("click",e=>{const tab=e.target.closest("[data-view]");if(!tab)return;S.view=tab.getAttribute("data-view");document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t===tab));renderCaseList();});
+    document.querySelector(".view-tabs").addEventListener("click",e=>{const tab=e.target.closest("[data-view]");if(!tab)return;S.view=tab.getAttribute("data-view");document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t===tab));if(S.view==="ops"){switchToOps();}else{switchFromOps();renderCaseList();}});
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
     document.getElementById("caseList").addEventListener("click",e=>{
       const card=e.target.closest("[data-case-id]");
@@ -649,6 +921,36 @@
     document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin.html";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
+
+    /* Ops Queue bindings */
+    document.getElementById("opsDomain").addEventListener("change",()=>loadOpsQueue());
+    document.getElementById("opsStatus").addEventListener("change",()=>loadOpsQueue());
+    document.getElementById("opsPriority").addEventListener("change",()=>loadOpsQueue());
+    document.getElementById("opsOverdue").addEventListener("change",()=>loadOpsQueue());
+    document.getElementById("opsSlaBtn").addEventListener("click",runSlaCheck);
+    document.getElementById("opsRefreshBtn").addEventListener("click",()=>loadOpsQueue());
+    document.getElementById("opsTableBody").addEventListener("click",e=>{
+      const row=e.target.closest("tr.ops-row");
+      const saveBtn=e.target.closest("[data-ops-save]");
+      const noteBtn=e.target.closest("[data-ops-add-note]");
+      const caseBtn=e.target.closest("[data-ops-view-case]");
+      if(saveBtn){saveOpsTask(saveBtn.getAttribute("data-ops-save"));return;}
+      if(noteBtn){addOpsNote(noteBtn.getAttribute("data-ops-add-note"));return;}
+      if(caseBtn){
+        const cid=caseBtn.getAttribute("data-ops-view-case");
+        S.selectedCaseId=cid;S.view="cases";S.expanded={};
+        document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));
+        switchFromOps();renderCaseList();renderDetail();
+        document.getElementById("mainLayout").classList.add("detail-open");
+        return;
+      }
+      if(row){
+        const tid=row.getAttribute("data-ops-task-id");
+        S.opsExpandedId=S.opsExpandedId===tid?null:tid;
+        renderOpsTable();
+        return;
+      }
+    });
   }
 
   /* ══ Init ══ */

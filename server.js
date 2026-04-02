@@ -2673,6 +2673,353 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// VA Unified Operations Helpers
+// ══════════════════════════════════════════════════════════════════
+
+const VA_TASK_DOMAINS = ['registration', 'visa', 'questionnaire', 'sponsor', 'document', 'system'];
+const VA_TASK_TYPES_EXTENDED = [
+  'kickoff','verify','review','followup','blocker','escalation',
+  'practice_pack','practice_pack_child','manual','system',
+  'visa_stage','visa_doc','questionnaire','sponsor','migration_agent',
+  'sla_overdue','chase','document_ops'
+];
+const VA_TASK_STATUSES_EXTENDED = [
+  'open','in_progress','waiting','completed','cancelled',
+  'waiting_on_gp','waiting_on_practice','waiting_on_external','blocked'
+];
+const QUESTIONNAIRE_STATUSES = ['draft','submitted','returned_for_changes','va_reviewed','ready_to_send','sent'];
+const QUESTIONNAIRE_ROUTES = ['gplink_migration_agent','practice_agent','practice_direct'];
+const PRACTICE_DOC_KEYS = ['sppa_00','section_g','position_description','offer_contract','supervisor_cv'];
+const PRACTICE_DOC_OPS_STATUSES = ['not_requested','requested','awaiting_practice','received','under_review','needs_correction','ready_for_gp','completed'];
+const SLA_DEFAULT_DAYS = {
+  gp_inactivity: 5,
+  practice_response: 5,
+  sponsor_response: 5,
+  task_overdue: 7,
+  questionnaire_completion: 7
+};
+
+async function _createVaTask(caseId, data) {
+  if (!isSupabaseDbConfigured()) return null;
+  const actor = data._actor || 'system';
+  const domain = data.domain || 'visa';
+  const payload = { case_id: caseId, domain: domain };
+  for (const [k, v] of Object.entries(data)) { if (k !== '_actor') payload[k] = v; }
+  if (!payload.task_type) payload.task_type = 'manual';
+  if (!payload.status) payload.status = 'open';
+  if (!payload.priority) payload.priority = 'normal';
+  const r = await supabaseDbRequest('registration_tasks', '', {
+    method: 'POST', headers: { Prefer: 'return=representation' }, body: [payload]
+  });
+  const task = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+  if (task) {
+    await supabaseDbRequest('task_timeline', '', {
+      method: 'POST', body: [{ task_id: task.id, case_id: caseId, domain: domain, visa_case_id: data.visa_case_id || null, event_type: 'created', title: 'Task created', detail: task.title, actor: actor }]
+    });
+  }
+  return task;
+}
+
+async function _linkVisaCaseToRegCase(userId, visaCaseId) {
+  if (!isSupabaseDbConfigured()) return;
+  const regCase = await _ensureRegCase(userId);
+  if (!regCase) return;
+  if (regCase.visa_case_id === visaCaseId) return;
+  await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(regCase.id), {
+    method: 'PATCH', body: { visa_case_id: visaCaseId }
+  });
+}
+
+async function _getRegCaseForUser(userId) {
+  if (!isSupabaseDbConfigured()) return null;
+  const q = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  return q.ok && Array.isArray(q.data) && q.data.length > 0 ? q.data[0] : null;
+}
+
+async function _hasOpenTaskByDomain(caseId, domain, taskType) {
+  if (!isSupabaseDbConfigured()) return false;
+  let query = 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&domain=eq.' + encodeURIComponent(domain) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=1';
+  if (taskType) query += '&task_type=eq.' + encodeURIComponent(taskType);
+  const q = await supabaseDbRequest('registration_tasks', query);
+  return q.ok && Array.isArray(q.data) && q.data.length > 0;
+}
+
+async function processVisaTaskAutomation(visaCaseId, userId, changes, actor) {
+  if (!isSupabaseDbConfigured()) return;
+  try {
+    const regCase = await _ensureRegCase(userId);
+    if (!regCase) return;
+    const caseId = regCase.id;
+
+    // Link visa case to reg case
+    await _linkVisaCaseToRegCase(userId, visaCaseId);
+
+    // Stage change
+    if (changes.stage) {
+      const stageLabels = { nomination: 'Nomination', lodgement: 'Lodgement', processing: 'Processing', granted: 'Granted', refused: 'Refused' };
+      const label = stageLabels[changes.stage] || changes.stage;
+
+      // Complete prior visa_stage tasks
+      const priorTasks = await supabaseDbRequest('registration_tasks',
+        'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&domain=eq.visa&task_type=eq.visa_stage&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)');
+      if (priorTasks.ok && Array.isArray(priorTasks.data)) {
+        for (const t of priorTasks.data) await _completeRegTask(t.id, caseId, actor || 'system');
+      }
+
+      // Create new stage task
+      await _createVaTask(caseId, {
+        task_type: 'visa_stage', title: 'Verify ' + label + ' milestone',
+        domain: 'visa', visa_case_id: visaCaseId,
+        priority: changes.stage === 'granted' ? 'high' : 'normal',
+        source_trigger: 'visa_stage_change', related_stage: 'visa',
+        related_substage: changes.stage, _actor: actor || 'system'
+      });
+
+      // Log timeline
+      await _logCaseEvent(caseId, null, 'visa_stage_change', 'Visa stage: ' + label, null, actor || 'system');
+    }
+
+    // Sponsor changes
+    if (changes.sponsorName || changes.sponsorContact) {
+      if (!(await _hasOpenTaskByDomain(caseId, 'sponsor', 'sponsor'))) {
+        await _createVaTask(caseId, {
+          task_type: 'sponsor', title: 'Confirm sponsor details',
+          domain: 'sponsor', visa_case_id: visaCaseId,
+          source_trigger: 'sponsor_update', related_stage: 'visa', _actor: actor || 'system'
+        });
+      }
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+}
+
+async function processQuestionnaireTaskAutomation(caseId, visaCaseId, status, actor) {
+  if (!isSupabaseDbConfigured()) return;
+  try {
+    const statusLabels = {
+      submitted: 'Review visa intake questionnaire',
+      returned_for_changes: 'Chase questionnaire completion',
+      va_reviewed: 'Generate questionnaire PDF',
+      ready_to_send: 'Send questionnaire',
+      sent: null
+    };
+    const title = statusLabels[status];
+    if (!title) return;
+
+    // Complete prior questionnaire tasks
+    const priorTasks = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&domain=eq.questionnaire&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)');
+    if (priorTasks.ok && Array.isArray(priorTasks.data)) {
+      for (const t of priorTasks.data) await _completeRegTask(t.id, caseId, actor || 'system');
+    }
+
+    // Create new task
+    const priority = status === 'submitted' ? 'high' : 'normal';
+    await _createVaTask(caseId, {
+      task_type: 'questionnaire', title: title,
+      domain: 'questionnaire', visa_case_id: visaCaseId,
+      priority: priority, source_trigger: 'questionnaire_' + status,
+      related_stage: 'visa', _actor: actor || 'system'
+    });
+  } catch (err) {
+    // Non-blocking
+  }
+}
+
+async function runSlaCheck(actor) {
+  if (!isSupabaseDbConfigured()) return { checked: 0, created: 0 };
+  const now = new Date();
+  let created = 0;
+
+  // Find cases with no GP activity in SLA_DEFAULT_DAYS.gp_inactivity business days
+  const staleDays = SLA_DEFAULT_DAYS.gp_inactivity;
+  const staleDate = new Date(now.getTime() - staleDays * 24 * 60 * 60 * 1000);
+  const staleCases = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,stage,last_gp_activity_at&status=eq.active&last_gp_activity_at=lt.' + staleDate.toISOString());
+  if (staleCases.ok && Array.isArray(staleCases.data)) {
+    for (const c of staleCases.data) {
+      if (!(await _hasOpenTaskByDomain(c.id, 'system', 'sla_overdue'))) {
+        await _createVaTask(c.id, {
+          task_type: 'sla_overdue', title: 'Follow up: no GP activity for ' + staleDays + ' days',
+          domain: 'system', priority: 'high',
+          source_trigger: 'sla_check', related_stage: c.stage,
+          sla_due_date: new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          _actor: actor || 'system'
+        });
+        created++;
+      }
+    }
+  }
+
+  // Find tasks past due date
+  const overdueTasks = await supabaseDbRequest('registration_tasks',
+    'select=id,case_id&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)&due_date=lt.' + now.toISOString().slice(0, 10) + '&limit=100');
+  const checked = (staleCases.ok ? (staleCases.data || []).length : 0) + (overdueTasks.ok ? (overdueTasks.data || []).length : 0);
+
+  return { checked, created };
+}
+
+function generateQuestionnairePdf(questionnaire, gpProfile, visaCase) {
+  let PDFDocument;
+  try { PDFDocument = require('pdfkit'); } catch (e) { return null; }
+
+  const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+  const chunks = [];
+  doc.on('data', function (chunk) { chunks.push(chunk); });
+
+  const data = questionnaire.data || {};
+  const primary = data.primary || {};
+  const partner = data.partner || {};
+  const children = Array.isArray(data.children) ? data.children : [];
+
+  // Header
+  doc.fontSize(20).font('Helvetica-Bold').text('GP Link', { align: 'center' });
+  doc.fontSize(10).font('Helvetica').text('Visa Intake Questionnaire', { align: 'center' });
+  doc.moveDown(0.5);
+  doc.fontSize(8).fillColor('#666666')
+    .text('Generated: ' + new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC | Version: ' + (questionnaire.version || 1), { align: 'center' });
+  doc.fillColor('#000000');
+  doc.moveDown(0.3);
+  doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#cccccc');
+  doc.moveDown(0.5);
+
+  // Case info
+  const gpName = gpProfile ? [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim() : 'Unknown';
+  doc.fontSize(9).font('Helvetica-Bold').text('GP: ', { continued: true }).font('Helvetica').text(gpName);
+  if (visaCase) {
+    if (visaCase.sponsor_name) doc.font('Helvetica-Bold').text('Sponsor: ', { continued: true }).font('Helvetica').text(visaCase.sponsor_name);
+    if (visaCase.visa_subclass) doc.font('Helvetica-Bold').text('Visa Subclass: ', { continued: true }).font('Helvetica').text(visaCase.visa_subclass);
+    if (visaCase.reference_number) doc.font('Helvetica-Bold').text('Reference: ', { continued: true }).font('Helvetica').text(visaCase.reference_number);
+  }
+  doc.moveDown(0.8);
+
+  function addSection(title) {
+    doc.fontSize(13).font('Helvetica-Bold').fillColor('#1a365d').text(title);
+    doc.fillColor('#000000');
+    doc.moveTo(50, doc.y + 2).lineTo(545, doc.y + 2).stroke('#2b6cb0');
+    doc.moveDown(0.5);
+  }
+
+  function addField(label, value) {
+    if (value === undefined || value === null || value === '') return;
+    const displayVal = typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value);
+    doc.fontSize(9).font('Helvetica-Bold').text(label + ': ', { continued: true }).font('Helvetica').text(displayVal);
+  }
+
+  function addCountryList(label, countries) {
+    if (!Array.isArray(countries) || countries.length === 0) return;
+    const list = countries.map(function (c) {
+      return (c.country || 'Unknown') + (c.from ? ' (' + c.from + ' – ' + (c.to || 'present') + ')' : '');
+    }).join('; ');
+    addField(label, list);
+  }
+
+  // Primary applicant
+  addSection('Primary Applicant');
+  addField('First Name', primary.firstName);
+  addField('Middle Names', primary.middleNames);
+  addField('Last Name', primary.lastName);
+  addField('Date of Birth', primary.dateOfBirth);
+  addField('Sex', primary.sex);
+  addField('Place of Birth', primary.placeOfBirth);
+  addField('Passport Number', primary.passportNumber);
+  addField('Passport Issue Date', primary.passportIssueDate);
+  addField('Passport Expiry Date', primary.passportExpiryDate);
+  addField('Passport Issuing Authority', primary.passportIssuingAuthority);
+  addField('Mobile Phone', primary.mobilePhone);
+  addField('Residential Address', primary.residentialAddress);
+  addField('Usual Occupation', primary.usualOccupation);
+  addCountryList('Countries Lived In (12+ months, last 10 years)', primary.countriesLivedIn);
+  addField('Previously Married/Divorced', primary.previouslyMarried);
+  addField('Serious Medical Conditions', primary.seriousMedicalConditions);
+  addField('Criminal Record', primary.criminalRecord);
+  addField('Military Service', primary.militaryService);
+  addField('English Test in Last 3 Years', primary.englishTestRecent);
+  doc.moveDown(0.8);
+
+  // Partner
+  if (partner && (partner.firstName || partner.lastName)) {
+    addSection('Secondary Applicant / Partner');
+    addField('First Name', partner.firstName);
+    addField('Middle Names', partner.middleNames);
+    addField('Last Name', partner.lastName);
+    addField('Passport Number', partner.passportNumber);
+    addField('Passport Issue Date', partner.passportIssueDate);
+    addField('Passport Expiry Date', partner.passportExpiryDate);
+    addField('Passport Issuing Authority', partner.passportIssuingAuthority);
+    addField('Date of Birth', partner.dateOfBirth);
+    addField('Sex', partner.sex);
+    addField('Place of Birth', partner.placeOfBirth);
+    addField('Mobile Phone', partner.mobilePhone);
+    addField('Usual Occupation', partner.usualOccupation);
+    addCountryList('Countries Lived In', partner.countriesLivedIn);
+    addField('Previously Married/Divorced', partner.previouslyMarried);
+    addField('Serious Medical Conditions', partner.seriousMedicalConditions);
+    addField('Criminal Record', partner.criminalRecord);
+    addField('Military Service', partner.militaryService);
+    addField('In Australia: Attending/Teaching Classes', partner.auAttendingClasses);
+    addField('In Australia: Working in Healthcare', partner.auWorkingHealthcare);
+    addField('In Australia: Working in Childcare', partner.auWorkingChildcare);
+    doc.moveDown(0.8);
+  }
+
+  // Children
+  if (children.length > 0) {
+    addSection('Children');
+    children.forEach(function (child, i) {
+      doc.fontSize(10).font('Helvetica-Bold').text('Child ' + (i + 1));
+      addField('First Name', child.firstName);
+      addField('Middle Names', child.middleNames);
+      addField('Last Name', child.lastName);
+      addField('Passport Number', child.passportNumber);
+      addField('Passport Issue Date', child.passportIssueDate);
+      addField('Passport Expiry Date', child.passportExpiryDate);
+      addField('Passport Issuing Authority', child.passportIssuingAuthority);
+      addField('Date of Birth', child.dateOfBirth);
+      addField('Sex', child.sex);
+      addField('Place of Birth', child.placeOfBirth);
+      addField('Serious Medical Conditions', child.seriousMedicalConditions);
+      addField('Criminal Record', child.criminalRecord);
+      addField('Migrating With You', child.migratingWithYou);
+      addField('In Australia: Attending Classes', child.auAttendingClasses);
+      addField('In Australia: Attending Childcare', child.auAttendingChildcare);
+      doc.moveDown(0.4);
+    });
+  }
+
+  // Footer on each page
+  const pageCount = doc.bufferedPageRange().count;
+  for (let i = 0; i < pageCount; i++) {
+    doc.switchToPage(i);
+    doc.fontSize(7).fillColor('#999999')
+      .text('GP Link Visa Intake Questionnaire — Page ' + (i + 1) + ' of ' + pageCount, 50, 780, { align: 'center' });
+  }
+  doc.fillColor('#000000');
+
+  doc.end();
+  return new Promise(function (resolve) {
+    doc.on('end', function () { resolve(Buffer.concat(chunks)); });
+  });
+}
+
+// Ensure practice_doc_ops records exist for a case
+async function _ensurePracticeDocOps(caseId) {
+  if (!isSupabaseDbConfigured()) return [];
+  const existing = await supabaseDbRequest('practice_doc_ops', 'select=*&case_id=eq.' + encodeURIComponent(caseId));
+  const existingKeys = new Set((existing.ok && Array.isArray(existing.data) ? existing.data : []).map(function (d) { return d.document_key; }));
+  const toInsert = [];
+  for (const key of PRACTICE_DOC_KEYS) {
+    if (!existingKeys.has(key)) toInsert.push({ case_id: caseId, document_key: key, ops_status: 'not_requested' });
+  }
+  if (toInsert.length > 0) {
+    await supabaseDbRequest('practice_doc_ops', '', { method: 'POST', body: toInsert });
+  }
+  const all = await supabaseDbRequest('practice_doc_ops', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.asc');
+  return all.ok && Array.isArray(all.data) ? all.data : [];
+}
+
 function getTimestampMs(value) {
   if (!value) return 0;
   const ts = new Date(value).getTime();
@@ -14261,12 +14608,23 @@ Return ONLY valid JSON with no markdown formatting:
           return;
         }
         const created = Array.isArray(createResult.data) && createResult.data.length > 0 ? createResult.data[0] : null;
-        // Auto-create "Case created" timeline event
+        // Auto-create "Case created" timeline event + link to reg case
         if (created) {
           await supabaseDbRequest('visa_timeline_events', '', {
             method: 'POST',
             body: [{ visa_case_id: created.id, event_title: 'Visa case created', event_description: created.visa_subclass ? 'Subclass ' + created.visa_subclass : null, visible_to_gp: true, created_by: adminCtx.email }]
           });
+          // Link visa case to registration case and create initial task
+          _linkVisaCaseToRegCase(targetUserId, created.id).catch(function () {});
+          const rc = await _getRegCaseForUser(targetUserId);
+          if (rc) {
+            _createVaTask(rc.id, {
+              task_type: 'visa_stage', title: 'Review visa case setup',
+              domain: 'visa', visa_case_id: created.id,
+              priority: 'high', source_trigger: 'visa_case_created',
+              related_stage: 'visa', _actor: adminCtx.email
+            }).catch(function () {});
+          }
         }
         sendJson(res, 201, { ok: true, application: created });
         return;
@@ -14318,6 +14676,17 @@ Return ONLY valid JSON with no markdown formatting:
         body: [{ visa_case_id: updated.id, event_title: 'Stage changed to ' + label, visible_to_gp: true, created_by: adminCtx.email }]
       });
       pushVisaNotificationToOwner(updated.id, { type: 'action', title: 'Visa stage updated', detail: 'Your visa case has moved to ' + label });
+    }
+
+    // Fire-and-forget: create/complete visa tasks
+    if (updated && updated.user_id) {
+      const visaChanges = {};
+      if (stage && oldStage && stage !== oldStage) visaChanges.stage = stage;
+      if (updatePayload.sponsor_name) visaChanges.sponsorName = updatePayload.sponsor_name;
+      if (updatePayload.sponsor_contact) visaChanges.sponsorContact = updatePayload.sponsor_contact;
+      if (Object.keys(visaChanges).length > 0) {
+        processVisaTaskAutomation(updated.id, updated.user_id, visaChanges, adminCtx.email).catch(function () {});
+      }
     }
 
     sendJson(res, 200, { ok: true, application: updated });
@@ -14401,6 +14770,17 @@ Return ONLY valid JSON with no markdown formatting:
       method: 'POST',
       body: [{ visa_case_id: visaApplicationId, event_title: documentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' uploaded', visible_to_gp: true, created_by: 'system' }]
     });
+
+    // Create review task for VA
+    const rc = await _getRegCaseForUser(userId);
+    if (rc) {
+      _createVaTask(rc.id, {
+        task_type: 'visa_doc', title: 'Review visa document: ' + documentType.replace(/_/g, ' '),
+        domain: 'visa', visa_case_id: visaApplicationId,
+        source_trigger: 'visa_doc_upload', related_stage: 'visa',
+        related_document_key: documentType, _actor: 'system'
+      }).catch(function () {});
+    }
 
     sendJson(res, 201, { ok: true, document: doc });
     return;
@@ -15428,6 +15808,626 @@ Return ONLY valid JSON with no markdown formatting:
       const created = Array.isArray(createResult.data) && createResult.data.length > 0 ? createResult.data[0] : null;
       sendJson(res, 201, { ok: true, item: created });
     }
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // VA Unified Operations API Endpoints
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── Unified Ops Queue: all open tasks across all domains ──
+  if (pathname === '/api/admin/ops/queue' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const domainFilter = url.searchParams.get('domain') || '';
+    const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked';
+    const priorityFilter = url.searchParams.get('priority') || '';
+    const assigneeFilter = url.searchParams.get('assignee') || '';
+    const overdueOnly = url.searchParams.get('overdue') === 'true';
+    const limit = Math.min(Math.max(1, Number(url.searchParams.get('limit')) || 200), 500);
+
+    let query = 'select=*&order=priority.asc,created_at.desc&limit=' + limit;
+    const statuses = statusFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (statuses.length > 0) query += '&status=in.(' + statuses.join(',') + ')';
+    if (domainFilter) query += '&domain=eq.' + encodeURIComponent(domainFilter);
+    if (priorityFilter) query += '&priority=eq.' + encodeURIComponent(priorityFilter);
+    if (assigneeFilter) query += '&assignee=eq.' + encodeURIComponent(assigneeFilter);
+    if (overdueOnly) query += '&due_date=lt.' + new Date().toISOString().slice(0, 10);
+
+    const tasksRes = await supabaseDbRequest('registration_tasks', query);
+    if (!tasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load tasks.' }); return; }
+    const tasks = Array.isArray(tasksRes.data) ? tasksRes.data : [];
+
+    // Enrich with case + GP info
+    const caseIds = [...new Set(tasks.map(function (t) { return t.case_id; }).filter(Boolean))];
+    let caseMap = {};
+    if (caseIds.length > 0) {
+      const cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,assigned_va,visa_case_id,practice_name,sponsor_name&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
+      if (cRes.ok && Array.isArray(cRes.data)) { cRes.data.forEach(function (c) { caseMap[c.id] = c; }); }
+    }
+    const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
+    let profileMap = {};
+    if (userIds.length > 0) {
+      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
+    }
+    const enriched = tasks.map(function (t) {
+      const c = caseMap[t.case_id] || {};
+      const p = profileMap[c.user_id] || {};
+      return Object.assign({}, t, {
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_email: p.email || '',
+        case_stage: c.stage || '',
+        case_status: c.status || '',
+        practice_name: c.practice_name || '',
+        sponsor_name: c.sponsor_name || ''
+      });
+    });
+    sendJson(res, 200, { ok: true, tasks: enriched });
+    return;
+  }
+
+  // ── Admin: Create visa-domain task ──
+  if (pathname === '/api/admin/visa/task' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    if (!body || !body.case_id || !body.title) { sendJson(res, 400, { ok: false, message: 'case_id and title required.' }); return; }
+    const domain = body.domain && VA_TASK_DOMAINS.includes(body.domain) ? body.domain : 'visa';
+    const taskType = body.task_type && VA_TASK_TYPES_EXTENDED.includes(body.task_type) ? body.task_type : 'manual';
+    const task = await _createVaTask(body.case_id, {
+      task_type: taskType,
+      title: body.title,
+      description: body.description || null,
+      domain: domain,
+      priority: body.priority || 'normal',
+      status: body.status || 'open',
+      due_date: body.due_date || null,
+      follow_up_date: body.follow_up_date || null,
+      visa_case_id: body.visa_case_id || null,
+      related_stage: body.related_stage || 'visa',
+      related_document_key: body.related_document_key || null,
+      related_ticket_id: body.related_ticket_id || null,
+      parent_task_id: body.parent_task_id || null,
+      source_trigger: 'va_manual',
+      created_by: adminCtx.email,
+      _actor: adminCtx.email
+    });
+    if (!task) { sendJson(res, 502, { ok: false, message: 'Failed to create task.' }); return; }
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(body.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+    sendJson(res, 201, { ok: true, task: task });
+    return;
+  }
+
+  // ── Admin: Update visa case (extended) ──
+  if (pathname === '/api/admin/visa/case' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const allowed = ['stage', 'visa_subclass', 'visa_type', 'sponsor_status', 'responsible_party', 'estimated_timeline',
+      'current_action_title', 'current_action_description', 'current_action_owner', 'current_action_due_date',
+      'sponsor_name', 'sponsor_contact', 'reference_number', 'status_message', 'nomination_date', 'lodgement_date', 'grant_date'];
+    const patch = {};
+    for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    patch.updated_at = new Date().toISOString();
+    // Fetch old stage for automation
+    const oldRes = await supabaseDbRequest('visa_applications', 'select=id,user_id,stage&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    const oldCase = oldRes.ok && Array.isArray(oldRes.data) && oldRes.data.length > 0 ? oldRes.data[0] : null;
+    if (!oldCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    const r = await supabaseDbRequest('visa_applications', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
+    const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+
+    // Timeline event for stage change
+    if (updated && patch.stage && oldCase.stage !== patch.stage) {
+      const stageLabels = { nomination: 'Nomination', lodgement: 'Lodgement', processing: 'Processing', granted: 'Granted', refused: 'Refused' };
+      await supabaseDbRequest('visa_timeline_events', '', {
+        method: 'POST',
+        body: [{ visa_case_id: updated.id, event_title: 'Stage changed to ' + (stageLabels[patch.stage] || patch.stage), visible_to_gp: true, created_by: adminCtx.email }]
+      });
+      pushVisaNotificationToOwner(updated.id, { type: 'action', title: 'Visa stage updated', detail: 'Your visa case has moved to ' + (stageLabels[patch.stage] || patch.stage) });
+    }
+
+    // Fire-and-forget task automation
+    const visaChanges = {};
+    if (patch.stage && oldCase.stage !== patch.stage) visaChanges.stage = patch.stage;
+    if (patch.sponsor_name) visaChanges.sponsorName = patch.sponsor_name;
+    if (patch.sponsor_contact) visaChanges.sponsorContact = patch.sponsor_contact;
+    if (Object.keys(visaChanges).length > 0) {
+      processVisaTaskAutomation(caseId, oldCase.user_id, visaChanges, adminCtx.email).catch(function () {});
+    }
+
+    // Update reg case sponsor info if present
+    if (patch.sponsor_name || patch.sponsor_contact) {
+      const rc = await _getRegCaseForUser(oldCase.user_id);
+      if (rc) {
+        const rcPatch = {};
+        if (patch.sponsor_name) rcPatch.sponsor_name = patch.sponsor_name;
+        if (patch.sponsor_contact) rcPatch.sponsor_contact = patch.sponsor_contact;
+        rcPatch.last_va_action_at = new Date().toISOString();
+        await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(rc.id), { method: 'PATCH', body: rcPatch });
+      }
+    }
+
+    sendJson(res, 200, { ok: true, application: updated });
+    return;
+  }
+
+  // ── Admin: Get enriched case detail (unified: reg + visa + tasks + timeline + docs) ──
+  if (pathname === '/api/admin/ops/case' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    const [caseRes, tasksRes, tlRes, docOpsRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(caseId) + '&limit=1'),
+      supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc'),
+      supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200'),
+      supabaseDbRequest('practice_doc_ops', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.asc')
+    ]);
+    if (!caseRes.ok || !Array.isArray(caseRes.data) || caseRes.data.length === 0) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+    const regCase = caseRes.data[0];
+    const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone_number&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+    const profile = pRes.ok && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data[0] : {};
+    regCase.gp_name = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || 'Unknown';
+    regCase.gp_email = profile.email || '';
+    regCase.gp_phone = profile.phone_number || '';
+
+    // Fetch visa case detail if linked
+    let visaCase = null;
+    let visaDocs = [];
+    let visaUpdates = [];
+    let visaTimeline = [];
+    let visaDependants = [];
+    let questionnaire = null;
+    if (regCase.visa_case_id) {
+      const vcId = encodeURIComponent(regCase.visa_case_id);
+      const [vcRes, vdRes, vuRes, vtRes, vdepRes, vqRes] = await Promise.all([
+        supabaseDbRequest('visa_applications', 'select=*&id=eq.' + vcId + '&limit=1'),
+        supabaseDbRequest('visa_documents', 'select=*&visa_application_id=eq.' + vcId + '&order=uploaded_at.desc'),
+        supabaseDbRequest('visa_updates', 'select=*&visa_case_id=eq.' + vcId + '&order=created_at.desc'),
+        supabaseDbRequest('visa_timeline_events', 'select=*&visa_case_id=eq.' + vcId + '&order=created_at.desc'),
+        supabaseDbRequest('visa_dependants', 'select=*&visa_case_id=eq.' + vcId + '&order=created_at.asc'),
+        supabaseDbRequest('visa_questionnaires', 'select=*&visa_case_id=eq.' + vcId + '&limit=1')
+      ]);
+      visaCase = vcRes.ok && Array.isArray(vcRes.data) && vcRes.data.length > 0 ? vcRes.data[0] : null;
+      visaDocs = vdRes.ok && Array.isArray(vdRes.data) ? vdRes.data : [];
+      visaUpdates = vuRes.ok && Array.isArray(vuRes.data) ? vuRes.data : [];
+      visaTimeline = vtRes.ok && Array.isArray(vtRes.data) ? vtRes.data : [];
+      visaDependants = vdepRes.ok && Array.isArray(vdepRes.data) ? vdepRes.data : [];
+      questionnaire = vqRes.ok && Array.isArray(vqRes.data) && vqRes.data.length > 0 ? vqRes.data[0] : null;
+    }
+
+    // Fetch linked support tickets from user state
+    const stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+    let supportTickets = [];
+    if (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data.length > 0) {
+      const st = stateRes.data[0].state;
+      const rawTickets = st && st.gpLinkSupportCases;
+      if (typeof rawTickets === 'string') { try { supportTickets = JSON.parse(rawTickets); } catch { supportTickets = []; } }
+      else if (Array.isArray(rawTickets)) supportTickets = rawTickets;
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      case: regCase,
+      tasks: tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [],
+      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [],
+      practiceDocOps: docOpsRes.ok && Array.isArray(docOpsRes.data) ? docOpsRes.data : [],
+      visaCase: visaCase,
+      visaDocs: visaDocs,
+      visaUpdates: visaUpdates,
+      visaTimeline: visaTimeline,
+      visaDependants: visaDependants,
+      questionnaire: questionnaire,
+      supportTickets: supportTickets
+    });
+    return;
+  }
+
+  // ── Practice Doc Ops: Get for a case ──
+  if (pathname === '/api/admin/practice-docs' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('caseId');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing caseId.' }); return; }
+    const docs = await _ensurePracticeDocOps(caseId);
+    sendJson(res, 200, { ok: true, docs: docs });
+    return;
+  }
+
+  // ── Practice Doc Ops: Update ──
+  if (pathname === '/api/admin/practice-docs' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const docId = body && body.id;
+    if (!docId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    const allowed = ['ops_status', 'requested_from', 'practice_contact', 'request_date', 'due_date', 'last_chased_date', 'file_version', 'review_outcome', 'correction_note'];
+    const patch = {};
+    for (const key of allowed) { if (body[key] !== undefined) patch[key] = body[key]; }
+    if (patch.ops_status && !PRACTICE_DOC_OPS_STATUSES.includes(patch.ops_status)) { sendJson(res, 400, { ok: false, message: 'Invalid ops_status.' }); return; }
+    const r = await supabaseDbRequest('practice_doc_ops', 'id=eq.' + encodeURIComponent(docId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
+    const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+    // Create document_ops task if status changed to actionable
+    if (updated && patch.ops_status && ['requested', 'awaiting_practice', 'under_review', 'needs_correction'].includes(patch.ops_status)) {
+      const docLabel = (updated.document_key || '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+      const rc = await _getRegCaseForUser(''); // we need case_id directly
+      // case_id is on the doc ops record
+      if (!(await _hasOpenTaskByDomain(updated.case_id, 'document', 'document_ops'))) {
+        await _createVaTask(updated.case_id, {
+          task_type: 'document_ops', title: docLabel + ': ' + patch.ops_status.replace(/_/g, ' '),
+          domain: 'document', related_stage: 'career', related_document_key: updated.document_key,
+          source_trigger: 'practice_doc_status_change', _actor: adminCtx.email
+        });
+      }
+    }
+    // Timeline
+    if (updated) {
+      await _logCaseEvent(updated.case_id, null, 'status_change', 'Practice doc ' + (updated.document_key || '') + ' → ' + (patch.ops_status || ''), JSON.stringify(patch), adminCtx.email);
+    }
+    sendJson(res, 200, { ok: true, doc: updated });
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Visa Questionnaire Endpoints
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── GP: Get own questionnaire ──
+  if (pathname === '/api/visa/questionnaire' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const visaCaseId = url.searchParams.get('visaCaseId');
+    if (!visaCaseId) { sendJson(res, 400, { ok: false, message: 'Missing visaCaseId.' }); return; }
+    // Verify ownership
+    const own = await supabaseDbRequest('visa_applications', 'select=id&id=eq.' + encodeURIComponent(visaCaseId) + '&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!own.ok || !Array.isArray(own.data) || own.data.length === 0) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
+    const qRes = await supabaseDbRequest('visa_questionnaires', 'select=*&visa_case_id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1');
+    const questionnaire = qRes.ok && Array.isArray(qRes.data) && qRes.data.length > 0 ? qRes.data[0] : null;
+    // Strip admin-only fields for GP
+    if (questionnaire) {
+      delete questionnaire.review_note;
+      delete questionnaire.send_note;
+      delete questionnaire.reviewed_by;
+      delete questionnaire.sent_by;
+      delete questionnaire.recipient_route;
+    }
+    sendJson(res, 200, { ok: true, questionnaire: questionnaire });
+    return;
+  }
+
+  // ── GP: Save/submit questionnaire ──
+  if (pathname === '/api/visa/questionnaire' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!enforceApiRateLimit(req, res, session)) return;
+    const email = getSessionEmail(session);
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const visaCaseId = String(body && body.visaCaseId || '').trim();
+    const action = String(body && body.action || '').trim(); // 'save' or 'submit'
+    const data = body && body.data && typeof body.data === 'object' ? body.data : {};
+    if (!visaCaseId) { sendJson(res, 400, { ok: false, message: 'Missing visaCaseId.' }); return; }
+    if (!['save', 'submit'].includes(action)) { sendJson(res, 400, { ok: false, message: 'action must be save or submit.' }); return; }
+
+    // Verify ownership
+    const own = await supabaseDbRequest('visa_applications', 'select=id&id=eq.' + encodeURIComponent(visaCaseId) + '&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (!own.ok || !Array.isArray(own.data) || own.data.length === 0) { sendJson(res, 403, { ok: false, message: 'Not authorized.' }); return; }
+
+    // Check if questionnaire exists
+    const existing = await supabaseDbRequest('visa_questionnaires', 'select=*&visa_case_id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1');
+    const existingQ = existing.ok && Array.isArray(existing.data) && existing.data.length > 0 ? existing.data[0] : null;
+
+    if (existingQ) {
+      // Can only edit if draft or returned_for_changes
+      if (!['draft', 'returned_for_changes'].includes(existingQ.status)) {
+        sendJson(res, 409, { ok: false, message: 'Questionnaire cannot be edited in current status (' + existingQ.status + ').' });
+        return;
+      }
+      const patch = { data: data };
+      if (action === 'submit') {
+        patch.status = 'submitted';
+        if (existingQ.status === 'returned_for_changes') patch.version = (existingQ.version || 1) + 1;
+      }
+      const r = await supabaseDbRequest('visa_questionnaires', 'id=eq.' + encodeURIComponent(existingQ.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+      if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update questionnaire.' }); return; }
+      const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+      if (action === 'submit' && updated) {
+        // Create timeline event
+        await supabaseDbRequest('visa_timeline_events', '', {
+          method: 'POST', body: [{ visa_case_id: visaCaseId, event_title: 'Visa intake questionnaire submitted (v' + (updated.version || 1) + ')', visible_to_gp: true, created_by: 'GP' }]
+        });
+        // Task automation
+        const rc = await _getRegCaseForUser(userId);
+        if (rc) {
+          await _logCaseEvent(rc.id, null, 'questionnaire_submitted', 'Questionnaire submitted (v' + (updated.version || 1) + ')', null, email);
+          processQuestionnaireTaskAutomation(rc.id, visaCaseId, 'submitted', 'system').catch(function () {});
+        }
+      }
+      // Strip admin-only fields
+      if (updated) { delete updated.review_note; delete updated.send_note; delete updated.reviewed_by; delete updated.sent_by; delete updated.recipient_route; }
+      sendJson(res, 200, { ok: true, questionnaire: updated });
+    } else {
+      // Create new
+      const status = action === 'submit' ? 'submitted' : 'draft';
+      const r = await supabaseDbRequest('visa_questionnaires', '', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: [{ visa_case_id: visaCaseId, user_id: userId, status: status, version: 1, data: data }]
+      });
+      if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to create questionnaire.' }); return; }
+      const created = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+      if (action === 'submit' && created) {
+        await supabaseDbRequest('visa_timeline_events', '', {
+          method: 'POST', body: [{ visa_case_id: visaCaseId, event_title: 'Visa intake questionnaire submitted', visible_to_gp: true, created_by: 'GP' }]
+        });
+        const rc = await _getRegCaseForUser(userId);
+        if (rc) {
+          await _logCaseEvent(rc.id, null, 'questionnaire_submitted', 'Questionnaire submitted', null, email);
+          processQuestionnaireTaskAutomation(rc.id, visaCaseId, 'submitted', 'system').catch(function () {});
+        }
+      }
+      if (created) { delete created.review_note; delete created.send_note; delete created.reviewed_by; delete created.sent_by; delete created.recipient_route; }
+      sendJson(res, 201, { ok: true, questionnaire: created });
+    }
+    return;
+  }
+
+  // ── Admin: Get questionnaire for review ──
+  if (pathname === '/api/admin/visa/questionnaire' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const visaCaseId = url.searchParams.get('visaCaseId');
+    if (!visaCaseId) { sendJson(res, 400, { ok: false, message: 'Missing visaCaseId.' }); return; }
+    const qRes = await supabaseDbRequest('visa_questionnaires', 'select=*&visa_case_id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1');
+    const questionnaire = qRes.ok && Array.isArray(qRes.data) && qRes.data.length > 0 ? qRes.data[0] : null;
+    sendJson(res, 200, { ok: true, questionnaire: questionnaire });
+    return;
+  }
+
+  // ── Admin: Review/return questionnaire ──
+  if (pathname === '/api/admin/visa/questionnaire/review' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const visaCaseId = String(body && body.visaCaseId || '').trim();
+    const action = String(body && body.action || '').trim(); // 'approve' or 'return'
+    if (!visaCaseId || !['approve', 'return'].includes(action)) { sendJson(res, 400, { ok: false, message: 'visaCaseId and action (approve|return) required.' }); return; }
+
+    const qRes = await supabaseDbRequest('visa_questionnaires', 'select=*&visa_case_id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1');
+    const q = qRes.ok && Array.isArray(qRes.data) && qRes.data.length > 0 ? qRes.data[0] : null;
+    if (!q) { sendJson(res, 404, { ok: false, message: 'Questionnaire not found.' }); return; }
+    if (q.status !== 'submitted') { sendJson(res, 409, { ok: false, message: 'Questionnaire must be in submitted status to review.' }); return; }
+
+    const patch = { reviewed_by: adminCtx.email, reviewed_at: new Date().toISOString() };
+    if (action === 'approve') {
+      patch.status = 'va_reviewed';
+      patch.review_note = body.reviewNote ? String(body.reviewNote).trim().slice(0, 2000) : null;
+    } else {
+      patch.status = 'returned_for_changes';
+      patch.return_note = body.returnNote ? String(body.returnNote).trim().slice(0, 2000) : '';
+    }
+    const r = await supabaseDbRequest('visa_questionnaires', 'id=eq.' + encodeURIComponent(q.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update questionnaire.' }); return; }
+    const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+
+    // Timeline + notification
+    const evTitle = action === 'approve' ? 'Questionnaire reviewed and approved' : 'Questionnaire returned for changes';
+    await supabaseDbRequest('visa_timeline_events', '', {
+      method: 'POST', body: [{ visa_case_id: visaCaseId, event_title: evTitle, visible_to_gp: true, created_by: adminCtx.email }]
+    });
+    pushVisaNotificationToOwner(visaCaseId, {
+      type: action === 'approve' ? 'success' : 'action',
+      title: action === 'approve' ? 'Questionnaire approved' : 'Questionnaire returned',
+      detail: action === 'approve' ? 'Your visa intake questionnaire has been reviewed' : (patch.return_note || 'Please update and resubmit your questionnaire')
+    });
+
+    // Task automation
+    const rc = await _getRegCaseForUser(q.user_id);
+    if (rc) {
+      const evType = action === 'approve' ? 'questionnaire_reviewed' : 'questionnaire_returned';
+      await _logCaseEvent(rc.id, null, evType, evTitle, action === 'return' ? patch.return_note : null, adminCtx.email);
+      processQuestionnaireTaskAutomation(rc.id, visaCaseId, action === 'approve' ? 'va_reviewed' : 'returned_for_changes', adminCtx.email).catch(function () {});
+    }
+
+    sendJson(res, 200, { ok: true, questionnaire: updated });
+    return;
+  }
+
+  // ── Admin: Generate questionnaire PDF ──
+  if (pathname === '/api/admin/visa/questionnaire/pdf' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const visaCaseId = url.searchParams.get('visaCaseId');
+    if (!visaCaseId) { sendJson(res, 400, { ok: false, message: 'Missing visaCaseId.' }); return; }
+
+    const [qRes, vcRes] = await Promise.all([
+      supabaseDbRequest('visa_questionnaires', 'select=*&visa_case_id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1'),
+      supabaseDbRequest('visa_applications', 'select=*&id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1')
+    ]);
+    const q = qRes.ok && Array.isArray(qRes.data) && qRes.data.length > 0 ? qRes.data[0] : null;
+    const vc = vcRes.ok && Array.isArray(vcRes.data) && vcRes.data.length > 0 ? vcRes.data[0] : null;
+    if (!q) { sendJson(res, 404, { ok: false, message: 'Questionnaire not found.' }); return; }
+
+    let gpProfile = null;
+    if (q.user_id) {
+      const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(q.user_id) + '&limit=1');
+      gpProfile = pRes.ok && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data[0] : null;
+    }
+
+    const pdfBuffer = await generateQuestionnairePdf(q, gpProfile, vc);
+    if (!pdfBuffer) {
+      sendJson(res, 500, { ok: false, message: 'PDF generation failed. Ensure pdfkit is installed.' });
+      return;
+    }
+
+    // Update questionnaire metadata
+    await supabaseDbRequest('visa_questionnaires', 'id=eq.' + encodeURIComponent(q.id), {
+      method: 'PATCH', body: { pdf_generated_at: new Date().toISOString(), pdf_version: q.version || 1 }
+    });
+
+    // Timeline
+    const rc = await _getRegCaseForUser(q.user_id);
+    if (rc) {
+      await _logCaseEvent(rc.id, null, 'pdf_generated', 'Questionnaire PDF generated (v' + (q.version || 1) + ')', null, adminCtx.email);
+    }
+
+    const gpName = gpProfile ? [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join('_').trim().replace(/\s/g, '_') || 'GP' : 'GP';
+    const fileName = 'VisaIntakeQuestionnaire_' + gpName + '_v' + (q.version || 1) + '.pdf';
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'attachment; filename="' + fileName + '"',
+      'Content-Length': pdfBuffer.length
+    });
+    res.end(pdfBuffer);
+    return;
+  }
+
+  // ── Admin: Mark questionnaire as ready to send / sent ──
+  if (pathname === '/api/admin/visa/questionnaire/send' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const visaCaseId = String(body && body.visaCaseId || '').trim();
+    const action = String(body && body.action || '').trim(); // 'ready' or 'sent'
+    const recipientRoute = body && body.recipientRoute && QUESTIONNAIRE_ROUTES.includes(body.recipientRoute) ? body.recipientRoute : null;
+    if (!visaCaseId || !['ready', 'sent'].includes(action)) { sendJson(res, 400, { ok: false, message: 'visaCaseId and action (ready|sent) required.' }); return; }
+
+    const qRes = await supabaseDbRequest('visa_questionnaires', 'select=*&visa_case_id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1');
+    const q = qRes.ok && Array.isArray(qRes.data) && qRes.data.length > 0 ? qRes.data[0] : null;
+    if (!q) { sendJson(res, 404, { ok: false, message: 'Questionnaire not found.' }); return; }
+
+    const patch = {};
+    if (action === 'ready') {
+      if (!['va_reviewed'].includes(q.status)) { sendJson(res, 409, { ok: false, message: 'Must be va_reviewed to mark ready.' }); return; }
+      patch.status = 'ready_to_send';
+      if (recipientRoute) patch.recipient_route = recipientRoute;
+      patch.send_note = body.sendNote ? String(body.sendNote).trim().slice(0, 2000) : null;
+    } else {
+      if (!['ready_to_send', 'va_reviewed'].includes(q.status)) { sendJson(res, 409, { ok: false, message: 'Must be ready_to_send or va_reviewed to mark sent.' }); return; }
+      patch.status = 'sent';
+      patch.sent_by = adminCtx.email;
+      patch.sent_at = new Date().toISOString();
+      if (recipientRoute) patch.recipient_route = recipientRoute;
+      patch.send_note = body.sendNote ? String(body.sendNote).trim().slice(0, 2000) : null;
+    }
+    const r = await supabaseDbRequest('visa_questionnaires', 'id=eq.' + encodeURIComponent(q.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
+    const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+
+    // Route label
+    const routeLabels = { gplink_migration_agent: 'GP Link migration agent', practice_agent: 'practice migration agent', practice_direct: 'practice directly' };
+    const routeLabel = routeLabels[patch.recipient_route || q.recipient_route] || 'recipient';
+    const evTitle = action === 'sent' ? 'Questionnaire sent to ' + routeLabel : 'Questionnaire marked ready to send';
+    await supabaseDbRequest('visa_timeline_events', '', {
+      method: 'POST', body: [{ visa_case_id: visaCaseId, event_title: evTitle, visible_to_gp: false, created_by: adminCtx.email }]
+    });
+
+    // Task automation
+    const rc = await _getRegCaseForUser(q.user_id);
+    if (rc) {
+      await _logCaseEvent(rc.id, null, action === 'sent' ? 'questionnaire_sent' : 'status_change', evTitle, null, adminCtx.email);
+      if (action === 'sent') processQuestionnaireTaskAutomation(rc.id, visaCaseId, 'sent', adminCtx.email).catch(function () {});
+      else processQuestionnaireTaskAutomation(rc.id, visaCaseId, 'ready_to_send', adminCtx.email).catch(function () {});
+    }
+
+    sendJson(res, 200, { ok: true, questionnaire: updated });
+    return;
+  }
+
+  // ── Admin: Request questionnaire from GP (creates task + notification) ──
+  if (pathname === '/api/admin/visa/questionnaire/request' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const visaCaseId = String(body && body.visaCaseId || '').trim();
+    const userId = String(body && body.userId || '').trim();
+    if (!visaCaseId || !userId) { sendJson(res, 400, { ok: false, message: 'visaCaseId and userId required.' }); return; }
+
+    // Ensure questionnaire record exists (create as draft if not)
+    const existing = await supabaseDbRequest('visa_questionnaires', 'select=id,status&visa_case_id=eq.' + encodeURIComponent(visaCaseId) + '&limit=1');
+    if (!(existing.ok && Array.isArray(existing.data) && existing.data.length > 0)) {
+      await supabaseDbRequest('visa_questionnaires', '', {
+        method: 'POST', body: [{ visa_case_id: visaCaseId, user_id: userId, status: 'draft', version: 1, data: {} }]
+      });
+    }
+
+    // Timeline + notification
+    await supabaseDbRequest('visa_timeline_events', '', {
+      method: 'POST', body: [{ visa_case_id: visaCaseId, event_title: 'Visa intake questionnaire requested', visible_to_gp: true, created_by: adminCtx.email }]
+    });
+    pushVisaNotificationToOwner(visaCaseId, { type: 'action', title: 'Questionnaire requested', detail: 'Please complete your visa intake questionnaire' });
+
+    // Create task
+    const rc = await _getRegCaseForUser(userId);
+    if (rc) {
+      await _createVaTask(rc.id, {
+        task_type: 'questionnaire', title: 'Request visa intake questionnaire',
+        domain: 'questionnaire', visa_case_id: visaCaseId,
+        status: 'waiting_on_gp', priority: 'high',
+        source_trigger: 'va_request', related_stage: 'visa', _actor: adminCtx.email
+      });
+      await _logCaseEvent(rc.id, null, 'system', 'Questionnaire requested from GP', null, adminCtx.email);
+    }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Admin: SLA check ──
+  if (pathname === '/api/admin/sla/check' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const result = await runSlaCheck(adminCtx.email);
+    sendJson(res, 200, { ok: true, ...result });
+    return;
+  }
+
+  // ── Admin: Update registration case (extended with sponsor/agent fields) ──
+  if (pathname === '/api/admin/ops/case' && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const allowed = ['assigned_va', 'status', 'blocker_status', 'blocker_reason', 'next_followup_date',
+      'practice_name', 'practice_contact', 'handover_notes', 'gp_verified_stage', 'priority',
+      'sponsor_name', 'sponsor_contact', 'migration_agent', 'migration_agent_contact', 'risk_notes'];
+    const patch = {};
+    for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
+    patch.last_va_action_at = new Date().toISOString();
+    const r = await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update case.' }); return; }
+    const changes = Object.keys(patch).filter(function (k) { return k !== 'last_va_action_at'; });
+    if (changes.length > 0) {
+      const evType = changes.includes('assigned_va') ? 'owner_changed' : changes.includes('blocker_status') ? (patch.blocker_status ? 'blocker_set' : 'blocker_cleared') : 'status_change';
+      await _logCaseEvent(caseId, null, evType, 'Case updated: ' + changes.join(', '), JSON.stringify(patch), adminCtx.email);
+    }
+    sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
     return;
   }
 

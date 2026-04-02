@@ -535,6 +535,105 @@
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
+    /* ---- QUESTIONNAIRE ---- */
+    .q-container {
+      background: #fff; border: 1px solid #e8edf5;
+      border-radius: 16px; overflow: hidden;
+    }
+    .q-status-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 16px; border-bottom: 1px solid #e8edf5;
+      background: #f8fafc;
+    }
+    .q-status-pill {
+      font-size: 11px; font-weight: 700; padding: 3px 10px;
+      border-radius: 20px; text-transform: uppercase; letter-spacing: .03em;
+    }
+    .q-status-pill.draft { background: #e8edf5; color: #64748b; }
+    .q-status-pill.submitted { background: #dbeafe; color: #1d4ed8; }
+    .q-status-pill.returned { background: #fef3c7; color: #b45309; }
+    .q-status-pill.reviewed { background: #d1fae5; color: #059669; }
+    .q-status-pill.sent { background: #d1fae5; color: #047857; }
+    .q-not-started {
+      padding: 24px 16px; text-align: center;
+      font-size: 13px; color: var(--muted);
+    }
+    .q-return-note {
+      margin: 0 16px 12px; padding: 10px 12px;
+      background: #fef3c7; border-radius: 8px;
+      font-size: 12px; color: #92400e; line-height: 1.5;
+    }
+    .q-form { padding: 16px; }
+    .q-section-title {
+      font-size: 14px; font-weight: 800; color: var(--text);
+      margin: 20px 0 10px; padding-bottom: 6px;
+      border-bottom: 2px solid var(--blue);
+    }
+    .q-section-title:first-child { margin-top: 0; }
+    .q-field { margin-bottom: 10px; }
+    .q-field label {
+      display: block; font-size: 11px; font-weight: 700;
+      color: var(--muted); margin-bottom: 3px; text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+    .q-field input, .q-field select, .q-field textarea {
+      width: 100%; padding: 8px 10px;
+      font-size: 13px; border: 1px solid #d1d5db;
+      border-radius: 8px; background: #fff; color: var(--text);
+      font-family: inherit;
+    }
+    .q-field input:focus, .q-field select:focus, .q-field textarea:focus {
+      outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+    }
+    .q-field textarea { min-height: 48px; resize: vertical; }
+    .q-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .q-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .q-country-entry {
+      display: flex; gap: 6px; align-items: end; margin-bottom: 6px;
+      padding: 8px; background: #f8fafc; border-radius: 8px;
+    }
+    .q-country-entry .q-field { margin-bottom: 0; flex: 1; }
+    .q-remove-btn {
+      padding: 6px 8px; border: none; background: none;
+      color: var(--red); cursor: pointer; font-size: 12px; font-weight: 700;
+    }
+    .q-add-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 6px 12px; border: 1px dashed #94a3b8;
+      background: none; border-radius: 8px;
+      font-size: 12px; font-weight: 600; color: var(--muted);
+      cursor: pointer; margin-top: 4px;
+    }
+    .q-add-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .q-child-block {
+      background: #f8fafc; border: 1px solid #e8edf5;
+      border-radius: 10px; padding: 12px; margin-bottom: 10px;
+      position: relative;
+    }
+    .q-child-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px;
+    }
+    .q-child-header strong { font-size: 13px; }
+    .q-actions {
+      display: flex; gap: 8px; margin-top: 16px;
+      padding-top: 14px; border-top: 1px solid #e8edf5;
+    }
+    .q-btn {
+      padding: 10px 20px; border: none; border-radius: 10px;
+      font-size: 13px; font-weight: 700; cursor: pointer;
+      transition: background .15s;
+    }
+    .q-btn-primary { background: var(--blue); color: #fff; }
+    .q-btn-primary:hover { background: #1d4ed8; }
+    .q-btn-outline { background: none; border: 1px solid #d1d5db; color: var(--text); }
+    .q-btn-outline:hover { border-color: var(--blue); color: var(--blue); }
+    .q-submitted-msg {
+      padding: 20px 16px; text-align: center;
+      font-size: 13px; color: var(--muted); line-height: 1.6;
+    }
+    .q-submitted-msg strong { color: var(--text); }
+
     /* ---- DEPENDANTS ---- */
     .dep-list {
       background: #fff; border: 1px solid #e8edf5;
@@ -786,6 +885,14 @@
         </button>
       </div>
 
+      <!-- QUESTIONNAIRE -->
+      <div class="section-label" id="qSectionLabel" hidden>Visa Intake Questionnaire</div>
+      <div class="q-container" id="questionnaireContainer" hidden>
+        <div class="q-status-bar" id="qStatusBar"></div>
+        <div id="qReturnNote" class="q-return-note" hidden></div>
+        <div id="qContent"></div>
+      </div>
+
       <!-- SPONSOR -->
       <div class="sponsor-row" id="sponsorRow" hidden>
         <div class="sponsor-icon">
@@ -906,6 +1013,15 @@
       var div = document.createElement("div");
       div.appendChild(document.createTextNode(str));
       return div.innerHTML;
+    }
+
+    function showToast(msg) {
+      var t = document.createElement("div");
+      t.textContent = msg;
+      t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:opacity .3s";
+      document.body.appendChild(t);
+      requestAnimationFrame(function () { t.style.opacity = "1"; });
+      setTimeout(function () { t.style.opacity = "0"; setTimeout(function () { t.remove(); }, 300); }, 2500);
     }
 
     function formatDate(isoStr) {
@@ -1410,12 +1526,286 @@
           renderDependants(data.dependants || []);
           renderUpdates(data.updates || []);
           renderTimeline(data.timelineEvents || []);
+
+          // Load questionnaire
+          if (currentCase && currentCase.id) loadQuestionnaire(currentCase.id);
         })
         .catch(function () {
           document.getElementById("loadingState").hidden = true;
           document.getElementById("emptyState").hidden = false;
           document.getElementById("caseContent").hidden = true;
         });
+    }
+
+    // ══════════════════════════════════════════════
+    // Visa Intake Questionnaire
+    // ══════════════════════════════════════════════
+    var currentQuestionnaire = null;
+    var qDraft = { primary: {}, partner: {}, children: [] };
+
+    function renderQuestionnaire(qData) {
+      var container = document.getElementById("questionnaireContainer");
+      var sectionLabel = document.getElementById("qSectionLabel");
+      var statusBar = document.getElementById("qStatusBar");
+      var returnNote = document.getElementById("qReturnNote");
+      var content = document.getElementById("qContent");
+
+      if (!qData) {
+        container.hidden = true;
+        sectionLabel.hidden = true;
+        return;
+      }
+
+      currentQuestionnaire = qData;
+      container.hidden = false;
+      sectionLabel.hidden = false;
+
+      // Status bar
+      var statusLabels = { draft: "Draft", submitted: "Submitted", returned_for_changes: "Changes Requested", va_reviewed: "Reviewed", ready_to_send: "Ready", sent: "Sent" };
+      var statusClasses = { draft: "draft", submitted: "submitted", returned_for_changes: "returned", va_reviewed: "reviewed", ready_to_send: "reviewed", sent: "sent" };
+      statusBar.innerHTML = '<span class="q-status-pill ' + (statusClasses[qData.status] || "draft") + '">' + escapeHtml(statusLabels[qData.status] || qData.status) + '</span>' +
+        '<span style="font-size:12px;color:var(--muted)">Version ' + (qData.version || 1) + '</span>';
+
+      // Return note
+      if (qData.status === "returned_for_changes" && qData.return_note) {
+        returnNote.hidden = false;
+        returnNote.innerHTML = "<strong>Changes requested:</strong> " + escapeHtml(qData.return_note);
+      } else {
+        returnNote.hidden = true;
+      }
+
+      // Content based on status
+      if (qData.status === "draft" || qData.status === "returned_for_changes") {
+        qDraft = qData.data && typeof qData.data === "object" ? JSON.parse(JSON.stringify(qData.data)) : { primary: {}, partner: {}, children: [] };
+        if (!qDraft.primary) qDraft.primary = {};
+        if (!qDraft.partner) qDraft.partner = {};
+        if (!Array.isArray(qDraft.children)) qDraft.children = [];
+        content.innerHTML = buildQuestionnaireForm();
+        bindQuestionnaireEvents();
+      } else if (qData.status === "submitted") {
+        content.innerHTML = '<div class="q-submitted-msg"><strong>Questionnaire submitted</strong><br>Your visa intake questionnaire has been submitted and is being reviewed by the GP Link team. You will be notified if any changes are needed.</div>';
+      } else if (qData.status === "va_reviewed" || qData.status === "ready_to_send" || qData.status === "sent") {
+        content.innerHTML = '<div class="q-submitted-msg"><strong>Questionnaire ' + (qData.status === "sent" ? "sent" : "approved") + '</strong><br>Your visa intake questionnaire has been processed. No further action is needed.</div>';
+      }
+    }
+
+    function buildQuestionnaireForm() {
+      var p = qDraft.primary || {};
+      var pt = qDraft.partner || {};
+      var ch = qDraft.children || [];
+      var h = '<div class="q-form">';
+
+      // Primary
+      h += '<div class="q-section-title">Primary Applicant</div>';
+      h += qRow([qField("First Name", "q-p-firstName", p.firstName, "text", true), qField("Last Name", "q-p-lastName", p.lastName, "text", true)]);
+      h += qField("Middle Names", "q-p-middleNames", p.middleNames);
+      h += qRow([qField("Date of Birth", "q-p-dateOfBirth", p.dateOfBirth, "date", true), qSelect("Sex", "q-p-sex", p.sex, ["", "Male", "Female"])]);
+      h += qField("Town/City/Country of Birth", "q-p-placeOfBirth", p.placeOfBirth);
+      h += qRow([qField("Passport Number", "q-p-passportNumber", p.passportNumber, "text", true), qField("Issuing Authority", "q-p-passportIssuingAuthority", p.passportIssuingAuthority)]);
+      h += qRow([qField("Issue Date", "q-p-passportIssueDate", p.passportIssueDate, "date"), qField("Expiry Date", "q-p-passportExpiryDate", p.passportExpiryDate, "date")]);
+      h += qRow([qField("Mobile Phone", "q-p-mobilePhone", p.mobilePhone), qField("Usual Occupation", "q-p-usualOccupation", p.usualOccupation)]);
+      h += qField("Residential Address", "q-p-residentialAddress", p.residentialAddress);
+      h += '<div class="q-field"><label>Countries lived in for 12+ months (last 10 years)</label><div id="q-p-countries">';
+      (p.countriesLivedIn || []).forEach(function (c, i) { h += countryEntryHtml("p", i, c); });
+      h += '</div><button type="button" class="q-add-btn" onclick="addCountry(\'p\')">+ Add country</button></div>';
+      h += qYesNo("Previously married/divorced", "q-p-previouslyMarried", p.previouslyMarried);
+      h += qYesNo("Serious medical conditions", "q-p-seriousMedicalConditions", p.seriousMedicalConditions);
+      h += qYesNo("Criminal record", "q-p-criminalRecord", p.criminalRecord);
+      h += qYesNo("Military service", "q-p-militaryService", p.militaryService);
+      h += qYesNo("English test in last 3 years", "q-p-englishTestRecent", p.englishTestRecent);
+
+      // Partner
+      h += '<div class="q-section-title">Secondary Applicant / Partner <span style="font-weight:400;font-size:12px;color:var(--muted)">(optional)</span></div>';
+      h += qRow([qField("First Name", "q-pt-firstName", pt.firstName), qField("Last Name", "q-pt-lastName", pt.lastName)]);
+      h += qField("Middle Names", "q-pt-middleNames", pt.middleNames);
+      h += qRow([qField("Date of Birth", "q-pt-dateOfBirth", pt.dateOfBirth, "date"), qSelect("Sex", "q-pt-sex", pt.sex, ["", "Male", "Female"])]);
+      h += qField("Place of Birth", "q-pt-placeOfBirth", pt.placeOfBirth);
+      h += qRow([qField("Passport Number", "q-pt-passportNumber", pt.passportNumber), qField("Issuing Authority", "q-pt-passportIssuingAuthority", pt.passportIssuingAuthority)]);
+      h += qRow([qField("Issue Date", "q-pt-passportIssueDate", pt.passportIssueDate, "date"), qField("Expiry Date", "q-pt-passportExpiryDate", pt.passportExpiryDate, "date")]);
+      h += qRow([qField("Mobile Phone", "q-pt-mobilePhone", pt.mobilePhone), qField("Usual Occupation", "q-pt-usualOccupation", pt.usualOccupation)]);
+      h += '<div class="q-field"><label>Countries lived in for 12+ months (last 10 years)</label><div id="q-pt-countries">';
+      (pt.countriesLivedIn || []).forEach(function (c, i) { h += countryEntryHtml("pt", i, c); });
+      h += '</div><button type="button" class="q-add-btn" onclick="addCountry(\'pt\')">+ Add country</button></div>';
+      h += qYesNo("Previously married/divorced", "q-pt-previouslyMarried", pt.previouslyMarried);
+      h += qYesNo("Serious medical conditions", "q-pt-seriousMedicalConditions", pt.seriousMedicalConditions);
+      h += qYesNo("Criminal record", "q-pt-criminalRecord", pt.criminalRecord);
+      h += qYesNo("Military service", "q-pt-militaryService", pt.militaryService);
+      h += qYesNo("Attending/teaching classes in Australia", "q-pt-auAttendingClasses", pt.auAttendingClasses);
+      h += qYesNo("Working in healthcare in Australia", "q-pt-auWorkingHealthcare", pt.auWorkingHealthcare);
+      h += qYesNo("Working in childcare in Australia", "q-pt-auWorkingChildcare", pt.auWorkingChildcare);
+
+      // Children
+      h += '<div class="q-section-title">Children <span style="font-weight:400;font-size:12px;color:var(--muted)">(optional)</span></div>';
+      h += '<div id="q-children-list">';
+      ch.forEach(function (child, i) { h += childBlockHtml(i, child); });
+      h += '</div>';
+      h += '<button type="button" class="q-add-btn" onclick="addChild()">+ Add child</button>';
+
+      // Actions
+      h += '<div class="q-actions">';
+      h += '<button type="button" class="q-btn q-btn-outline" id="qSaveBtn">Save Draft</button>';
+      h += '<button type="button" class="q-btn q-btn-primary" id="qSubmitBtn">Submit Questionnaire</button>';
+      h += '</div></div>';
+      return h;
+    }
+
+    function qField(label, id, value, type, required) {
+      var t = type || "text";
+      var val = value != null ? escapeHtml(String(value)) : "";
+      var req = required ? ' required' : '';
+      return '<div class="q-field"><label>' + escapeHtml(label) + (required ? ' *' : '') + '</label><input type="' + t + '" id="' + id + '" value="' + val + '"' + req + '></div>';
+    }
+    function qSelect(label, id, value, options) {
+      var h = '<div class="q-field"><label>' + escapeHtml(label) + '</label><select id="' + id + '">';
+      options.forEach(function (o) { h += '<option value="' + escapeHtml(o) + '"' + (value === o ? ' selected' : '') + '>' + (o || '-- Select --') + '</option>'; });
+      h += '</select></div>';
+      return h;
+    }
+    function qYesNo(label, id, value) {
+      return qSelect(label, id, value === true ? "Yes" : value === false ? "No" : typeof value === "string" ? value : "", ["", "Yes", "No"]);
+    }
+    function qRow(fields) { return '<div class="q-row">' + fields.join('') + '</div>'; }
+
+    function countryEntryHtml(prefix, idx, data) {
+      var d = data || {};
+      return '<div class="q-country-entry" data-idx="' + idx + '"><div class="q-field"><label>Country</label><input type="text" class="q-country-name" value="' + escapeHtml(d.country || '') + '"></div>' +
+        '<div class="q-field"><label>From</label><input type="text" class="q-country-from" value="' + escapeHtml(d.from || '') + '" placeholder="YYYY"></div>' +
+        '<div class="q-field"><label>To</label><input type="text" class="q-country-to" value="' + escapeHtml(d.to || '') + '" placeholder="YYYY or present"></div>' +
+        '<button type="button" class="q-remove-btn" onclick="this.parentElement.remove()">Remove</button></div>';
+    }
+
+    function childBlockHtml(idx, data) {
+      var d = data || {};
+      var h = '<div class="q-child-block" data-child-idx="' + idx + '">';
+      h += '<div class="q-child-header"><strong>Child ' + (idx + 1) + '</strong><button type="button" class="q-remove-btn" onclick="removeChild(' + idx + ')">Remove</button></div>';
+      h += qRow([qField("First Name", "q-ch-" + idx + "-firstName", d.firstName), qField("Last Name", "q-ch-" + idx + "-lastName", d.lastName)]);
+      h += qField("Middle Names", "q-ch-" + idx + "-middleNames", d.middleNames);
+      h += qRow([qField("Date of Birth", "q-ch-" + idx + "-dateOfBirth", d.dateOfBirth, "date"), qSelect("Sex", "q-ch-" + idx + "-sex", d.sex, ["", "Male", "Female"])]);
+      h += qField("Place of Birth", "q-ch-" + idx + "-placeOfBirth", d.placeOfBirth);
+      h += qRow([qField("Passport Number", "q-ch-" + idx + "-passportNumber", d.passportNumber), qField("Issuing Authority", "q-ch-" + idx + "-passportIssuingAuthority", d.passportIssuingAuthority)]);
+      h += qRow([qField("Issue Date", "q-ch-" + idx + "-passportIssueDate", d.passportIssueDate, "date"), qField("Expiry Date", "q-ch-" + idx + "-passportExpiryDate", d.passportExpiryDate, "date")]);
+      h += qYesNo("Serious medical conditions", "q-ch-" + idx + "-seriousMedicalConditions", d.seriousMedicalConditions);
+      h += qYesNo("Criminal record", "q-ch-" + idx + "-criminalRecord", d.criminalRecord);
+      h += qYesNo("Migrating with you", "q-ch-" + idx + "-migratingWithYou", d.migratingWithYou);
+      h += qYesNo("Attending classes in Australia", "q-ch-" + idx + "-auAttendingClasses", d.auAttendingClasses);
+      h += qYesNo("Attending childcare in Australia", "q-ch-" + idx + "-auAttendingChildcare", d.auAttendingChildcare);
+      h += '</div>';
+      return h;
+    }
+
+    window.addCountry = function (prefix) {
+      var container = document.getElementById("q-" + prefix + "-countries");
+      var idx = container.querySelectorAll(".q-country-entry").length;
+      container.insertAdjacentHTML("beforeend", countryEntryHtml(prefix, idx, {}));
+    };
+
+    window.addChild = function () {
+      var list = document.getElementById("q-children-list");
+      var idx = list.querySelectorAll(".q-child-block").length;
+      list.insertAdjacentHTML("beforeend", childBlockHtml(idx, {}));
+    };
+
+    window.removeChild = function (idx) {
+      var block = document.querySelector('.q-child-block[data-child-idx="' + idx + '"]');
+      if (block) block.remove();
+      // Re-index
+      document.querySelectorAll("#q-children-list .q-child-block").forEach(function (b, i) {
+        b.setAttribute("data-child-idx", i);
+        b.querySelector("strong").textContent = "Child " + (i + 1);
+      });
+    };
+
+    function collectQuestionnaireData() {
+      function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ""; }
+      function valBool(id) { var v = val(id); return v === "Yes" ? true : v === "No" ? false : v; }
+      function collectCountries(prefix) {
+        var entries = [];
+        document.querySelectorAll("#q-" + prefix + "-countries .q-country-entry").forEach(function (el) {
+          var country = el.querySelector(".q-country-name").value.trim();
+          if (country) entries.push({ country: country, from: el.querySelector(".q-country-from").value.trim(), to: el.querySelector(".q-country-to").value.trim() });
+        });
+        return entries;
+      }
+
+      var primary = {
+        firstName: val("q-p-firstName"), middleNames: val("q-p-middleNames"), lastName: val("q-p-lastName"),
+        dateOfBirth: val("q-p-dateOfBirth"), sex: val("q-p-sex"), placeOfBirth: val("q-p-placeOfBirth"),
+        passportNumber: val("q-p-passportNumber"), passportIssueDate: val("q-p-passportIssueDate"),
+        passportExpiryDate: val("q-p-passportExpiryDate"), passportIssuingAuthority: val("q-p-passportIssuingAuthority"),
+        mobilePhone: val("q-p-mobilePhone"), residentialAddress: val("q-p-residentialAddress"),
+        usualOccupation: val("q-p-usualOccupation"), countriesLivedIn: collectCountries("p"),
+        previouslyMarried: valBool("q-p-previouslyMarried"), seriousMedicalConditions: valBool("q-p-seriousMedicalConditions"),
+        criminalRecord: valBool("q-p-criminalRecord"), militaryService: valBool("q-p-militaryService"),
+        englishTestRecent: valBool("q-p-englishTestRecent")
+      };
+
+      var partner = {
+        firstName: val("q-pt-firstName"), middleNames: val("q-pt-middleNames"), lastName: val("q-pt-lastName"),
+        dateOfBirth: val("q-pt-dateOfBirth"), sex: val("q-pt-sex"), placeOfBirth: val("q-pt-placeOfBirth"),
+        passportNumber: val("q-pt-passportNumber"), passportIssueDate: val("q-pt-passportIssueDate"),
+        passportExpiryDate: val("q-pt-passportExpiryDate"), passportIssuingAuthority: val("q-pt-passportIssuingAuthority"),
+        mobilePhone: val("q-pt-mobilePhone"), usualOccupation: val("q-pt-usualOccupation"),
+        countriesLivedIn: collectCountries("pt"),
+        previouslyMarried: valBool("q-pt-previouslyMarried"), seriousMedicalConditions: valBool("q-pt-seriousMedicalConditions"),
+        criminalRecord: valBool("q-pt-criminalRecord"), militaryService: valBool("q-pt-militaryService"),
+        auAttendingClasses: valBool("q-pt-auAttendingClasses"), auWorkingHealthcare: valBool("q-pt-auWorkingHealthcare"),
+        auWorkingChildcare: valBool("q-pt-auWorkingChildcare")
+      };
+
+      var children = [];
+      document.querySelectorAll("#q-children-list .q-child-block").forEach(function (block) {
+        var i = block.getAttribute("data-child-idx");
+        children.push({
+          firstName: val("q-ch-" + i + "-firstName"), middleNames: val("q-ch-" + i + "-middleNames"), lastName: val("q-ch-" + i + "-lastName"),
+          dateOfBirth: val("q-ch-" + i + "-dateOfBirth"), sex: val("q-ch-" + i + "-sex"), placeOfBirth: val("q-ch-" + i + "-placeOfBirth"),
+          passportNumber: val("q-ch-" + i + "-passportNumber"), passportIssueDate: val("q-ch-" + i + "-passportIssueDate"),
+          passportExpiryDate: val("q-ch-" + i + "-passportExpiryDate"), passportIssuingAuthority: val("q-ch-" + i + "-passportIssuingAuthority"),
+          seriousMedicalConditions: valBool("q-ch-" + i + "-seriousMedicalConditions"),
+          criminalRecord: valBool("q-ch-" + i + "-criminalRecord"),
+          migratingWithYou: valBool("q-ch-" + i + "-migratingWithYou"),
+          auAttendingClasses: valBool("q-ch-" + i + "-auAttendingClasses"),
+          auAttendingChildcare: valBool("q-ch-" + i + "-auAttendingChildcare")
+        });
+      });
+
+      return { primary: primary, partner: partner, children: children };
+    }
+
+    function bindQuestionnaireEvents() {
+      var saveBtn = document.getElementById("qSaveBtn");
+      var submitBtn = document.getElementById("qSubmitBtn");
+      if (saveBtn) saveBtn.addEventListener("click", function () { saveQuestionnaire("save"); });
+      if (submitBtn) submitBtn.addEventListener("click", function () {
+        if (!confirm("Submit your questionnaire? You won't be able to edit it until the GP Link team reviews it.")) return;
+        saveQuestionnaire("submit");
+      });
+    }
+
+    function saveQuestionnaire(action) {
+      if (!currentCase || !currentCase.id) return;
+      var data = collectQuestionnaireData();
+      var payload = { visaCaseId: currentCase.id, action: action, data: data };
+      fetch("/api/visa/questionnaire", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res.ok) {
+          showToast(action === "submit" ? "Questionnaire submitted" : "Draft saved");
+          if (res.questionnaire) renderQuestionnaire(res.questionnaire);
+        } else {
+          showToast(res.message || "Failed to save");
+        }
+      }).catch(function () { showToast("Network error"); });
+    }
+
+    function loadQuestionnaire(visaCaseId) {
+      fetch("/api/visa/questionnaire?visaCaseId=" + encodeURIComponent(visaCaseId), { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (res.ok) renderQuestionnaire(res.questionnaire);
+        })
+        .catch(function () {});
     }
 
     document.getElementById("browseJobsBtn").addEventListener("click", function (e) {

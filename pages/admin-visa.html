@@ -206,10 +206,68 @@
     .update-vis.gp { background: #eff6ff; color: #1d4ed8; }
     .update-vis.internal { background: #fef3c7; color: #92400e; }
 
+    /* ── Domain Badges ── */
+    .pill-purple { background: #f5f3ff; color: #6d28d9; }
+
+    /* ── Task List ── */
+    .task-card {
+      padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md);
+      margin-bottom: 8px; background: #fafbfd;
+    }
+    .task-card-header {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px;
+    }
+    .task-title { font-size: 13px; font-weight: 700; flex: 1; min-width: 0; }
+    .task-meta { font-size: 11px; color: var(--muted); font-weight: 500; }
+    .task-meta span { margin-right: 10px; }
+    .task-actions { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    .task-note-inline {
+      display: none; margin-top: 8px;
+    }
+    .task-note-inline.open { display: flex; gap: 6px; align-items: flex-start; }
+    .task-note-inline textarea { flex: 1; min-height: 40px; }
+
+    /* ── Questionnaire Panel ── */
+    .q-section { margin-bottom: 16px; }
+    .q-section-title {
+      font-size: 13px; font-weight: 760; margin: 0 0 8px;
+      padding-bottom: 4px; border-bottom: 1px solid var(--line);
+    }
+    .q-field { display: flex; gap: 8px; padding: 4px 0; font-size: 13px; }
+    .q-field-label { font-weight: 600; color: var(--muted); min-width: 140px; flex-shrink: 0; }
+    .q-field-value { font-weight: 500; }
+
+    /* ── Practice Docs ── */
+    .pdoc-row {
+      padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-md);
+      margin-bottom: 10px; background: #fafbfd;
+    }
+    .pdoc-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    }
+    .pdoc-label { font-size: 13px; font-weight: 700; flex: 1; }
+    .pdoc-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+
+    /* ── Reg Case Section ── */
+    .reg-case-section {
+      margin-bottom: 18px; padding-bottom: 16px; border-bottom: 2px solid var(--line);
+    }
+    .reg-case-section .section-heading {
+      font-size: 14px; font-weight: 760; margin: 0 0 10px;
+      color: var(--purple-1);
+    }
+
     @media (max-width: 640px) {
       .form-grid { grid-template-columns: 1fr; }
+      .pdoc-grid { grid-template-columns: 1fr; }
       .case-table th:nth-child(3), .case-table td:nth-child(3),
       .case-table th:nth-child(4), .case-table td:nth-child(4) { display: none; }
+      .tab-bar { overflow-x: auto; flex-wrap: nowrap; }
+      .tab-btn { white-space: nowrap; padding: 8px 10px; font-size: 11px; }
+      .q-field { flex-direction: column; gap: 2px; }
+      .q-field-label { min-width: 0; }
     }
   </style>
 </head>
@@ -253,10 +311,81 @@
           <button class="tab-btn" data-tab="dependants">Dependants</button>
           <button class="tab-btn" data-tab="updates">Updates</button>
           <button class="tab-btn" data-tab="timeline">Timeline</button>
+          <button class="tab-btn" data-tab="tasks">Tasks</button>
+          <button class="tab-btn" data-tab="questionnaire">Questionnaire</button>
+          <button class="tab-btn" data-tab="practicedocs">Practice Docs</button>
         </div>
 
         <!-- TAB: Case Details -->
         <div class="tab-panel active" id="tab-case">
+          <!-- Registration Case Section -->
+          <div class="reg-case-section" id="regCaseSection" style="display:none;">
+            <h4 class="section-heading">Registration Case</h4>
+            <div class="form-grid" id="regCaseForm">
+              <div class="form-group">
+                <label class="form-label">Reg Stage</label>
+                <input class="form-input" id="fRegStage" readonly style="background:#f1f5f9;" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Assigned VA</label>
+                <input class="form-input" id="fRegAssignedVa" placeholder="e.g. Sarah" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Priority</label>
+                <select class="form-select" id="fRegPriority">
+                  <option value="">--</option>
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Blocker Status</label>
+                <select class="form-select" id="fRegBlockerStatus">
+                  <option value="">None</option>
+                  <option value="blocked">Blocked</option>
+                  <option value="at_risk">At Risk</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Blocker Reason</label>
+                <input class="form-input" id="fRegBlockerReason" placeholder="Why is this blocked?" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Next Follow-up Date</label>
+                <input class="form-input" id="fRegFollowup" type="date" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Practice Name</label>
+                <input class="form-input" id="fRegPracticeName" placeholder="Sponsor practice" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Practice Contact</label>
+                <input class="form-input" id="fRegPracticeContact" placeholder="Contact email/phone" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Migration Agent</label>
+                <input class="form-input" id="fRegMigrationAgent" placeholder="Agent name" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Migration Agent Contact</label>
+                <input class="form-input" id="fRegMigrationAgentContact" placeholder="Agent email/phone" />
+              </div>
+              <div class="form-group full">
+                <label class="form-label">Handover Notes</label>
+                <textarea class="form-textarea" id="fRegHandoverNotes" placeholder="Notes for team handover..."></textarea>
+              </div>
+              <div class="form-group full">
+                <label class="form-label">Risk Notes (Internal Only)</label>
+                <textarea class="form-textarea" id="fRegRiskNotes" placeholder="Internal risk assessment..."></textarea>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button class="btn btn-blue" id="saveRegCaseBtn">Save Reg Case</button>
+            </div>
+          </div>
+          <h4 style="font-size:14px;font-weight:760;margin:0 0 10px;color:var(--blue);">Visa Case</h4>
           <div class="form-grid" id="caseForm">
             <div class="form-group">
               <label class="form-label">Visa Type</label>
@@ -398,6 +527,70 @@
             <button class="btn btn-blue" id="addEventBtn">Add Event</button>
           </div>
         </div>
+
+        <!-- TAB: Tasks -->
+        <div class="tab-panel" id="tab-tasks">
+          <div id="tasksAdminList"><p class="empty-msg">Loading tasks...</p></div>
+          <div style="margin-top:14px; border-top: 1px solid var(--line); padding-top: 14px;">
+            <h4 style="font-size:13px; font-weight:700; margin-bottom:8px;">Add Task</h4>
+            <div class="form-grid" style="margin-bottom:8px;">
+              <div class="form-group full">
+                <label class="form-label">Title</label>
+                <input class="form-input" id="newTaskTitle" placeholder="e.g. Chase police clearance from UK" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Task Type</label>
+                <select class="form-select" id="newTaskType">
+                  <option value="visa_stage">Visa Stage</option>
+                  <option value="visa_doc">Visa Document</option>
+                  <option value="questionnaire">Questionnaire</option>
+                  <option value="sponsor">Sponsor</option>
+                  <option value="migration_agent">Migration Agent</option>
+                  <option value="chase">Chase</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Domain</label>
+                <select class="form-select" id="newTaskDomain">
+                  <option value="visa">Visa</option>
+                  <option value="sponsor">Sponsor</option>
+                  <option value="questionnaire">Questionnaire</option>
+                  <option value="document">Document</option>
+                  <option value="registration">Registration</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Priority</label>
+                <select class="form-select" id="newTaskPriority">
+                  <option value="normal">Normal</option>
+                  <option value="low">Low</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Due Date</label>
+                <input class="form-input" id="newTaskDue" type="date" />
+              </div>
+              <div class="form-group full">
+                <label class="form-label">Description</label>
+                <textarea class="form-textarea" id="newTaskDesc" placeholder="Describe the task..."></textarea>
+              </div>
+            </div>
+            <button class="btn btn-blue" id="addTaskBtn">Create Task</button>
+          </div>
+        </div>
+
+        <!-- TAB: Questionnaire -->
+        <div class="tab-panel" id="tab-questionnaire">
+          <div id="questionnairePanel"><p class="empty-msg">Loading questionnaire...</p></div>
+        </div>
+
+        <!-- TAB: Practice Docs -->
+        <div class="tab-panel" id="tab-practicedocs">
+          <div id="practiceDocsPanel"><p class="empty-msg">Loading practice documents...</p></div>
+        </div>
       </div>
     </div>
   </div>
@@ -424,6 +617,9 @@
     var currentCaseId = null;
     var currentCaseData = null;
     var pendingRejectDocId = null;
+    var regCaseId = null;
+    var regCaseData = null;
+    var opsData = null;
 
     function escapeHtml(str) {
       if (!str) return "";
@@ -450,6 +646,45 @@
       if (stage === "refused") return "pill-red";
       if (stage === "processing") return "pill-amber";
       if (stage === "lodgement") return "pill-blue";
+      return "pill-gray";
+    }
+
+    function domainPillClass(domain) {
+      if (domain === "visa") return "pill-blue";
+      if (domain === "sponsor") return "pill-amber";
+      if (domain === "questionnaire") return "pill-purple";
+      if (domain === "registration") return "pill-green";
+      return "pill-gray"; // document, other
+    }
+
+    function priorityPillClass(priority) {
+      if (priority === "urgent") return "pill-red";
+      if (priority === "high") return "pill-amber";
+      if (priority === "low") return "pill-gray";
+      return "pill-blue"; // normal
+    }
+
+    function statusPillClass(status) {
+      if (status === "completed") return "pill-green";
+      if (status === "cancelled") return "pill-gray";
+      if (status === "blocked") return "pill-red";
+      if (status === "waiting_on_gp" || status === "waiting_on_practice" || status === "waiting_on_external") return "pill-amber";
+      if (status === "in_progress") return "pill-blue";
+      return "pill-gray"; // open
+    }
+
+    function qStatusPillClass(status) {
+      if (status === "va_reviewed" || status === "approved") return "pill-green";
+      if (status === "returned") return "pill-amber";
+      if (status === "sent" || status === "ready_to_send") return "pill-blue";
+      if (status === "submitted") return "pill-purple";
+      return "pill-gray";
+    }
+
+    function pdocStatusPillClass(status) {
+      if (status === "received" || status === "verified") return "pill-green";
+      if (status === "correction_needed") return "pill-amber";
+      if (status === "requested" || status === "chased") return "pill-blue";
       return "pill-gray";
     }
 
@@ -509,6 +744,9 @@
       document.getElementById("detailView").classList.remove("active");
       currentCaseId = null;
       currentCaseData = null;
+      regCaseId = null;
+      regCaseData = null;
+      opsData = null;
       loadCases();
     }
 
@@ -547,9 +785,66 @@
         renderAdminUpdates(data.updates || []);
         renderAdminTimeline(data.timelineEvents || []);
 
+        // Load ops data (reg case + tasks + questionnaire + practice docs)
+        if (app.user_id) {
+          loadOpsData(app.user_id);
+        } else {
+          document.getElementById("regCaseSection").style.display = "none";
+        }
+
+        // Load questionnaire for this visa case
+        loadQuestionnaire(currentCaseId);
+        // Load practice docs
+        loadPracticeDocs();
+
         // Activate first tab
         switchTab("case");
       });
+    }
+
+    // ── Ops Data (reg case, tasks) ──
+    function loadOpsData(userId) {
+      // First find the reg case for this user
+      apiJson("/api/admin/cases").then(function (data) {
+        if (!data.ok || !data.cases) return;
+        var regCase = null;
+        for (var i = 0; i < data.cases.length; i++) {
+          if (data.cases[i].user_id === userId) { regCase = data.cases[i]; break; }
+        }
+        if (!regCase) {
+          document.getElementById("regCaseSection").style.display = "none";
+          return;
+        }
+        regCaseId = regCase.id;
+        // Now load the full unified ops case
+        apiJson("/api/admin/ops/case?id=" + encodeURIComponent(regCaseId)).then(function (ops) {
+          if (!ops.ok) return;
+          opsData = ops;
+          regCaseData = ops.regCase || ops;
+          fillRegCaseForm(regCaseData);
+          document.getElementById("regCaseSection").style.display = "block";
+          // Render tasks from ops data
+          renderTasks(ops.tasks || []);
+        }).catch(function () {
+          // ops endpoint may not exist yet — hide section silently
+          document.getElementById("regCaseSection").style.display = "none";
+        });
+      });
+    }
+
+    function fillRegCaseForm(rc) {
+      document.getElementById("fRegStage").value = rc.current_stage || rc.stage || "";
+      document.getElementById("fRegAssignedVa").value = rc.assigned_va || "";
+      document.getElementById("fRegPriority").value = rc.priority || "";
+      document.getElementById("fRegBlockerStatus").value = rc.blocker_status || "";
+      document.getElementById("fRegBlockerReason").value = rc.blocker_reason || "";
+      document.getElementById("fRegFollowup").value = rc.next_followup_date || "";
+      document.getElementById("fRegPracticeName").value = rc.practice_name || "";
+      document.getElementById("fRegPracticeContact").value = rc.practice_contact || "";
+      document.getElementById("fRegMigrationAgent").value = rc.migration_agent || "";
+      document.getElementById("fRegMigrationAgentContact").value = rc.migration_agent_contact || "";
+      document.getElementById("fRegHandoverNotes").value = rc.handover_notes || "";
+      document.getElementById("fRegRiskNotes").value = rc.risk_notes || "";
     }
 
     // ── Save case ──
@@ -735,6 +1030,473 @@
             loadCaseDetail();
           } else showToast("Failed: " + (data.message || ""));
         });
+    });
+
+    // ── Save Reg Case ──
+    document.getElementById("saveRegCaseBtn").addEventListener("click", function () {
+      if (!regCaseId) { showToast("No registration case linked"); return; }
+      var payload = {
+        assigned_va: document.getElementById("fRegAssignedVa").value.trim(),
+        priority: document.getElementById("fRegPriority").value,
+        blocker_status: document.getElementById("fRegBlockerStatus").value,
+        blocker_reason: document.getElementById("fRegBlockerReason").value.trim(),
+        next_followup_date: document.getElementById("fRegFollowup").value || null,
+        practice_name: document.getElementById("fRegPracticeName").value.trim(),
+        practice_contact: document.getElementById("fRegPracticeContact").value.trim(),
+        migration_agent: document.getElementById("fRegMigrationAgent").value.trim(),
+        migration_agent_contact: document.getElementById("fRegMigrationAgentContact").value.trim(),
+        handover_notes: document.getElementById("fRegHandoverNotes").value.trim(),
+        risk_notes: document.getElementById("fRegRiskNotes").value.trim()
+      };
+      apiJson("/api/admin/ops/case?id=" + encodeURIComponent(regCaseId), { method: "PUT", body: payload }).then(function (data) {
+        if (data.ok) showToast("Reg case saved");
+        else showToast("Failed: " + (data.message || "Unknown error"));
+      });
+    });
+
+    // ── Tasks ──
+    function renderTasks(tasks) {
+      var container = document.getElementById("tasksAdminList");
+      if (!tasks || !tasks.length) { container.innerHTML = '<p class="empty-msg">No tasks yet.</p>'; return; }
+      container.innerHTML = tasks.map(function (t) {
+        var domainBadge = '<span class="pill ' + domainPillClass(t.domain) + '">' + escapeHtml(t.domain || "general") + '</span>';
+        var statusBadge = '<span class="pill ' + statusPillClass(t.status) + '">' + escapeHtml((t.status || "open").replace(/_/g, " ")) + '</span>';
+        var priorityBadge = '<span class="pill ' + priorityPillClass(t.priority) + '">' + escapeHtml(t.priority || "normal") + '</span>';
+        var dueTxt = t.due_date ? '<span>Due: ' + formatDate(t.due_date) + '</span>' : '';
+        var assigneeTxt = t.assignee ? '<span>Assignee: ' + escapeHtml(t.assignee) + '</span>' : '';
+
+        var statusOpts = ["open","in_progress","waiting_on_gp","waiting_on_practice","waiting_on_external","blocked","completed","cancelled"];
+        var statusSelect = '<select class="form-select" data-task-status="' + t.id + '" style="font-size:11px;padding:4px 6px;width:auto;">';
+        for (var i = 0; i < statusOpts.length; i++) {
+          statusSelect += '<option value="' + statusOpts[i] + '"' + (statusOpts[i] === t.status ? ' selected' : '') + '>' + statusOpts[i].replace(/_/g, " ") + '</option>';
+        }
+        statusSelect += '</select>';
+
+        var notesList = '';
+        if (t.notes && t.notes.length) {
+          notesList = '<div style="margin-top:6px;padding-left:8px;border-left:2px solid var(--line);">';
+          for (var j = 0; j < t.notes.length; j++) {
+            var n = t.notes[j];
+            notesList += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">' +
+              '<strong>' + escapeHtml(n.created_by || "VA") + '</strong> &middot; ' + formatDate(n.created_at) +
+              '<div style="color:var(--text);font-weight:500;">' + escapeHtml(n.text) + '</div></div>';
+          }
+          notesList += '</div>';
+        }
+
+        return '<div class="task-card" data-task-id="' + t.id + '">' +
+          '<div class="task-card-header">' +
+            '<span class="task-title">' + escapeHtml(t.title) + '</span>' +
+            domainBadge + statusBadge + priorityBadge +
+          '</div>' +
+          (t.description ? '<div style="font-size:12px;color:var(--muted);font-weight:500;margin-bottom:4px;">' + escapeHtml(t.description) + '</div>' : '') +
+          '<div class="task-meta">' + dueTxt + assigneeTxt + '</div>' +
+          notesList +
+          '<div class="task-actions">' +
+            statusSelect +
+            '<button class="btn btn-outline" data-task-note-toggle="' + t.id + '" style="font-size:10px;padding:4px 8px;">Add Note</button>' +
+          '</div>' +
+          '<div class="task-note-inline" id="taskNote-' + t.id + '">' +
+            '<textarea class="form-textarea" placeholder="Add a note..." style="font-size:12px;min-height:36px;"></textarea>' +
+            '<button class="btn btn-blue" data-task-note-save="' + t.id + '" style="font-size:10px;padding:4px 10px;align-self:flex-start;">Save</button>' +
+          '</div>' +
+        '</div>';
+      }).join("");
+    }
+
+    // Task event delegation
+    document.getElementById("tab-tasks").addEventListener("click", function (e) {
+      var noteToggle = e.target.closest("[data-task-note-toggle]");
+      if (noteToggle) {
+        var tId = noteToggle.getAttribute("data-task-note-toggle");
+        var panel = document.getElementById("taskNote-" + tId);
+        if (panel) panel.classList.toggle("open");
+        return;
+      }
+      var noteSave = e.target.closest("[data-task-note-save]");
+      if (noteSave) {
+        var taskId = noteSave.getAttribute("data-task-note-save");
+        var notePanel = document.getElementById("taskNote-" + taskId);
+        var textArea = notePanel ? notePanel.querySelector("textarea") : null;
+        var text = textArea ? textArea.value.trim() : "";
+        if (!text) return;
+        apiJson("/api/admin/task/note?id=" + encodeURIComponent(taskId), { method: "POST", body: { text: text } })
+          .then(function (data) {
+            if (data.ok) { showToast("Note added"); loadCaseDetail(); }
+            else showToast("Failed: " + (data.message || ""));
+          });
+        return;
+      }
+    });
+    document.getElementById("tab-tasks").addEventListener("change", function (e) {
+      var statusSel = e.target.closest("[data-task-status]");
+      if (statusSel) {
+        var taskId = statusSel.getAttribute("data-task-status");
+        var newStatus = statusSel.value;
+        apiJson("/api/admin/task?id=" + encodeURIComponent(taskId), { method: "PUT", body: { status: newStatus } })
+          .then(function (data) {
+            if (data.ok) showToast("Task updated");
+            else showToast("Failed: " + (data.message || ""));
+          });
+      }
+    });
+
+    // Add Task
+    document.getElementById("addTaskBtn").addEventListener("click", function () {
+      var title = document.getElementById("newTaskTitle").value.trim();
+      if (!title || !currentCaseId) return;
+      var payload = {
+        case_id: regCaseId || null,
+        visa_case_id: currentCaseId,
+        title: title,
+        task_type: document.getElementById("newTaskType").value,
+        domain: document.getElementById("newTaskDomain").value,
+        priority: document.getElementById("newTaskPriority").value,
+        description: document.getElementById("newTaskDesc").value.trim() || null,
+        due_date: document.getElementById("newTaskDue").value || null,
+        status: "open"
+      };
+      apiJson("/api/admin/visa/task", { method: "POST", body: payload }).then(function (data) {
+        if (data.ok) {
+          showToast("Task created");
+          document.getElementById("newTaskTitle").value = "";
+          document.getElementById("newTaskDesc").value = "";
+          document.getElementById("newTaskDue").value = "";
+          loadCaseDetail();
+        } else showToast("Failed: " + (data.message || ""));
+      });
+    });
+
+    // ── Questionnaire ──
+    function loadQuestionnaire(visaCaseId) {
+      var container = document.getElementById("questionnairePanel");
+      apiJson("/api/admin/visa/questionnaire?visaCaseId=" + encodeURIComponent(visaCaseId)).then(function (data) {
+        if (!data.ok || !data.questionnaire) {
+          // No questionnaire — show request button
+          container.innerHTML = '<div style="text-align:center;padding:24px;">' +
+            '<p style="font-size:13px;color:var(--muted);font-weight:500;margin-bottom:12px;">No questionnaire submitted yet.</p>' +
+            '<button class="btn btn-blue" id="requestQuestionnaireBtn">Request Questionnaire from GP</button>' +
+          '</div>';
+          var reqBtn = document.getElementById("requestQuestionnaireBtn");
+          if (reqBtn) {
+            reqBtn.addEventListener("click", function () {
+              if (!currentCaseData || !currentCaseData.application) return;
+              var userId = currentCaseData.application.user_id;
+              apiJson("/api/admin/visa/questionnaire/request", { method: "POST", body: { visaCaseId: visaCaseId, userId: userId } })
+                .then(function (r) {
+                  if (r.ok) { showToast("Questionnaire requested"); loadQuestionnaire(visaCaseId); }
+                  else showToast("Failed: " + (r.message || ""));
+                });
+            });
+          }
+          return;
+        }
+        var q = data.questionnaire;
+        renderQuestionnairePanel(q, visaCaseId);
+      }).catch(function () {
+        container.innerHTML = '<p class="empty-msg">Could not load questionnaire.</p>';
+      });
+    }
+
+    function renderQuestionnairePanel(q, visaCaseId) {
+      var container = document.getElementById("questionnairePanel");
+      var status = q.status || "draft";
+      var statusBadge = '<span class="pill ' + qStatusPillClass(status) + '">' + escapeHtml(status.replace(/_/g, " ")) + '</span>';
+      var html = '<div style="margin-bottom:14px;display:flex;align-items:center;gap:8px;">' +
+        '<strong style="font-size:14px;">Questionnaire Status:</strong> ' + statusBadge + '</div>';
+
+      // Show questionnaire data if submitted or beyond
+      if (q.data && (status === "submitted" || status === "va_reviewed" || status === "approved" || status === "returned" || status === "ready_to_send" || status === "sent")) {
+        html += renderQuestionnaireData(q.data);
+      }
+
+      // Action buttons based on status
+      if (status === "submitted") {
+        html += '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px;">' +
+          '<h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Review Actions</h4>' +
+          '<div class="btn-row">' +
+            '<button class="btn btn-green" id="qApproveBtn">Approve</button>' +
+            '<button class="btn btn-outline" id="qReturnToggle">Return for Changes</button>' +
+          '</div>' +
+          '<div id="qReturnPanel" style="display:none;margin-top:10px;">' +
+            '<textarea class="form-textarea" id="qReturnNote" placeholder="Explain what needs to be corrected..." style="width:100%;margin-bottom:8px;"></textarea>' +
+            '<button class="btn btn-red" id="qReturnConfirmBtn">Return to GP</button>' +
+          '</div>' +
+        '</div>';
+      } else if (status === "va_reviewed" || status === "approved") {
+        html += '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px;">' +
+          '<h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">PDF & Send</h4>' +
+          '<div class="btn-row" style="margin-bottom:10px;">' +
+            '<a class="btn btn-outline" href="/api/admin/visa/questionnaire/pdf?visaCaseId=' + encodeURIComponent(visaCaseId) + '" target="_blank" download>Download PDF</a>' +
+          '</div>' +
+          '<div class="form-grid" style="margin-bottom:8px;">' +
+            '<div class="form-group">' +
+              '<label class="form-label">Recipient Route</label>' +
+              '<select class="form-select" id="qRecipientRoute">' +
+                '<option value="migration_agent">Migration Agent</option>' +
+                '<option value="sponsor">Sponsor</option>' +
+                '<option value="department">Department</option>' +
+                '<option value="other">Other</option>' +
+              '</select>' +
+            '</div>' +
+          '</div>' +
+          '<button class="btn btn-blue" id="qMarkReadyBtn">Mark Ready to Send</button>' +
+        '</div>';
+      } else if (status === "ready_to_send") {
+        html += '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px;">' +
+          '<h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Ready to Send</h4>' +
+          '<div class="btn-row" style="margin-bottom:10px;">' +
+            '<a class="btn btn-outline" href="/api/admin/visa/questionnaire/pdf?visaCaseId=' + encodeURIComponent(visaCaseId) + '" target="_blank" download>Download PDF</a>' +
+          '</div>' +
+          '<div class="form-grid" style="margin-bottom:8px;">' +
+            '<div class="form-group">' +
+              '<label class="form-label">Confirm Recipient Route</label>' +
+              '<select class="form-select" id="qSendRoute">' +
+                '<option value="migration_agent">Migration Agent</option>' +
+                '<option value="sponsor">Sponsor</option>' +
+                '<option value="department">Department</option>' +
+                '<option value="other">Other</option>' +
+              '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label">Send Note (optional)</label>' +
+              '<input class="form-input" id="qSendNote" placeholder="e.g. Sent via email to agent" />' +
+            '</div>' +
+          '</div>' +
+          '<button class="btn btn-green" id="qMarkSentBtn">Mark Sent</button>' +
+        '</div>';
+      } else if (status === "sent") {
+        html += '<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px;">' +
+          '<h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Sent</h4>' +
+          '<div style="font-size:13px;font-weight:500;">' +
+            (q.sent_by ? '<div>Sent by: ' + escapeHtml(q.sent_by) + '</div>' : '') +
+            (q.sent_at ? '<div>Sent at: ' + formatDate(q.sent_at) + '</div>' : '') +
+            (q.recipient_route ? '<div>Recipient route: <span class="pill pill-blue">' + escapeHtml(q.recipient_route) + '</span></div>' : '') +
+          '</div>' +
+        '</div>';
+      }
+
+      container.innerHTML = html;
+      bindQuestionnaireActions(visaCaseId, status);
+    }
+
+    function renderQuestionnaireData(data) {
+      var html = '';
+      // Primary Applicant
+      if (data.primary || data.primaryApplicant) {
+        var p = data.primary || data.primaryApplicant;
+        html += '<div class="q-section"><h4 class="q-section-title">Primary Applicant</h4>';
+        html += renderQFields(p);
+        html += '</div>';
+      }
+      // Partner
+      if (data.partner) {
+        html += '<div class="q-section"><h4 class="q-section-title">Partner</h4>';
+        html += renderQFields(data.partner);
+        html += '</div>';
+      }
+      // Children
+      if (data.children && data.children.length) {
+        for (var i = 0; i < data.children.length; i++) {
+          html += '<div class="q-section"><h4 class="q-section-title">Child ' + (i + 1) + '</h4>';
+          html += renderQFields(data.children[i]);
+          html += '</div>';
+        }
+      }
+      // If data is flat (not nested), render all fields
+      if (!data.primary && !data.primaryApplicant && !data.partner) {
+        html += '<div class="q-section"><h4 class="q-section-title">Questionnaire Data</h4>';
+        html += renderQFields(data);
+        html += '</div>';
+      }
+      return html;
+    }
+
+    function renderQFields(obj) {
+      if (!obj || typeof obj !== "object") return "";
+      var html = '';
+      var keys = Object.keys(obj);
+      for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
+        var val = obj[key];
+        if (val === null || val === undefined || val === "") continue;
+        if (typeof val === "object" && !Array.isArray(val)) continue; // skip nested objects already rendered
+        var label = key.replace(/_/g, " ").replace(/([A-Z])/g, " $1").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+        var display = Array.isArray(val) ? val.join(", ") : String(val);
+        html += '<div class="q-field"><span class="q-field-label">' + escapeHtml(label) + '</span><span class="q-field-value">' + escapeHtml(display) + '</span></div>';
+      }
+      return html;
+    }
+
+    function bindQuestionnaireActions(visaCaseId, status) {
+      if (status === "submitted") {
+        var approveBtn = document.getElementById("qApproveBtn");
+        if (approveBtn) {
+          approveBtn.addEventListener("click", function () {
+            apiJson("/api/admin/visa/questionnaire/review", { method: "POST", body: { visaCaseId: visaCaseId, action: "approve" } })
+              .then(function (r) {
+                if (r.ok) { showToast("Questionnaire approved"); loadQuestionnaire(visaCaseId); }
+                else showToast("Failed: " + (r.message || ""));
+              });
+          });
+        }
+        var returnToggle = document.getElementById("qReturnToggle");
+        if (returnToggle) {
+          returnToggle.addEventListener("click", function () {
+            var panel = document.getElementById("qReturnPanel");
+            if (panel) panel.style.display = panel.style.display === "none" ? "block" : "none";
+          });
+        }
+        var returnConfirm = document.getElementById("qReturnConfirmBtn");
+        if (returnConfirm) {
+          returnConfirm.addEventListener("click", function () {
+            var note = document.getElementById("qReturnNote").value.trim();
+            if (!note) { showToast("Please provide a return note"); return; }
+            apiJson("/api/admin/visa/questionnaire/review", { method: "POST", body: { visaCaseId: visaCaseId, action: "return", returnNote: note } })
+              .then(function (r) {
+                if (r.ok) { showToast("Returned to GP"); loadQuestionnaire(visaCaseId); }
+                else showToast("Failed: " + (r.message || ""));
+              });
+          });
+        }
+      }
+      if (status === "va_reviewed" || status === "approved") {
+        var readyBtn = document.getElementById("qMarkReadyBtn");
+        if (readyBtn) {
+          readyBtn.addEventListener("click", function () {
+            var route = document.getElementById("qRecipientRoute").value;
+            apiJson("/api/admin/visa/questionnaire/send", { method: "POST", body: { visaCaseId: visaCaseId, action: "ready", recipientRoute: route } })
+              .then(function (r) {
+                if (r.ok) { showToast("Marked ready to send"); loadQuestionnaire(visaCaseId); }
+                else showToast("Failed: " + (r.message || ""));
+              });
+          });
+        }
+      }
+      if (status === "ready_to_send") {
+        var sentBtn = document.getElementById("qMarkSentBtn");
+        if (sentBtn) {
+          sentBtn.addEventListener("click", function () {
+            var route = document.getElementById("qSendRoute").value;
+            var note = document.getElementById("qSendNote") ? document.getElementById("qSendNote").value.trim() : "";
+            apiJson("/api/admin/visa/questionnaire/send", { method: "POST", body: { visaCaseId: visaCaseId, action: "sent", recipientRoute: route, sendNote: note || null } })
+              .then(function (r) {
+                if (r.ok) { showToast("Marked as sent"); loadQuestionnaire(visaCaseId); }
+                else showToast("Failed: " + (r.message || ""));
+              });
+          });
+        }
+      }
+    }
+
+    // ── Practice Docs ──
+    var PDOC_TYPES = [
+      { key: "sppa_00", label: "SPPA-00" },
+      { key: "section_g", label: "Section G" },
+      { key: "position_description", label: "Position Description" },
+      { key: "offer_contract", label: "Offer/Contract" },
+      { key: "supervisor_cv", label: "Supervisor CV" }
+    ];
+
+    function loadPracticeDocs() {
+      var container = document.getElementById("practiceDocsPanel");
+      if (!regCaseId && !currentCaseId) {
+        container.innerHTML = '<p class="empty-msg">No case linked.</p>';
+        return;
+      }
+      var caseParam = regCaseId || currentCaseId;
+      apiJson("/api/admin/practice-docs?caseId=" + encodeURIComponent(caseParam)).then(function (data) {
+        if (!data.ok) {
+          // If API not available, render empty forms for all doc types
+          renderPracticeDocsPanel([]);
+          return;
+        }
+        renderPracticeDocsPanel(data.docs || []);
+      }).catch(function () {
+        renderPracticeDocsPanel([]);
+      });
+    }
+
+    function renderPracticeDocsPanel(existingDocs) {
+      var container = document.getElementById("practiceDocsPanel");
+      var docMap = {};
+      for (var i = 0; i < existingDocs.length; i++) {
+        docMap[existingDocs[i].doc_type || existingDocs[i].document_type] = existingDocs[i];
+      }
+
+      var statusOpts = ["not_started","requested","chased","received","correction_needed","verified"];
+
+      var html = '';
+      for (var j = 0; j < PDOC_TYPES.length; j++) {
+        var pt = PDOC_TYPES[j];
+        var doc = docMap[pt.key] || {};
+        var currentStatus = doc.ops_status || "not_started";
+
+        var statusSelect = '<select class="form-select" data-pdoc-field="ops_status" style="font-size:12px;">';
+        for (var s = 0; s < statusOpts.length; s++) {
+          statusSelect += '<option value="' + statusOpts[s] + '"' + (statusOpts[s] === currentStatus ? ' selected' : '') + '>' + statusOpts[s].replace(/_/g, " ") + '</option>';
+        }
+        statusSelect += '</select>';
+
+        var statusPill = '<span class="pill ' + pdocStatusPillClass(currentStatus) + '">' + escapeHtml(currentStatus.replace(/_/g, " ")) + '</span>';
+
+        html += '<div class="pdoc-row" data-pdoc-key="' + pt.key + '" data-pdoc-id="' + (doc.id || "") + '">' +
+          '<div class="pdoc-header">' +
+            '<span class="pdoc-label">' + escapeHtml(pt.label) + '</span>' +
+            statusPill +
+          '</div>' +
+          '<div class="pdoc-grid">' +
+            '<div class="form-group">' +
+              '<label class="form-label">Status</label>' +
+              statusSelect +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label">Requested From</label>' +
+              '<input class="form-input" data-pdoc-field="requested_from" value="' + escapeHtml(doc.requested_from || "") + '" placeholder="e.g. Practice manager" />' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label">Practice Contact</label>' +
+              '<input class="form-input" data-pdoc-field="practice_contact" value="' + escapeHtml(doc.practice_contact || "") + '" placeholder="Email or phone" />' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label class="form-label">Due Date</label>' +
+              '<input class="form-input" type="date" data-pdoc-field="due_date" value="' + escapeHtml(doc.due_date || "") + '" />' +
+            '</div>' +
+            '<div class="form-group full">' +
+              '<label class="form-label">Correction Note</label>' +
+              '<textarea class="form-textarea" data-pdoc-field="correction_note" placeholder="Note for corrections needed..." style="min-height:40px;">' + escapeHtml(doc.correction_note || "") + '</textarea>' +
+            '</div>' +
+          '</div>' +
+          '<div class="btn-row" style="margin-top:8px;">' +
+            '<button class="btn btn-blue" data-pdoc-save="' + pt.key + '" style="font-size:11px;padding:6px 12px;">Save ' + escapeHtml(pt.label) + '</button>' +
+          '</div>' +
+        '</div>';
+      }
+      container.innerHTML = html;
+    }
+
+    // Practice docs save delegation
+    document.getElementById("tab-practicedocs").addEventListener("click", function (e) {
+      var saveBtn = e.target.closest("[data-pdoc-save]");
+      if (!saveBtn) return;
+      var key = saveBtn.getAttribute("data-pdoc-save");
+      var row = document.querySelector('[data-pdoc-key="' + key + '"]');
+      if (!row) return;
+      var docId = row.getAttribute("data-pdoc-id");
+      var payload = {
+        id: docId || null,
+        doc_type: key,
+        case_id: regCaseId || currentCaseId,
+        ops_status: row.querySelector('[data-pdoc-field="ops_status"]').value,
+        requested_from: row.querySelector('[data-pdoc-field="requested_from"]').value.trim(),
+        practice_contact: row.querySelector('[data-pdoc-field="practice_contact"]').value.trim(),
+        due_date: row.querySelector('[data-pdoc-field="due_date"]').value || null,
+        correction_note: row.querySelector('[data-pdoc-field="correction_note"]').value.trim()
+      };
+      apiJson("/api/admin/practice-docs", { method: "PUT", body: payload }).then(function (data) {
+        if (data.ok) { showToast(key.replace(/_/g, " ") + " saved"); loadPracticeDocs(); }
+        else showToast("Failed: " + (data.message || ""));
+      });
     });
 
     // ── Back button ──
