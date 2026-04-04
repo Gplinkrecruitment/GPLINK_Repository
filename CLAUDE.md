@@ -10,6 +10,7 @@ npm run start:prod     # Run with NODE_ENV=production
 npm test               # Run tests (vitest run)
 npm run test:watch     # Run tests in watch mode (vitest)
 npm run init:db        # Initialize local JSON database
+npm run agents -- "task description"   # Hybrid Codex + Claude multi-agent orchestrator
 ```
 
 Single test: `npx vitest run tests/oauth.test.js`
@@ -24,6 +25,19 @@ Single test: `npx vitest run tests/oauth.test.js`
 - Auth: OTP-based login, session cookies (`gp_session` for users, `gp_admin_session` for admin)
 - DB: Supabase (production), local JSON file fallback (development)
 - Integrations: Zoho Recruit (job sync), Domain API (housing search), Anthropic API (qualification AI verification), OpenAI (career AI profiles)
+
+### Hybrid Agent Orchestration (`scripts/agents.js`)
+- Routes subtasks across OpenAI/Codex and Anthropic/Claude specialists
+- Uses the local `codex` and `claude` CLIs with subscription login instead of direct API calls
+- Uses complexity-aware tiering so larger redesign/research work escalates to GPT-5.4 + Opus-class routing, while simpler work can stay on lighter defaults
+- Detects Claude's `browser-use` MCP and can let Claude handle browser/computer walkthrough tasks when the prompt clearly calls for navigation or UI inspection
+- Balanced profile defaults:
+  - Frontend + backend implementation -> OpenAI/Codex
+  - Database + research + extrapolation -> Claude
+  - Review -> the opposite provider when available
+- Paired collaboration mode adds a second-model advisor pass and shared memory between subtasks
+- Outputs plans, raw model responses, patched artifacts, and a final report under `agents-output/<timestamp>/`
+- Super admins can also control runs from the `Agent` tab inside `pages/admin.html`
 
 ### App Shell (`pages/app-shell.html` + `js/app-shell.js`)
 - Main container that loads pages in an `<iframe>`

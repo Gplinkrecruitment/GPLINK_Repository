@@ -1,8 +1,10 @@
 const http = require('http');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
+const hybridAgents = require('./scripts/agents.js');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3000);
@@ -683,6 +685,17 @@ let adminDashboardCache = {
   expiresAt: 0,
   data: null,
   inFlight: null
+};
+const AGENT_OUTPUT_ROOT = path.join(process.cwd(), 'agents-output');
+let hybridAgentControlState = {
+  activeRunId: '',
+  runs: {},
+  providerStatusCache: {
+    expiresAt: 0,
+    refreshedAt: '',
+    data: null,
+    inFlight: null
+  }
 };
 
 function saveDbState() {
@@ -2106,6 +2119,416 @@ function requireIntegrationAdminSession(req, res) {
     return null;
   }
   return { session, email, role, roleLabel: getAdminRoleLabel(role) };
+}
+
+function requireSuperAdminSession(req, res) {
+  const adminCtx = requireAdminSession(req, res);
+  if (!adminCtx) return null;
+  if (!isSuperAdminRole(adminCtx.role)) {
+    sendJson(res, 403, { ok: false, message: 'Super admin access required.' });
+    return null;
+  }
+  return adminCtx;
+}
+
+function ensureAgentOutputRoot() {
+  ensureDirSync(AGENT_OUTPUT_ROOT);
+}
+
+function readJsonFileSafe(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeJsonFileSafe(filePath, value) {
+  ensureDirSync(path.dirname(filePath));
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function tailFile(filePath, maxBytes = 12000) {
+  try {
+    const stat = fs.statSync(filePath);
+    const start = Math.max(0, stat.size - maxBytes);
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(stat.size - start);
+      fs.readSync(fd, buffer, 0, buffer.length, start);
+      return buffer.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeAgentRunId(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function getHybridAgentRunDir(runId) {
+  return path.join(AGENT_OUTPUT_ROOT, sanitizeAgentRunId(runId));
+}
+
+function getHybridAgentRunSummary(runId) {
+  const safeRunId = sanitizeAgentRunId(runId);
+  if (!safeRunId) return null;
+  const runDir = getHybridAgentRunDir(safeRunId);
+  const runState = readJsonFileSafe(path.join(runDir, 'run-state.json')) || {};
+  const registry = hybridAgentControlState.runs[safeRunId] || {};
+  const launch = readJsonFileSafe(path.join(runDir, 'launch.json')) || {};
+  const reportPath = path.join(runDir, 'REPORT.md');
+  const stdoutLogPath = path.join(runDir, 'orchestrator.stdout.log');
+  const stderrLogPath = path.join(runDir, 'orchestrator.stderr.log');
+
+  return {
+    runId: safeRunId,
+    task: runState.task || registry.task || '',
+    status: runState.status || registry.status || 'unknown',
+    phase: runState.phase || registry.phase || '',
+    profile: runState.profile || registry.profile || '',
+    collaborationMode: runState.collaborationMode || registry.collaborationMode || '',
+    complexityMode: runState.complexityMode || registry.complexityMode || 'auto',
+    taskComplexity: runState.taskComplexity || registry.taskComplexity || 'standard',
+    startedAt: runState.startedAt || registry.startedAt || '',
+    finishedAt: runState.finishedAt || registry.finishedAt || '',
+    requestedBy: runState.requestedBy || registry.requestedBy || launch.requestedBy || '',
+    currentSubtask: runState.currentSubtask || registry.currentSubtask || null,
+    completedSubtasks: Array.isArray(runState.completedSubtasks) ? runState.completedSubtasks : [],
+    planSummary: runState.planSummary || '',
+    outputDir: path.relative(process.cwd(), runDir),
+    reportExists: fs.existsSync(reportPath),
+    reportPath: fs.existsSync(reportPath) ? path.relative(process.cwd(), reportPath) : '',
+    reportPreview: fs.existsSync(reportPath) ? tailFile(reportPath, 10000) : '',
+    stdoutTail: tailFile(stdoutLogPath, 8000),
+    stderrTail: tailFile(stderrLogPath, 4000),
+  };
+}
+
+function listHybridAgentRuns(limit = 12) {
+  ensureAgentOutputRoot();
+  let dirEntries = [];
+  try {
+    dirEntries = fs.readdirSync(AGENT_OUTPUT_ROOT, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort()
+      .reverse();
+  } catch {
+    dirEntries = [];
+  }
+
+  const runs = [];
+  for (const runId of dirEntries) {
+    const summary = getHybridAgentRunSummary(runId);
+    if (summary) runs.push(summary);
+    if (runs.length >= limit) break;
+  }
+
+  const activeRunId = hybridAgentControlState.activeRunId;
+  if (activeRunId && !runs.find(run => run.runId === activeRunId)) {
+    const live = getHybridAgentRunSummary(activeRunId);
+    if (live) runs.unshift(live);
+  }
+
+  return runs.slice(0, limit);
+}
+
+function hasActiveHybridAgentRun() {
+  const activeRunId = hybridAgentControlState.activeRunId;
+  if (!activeRunId) return false;
+  const record = hybridAgentControlState.runs[activeRunId];
+  return !!(record && record.status === 'running');
+}
+
+function updateHybridAgentRegistry(runId, patch) {
+  const safeRunId = sanitizeAgentRunId(runId);
+  if (!safeRunId) return null;
+  hybridAgentControlState.runs[safeRunId] = {
+    ...(hybridAgentControlState.runs[safeRunId] || {}),
+    ...patch,
+    runId: safeRunId
+  };
+  return hybridAgentControlState.runs[safeRunId];
+}
+
+async function getCachedHybridAgentProviderStatus(force = false) {
+  const nowMs = Date.now();
+  if (!force && hybridAgentControlState.providerStatusCache.data && hybridAgentControlState.providerStatusCache.expiresAt > nowMs) {
+    return hybridAgentControlState.providerStatusCache.data;
+  }
+  if (!force && hybridAgentControlState.providerStatusCache.inFlight) {
+    return hybridAgentControlState.providerStatusCache.inFlight;
+  }
+
+  const promise = hybridAgents.inspectProviders()
+    .then(function (data) {
+      hybridAgentControlState.providerStatusCache.data = data;
+      hybridAgentControlState.providerStatusCache.expiresAt = Date.now() + 10000;
+      hybridAgentControlState.providerStatusCache.refreshedAt = new Date().toISOString();
+      hybridAgentControlState.providerStatusCache.inFlight = null;
+      return data;
+    })
+    .catch(function (error) {
+      hybridAgentControlState.providerStatusCache.inFlight = null;
+      throw error;
+    });
+
+  hybridAgentControlState.providerStatusCache.inFlight = promise;
+  return promise;
+}
+
+function buildHybridAgentChildEnv() {
+  const env = {};
+  const allowList = [
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'SHELL',
+    'TMPDIR',
+    'TMP',
+    'TEMP',
+    'LANG',
+    'LC_ALL',
+    'TERM',
+    'COLORTERM',
+    'XDG_CONFIG_HOME',
+    'XDG_DATA_HOME',
+    'XDG_STATE_HOME',
+    'XDG_CACHE_HOME',
+    'NODE_ENV',
+    'CODEX_CLI_PATH',
+    'CLAUDE_CLI_PATH',
+    'AGENT_PROFILE',
+    'AGENT_COLLABORATION_MODE',
+    'AGENT_COMPLEXITY_MODE',
+    'AGENT_ENABLE_CLAUDE_BROWSER_USE_MCP',
+    'AGENT_MAX_FILE_CONTEXT_CHARS',
+    'AGENT_MAX_PLANNER_FILES',
+    'AGENT_MAX_SUBTASKS',
+    'AGENT_MAX_DEPENDENCY_CONTEXT_CHARS',
+    'AGENT_MAX_SHARED_MEMORY_ITEMS',
+    'CLAUDE_BROWSER_MCP_NAME',
+    'OPENAI_AGENT_MODEL',
+    'OPENAI_REVIEW_MODEL',
+    'OPENAI_COMPLEX_MODEL',
+    'OPENAI_STANDARD_MODEL',
+    'OPENAI_SIMPLE_MODEL',
+    'OPENAI_COMPLEX_REVIEW_MODEL',
+    'OPENAI_STANDARD_REVIEW_MODEL',
+    'ANTHROPIC_AGENT_MODEL',
+    'ANTHROPIC_RESEARCH_MODEL',
+    'ANTHROPIC_COMPLEX_MODEL',
+    'ANTHROPIC_STANDARD_MODEL',
+    'ANTHROPIC_SIMPLE_MODEL'
+  ];
+
+  allowList.forEach(function (key) {
+    if (typeof process.env[key] === 'string' && process.env[key]) {
+      env[key] = process.env[key];
+    }
+  });
+
+  env.PATH = process.env.PATH || env.PATH || '';
+  env.HOME = process.env.HOME || env.HOME || '';
+  env.NODE_ENV = NODE_ENV;
+  env.AGENT_SKIP_DOTENV = 'true';
+  return env;
+}
+
+function buildHybridAgentDashboardState(taskText, options) {
+  const task = String(taskText || '').trim();
+  const profile = options && options.profile ? options.profile : 'balanced';
+  const collaborationMode = options && options.collaborationMode ? options.collaborationMode : 'paired';
+  const complexityMode = options && options.complexityMode ? options.complexityMode : 'auto';
+  const providerStates = options && options.providerStates ? options.providerStates : hybridAgentControlState.providerStatusCache.data;
+  const providerEntries = providerStates ? Object.values(providerStates) : [];
+  const availableProviders = providerEntries.filter(function (state) { return state && state.available; });
+  const warnings = [];
+
+  if (!availableProviders.length) {
+    warnings.push('Neither Codex nor Claude is currently connected. Use the connect help buttons before starting a run.');
+  } else if (collaborationMode === 'paired' && availableProviders.length < 2) {
+    warnings.push('Only one provider is connected right now, so paired mode will automatically fall back to routed execution.');
+  }
+  if (
+    task &&
+    hybridAgents.inferBrowserUseNeed &&
+    hybridAgents.inferBrowserUseNeed(task) &&
+    !(providerStates && providerStates.anthropic && providerStates.anthropic.browserUse && providerStates.anthropic.browserUse.available)
+  ) {
+    warnings.push('This task looks like a browser/computer walkthrough, but Claude browser-use MCP is not currently connected.');
+  }
+  if (task && task.length < 12) {
+    warnings.push('Short prompts produce weaker plans. Give the agent a concrete, repo-specific task.');
+  }
+
+  return {
+    policy: hybridAgents.getModelPolicy(task, complexityMode, profile, collaborationMode),
+    activeRunId: hybridAgentControlState.activeRunId || '',
+    runs: listHybridAgentRuns(12),
+    providerStatusRefreshedAt: hybridAgentControlState.providerStatusCache.refreshedAt || '',
+    warnings,
+    security: {
+      superAdminOnly: true,
+      sameOriginRequired: ENFORCE_SAME_ORIGIN,
+      singleActiveRun: true,
+      subscriptionCliOnly: true,
+      secretsPassedToChild: false,
+    }
+  };
+}
+
+function startHybridAgentRun(options) {
+  const task = String(options && options.task ? options.task : '').trim();
+  if (!task) throw new Error('Task is required.');
+  if (hasActiveHybridAgentRun()) throw new Error('An agent run is already in progress.');
+
+  const profile = ['balanced', 'codex-heavy', 'claude-heavy'].includes(options.profile) ? options.profile : 'balanced';
+  const collaboration = ['single', 'routed', 'paired'].includes(options.collaborationMode) ? options.collaborationMode : 'paired';
+  const complexity = ['auto', 'simple', 'standard', 'complex'].includes(options.complexity) ? options.complexity : 'auto';
+  const runId = sanitizeAgentRunId(options.runId || `agent-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
+  const requestedBy = typeof options.requestedBy === 'string' ? options.requestedBy.trim() : '';
+  const runDir = getHybridAgentRunDir(runId);
+  ensureDirSync(runDir);
+
+  const stdoutLogPath = path.join(runDir, 'orchestrator.stdout.log');
+  const stderrLogPath = path.join(runDir, 'orchestrator.stderr.log');
+  const stdoutStream = fs.createWriteStream(stdoutLogPath, { flags: 'a' });
+  const stderrStream = fs.createWriteStream(stderrLogPath, { flags: 'a' });
+  const args = [
+    'scripts/agents.js',
+    '--task', task,
+    '--profile', profile,
+    '--collaboration', collaboration,
+    '--complexity', complexity,
+    '--run-id', runId
+  ];
+  const child = spawn(process.execPath, args, {
+    cwd: process.cwd(),
+    env: buildHybridAgentChildEnv(),
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  hybridAgentControlState.activeRunId = runId;
+  updateHybridAgentRegistry(runId, {
+    status: 'running',
+    phase: 'launching',
+    startedAt: new Date().toISOString(),
+    task,
+    profile,
+    collaborationMode: collaboration,
+    complexityMode: complexity,
+    taskComplexity: hybridAgents.resolveTaskComplexity(task, complexity),
+    requestedBy,
+    pid: child.pid,
+    stdoutLogPath,
+    stderrLogPath
+  });
+
+  writeJsonFileSafe(path.join(runDir, 'launch.json'), {
+    runId,
+    task,
+    profile,
+    collaborationMode: collaboration,
+    complexityMode: complexity,
+    requestedBy,
+    pid: child.pid,
+    startedAt: new Date().toISOString()
+  });
+
+  child.stdout.on('data', function (chunk) {
+    stdoutStream.write(chunk);
+  });
+  child.stderr.on('data', function (chunk) {
+    stderrStream.write(chunk);
+  });
+  child.on('close', function (code, signal) {
+    stdoutStream.end();
+    stderrStream.end();
+    const existingState = readJsonFileSafe(path.join(runDir, 'run-state.json')) || {};
+    updateHybridAgentRegistry(runId, {
+      status: code === 0 ? 'completed' : (signal ? 'cancelled' : 'failed'),
+      phase: code === 0 ? 'completed' : (signal ? 'cancelled' : 'error'),
+      finishedAt: new Date().toISOString(),
+      exitCode: code,
+      signal: signal || '',
+      currentSubtask: null
+    });
+    if (!existingState || !existingState.status || existingState.status === 'running' || existingState.status === 'starting') {
+      writeJsonFileSafe(path.join(runDir, 'run-state.json'), {
+        ...existingState,
+        runId,
+        task,
+        profile,
+        collaborationMode: collaboration,
+        complexityMode: complexity,
+        taskComplexity: hybridAgents.resolveTaskComplexity(task, complexity),
+        requestedBy: existingState.requestedBy || requestedBy,
+        status: code === 0 ? 'completed' : (signal ? 'cancelled' : 'failed'),
+        phase: code === 0 ? 'completed' : (signal ? 'cancelled' : 'error'),
+        startedAt: existingState.startedAt || new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        outputDir: path.relative(process.cwd(), runDir),
+        error: code === 0 ? '' : `Process exited with code ${code}${signal ? ` (signal ${signal})` : ''}`
+      });
+    }
+    if (hybridAgentControlState.activeRunId === runId) {
+      hybridAgentControlState.activeRunId = '';
+    }
+  });
+  child.on('error', function (error) {
+    stdoutStream.end();
+    stderrStream.end();
+    updateHybridAgentRegistry(runId, {
+      status: 'failed',
+      phase: 'error',
+      finishedAt: new Date().toISOString(),
+      error: error && error.message ? error.message : 'Failed to launch agent run.'
+    });
+    writeJsonFileSafe(path.join(runDir, 'run-state.json'), {
+      runId,
+      task,
+      profile,
+      collaborationMode: collaboration,
+      complexityMode: complexity,
+      taskComplexity: hybridAgents.resolveTaskComplexity(task, complexity),
+      requestedBy,
+      status: 'failed',
+      phase: 'error',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      outputDir: path.relative(process.cwd(), runDir),
+      error: error && error.message ? error.message : 'Failed to launch agent run.'
+    });
+    if (hybridAgentControlState.activeRunId === runId) {
+      hybridAgentControlState.activeRunId = '';
+    }
+  });
+
+  return { runId, task, profile, collaborationMode: collaboration, complexityMode: complexity, pid: child.pid };
+}
+
+function cancelHybridAgentRun(runId) {
+  const safeRunId = sanitizeAgentRunId(runId);
+  const record = hybridAgentControlState.runs[safeRunId];
+  if (!record || !record.pid || record.status !== 'running') return false;
+  try {
+    process.kill(record.pid, 'SIGTERM');
+    updateHybridAgentRegistry(safeRunId, { status: 'cancelling', phase: 'cancelling' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function timingSafeEqualStrings(left, right) {
@@ -14015,6 +14438,156 @@ Return ONLY valid JSON with no markdown formatting:
       refreshedAt: new Date().toISOString(),
       ...dashboard
     });
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/status' && req.method === 'GET') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+
+    let providers;
+    try {
+      providers = await getCachedHybridAgentProviderStatus(url.searchParams.get('refresh') === 'true');
+    } catch (error) {
+      sendJson(res, 502, { ok: false, message: error && error.message ? error.message : 'Failed to inspect provider status.' });
+      return;
+    }
+
+    const draftTask = String(url.searchParams.get('task') || '').trim();
+    const profile = typeof url.searchParams.get('profile') === 'string' ? url.searchParams.get('profile').trim() : 'balanced';
+    const collaborationMode = typeof url.searchParams.get('collaborationMode') === 'string' ? url.searchParams.get('collaborationMode').trim() : 'paired';
+    const complexityMode = typeof url.searchParams.get('complexity') === 'string' ? url.searchParams.get('complexity').trim() : 'auto';
+    sendJson(res, 200, {
+      ok: true,
+      refreshedAt: new Date().toISOString(),
+      providers,
+      dashboard: buildHybridAgentDashboardState(draftTask, {
+        profile,
+        collaborationMode,
+        complexityMode,
+        providerStates: providers
+      }),
+      connectCommands: {
+        openai: 'codex login',
+        anthropic: 'claude auth login'
+      }
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/providers/refresh' && req.method === 'POST') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+
+    try {
+      const providers = await getCachedHybridAgentProviderStatus(true);
+      sendJson(res, 200, { ok: true, refreshedAt: new Date().toISOString(), providers });
+    } catch (error) {
+      sendJson(res, 502, { ok: false, message: error && error.message ? error.message : 'Failed to refresh provider status.' });
+    }
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/runs' && req.method === 'GET') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    const limit = Math.max(1, Math.min(20, Number(url.searchParams.get('limit') || 12) || 12));
+    sendJson(res, 200, { ok: true, runs: listHybridAgentRuns(limit), activeRunId: hybridAgentControlState.activeRunId || '' });
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/run' && req.method === 'GET') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    const runId = sanitizeAgentRunId(url.searchParams.get('id') || '');
+    if (!runId) {
+      sendJson(res, 400, { ok: false, message: 'Run id is required.' });
+      return;
+    }
+    const run = getHybridAgentRunSummary(runId);
+    if (!run) {
+      sendJson(res, 404, { ok: false, message: 'Run not found.' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, run });
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/run' && req.method === 'POST') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const task = typeof body.task === 'string' ? body.task.trim() : '';
+    const profile = typeof body.profile === 'string' ? body.profile.trim() : 'balanced';
+    const collaborationMode = typeof body.collaborationMode === 'string' ? body.collaborationMode.trim() : 'paired';
+    const complexity = typeof body.complexity === 'string' ? body.complexity.trim() : 'auto';
+    if (!task || task.length < 12) {
+      sendJson(res, 400, { ok: false, message: 'Provide a more specific task for the agent.' });
+      return;
+    }
+    if (task.length > 5000) {
+      sendJson(res, 400, { ok: false, message: 'Task is too long. Keep it under 5000 characters.' });
+      return;
+    }
+
+    let providers;
+    try {
+      providers = await getCachedHybridAgentProviderStatus(false);
+    } catch (error) {
+      sendJson(res, 502, { ok: false, message: error && error.message ? error.message : 'Unable to inspect provider state before launch.' });
+      return;
+    }
+    const availableProviders = Object.values(providers).filter(function (state) { return state && state.available; });
+    if (!availableProviders.length) {
+      sendJson(res, 409, { ok: false, message: 'Connect Codex and/or Claude before starting a run.' });
+      return;
+    }
+
+    try {
+      const launched = startHybridAgentRun({ task, profile, collaborationMode, complexity, requestedBy: adminCtx.email || '' });
+      sendJson(res, 201, {
+        ok: true,
+        run: launched,
+        message: 'Agent run started.',
+        policy: hybridAgents.getModelPolicy(task, complexity, profile, collaborationMode),
+        warning: collaborationMode === 'paired' && availableProviders.length < 2
+          ? 'Only one provider is connected, so this run will execute in routed mode until both providers are available.'
+          : ''
+      });
+    } catch (error) {
+      sendJson(res, 409, { ok: false, message: error && error.message ? error.message : 'Unable to start agent run.' });
+    }
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/run/cancel' && req.method === 'POST') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+    const runId = sanitizeAgentRunId(body && body.runId);
+    if (!runId) {
+      sendJson(res, 400, { ok: false, message: 'Run id is required.' });
+      return;
+    }
+    const cancelled = cancelHybridAgentRun(runId);
+    if (!cancelled) {
+      sendJson(res, 409, { ok: false, message: 'Run is not currently cancellable.' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, runId, message: 'Cancellation requested.' });
     return;
   }
 

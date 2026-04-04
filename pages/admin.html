@@ -221,6 +221,60 @@
       .ops-detail-inner{grid-template-columns:1fr}
       .ops-detail-info{grid-template-columns:1fr 1fr}
     }
+    .agent-stack{display:grid;gap:12px}
+    .agent-hero{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;border-radius:16px;padding:18px;border:1px solid rgba(255,255,255,.08)}
+    .agent-hero h2{font-size:22px;font-weight:850;letter-spacing:-.03em;margin-bottom:4px}
+    .agent-hero p{font-size:13px;color:rgba(255,255,255,.72);line-height:1.5}
+    .agent-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .agent-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .agent-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
+    .agent-card.dark{background:#0f172a;color:#fff;border-color:#1e293b}
+    .agent-card h3{font-size:13px;font-weight:850;margin-bottom:10px}
+    .agent-meta{font-size:11px;color:var(--muted);line-height:1.6}
+    .agent-card.dark .agent-meta{color:rgba(255,255,255,.72)}
+    .agent-toolbar{display:flex;gap:8px;flex-wrap:wrap}
+    .agent-provider-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+    .agent-provider-name{font-size:14px;font-weight:800}
+    .agent-status{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.05em}
+    .agent-status.ok{background:#ecfdf5;color:#166534}
+    .agent-status.warn{background:#fff7ed;color:#c2410c}
+    .agent-status.err{background:#fef2f2;color:#b91c1c}
+    .agent-form{display:grid;gap:10px}
+    .agent-form textarea,.agent-form select{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--line);font-size:13px;font-family:inherit;background:#fff}
+    .agent-form textarea:focus,.agent-form select:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.08)}
+    .agent-form textarea{min-height:124px;resize:vertical}
+    .agent-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    .agent-pill{padding:4px 8px;border-radius:8px;background:#f1f5f9;color:#334155;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
+    .agent-run-card{padding:10px 12px;border-radius:14px;border:1px solid var(--line);background:#fff;cursor:pointer;transition:all .12s;margin-bottom:6px}
+    .agent-run-card:hover{border-color:#bfdbfe;background:#fafbff}
+    .agent-run-card.selected{border-color:#93c5fd;background:#eff6ff}
+    .agent-run-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .agent-run-title{font-size:12px;font-weight:800;color:var(--text);line-height:1.45}
+    .agent-run-sub{font-size:11px;color:var(--muted);margin-top:4px}
+    .agent-pre{margin-top:10px;background:#020617;color:#dbeafe;border-radius:12px;padding:10px;max-height:240px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;border:1px solid #1e293b}
+    .agent-stat-value{font-size:22px;font-weight:900;letter-spacing:-.03em}
+    .agent-inline-list{display:grid;gap:8px}
+    .agent-inline-item{padding:10px 0;border-bottom:1px solid #eef2f7}
+    .agent-inline-item:last-child{border-bottom:0}
+    .agent-inline-item strong{display:block;font-size:12px;margin-bottom:3px}
+    .agent-warning-list{display:grid;gap:8px}
+    .agent-warning{padding:10px 12px;border-radius:12px;border:1px solid #fed7aa;background:#fff7ed;color:#9a3412;font-size:12px;line-height:1.5}
+    .agent-kv{display:grid;gap:8px}
+    .agent-kv-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #eef2f7}
+    .agent-kv-row:last-child{border-bottom:0}
+    .agent-kv-key{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+    .agent-kv-value{font-size:12px;color:var(--text);text-align:right;line-height:1.5}
+    .agent-card.dark .agent-kv-key{color:rgba(255,255,255,.68)}
+    .agent-card.dark .agent-kv-value{color:#fff}
+    .agent-role-list{display:grid;gap:8px;margin-top:10px}
+    .agent-role-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:9px 10px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid rgba(148,163,184,.18)}
+    .agent-role-name{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:rgba(255,255,255,.72)}
+    .agent-role-route{font-size:12px;line-height:1.5;text-align:right}
+    .agent-progress-list{display:grid;gap:8px}
+    .agent-progress-item{padding:9px 10px;border-radius:12px;background:#f8fafc;border:1px solid #e2e8f0;font-size:12px;line-height:1.45}
+    @media(max-width:900px){
+      .agent-grid,.agent-grid-3{grid-template-columns:1fr}
+    }
   </style>
 </head>
 <body>
@@ -242,6 +296,7 @@
         <div class="view-tab active" data-view="cases">Cases</div>
         <div class="view-tab" data-view="queue">Work Queue</div>
         <div class="view-tab" data-view="ops">Ops Queue</div>
+        <div class="view-tab" data-view="agent" id="agentTab" style="display:none">Agent</div>
       </div>
       <div class="filter-bar" id="filterBar"></div>
       <div class="case-list" id="caseList"></div>
@@ -314,7 +369,10 @@
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
     selectedCaseId:null,view:"cases",filter:"all",query:"",expanded:{},refreshTimer:null,
-    opsTasks:[],opsExpandedId:null,opsLoading:false};
+    opsTasks:[],opsExpandedId:null,opsLoading:false,
+    agent:{providers:null,runs:[],policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
+      draftTask:"",profile:"balanced",collaborationMode:"paired",complexity:"auto",loading:false,submitting:false,
+      warnings:[],security:null,providerStatusRefreshedAt:"",error:""}};
   const STEPS=[
     {key:"myintealth",label:"MyIntealth",num:1},
     {key:"amc",label:"AMC Portfolio",num:2},
@@ -336,16 +394,23 @@
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
   function ini(n){return(n||"?").split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();}
   function fmtD(d){if(!d)return"\u2014";try{return new Date(d).toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"});}catch{return"\u2014";}}
+  function fmtDT(d){if(!d)return"\u2014";try{return new Date(d).toLocaleString("en-AU",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});}catch{return"\u2014";}}
   function fmtR(d){if(!d)return"never";const ms=Date.now()-new Date(d).getTime();if(ms<60000)return"just now";if(ms<3600000)return Math.floor(ms/60000)+"m ago";if(ms<86400000)return Math.floor(ms/3600000)+"h ago";return Math.floor(ms/86400000)+"d ago";}
   function daysAgo(d){if(!d)return 999;return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
+  function shortTask(text,max){text=String(text||"").trim();return text.length>(max||110)?text.slice(0,(max||110)-1)+"\u2026":text;}
+  function agentStatusClass(status){status=String(status||"").toLowerCase();if(status==="completed"||status==="connected"||status==="ready")return"ok";if(status==="running"||status==="starting"||status==="launching"||status==="cancelling")return"warn";return"err";}
+  function prettyRole(role){return String(role||"").replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase());}
 
   /* ══ Auth ══ */
   async function loadSession(){
     try{const r=await fetch("/api/admin/auth/session",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));
     if(!d.authenticated){window.location.href="/pages/admin-signin.html";return false;}
-    S.viewer=d.session||{};S.hostLabel=d.hostLabel||"Admin";return true;}catch{return false;}
+    const profile=d.profile||d.session||{};
+    const adminRole=profile.adminRole||profile.role||"";
+    S.viewer=Object.assign({},profile,{role:adminRole,roleLabel:adminRole==="super_admin"?"Super Admin":"Admin"});
+    S.hostLabel=d.hostLabel||"Admin";return true;}catch{return false;}
   }
-  function isSA(){return S.viewer&&S.viewer.role==="super_admin";}
+  function isSA(){return S.viewer&&(S.viewer.role==="super_admin"||S.viewer.adminRole==="super_admin");}
 
   /* ══ Data Loading ══ */
   async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin.html";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
@@ -353,7 +418,61 @@
   async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
   async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
   async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch{}}
-  async function loadAll(force){if(S.loading&&!force)return;S.loading=true;await Promise.all([loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs()]);S.loading=false;renderAll();}
+  async function loadAgentStatus(force){
+    if(!isSA())return;
+    if(S.agent.loading&&!force)return;
+    S.agent.loading=true;
+    try{
+      const params=new URLSearchParams();
+      if(S.agent.draftTask)params.set("task",S.agent.draftTask);
+      params.set("profile",S.agent.profile);
+      params.set("collaborationMode",S.agent.collaborationMode);
+      params.set("complexity",S.agent.complexity);
+      if(force)params.set("refresh","true");
+      const taskParam=params.toString()?("?"+params.toString()):"";
+      const r=await fetch("/api/admin/agent-control/status"+taskParam,{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d.ok){
+        S.agent.providers=d.providers||null;
+        S.agent.policy=d.dashboard&&d.dashboard.policy?d.dashboard.policy:null;
+        S.agent.runs=d.dashboard&&Array.isArray(d.dashboard.runs)?d.dashboard.runs:[];
+        S.agent.activeRunId=d.dashboard&&d.dashboard.activeRunId?d.dashboard.activeRunId:"";
+        S.agent.connectCommands=d.connectCommands||null;
+        S.agent.warnings=d.dashboard&&Array.isArray(d.dashboard.warnings)?d.dashboard.warnings:[];
+        S.agent.security=d.dashboard&&d.dashboard.security?d.dashboard.security:null;
+        S.agent.providerStatusRefreshedAt=d.dashboard&&d.dashboard.providerStatusRefreshedAt?d.dashboard.providerStatusRefreshedAt:"";
+        S.agent.error="";
+        if(!S.agent.selectedRunId||!S.agent.runs.find(run=>run.runId===S.agent.selectedRunId)){
+          S.agent.selectedRunId=S.agent.activeRunId||(S.agent.runs[0]&&S.agent.runs[0].runId)||null;
+        }
+      }else{
+        S.agent.error=d.message||"Unable to load agent status.";
+      }
+    }catch{
+      S.agent.error="Unable to load agent status.";
+    }
+    S.agent.loading=false;
+    if(S.view==="agent")renderAll();
+  }
+  async function loadAgentRun(runId){
+    if(!isSA()||!runId)return;
+    try{
+      const r=await fetch("/api/admin/agent-control/run?id="+encodeURIComponent(runId),{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d.ok&&d.run)S.agent.currentRun=d.run;
+    }catch{}
+    if(S.view==="agent")renderDetail();
+  }
+  async function loadAll(force){
+    if(S.loading&&!force)return;
+    S.loading=true;
+    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs()];
+    if(isSA())jobs.push(loadAgentStatus(force));
+    await Promise.all(jobs);
+    S.loading=false;
+    renderAll();
+    if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
+  }
   async function syncCases(){try{await fetch("/api/admin/cases/sync",{method:"POST",credentials:"same-origin"});await loadAll(true);}catch{}}
 
   /* ══ Data Helpers ══ */
@@ -446,13 +565,18 @@
       `<span class="chip"><b>${c.all}</b> GPs</span>`,
       c.urgent?`<span class="chip urgent"><b>${c.urgent}</b> Urgent</span>`:"",
       c.overdue?`<span class="chip"><b>${c.overdue}</b> Overdue</span>`:"",
-      `<span class="chip"><b>${S.tasks.length}</b> Open Tasks</span>`
+      `<span class="chip"><b>${S.tasks.length}</b> Open Tasks</span>`,
+      isSA()?`<span class="chip"><b>${S.agent.activeRunId?1:0}</b> Agent Runs Live</span>`:""
     ].filter(Boolean).join("");
     const em=S.viewer?S.viewer.email:"",rl=S.viewer?S.viewer.roleLabel||"Admin":"Admin";
     document.getElementById("topMeta").textContent=em?rl+" \u2022 "+em:rl;
   }
 
   function renderFilters(){
+    if(S.view==="agent"){
+      document.getElementById("filterBar").innerHTML=`<div style="padding:4px 0;font-size:11px;color:var(--muted);font-weight:700">${S.agent.activeRunId?"One run at a time is enabled for safety.":"Start a new mixed Codex + Claude run from the detail panel."}</div>`;
+      return;
+    }
     const c=counts();
     const filters=[
       {k:"all",l:"All",c:c.all},{k:"urgent",l:"Urgent",c:c.urgent},{k:"overdue",l:"Overdue",c:c.overdue},
@@ -464,6 +588,7 @@
   function renderCaseList(){
     const el=document.getElementById("caseList");
     if(S.view==="queue"){renderQueueList();return;}
+    if(S.view==="agent"){renderAgentRunList();return;}
     const list=filteredCases();
     if(!list.length){el.innerHTML=`<div class="empty">${S.cases.length||S.dashboard?"No cases match filter.":"Loading..."}</div>`;return;}
     el.innerHTML=list.map(m=>{
@@ -515,6 +640,7 @@
 
   async function renderDetail(){
     const el=document.getElementById("detailContent");
+    if(S.view==="agent"){renderAgentDetail();return;}
     if(!S.selectedCaseId){
       // Global work queue
       const tasks=S.tasks.slice().sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);});
@@ -675,6 +801,250 @@
       <div style="flex:1;min-width:0"><div class="wq-gp">${esc(t.gp_name||"")}</div><div class="wq-label">${esc(t.title)}</div><div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div></div>
       <span class="task-tag stage">${esc(t.related_stage||"")}</span>
     </div>`;
+  }
+
+  function renderAgentRunList(){
+    const el=document.getElementById("caseList");
+    if(!isSA()){el.innerHTML=`<div class="empty">Super admin access is required.</div>`;return;}
+    const runs=Array.isArray(S.agent.runs)?S.agent.runs:[];
+    if(!runs.length){el.innerHTML=`<div class="empty">No agent runs yet. Start the first run from the control panel.</div>`;return;}
+    el.innerHTML=runs.map(run=>`<div class="agent-run-card ${S.agent.selectedRunId===run.runId?"selected":""}" data-agent-run-id="${esc(run.runId)}">
+      <div class="agent-run-top">
+        <span class="agent-status ${agentStatusClass(run.status)}">${esc(run.status||"unknown")}</span>
+        <span class="task-tag stage">${esc(run.taskComplexity||"standard")}</span>
+      </div>
+      <div class="agent-run-title">${esc(shortTask(run.task||run.runId,88))}</div>
+      <div class="agent-run-sub">${esc(run.profile||"balanced")} \u2022 ${esc(run.collaborationMode||"paired")} \u2022 ${esc(fmtDT(run.startedAt))}</div>
+    </div>`).join("");
+  }
+
+  function providerCard(key,label,data){
+    const available=!!(data&&data.available);
+    const statusText=available?"Connected":"Needs attention";
+    const binaryName=data&&data.binaryPath?String(data.binaryPath).split("/").pop():"not found";
+    const browserUse=data&&data.browserUse?data.browserUse:null;
+    return `<div class="agent-card">
+      <div class="agent-provider-head">
+        <div>
+          <div class="agent-provider-name">${esc(label)}</div>
+          <div class="agent-meta">${esc(data&&data.authSummary?data.authSummary:(data&&data.reason?data.reason:"Status unavailable"))}</div>
+        </div>
+        <span class="agent-status ${agentStatusClass(available?"connected":"failed")}">${esc(statusText)}</span>
+      </div>
+      <div class="agent-kv">
+        <div class="agent-kv-row">
+          <div class="agent-kv-key">CLI</div>
+          <div class="agent-kv-value">${esc(binaryName)}</div>
+        </div>
+        <div class="agent-kv-row">
+          <div class="agent-kv-key">Auth</div>
+          <div class="agent-kv-value">${esc(data&&data.authSummary?data.authSummary:(data&&data.reason?data.reason:"Unknown"))}</div>
+        </div>
+        ${key==="anthropic"?`<div class="agent-kv-row">
+          <div class="agent-kv-key">browser-use MCP</div>
+          <div class="agent-kv-value">${browserUse?esc(browserUse.available?"Connected":"Unavailable")+"<br><span style=\"color:var(--muted)\">"+esc(browserUse.status||browserUse.target||"")+"</span>":"Not detected"}</div>
+        </div>`:""}
+      </div>
+      <div class="agent-toolbar">
+        <button class="btn sm" data-agent-connect="${esc(key)}">${available?"Reconnect Help":"Connect Help"}</button>
+      </div>
+    </div>`;
+  }
+
+  function renderAgentDetail(){
+    const el=document.getElementById("detailContent");
+    if(!isSA()){el.innerHTML=`<div class="detail-empty">Super admin access is required for Agent Control.</div>`;return;}
+    const providers=S.agent.providers||{};
+    const openai=providers.openai||null;
+    const anthropic=providers.anthropic||null;
+    const run=S.agent.currentRun&&S.agent.currentRun.runId===S.agent.selectedRunId?S.agent.currentRun:(S.agent.runs||[]).find(r=>r.runId===S.agent.selectedRunId)||null;
+    const policy=S.agent.policy||null;
+    const warnings=Array.isArray(S.agent.warnings)?S.agent.warnings:[];
+    const security=S.agent.security||null;
+    const completed=run&&Array.isArray(run.completedSubtasks)?run.completedSubtasks:[];
+    let h=`<div class="agent-stack">
+      <div class="agent-hero">
+        <h2>Hybrid Agent Control</h2>
+        <p>Launch, monitor and steer the mixed Codex + Claude worker from the super admin portal. Provider auth stays local and subscription-backed, one run is allowed at a time for safety, and the child process receives a reduced environment rather than the full app secret set.</p>
+      </div>
+      ${S.agent.error?`<div class="agent-warning">${esc(S.agent.error)}</div>`:""}
+      ${warnings.length?`<div class="agent-card"><h3>Launch Warnings</h3><div class="agent-warning-list">${warnings.map(item=>`<div class="agent-warning">${esc(item)}</div>`).join("")}</div></div>`:""}
+      <div class="agent-grid">
+        ${providerCard("openai","Codex / OpenAI",openai)}
+        ${providerCard("anthropic","Claude / Anthropic",anthropic)}
+      </div>
+      <div class="agent-grid">
+        <div class="agent-card">
+          <h3>Launch New Run</h3>
+          <div class="agent-form">
+            <textarea id="agentTaskInput" placeholder="Describe what the mixed agent should do...">${esc(S.agent.draftTask||"")}</textarea>
+            <div class="agent-grid-3">
+              <select id="agentProfileSelect">
+                ${["balanced","codex-heavy","claude-heavy"].map(v=>`<option value="${v}" ${S.agent.profile===v?"selected":""}>${v}</option>`).join("")}
+              </select>
+              <select id="agentCollabSelect">
+                ${["paired","routed","single"].map(v=>`<option value="${v}" ${S.agent.collaborationMode===v?"selected":""}>${v}</option>`).join("")}
+              </select>
+              <select id="agentComplexitySelect">
+                ${["auto","simple","standard","complex"].map(v=>`<option value="${v}" ${S.agent.complexity===v?"selected":""}>${v}</option>`).join("")}
+              </select>
+            </div>
+            <div class="agent-toolbar">
+              <button class="btn primary" data-agent-start ${S.agent.activeRunId?"disabled":""}>${S.agent.activeRunId?"Run In Progress":"Start Run"}</button>
+              <button class="btn" data-agent-refresh>Status Refresh</button>
+              <button class="btn" data-agent-refresh-providers>Sync Connections</button>
+              ${S.agent.activeRunId?`<button class="btn red" data-agent-cancel="${esc(S.agent.activeRunId)}">Cancel Active Run</button>`:""}
+            </div>
+            <div class="agent-meta">Connection state last checked: ${esc(S.agent.providerStatusRefreshedAt?fmtDT(S.agent.providerStatusRefreshedAt):"not yet checked")}</div>
+          </div>
+        </div>
+        <div class="agent-card dark">
+          <h3>Model Policy</h3>
+          ${policy?`<div class="agent-meta">Complexity resolved as <strong style="color:#fff">${esc(policy.taskComplexity)}</strong>. Profile <strong style="color:#fff">${esc(policy.profile||S.agent.profile)}</strong> with <strong style="color:#fff">${esc(policy.collaborationMode||S.agent.collaborationMode)}</strong> collaboration.</div>
+          <div class="agent-pills">
+            <span class="agent-pill">Resolved Codex: ${esc(policy.selected&&policy.selected.openaiPrimary||"")}</span>
+            <span class="agent-pill">Resolved Review: ${esc(policy.selected&&policy.selected.openaiReview||"")}</span>
+            <span class="agent-pill">Resolved Claude: ${esc(policy.selected&&policy.selected.anthropicPrimary||"")}</span>
+            <span class="agent-pill">Forced mode: ${esc(policy.complexityMode||"auto")}</span>
+            ${policy.capabilities&&policy.capabilities.browserUseRecommended?`<span class="agent-pill">Claude browser-use recommended</span>`:""}
+          </div>
+          <div class="agent-role-list">${(policy.roleAssignments||[]).map(item=>`<div class="agent-role-row"><div><div class="agent-role-name">${esc(prettyRole(item.role))}</div></div><div class="agent-role-route">${esc(item.providerLabel||item.provider||"")}\u00a0/\u00a0${esc(item.model||"")}</div></div>`).join("")}</div>
+          <div class="agent-inline-list" style="margin-top:10px">${(policy.notes||[]).map(note=>`<div class="agent-inline-item">${esc(note)}</div>`).join("")}</div>`:`<div class="agent-meta">Policy will appear after the provider status loads.</div>`}
+        </div>
+      </div>`;
+
+    h+=`<div class="agent-grid">
+      <div class="agent-card">
+        <h3>Security Posture</h3>
+        ${security?`<div class="agent-kv">
+          <div class="agent-kv-row"><div class="agent-kv-key">Access</div><div class="agent-kv-value">${security.superAdminOnly?"Super admin only":"Admin"}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">Origin checks</div><div class="agent-kv-value">${security.sameOriginRequired?"Required":"Disabled"}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">Run isolation</div><div class="agent-kv-value">${security.singleActiveRun?"One active run at a time":"Multiple runs allowed"}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">Provider auth</div><div class="agent-kv-value">${security.subscriptionCliOnly?"Local subscription CLIs only":"Mixed auth"}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">Child env</div><div class="agent-kv-value">${security.secretsPassedToChild?"Full app env":"Reduced env without app secrets"}</div></div>
+        </div>`:`<div class="agent-meta">Security details will load with provider state.</div>`}
+      </div>
+      <div class="agent-card">
+        <h3>Tier Defaults</h3>
+        ${policy?`<div class="agent-kv">
+          <div class="agent-kv-row"><div class="agent-kv-key">OpenAI complex</div><div class="agent-kv-value">${esc(policy.openai&&policy.openai.complex||"\u2014")}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">OpenAI standard</div><div class="agent-kv-value">${esc(policy.openai&&policy.openai.standard||"\u2014")}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">OpenAI simple</div><div class="agent-kv-value">${esc(policy.openai&&policy.openai.simple||"\u2014")}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">Claude complex</div><div class="agent-kv-value">${esc(policy.anthropic&&policy.anthropic.complex||"\u2014")}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">Claude standard</div><div class="agent-kv-value">${esc(policy.anthropic&&policy.anthropic.standard||"\u2014")}</div></div>
+          <div class="agent-kv-row"><div class="agent-kv-key">Claude simple</div><div class="agent-kv-value">${esc(policy.anthropic&&policy.anthropic.simple||"\u2014")}</div></div>
+        </div>`:`<div class="agent-meta">Tier defaults will appear after the policy loads.</div>`}
+      </div>
+    </div>`;
+
+    if(run){
+      h+=`<div class="agent-grid">
+        <div class="agent-card">
+          <h3>Current / Selected Run</h3>
+          <div class="agent-meta">Run ID: <strong>${esc(run.runId)}</strong></div>
+          <div class="agent-pills">
+            <span class="agent-pill">${esc(run.status||"unknown")}</span>
+            <span class="agent-pill">${esc(run.phase||"\u2014")}</span>
+            <span class="agent-pill">${esc(run.profile||"balanced")}</span>
+            <span class="agent-pill">${esc(run.taskComplexity||"standard")}</span>
+          </div>
+          <div class="agent-inline-list" style="margin-top:10px">
+            <div class="agent-inline-item"><strong>Task</strong>${esc(run.task||"\u2014")}</div>
+            <div class="agent-inline-item"><strong>Requested by</strong>${esc(run.requestedBy||"\u2014")}</div>
+            <div class="agent-inline-item"><strong>Started</strong>${esc(fmtDT(run.startedAt))}</div>
+            <div class="agent-inline-item"><strong>Finished</strong>${esc(fmtDT(run.finishedAt))}</div>
+            <div class="agent-inline-item"><strong>Current work</strong>${run.currentSubtask?esc(run.currentSubtask.title+" • "+(run.currentSubtask.provider||"")+" / "+(run.currentSubtask.model||"")):"Waiting / complete"}</div>
+            <div class="agent-inline-item"><strong>Completed subtasks</strong>${esc(String(completed.length))}</div>
+            ${run.planSummary?`<div class="agent-inline-item"><strong>Plan summary</strong>${esc(run.planSummary)}</div>`:""}
+            <div class="agent-inline-item"><strong>Output</strong>${esc(run.outputDir||"\u2014")}${run.reportPath?`<br>${esc(run.reportPath)}`:""}</div>
+          </div>
+        </div>
+        <div class="agent-card">
+          <h3>Runtime Output</h3>
+          <div class="agent-meta">Latest stdout from the orchestrator process.</div>
+          <div class="agent-pre">${esc((run.stdoutTail||"No log output yet.").trim()||"No log output yet.")}</div>
+          ${run.stderrTail&&run.stderrTail.trim()?`<div class="agent-meta" style="margin-top:10px;color:var(--red)">stderr</div><div class="agent-pre">${esc(run.stderrTail.trim())}</div>`:""}
+        </div>
+      </div>`;
+      if(completed.length||run.reportPreview){
+        h+=`<div class="agent-grid">
+          <div class="agent-card">
+            <h3>Completed Steps</h3>
+            ${completed.length?`<div class="agent-progress-list">${completed.map(item=>`<div class="agent-progress-item"><strong>${esc(prettyRole(item.agent||"step"))}</strong><br>${esc(item.id||"\u2014")} \u2022 ${esc((item.provider||"")+" / "+(item.model||""))}</div>`).join("")}</div>`:`<div class="agent-meta">No completed subtask records yet.</div>`}
+          </div>
+          <div class="agent-card">
+            <h3>Report Preview</h3>
+            <div class="agent-meta">Latest content from the generated report.</div>
+            <div class="agent-pre">${esc((run.reportPreview||"No report generated yet.").trim()||"No report generated yet.")}</div>
+          </div>
+        </div>`;
+      }
+    }else{
+      h+=`<div class="agent-card"><h3>No Selected Run</h3><div class="agent-meta">Choose a run from the left, or start a new one.</div></div>`;
+    }
+
+    h+=`</div>`;
+    el.innerHTML=h;
+  }
+
+  async function refreshAgentStatus(force){
+    await loadAgentStatus(!!force);
+    if(S.agent.selectedRunId)await loadAgentRun(S.agent.selectedRunId);
+  }
+
+  async function startAgentRun(){
+    const taskEl=document.getElementById("agentTaskInput");
+    const profileEl=document.getElementById("agentProfileSelect");
+    const collabEl=document.getElementById("agentCollabSelect");
+    const complexityEl=document.getElementById("agentComplexitySelect");
+    const task=taskEl?taskEl.value.trim():"";
+    if(task.length<12){alert("Please give the agent a more specific task.");return;}
+    S.agent.draftTask=task;
+    S.agent.profile=profileEl?profileEl.value:S.agent.profile;
+    S.agent.collaborationMode=collabEl?collabEl.value:S.agent.collaborationMode;
+    S.agent.complexity=complexityEl?complexityEl.value:S.agent.complexity;
+    try{
+      const r=await fetch("/api/admin/agent-control/run",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({task:S.agent.draftTask,profile:S.agent.profile,collaborationMode:S.agent.collaborationMode,complexity:S.agent.complexity})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.ok){alert(d.message||"Failed to start run.");return;}
+      S.agent.activeRunId=d.run&&d.run.runId?d.run.runId:"";
+      S.agent.selectedRunId=S.agent.activeRunId||S.agent.selectedRunId;
+      S.agent.warnings=d.warning?[d.warning]:S.agent.warnings;
+      await refreshAgentStatus(true);
+    }catch(err){alert(err&&err.message?err.message:"Failed to start run.");}
+  }
+
+  async function cancelAgentRun(runId){
+    if(!runId)return;
+    if(!window.confirm("Cancel the active agent run?"))return;
+    try{
+      const r=await fetch("/api/admin/agent-control/run/cancel",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({runId})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.ok){alert(d.message||"Unable to cancel the run.");return;}
+      await refreshAgentStatus(true);
+    }catch(err){alert(err&&err.message?err.message:"Unable to cancel the run.");}
+  }
+
+  async function refreshAgentProviders(){
+    try{
+      const r=await fetch("/api/admin/agent-control/providers/refresh",{method:"POST",credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.ok){alert(d.message||"Failed to refresh provider status.");return;}
+      await refreshAgentStatus(true);
+    }catch(err){alert(err&&err.message?err.message:"Failed to refresh provider status.");}
+  }
+
+  function showAgentConnectHelp(provider){
+    const cmd=S.agent.connectCommands&&S.agent.connectCommands[provider]?S.agent.connectCommands[provider]:"";
+    const title=provider==="openai"?"Connect Codex / ChatGPT":"Connect Claude";
+    document.getElementById("modalTitle").textContent=title;
+    document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">Connection is handled on the host machine for security. Run this command in the terminal where the app server lives:</p>
+      <div class="agent-pre">${esc(cmd||"Command unavailable")}</div>
+      <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn primary" data-copy-connect="${esc(provider)}">Copy Command</button>
+        <button class="btn" data-close-modal>Close</button>
+      </div>`;
+    document.getElementById("modalOverlay").classList.add("open");
   }
 
   function renderAll(){renderTopBar();renderFilters();renderCaseList();renderDetail();}
@@ -901,15 +1271,22 @@
   /* ══ Events ══ */
   function bind(){
     document.getElementById("searchInput").addEventListener("input",e=>{S.query=e.target.value||"";renderCaseList();});
-    document.querySelector(".view-tabs").addEventListener("click",e=>{const tab=e.target.closest("[data-view]");if(!tab)return;S.view=tab.getAttribute("data-view");document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t===tab));if(S.view==="ops"){switchToOps();}else{switchFromOps();renderCaseList();}});
+    document.querySelector(".view-tabs").addEventListener("click",e=>{const tab=e.target.closest("[data-view]");if(!tab)return;S.view=tab.getAttribute("data-view");document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t===tab));if(S.view==="ops"){switchToOps();}else{switchFromOps();renderCaseList();renderDetail();if(S.view==="agent")refreshAgentStatus(true);}});
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
     document.getElementById("caseList").addEventListener("click",e=>{
+      const agentRun=e.target.closest("[data-agent-run-id]");
+      if(agentRun){S.agent.selectedRunId=agentRun.getAttribute("data-agent-run-id");S.agent.currentRun=null;renderCaseList();renderDetail();loadAgentRun(S.agent.selectedRunId);return;}
       const card=e.target.closest("[data-case-id]");
       if(card){S.selectedCaseId=card.getAttribute("data-rc-id")||card.getAttribute("data-case-id");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
       const wq=e.target.closest("[data-wq-case]");
       if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="cases";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
     document.getElementById("detailContent").addEventListener("click",e=>{
+      const agStart=e.target.closest("[data-agent-start]");if(agStart){startAgentRun();return;}
+      const agRefresh=e.target.closest("[data-agent-refresh]");if(agRefresh){refreshAgentStatus(true);return;}
+      const agRefreshProviders=e.target.closest("[data-agent-refresh-providers]");if(agRefreshProviders){refreshAgentProviders();return;}
+      const agCancel=e.target.closest("[data-agent-cancel]");if(agCancel){cancelAgentRun(agCancel.getAttribute("data-agent-cancel"));return;}
+      const agConnect=e.target.closest("[data-agent-connect]");if(agConnect){showAgentConnectHelp(agConnect.getAttribute("data-agent-connect"));return;}
       if(e.target.closest("[data-back]")){S.selectedCaseId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderDetail();return;}
       const ct=e.target.closest("[data-complete-task]");if(ct){completeTask(ct.getAttribute("data-complete-task"));return;}
       const st=e.target.closest("[data-start-task]");if(st){startTask(st.getAttribute("data-start-task"));return;}
@@ -920,7 +1297,18 @@
       const ts=e.target.closest("[data-toggle-step]");if(ts){const k=ts.getAttribute("data-toggle-step");S.expanded[k]=!S.expanded[k];renderDetail();return;}
       const wq=e.target.closest("[data-wq-case]");if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
-    document.getElementById("modalOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("modalOverlay")||e.target.closest("[data-close-modal]"))closeModal();});
+    document.getElementById("modalOverlay").addEventListener("click",async e=>{
+      const copyBtn=e.target.closest("[data-copy-connect]");
+      if(copyBtn){
+        const provider=copyBtn.getAttribute("data-copy-connect");
+        const cmd=S.agent.connectCommands&&S.agent.connectCommands[provider]?S.agent.connectCommands[provider]:"";
+        if(cmd&&navigator.clipboard&&navigator.clipboard.writeText){
+          try{await navigator.clipboard.writeText(cmd);}catch{}
+        }
+        return;
+      }
+      if(e.target===document.getElementById("modalOverlay")||e.target.closest("[data-close-modal]"))closeModal();
+    });
     document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin.html";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
@@ -954,12 +1342,26 @@
         return;
       }
     });
+    document.getElementById("detailContent").addEventListener("input",e=>{
+      if(e.target&&e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";}
+    });
+    document.getElementById("detailContent").addEventListener("change",e=>{
+      if(!e.target)return;
+      if(e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";refreshAgentStatus(false);return;}
+      if(e.target.id==="agentProfileSelect"){S.agent.profile=e.target.value||"balanced";refreshAgentStatus(false);return;}
+      if(e.target.id==="agentCollabSelect"){S.agent.collaborationMode=e.target.value||"paired";refreshAgentStatus(false);return;}
+      if(e.target.id==="agentComplexitySelect"){S.agent.complexity=e.target.value||"auto";refreshAgentStatus(false);return;}
+    });
   }
 
   /* ══ Init ══ */
   bind();
   loadSession().then(ok=>{
     if(!ok)return;
+    if(isSA()){
+      const agentTab=document.getElementById("agentTab");
+      if(agentTab)agentTab.style.display="";
+    }
     loadAll();
     S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll();},15000);
   }).catch(err=>{
