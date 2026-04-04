@@ -31,6 +31,7 @@ Single test: `npx vitest run tests/oauth.test.js`
 - Uses the local `codex` and `claude` CLIs with subscription login instead of direct API calls
 - Uses complexity-aware tiering so larger redesign/research work escalates to GPT-5.4 + Opus-class routing, while simpler work can stay on lighter defaults
 - Detects Claude's `browser-use` MCP and can let Claude handle browser/computer walkthrough tasks when the prompt clearly calls for navigation or UI inspection
+- Includes `scripts/agent-bridge.js` so the live super-admin dashboard can proxy to Codex and Claude CLIs running on the local Mac
 - Balanced profile defaults:
   - Frontend + backend implementation -> OpenAI/Codex
   - Database + research + extrapolation -> Claude

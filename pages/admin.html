@@ -372,7 +372,8 @@
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     agent:{providers:null,runs:[],policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
       draftTask:"",profile:"balanced",collaborationMode:"paired",complexity:"auto",loading:false,submitting:false,
-      warnings:[],security:null,providerStatusRefreshedAt:"",error:""}};
+      warnings:[],security:null,providerStatusRefreshedAt:"",error:"",
+      bridge:{connected:false,mode:"remote",baseUrl:"",error:"",status:null,candidates:["http://127.0.0.1:4317","http://localhost:4317"]}}};
   const STEPS=[
     {key:"myintealth",label:"MyIntealth",num:1},
     {key:"amc",label:"AMC Portfolio",num:2},
@@ -400,6 +401,60 @@
   function shortTask(text,max){text=String(text||"").trim();return text.length>(max||110)?text.slice(0,(max||110)-1)+"\u2026":text;}
   function agentStatusClass(status){status=String(status||"").toLowerCase();if(status==="completed"||status==="connected"||status==="ready")return"ok";if(status==="running"||status==="starting"||status==="launching"||status==="cancelling")return"warn";return"err";}
   function prettyRole(role){return String(role||"").replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase());}
+  function agentConnectCommands(){return Object.assign({openai:"codex login",anthropic:"claude auth login",localBridge:"npm run agent-bridge"},S.agent.connectCommands||{});}
+  function agentBridgeActive(){return !!(S.agent.bridge&&S.agent.bridge.connected&&S.agent.bridge.mode==="local"&&S.agent.bridge.baseUrl);}
+  async function fetchJson(url,opts){const r=await fetch(url,opts);const d=await r.json().catch(()=>({}));return{r,d};}
+  function applyAgentStatusPayload(d,mode,baseUrl){
+    S.agent.providers=d.providers||null;
+    S.agent.policy=d.dashboard&&d.dashboard.policy?d.dashboard.policy:null;
+    S.agent.runs=d.dashboard&&Array.isArray(d.dashboard.runs)?d.dashboard.runs:[];
+    S.agent.activeRunId=d.dashboard&&d.dashboard.activeRunId?d.dashboard.activeRunId:"";
+    S.agent.connectCommands=Object.assign(agentConnectCommands(),d.connectCommands||{});
+    S.agent.warnings=d.dashboard&&Array.isArray(d.dashboard.warnings)?d.dashboard.warnings:[];
+    S.agent.security=d.dashboard&&d.dashboard.security?d.dashboard.security:null;
+    S.agent.providerStatusRefreshedAt=d.dashboard&&d.dashboard.providerStatusRefreshedAt?d.dashboard.providerStatusRefreshedAt:"";
+    S.agent.error="";
+    S.agent.bridge.connected=mode==="local";
+    S.agent.bridge.mode=mode;
+    S.agent.bridge.baseUrl=baseUrl||"";
+    S.agent.bridge.status=d.bridge||null;
+    S.agent.bridge.error="";
+    if(!S.agent.selectedRunId||!S.agent.runs.find(run=>run.runId===S.agent.selectedRunId)){
+      S.agent.selectedRunId=S.agent.activeRunId||(S.agent.runs[0]&&S.agent.runs[0].runId)||null;
+    }
+  }
+  async function tryLocalAgentBridge(path,opts){
+    const candidates=Array.isArray(S.agent.bridge.candidates)?S.agent.bridge.candidates:[];
+    let lastError="";
+    for(const baseUrl of candidates){
+      try{
+        const init=Object.assign({mode:"cors",credentials:"omit"},opts||{});
+        const res=await fetchJson(baseUrl+path,init);
+        if(res.r.ok&&res.d&&res.d.ok){
+          S.agent.bridge.connected=true;
+          S.agent.bridge.mode="local";
+          S.agent.bridge.baseUrl=baseUrl;
+          S.agent.bridge.status=res.d.bridge||{connected:true,mode:"local-bridge",baseUrl};
+          S.agent.bridge.error="";
+          return{baseUrl,...res};
+        }
+        lastError=res.d&&res.d.message?res.d.message:("Bridge request failed ("+res.r.status+")");
+      }catch(err){
+        lastError=err&&err.message?err.message:"Local bridge unavailable.";
+      }
+    }
+    S.agent.bridge.connected=false;
+    S.agent.bridge.error=lastError||"Local bridge unavailable.";
+    return null;
+  }
+  async function agentApi(path,init){
+    if(agentBridgeActive()){
+      const opts=Object.assign({mode:"cors",credentials:"omit"},init||{});
+      return fetchJson(S.agent.bridge.baseUrl+path,opts);
+    }
+    const opts=Object.assign({credentials:"same-origin"},init||{});
+    return fetchJson(path,opts);
+  }
 
   /* ══ Auth ══ */
   async function loadSession(){
@@ -422,6 +477,7 @@
     if(!isSA())return;
     if(S.agent.loading&&!force)return;
     S.agent.loading=true;
+    S.agent.connectCommands=agentConnectCommands();
     try{
       const params=new URLSearchParams();
       if(S.agent.draftTask)params.set("task",S.agent.draftTask);
@@ -430,26 +486,21 @@
       params.set("complexity",S.agent.complexity);
       if(force)params.set("refresh","true");
       const taskParam=params.toString()?("?"+params.toString()):"";
-      const r=await fetch("/api/admin/agent-control/status"+taskParam,{credentials:"same-origin"});
-      const d=await r.json().catch(()=>({}));
-      if(d.ok){
-        S.agent.providers=d.providers||null;
-        S.agent.policy=d.dashboard&&d.dashboard.policy?d.dashboard.policy:null;
-        S.agent.runs=d.dashboard&&Array.isArray(d.dashboard.runs)?d.dashboard.runs:[];
-        S.agent.activeRunId=d.dashboard&&d.dashboard.activeRunId?d.dashboard.activeRunId:"";
-        S.agent.connectCommands=d.connectCommands||null;
-        S.agent.warnings=d.dashboard&&Array.isArray(d.dashboard.warnings)?d.dashboard.warnings:[];
-        S.agent.security=d.dashboard&&d.dashboard.security?d.dashboard.security:null;
-        S.agent.providerStatusRefreshedAt=d.dashboard&&d.dashboard.providerStatusRefreshedAt?d.dashboard.providerStatusRefreshedAt:"";
-        S.agent.error="";
-        if(!S.agent.selectedRunId||!S.agent.runs.find(run=>run.runId===S.agent.selectedRunId)){
-          S.agent.selectedRunId=S.agent.activeRunId||(S.agent.runs[0]&&S.agent.runs[0].runId)||null;
-        }
+      const local=await tryLocalAgentBridge("/api/admin/agent-control/status"+taskParam);
+      if(local&&local.d&&local.d.ok){
+        applyAgentStatusPayload(local.d,"local",local.baseUrl);
       }else{
-        S.agent.error=d.message||"Unable to load agent status.";
+        const remote=await fetchJson("/api/admin/agent-control/status"+taskParam,{credentials:"same-origin"});
+        if(remote.d&&remote.d.ok){
+          applyAgentStatusPayload(remote.d,"remote","");
+        }else{
+          const localMsg=S.agent.bridge.error?(" Local bridge: "+S.agent.bridge.error):"";
+          S.agent.error=(remote.d&&remote.d.message?remote.d.message:"Unable to load agent status.")+localMsg;
+        }
       }
-    }catch{
-      S.agent.error="Unable to load agent status.";
+    }catch(err){
+      const localMsg=S.agent.bridge.error?(" Local bridge: "+S.agent.bridge.error):"";
+      S.agent.error=(err&&err.message?err.message:"Unable to load agent status.")+localMsg;
     }
     S.agent.loading=false;
     if(S.view==="agent")renderAll();
@@ -457,9 +508,8 @@
   async function loadAgentRun(runId){
     if(!isSA()||!runId)return;
     try{
-      const r=await fetch("/api/admin/agent-control/run?id="+encodeURIComponent(runId),{credentials:"same-origin"});
-      const d=await r.json().catch(()=>({}));
-      if(d.ok&&d.run)S.agent.currentRun=d.run;
+      const res=await agentApi("/api/admin/agent-control/run?id="+encodeURIComponent(runId),{method:"GET"});
+      if(res.d&&res.d.ok&&res.d.run)S.agent.currentRun=res.d.run;
     }catch{}
     if(S.view==="agent")renderDetail();
   }
@@ -851,6 +901,35 @@
     </div>`;
   }
 
+  function bridgeCard(){
+    const bridge=S.agent.bridge||{};
+    const connected=!!bridge.connected;
+    const mode=connected?"Local Bridge Ready":"Local Bridge Offline";
+    const detail=connected?(bridge.baseUrl||"Localhost bridge connected"):(bridge.error||"Start the local bridge on this Mac so the live dashboard can use your local CLIs.");
+    return `<div class="agent-card">
+      <div class="agent-provider-head">
+        <div>
+          <div class="agent-provider-name">Local Bridge</div>
+          <div class="agent-meta">${esc(detail)}</div>
+        </div>
+        <span class="agent-status ${agentStatusClass(connected?"connected":"failed")}">${esc(mode)}</span>
+      </div>
+      <div class="agent-kv">
+        <div class="agent-kv-row">
+          <div class="agent-kv-key">Execution target</div>
+          <div class="agent-kv-value">${connected?"This Mac":"Remote server only"}</div>
+        </div>
+        <div class="agent-kv-row">
+          <div class="agent-kv-key">Bridge URL</div>
+          <div class="agent-kv-value">${esc(bridge.baseUrl||((bridge.candidates&&bridge.candidates[0])||"http://127.0.0.1:4317"))}</div>
+        </div>
+      </div>
+      <div class="agent-toolbar">
+        <button class="btn sm" data-agent-connect="localBridge">${connected?"Restart Help":"Start Bridge"}</button>
+      </div>
+    </div>`;
+  }
+
   function renderAgentDetail(){
     const el=document.getElementById("detailContent");
     if(!isSA()){el.innerHTML=`<div class="detail-empty">Super admin access is required for Agent Control.</div>`;return;}
@@ -869,7 +948,8 @@
       </div>
       ${S.agent.error?`<div class="agent-warning">${esc(S.agent.error)}</div>`:""}
       ${warnings.length?`<div class="agent-card"><h3>Launch Warnings</h3><div class="agent-warning-list">${warnings.map(item=>`<div class="agent-warning">${esc(item)}</div>`).join("")}</div></div>`:""}
-      <div class="agent-grid">
+      <div class="agent-grid-3">
+        ${bridgeCard()}
         ${providerCard("openai","Codex / OpenAI",openai)}
         ${providerCard("anthropic","Claude / Anthropic",anthropic)}
       </div>
@@ -895,7 +975,7 @@
               <button class="btn" data-agent-refresh-providers>Sync Connections</button>
               ${S.agent.activeRunId?`<button class="btn red" data-agent-cancel="${esc(S.agent.activeRunId)}">Cancel Active Run</button>`:""}
             </div>
-            <div class="agent-meta">Connection state last checked: ${esc(S.agent.providerStatusRefreshedAt?fmtDT(S.agent.providerStatusRefreshedAt):"not yet checked")}</div>
+            <div class="agent-meta">Connection state last checked: ${esc(S.agent.providerStatusRefreshedAt?fmtDT(S.agent.providerStatusRefreshedAt):"not yet checked")} \u2022 Control mode: ${esc(agentBridgeActive()?"local bridge":"remote server")}</div>
           </div>
         </div>
         <div class="agent-card dark">
@@ -1004,9 +1084,9 @@
     S.agent.collaborationMode=collabEl?collabEl.value:S.agent.collaborationMode;
     S.agent.complexity=complexityEl?complexityEl.value:S.agent.complexity;
     try{
-      const r=await fetch("/api/admin/agent-control/run",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({task:S.agent.draftTask,profile:S.agent.profile,collaborationMode:S.agent.collaborationMode,complexity:S.agent.complexity})});
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok||!d.ok){alert(d.message||"Failed to start run.");return;}
+      const res=await agentApi("/api/admin/agent-control/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task:S.agent.draftTask,profile:S.agent.profile,collaborationMode:S.agent.collaborationMode,complexity:S.agent.complexity})});
+      const d=res.d||{};
+      if(!res.r.ok||!d.ok){alert(d.message||"Failed to start run.");return;}
       S.agent.activeRunId=d.run&&d.run.runId?d.run.runId:"";
       S.agent.selectedRunId=S.agent.activeRunId||S.agent.selectedRunId;
       S.agent.warnings=d.warning?[d.warning]:S.agent.warnings;
@@ -1018,27 +1098,32 @@
     if(!runId)return;
     if(!window.confirm("Cancel the active agent run?"))return;
     try{
-      const r=await fetch("/api/admin/agent-control/run/cancel",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({runId})});
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok||!d.ok){alert(d.message||"Unable to cancel the run.");return;}
+      const res=await agentApi("/api/admin/agent-control/run/cancel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({runId})});
+      const d=res.d||{};
+      if(!res.r.ok||!d.ok){alert(d.message||"Unable to cancel the run.");return;}
       await refreshAgentStatus(true);
     }catch(err){alert(err&&err.message?err.message:"Unable to cancel the run.");}
   }
 
   async function refreshAgentProviders(){
     try{
-      const r=await fetch("/api/admin/agent-control/providers/refresh",{method:"POST",credentials:"same-origin"});
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok||!d.ok){alert(d.message||"Failed to refresh provider status.");return;}
+      if(agentBridgeActive()){
+        const local=await tryLocalAgentBridge("/api/admin/agent-control/providers/refresh",{method:"POST"});
+        if(!local||!local.d||!local.d.ok){alert(local&&local.d&&local.d.message?local.d.message:"Failed to refresh provider status.");return;}
+      }else{
+        const remote=await fetchJson("/api/admin/agent-control/providers/refresh",{method:"POST",credentials:"same-origin"});
+        if(!remote.r.ok||!remote.d||!remote.d.ok){alert(remote.d&&remote.d.message?remote.d.message:"Failed to refresh provider status.");return;}
+      }
       await refreshAgentStatus(true);
     }catch(err){alert(err&&err.message?err.message:"Failed to refresh provider status.");}
   }
 
   function showAgentConnectHelp(provider){
-    const cmd=S.agent.connectCommands&&S.agent.connectCommands[provider]?S.agent.connectCommands[provider]:"";
-    const title=provider==="openai"?"Connect Codex / ChatGPT":"Connect Claude";
+    const cmds=agentConnectCommands();
+    const cmd=cmds&&cmds[provider]?cmds[provider]:"";
+    const title=provider==="openai"?"Connect Codex / ChatGPT":provider==="anthropic"?"Connect Claude":"Start Local Bridge";
     document.getElementById("modalTitle").textContent=title;
-    document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">Connection is handled on the host machine for security. Run this command in the terminal where the app server lives:</p>
+    document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">${provider==="localBridge"?"Run this command on the Mac that has your Codex and Claude CLIs installed. Keep it running while you use the live dashboard.":"Connection is handled on the host machine for security. Run this command in the terminal where the app server lives:"}</p>
       <div class="agent-pre">${esc(cmd||"Command unavailable")}</div>
       <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
         <button class="btn primary" data-copy-connect="${esc(provider)}">Copy Command</button>

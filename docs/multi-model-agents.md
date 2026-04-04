@@ -61,6 +61,23 @@ Example healthy status:
 browser-use: ... - ✓ Connected
 ```
 
+## Live dashboard with local CLIs
+
+If the live site is deployed remotely, it cannot see the `codex` and `claude` CLIs installed on your Mac by itself. For that case, run the local bridge on the same Mac where those CLIs are logged in:
+
+```bash
+npm run agent-bridge
+```
+
+That starts a localhost-only bridge at `http://127.0.0.1:4317`. The super-admin Agent tab will try to detect it automatically and, when available, switch control mode from the remote server to your local Mac.
+
+What this enables:
+
+- keep using the live `ceo.admin.mygplink.com.au` dashboard
+- execute hybrid agent runs through your local Codex CLI login
+- execute Claude runs and Claude browser-use MCP from your local machine
+- avoid moving back to direct API calls
+
 ## Usage
 
 ```bash
@@ -100,6 +117,9 @@ Each run writes to `agents-output/<timestamp>/`:
 - `AGENT_COMPLEXITY_MODE`
 - `AGENT_ENABLE_CLAUDE_BROWSER_USE_MCP`
 - `CLAUDE_BROWSER_MCP_NAME`
+- `AGENT_BRIDGE_HOST`
+- `AGENT_BRIDGE_PORT`
+- `AGENT_BRIDGE_ALLOWED_ORIGINS`
 - `OPENAI_COMPLEX_MODEL`
 - `OPENAI_STANDARD_MODEL`
 - `OPENAI_SIMPLE_MODEL`
