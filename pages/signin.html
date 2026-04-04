@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GP Link - Sign In</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <style>
     :root {
       --bg: #eef3fb;
@@ -27,7 +30,7 @@
       min-height: 100vh;
       display: grid;
       place-items: center;
-      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
       background:
         radial-gradient(920px 520px at 12% -12%, rgba(29, 78, 216, 0.18), transparent 58%),
@@ -125,11 +128,18 @@
       align-items: center;
       justify-content: center;
       padding: 0;
+      transition: border-color .18s ease, background .18s ease, transform .18s ease, box-shadow .18s ease;
     }
 
     .social-btn:hover {
       border-color: #93c5fd;
       background: #eff6ff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px -6px rgba(30, 64, 175, 0.18);
+    }
+
+    .social-btn:active {
+      transform: translateY(0) scale(0.97);
     }
 
     .social-icon {
@@ -182,16 +192,16 @@
     input,
     select {
       width: 100%;
-      min-height: 40px;
+      min-height: 42px;
       border: 1px solid var(--line);
-      border-radius: 11px;
+      border-radius: 12px;
       background: #f8fafc;
       color: var(--text);
       font: inherit;
       font-size: 13px;
       padding: 0 12px;
       outline: none;
-      transition: border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
+      transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
     }
 
     input:focus,
@@ -242,6 +252,16 @@
       font-weight: 800;
       cursor: pointer;
       box-shadow: 0 14px 28px -18px rgba(29, 78, 216, 0.88);
+      transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+    }
+
+    .submit-btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 32px -18px rgba(29, 78, 216, 0.95);
+    }
+
+    .submit-btn:active:not(:disabled) {
+      transform: translateY(0) scale(0.98);
     }
 
     .submit-btn:disabled {
@@ -356,6 +376,16 @@
       font-weight: 780;
       letter-spacing: 0.06em;
       cursor: pointer;
+      transition: background .18s ease, transform .18s ease, box-shadow .18s ease;
+    }
+
+    .overlay-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      transform: translateY(-1px);
+    }
+
+    .overlay-btn:active {
+      transform: translateY(0) scale(0.97);
     }
 
     .overlay-btn:focus-visible,

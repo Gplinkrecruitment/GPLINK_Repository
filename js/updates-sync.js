@@ -465,7 +465,7 @@
         toggleFromTrigger(event, el);
       }, true);
       el.addEventListener("touchend", (event) => {
-        suppressClickUntil = Date.now() + 550;
+        suppressClickUntil = Date.now() + 300;
         toggleFromTrigger(event, el);
       }, { capture: true, passive: false });
     }

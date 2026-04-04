@@ -146,8 +146,8 @@
       place-items: center;
       font-weight: 800;
       font-size: 18px;
-      border: 2.5px solid #fff;
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.25);
+      border: 2px solid #fff;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
     }
 
     .header-text h1 {
@@ -7773,6 +7773,8 @@
       return PRACTICE_LIFESTYLE_SCHOOL_IMAGES[key] || PRACTICE_LIFESTYLE_SCHOOL_IMAGES.tweed_heads_south_public_school;
     }
 
+    // NOTE: This is a client-side Google Maps JS API key (inherently browser-exposed).
+    // Ensure HTTP referrer restrictions are configured in Google Cloud Console.
     const PRACTICE_LIFESTYLE_DEFAULT_GOOGLE_MAPS = {
       enabled: true,
       apiKey: "AIzaSyBZRYsKgvz0k7p6xPMAUQDcWgVU2rzlIDo",

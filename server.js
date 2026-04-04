@@ -19,7 +19,7 @@ const AUTH_RATE_WINDOW_MS = Number(process.env.AUTH_RATE_WINDOW_MS || 10 * 60 * 
 const AUTH_RATE_MAX_ATTEMPTS = Number(process.env.AUTH_RATE_MAX_ATTEMPTS || 12);
 const AUTH_PREWARM_RATE_MAX = Number(process.env.AUTH_PREWARM_RATE_MAX || 40);
 const AUTH_BOOTSTRAP_CACHE_TTL_MS = Number(process.env.AUTH_BOOTSTRAP_CACHE_TTL_MS || 2 * 60 * 1000);
-const SECRET = process.env.AUTH_SECRET || 'replace-me-in-production';
+const SECRET = process.env.AUTH_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-only-secret-not-for-production');
 const COOKIE_NAME = 'gp_session';
 const ADMIN_COOKIE_NAME = process.env.ADMIN_COOKIE_NAME || 'gp_admin_session';
 const ADMIN_SESSION_TTL_MS = Number(process.env.ADMIN_SESSION_TTL_MS || 8 * 60 * 60 * 1000);
@@ -310,7 +310,7 @@ function sanitizeStoredDocumentPayload(body, allowedKeys) {
   const fileDataUrl = typeof input.fileDataUrl === 'string' ? input.fileDataUrl.trim() : '';
   if (!country || !key || !(allowedKeys instanceof Set) || !allowedKeys.has(key)) return null;
   if (!fileName || !mimeType || !fileDataUrl) return null;
-  if (!fileDataUrl.startsWith('data:') || fileDataUrl.indexOf(';base64,') === -1) return null;
+  if (!fileDataUrl.startsWith('data:') || !/;base64,/i.test(fileDataUrl)) return null;
   if (fileDataUrl.length > PREPARED_DOCUMENT_MAX_DATA_URL_LENGTH) return null;
   return {
     country,
@@ -694,6 +694,8 @@ function saveDbState() {
   fs.renameSync(tmpPath, DB_FILE_PATH);
 }
 
+// WARNING: In-memory only — resets on serverless cold start (Vercel).
+// For production hardening, persist daily spend to Supabase (e.g. ai_spend_tracking table).
 let anthropicDailySpend = { date: '', totalCostUsd: 0, callCount: 0 };
 
 function checkAnthropicBudget() {
@@ -716,6 +718,7 @@ function recordAnthropicSpend(inputTokens, outputTokens, cacheReadTokens = 0, ca
 }
 
 // Per-user rate limiting for AI verification: max 10 calls per user per day
+// WARNING: In-memory only — resets on serverless cold start.
 const aiVerifyUserCalls = new Map(); // email -> { date, count }
 const AI_VERIFY_MAX_PER_USER = 10;
 const AI_VERIFY_UNLIMITED_EMAILS = new Set(

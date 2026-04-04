@@ -134,6 +134,14 @@
     if (overlay) overlay.classList.remove("open");
   }
 
+  // Stop camera stream if user navigates away or hides the page
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden" && stream) closeCamera();
+  });
+  window.addEventListener("pagehide", function () {
+    if (stream) closeCamera();
+  });
+
   // Expose globally
   window.QualCamera = {
     open: openCamera,
