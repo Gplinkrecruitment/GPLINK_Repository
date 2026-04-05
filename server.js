@@ -687,6 +687,8 @@ let adminDashboardCache = {
   inFlight: null
 };
 const AGENT_OUTPUT_ROOT = path.join(process.cwd(), 'agents-output');
+const HYBRID_AGENT_BRIDGE_TOKEN_TTL_MS = Number(process.env.HYBRID_AGENT_BRIDGE_TOKEN_TTL_MS || 12 * 60 * 60 * 1000);
+const HYBRID_AGENT_BRIDGE_STALE_MS = Number(process.env.HYBRID_AGENT_BRIDGE_STALE_MS || 45 * 1000);
 let hybridAgentControlState = {
   activeRunId: '',
   runs: {},
@@ -695,7 +697,21 @@ let hybridAgentControlState = {
     refreshedAt: '',
     data: null,
     inFlight: null
-  }
+  },
+  bridgeTokens: {},
+  bridgeCommands: [],
+  bridgeCommandSeq: 0,
+  bridgeRelay: {
+    lastSeenAt: '',
+    tokenEmail: '',
+    providers: null,
+    providerStatusRefreshedAt: '',
+    runs: [],
+    activeRunId: '',
+    bridgeInfo: null,
+    relayOrigin: '',
+    lastCommandResultAt: ''
+  },
 };
 
 function saveDbState() {
@@ -2260,6 +2276,173 @@ function updateHybridAgentRegistry(runId, patch) {
   return hybridAgentControlState.runs[safeRunId];
 }
 
+function pruneHybridAgentBridgeTokens() {
+  const current = now();
+  Object.keys(hybridAgentControlState.bridgeTokens).forEach(function (tokenHash) {
+    const entry = hybridAgentControlState.bridgeTokens[tokenHash];
+    if (!entry || entry.expiresAt <= current) delete hybridAgentControlState.bridgeTokens[tokenHash];
+  });
+}
+
+function createHybridAgentBridgeToken(email) {
+  pruneHybridAgentBridgeTokens();
+  const tokenValue = crypto.randomBytes(24).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(tokenValue).digest('hex');
+  hybridAgentControlState.bridgeTokens[tokenHash] = {
+    email: String(email || '').trim().toLowerCase(),
+    createdAt: now(),
+    expiresAt: now() + HYBRID_AGENT_BRIDGE_TOKEN_TTL_MS,
+    lastUsedAt: 0
+  };
+  return {
+    token: tokenValue,
+    expiresAt: hybridAgentControlState.bridgeTokens[tokenHash].expiresAt
+  };
+}
+
+function getHybridAgentBridgeTokenEntry(tokenValue) {
+  pruneHybridAgentBridgeTokens();
+  const tokenHash = crypto.createHash('sha256').update(String(tokenValue || '')).digest('hex');
+  const entry = hybridAgentControlState.bridgeTokens[tokenHash];
+  if (!entry) return null;
+  if (entry.expiresAt <= now()) {
+    delete hybridAgentControlState.bridgeTokens[tokenHash];
+    return null;
+  }
+  entry.lastUsedAt = now();
+  return entry;
+}
+
+function getActiveHybridAgentRelay() {
+  const relay = hybridAgentControlState.bridgeRelay;
+  if (!relay || !relay.lastSeenAt) return null;
+  const lastSeenMs = Date.parse(relay.lastSeenAt);
+  if (!Number.isFinite(lastSeenMs)) return null;
+  if ((now() - lastSeenMs) > HYBRID_AGENT_BRIDGE_STALE_MS) return null;
+  return {
+    ...relay,
+    connected: true,
+    mode: 'relay'
+  };
+}
+
+function getHybridAgentBridgeRequestToken(req) {
+  const bearer = getBearerToken(req);
+  if (bearer) return bearer;
+  return String(req && req.headers && req.headers['x-agent-bridge-token'] ? req.headers['x-agent-bridge-token'] : '').trim();
+}
+
+function buildHybridAgentBridgeStatus(req) {
+  const relay = getActiveHybridAgentRelay();
+  if (!relay) {
+    return {
+      connected: false,
+      mode: 'remote',
+      relayUrl: getRequestOrigin(req),
+      lastSeenAt: hybridAgentControlState.bridgeRelay && hybridAgentControlState.bridgeRelay.lastSeenAt
+        ? hybridAgentControlState.bridgeRelay.lastSeenAt
+        : ''
+    };
+  }
+  return {
+    connected: true,
+    mode: 'relay',
+    relayUrl: getRequestOrigin(req),
+    lastSeenAt: relay.lastSeenAt,
+    providerStatusRefreshedAt: relay.providerStatusRefreshedAt || '',
+    baseUrl: relay.bridgeInfo && relay.bridgeInfo.baseUrl ? relay.bridgeInfo.baseUrl : '',
+    host: relay.bridgeInfo && relay.bridgeInfo.host ? relay.bridgeInfo.host : '',
+    port: relay.bridgeInfo && relay.bridgeInfo.port ? relay.bridgeInfo.port : '',
+    tokenEmail: relay.tokenEmail || ''
+  };
+}
+
+function queueHybridAgentBridgeCommand(type, payload, requestedBy) {
+  hybridAgentControlState.bridgeCommandSeq += 1;
+  const command = {
+    id: `bridge-${Date.now()}-${hybridAgentControlState.bridgeCommandSeq}`,
+    type: String(type || '').trim(),
+    payload: payload && typeof payload === 'object' ? payload : {},
+    requestedBy: String(requestedBy || '').trim(),
+    createdAt: new Date().toISOString(),
+    status: 'queued',
+    sentAt: '',
+    completedAt: '',
+    deliveryCount: 0,
+    result: null,
+    message: ''
+  };
+  hybridAgentControlState.bridgeCommands.push(command);
+  if (hybridAgentControlState.bridgeCommands.length > 80) {
+    hybridAgentControlState.bridgeCommands = hybridAgentControlState.bridgeCommands.slice(-80);
+  }
+  return command;
+}
+
+function takePendingHybridAgentBridgeCommands(limit = 8) {
+  const currentIso = new Date().toISOString();
+  const resendBeforeMs = now() - 30 * 1000;
+  const commands = hybridAgentControlState.bridgeCommands
+    .filter(function (command) {
+      if (!command) return false;
+      if (command.status === 'queued') return true;
+      if (command.status !== 'sent') return false;
+      const sentAtMs = Date.parse(command.sentAt || '');
+      return !Number.isFinite(sentAtMs) || sentAtMs < resendBeforeMs;
+    })
+    .slice(0, limit);
+
+  return commands.map(function (command) {
+    command.status = 'sent';
+    command.sentAt = currentIso;
+    command.deliveryCount = (command.deliveryCount || 0) + 1;
+    return {
+      id: command.id,
+      type: command.type,
+      payload: command.payload,
+      createdAt: command.createdAt
+    };
+  });
+}
+
+function applyHybridAgentBridgeCommandUpdates(updates) {
+  if (!Array.isArray(updates) || !updates.length) return;
+  const currentIso = new Date().toISOString();
+  updates.forEach(function (update) {
+    if (!update || typeof update !== 'object' || !update.id) return;
+    const command = hybridAgentControlState.bridgeCommands.find(function (candidate) { return candidate.id === update.id; });
+    if (!command) return;
+    command.status = String(update.status || 'completed').trim() || 'completed';
+    command.completedAt = currentIso;
+    command.message = typeof update.message === 'string' ? update.message : command.message;
+    command.result = update.result && typeof update.result === 'object' ? update.result : command.result;
+  });
+  hybridAgentControlState.bridgeRelay.lastCommandResultAt = currentIso;
+}
+
+function updateHybridAgentBridgeSnapshot(payload, tokenEntry, req) {
+  const currentIso = new Date().toISOString();
+  const bridgeInfo = payload && payload.bridge && typeof payload.bridge === 'object' ? payload.bridge : null;
+  const runs = Array.isArray(payload && payload.runs)
+    ? payload.runs.filter(function (run) { return run && typeof run === 'object' && run.runId; }).slice(0, 20)
+    : [];
+  const activeRun = typeof payload.activeRunId === 'string' && payload.activeRunId
+    ? payload.activeRunId
+    : ((runs.find(function (run) { return run.status === 'running' || run.status === 'starting' || run.status === 'launching'; }) || {}).runId || '');
+
+  hybridAgentControlState.bridgeRelay = {
+    lastSeenAt: currentIso,
+    tokenEmail: tokenEntry && tokenEntry.email ? tokenEntry.email : '',
+    providers: payload && payload.providers && typeof payload.providers === 'object' ? payload.providers : null,
+    providerStatusRefreshedAt: typeof (payload && payload.providerStatusRefreshedAt) === 'string' ? payload.providerStatusRefreshedAt : currentIso,
+    runs,
+    activeRunId: activeRun,
+    bridgeInfo,
+    relayOrigin: getRequestOrigin(req),
+    lastCommandResultAt: hybridAgentControlState.bridgeRelay.lastCommandResultAt || ''
+  };
+}
+
 async function getCachedHybridAgentProviderStatus(force = false) {
   const nowMs = Date.now();
   if (!force && hybridAgentControlState.providerStatusCache.data && hybridAgentControlState.providerStatusCache.expiresAt > nowMs) {
@@ -2350,7 +2533,10 @@ function buildHybridAgentDashboardState(taskText, options) {
   const profile = options && options.profile ? options.profile : 'balanced';
   const collaborationMode = options && options.collaborationMode ? options.collaborationMode : 'paired';
   const complexityMode = options && options.complexityMode ? options.complexityMode : 'auto';
-  const providerStates = options && options.providerStates ? options.providerStates : hybridAgentControlState.providerStatusCache.data;
+  const relay = options && options.bridgeState ? options.bridgeState : getActiveHybridAgentRelay();
+  const providerStates = options && options.providerStates
+    ? options.providerStates
+    : (relay && relay.providers ? relay.providers : hybridAgentControlState.providerStatusCache.data);
   const providerEntries = providerStates ? Object.values(providerStates) : [];
   const availableProviders = providerEntries.filter(function (state) { return state && state.available; });
   const warnings = [];
@@ -2374,9 +2560,11 @@ function buildHybridAgentDashboardState(taskText, options) {
 
   return {
     policy: hybridAgents.getModelPolicy(task, complexityMode, profile, collaborationMode),
-    activeRunId: hybridAgentControlState.activeRunId || '',
-    runs: listHybridAgentRuns(12),
-    providerStatusRefreshedAt: hybridAgentControlState.providerStatusCache.refreshedAt || '',
+    activeRunId: relay && relay.activeRunId ? relay.activeRunId : (hybridAgentControlState.activeRunId || ''),
+    runs: relay && Array.isArray(relay.runs) ? relay.runs.slice(0, 12) : listHybridAgentRuns(12),
+    providerStatusRefreshedAt: relay && relay.providerStatusRefreshedAt
+      ? relay.providerStatusRefreshedAt
+      : (hybridAgentControlState.providerStatusCache.refreshedAt || ''),
     warnings,
     security: {
       superAdminOnly: true,
@@ -2384,6 +2572,7 @@ function buildHybridAgentDashboardState(taskText, options) {
       singleActiveRun: true,
       subscriptionCliOnly: true,
       secretsPassedToChild: false,
+      bridgeRelayAvailable: true,
     }
   };
 }
@@ -10657,6 +10846,8 @@ function cleanup() {
 }
 
 async function handleApi(req, res, pathname) {
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
   if (pathname === '/api/health' && req.method === 'GET') {
     sendJson(res, 200, {
       ok: true,
@@ -14441,16 +14632,61 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  if (pathname === '/api/admin/agent-control/bridge/token' && req.method === 'GET') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    const issued = createHybridAgentBridgeToken(adminCtx.email || '');
+    sendJson(res, 200, {
+      ok: true,
+      relayUrl: getRequestOrigin(req),
+      token: issued.token,
+      expiresAt: new Date(issued.expiresAt).toISOString(),
+      command: `/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js --relay "${getRequestOrigin(req)}" --token "${issued.token}"`
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/bridge/sync' && req.method === 'POST') {
+    const bridgeToken = getHybridAgentBridgeRequestToken(req);
+    const bridgeEntry = bridgeToken ? getHybridAgentBridgeTokenEntry(bridgeToken) : null;
+    if (!bridgeEntry) {
+      sendJson(res, 401, { ok: false, message: 'Bridge token is missing or invalid.' });
+      return;
+    }
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid bridge sync body.' });
+      return;
+    }
+
+    applyHybridAgentBridgeCommandUpdates(body && body.commandUpdates);
+    updateHybridAgentBridgeSnapshot(body || {}, bridgeEntry, req);
+    sendJson(res, 200, {
+      ok: true,
+      syncedAt: new Date().toISOString(),
+      commands: takePendingHybridAgentBridgeCommands(8),
+      bridge: buildHybridAgentBridgeStatus(req)
+    });
+    return;
+  }
+
   if (pathname === '/api/admin/agent-control/status' && req.method === 'GET') {
     const adminCtx = requireSuperAdminSession(req, res);
     if (!adminCtx) return;
 
+    const relay = getActiveHybridAgentRelay();
     let providers;
-    try {
-      providers = await getCachedHybridAgentProviderStatus(url.searchParams.get('refresh') === 'true');
-    } catch (error) {
-      sendJson(res, 502, { ok: false, message: error && error.message ? error.message : 'Failed to inspect provider status.' });
-      return;
+    if (relay && relay.providers) {
+      providers = relay.providers;
+    } else {
+      try {
+        providers = await getCachedHybridAgentProviderStatus(url.searchParams.get('refresh') === 'true');
+      } catch (error) {
+        sendJson(res, 502, { ok: false, message: error && error.message ? error.message : 'Failed to inspect provider status.' });
+        return;
+      }
     }
 
     const draftTask = String(url.searchParams.get('task') || '').trim();
@@ -14465,12 +14701,15 @@ Return ONLY valid JSON with no markdown formatting:
         profile,
         collaborationMode,
         complexityMode,
-        providerStates: providers
+        providerStates: providers,
+        bridgeState: relay
       }),
       connectCommands: {
         openai: 'codex login',
-        anthropic: 'claude auth login'
-      }
+        anthropic: 'claude auth login',
+        localBridge: 'Open Start Bridge help to generate a secure relay token.'
+      },
+      bridge: buildHybridAgentBridgeStatus(req)
     });
     return;
   }
@@ -14478,6 +14717,19 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/admin/agent-control/providers/refresh' && req.method === 'POST') {
     const adminCtx = requireSuperAdminSession(req, res);
     if (!adminCtx) return;
+
+    const relay = getActiveHybridAgentRelay();
+    if (relay) {
+      const command = queueHybridAgentBridgeCommand('refresh-providers', {}, adminCtx.email || '');
+      sendJson(res, 202, {
+        ok: true,
+        queued: true,
+        commandId: command.id,
+        message: 'Queued a provider refresh for the connected local bridge.',
+        bridge: buildHybridAgentBridgeStatus(req)
+      });
+      return;
+    }
 
     try {
       const providers = await getCachedHybridAgentProviderStatus(true);
@@ -14492,7 +14744,13 @@ Return ONLY valid JSON with no markdown formatting:
     const adminCtx = requireSuperAdminSession(req, res);
     if (!adminCtx) return;
     const limit = Math.max(1, Math.min(20, Number(url.searchParams.get('limit') || 12) || 12));
-    sendJson(res, 200, { ok: true, runs: listHybridAgentRuns(limit), activeRunId: hybridAgentControlState.activeRunId || '' });
+    const relay = getActiveHybridAgentRelay();
+    sendJson(res, 200, {
+      ok: true,
+      runs: relay && Array.isArray(relay.runs) ? relay.runs.slice(0, limit) : listHybridAgentRuns(limit),
+      activeRunId: relay && relay.activeRunId ? relay.activeRunId : (hybridAgentControlState.activeRunId || ''),
+      bridge: buildHybridAgentBridgeStatus(req)
+    });
     return;
   }
 
@@ -14504,7 +14762,10 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Run id is required.' });
       return;
     }
-    const run = getHybridAgentRunSummary(runId);
+    const relay = getActiveHybridAgentRelay();
+    const run = relay && Array.isArray(relay.runs)
+      ? (relay.runs.find(function (entry) { return entry.runId === runId; }) || null)
+      : getHybridAgentRunSummary(runId);
     if (!run) {
       sendJson(res, 404, { ok: false, message: 'Run not found.' });
       return;
@@ -14537,16 +14798,51 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    const relay = getActiveHybridAgentRelay();
     let providers;
-    try {
-      providers = await getCachedHybridAgentProviderStatus(false);
-    } catch (error) {
-      sendJson(res, 502, { ok: false, message: error && error.message ? error.message : 'Unable to inspect provider state before launch.' });
-      return;
+    if (relay && relay.providers) {
+      providers = relay.providers;
+    } else {
+      try {
+        providers = await getCachedHybridAgentProviderStatus(false);
+      } catch (error) {
+        sendJson(res, 502, { ok: false, message: error && error.message ? error.message : 'Unable to inspect provider state before launch.' });
+        return;
+      }
     }
     const availableProviders = Object.values(providers).filter(function (state) { return state && state.available; });
     if (!availableProviders.length) {
       sendJson(res, 409, { ok: false, message: 'Connect Codex and/or Claude before starting a run.' });
+      return;
+    }
+
+    if (relay) {
+      if (relay.activeRunId || (Array.isArray(relay.runs) && relay.runs.find(function (run) {
+        return run && (run.status === 'running' || run.status === 'starting' || run.status === 'launching' || run.status === 'cancelling');
+      }))) {
+        sendJson(res, 409, { ok: false, message: 'An agent run is already in progress on the connected local bridge.' });
+        return;
+      }
+      const runId = sanitizeAgentRunId(`agent-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
+      const command = queueHybridAgentBridgeCommand('start-run', {
+        runId,
+        task,
+        profile,
+        collaborationMode,
+        complexity
+      }, adminCtx.email || '');
+      sendJson(res, 202, {
+        ok: true,
+        queued: true,
+        commandId: command.id,
+        run: { runId, task, profile, collaborationMode, complexityMode: complexity },
+        message: 'Agent run queued for the connected local bridge.',
+        policy: hybridAgents.getModelPolicy(task, complexity, profile, collaborationMode),
+        warning: collaborationMode === 'paired' && availableProviders.length < 2
+          ? 'Only one provider is connected, so this run will execute in routed mode until both providers are available.'
+          : '',
+        bridge: buildHybridAgentBridgeStatus(req)
+      });
       return;
     }
 
@@ -14580,6 +14876,19 @@ Return ONLY valid JSON with no markdown formatting:
     const runId = sanitizeAgentRunId(body && body.runId);
     if (!runId) {
       sendJson(res, 400, { ok: false, message: 'Run id is required.' });
+      return;
+    }
+    const relay = getActiveHybridAgentRelay();
+    if (relay) {
+      const command = queueHybridAgentBridgeCommand('cancel-run', { runId }, adminCtx.email || '');
+      sendJson(res, 202, {
+        ok: true,
+        queued: true,
+        commandId: command.id,
+        runId,
+        message: 'Cancellation queued for the connected local bridge.',
+        bridge: buildHybridAgentBridgeStatus(req)
+      });
       return;
     }
     const cancelled = cancelHybridAgentRun(runId);

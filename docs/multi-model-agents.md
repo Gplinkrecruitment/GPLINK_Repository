@@ -63,13 +63,28 @@ browser-use: ... - ✓ Connected
 
 ## Live dashboard with local CLIs
 
-If the live site is deployed remotely, it cannot see the `codex` and `claude` CLIs installed on your Mac by itself. For that case, run the local bridge on the same Mac where those CLIs are logged in:
+If the live site is deployed remotely, it cannot see the `codex` and `claude` CLIs installed on your Mac by itself. The bridge now supports two connection paths:
+
+- direct localhost mode for browsers that allow the live page to call `127.0.0.1`
+- secure relay mode for browsers that block localhost fetches from the live HTTPS dashboard
+
+For direct localhost mode:
 
 ```bash
 npm run agent-bridge
 ```
 
 That starts a localhost-only bridge at `http://127.0.0.1:4317`. The super-admin Agent tab will try to detect it automatically and, when available, switch control mode from the remote server to your local Mac.
+
+If the live dashboard still shows `Local bridge: Failed to fetch`, open the `Start Bridge` help inside the Agent tab and use the generated relay command instead. That command looks like:
+
+```bash
+/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js \
+  --relay https://ceo.admin.mygplink.com.au \
+  --token <one-time-token>
+```
+
+The token is issued by the super-admin dashboard and lets your local bridge poll the live server securely, so the dashboard can control local CLIs even when the browser cannot reach localhost directly.
 
 What this enables:
 
@@ -120,6 +135,11 @@ Each run writes to `agents-output/<timestamp>/`:
 - `AGENT_BRIDGE_HOST`
 - `AGENT_BRIDGE_PORT`
 - `AGENT_BRIDGE_ALLOWED_ORIGINS`
+- `AGENT_BRIDGE_RELAY_URL`
+- `AGENT_BRIDGE_RELAY_TOKEN`
+- `AGENT_BRIDGE_RELAY_SYNC_MS`
+- `HYBRID_AGENT_BRIDGE_TOKEN_TTL_MS`
+- `HYBRID_AGENT_BRIDGE_STALE_MS`
 - `OPENAI_COMPLEX_MODEL`
 - `OPENAI_STANDARD_MODEL`
 - `OPENAI_SIMPLE_MODEL`

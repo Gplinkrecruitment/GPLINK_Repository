@@ -12,6 +12,9 @@ const ROOT = path.resolve(__dirname, '..');
 const AGENT_OUTPUT_ROOT = path.join(ROOT, 'agents-output');
 const DEFAULT_HOST = String(process.env.AGENT_BRIDGE_HOST || '127.0.0.1').trim() || '127.0.0.1';
 const DEFAULT_PORT = Math.max(1, Number.parseInt(process.env.AGENT_BRIDGE_PORT || '4317', 10) || 4317);
+const DEFAULT_RELAY_URL = String(process.env.AGENT_BRIDGE_RELAY_URL || '').trim();
+const DEFAULT_RELAY_TOKEN = String(process.env.AGENT_BRIDGE_RELAY_TOKEN || '').trim();
+const DEFAULT_RELAY_SYNC_MS = Math.max(1500, Number.parseInt(process.env.AGENT_BRIDGE_RELAY_SYNC_MS || '4000', 10) || 4000);
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://ceo.admin.mygplink.com.au',
   'https://admin.mygplink.com.au',
@@ -37,12 +40,26 @@ const bridgeState = {
     data: null,
     inFlight: null,
   },
+  relay: {
+    baseUrl: DEFAULT_RELAY_URL.replace(/\/+$/, ''),
+    token: DEFAULT_RELAY_TOKEN,
+    syncIntervalMs: DEFAULT_RELAY_SYNC_MS,
+    connected: false,
+    syncing: false,
+    lastSyncAt: '',
+    error: '',
+    status: null,
+    pendingCommandUpdates: [],
+  },
 };
 
 function parseArgs(rawArgs) {
   const options = {
     host: DEFAULT_HOST,
     port: DEFAULT_PORT,
+    relay: DEFAULT_RELAY_URL,
+    token: DEFAULT_RELAY_TOKEN,
+    syncIntervalMs: DEFAULT_RELAY_SYNC_MS,
     help: false,
   };
 
@@ -53,6 +70,15 @@ function parseArgs(rawArgs) {
       i++;
     } else if (arg === '--port') {
       options.port = Math.max(1, Number.parseInt(rawArgs[i + 1] || String(options.port), 10) || options.port);
+      i++;
+    } else if (arg === '--relay') {
+      options.relay = String(rawArgs[i + 1] || options.relay).trim();
+      i++;
+    } else if (arg === '--token') {
+      options.token = String(rawArgs[i + 1] || options.token).trim();
+      i++;
+    } else if (arg === '--sync-interval-ms') {
+      options.syncIntervalMs = Math.max(1500, Number.parseInt(rawArgs[i + 1] || String(options.syncIntervalMs), 10) || options.syncIntervalMs);
       i++;
     } else if (arg === '--help' || arg === '-h') {
       options.help = true;
@@ -70,14 +96,19 @@ function printHelp() {
 Usage:
   node scripts/agent-bridge.js
   node scripts/agent-bridge.js --host 127.0.0.1 --port 4317
+  node scripts/agent-bridge.js --relay https://ceo.admin.mygplink.com.au --token <bridge-token>
 
 This bridge runs on your Mac and lets the live admin dashboard call your local
-Codex and Claude CLIs over localhost only.
+Codex and Claude CLIs over localhost, or sync securely back to the live dashboard
+when the browser cannot reach localhost directly.
 
 Environment:
   AGENT_BRIDGE_HOST             Default: ${DEFAULT_HOST}
   AGENT_BRIDGE_PORT             Default: ${DEFAULT_PORT}
-  AGENT_BRIDGE_ALLOWED_ORIGINS  Default: ${Array.from(ALLOWED_ORIGINS).join(', ')}`);
+  AGENT_BRIDGE_ALLOWED_ORIGINS  Default: ${Array.from(ALLOWED_ORIGINS).join(', ')}
+  AGENT_BRIDGE_RELAY_URL        Default: ${DEFAULT_RELAY_URL || '(disabled)'}
+  AGENT_BRIDGE_RELAY_TOKEN      Default: ${DEFAULT_RELAY_TOKEN ? '(set)' : '(disabled)'}
+  AGENT_BRIDGE_RELAY_SYNC_MS    Default: ${DEFAULT_RELAY_SYNC_MS}`);
 }
 
 function ensureDir(dirPath) {
@@ -332,6 +363,149 @@ function buildDashboardState(taskText, options) {
   };
 }
 
+function getLocalBridgeInfo() {
+  const address = server && typeof server.address === 'function' ? server.address() : null;
+  const host = address && address.address ? address.address : DEFAULT_HOST;
+  const port = address && address.port ? address.port : DEFAULT_PORT;
+  return {
+    connected: true,
+    mode: 'local-bridge',
+    baseUrl: `http://${host}:${port}`,
+    host,
+    port,
+    pid: process.pid,
+  };
+}
+
+function relayEnabled() {
+  return !!(bridgeState.relay.baseUrl && bridgeState.relay.token);
+}
+
+function queueRelayCommandUpdate(update) {
+  if (!update || typeof update !== 'object' || !update.id) return;
+  bridgeState.relay.pendingCommandUpdates.push(update);
+  if (bridgeState.relay.pendingCommandUpdates.length > 40) {
+    bridgeState.relay.pendingCommandUpdates = bridgeState.relay.pendingCommandUpdates.slice(-40);
+  }
+}
+
+async function executeRelayCommand(command) {
+  if (!command || typeof command !== 'object' || !command.id) return;
+  const payload = command.payload && typeof command.payload === 'object' ? command.payload : {};
+
+  if (command.type === 'refresh-providers') {
+    try {
+      await getCachedProviderStatus(true);
+      queueRelayCommandUpdate({
+        id: command.id,
+        status: 'completed',
+        message: 'Provider status refreshed on the local bridge.',
+      });
+    } catch (error) {
+      queueRelayCommandUpdate({
+        id: command.id,
+        status: 'failed',
+        message: error && error.message ? error.message : 'Failed to refresh provider status.',
+      });
+    }
+    return;
+  }
+
+  if (command.type === 'start-run') {
+    try {
+      const launched = startRun({
+        task: payload.task,
+        profile: payload.profile,
+        collaborationMode: payload.collaborationMode,
+        complexity: payload.complexity,
+        runId: payload.runId,
+        requestedBy: 'Dashboard via relay',
+      });
+      queueRelayCommandUpdate({
+        id: command.id,
+        status: 'completed',
+        message: 'Agent run started on the local bridge.',
+        result: { run: launched },
+      });
+    } catch (error) {
+      queueRelayCommandUpdate({
+        id: command.id,
+        status: 'failed',
+        message: error && error.message ? error.message : 'Failed to start the local agent run.',
+      });
+    }
+    return;
+  }
+
+  if (command.type === 'cancel-run') {
+    const runId = sanitizeRunId(payload.runId || '');
+    const cancelled = runId ? cancelRun(runId) : false;
+    queueRelayCommandUpdate({
+      id: command.id,
+      status: cancelled ? 'completed' : 'failed',
+      message: cancelled ? 'Cancellation requested on the local bridge.' : 'Run is not currently cancellable on the local bridge.',
+      result: { runId },
+    });
+  }
+}
+
+async function syncRelayOnce(forceProviderRefresh = false) {
+  if (!relayEnabled() || bridgeState.relay.syncing) return;
+
+  bridgeState.relay.syncing = true;
+  const commandUpdates = bridgeState.relay.pendingCommandUpdates.splice(0, bridgeState.relay.pendingCommandUpdates.length);
+
+  try {
+    let providers = bridgeState.providerStatusCache.data;
+    if (!providers || forceProviderRefresh) {
+      providers = await getCachedProviderStatus(!!forceProviderRefresh);
+    }
+
+    const response = await fetch(`${bridgeState.relay.baseUrl}/api/admin/agent-control/bridge/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bridgeState.relay.token}`,
+      },
+      body: JSON.stringify({
+        providers: providers || bridgeState.providerStatusCache.data || null,
+        providerStatusRefreshedAt: bridgeState.providerStatusCache.refreshedAt || '',
+        runs: listRuns(12),
+        activeRunId: bridgeState.activeRunId || '',
+        bridge: getLocalBridgeInfo(),
+        commandUpdates,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data || !data.ok) {
+      throw new Error(data && data.message ? data.message : `Relay sync failed (${response.status})`);
+    }
+
+    bridgeState.relay.connected = true;
+    bridgeState.relay.lastSyncAt = new Date().toISOString();
+    bridgeState.relay.error = '';
+    bridgeState.relay.status = data.bridge || null;
+
+    const commands = Array.isArray(data.commands) ? data.commands : [];
+    for (const command of commands) {
+      await executeRelayCommand(command);
+    }
+    if (commands.length && bridgeState.relay.pendingCommandUpdates.length) {
+      setTimeout(() => {
+        syncRelayOnce(false).catch(() => {});
+      }, 150);
+    }
+  } catch (error) {
+    bridgeState.relay.connected = false;
+    bridgeState.relay.error = error && error.message ? error.message : 'Relay sync failed.';
+    if (commandUpdates.length) {
+      bridgeState.relay.pendingCommandUpdates = commandUpdates.concat(bridgeState.relay.pendingCommandUpdates);
+    }
+  } finally {
+    bridgeState.relay.syncing = false;
+  }
+}
+
 function startRun(options) {
   const task = String(options && options.task ? options.task : '').trim();
   if (!task) throw new Error('Task is required.');
@@ -553,6 +727,13 @@ async function handleRequest(req, res) {
       cwd: ROOT,
       pid: process.pid,
       allowedOrigins: Array.from(ALLOWED_ORIGINS),
+      relay: {
+        enabled: relayEnabled(),
+        baseUrl: bridgeState.relay.baseUrl || '',
+        connected: !!bridgeState.relay.connected,
+        lastSyncAt: bridgeState.relay.lastSyncAt || '',
+        error: bridgeState.relay.error || '',
+      },
     }, origin);
     return;
   }
@@ -582,15 +763,19 @@ async function handleRequest(req, res) {
       connectCommands: {
         openai: 'codex login',
         anthropic: 'claude auth login',
-        localBridge: 'npm run agent-bridge',
+        localBridge: relayEnabled()
+          ? `/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js --relay "${bridgeState.relay.baseUrl}" --token "<bridge-token>"`
+          : 'npm run agent-bridge',
       },
-      bridge: {
-        connected: true,
-        mode: 'local-bridge',
-        baseUrl: `http://${server.address().address}:${server.address().port}`,
-        host: server.address().address,
-        port: server.address().port,
-      },
+      bridge: Object.assign({}, getLocalBridgeInfo(), {
+        relay: {
+          enabled: relayEnabled(),
+          baseUrl: bridgeState.relay.baseUrl || '',
+          connected: !!bridgeState.relay.connected,
+          lastSyncAt: bridgeState.relay.lastSyncAt || '',
+          error: bridgeState.relay.error || '',
+        },
+      }),
     }, origin);
     return;
   }
@@ -733,17 +918,41 @@ if (options.help) {
   process.exit(0);
 }
 
+bridgeState.relay.baseUrl = String(options.relay || '').trim().replace(/\/+$/, '');
+bridgeState.relay.token = String(options.token || '').trim();
+bridgeState.relay.syncIntervalMs = Math.max(1500, Number.parseInt(String(options.syncIntervalMs || DEFAULT_RELAY_SYNC_MS), 10) || DEFAULT_RELAY_SYNC_MS);
+
 server.listen(options.port, options.host, () => {
   ensureDir(AGENT_OUTPUT_ROOT);
   console.log('GP Link local hybrid-agent bridge');
   console.log(`Listening on http://${options.host}:${options.port}`);
   console.log(`Allowed origins: ${Array.from(ALLOWED_ORIGINS).join(', ')}`);
+  if (relayEnabled()) {
+    console.log(`Relay target: ${bridgeState.relay.baseUrl}`);
+    console.log(`Relay sync interval: ${bridgeState.relay.syncIntervalMs}ms`);
+  } else {
+    console.log('Relay target: disabled');
+  }
   console.log('Keep this running while using the live Agent dashboard.');
   getCachedProviderStatus(true)
     .then(() => {
       console.log('Provider status warm cache ready.');
+      if (relayEnabled()) {
+        return syncRelayOnce(false)
+          .then(() => {
+            console.log('Relay sync ready.');
+          })
+          .catch(error => {
+            console.warn(`Relay sync warm-up failed: ${error && error.message ? error.message : 'unknown error'}`);
+          });
+      }
     })
     .catch(error => {
       console.warn(`Provider status warm-up failed: ${error && error.message ? error.message : 'unknown error'}`);
     });
+  if (relayEnabled()) {
+    setInterval(() => {
+      syncRelayOnce(false).catch(() => {});
+    }, bridgeState.relay.syncIntervalMs).unref();
+  }
 });

@@ -401,7 +401,7 @@
   function shortTask(text,max){text=String(text||"").trim();return text.length>(max||110)?text.slice(0,(max||110)-1)+"\u2026":text;}
   function agentStatusClass(status){status=String(status||"").toLowerCase();if(status==="completed"||status==="connected"||status==="ready")return"ok";if(status==="running"||status==="starting"||status==="launching"||status==="cancelling")return"warn";return"err";}
   function prettyRole(role){return String(role||"").replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase());}
-  function agentConnectCommands(){return Object.assign({openai:"codex login",anthropic:"claude auth login",localBridge:"npm run agent-bridge"},S.agent.connectCommands||{});}
+  function agentConnectCommands(){return Object.assign({openai:"codex login",anthropic:"claude auth login",localBridge:"/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js"},S.agent.connectCommands||{});}
   function agentBridgeActive(){return !!(S.agent.bridge&&S.agent.bridge.connected&&S.agent.bridge.mode==="local"&&S.agent.bridge.baseUrl);}
   async function fetchJson(url,opts){const r=await fetch(url,opts);const d=await r.json().catch(()=>({}));return{r,d};}
   function applyAgentStatusPayload(d,mode,baseUrl){
@@ -414,11 +414,25 @@
     S.agent.security=d.dashboard&&d.dashboard.security?d.dashboard.security:null;
     S.agent.providerStatusRefreshedAt=d.dashboard&&d.dashboard.providerStatusRefreshedAt?d.dashboard.providerStatusRefreshedAt:"";
     S.agent.error="";
-    S.agent.bridge.connected=mode==="local";
-    S.agent.bridge.mode=mode;
-    S.agent.bridge.baseUrl=baseUrl||"";
-    S.agent.bridge.status=d.bridge||null;
-    S.agent.bridge.error="";
+    const bridgePayload=d.bridge&&typeof d.bridge==="object"?d.bridge:null;
+    if(mode==="local"){
+      S.agent.bridge.connected=true;
+      S.agent.bridge.mode="local";
+      S.agent.bridge.baseUrl=baseUrl||"";
+      S.agent.bridge.status=bridgePayload||null;
+      S.agent.bridge.error="";
+    }else if(bridgePayload&&bridgePayload.connected){
+      S.agent.bridge.connected=true;
+      S.agent.bridge.mode=bridgePayload.mode||"relay";
+      S.agent.bridge.baseUrl=bridgePayload.baseUrl||bridgePayload.relayUrl||"";
+      S.agent.bridge.status=bridgePayload;
+      S.agent.bridge.error="";
+    }else{
+      S.agent.bridge.connected=false;
+      S.agent.bridge.mode="remote";
+      S.agent.bridge.baseUrl="";
+      S.agent.bridge.status=bridgePayload||null;
+    }
     if(!S.agent.selectedRunId||!S.agent.runs.find(run=>run.runId===S.agent.selectedRunId)){
       S.agent.selectedRunId=S.agent.activeRunId||(S.agent.runs[0]&&S.agent.runs[0].runId)||null;
     }
@@ -904,8 +918,16 @@
   function bridgeCard(){
     const bridge=S.agent.bridge||{};
     const connected=!!bridge.connected;
-    const mode=connected?"Local Bridge Ready":"Local Bridge Offline";
-    const detail=connected?(bridge.baseUrl||"Localhost bridge connected"):(bridge.error||"Start the local bridge on this Mac so the live dashboard can use your local CLIs.");
+    const relay=bridge.status&&bridge.status.mode==="relay";
+    const mode=connected?(relay?"Secure Relay Ready":"Local Bridge Ready"):"Local Bridge Offline";
+    const detail=connected
+      ?(relay?("Synced to the live dashboard via "+(bridge.status&&bridge.status.relayUrl?bridge.status.relayUrl:"secure relay")):(bridge.baseUrl||"Localhost bridge connected"))
+      :(bridge.error||"Start the local bridge on this Mac so the live dashboard can use your local CLIs.");
+    const targetLabel=connected?(relay?"This Mac via secure relay":"This Mac"):"Remote server only";
+    const urlLabel=relay?(bridge.status&&bridge.status.relayUrl?bridge.status.relayUrl:"Relay connected"):((bridge.baseUrl)||((bridge.candidates&&bridge.candidates[0])||"http://127.0.0.1:4317"));
+    const syncLabel=relay
+      ?(bridge.status&&bridge.status.lastSeenAt?fmtDT(bridge.status.lastSeenAt):"Awaiting first relay sync")
+      :(bridge.status&&bridge.status.relay&&bridge.status.relay.lastSyncAt?fmtDT(bridge.status.relay.lastSyncAt):"Direct localhost mode");
     return `<div class="agent-card">
       <div class="agent-provider-head">
         <div>
@@ -917,11 +939,15 @@
       <div class="agent-kv">
         <div class="agent-kv-row">
           <div class="agent-kv-key">Execution target</div>
-          <div class="agent-kv-value">${connected?"This Mac":"Remote server only"}</div>
+          <div class="agent-kv-value">${esc(targetLabel)}</div>
         </div>
         <div class="agent-kv-row">
           <div class="agent-kv-key">Bridge URL</div>
-          <div class="agent-kv-value">${esc(bridge.baseUrl||((bridge.candidates&&bridge.candidates[0])||"http://127.0.0.1:4317"))}</div>
+          <div class="agent-kv-value">${esc(urlLabel)}</div>
+        </div>
+        <div class="agent-kv-row">
+          <div class="agent-kv-key">Last sync</div>
+          <div class="agent-kv-value">${esc(syncLabel)}</div>
         </div>
       </div>
       <div class="agent-toolbar">
@@ -975,7 +1001,7 @@
               <button class="btn" data-agent-refresh-providers>Sync Connections</button>
               ${S.agent.activeRunId?`<button class="btn red" data-agent-cancel="${esc(S.agent.activeRunId)}">Cancel Active Run</button>`:""}
             </div>
-            <div class="agent-meta">Connection state last checked: ${esc(S.agent.providerStatusRefreshedAt?fmtDT(S.agent.providerStatusRefreshedAt):"not yet checked")} \u2022 Control mode: ${esc(agentBridgeActive()?"local bridge":"remote server")}</div>
+            <div class="agent-meta">Connection state last checked: ${esc(S.agent.providerStatusRefreshedAt?fmtDT(S.agent.providerStatusRefreshedAt):"not yet checked")} \u2022 Control mode: ${esc(agentBridgeActive()?"local bridge":((S.agent.bridge&&S.agent.bridge.connected&&S.agent.bridge.mode==="relay")?"secure relay":"remote server"))}</div>
           </div>
         </div>
         <div class="agent-card dark">
@@ -1118,18 +1144,39 @@
     }catch(err){alert(err&&err.message?err.message:"Failed to refresh provider status.");}
   }
 
-  function showAgentConnectHelp(provider){
+  async function showAgentConnectHelp(provider){
     const cmds=agentConnectCommands();
     const cmd=cmds&&cmds[provider]?cmds[provider]:"";
     const title=provider==="openai"?"Connect Codex / ChatGPT":provider==="anthropic"?"Connect Claude":"Start Local Bridge";
     document.getElementById("modalTitle").textContent=title;
-    document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">${provider==="localBridge"?"Run this command on the Mac that has your Codex and Claude CLIs installed. Keep it running while you use the live dashboard.":"Connection is handled on the host machine for security. Run this command in the terminal where the app server lives:"}</p>
+    document.getElementById("modalOverlay").classList.add("open");
+    if(provider==="localBridge"){
+      document.getElementById("modalBody").innerHTML=`<div class="agent-meta">Generating a secure relay command for this dashboard session...</div>`;
+      let relayCmd=cmd||"/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js";
+      let expiresText="";
+      try{
+        const tokenRes=await fetchJson("/api/admin/agent-control/bridge/token",{credentials:"same-origin"});
+        if(tokenRes.r.ok&&tokenRes.d&&tokenRes.d.ok){
+          relayCmd=tokenRes.d.command||relayCmd;
+          S.agent.connectCommands=Object.assign(agentConnectCommands(),{localBridge:relayCmd});
+          expiresText=tokenRes.d.expiresAt?`Relay token expires ${fmtDT(tokenRes.d.expiresAt)}.`:"";
+        }
+      }catch{}
+      document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">Run this from the repo root on the Mac that has your Codex and Claude CLIs installed. Keep it running while you use the live dashboard. Relay mode is the most reliable option when the browser cannot fetch localhost directly.</p>
+        <div class="agent-pre">${esc(relayCmd)}</div>
+        <p style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:10px">${esc(expiresText||"If the token expires, open this panel again to generate a fresh relay command.")}</p>
+        <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn primary" data-copy-connect="${esc(provider)}">Copy Command</button>
+          <button class="btn" data-close-modal>Close</button>
+        </div>`;
+      return;
+    }
+    document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">Connection is handled on the host machine for security. Run this command in the terminal where the app server lives:</p>
       <div class="agent-pre">${esc(cmd||"Command unavailable")}</div>
       <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
         <button class="btn primary" data-copy-connect="${esc(provider)}">Copy Command</button>
         <button class="btn" data-close-modal>Close</button>
       </div>`;
-    document.getElementById("modalOverlay").classList.add("open");
   }
 
   function renderAll(){renderTopBar();renderFilters();renderCaseList();renderDetail();}
