@@ -1,6 +1,6 @@
 # Hybrid Codex + Claude Agents
 
-`scripts/agents.js` is the repo's multi-model orchestration entrypoint. It plans a task, routes each subtask to the provider best suited for that role, and keeps a shared memory handoff so later agents inherit the most useful context from earlier ones.
+`scripts/agents.js` is the repo's multi-model orchestration entrypoint. It plans a task, routes each subtask to the provider best suited for that role, keeps a shared memory handoff so later agents inherit the most useful context from earlier ones, and now maintains a persistent retrieval memory store across runs.
 
 ## Default routing
 
@@ -38,6 +38,22 @@ If your installed Claude CLI exposes a versioned Opus 4.6 model name and you wan
 - `paired`: run the routed specialist, then send the result to the other provider for critique and shared-context extraction
 
 When both local CLIs are installed and authenticated with your subscriptions, `paired` is the most useful mode because it actually combines both models' context on the same task. If only one subscription-backed CLI is available, the script automatically falls back to routed mode.
+
+## Persistent memory and learning
+
+The orchestrator now keeps two memory layers:
+
+- run memory: `shared-memory.md` captures the most important handoff context between subtasks in the current run
+- persistent memory: `agents-output/memory/knowledge-base.json` and `knowledge-base.md` keep reusable lessons from earlier runs
+
+How it behaves:
+
+- the planner receives relevant prior learnings before it breaks the work into subtasks
+- each specialist and advisor receives only the memory entries most relevant to that role, task wording, and planned file set
+- new summaries, shared-context notes, findings, risks, and review issues are normalized into durable memory after each subtask completes
+- repeated learnings are merged instead of duplicated, and reused entries get a higher relevance score over time
+
+This is retrieval-based learning, not model fine-tuning. The agents do not silently change their underlying model weights; they reuse structured memory that you can inspect, version, and delete.
 
 ## Claude MCP browser-use
 
@@ -129,7 +145,14 @@ Each run writes to `agents-output/<timestamp>/`:
 - `raw/`: full responses from each primary agent and advisor
 - `artifacts/`: `.patched` or `.new` files for review
 - `shared-memory.md`: condensed handoff notes collected across subtasks
+- `persistent-memory-recall.md`: what prior learnings were recalled for planning and each subtask
+- `learned-memory.md`: the new reusable learnings captured from this run
 - `REPORT.md`: summary of the run and file application status
+
+Persistent cross-run memory lives outside each run folder:
+
+- `agents-output/memory/knowledge-base.json`
+- `agents-output/memory/knowledge-base.md`
 
 ## Environment variables
 
@@ -160,6 +183,10 @@ Each run writes to `agents-output/<timestamp>/`:
 - `AGENT_MAX_FILE_CONTEXT_CHARS`
 - `AGENT_MAX_PLANNER_FILES`
 - `AGENT_MAX_SUBTASKS`
+- `AGENT_ENABLE_PERSISTENT_MEMORY`
+- `AGENT_MEMORY_MAX_ENTRIES`
+- `AGENT_MEMORY_RECALL_ITEMS`
+- `AGENT_MEMORY_RECALL_CHARS`
 
 ## Super-admin dashboard
 
@@ -179,4 +206,5 @@ The master admin dashboard at `pages/admin.html` now exposes an `Agent` tab for 
 - The server also launches the orchestrator with a reduced environment and disables repo `.env` loading for dashboard-started runs so app secrets are not forwarded into the child agent process.
 - If Claude browser-use MCP is connected, Claude subtasks can use it for app/browser walkthrough work without changing the OpenAI/Codex side of the pipeline.
 - The script uses a compact repo overview for planning, then focused file snippets for each subtask so prompts stay smaller and more grounded than sending the whole codebase every time.
+- Persistent memory is retrieval-only and file-aware, so agents can share lessons safely without pretending they have magically retrained themselves.
 - Review remains non-destructive by default. The safest workflow is to inspect `artifacts/` and `REPORT.md` before using `--apply`.

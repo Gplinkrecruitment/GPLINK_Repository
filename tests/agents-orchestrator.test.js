@@ -3,16 +3,21 @@ import * as agents from '../scripts/agents.js';
 
 const {
   DEFAULTS,
+  buildLearningCandidates,
   extractRelevantSections,
+  formatMemoryRecall,
   getModelPolicy,
   inferBrowserUseNeed,
   inferTaskComplexity,
+  markMemoryEntriesUsed,
+  mergeLearningIntoMemoryStore,
   normalizePlan,
   parseClaudeAuthStatusOutput,
   parseClaudeMcpListOutput,
   parseCodexLoginStatusOutput,
   parseArgs,
   resolveAssignment,
+  selectRelevantMemoryEntries,
 } = agents;
 
 describe('parseArgs', () => {
@@ -183,5 +188,106 @@ describe('extractRelevantSections', () => {
 
     expect(extracted).toContain('/api/agents/hybrid');
     expect(extracted).toContain('advisorProvider');
+  });
+});
+
+describe('persistent memory', () => {
+  it('merges repeated learnings instead of duplicating them', () => {
+    const firstPass = mergeLearningIntoMemoryStore({ entries: [] }, [{
+      text: 'Use same-origin checks on the super-admin agent endpoints to reduce dashboard abuse risk.',
+      role: 'backend',
+      files: ['server.js'],
+      kind: 'security',
+      sources: [{ runId: 'run-1', subtaskId: 'api-pass', kind: 'security' }],
+    }]);
+
+    const secondPass = mergeLearningIntoMemoryStore(firstPass, [{
+      text: 'Use same-origin checks on the super-admin agent endpoints to reduce dashboard abuse risk.',
+      role: 'backend',
+      files: ['server.js', 'pages/admin.html'],
+      kind: 'security',
+      sources: [{ runId: 'run-2', subtaskId: 'review-pass', kind: 'security' }],
+    }]);
+
+    expect(secondPass.entries).toHaveLength(1);
+    expect(secondPass.entries[0].observationCount).toBe(2);
+    expect(secondPass.entries[0].files).toEqual(expect.arrayContaining(['server.js', 'pages/admin.html']));
+    expect(secondPass.entries[0].sources).toHaveLength(2);
+  });
+
+  it('recalls the most role and file-relevant memory first', () => {
+    const store = mergeLearningIntoMemoryStore({ entries: [] }, [
+      {
+        text: 'On the admin dashboard, keep hybrid agent controls behind the super_admin gate in pages/admin.html.',
+        role: 'frontend',
+        files: ['pages/admin.html'],
+        kind: 'ui',
+        sources: [{ runId: 'run-1', subtaskId: 'agent-panel', kind: 'ui' }],
+      },
+      {
+        text: 'Database changes should be reviewed with extra care for rollback safety.',
+        role: 'database',
+        files: ['supabase/migrations/20260401.sql'],
+        kind: 'risk',
+        sources: [{ runId: 'run-1', subtaskId: 'db-plan', kind: 'risk' }],
+      },
+    ]);
+
+    const recalled = selectRelevantMemoryEntries(
+      store,
+      'Improve the hybrid agent controls on the admin dashboard.',
+      { role: 'frontend', files: ['pages/admin.html'] }
+    );
+
+    expect(recalled[0]?.role).toBe('frontend');
+    expect(recalled[0]?.files).toContain('pages/admin.html');
+
+    const marked = markMemoryEntriesUsed(store, recalled);
+    const usedEntry = marked.entries.find(entry => entry.id === recalled[0].id);
+    expect(usedEntry?.useCount).toBeGreaterThanOrEqual(1);
+    expect(formatMemoryRecall(recalled)).toContain('[frontend]');
+  });
+
+  it('extracts reusable learnings from primary and advisor results', () => {
+    const subtask = {
+      id: 'agent-control',
+      agent: 'frontend',
+      files: ['pages/admin.html'],
+    };
+    const assignment = {
+      primary: { provider: 'openai', model: 'gpt-5.4' },
+      advisor: { provider: 'anthropic', model: 'opus' },
+    };
+    const result = {
+      primaryResult: {
+        parsed: {
+          summary: 'Add a secure control panel card to the master admin dashboard.',
+          sharedContext: [
+            'The new Agent tab should only render for super_admin users on pages/admin.html.',
+          ],
+        },
+      },
+      advisorResult: {
+        parsed: {
+          sharedContext: [
+            'Mirror server-side auth checks so hidden controls are never the only gate.',
+          ],
+          issues: [
+            {
+              severity: 'critical',
+              description: 'Do not trust client-only role checks for task launch endpoints.',
+              fix: 'Enforce super-admin auth in server.js before dispatching runs.',
+            },
+          ],
+        },
+      },
+    };
+
+    const learned = buildLearningCandidates(subtask, assignment, result, 'run-77');
+
+    expect(learned.length).toBeGreaterThanOrEqual(3);
+    expect(learned.every(entry => entry.role === 'frontend')).toBe(true);
+    expect(learned.some(entry => entry.text.includes('super_admin users'))).toBe(true);
+    expect(learned.some(entry => entry.text.includes('Do not trust client-only role checks'))).toBe(true);
   });
 });

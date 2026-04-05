@@ -7,6 +7,9 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
+const MEMORY_ROOT = path.join(ROOT, 'agents-output', 'memory');
+const MEMORY_JSON_PATH = path.join(MEMORY_ROOT, 'knowledge-base.json');
+const MEMORY_MARKDOWN_PATH = path.join(MEMORY_ROOT, 'knowledge-base.md');
 const ALLOWED_AGENTS = new Set([
   'frontend',
   'backend',
@@ -73,6 +76,10 @@ const DEFAULTS = {
   maxSubtasks: numberFromEnv('AGENT_MAX_SUBTASKS', 6),
   maxDependencyContextChars: numberFromEnv('AGENT_MAX_DEPENDENCY_CONTEXT_CHARS', 14000),
   maxSharedMemoryItems: numberFromEnv('AGENT_MAX_SHARED_MEMORY_ITEMS', 40),
+  enablePersistentMemory: process.env.AGENT_ENABLE_PERSISTENT_MEMORY !== 'false',
+  memoryMaxEntries: numberFromEnv('AGENT_MEMORY_MAX_ENTRIES', 220),
+  memoryRecallItems: numberFromEnv('AGENT_MEMORY_RECALL_ITEMS', 8),
+  memoryRecallChars: numberFromEnv('AGENT_MEMORY_RECALL_CHARS', 5500),
 };
 
 const PROVIDER_RUNTIME = {
@@ -749,6 +756,355 @@ function tokenize(text) {
       .map(token => token.trim())
       .filter(token => token.length >= 3 && !STOP_WORDS.has(token))
   );
+}
+
+function createEmptyMemoryStore() {
+  return {
+    version: 1,
+    updatedAt: '',
+    entries: [],
+  };
+}
+
+function safeParseJsonFile(filePath) {
+  const raw = readFileSafe(filePath);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMemoryText(value) {
+  return String(value || '')
+    .replace(/^[\s*-]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 320);
+}
+
+function isMeaningfulMemoryText(value) {
+  const text = normalizeMemoryText(value);
+  if (!text || text.length < 18) return false;
+  const lower = text.toLowerCase();
+  const blockedFragments = [
+    'no shared memory',
+    'no file artifacts',
+    'no file changes',
+    'no log output',
+    'optional short note',
+    'waiting / complete',
+    '[truncated]',
+    'none recorded',
+  ];
+  if (blockedFragments.some(fragment => lower.includes(fragment))) return false;
+  return tokenize(text).length >= 3;
+}
+
+function normalizeMemoryEntry(entry) {
+  const source = entry && typeof entry === 'object' ? entry : {};
+  const text = normalizeMemoryText(source.text || source.summary || '');
+  if (!isMeaningfulMemoryText(text)) return null;
+
+  const role = ALLOWED_AGENTS.has(source.role) ? source.role : 'review';
+  const files = uniq(Array.isArray(source.files) ? source.files.filter(isSafeRelativePath) : []).slice(0, 12);
+  const keywords = uniq([
+    ...tokenize(text),
+    ...tokenize(source.title || ''),
+    ...tokenize(files.join(' ')),
+  ]).slice(0, 24);
+  const sources = Array.isArray(source.sources)
+    ? source.sources
+      .filter(item => item && typeof item === 'object')
+      .map(item => ({
+        runId: normalizeRunId(item.runId || ''),
+        subtaskId: slugify(item.subtaskId || item.id, ''),
+        role: ALLOWED_AGENTS.has(item.role) ? item.role : role,
+        provider: ['openai', 'anthropic'].includes(item.provider) ? item.provider : '',
+        model: typeof item.model === 'string' ? item.model : '',
+        kind: typeof item.kind === 'string' ? item.kind : '',
+        at: typeof item.at === 'string' ? item.at : '',
+      }))
+      .filter(item => item.runId || item.subtaskId || item.kind)
+    : [];
+
+  const createdAt = typeof source.createdAt === 'string' && source.createdAt ? source.createdAt : new Date().toISOString();
+  const lastSeenAt = typeof source.lastSeenAt === 'string' && source.lastSeenAt ? source.lastSeenAt : createdAt;
+  const observationCount = Math.max(1, Number(source.observationCount || 1) || 1);
+  const useCount = Math.max(0, Number(source.useCount || 0) || 0);
+  const id = String(source.id || '')
+    .trim()
+    || slugify(`${role}-${text.slice(0, 96)}`, `memory-${Math.abs(hashString(text))}`);
+
+  return {
+    id,
+    text,
+    role,
+    kind: typeof source.kind === 'string' && source.kind ? source.kind : 'insight',
+    files,
+    keywords,
+    createdAt,
+    lastSeenAt,
+    observationCount,
+    useCount,
+    sources: sources.slice(0, 12),
+  };
+}
+
+function normalizeMemoryStore(store) {
+  const source = store && typeof store === 'object' ? store : {};
+  const entries = Array.isArray(source.entries)
+    ? source.entries.map(normalizeMemoryEntry).filter(Boolean)
+    : [];
+  return {
+    version: 1,
+    updatedAt: typeof source.updatedAt === 'string' ? source.updatedAt : '',
+    entries,
+  };
+}
+
+function hashString(value) {
+  let hash = 0;
+  const text = String(value || '');
+  for (let index = 0; index < text.length; index++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(index);
+    hash |= 0;
+  }
+  return hash;
+}
+
+function loadPersistentMemoryStore() {
+  if (!DEFAULTS.enablePersistentMemory) return createEmptyMemoryStore();
+  ensureDir(MEMORY_ROOT);
+  const parsed = safeParseJsonFile(MEMORY_JSON_PATH);
+  return parsed ? normalizeMemoryStore(parsed) : createEmptyMemoryStore();
+}
+
+function sortMemoryEntries(entries) {
+  return [...entries].sort((a, b) => {
+    const aScore = (a.observationCount * 4) + (a.useCount * 2);
+    const bScore = (b.observationCount * 4) + (b.useCount * 2);
+    if (aScore !== bScore) return bScore - aScore;
+    return String(b.lastSeenAt || '').localeCompare(String(a.lastSeenAt || ''));
+  });
+}
+
+function renderPersistentMemoryMarkdown(store) {
+  const normalized = normalizeMemoryStore(store);
+  const lines = [
+    '# Persistent Agent Memory',
+    '',
+    `Updated: ${normalized.updatedAt || 'never'}`,
+    `Entries: ${normalized.entries.length}`,
+    '',
+  ];
+
+  const byRole = new Map();
+  normalized.entries.forEach(entry => {
+    const bucket = byRole.get(entry.role) || [];
+    bucket.push(entry);
+    byRole.set(entry.role, bucket);
+  });
+
+  for (const role of [...ALLOWED_AGENTS]) {
+    const entries = sortMemoryEntries(byRole.get(role) || []).slice(0, 24);
+    if (!entries.length) continue;
+    lines.push(`## ${role}`);
+    lines.push('');
+    entries.forEach(entry => {
+      const fileHint = entry.files.length ? ` (${entry.files.join(', ')})` : '';
+      lines.push(`- ${entry.text}${fileHint}`);
+    });
+    lines.push('');
+  }
+
+  if (!normalized.entries.length) {
+    lines.push('No persistent memory has been learned yet.');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function savePersistentMemoryStore(store) {
+  if (!DEFAULTS.enablePersistentMemory) return;
+  ensureDir(MEMORY_ROOT);
+  const normalized = normalizeMemoryStore({
+    ...store,
+    updatedAt: new Date().toISOString(),
+  });
+  fs.writeFileSync(MEMORY_JSON_PATH, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(MEMORY_MARKDOWN_PATH, `${renderPersistentMemoryMarkdown(normalized)}\n`, 'utf8');
+}
+
+function scoreMemoryEntry(entry, queryTokens, role, files) {
+  if (!entry) return 0;
+  let score = 0;
+
+  if (role && entry.role === role) score += 4;
+  if (role === 'planner') score += 1;
+
+  const querySet = new Set(queryTokens);
+  for (const keyword of entry.keywords || []) {
+    if (querySet.has(keyword)) score += 3;
+  }
+
+  for (const file of files || []) {
+    if (entry.files.includes(file)) score += 5;
+    const baseName = path.basename(file);
+    if (entry.text.toLowerCase().includes(baseName.toLowerCase())) score += 2;
+  }
+
+  score += Math.min(3, entry.observationCount || 1);
+  if ((entry.useCount || 0) > 0) score += Math.min(2, entry.useCount);
+  return score;
+}
+
+function selectRelevantMemoryEntries(store, query, options = {}) {
+  const normalized = normalizeMemoryStore(store);
+  const role = options.role || '';
+  const files = uniq(Array.isArray(options.files) ? options.files.filter(isSafeRelativePath) : []);
+  const queryTokens = uniq([
+    ...tokenize(query),
+    ...tokenize(role),
+    ...tokenize(files.join(' ')),
+  ]);
+
+  const scored = normalized.entries
+    .map(entry => ({ entry, score: scoreMemoryEntry(entry, queryTokens, role, files) }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || String(b.entry.lastSeenAt || '').localeCompare(String(a.entry.lastSeenAt || '')));
+
+  return scored
+    .slice(0, DEFAULTS.memoryRecallItems)
+    .map(item => item.entry);
+}
+
+function formatMemoryRecall(entries) {
+  if (!entries.length) return 'No relevant persistent memory matched this task yet.';
+  const lines = [];
+  let used = 0;
+  for (const entry of entries) {
+    const source = entry.sources && entry.sources[0]
+      ? `${entry.sources[0].runId || 'run'}${entry.sources[0].subtaskId ? `/${entry.sources[0].subtaskId}` : ''}`
+      : '';
+    const prefix = `[${entry.role}]`;
+    const suffix = [
+      entry.files.length ? `files: ${entry.files.join(', ')}` : '',
+      source ? `source: ${source}` : '',
+    ].filter(Boolean).join(' • ');
+    const line = `- ${prefix} ${entry.text}${suffix ? ` (${suffix})` : ''}`;
+    if (!used || used + line.length + 1 <= DEFAULTS.memoryRecallChars) {
+      lines.push(line);
+      used += line.length + 1;
+    }
+  }
+  return lines.length ? lines.join('\n') : 'No relevant persistent memory matched this task yet.';
+}
+
+function buildLearningCandidates(subtask, assignment, result, runId) {
+  const candidates = [];
+  const parsedGroups = [
+    { parsed: result.primaryResult && result.primaryResult.parsed, provider: assignment.primary.provider, model: assignment.primary.model },
+    { parsed: result.advisorResult && result.advisorResult.parsed, provider: assignment.advisor ? assignment.advisor.provider : '', model: assignment.advisor ? assignment.advisor.model : '' },
+  ];
+
+  function addCandidate(text, kind, extra = {}) {
+    if (!isMeaningfulMemoryText(text)) return;
+    candidates.push({
+      text,
+      role: subtask.agent,
+      kind,
+      files: subtask.files,
+      sources: [{
+        runId,
+        subtaskId: subtask.id,
+        role: subtask.agent,
+        provider: extra.provider || '',
+        model: extra.model || '',
+        kind,
+        at: new Date().toISOString(),
+      }],
+    });
+  }
+
+  parsedGroups.forEach(group => {
+    const parsed = group.parsed;
+    if (!parsed || typeof parsed !== 'object') return;
+    if (typeof parsed.summary === 'string') addCandidate(parsed.summary, 'summary', group);
+    if (typeof parsed.notes === 'string') addCandidate(parsed.notes, 'note', group);
+    if (Array.isArray(parsed.sharedContext)) parsed.sharedContext.forEach(item => addCandidate(item, 'shared-context', group));
+    if (Array.isArray(parsed.handoff)) parsed.handoff.forEach(item => addCandidate(item, 'handoff', group));
+    if (Array.isArray(parsed.recommendations)) parsed.recommendations.forEach(item => addCandidate(item, 'recommendation', group));
+    if (Array.isArray(parsed.findings)) {
+      parsed.findings.forEach(item => {
+        if (!item || typeof item !== 'object') return;
+        addCandidate(`${item.title || 'Finding'}: ${item.impact || item.detail || ''}`, 'finding', group);
+      });
+    }
+    if (Array.isArray(parsed.risks)) {
+      parsed.risks.forEach(item => {
+        if (!item || typeof item !== 'object') return;
+        addCandidate(`${item.title || 'Risk'}: ${item.mitigation || item.detail || ''}`, 'risk', group);
+      });
+    }
+    if (Array.isArray(parsed.issues)) {
+      parsed.issues.forEach(item => {
+        if (!item || typeof item !== 'object') return;
+        addCandidate(`${item.severity || 'Issue'}: ${item.description || ''} Fix: ${item.fix || ''}`, 'issue', group);
+      });
+    }
+  });
+
+  return uniq(candidates.map(candidate => JSON.stringify(candidate)))
+    .map(item => JSON.parse(item))
+    .map(normalizeMemoryEntry)
+    .filter(Boolean)
+    .slice(0, 16);
+}
+
+function mergeLearningIntoMemoryStore(store, candidates) {
+  const normalized = normalizeMemoryStore(store);
+  const byKey = new Map(
+    normalized.entries.map(entry => [`${entry.role}::${entry.text.toLowerCase()}`, entry])
+  );
+
+  for (const candidate of candidates.map(normalizeMemoryEntry).filter(Boolean)) {
+    const key = `${candidate.role}::${candidate.text.toLowerCase()}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.lastSeenAt = new Date().toISOString();
+      existing.observationCount += 1;
+      existing.files = uniq([...existing.files, ...candidate.files]).slice(0, 12);
+      existing.keywords = uniq([...existing.keywords, ...candidate.keywords]).slice(0, 24);
+      existing.sources = uniq([...existing.sources, ...candidate.sources].map(item => JSON.stringify(item)))
+        .map(item => JSON.parse(item))
+        .slice(0, 12);
+      continue;
+    }
+    normalized.entries.push(candidate);
+    byKey.set(key, candidate);
+  }
+
+  normalized.entries = sortMemoryEntries(normalized.entries).slice(0, DEFAULTS.memoryMaxEntries);
+  normalized.updatedAt = new Date().toISOString();
+  return normalized;
+}
+
+function markMemoryEntriesUsed(store, entries) {
+  const normalized = normalizeMemoryStore(store);
+  const usedIds = new Set(entries.map(entry => entry && entry.id).filter(Boolean));
+  normalized.entries = normalized.entries.map(entry => {
+    if (!usedIds.has(entry.id)) return entry;
+    return {
+      ...entry,
+      useCount: (entry.useCount || 0) + 1,
+      lastSeenAt: new Date().toISOString(),
+    };
+  });
+  normalized.updatedAt = new Date().toISOString();
+  return normalized;
 }
 
 function extractRelevantSections(content, query, maxChars) {
@@ -1429,7 +1785,7 @@ function renderDependencyContext(dependencyRecords) {
   return truncateText(joined, DEFAULTS.maxDependencyContextChars);
 }
 
-async function leadAgent(task, projectOverview, options, availableProviders) {
+async function leadAgent(task, projectOverview, options, availableProviders, recalledMemory) {
   const plannerProvider = resolveProviderForRole(
     'planner',
     'either',
@@ -1440,6 +1796,9 @@ async function leadAgent(task, projectOverview, options, availableProviders) {
   const systemPrompt = buildLeadSystemPrompt(options, availableProviders);
   const userMessage = [
     `Task: ${task}`,
+    '',
+    'Persistent learned memory from previous runs:',
+    formatMemoryRecall(recalledMemory),
     '',
     'Project overview:',
     projectOverview,
@@ -1522,7 +1881,7 @@ function normalizePlan(parsedPlan, task) {
   return { summary, assumptions, subtasks };
 }
 
-async function runSpecialist(subtask, assignment, projectOverview, sharedMemoryItems, dependencyRecords) {
+async function runSpecialist(subtask, assignment, projectOverview, sharedMemoryItems, dependencyRecords, recalledMemory) {
   const systemPrompt = buildSystemPromptForRole(subtask.agent);
   const dependencyContext = renderDependencyContext(dependencyRecords);
   const fileContext = buildSubtaskContext(subtask);
@@ -1537,6 +1896,9 @@ async function runSpecialist(subtask, assignment, projectOverview, sharedMemoryI
     '',
     'Project overview:',
     projectOverview,
+    '',
+    'Persistent learned memory from previous runs:',
+    formatMemoryRecall(recalledMemory),
     '',
     'Shared memory from completed workstreams:',
     formatSharedMemory(sharedMemoryItems),
@@ -1589,7 +1951,7 @@ Return JSON only:
 }`;
 }
 
-async function runAdvisor(subtask, assignment, primaryResult, projectOverview, sharedMemoryItems, dependencyRecords) {
+async function runAdvisor(subtask, assignment, primaryResult, projectOverview, sharedMemoryItems, dependencyRecords, recalledMemory) {
   if (!assignment.advisor) return null;
 
   const dependencyContext = renderDependencyContext(dependencyRecords);
@@ -1599,6 +1961,9 @@ async function runAdvisor(subtask, assignment, primaryResult, projectOverview, s
     '',
     'Project overview:',
     truncateText(projectOverview, 10000),
+    '',
+    'Persistent learned memory from previous runs:',
+    formatMemoryRecall(recalledMemory),
     '',
     'Shared memory from completed workstreams:',
     formatSharedMemory(sharedMemoryItems),
@@ -1757,13 +2122,13 @@ function applyFileChanges(fileSpec, outputDir, apply) {
   return { path: fileSpec.path, status: 'skipped', reason: 'unsupported file action' };
 }
 
-async function executeSubtask(subtask, assignment, projectOverview, sharedMemoryItems, dependencyRecords, outputDir, apply) {
-  const primaryResult = await runSpecialist(subtask, assignment, projectOverview, sharedMemoryItems, dependencyRecords);
+async function executeSubtask(subtask, assignment, projectOverview, sharedMemoryItems, dependencyRecords, recalledMemory, outputDir, apply) {
+  const primaryResult = await runSpecialist(subtask, assignment, projectOverview, sharedMemoryItems, dependencyRecords, recalledMemory);
   saveRawOutput(outputDir, `${subtask.id}_${subtask.agent}_${assignment.primary.provider}.md`, primaryResult.raw);
 
   let advisorResult = null;
   if (assignment.advisor) {
-    advisorResult = await runAdvisor(subtask, assignment, primaryResult, projectOverview, sharedMemoryItems, dependencyRecords);
+    advisorResult = await runAdvisor(subtask, assignment, primaryResult, projectOverview, sharedMemoryItems, dependencyRecords, recalledMemory);
     saveRawOutput(outputDir, `${subtask.id}_${subtask.agent}_${assignment.advisor.provider}_advisor.md`, advisorResult.raw);
   }
 
@@ -1813,11 +2178,17 @@ Environment:
   AGENT_PROFILE              Default: ${DEFAULTS.profile}
   AGENT_COLLABORATION_MODE   Default: ${DEFAULTS.collaborationMode}
   AGENT_COMPLEXITY_MODE      Default: ${DEFAULTS.complexity}
+  AGENT_ENABLE_PERSISTENT_MEMORY  Default: ${DEFAULTS.enablePersistentMemory}
+  AGENT_MEMORY_MAX_ENTRIES   Default: ${DEFAULTS.memoryMaxEntries}
+  AGENT_MEMORY_RECALL_ITEMS  Default: ${DEFAULTS.memoryRecallItems}
+  AGENT_MEMORY_RECALL_CHARS  Default: ${DEFAULTS.memoryRecallChars}
 
 Notes:
   This runner uses local subscription-backed CLIs, not direct API calls.
   It strips OPENAI_API_KEY and ANTHROPIC_API_KEY from child processes so
   Codex and Claude stay on ChatGPT / claude.ai login auth.
+  It also keeps a retrieval-based persistent memory store under
+  agents-output/memory/ so later runs can reuse proven context and handoffs.
   When Claude browser-use MCP is configured and a task needs browser/computer
   navigation, the runner can let Claude use that MCP selectively.`);
 }
@@ -1848,6 +2219,14 @@ async function run(task, options) {
   const outputDir = path.join(ROOT, 'agents-output', runId);
   ensureDir(path.join(outputDir, 'raw'));
   ensureDir(path.join(outputDir, 'artifacts'));
+  let persistentMemoryStore = loadPersistentMemoryStore();
+  const planningMemory = selectRelevantMemoryEntries(persistentMemoryStore, task, {
+    role: 'planner',
+    files: [],
+  });
+  persistentMemoryStore = markMemoryEntriesUsed(persistentMemoryStore, planningMemory);
+  const recalledMemoryBySubtask = {};
+  const learnedMemoryThisRun = [];
 
   const baseRunState = {
     runId,
@@ -1867,6 +2246,12 @@ async function run(task, options) {
     outputDir: `agents-output/${runId}`,
     reportPath: `agents-output/${runId}/REPORT.md`,
     sharedMemory: [],
+    persistentMemory: {
+      enabled: DEFAULTS.enablePersistentMemory,
+      recallCount: planningMemory.length,
+      learnedCount: 0,
+      storePath: path.relative(ROOT, MEMORY_JSON_PATH),
+    },
     error: '',
   };
   writeRunState(outputDir, baseRunState);
@@ -1884,11 +2269,13 @@ async function run(task, options) {
   }
   console.log(`Apply mode: ${options.apply ? 'write matched edits' : 'artifact only'}`);
   console.log(`Output: agents-output/${runId}/`);
+  console.log(`Persistent memory: ${DEFAULTS.enablePersistentMemory ? `${persistentMemoryStore.entries.length} learned entries available` : 'disabled'}`);
   console.log('='.repeat(60));
   console.log('');
 
   console.log('[context] Building project overview...');
   const projectOverview = readProjectOverview();
+  fs.writeFileSync(path.join(outputDir, 'persistent-memory-recall.md'), `${formatMemoryRecall(planningMemory)}\n`, 'utf8');
   writeRunState(outputDir, {
     ...baseRunState,
     status: 'running',
@@ -1896,7 +2283,7 @@ async function run(task, options) {
   });
 
   console.log('[plan] Generating plan...');
-  const { plan, plannerConfig, raw: plannerRaw } = await leadAgent(task, projectOverview, options, availableProviders);
+  const { plan, plannerConfig, raw: plannerRaw } = await leadAgent(task, projectOverview, options, availableProviders, planningMemory);
   saveRawOutput(outputDir, 'planner_raw.md', plannerRaw);
 
   const resolvedPlan = {
@@ -1972,8 +2359,19 @@ async function run(task, options) {
     }
 
     const sharedMemorySnapshot = [...sharedMemory];
+    for (const subtask of ready) {
+      const recalledMemory = selectRelevantMemoryEntries(
+        persistentMemoryStore,
+        [task, subtask.title, subtask.description, subtask.files.join(' ')].join('\n'),
+        { role: subtask.agent, files: subtask.files }
+      );
+      recalledMemoryBySubtask[subtask.id] = recalledMemory;
+      persistentMemoryStore = markMemoryEntriesUsed(persistentMemoryStore, recalledMemory);
+    }
+
     const batchResults = await Promise.all(ready.map(async subtask => {
       const dependencyRecords = subtask.dependsOn.map(dep => completed[dep]);
+      const recalledMemory = recalledMemoryBySubtask[subtask.id] || [];
       console.log('');
       console.log('-'.repeat(60));
       console.log(`[run] ${subtask.id} (${subtask.agent})`);
@@ -1998,22 +2396,30 @@ async function run(task, options) {
           model: record.model,
         })),
         sharedMemory: sharedMemorySnapshot.slice(0, DEFAULTS.maxSharedMemoryItems),
+        persistentMemory: {
+          enabled: DEFAULTS.enablePersistentMemory,
+          recallCount: recalledMemory.length,
+          learnedCount: learnedMemoryThisRun.length,
+          storePath: path.relative(ROOT, MEMORY_JSON_PATH),
+        },
       });
       return {
         subtask,
+        recalledMemory,
         result: await executeSubtask(
           subtask,
           subtask.assignment,
           projectOverview,
           sharedMemorySnapshot,
           dependencyRecords,
+          recalledMemory,
           outputDir,
           options.apply
         ),
       };
     }));
 
-    for (const { subtask, result } of batchResults) {
+    for (const { subtask, recalledMemory, result } of batchResults) {
       remaining.splice(remaining.findIndex(item => item.id === subtask.id), 1);
 
       const insights = uniq([
@@ -2022,6 +2428,21 @@ async function run(task, options) {
       ]);
       for (const insight of insights) {
         if (!sharedMemory.includes(insight)) sharedMemory.push(insight);
+      }
+
+      const learnedCandidates = buildLearningCandidates(subtask, subtask.assignment, result, runId);
+      for (const entry of learnedCandidates) {
+        if (!learnedMemoryThisRun.find(existing => existing.id === entry.id)) learnedMemoryThisRun.push(entry);
+      }
+      persistentMemoryStore = mergeLearningIntoMemoryStore(persistentMemoryStore, learnedCandidates);
+      savePersistentMemoryStore(persistentMemoryStore);
+
+      if (recalledMemory.length) {
+        fs.appendFileSync(
+          path.join(outputDir, 'persistent-memory-recall.md'),
+          `\n\n## ${subtask.id}\n${formatMemoryRecall(recalledMemory)}\n`,
+          'utf8'
+        );
       }
 
       completed[subtask.id] = {
@@ -2057,12 +2478,24 @@ async function run(task, options) {
           model: record.model,
         })),
         sharedMemory: sharedMemory.slice(0, DEFAULTS.maxSharedMemoryItems),
+        persistentMemory: {
+          enabled: DEFAULTS.enablePersistentMemory,
+          recallCount: planningMemory.length,
+          learnedCount: learnedMemoryThisRun.length,
+          storePath: path.relative(ROOT, MEMORY_JSON_PATH),
+        },
       });
     }
   }
 
   const sharedMemoryText = formatSharedMemory(sharedMemory);
   fs.writeFileSync(path.join(outputDir, 'shared-memory.md'), `${sharedMemoryText}\n`, 'utf8');
+  fs.writeFileSync(
+    path.join(outputDir, 'learned-memory.md'),
+    `${formatMemoryRecall(sortMemoryEntries(learnedMemoryThisRun).slice(0, DEFAULTS.memoryRecallItems * 2))}\n`,
+    'utf8'
+  );
+  savePersistentMemoryStore(persistentMemoryStore);
 
   const reportLines = [
     '# Hybrid Agent Report',
@@ -2092,11 +2525,19 @@ async function run(task, options) {
     '## Shared Memory',
     sharedMemoryText,
     '',
+    '## Persistent Memory',
+    `- Memory store: \`${path.relative(ROOT, MEMORY_JSON_PATH)}\``,
+    `- Entries available after this run: ${persistentMemoryStore.entries.length}`,
+    `- New learnings captured this run: ${learnedMemoryThisRun.length}`,
+    '- Planner/subtask recall snapshot: `persistent-memory-recall.md`',
+    '- New learnings from this run: `learned-memory.md`',
+    '',
     '## Outputs',
     '- Raw model outputs: `raw/`',
     '- Patched or created file artifacts: `artifacts/`',
     '- Planner and resolved plan JSON: `plan.json`, `resolved-plan.json`',
     '- Shared memory snapshot: `shared-memory.md`',
+    '- Persistent memory store: `../memory/knowledge-base.json`, `../memory/knowledge-base.md`',
     '',
     '## File Results',
     ...Object.values(completed).flatMap(record => {
@@ -2122,6 +2563,12 @@ async function run(task, options) {
       model: record.model,
     })),
     sharedMemory: sharedMemory.slice(0, DEFAULTS.maxSharedMemoryItems),
+    persistentMemory: {
+      enabled: DEFAULTS.enablePersistentMemory,
+      recallCount: planningMemory.length,
+      learnedCount: learnedMemoryThisRun.length,
+      storePath: path.relative(ROOT, MEMORY_JSON_PATH),
+    },
     finishedAt: new Date().toISOString(),
   });
 
@@ -2136,19 +2583,26 @@ async function run(task, options) {
 
 module.exports = {
   DEFAULTS,
+  buildLearningCandidates,
   extractRelevantSections,
+  formatMemoryRecall,
   getModelPolicy,
   inferBrowserUseNeed,
   inferTaskComplexity,
   inspectProviders,
+  loadPersistentMemoryStore,
+  markMemoryEntriesUsed,
+  mergeLearningIntoMemoryStore,
   normalizePlan,
   parseClaudeAuthStatusOutput,
   parseClaudeMcpListOutput,
   parseCodexLoginStatusOutput,
   parseArgs,
   parseJSON,
+  renderPersistentMemoryMarkdown,
   resolveTaskComplexity,
   resolveAssignment,
+  selectRelevantMemoryEntries,
 };
 
 if (require.main === module) {
