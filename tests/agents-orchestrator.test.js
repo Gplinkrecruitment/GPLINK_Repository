@@ -3,6 +3,7 @@ import * as agents from '../scripts/agents.js';
 
 const {
   DEFAULTS,
+  buildProviderEnv,
   buildLearningCandidates,
   extractRelevantSections,
   formatMemoryRecall,
@@ -100,6 +101,30 @@ describe('provider auth parsing', () => {
     expect(parsed.browserUse?.available).toBe(true);
     expect(parsed.browserUse?.name).toBe('browser-use');
     expect(parsed.servers).toHaveLength(2);
+  });
+});
+
+describe('provider child environment', () => {
+  it('strips nested Claude session variables before launching provider CLIs', () => {
+    process.env.CLAUDECODE = '1';
+    process.env.CLAUDE_CODE_ENTRYPOINT = 'cli';
+    process.env.CLAUDE_SSE_PORT = '45849';
+    process.env.OPENAI_API_KEY = 'should-not-leak';
+    process.env.ANTHROPIC_API_KEY = 'should-not-leak';
+
+    const env = buildProviderEnv();
+
+    expect(env.CLAUDECODE).toBeUndefined();
+    expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
+    expect(env.CLAUDE_SSE_PORT).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+
+    delete process.env.CLAUDECODE;
+    delete process.env.CLAUDE_CODE_ENTRYPOINT;
+    delete process.env.CLAUDE_SSE_PORT;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
   });
 });
 

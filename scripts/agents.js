@@ -504,6 +504,12 @@ function buildProviderEnv() {
   // Strip direct API credentials so the CLIs stay on subscription/OAuth auth.
   delete env.OPENAI_API_KEY;
   delete env.ANTHROPIC_API_KEY;
+  // Prevent nested Claude Code sessions when the orchestrator is launched from inside Claude.
+  for (const key of Object.keys(env)) {
+    if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_')) {
+      delete env[key];
+    }
+  }
   return env;
 }
 
@@ -2922,6 +2928,7 @@ async function run(task, options) {
 
 module.exports = {
   DEFAULTS,
+  buildProviderEnv,
   buildLearningCandidates,
   extractRelevantSections,
   formatMemoryRecall,
