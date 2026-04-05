@@ -37,7 +37,7 @@ Single test: `npx vitest run tests/oauth.test.js`
 - Maintains `shared-memory.md` for the active run plus a persistent retrieval memory store under `agents-output/memory/` so later runs can reuse proven context, findings, and handoff notes
 - Also maintains `agents-output/memory/latest-session.md` as the live Codex <-> Claude handoff file, and ships `scripts/agent-memory.js` so either tool can refresh the shared memory manually between direct chat sessions
 - The GP Link team shape is fixed: team lead planning, then `frontend`, `backend`, `security`, and final `alignment`
-- Claude now has a project skill at `.claude/skills/gplink/SKILL.md`, so `/gplink` should load the shared memory and GP Link workflow before starting work
+- Claude now has a project skill at `.claude/skills/gplink/SKILL.md`, so `/gplink` loads the shared memory and GP Link workflow, and `/gplink <task>` now seeds shared memory then launches the hybrid orchestrator by default for serious work
 - Balanced profile defaults:
   - Frontend + backend implementation -> OpenAI/Codex
   - Database + research + extrapolation -> Claude

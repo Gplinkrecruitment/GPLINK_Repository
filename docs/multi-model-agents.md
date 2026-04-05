@@ -168,6 +168,19 @@ or
 ```
 
 Claude's `/gplink` skill is designed to load the same shared memory files Codex uses.
+When you pass a task, the skill now acts as a wrapper:
+
+- writes the task into `agents-output/memory/latest-session.md`
+- launches the hybrid orchestrator as the default path for serious prompts
+- returns a compact report preview plus the latest memory/report paths back into Claude
+
+The wrapper prefers:
+
+```bash
+npm run gplink -- --task "your task" --run-id "<generated-run-id>"
+```
+
+and falls back to the direct Node entrypoint if `npm` is not available in the session environment.
 
 Manual memory sync between direct Codex and direct Claude sessions:
 
