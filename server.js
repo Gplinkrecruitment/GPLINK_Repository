@@ -14878,10 +14878,12 @@ Return ONLY valid JSON with no markdown formatting:
             filtered[key] = remoteState.state[key];
           }
         }
+        const remoteResetAt = Number(remoteState.state && remoteState.state.__gp_reset_at);
         sendJson(res, 200, {
           ok: true,
           state: filtered,
-          updatedAt: remoteState.updatedAt
+          updatedAt: remoteState.updatedAt,
+          resetAt: Number.isFinite(remoteResetAt) && remoteResetAt > 0 ? remoteResetAt : 0
         });
         return;
       }
@@ -14889,7 +14891,8 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 200, {
         ok: true,
         state: {},
-        updatedAt: null
+        updatedAt: null,
+        resetAt: 0
       });
       return;
     }
@@ -14901,11 +14904,13 @@ Return ONLY valid JSON with no markdown formatting:
         filtered[key] = state[key];
       }
     }
+    const localResetAt = Number(state && state.__gp_reset_at);
 
     sendJson(res, 200, {
       ok: true,
       state: filtered,
-      updatedAt: state.updatedAt || null
+      updatedAt: state.updatedAt || null,
+      resetAt: Number.isFinite(localResetAt) && localResetAt > 0 ? localResetAt : 0
     });
     return;
   }

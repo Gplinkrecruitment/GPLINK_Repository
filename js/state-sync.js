@@ -25,6 +25,7 @@
   const SESSION_PROFILE_CACHE_KEY = 'gp_session_profile_cache';
   const PROFILE_CACHE_KEY = 'gp_profile_cache';
   const ACCOUNT_STATUS_CACHE_KEY = 'gp_account_status_cache';
+  const RESET_SENTINEL_STORAGE_KEY = 'gp_state_reset_at';
   const AUTO_PUSH_DEBOUNCE_MS = 450;
   const PROGRESS_STATE_KEYS = ['gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress'];
 
@@ -39,7 +40,33 @@
     const response = await fetch('/api/state', { credentials: 'same-origin' });
     if (!response.ok) throw new Error('State fetch failed');
     const data = await response.json();
-    return data && data.state && typeof data.state === 'object' ? data.state : {};
+    const state = data && data.state && typeof data.state === 'object' ? data.state : {};
+    const resetAtRaw = data && data.resetAt;
+    const resetAt = Number.isFinite(Number(resetAtRaw)) ? Number(resetAtRaw) : 0;
+    return { state: state, resetAt: resetAt };
+  }
+
+  function readStoredResetAt() {
+    try {
+      var raw = localStorage.getItem(RESET_SENTINEL_STORAGE_KEY);
+      if (!raw) return 0;
+      var parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function writeStoredResetAt(value) {
+    try {
+      if (Number.isFinite(value) && value > 0) {
+        localStorage.setItem(RESET_SENTINEL_STORAGE_KEY, String(value));
+      }
+    } catch (e) {}
+  }
+
+  function clearStoredResetAt() {
+    try { localStorage.removeItem(RESET_SENTINEL_STORAGE_KEY); } catch (e) {}
   }
 
   async function pushState() {
@@ -164,6 +191,7 @@
     if (currentOwner && currentOwner !== email) {
       // Different user — clear all previous user's data immediately
       clearTrackedLocalState();
+      clearStoredResetAt();
     }
     try { localStorage.setItem(SESSION_OWNER_KEY, email); } catch (e) {}
   }
@@ -250,7 +278,33 @@
 
         flushTrackedBatches();
         var localState = snapshotTrackedLocalState();
-        var serverState = await fetchState();
+        var fetched = await fetchState();
+        var serverState = fetched.state;
+        var serverResetAt = fetched.resetAt;
+        var storedResetAt = readStoredResetAt();
+
+        // Admin-driven reset sentinel: when the server has been wiped since we
+        // last hydrated, discard local state and adopt the server snapshot
+        // verbatim. This prevents stale localStorage from re-flooding Supabase
+        // after a reset-for-testing SQL run.
+        if (serverResetAt > 0 && serverResetAt > storedResetAt) {
+          clearTrackedLocalState();
+          withSuppressedObserver(() => {
+            STATE_KEYS.forEach((key) => {
+              if (typeof serverState[key] === 'string') {
+                localStorage.setItem(key, serverState[key]);
+              }
+            });
+          });
+          writeStoredResetAt(serverResetAt);
+          if (pushTimer) { window.clearTimeout(pushTimer); pushTimer = null; }
+          pendingTrackedChange = false;
+          stateOk = true;
+          hydrated = true;
+          window.dispatchEvent(new Event('gp-state-hydrated'));
+          return;
+        }
+
         var mergedState = mergeTrackedState(localState, serverState);
         var shouldPushMergedState = trackedStateDiffers(mergedState, serverState);
         clearTrackedLocalState();
@@ -261,6 +315,7 @@
             }
           });
         });
+        if (serverResetAt > storedResetAt) writeStoredResetAt(serverResetAt);
         if (shouldPushMergedState) pendingTrackedChange = true;
         stateOk = true;
         hydrated = true;
@@ -289,6 +344,7 @@
     pendingTrackedChange = false;
     hydrated = false;
     clearTrackedLocalState();
+    clearStoredResetAt();
     try { localStorage.removeItem(SESSION_OWNER_KEY); } catch (e) {}
     try { localStorage.removeItem('gp_account_under_review'); } catch (e) {}
     try { sessionStorage.removeItem(SESSION_PROFILE_CACHE_KEY); } catch (e) {}
