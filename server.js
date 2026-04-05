@@ -3256,6 +3256,151 @@ async function _hasOpenTaskForDoc(caseId, docKey) {
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
+// ══════════════════════════════════════════════
+// VA Dashboard helpers — WhatsApp, nudges, ticket mirror, qualification lookup
+// ══════════════════════════════════════════════
+
+const HAZEL_WHATSAPP_NUMBER = String(process.env.HAZEL_WHATSAPP_NUMBER || '+61494391968')
+  .replace(/[^\d+]/g, '') || '+61494391968';
+
+// Stage/substage → nudge copy the GP sees in-app.
+// Keyed as `${stage}` or `${stage}:${substage}`; first match wins.
+const NUDGE_TEMPLATES = {
+  'myintealth:create_account': {
+    title: 'Need a hand creating your MyIntealth account?',
+    body: 'Are you having trouble creating your MyIntealth account? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  },
+  'myintealth:account_establishment': {
+    title: 'Trouble establishing your MyIntealth account?',
+    body: 'Are you having trouble establishing your MyIntealth account? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  },
+  'myintealth:upload_qualifications': {
+    title: 'Stuck uploading your qualifications?',
+    body: 'Are you having trouble uploading your qualification documents? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  },
+  'myintealth:verification_issued': {
+    title: 'Waiting on EPIC verification?',
+    body: 'Still waiting on EPIC verification? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  },
+  'myintealth': {
+    title: 'Need help with MyIntealth?',
+    body: 'Are you having trouble with your MyIntealth step? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  },
+  'amc:create_portfolio': {
+    title: 'Need help creating your AMC portfolio?',
+    body: 'Are you having trouble creating your AMC portfolio? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  },
+  'amc:upload_credentials': {
+    title: 'Stuck uploading AMC credentials?',
+    body: 'Are you having trouble uploading your AMC credentials? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  },
+  'amc:waiting_verification': {
+    title: 'Waiting on AMC verification?',
+    body: 'Still waiting on AMC to verify your credentials? We can help chase this up — submit a ticket or message Hazel via WhatsApp.'
+  },
+  'amc': {
+    title: 'Need help with AMC?',
+    body: 'Are you having trouble with your AMC step? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  },
+  '_default': {
+    title: 'Need a hand with your current step?',
+    body: 'Are you having trouble with your current step? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+  }
+};
+
+function resolveNudgeTemplate(stage, substage) {
+  const key = stage && substage ? (stage + ':' + substage) : null;
+  if (key && NUDGE_TEMPLATES[key]) return NUDGE_TEMPLATES[key];
+  if (stage && NUDGE_TEMPLATES[stage]) return NUDGE_TEMPLATES[stage];
+  return NUDGE_TEMPLATES._default;
+}
+
+function buildWhatsAppLink(stageLabel, gpFirstName) {
+  const nameBit = gpFirstName ? (', I\'m ' + gpFirstName) : '';
+  const stageBit = stageLabel ? (' on the ' + stageLabel + ' step') : '';
+  const msg = 'Hi Hazel' + nameBit + '.' + stageBit + ' I need some help with my GP Link application.';
+  const digits = HAZEL_WHATSAPP_NUMBER.replace(/[^\d]/g, '');
+  return 'https://wa.me/' + digits + '?text=' + encodeURIComponent(msg);
+}
+
+// Dual-write a ticket into the new support_tickets table from the legacy
+// gpLinkSupportCases JSON shape. Idempotent on (user_id, source_ticket_id).
+async function upsertSupportTicketFromLegacy(userId, caseId, legacyTicket, stage, substage) {
+  if (!isSupabaseDbConfigured() || !userId || !legacyTicket || !legacyTicket.id) return null;
+  const body = [{
+    user_id: userId,
+    case_id: caseId || null,
+    source_ticket_id: String(legacyTicket.id),
+    case_code: legacyTicket.caseCode || null,
+    title: String(legacyTicket.title || 'Support request').slice(0, 200),
+    body: Array.isArray(legacyTicket.thread) && legacyTicket.thread[0] && legacyTicket.thread[0].text
+      ? String(legacyTicket.thread[0].text).slice(0, 5000) : null,
+    category: ['EPIC','AMC','Documents','AHPRA','Provider','Contract','Qualification','Other'].includes(legacyTicket.category) ? legacyTicket.category : 'Other',
+    stage: stage || null,
+    substage: substage || null,
+    priority: ['urgent','high','normal','low','blocked','time_sensitive'].includes(legacyTicket.priority) ? legacyTicket.priority : 'normal',
+    status: legacyTicket.status === 'closed' ? 'closed' : 'open',
+    thread_json: Array.isArray(legacyTicket.thread) ? legacyTicket.thread : [],
+    created_at: legacyTicket.createdAt || new Date().toISOString(),
+    updated_at: legacyTicket.updatedAt || new Date().toISOString()
+  }];
+  const r = await supabaseDbRequest('support_tickets', 'on_conflict=user_id,source_ticket_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: body
+  });
+  return r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+}
+
+// Required qualifications per country → used by the VA dashboard to show
+// "Approved by AI" vs "VA needs to submit" for a given GP.
+const VA_REQUIRED_QUALS_BY_COUNTRY = {
+  GB: [
+    { key: 'primary_medical_degree', label: 'Primary Medical Degree' },
+    { key: 'mrcgp_certified', label: 'MRCGP Certificate' },
+    { key: 'cct_certified', label: 'CCT Certificate' }
+  ],
+  IE: [
+    { key: 'primary_medical_degree', label: 'Primary Medical Degree' },
+    { key: 'micgp_certified', label: 'MICGP Certificate' },
+    { key: 'cscst_certified', label: 'CSCST Certificate' }
+  ],
+  NZ: [
+    { key: 'primary_medical_degree', label: 'Primary Medical Degree' },
+    { key: 'frnzcgp_certified', label: 'FRNZCGP Certificate' }
+  ]
+};
+
+async function getUserQualificationSnapshot(userId, country) {
+  if (!isSupabaseDbConfigured() || !userId) return { country: country || null, required: [], approved: [], uploaded_unverified: [], missing: [] };
+  const countryCode = (country || 'GB').toUpperCase();
+  const required = VA_REQUIRED_QUALS_BY_COUNTRY[countryCode] || VA_REQUIRED_QUALS_BY_COUNTRY.GB;
+  const docsRes = await supabaseDbRequest(
+    'user_documents',
+    'select=document_key,status,file_name,updated_at,storage_path&user_id=eq.' + encodeURIComponent(userId) + '&country_code=eq.' + encodeURIComponent(countryCode)
+  );
+  const docs = docsRes.ok && Array.isArray(docsRes.data) ? docsRes.data : [];
+  const docByKey = {};
+  docs.forEach(function (d) { if (d && d.document_key) docByKey[d.document_key] = d; });
+  const approved = [];
+  const uploaded_unverified = [];
+  const missing = [];
+  for (const r of required) {
+    const d = docByKey[r.key];
+    if (!d) { missing.push(r); continue; }
+    if (d.status === 'verified' || d.status === 'approved') {
+      approved.push(Object.assign({}, r, {
+        file_name: d.file_name,
+        updated_at: d.updated_at,
+        download_url: '/api/onboarding-documents/download?country=' + encodeURIComponent(countryCode) + '&key=' + encodeURIComponent(r.key)
+      }));
+    } else {
+      uploaded_unverified.push(Object.assign({}, r, { file_name: d.file_name, status: d.status, updated_at: d.updated_at }));
+    }
+  }
+  return { country: countryCode, required: required, approved: approved, uploaded_unverified: uploaded_unverified, missing: missing };
+}
+
 async function processRegistrationTaskAutomation(userId, email, prevState, nextState) {
   if (!isSupabaseDbConfigured()) return;
   try {
@@ -3377,9 +3522,15 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // ── New support tickets ──
     const prevTids = new Set(Array.isArray(prev.tickets) ? prev.tickets.map(function (t) { return t && t.id; }).filter(Boolean) : []);
     if (Array.isArray(nxt.tickets)) {
+      const derivedStage = _deriveStageFromState(nextState);
       for (const ticket of nxt.tickets) {
         if (ticket && ticket.id && !prevTids.has(ticket.id) && ticket.status !== 'closed') {
-          await _createRegTask(caseId, { task_type: 'blocker', title: 'Support ticket: ' + (ticket.title || 'New request'), priority: ticket.priority === 'urgent' ? 'urgent' : 'high', source_trigger: 'ticket_created', related_stage: _deriveStageFromState(nextState), related_ticket_id: ticket.id, _actor: 'system' });
+          await _createRegTask(caseId, { task_type: 'blocker', title: 'Support ticket: ' + (ticket.title || 'New request'), priority: ticket.priority === 'urgent' ? 'urgent' : 'high', source_trigger: 'ticket_created', related_stage: derivedStage, related_ticket_id: ticket.id, _actor: 'system' });
+        }
+        // Dual-write (idempotent) into support_tickets so VA dashboard + closed tab work against a real table
+        if (ticket && ticket.id) {
+          try { await upsertSupportTicketFromLegacy(userId, caseId, ticket, derivedStage, null); }
+          catch (e) { console.error('[SupportTickets] dual-write error:', e && e.message); }
         }
       }
     }
@@ -15506,6 +15657,366 @@ Return ONLY valid JSON with no markdown formatting:
     }
     invalidateAdminDashboardCache();
     sendJson(res, 200, { ok: true, synced: states.length, created: created, updated: updated, skipped: skipped });
+    return;
+  }
+
+  // ══════ VA Dashboard (rebuild) — aggregated endpoints ══════
+
+  // ── Aggregated dashboard payload (one call for the new UI) ──
+  if (pathname === '/api/admin/va/dashboard' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const [casesRes, tasksRes, ticketsRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)&order=priority.asc,created_at.asc&limit=500'),
+      supabaseDbRequest('support_tickets', 'select=*&status=neq.closed&order=created_at.asc&limit=500')
+    ]);
+    const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
+    const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    const openTickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
+
+    const userIds = [...new Set(cases.map(function (c) { return c.user_id; }).filter(Boolean))];
+    let profileMap = {};
+    let stateMap = {};
+    if (userIds.length > 0) {
+      const [pRes, sRes] = await Promise.all([
+        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,country_of_qualification,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
+        supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')')
+      ]);
+      if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
+      if (sRes.ok && Array.isArray(sRes.data)) sRes.data.forEach(function (s) { stateMap[s.user_id] = (s && typeof s.state === 'object') ? s.state : {}; });
+    }
+
+    // Task/ticket counts per case
+    const taskCountsByCase = {};
+    tasks.forEach(function (t) {
+      if (!taskCountsByCase[t.case_id]) taskCountsByCase[t.case_id] = { open: 0, urgent: 0, overdue: 0 };
+      taskCountsByCase[t.case_id].open++;
+      if (t.priority === 'urgent') taskCountsByCase[t.case_id].urgent++;
+      if (t.due_date && new Date(t.due_date) < new Date()) taskCountsByCase[t.case_id].overdue++;
+    });
+    const ticketCountsByUser = {};
+    openTickets.forEach(function (tk) { ticketCountsByUser[tk.user_id] = (ticketCountsByUser[tk.user_id] || 0) + 1; });
+
+    // Enriched users list with quick qual snapshot (required + approved counts only, not full lists)
+    const users = [];
+    for (const c of cases) {
+      const p = profileMap[c.user_id] || {};
+      const st = stateMap[c.user_id] || {};
+      const countryRaw = (p.country_of_qualification || st.gp_selected_country || st.gp_onboarding && st.gp_onboarding.country || 'GB').toString().toUpperCase();
+      // Map common name → code
+      const countryCode = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[countryRaw] || (['GB','IE','NZ'].includes(countryRaw) ? countryRaw : 'GB');
+      const qualSnap = await getUserQualificationSnapshot(c.user_id, countryCode);
+      const tc = taskCountsByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
+      users.push({
+        case_id: c.id,
+        user_id: c.user_id,
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
+        gp_first_name: p.first_name || '',
+        gp_email: p.email || '',
+        gp_phone: p.phone_number || '',
+        country: countryCode,
+        stage: c.stage,
+        substage: c.substage,
+        status: c.status,
+        blocker_status: c.blocker_status,
+        created_at: c.created_at,
+        last_gp_activity_at: c.last_gp_activity_at,
+        last_va_action_at: c.last_va_action_at,
+        open_tasks: tc.open,
+        urgent_tasks: tc.urgent,
+        overdue_tasks: tc.overdue,
+        open_tickets: ticketCountsByUser[c.user_id] || 0,
+        quals_required: qualSnap.required.length,
+        quals_approved: qualSnap.approved.length,
+        quals_missing: qualSnap.missing.length,
+        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '')
+      });
+    }
+
+    // Enriched today's tasks (case + GP info joined)
+    const caseMap = {};
+    cases.forEach(function (c) { caseMap[c.id] = c; });
+    const enrichedTasks = tasks.map(function (t) {
+      const c = caseMap[t.case_id] || {};
+      const p = profileMap[c.user_id] || {};
+      return Object.assign({}, t, {
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_first_name: p.first_name || '',
+        gp_email: p.email || '',
+        gp_user_id: c.user_id || null,
+        case_stage: c.stage || '',
+        case_substage: c.substage || '',
+        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '')
+      });
+    });
+
+    // Enriched open tickets
+    const enrichedTickets = openTickets.map(function (tk) {
+      const p = profileMap[tk.user_id] || {};
+      return Object.assign({}, tk, {
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_first_name: p.first_name || '',
+        gp_email: p.email || '',
+        whatsapp_link: buildWhatsAppLink(tk.stage, p.first_name || '')
+      });
+    });
+
+    const urgentCount = enrichedTasks.filter(function (t) { return t.priority === 'urgent'; }).length;
+    const overdueCount = enrichedTasks.filter(function (t) { return t.due_date && new Date(t.due_date) < new Date(); }).length;
+
+    sendJson(res, 200, {
+      ok: true,
+      metrics: {
+        total_gps: users.length,
+        urgent: urgentCount,
+        overdue: overdueCount,
+        open_tasks: enrichedTasks.length,
+        open_tickets: enrichedTickets.length
+      },
+      users: users,
+      todays_tasks: enrichedTasks,
+      open_tickets: enrichedTickets,
+      whatsapp_number: HAZEL_WHATSAPP_NUMBER
+    });
+    return;
+  }
+
+  // ── List tickets (for VA Tickets tab) with status filter ──
+  if (pathname === '/api/admin/va/tickets' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const statusParam = (url.searchParams.get('status') || 'open').toLowerCase();
+    const query = statusParam === 'closed'
+      ? 'select=*&status=eq.closed&order=resolved_at.desc.nullslast,updated_at.desc&limit=500'
+      : 'select=*&status=neq.closed&order=created_at.asc&limit=500';
+    const tRes = await supabaseDbRequest('support_tickets', query);
+    const tickets = tRes.ok && Array.isArray(tRes.data) ? tRes.data : [];
+    const userIds = [...new Set(tickets.map(function (t) { return t.user_id; }).filter(Boolean))];
+    let profileMap = {};
+    if (userIds.length > 0) {
+      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
+    }
+    const enriched = tickets.map(function (t) {
+      const p = profileMap[t.user_id] || {};
+      return Object.assign({}, t, {
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_email: p.email || '',
+        whatsapp_link: buildWhatsAppLink(t.stage, p.first_name || '')
+      });
+    });
+    sendJson(res, 200, { ok: true, tickets: enriched });
+    return;
+  }
+
+  // ── Update a ticket (close/reopen) ──
+  const vaTicketMatch = pathname.match(/^\/api\/admin\/va\/ticket\/([^/]+)$/);
+  if (vaTicketMatch && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const ticketId = decodeURIComponent(vaTicketMatch[1] || '');
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const nextStatus = body && body.status === 'closed' ? 'closed' : body && body.status === 'open' ? 'open' : null;
+    if (!nextStatus) { sendJson(res, 400, { ok: false, message: 'status must be open or closed.' }); return; }
+    const patch = { status: nextStatus, updated_at: new Date().toISOString() };
+    if (nextStatus === 'closed') { patch.resolved_at = new Date().toISOString(); patch.resolved_by = adminCtx.email; }
+    else { patch.resolved_at = null; patch.resolved_by = null; }
+    const r = await supabaseDbRequest('support_tickets', 'id=eq.' + encodeURIComponent(ticketId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+    if (!updated) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
+    // Also mirror to the legacy user-state JSON so /api/support/tickets stays consistent
+    try {
+      const pRes = await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(updated.user_id) + '&limit=1');
+      const gpEmail = pRes.ok && Array.isArray(pRes.data) && pRes.data[0] ? pRes.data[0].email : null;
+      if (gpEmail && updated.source_ticket_id) {
+        const remote = await getSupabaseUserStateByEmail(gpEmail);
+        const st = remote && remote.state ? remote.state : {};
+        const parsed = parseJsonLike(st.gpLinkSupportCases);
+        const cases = Array.isArray(parsed) ? parsed : [];
+        const idx = cases.findIndex(function (c) { return c && String(c.id || '') === updated.source_ticket_id; });
+        if (idx >= 0) {
+          cases[idx].status = nextStatus;
+          cases[idx].updatedAt = patch.updated_at;
+          const nextState = Object.assign({}, st, { gpLinkSupportCases: JSON.stringify(cases), updatedAt: patch.updated_at });
+          await upsertSupabaseUserState(remote ? (remote.userId || null) : null, nextState, patch.updated_at);
+        }
+      }
+    } catch (e) { console.error('[VA ticket] legacy mirror error:', e && e.message); }
+    // Mirror blocker task status
+    if (updated.source_ticket_id) {
+      try {
+        const tkRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id&related_ticket_id=eq.' + encodeURIComponent(updated.source_ticket_id) + '&task_type=eq.blocker&limit=1');
+        if (tkRes.ok && Array.isArray(tkRes.data) && tkRes.data[0]) {
+          const rt = tkRes.data[0];
+          if (nextStatus === 'closed') {
+            await _completeRegTask(rt.id, rt.case_id, adminCtx.email);
+          } else {
+            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rt.id), { method: 'PATCH', body: { status: 'open', completed_at: null, completed_by: null } });
+          }
+        }
+      } catch (e) { console.error('[VA ticket] task mirror error:', e && e.message); }
+    }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, ticket: updated });
+    return;
+  }
+
+  // ── Send a nudge to a GP ──
+  if (pathname === '/api/admin/va/nudge' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const targetUserId = body && body.user_id;
+    if (!targetUserId) { sendJson(res, 400, { ok: false, message: 'user_id required.' }); return; }
+    // Resolve case for stage context
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(targetUserId) + '&limit=1');
+    const regCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+    const stage = (body && body.stage) || (regCase && regCase.stage) || null;
+    const substage = (body && body.substage) || (regCase && regCase.substage) || null;
+    const tpl = resolveNudgeTemplate(stage, substage);
+    const title = sanitizeUserString(body && body.title, 200) || tpl.title;
+    const message = sanitizeUserString(body && body.message, 1200) || tpl.body;
+    const pRes = await supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(targetUserId) + '&limit=1');
+    const firstName = pRes.ok && Array.isArray(pRes.data) && pRes.data[0] ? pRes.data[0].first_name : '';
+    const whatsappLink = buildWhatsAppLink(stage, firstName);
+
+    const insertRes = await supabaseDbRequest('user_nudges', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [{
+        user_id: targetUserId,
+        case_id: regCase ? regCase.id : null,
+        stage: stage,
+        substage: substage,
+        title: title,
+        message: message,
+        whatsapp_number: HAZEL_WHATSAPP_NUMBER,
+        delivered_channels: ['in_app'],
+        status: 'pending',
+        created_by: adminCtx.email
+      }]
+    });
+    const nudge = insertRes.ok && Array.isArray(insertRes.data) && insertRes.data[0] ? insertRes.data[0] : null;
+    if (!nudge) { sendJson(res, 502, { ok: false, message: 'Failed to create nudge.' }); return; }
+    // Log to case timeline
+    if (regCase) {
+      await _logCaseEvent(regCase.id, null, 'note', 'Nudge sent', title + ' — ' + message, adminCtx.email);
+      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(regCase.id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+    }
+    sendJson(res, 200, { ok: true, nudge: nudge, whatsapp_link: whatsappLink });
+    return;
+  }
+
+  // ── Per-user qualification snapshot (VA detail panel) ──
+  if (pathname === '/api/admin/va/user-qualifications' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const userId = url.searchParams.get('user_id');
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'user_id required.' }); return; }
+    const pRes = await supabaseDbRequest('user_profiles', 'select=country_of_qualification&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const sRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    let country = 'GB';
+    if (pRes.ok && Array.isArray(pRes.data) && pRes.data[0] && pRes.data[0].country_of_qualification) country = String(pRes.data[0].country_of_qualification).toUpperCase();
+    else if (sRes.ok && Array.isArray(sRes.data) && sRes.data[0]) {
+      const st = sRes.data[0].state || {};
+      const raw = (st.gp_selected_country || (st.gp_onboarding && st.gp_onboarding.country) || 'GB').toString().toUpperCase();
+      country = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[raw] || (['GB','IE','NZ'].includes(raw) ? raw : 'GB');
+    }
+    const snap = await getUserQualificationSnapshot(userId, country);
+    sendJson(res, 200, { ok: true, snapshot: snap });
+    return;
+  }
+
+  // ── Weekly check-in sweep (create chase tasks for stalled GPs) ──
+  if (pathname === '/api/admin/va/weekly-checkin/sweep' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const now = new Date();
+    const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Only in-scope stages for this run: myintealth + amc. Active or blocked cases only.
+    const casesRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,stage,substage,status,created_at,last_gp_activity_at' +
+      '&stage=in.(myintealth,amc)&status=in.(active,blocked)' +
+      '&created_at=lte.' + encodeURIComponent(twoWeeksAgo));
+    const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
+
+    let created = 0, skipped = 0;
+    for (const c of cases) {
+      const lastActivity = c.last_gp_activity_at || c.created_at;
+      if (!lastActivity || lastActivity > twoWeeksAgo) { skipped++; continue; }
+      // Skip if a weekly check-in task was already created in the last 7 days
+      const existingRes = await supabaseDbRequest('registration_tasks',
+        'select=id,created_at&case_id=eq.' + encodeURIComponent(c.id) +
+        '&task_type=eq.chase&source_trigger=eq.weekly_checkin&created_at=gte.' + encodeURIComponent(sevenDaysAgo) + '&limit=1');
+      if (existingRes.ok && Array.isArray(existingRes.data) && existingRes.data.length > 0) { skipped++; continue; }
+      await _createRegTask(c.id, {
+        task_type: 'chase',
+        title: 'Weekly check-in — GP stalled ≥14 days on ' + c.stage,
+        description: 'GP has not progressed in ≥14 days. Reach out via WhatsApp or send an in-app nudge.',
+        priority: 'high',
+        source_trigger: 'weekly_checkin',
+        related_stage: c.stage,
+        related_substage: c.substage || null,
+        _actor: 'system'
+      });
+      created++;
+    }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, scanned: cases.length, created: created, skipped: skipped });
+    return;
+  }
+
+  // ══════ User-facing nudge endpoints ══════
+
+  // ── List my nudges (unread first) ──
+  if (pathname === '/api/user/nudges' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, nudges: [] }); return; }
+    const email = getSessionEmail(session);
+    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    if (!userId) { sendJson(res, 200, { ok: true, nudges: [] }); return; }
+    const r = await supabaseDbRequest('user_nudges',
+      'select=*&user_id=eq.' + encodeURIComponent(userId) + '&status=in.(pending,delivered)&order=created_at.desc&limit=50');
+    const nudges = r.ok && Array.isArray(r.data) ? r.data : [];
+    // Mark as delivered on first fetch (pending → delivered)
+    const pendingIds = nudges.filter(function (n) { return n.status === 'pending'; }).map(function (n) { return n.id; });
+    if (pendingIds.length > 0) {
+      await supabaseDbRequest('user_nudges', 'id=in.(' + pendingIds.map(encodeURIComponent).join(',') + ')',
+        { method: 'PATCH', body: { status: 'delivered', delivered_at: new Date().toISOString() } });
+    }
+    sendJson(res, 200, { ok: true, nudges: nudges, whatsapp_number: HAZEL_WHATSAPP_NUMBER });
+    return;
+  }
+
+  // ── Mark nudge read/dismissed ──
+  const nudgeReadMatch = pathname.match(/^\/api\/user\/nudges\/([^/]+)\/(read|dismiss)$/);
+  if (nudgeReadMatch && req.method === 'PUT') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true }); return; }
+    const email = getSessionEmail(session);
+    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    if (!userId) { sendJson(res, 400, { ok: false }); return; }
+    const nudgeId = decodeURIComponent(nudgeReadMatch[1] || '');
+    const nextStatus = nudgeReadMatch[2] === 'dismiss' ? 'dismissed' : 'read';
+    const patch = { status: nextStatus };
+    if (nextStatus === 'read') patch.read_at = new Date().toISOString();
+    const r = await supabaseDbRequest('user_nudges',
+      'id=eq.' + encodeURIComponent(nudgeId) + '&user_id=eq.' + encodeURIComponent(userId),
+      { method: 'PATCH', body: patch });
+    sendJson(res, r.ok ? 200 : 502, { ok: !!r.ok });
     return;
   }
 

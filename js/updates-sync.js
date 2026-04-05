@@ -2,6 +2,7 @@
   const UPDATES_KEY = "gp_link_updates";
   const READ_KEY = "gp_link_updates_read";
   const SUPPORT_CASES_KEY = "gpLinkSupportCases";
+  const NUDGES_SEEN_KEY = "gp_link_nudges_seen";
   const PANEL_ID = "gp-alert-center";
   const PANEL_STYLE_ID = "gp-alert-center-style";
 
@@ -406,9 +407,67 @@
     refreshInboxBadges();
   }
 
+  // ── Server nudges (VA → user) ──
+  // Fetches /api/user/nudges and merges any new nudges into the local
+  // gp_link_updates list as "action" items so they surface in the bell panel.
+  function loadSeenNudgeIds() {
+    const raw = safeGetItem(NUDGES_SEEN_KEY);
+    if (!raw) return {};
+    try { const p = JSON.parse(raw); return (p && typeof p === "object") ? p : {}; } catch { return {}; }
+  }
+  function saveSeenNudgeIds(map) {
+    try { safeSetItem(NUDGES_SEEN_KEY, JSON.stringify(map || {})); } catch {}
+  }
+  let nudgePullInFlight = false;
+  async function pullServerNudges() {
+    if (nudgePullInFlight) return false;
+    nudgePullInFlight = true;
+    try {
+      const res = await fetch("/api/user/nudges", { credentials: "same-origin" });
+      if (!res || !res.ok) return false;
+      const data = await res.json().catch(() => null);
+      if (!data || !data.ok || !Array.isArray(data.nudges)) return false;
+      const waNumber = (data.whatsapp_number || "+61494391968").replace(/[^\d+]/g, "");
+      const seen = loadSeenNudgeIds();
+      const updates = sanitizeUpdates(getGpLinkUpdates());
+      let changed = false;
+      data.nudges.forEach((n) => {
+        if (!n || !n.id || seen[n.id]) return;
+        const title = typeof n.title === "string" && n.title.trim() ? n.title.trim() : "Check-in from Hazel";
+        const msg = typeof n.message === "string" && n.message.trim() ? n.message.trim() : "Are you having trouble with your current step? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.";
+        const ts = typeof n.created_at === "string" ? n.created_at : new Date().toISOString();
+        updates.unshift({ type: "action", title: title, detail: msg, ts: ts });
+        seen[n.id] = ts;
+        changed = true;
+      });
+      if (changed) {
+        saveGpLinkUpdates(updates);
+        saveSeenNudgeIds(seen);
+        refreshInboxBadges();
+        // If the panel is open, re-render to show new nudges
+        const root = document.getElementById(PANEL_ID);
+        if (root && root.classList.contains("show")) renderPanel();
+      }
+      // Fire-and-forget: mark each seen nudge as read so server stops returning it
+      Object.keys(seen).forEach((id) => {
+        try {
+          fetch("/api/user/nudges/" + encodeURIComponent(id) + "/read", { method: "PUT", credentials: "same-origin" })
+            .catch(() => {});
+        } catch {}
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      nudgePullInFlight = false;
+    }
+  }
+
   function openPanel(triggerEl) {
     const root = ensurePanelRoot();
     renderPanel();
+    // Fire nudge pull when the user opens the bell — non-blocking, re-renders on new data
+    pullServerNudges();
     // Clear any stale inline styles so CSS classes control positioning
     root.style.transform = "";
     root.style.left = "";
@@ -509,15 +568,30 @@
   window.openGpAlertPanel = openPanel;
   window.closeGpAlertPanel = closePanel;
 
+  function bootstrapNudgePolling() {
+    // Initial pull shortly after load, then every 3 minutes while the tab is visible
+    setTimeout(() => { pullServerNudges(); }, 1500);
+    setInterval(() => {
+      if (document.visibilityState === "visible") pullServerNudges();
+    }, 180000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") pullServerNudges();
+    });
+  }
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
       refreshInboxBadges();
       installAlertTriggers();
+      bootstrapNudgePolling();
     });
   } else {
     refreshInboxBadges();
     installAlertTriggers();
+    bootstrapNudgePolling();
   }
+
+  window.gpLinkPullServerNudges = pullServerNudges;
 
   window.addEventListener("storage", (event) => {
     if (event.key === UPDATES_KEY || event.key === SUPPORT_CASES_KEY || event.key === READ_KEY) {

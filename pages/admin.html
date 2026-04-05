@@ -275,6 +275,69 @@
     @media(max-width:900px){
       .agent-grid,.agent-grid-3{grid-template-columns:1fr}
     }
+    /* ══ VA Dashboard rebuild — Today, Tickets, Quals, WhatsApp, Nudges ══ */
+    .today-wrap{padding:16px;overflow:auto;height:100%}
+    .today-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap}
+    .today-header h2{font-size:18px;font-weight:800;margin:0}
+    .today-header p{margin:2px 0 0;font-size:12px;color:var(--muted)}
+    .today-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+    .today-metric{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;box-shadow:var(--shadow)}
+    .today-metric-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+    .today-metric-value{font-size:22px;font-weight:800;margin-top:2px}
+    .today-metric.urgent .today-metric-value{color:var(--red)}
+    .today-metric.overdue .today-metric-value{color:var(--amber)}
+    .today-group-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 8px;display:flex;align-items:center;gap:6px}
+    .today-group-title .count{background:#f1f5f9;color:var(--text);padding:2px 8px;border-radius:8px;font-size:11px}
+    .today-group-title .count.red{background:#fee2e2;color:var(--red)}
+    .today-group-title .count.amber{background:#fef3c7;color:var(--amber)}
+    .today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+    .todo-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;box-shadow:var(--shadow);cursor:pointer;transition:all .12s;display:flex;flex-direction:column;gap:8px}
+    .todo-card:hover{border-color:var(--blue);transform:translateY(-1px);box-shadow:0 4px 12px rgba(15,23,42,.08)}
+    .todo-card.urgent{border-left:4px solid var(--red)}
+    .todo-card.high{border-left:4px solid var(--amber)}
+    .todo-card.normal{border-left:4px solid var(--blue)}
+    .todo-card.overdue{background:#fef2f2}
+    .todo-card-top{display:flex;align-items:center;gap:8px}
+    .todo-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--purple-1),var(--purple-2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0}
+    .todo-gp{font-size:13px;font-weight:800;line-height:1.2;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .todo-stage{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 6px;border-radius:6px;background:#eef2ff;color:var(--purple-2)}
+    .todo-title{font-size:13px;line-height:1.35;font-weight:600}
+    .todo-detail{font-size:11px;color:var(--muted);line-height:1.4}
+    .todo-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+    .todo-actions .btn{flex:1;min-width:fit-content}
+    .btn.wa{background:#25d366;color:#fff;border-color:#25d366}
+    .btn.wa:hover{background:#20b958;border-color:#20b958}
+    .btn.nudge{background:var(--purple-2);color:#fff;border-color:var(--purple-2)}
+    .btn.nudge:hover{background:var(--purple-1);border-color:var(--purple-1)}
+    .qual-section{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    @media(max-width:900px){.qual-section{grid-template-columns:1fr}}
+    .qual-box{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px}
+    .qual-box h4{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 6px}
+    .qual-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;font-size:11px;font-weight:700;margin:2px 4px 2px 0}
+    .qual-chip.approved{background:#dcfce7;color:#166534}
+    .qual-chip.pending{background:#fef3c7;color:#92400e}
+    .qual-chip.missing{background:#fee2e2;color:#991b1b}
+    .qual-chip .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+    .tickets-wrap{padding:16px;overflow:auto;height:100%}
+    .tickets-subtabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+    .tickets-subtab{padding:8px 14px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+    .tickets-subtab.active{color:var(--blue);border-bottom-color:var(--blue)}
+    .ticket-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:8px;box-shadow:var(--shadow)}
+    .ticket-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px}
+    .ticket-card-gp{font-size:13px;font-weight:800}
+    .ticket-card-title{font-size:13px;margin:4px 0;font-weight:600}
+    .ticket-card-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+    .ticket-card-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+    .priority-pill{padding:2px 8px;border-radius:8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
+    .priority-pill.urgent{background:#fee2e2;color:var(--red)}
+    .priority-pill.high{background:#fef3c7;color:var(--amber)}
+    .priority-pill.normal{background:#dbeafe;color:var(--blue)}
+    .priority-pill.low{background:#f1f5f9;color:var(--muted)}
+    .nudge-modal-body{display:flex;flex-direction:column;gap:10px}
+    .nudge-modal-body label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+    .nudge-modal-body input,.nudge-modal-body textarea,.nudge-modal-body select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit}
+    .nudge-modal-body textarea{resize:vertical;min-height:80px}
+    .va-actions-bar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}
   </style>
 </head>
 <body>
@@ -293,7 +356,9 @@
     <div class="list-panel">
       <div class="list-header"><input class="search-input" id="searchInput" placeholder="Search GPs..." /></div>
       <div class="view-tabs">
-        <div class="view-tab active" data-view="cases">Cases</div>
+        <div class="view-tab active" data-view="today">Today</div>
+        <div class="view-tab" data-view="cases">Users</div>
+        <div class="view-tab" data-view="tickets">Tickets</div>
         <div class="view-tab" data-view="queue">Work Queue</div>
         <div class="view-tab" data-view="ops">Ops Queue</div>
         <div class="view-tab" data-view="agent" id="agentTab" style="display:none">Agent</div>
@@ -307,6 +372,8 @@
       </div>
     </div>
   </div>
+  <div class="today-wrap" id="todayPanel" style="display:none"></div>
+  <div class="tickets-wrap" id="ticketsPanel" style="display:none"></div>
   <div class="ops-panel" id="opsPanel">
     <div class="ops-stats" id="opsStats"></div>
     <div class="ops-filters" id="opsFilters">
@@ -368,8 +435,9 @@
 (function(){
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
-    selectedCaseId:null,view:"cases",filter:"all",query:"",expanded:{},refreshTimer:null,
+    selectedCaseId:null,view:"today",filter:"all",query:"",expanded:{},refreshTimer:null,
     opsTasks:[],opsExpandedId:null,opsLoading:false,
+    va:{dashboard:null,tickets:[],ticketsView:"open",selectedQuals:null,loading:false},
     agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
       draftTask:"",profile:"balanced",collaborationMode:"paired",complexity:"auto",loading:false,submitting:false,
       warnings:[],security:null,providerStatusRefreshedAt:"",error:"",
@@ -532,11 +600,13 @@
   async function loadAll(force){
     if(S.loading&&!force)return;
     S.loading=true;
-    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs()];
+    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard()];
     if(isSA())jobs.push(loadAgentStatus(force));
     await Promise.all(jobs);
     S.loading=false;
     renderAll();
+    if(S.view==="today"){vaShowPanel("today");renderTodayPanel();}
+    else if(S.view==="tickets"){vaShowPanel("tickets");await loadVaTickets();renderTicketsPanel();}
     if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
   }
   async function syncCases(){try{await fetch("/api/admin/cases/sync",{method:"POST",credentials:"same-origin"});await loadAll(true);}catch{}}
@@ -751,6 +821,19 @@
     </div>
     <div class="d-progress"><div class="d-progress-bar"><span style="width:${progress}%"></span></div><span class="d-progress-label">${progress}%</span></div></div>`;
 
+    // VA action bar: WhatsApp + Send Nudge (new)
+    if(rc&&rc.user_id){
+      const firstName=(name||"").split(" ")[0]||"";
+      const waDigits=(S.va.dashboard&&S.va.dashboard.whatsapp_number||"+61494391968").replace(/[^\d]/g,"");
+      const waMsg=encodeURIComponent(`Hi Hazel, I'm ${firstName} on the ${rc.stage||"registration"} step. I need some help with my GP Link application.`);
+      h+=`<div class="va-actions-bar">
+        <a class="btn wa" href="https://wa.me/${waDigits}?text=${waMsg}" target="_blank" rel="noopener">WhatsApp ${esc(firstName)}</a>
+        <button class="btn nudge" data-case-nudge="${esc(rc.user_id)}" data-nudge-stage="${esc(rc.stage||"")}" data-nudge-substage="${esc(rc.substage||"")}" data-nudge-name="${esc(firstName)}">Send Nudge</button>
+      </div>`;
+      // Qualification snapshot placeholder — filled async by loadCaseQualifications
+      h+=`<div class="section"><div class="section-title">Qualifications</div><div id="caseQualSection"><div class="empty">Loading qualifications…</div></div></div>`;
+    }
+
     // Next Action
     if(openTasks.length){
       const t=openTasks.sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);})[0];
@@ -845,6 +928,34 @@
 
     // Load timeline
     if(rc&&rc.id){loadTimeline(rc.id);}
+    // Load qualifications snapshot for the case detail panel
+    if(rc&&rc.user_id){loadCaseQualifications(rc.user_id);}
+  }
+
+  async function loadCaseQualifications(userId){
+    const el=document.getElementById("caseQualSection");if(!el)return;
+    try{
+      const r=await fetch("/api/admin/va/user-qualifications?user_id="+encodeURIComponent(userId),{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(!d||!d.ok||!d.snapshot){el.innerHTML=`<div class="empty">Unable to load qualifications.</div>`;return;}
+      const snap=d.snapshot;
+      const approved=Array.isArray(snap.approved)?snap.approved:[];
+      const pending=Array.isArray(snap.uploaded_unverified)?snap.uploaded_unverified:[];
+      const missing=Array.isArray(snap.missing)?snap.missing:[];
+      let h=`<div class="qual-section">
+        <div class="qual-box"><h4>✓ Approved by AI (${approved.length})</h4>
+          ${approved.length?approved.map(q=>`<span class="qual-chip approved"><span class="dot"></span>${esc(q.label)} <a href="${esc(q.download_url||"#")}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;margin-left:4px">download</a></span>`).join(""):`<div class="todo-detail">None approved yet.</div>`}
+        </div>
+        <div class="qual-box"><h4>⧗ Uploaded — awaiting AI (${pending.length})</h4>
+          ${pending.length?pending.map(q=>`<span class="qual-chip pending"><span class="dot"></span>${esc(q.label)}</span>`).join(""):`<div class="todo-detail">Nothing awaiting verification.</div>`}
+        </div>
+      </div>
+      <div class="qual-box" style="margin-top:8px"><h4>⚠ VA still to submit (${missing.length})</h4>
+        ${missing.length?missing.map(q=>`<span class="qual-chip missing"><span class="dot"></span>${esc(q.label)}</span>`).join(""):`<div class="todo-detail">All required qualifications accounted for. 🎉</div>`}
+        <div class="todo-detail" style="margin-top:6px">Country: <b>${esc(snap.country||"GB")}</b></div>
+      </div>`;
+      el.innerHTML=h;
+    }catch(err){el.innerHTML=`<div class="empty">Failed to load qualifications.</div>`;}
   }
 
   async function loadTimeline(caseId){
@@ -1494,6 +1605,7 @@
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
       const at=e.target.closest("[data-add-task]");if(at){const rc=S.cases.find(c=>c.id===S.selectedCaseId);if(rc)openAddTaskModal(rc.id);return;}
       const vt=e.target.closest("[data-view-ticket]");if(vt){openTicketModal(vt.getAttribute("data-view-ticket"),vt.getAttribute("data-email")||"");return;}
+      const cn=e.target.closest("[data-case-nudge]");if(cn){openNudgeModal(cn.getAttribute("data-case-nudge"),cn.getAttribute("data-nudge-stage"),cn.getAttribute("data-nudge-substage"),cn.getAttribute("data-nudge-name"));return;}
       const ts=e.target.closest("[data-toggle-step]");if(ts){const k=ts.getAttribute("data-toggle-step");S.expanded[k]=!S.expanded[k];renderDetail();return;}
       const wq=e.target.closest("[data-wq-case]");if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
@@ -1553,6 +1665,276 @@
       if(e.target.id==="agentComplexitySelect"){S.agent.complexity=e.target.value||"auto";refreshAgentStatus(false);return;}
     });
   }
+
+  /* ══════════════════════════════════════════════
+     VA Dashboard rebuild — Today / Users / Tickets
+     ══════════════════════════════════════════════ */
+  async function loadVaDashboard(){
+    try{
+      const r=await fetch("/api/admin/va/dashboard",{credentials:"same-origin"});
+      if(r.status===401){window.location.href="/pages/admin-signin.html";return;}
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){
+        S.va.dashboard=d;
+        S.va.loading=false;
+      }
+    }catch(err){console.error("[VA] loadVaDashboard failed",err);}
+  }
+  async function loadVaTickets(){
+    try{
+      const r=await fetch("/api/admin/va/tickets?status="+encodeURIComponent(S.va.ticketsView),{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok&&Array.isArray(d.tickets))S.va.tickets=d.tickets;
+    }catch(err){console.error("[VA] loadVaTickets failed",err);}
+  }
+
+  function vaShowPanel(which){
+    document.getElementById("mainLayout").style.display="none";
+    document.getElementById("opsPanel").classList.remove("active");
+    document.getElementById("todayPanel").style.display=(which==="today"?"block":"none");
+    document.getElementById("ticketsPanel").style.display=(which==="tickets"?"block":"none");
+  }
+  function vaHidePanels(){
+    document.getElementById("todayPanel").style.display="none";
+    document.getElementById("ticketsPanel").style.display="none";
+    document.getElementById("mainLayout").style.display="grid";
+  }
+
+  function renderTodayPanel(){
+    const el=document.getElementById("todayPanel");if(!el)return;
+    const dash=S.va.dashboard;
+    if(!dash){el.innerHTML=`<div class="empty">Loading today's work…</div>`;return;}
+    const m=dash.metrics||{};
+    const tasks=Array.isArray(dash.todays_tasks)?dash.todays_tasks.slice():[];
+    const tickets=Array.isArray(dash.open_tickets)?dash.open_tickets.slice():[];
+    // Support tickets come FIRST and are FIFO (oldest first) per user spec
+    tickets.sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const urgent=tasks.filter(t=>t.priority==="urgent");
+    const high=tasks.filter(t=>t.priority==="high");
+    const normal=tasks.filter(t=>t.priority==="normal"||t.priority==="low");
+
+    let h=`<div class="today-header">
+      <div><h2>Today's To-Do</h2><p>Every open task across every GP, plus live support tickets — newest cases first, FIFO for tickets.</p></div>
+      <div style="display:flex;gap:6px"><button class="btn" data-va-refresh>Refresh</button><button class="btn" data-va-sweep-weekly>Run Weekly Check-in Sweep</button></div>
+    </div>`;
+    h+=`<div class="today-metrics">
+      <div class="today-metric"><div class="today-metric-label">Total GPs</div><div class="today-metric-value">${m.total_gps||0}</div></div>
+      <div class="today-metric urgent"><div class="today-metric-label">Urgent</div><div class="today-metric-value">${m.urgent||0}</div></div>
+      <div class="today-metric overdue"><div class="today-metric-label">Overdue</div><div class="today-metric-value">${m.overdue||0}</div></div>
+      <div class="today-metric"><div class="today-metric-label">Open Tasks</div><div class="today-metric-value">${m.open_tasks||0}</div></div>
+      <div class="today-metric"><div class="today-metric-label">Open Tickets</div><div class="today-metric-value">${m.open_tickets||0}</div></div>
+    </div>`;
+
+    function ticketCard(tk){
+      return`<div class="todo-card ${esc(tk.priority)||"normal"}" data-todo-ticket="${esc(tk.id)}" data-user-id="${esc(tk.user_id)}">
+        <div class="todo-card-top">
+          <div class="todo-avatar">${esc(ini(tk.gp_name||""))}</div>
+          <div class="todo-gp">${esc(tk.gp_name||"Unknown")}</div>
+          <span class="todo-stage">${esc(tk.stage||"ticket")}</span>
+        </div>
+        <div class="todo-title">🎫 ${esc(tk.title||"Support request")}</div>
+        <div class="todo-detail">${esc(tk.category||"")} • opened ${fmtR(tk.created_at)}</div>
+        <div class="todo-actions">
+          <a class="btn wa" href="${esc(tk.whatsapp_link||"#")}" target="_blank" rel="noopener">WhatsApp</a>
+          <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
+          <button class="btn primary sm" data-close-ticket="${esc(tk.id)}">Resolve</button>
+        </div>
+      </div>`;
+    }
+    function taskCard(t){
+      const overdue=t.due_date&&new Date(t.due_date)<new Date();
+      return`<div class="todo-card ${esc(t.priority||"normal")} ${overdue?"overdue":""}" data-todo-task="${esc(t.id)}" data-todo-case="${esc(t.case_id)}" data-user-id="${esc(t.gp_user_id||"")}">
+        <div class="todo-card-top">
+          <div class="todo-avatar">${esc(ini(t.gp_name||""))}</div>
+          <div class="todo-gp">${esc(t.gp_name||"Unknown")}</div>
+          <span class="todo-stage">${esc(t.case_stage||t.related_stage||"")}</span>
+        </div>
+        <div class="todo-title">${esc(t.title)}</div>
+        <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" • Due "+fmtD(t.due_date):""} ${overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""}</div>
+        <div class="todo-actions">
+          <a class="btn wa" href="${esc(t.whatsapp_link||"#")}" target="_blank" rel="noopener">WhatsApp</a>
+          <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
+          <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
+          <button class="btn sm" data-view-todo-case="${esc(t.case_id)}">Open Case</button>
+        </div>
+      </div>`;
+    }
+
+    if(tickets.length){
+      h+=`<div class="today-group-title">🎫 Support Tickets (FIFO) <span class="count red">${tickets.length}</span></div><div class="today-grid">${tickets.map(ticketCard).join("")}</div>`;
+    }
+    if(urgent.length){
+      h+=`<div class="today-group-title">Urgent <span class="count red">${urgent.length}</span></div><div class="today-grid">${urgent.map(taskCard).join("")}</div>`;
+    }
+    if(high.length){
+      h+=`<div class="today-group-title">High Priority <span class="count amber">${high.length}</span></div><div class="today-grid">${high.map(taskCard).join("")}</div>`;
+    }
+    if(normal.length){
+      h+=`<div class="today-group-title">Normal <span class="count">${normal.length}</span></div><div class="today-grid">${normal.map(taskCard).join("")}</div>`;
+    }
+    if(!tickets.length&&!urgent.length&&!high.length&&!normal.length){
+      h+=`<div class="empty" style="margin-top:20px">All clear — no pending tasks or tickets.</div>`;
+    }
+    el.innerHTML=h;
+  }
+
+  function renderTicketsPanel(){
+    const el=document.getElementById("ticketsPanel");if(!el)return;
+    const list=Array.isArray(S.va.tickets)?S.va.tickets:[];
+    let h=`<div class="today-header"><div><h2>Support Tickets</h2><p>All GP support tickets across the platform. Oldest first.</p></div><div><button class="btn" data-va-refresh-tickets>Refresh</button></div></div>`;
+    h+=`<div class="tickets-subtabs">
+      <div class="tickets-subtab ${S.va.ticketsView==="open"?"active":""}" data-tickets-subtab="open">Open</div>
+      <div class="tickets-subtab ${S.va.ticketsView==="closed"?"active":""}" data-tickets-subtab="closed">Closed</div>
+    </div>`;
+    if(!list.length){h+=`<div class="empty">No ${esc(S.va.ticketsView)} tickets.</div>`;}
+    else{
+      h+=list.map(tk=>`<div class="ticket-card" data-ticket-id="${esc(tk.id)}">
+        <div class="ticket-card-top">
+          <div><div class="ticket-card-gp">${esc(tk.gp_name||"Unknown")} <span class="todo-stage" style="margin-left:6px">${esc(tk.stage||"")}</span></div>
+          <div class="ticket-card-meta"><span>${esc(tk.gp_email||"")}</span><span>${esc(tk.category||"Other")}</span><span>${fmtR(tk.created_at)}</span></div></div>
+          <span class="priority-pill ${esc(tk.priority||"normal")}">${esc(tk.priority||"normal")}</span>
+        </div>
+        <div class="ticket-card-title">${esc(tk.title||"Support request")}</div>
+        ${tk.body?`<div class="todo-detail">${esc(tk.body)}</div>`:""}
+        <div class="ticket-card-actions">
+          <a class="btn wa" href="${esc(tk.whatsapp_link||"#")}" target="_blank" rel="noopener">WhatsApp ${esc(tk.gp_first_name||"")}</a>
+          <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
+          ${tk.status!=="closed"
+            ?`<button class="btn primary sm" data-close-ticket="${esc(tk.id)}">Resolve & Close</button>`
+            :`<button class="btn sm" data-reopen-ticket="${esc(tk.id)}">Reopen</button>`}
+        </div>
+      </div>`).join("");
+    }
+    el.innerHTML=h;
+  }
+
+  async function refreshVaAll(){
+    await loadVaDashboard();
+    if(S.view==="today")renderTodayPanel();
+    if(S.view==="cases"){renderCaseList();renderDetail();}
+  }
+
+  function openNudgeModal(userId,stage,substage,firstName){
+    const title="Send Nudge to "+(firstName||"GP");
+    const body=`<div class="nudge-modal-body">
+      <label>Current Stage</label>
+      <input type="text" id="nudgeStage" value="${esc(stage||"")}" />
+      <label>Substage (optional)</label>
+      <input type="text" id="nudgeSubstage" value="${esc(substage||"")}" />
+      <label>Custom message (leave blank to use stage default)</label>
+      <textarea id="nudgeMessage" placeholder="Auto-generated from stage/substage…"></textarea>
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+        <button class="btn" data-close-modal>Cancel</button>
+        <button class="btn nudge" id="nudgeSendBtn">Send Nudge</button>
+      </div>
+    </div>`;
+    document.getElementById("modalTitle").textContent=title;
+    document.getElementById("modalBody").innerHTML=body;
+    document.getElementById("modalOverlay").style.display="flex";
+    document.getElementById("nudgeSendBtn").onclick=async()=>{
+      const stageV=document.getElementById("nudgeStage").value||null;
+      const substageV=document.getElementById("nudgeSubstage").value||null;
+      const messageV=(document.getElementById("nudgeMessage").value||"").trim()||null;
+      try{
+        const r=await fetch("/api/admin/va/nudge",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,stage:stageV,substage:substageV,message:messageV})});
+        const d=await r.json().catch(()=>({}));
+        if(d&&d.ok){toast("Nudge sent");closeModal();}
+        else{toast((d&&d.message)||"Failed to send nudge","red");}
+      }catch{toast("Network error","red");}
+    };
+  }
+
+  async function closeTicketAction(ticketId,nextStatus){
+    try{
+      const r=await fetch("/api/admin/va/ticket/"+encodeURIComponent(ticketId),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:nextStatus})});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){toast(nextStatus==="closed"?"Ticket resolved":"Ticket reopened");await loadVaDashboard();if(S.view==="tickets"){await loadVaTickets();renderTicketsPanel();}else if(S.view==="today"){renderTodayPanel();}}
+      else toast((d&&d.message)||"Failed","red");
+    }catch{toast("Network error","red");}
+  }
+
+  async function runWeeklyCheckinSweep(){
+    try{
+      const r=await fetch("/api/admin/va/weekly-checkin/sweep",{method:"POST",credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok)toast("Weekly sweep: "+d.created+" new check-in tasks (scanned "+d.scanned+")");
+      else toast("Sweep failed","red");
+      await loadVaDashboard();
+      if(S.view==="today")renderTodayPanel();
+    }catch{toast("Network error","red");}
+  }
+
+  /* Hook view switching for the new tabs */
+  const _origSwitchTabs=document.querySelector(".view-tabs");
+  if(_origSwitchTabs){
+    _origSwitchTabs.addEventListener("click",async e=>{
+      const tab=e.target.closest("[data-view]");if(!tab)return;
+      const view=tab.getAttribute("data-view");
+      if(view==="today"||view==="tickets"){
+        // Consume the event so the legacy handler doesn't run switchFromOps() and re-show mainLayout
+        e.stopPropagation();
+        e.preventDefault();
+        S.view=view;
+        document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t===tab));
+        // Hide ops if it was showing
+        document.getElementById("opsPanel").classList.remove("active");
+        if(view==="today"){
+          vaShowPanel("today");
+          if(!S.va.dashboard){await loadVaDashboard();}
+          renderTodayPanel();
+        }else{
+          vaShowPanel("tickets");
+          await loadVaTickets();
+          renderTicketsPanel();
+        }
+      }else{
+        // Leaving a VA panel → ensure they're hidden so mainLayout/opsPanel can take over
+        vaHidePanels();
+      }
+    },true);
+  }
+
+  /* Delegated click handlers for new UI */
+  document.addEventListener("click",async e=>{
+    const todayPanel=document.getElementById("todayPanel");
+    const ticketsPanel=document.getElementById("ticketsPanel");
+    const inNewPanel=(todayPanel&&todayPanel.contains(e.target))||(ticketsPanel&&ticketsPanel.contains(e.target));
+    if(!inNewPanel&&!e.target.closest(".modal"))return;
+
+    const nudgeBtn=e.target.closest("[data-nudge-user]");
+    if(nudgeBtn){e.preventDefault();e.stopPropagation();openNudgeModal(nudgeBtn.getAttribute("data-nudge-user"),nudgeBtn.getAttribute("data-nudge-stage"),nudgeBtn.getAttribute("data-nudge-substage"),nudgeBtn.getAttribute("data-nudge-name"));return;}
+    const closeTk=e.target.closest("[data-close-ticket]");
+    if(closeTk){e.preventDefault();e.stopPropagation();closeTicketAction(closeTk.getAttribute("data-close-ticket"),"closed");return;}
+    const reopenTk=e.target.closest("[data-reopen-ticket]");
+    if(reopenTk){e.preventDefault();e.stopPropagation();closeTicketAction(reopenTk.getAttribute("data-reopen-ticket"),"open");return;}
+    const completeTodo=e.target.closest("[data-complete-todo-task]");
+    if(completeTodo){e.preventDefault();e.stopPropagation();await completeTask(completeTodo.getAttribute("data-complete-todo-task"));await loadVaDashboard();renderTodayPanel();return;}
+    const viewTodoCase=e.target.closest("[data-view-todo-case]");
+    if(viewTodoCase){e.preventDefault();e.stopPropagation();S.selectedCaseId=viewTodoCase.getAttribute("data-view-todo-case");S.view="cases";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));vaHidePanels();renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
+    const subtab=e.target.closest("[data-tickets-subtab]");
+    if(subtab){e.preventDefault();e.stopPropagation();S.va.ticketsView=subtab.getAttribute("data-tickets-subtab");await loadVaTickets();renderTicketsPanel();return;}
+    const vaRefresh=e.target.closest("[data-va-refresh]");
+    if(vaRefresh){e.preventDefault();e.stopPropagation();await loadVaDashboard();renderTodayPanel();return;}
+    const vaRefreshTk=e.target.closest("[data-va-refresh-tickets]");
+    if(vaRefreshTk){e.preventDefault();e.stopPropagation();await loadVaTickets();renderTicketsPanel();return;}
+    const sweep=e.target.closest("[data-va-sweep-weekly]");
+    if(sweep){e.preventDefault();e.stopPropagation();runWeeklyCheckinSweep();return;}
+  },true);
+
+  /* Init-time auto-load for the default "today" view */
+  (function hookInitialLoad(){
+    const origLoadAll=typeof loadAll==="function"?loadAll:null;
+    window.__gplinkVaLoaded=false;
+    const tick=setInterval(async()=>{
+      if(window.__gplinkVaLoaded)return;
+      if(S.cases&&S.cases.length!==undefined){
+        window.__gplinkVaLoaded=true;
+        clearInterval(tick);
+        await loadVaDashboard();
+        if(S.view==="today"){vaShowPanel("today");renderTodayPanel();}
+      }
+    },300);
+  })();
 
   /* ══ Init ══ */
   bind();
