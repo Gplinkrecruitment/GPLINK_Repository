@@ -173,6 +173,14 @@ When you pass a task, the skill now acts as a wrapper:
 - writes the task into `agents-output/memory/latest-session.md`
 - launches the hybrid orchestrator as the default path for serious prompts
 - returns a compact report preview plus the latest memory/report paths back into Claude
+- detects local absolute file references in the task and ingests them as attachment context before launch
+
+Attachment ingestion behavior:
+
+- text/code files: inline extracted text is appended to the orchestrator task
+- PDFs/RTF docs: Spotlight text extraction is used when available
+- images like PNG/JPG/HEIC: the wrapper runs local OCR on macOS and appends extracted text plus image metadata
+- the wrapper also writes an audit artifact at `agents-output/<run-id>/local-references.md`
 
 The wrapper prefers:
 

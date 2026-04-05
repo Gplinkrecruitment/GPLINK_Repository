@@ -10,6 +10,21 @@ const SKILL_DIR = path.resolve(SCRIPT_DIR, '..');
 const ROOT = path.resolve(SKILL_DIR, '../../..');
 const MEMORY_DIR = path.join(ROOT, 'agents-output', 'memory');
 const LATEST_SESSION_PATH = path.join(MEMORY_DIR, 'latest-session.md');
+const OCR_SCRIPT_PATH = path.join(SCRIPT_DIR, 'ocr-image.swift');
+const TEXT_EXTENSIONS = new Set([
+  '.txt', '.md', '.markdown', '.json', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
+  '.html', '.css', '.scss', '.sql', '.yml', '.yaml', '.csv', '.log', '.env', '.xml',
+]);
+const IMAGE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.heic', '.heif',
+]);
+const DOCUMENT_EXTENSIONS = new Set([
+  '.pdf', '.rtf',
+]);
+const MAX_REFERENCES = 6;
+const MAX_TEXT_CHARS = 12000;
+const MAX_IMAGE_TEXT_CHARS = 6000;
+const MAX_DOCUMENT_TEXT_CHARS = 8000;
 
 function parseArgs(argv) {
   const args = {};
@@ -61,6 +76,12 @@ function trimTask(value) {
   return String(value || '').replace(/^\s+|\s+$/g, '');
 }
 
+function truncateText(value, maxChars) {
+  const text = String(value || '');
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 20))}\n\n[truncated]`;
+}
+
 function resolveBinary(name, candidates) {
   for (const candidate of candidates) {
     if (candidate && fs.existsSync(candidate)) return candidate;
@@ -72,6 +93,209 @@ function resolveBinary(name, candidates) {
   });
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   return '';
+}
+
+function runCommandCapture(binary, args, options = {}) {
+  return spawnSync(binary, args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: process.env,
+    ...options,
+  });
+}
+
+function normalizePathCandidate(rawPath) {
+  const trimmed = String(rawPath || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!trimmed || !path.isAbsolute(trimmed)) return '';
+  return path.normalize(trimmed);
+}
+
+function extractLocalReferences(task) {
+  const text = String(task || '');
+  const paths = [];
+  const seen = new Set();
+  const pushIfValid = (candidate) => {
+    const normalized = normalizePathCandidate(candidate);
+    if (!normalized || seen.has(normalized)) return;
+    if (!fs.existsSync(normalized)) return;
+    seen.add(normalized);
+    paths.push(normalized);
+  };
+
+  const quotedPattern = /(["'])(\/[^"'`\n]+?)\1/g;
+  let match;
+  while ((match = quotedPattern.exec(text)) !== null) {
+    pushIfValid(match[2]);
+  }
+
+  const absolutePattern = /(^|[\s(])((\/[^\s"'`<>]+))/g;
+  while ((match = absolutePattern.exec(text)) !== null) {
+    pushIfValid(match[2]);
+  }
+
+  return paths.slice(0, MAX_REFERENCES);
+}
+
+function classifyReference(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image';
+  if (TEXT_EXTENSIONS.has(ext)) return 'text';
+  if (DOCUMENT_EXTENSIONS.has(ext)) return 'document';
+  return 'binary';
+}
+
+function readTextReference(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (content.includes('\u0000')) return '';
+    return truncateText(content, MAX_TEXT_CHARS);
+  } catch {
+    return '';
+  }
+}
+
+function extractDocumentText(filePath, env) {
+  const mdls = resolveBinary('mdls', ['/usr/bin/mdls']);
+  if (!mdls) return '';
+  const result = runCommandCapture(mdls, ['-raw', '-name', 'kMDItemTextContent', filePath], { env });
+  if (result.status !== 0) return '';
+  const text = String(result.stdout || '').trim();
+  if (!text || text === '(null)') return '';
+  return truncateText(text, MAX_DOCUMENT_TEXT_CHARS);
+}
+
+function extractImageMetadata(filePath, env) {
+  const sips = resolveBinary('sips', ['/usr/bin/sips']);
+  if (!sips) return '';
+  const result = runCommandCapture(sips, ['-g', 'pixelWidth', '-g', 'pixelHeight', filePath], { env });
+  if (result.status !== 0) return '';
+  const widthMatch = result.stdout.match(/pixelWidth:\s*(\d+)/);
+  const heightMatch = result.stdout.match(/pixelHeight:\s*(\d+)/);
+  if (!widthMatch && !heightMatch) return '';
+  return [widthMatch ? `width ${widthMatch[1]}` : '', heightMatch ? `height ${heightMatch[1]}` : '']
+    .filter(Boolean)
+    .join(', ');
+}
+
+function extractImageText(filePath, env) {
+  const swift = resolveBinary('swift', ['/usr/bin/swift']);
+  if (!swift || !fs.existsSync(OCR_SCRIPT_PATH)) {
+    return { text: '', metadata: extractImageMetadata(filePath, env) };
+  }
+
+  const result = runCommandCapture(swift, [OCR_SCRIPT_PATH, filePath], { env });
+  if (result.status !== 0) {
+    return { text: '', metadata: extractImageMetadata(filePath, env) };
+  }
+
+  try {
+    const parsed = JSON.parse(String(result.stdout || '{}'));
+    return {
+      text: truncateText(parsed.text || '', MAX_IMAGE_TEXT_CHARS),
+      metadata: parsed.metadata || extractImageMetadata(filePath, env),
+    };
+  } catch {
+    return { text: '', metadata: extractImageMetadata(filePath, env) };
+  }
+}
+
+function buildAttachmentRecord(filePath, env) {
+  const type = classifyReference(filePath);
+  const size = (() => {
+    try {
+      return fs.statSync(filePath).size;
+    } catch {
+      return 0;
+    }
+  })();
+
+  if (type === 'text') {
+    const content = readTextReference(filePath);
+    return {
+      path: filePath,
+      type,
+      size,
+      summary: content ? 'Text content extracted.' : 'Could not extract text content.',
+      content,
+    };
+  }
+
+  if (type === 'document') {
+    const content = extractDocumentText(filePath, env);
+    return {
+      path: filePath,
+      type,
+      size,
+      summary: content ? 'Document text extracted via Spotlight metadata.' : 'Document detected, but no text could be extracted automatically.',
+      content,
+    };
+  }
+
+  if (type === 'image') {
+    const image = extractImageText(filePath, env);
+    return {
+      path: filePath,
+      type,
+      size,
+      summary: image.text
+        ? `Image OCR extracted text${image.metadata ? ` (${image.metadata})` : ''}.`
+        : `Image detected${image.metadata ? ` (${image.metadata})` : ''}, but OCR returned little or no text.`,
+      content: image.text,
+    };
+  }
+
+  return {
+    path: filePath,
+    type,
+    size,
+    summary: 'Binary or unsupported file type detected. Metadata only; no inline content extracted.',
+    content: '',
+  };
+}
+
+function formatAttachmentSection(records) {
+  if (!records.length) return '';
+  const lines = [
+    'Local reference attachments detected by the /gplink wrapper:',
+    'Use these as grounded external references in addition to the repository context.',
+    '',
+  ];
+
+  records.forEach((record, index) => {
+    lines.push(`### Attachment ${index + 1}`);
+    lines.push(`- Path: ${record.path}`);
+    lines.push(`- Type: ${record.type}`);
+    lines.push(`- Size: ${record.size} bytes`);
+    lines.push(`- Extraction summary: ${record.summary}`);
+    if (record.content) {
+      lines.push('- Extracted content:');
+      lines.push('```text');
+      lines.push(record.content);
+      lines.push('```');
+    }
+    lines.push('');
+  });
+
+  return lines.join('\n').trim();
+}
+
+function enrichTaskWithReferences(task, env) {
+  const references = extractLocalReferences(task);
+  if (!references.length) {
+    return {
+      task,
+      attachmentSection: '',
+      records: [],
+    };
+  }
+
+  const records = references.map(filePath => buildAttachmentRecord(filePath, env));
+  const attachmentSection = formatAttachmentSection(records);
+  return {
+    task: `${task}\n\n${attachmentSection}`.trim(),
+    attachmentSection,
+    records,
+  };
 }
 
 function renderStatus() {
@@ -117,12 +341,12 @@ function buildLaunchEnv(nodeBin, npmBin = '') {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  const task = trimTask(
+  const originalTask = trimTask(
     args.task
       || (args.taskFile ? readFileSafe(args.taskFile) : '')
       || (args.stdin ? readStdin() : '')
   );
-  if (args.status || !task) {
+  if (args.status || !originalTask) {
     renderStatus();
     return;
   }
@@ -146,29 +370,38 @@ function main() {
   const runId = `claude-skill-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`;
   const reportPath = path.join(ROOT, 'agents-output', runId, 'REPORT.md');
   const launchEnv = buildLaunchEnv(nodeBin, npmBin);
+  const enriched = enrichTaskWithReferences(originalTask, launchEnv);
+  const task = enriched.task;
+  const attachmentReportPath = path.join(ROOT, 'agents-output', runId, 'local-references.md');
 
   ensureDir(MEMORY_DIR);
+  ensureDir(path.dirname(attachmentReportPath));
+  if (enriched.attachmentSection) {
+    fs.writeFileSync(attachmentReportPath, `${enriched.attachmentSection}\n`, 'utf8');
+  }
 
   runCommand(nodeBin, [
     path.join(ROOT, 'scripts', 'agent-memory.js'),
     'handoff',
     '--source', 'claude',
-    '--task', task,
+    '--task', originalTask,
     '--summary', 'Claude /gplink launched the GP Link hybrid orchestrator for this task.',
-    '--files', '(orchestrator launch)',
+    '--files', enriched.records.length ? enriched.records.map(record => record.path).join(',') : '(orchestrator launch)',
     '--next', `Inspect agents-output/${runId}/REPORT.md, latest-session.md, and knowledge-base.md after the run completes.`,
-    '--notes', `Run id: ${runId}`,
+    '--notes', `Run id: ${runId}${enriched.records.length ? `; local references: ${enriched.records.length}` : ''}`,
   ], { env: launchEnv });
 
   process.stdout.write(
     [
       'GP Link wrapper',
-      `Task: ${task}`,
+      `Task: ${originalTask}`,
       `Run ID: ${runId}`,
       'Shared memory seeded: agents-output/memory/latest-session.md',
+      enriched.records.length ? `Local references ingested: ${enriched.records.length}` : 'Local references ingested: 0',
       npmBin
         ? `Launch mode: npm run gplink -- --task "<task>" --run-id "${runId}"`
         : 'Launch mode: direct node fallback via scripts/agents.js (npm not found in PATH)',
+      enriched.records.length ? `Attachment context: ${attachmentReportPath}` : '',
       '',
       'Starting hybrid orchestrator...',
       '',
@@ -188,6 +421,7 @@ function main() {
         `Report: ${reportPath}`,
         `Latest session memory: ${LATEST_SESSION_PATH}`,
         `Durable memory: ${path.join(MEMORY_DIR, 'knowledge-base.md')}`,
+        enriched.records.length ? `Attachment context: ${attachmentReportPath}` : '',
         '',
       ].join('\n')
     );
@@ -202,20 +436,32 @@ function main() {
     path.join(ROOT, 'scripts', 'agent-memory.js'),
     'handoff',
     '--source', 'claude',
-    '--task', task,
+    '--task', originalTask,
     '--summary', 'Claude /gplink attempted to launch the GP Link hybrid orchestrator, but the run failed.',
-    '--files', '(orchestrator launch)',
+    '--files', enriched.records.length ? enriched.records.map(record => record.path).join(',') : '(orchestrator launch)',
     '--risks', `The orchestrator exited with code ${launchResult.status}.`,
     '--next', 'Inspect the terminal output and rerun the task after fixing the blocker.',
-    '--notes', `Failed run id: ${runId}`,
+    '--notes', `Failed run id: ${runId}${enriched.records.length ? `; local references: ${enriched.records.length}` : ''}`,
   ], { env: launchEnv });
 
   throw new Error(`hybrid orchestrator failed with exit code ${launchResult.status}`);
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`GP Link wrapper error: ${error.message}\n`);
-  process.exit(1);
+module.exports = {
+  buildAttachmentRecord,
+  classifyReference,
+  enrichTaskWithReferences,
+  extractLocalReferences,
+  formatAttachmentSection,
+  parseArgs,
+  trimTask,
+};
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`GP Link wrapper error: ${error.message}\n`);
+    process.exit(1);
+  }
 }

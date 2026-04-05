@@ -54,6 +54,10 @@ Use `$ARGUMENTS` as the active GP Link task.
 
 - By default, `/gplink <task>` now seeds shared memory and launches the hybrid orchestrator automatically before Claude responds.
 - The wrapper prefers `npm run gplink -- --task "$ARGUMENTS"` and falls back to the direct Node entrypoint if `npm` is unavailable in the session environment.
+- If the task includes local absolute file references, the wrapper ingests them before launch:
+  - text/code files are read inline
+  - PDFs/RTF use document text extraction when available
+  - images such as screenshots or HEICs use local OCR plus metadata
 - After the run finishes, use the wrapper output plus these files as the latest source of truth:
   - `agents-output/memory/latest-session.md`
   - `agents-output/memory/knowledge-base.md`
