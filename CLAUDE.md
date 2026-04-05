@@ -11,6 +11,8 @@ npm test               # Run tests (vitest run)
 npm run test:watch     # Run tests in watch mode (vitest)
 npm run init:db        # Initialize local JSON database
 npm run agents -- "task description"   # Hybrid Codex + Claude multi-agent orchestrator
+npm run gplink -- "task description"   # Same hybrid orchestrator with the GP Link launcher name
+npm run gplink:memory -- help          # Update shared Codex <-> Claude memory files manually
 ```
 
 Single test: `npx vitest run tests/oauth.test.js`
@@ -33,6 +35,9 @@ Single test: `npx vitest run tests/oauth.test.js`
 - Detects Claude's `browser-use` MCP and can let Claude handle browser/computer walkthrough tasks when the prompt clearly calls for navigation or UI inspection
 - Includes `scripts/agent-bridge.js` so the live super-admin dashboard can proxy to Codex and Claude CLIs running on a registered worker machine, either through direct localhost fetches or a persistent secure relay when the browser blocks localhost access
 - Maintains `shared-memory.md` for the active run plus a persistent retrieval memory store under `agents-output/memory/` so later runs can reuse proven context, findings, and handoff notes
+- Also maintains `agents-output/memory/latest-session.md` as the live Codex <-> Claude handoff file, and ships `scripts/agent-memory.js` so either tool can refresh the shared memory manually between direct chat sessions
+- The GP Link team shape is fixed: team lead planning, then `frontend`, `backend`, `security`, and final `alignment`
+- Claude now has a project skill at `.claude/skills/gplink/SKILL.md`, so `/gplink` should load the shared memory and GP Link workflow before starting work
 - Balanced profile defaults:
   - Frontend + backend implementation -> OpenAI/Codex
   - Database + research + extrapolation -> Claude

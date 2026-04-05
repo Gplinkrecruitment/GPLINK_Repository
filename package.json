@@ -14,6 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "agents": "node scripts/agents.js",
+    "gplink": "node scripts/agents.js",
+    "gplink:memory": "node scripts/agent-memory.js",
     "agent-bridge": "node scripts/agent-bridge.js"
   },
   "engines": {

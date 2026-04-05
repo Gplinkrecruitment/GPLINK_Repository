@@ -119,7 +119,8 @@ describe('complexity policy', () => {
     expect(policy.taskComplexity).toBe('complex');
     expect(policy.selected.openaiPrimary).toBe(DEFAULTS.openaiComplexModel);
     expect(policy.selected.anthropicPrimary).toBe(DEFAULTS.anthropicComplexModel);
-    expect(policy.roleAssignments.find(item => item.role === 'research')?.provider).toBe('anthropic');
+    expect(policy.roleAssignments.find(item => item.role === 'security')?.provider).toBe('anthropic');
+    expect(policy.roleAssignments.find(item => item.role === 'alignment')?.provider).toBe('anthropic');
   });
 
   it('keeps small typo fixes on the lighter tier', () => {
@@ -145,7 +146,7 @@ describe('complexity policy', () => {
 });
 
 describe('normalizePlan', () => {
-  it('ensures a final review step depends on all non-review work', () => {
+  it('enforces the GP Link team structure and fixed dependency chain', () => {
     const normalized = normalizePlan({
       summary: 'Ship the feature',
       subtasks: [
@@ -159,19 +160,41 @@ describe('normalizePlan', () => {
           modelPreference: 'either',
         },
         {
-          agent: 'backend',
-          id: 'api-pass',
-          title: 'API pass',
-          description: 'Add the endpoint',
-          files: ['server.js'],
-          dependsOn: ['ui-pass'],
+          agent: 'database',
+          id: 'db-pass',
+          title: 'DB pass',
+          description: 'Add the schema updates',
+          files: ['supabase/migrations/20260405000000_feature.sql'],
           modelPreference: 'either',
+        },
+        {
+          agent: 'review',
+          id: 'review-pass',
+          title: 'Review pass',
+          description: 'Check the final implementation',
+          files: ['server.js', 'pages/account.html'],
+          dependsOn: ['ui-pass'],
+          modelPreference: 'anthropic',
         },
       ],
     }, 'Ship the feature');
 
-    expect(normalized.subtasks.at(-1).agent).toBe('review');
-    expect(normalized.subtasks.at(-1).dependsOn).toEqual(['ui-pass', 'api-pass']);
+    expect(normalized.subtasks.map(subtask => subtask.agent)).toEqual([
+      'frontend',
+      'backend',
+      'security',
+      'alignment',
+    ]);
+    expect(normalized.subtasks.map(subtask => subtask.id)).toEqual([
+      'frontend-ui',
+      'backend-data',
+      'security-hardening',
+      'gp-link-alignment',
+    ]);
+    expect(normalized.subtasks[1].files).toContain('supabase/migrations/20260405000000_feature.sql');
+    expect(normalized.subtasks[2].files).toEqual(expect.arrayContaining(['server.js', 'pages/account.html']));
+    expect(normalized.subtasks[2].dependsOn).toEqual(['frontend-ui', 'backend-data']);
+    expect(normalized.subtasks[3].dependsOn).toEqual(['frontend-ui', 'backend-data', 'security-hardening']);
   });
 });
 

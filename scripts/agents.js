@@ -10,14 +10,61 @@ const ROOT = path.resolve(__dirname, '..');
 const MEMORY_ROOT = path.join(ROOT, 'agents-output', 'memory');
 const MEMORY_JSON_PATH = path.join(MEMORY_ROOT, 'knowledge-base.json');
 const MEMORY_MARKDOWN_PATH = path.join(MEMORY_ROOT, 'knowledge-base.md');
+const MEMORY_LATEST_SESSION_PATH = path.join(MEMORY_ROOT, 'latest-session.md');
 const ALLOWED_AGENTS = new Set([
   'frontend',
   'backend',
   'database',
   'research',
   'extrapolation',
+  'security',
+  'alignment',
   'review',
 ]);
+const CANONICAL_SUBTASKS = [
+  {
+    agent: 'frontend',
+    id: 'frontend-ui',
+    title: 'Frontend UI implementation',
+    description: 'Implement the GP-facing and admin-facing UI work with strong mobile behavior, clear states, and repo-native styling.',
+    defaultModelPreference: 'openai',
+    dependsOn: [],
+  },
+  {
+    agent: 'backend',
+    id: 'backend-data',
+    title: 'Backend and Supabase implementation',
+    description: 'Implement the server-side, integration, and Supabase changes needed for the task, including any grounded schema updates.',
+    defaultModelPreference: 'either',
+    dependsOn: [],
+  },
+  {
+    agent: 'security',
+    id: 'security-hardening',
+    title: 'Security hardening pass',
+    description: 'Inspect the combined implementation for auth, secret handling, injection, access-control, and unsafe input/output risks, then patch any issues found.',
+    defaultModelPreference: 'anthropic',
+    dependsOn: ['frontend-ui', 'backend-data'],
+  },
+  {
+    agent: 'alignment',
+    id: 'gp-link-alignment',
+    title: 'GP Link alignment and hallucination check',
+    description: 'Review the whole change for product fit, GP recruiter workflow alignment, naming consistency, and AI hallucinations, then patch anything that breaks the GP Link experience.',
+    defaultModelPreference: 'anthropic',
+    dependsOn: ['frontend-ui', 'backend-data', 'security-hardening'],
+  },
+];
+const CANONICAL_ROLE_ALIASES = {
+  frontend: 'frontend',
+  backend: 'backend',
+  database: 'backend',
+  research: 'alignment',
+  extrapolation: 'alignment',
+  security: 'security',
+  alignment: 'alignment',
+  review: 'security',
+};
 const IGNORE_DIRS = new Set([
   '.git',
   '.next',
@@ -95,6 +142,8 @@ const PROFILE_ROLE_DEFAULTS = {
     database: 'anthropic',
     research: 'anthropic',
     extrapolation: 'anthropic',
+    security: 'anthropic',
+    alignment: 'anthropic',
     review: 'openai',
   },
   'codex-heavy': {
@@ -104,6 +153,8 @@ const PROFILE_ROLE_DEFAULTS = {
     database: 'openai',
     research: 'anthropic',
     extrapolation: 'anthropic',
+    security: 'anthropic',
+    alignment: 'anthropic',
     review: 'anthropic',
   },
   'claude-heavy': {
@@ -113,6 +164,8 @@ const PROFILE_ROLE_DEFAULTS = {
     database: 'anthropic',
     research: 'anthropic',
     extrapolation: 'anthropic',
+    security: 'anthropic',
+    alignment: 'anthropic',
     review: 'openai',
   },
 };
@@ -120,10 +173,8 @@ const POLICY_ROLES = [
   'planner',
   'frontend',
   'backend',
-  'database',
-  'research',
-  'extrapolation',
-  'review',
+  'security',
+  'alignment',
 ];
 
 function numberFromEnv(name, fallback) {
@@ -445,7 +496,7 @@ function inferBrowserUseNeed(text) {
 function shouldUseClaudeBrowserMcp(role, text) {
   if (!DEFAULTS.enableClaudeBrowserUseMcp) return false;
   if (!inferBrowserUseNeed(text)) return false;
-  return ['planner', 'frontend', 'research', 'extrapolation', 'review'].includes(role);
+  return ['planner', 'frontend', 'research', 'extrapolation', 'alignment', 'review'].includes(role);
 }
 
 function buildProviderEnv() {
@@ -713,6 +764,7 @@ function buildServerRouteIndex() {
 
 function readProjectOverview() {
   const claudeMd = readFileSafe(path.join(ROOT, 'CLAUDE.md')) || '';
+  const agentsMd = readFileSafe(path.join(ROOT, 'AGENTS.md')) || '';
   const packageJsonRaw = readFileSafe(path.join(ROOT, 'package.json')) || '{}';
   let packageJson = {};
   try {
@@ -726,6 +778,7 @@ function readProjectOverview() {
   const migrations = listRepoFiles(path.join(ROOT, 'supabase'), 'supabase')
     .filter(file => file.startsWith('supabase/migrations/') && file.endsWith('.sql'))
     .slice(-12);
+  const sharedMemory = readSharedMemoryForBootstrap();
 
   const packageSummary = JSON.stringify({
     name: packageJson.name,
@@ -735,8 +788,14 @@ function readProjectOverview() {
   }, null, 2);
 
   return [
+    '## AGENTS.md',
+    agentsMd || 'No AGENTS.md present yet.',
     '## CLAUDE.md',
     claudeMd,
+    '## Latest shared agent session memory',
+    sharedMemory.latestSession || 'No latest-session memory file has been generated yet.',
+    '## Persistent shared agent memory',
+    sharedMemory.knowledgeBase || 'No persistent memory file has been generated yet.',
     '## package.json summary',
     `\`\`\`json\n${packageSummary}\n\`\`\``,
     '## Repo file index',
@@ -936,6 +995,97 @@ function savePersistentMemoryStore(store) {
   });
   fs.writeFileSync(MEMORY_JSON_PATH, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
   fs.writeFileSync(MEMORY_MARKDOWN_PATH, `${renderPersistentMemoryMarkdown(normalized)}\n`, 'utf8');
+}
+
+function readSharedMemoryForBootstrap() {
+  const latestSession = readFileSafe(MEMORY_LATEST_SESSION_PATH) || '';
+  const knowledgeBase = readFileSafe(MEMORY_MARKDOWN_PATH) || '';
+  return {
+    latestSession: truncateText(latestSession, 9000),
+    knowledgeBase: truncateText(knowledgeBase, 12000),
+  };
+}
+
+function writeLatestSessionMemory(state, details = {}) {
+  ensureDir(MEMORY_ROOT);
+  const lines = [
+    '# Latest GP Link Agent Session',
+    '',
+    `Updated: ${new Date().toISOString()}`,
+    `Run ID: ${state.runId || 'unknown'}`,
+    `Status: ${state.status || 'unknown'}`,
+    `Phase: ${state.phase || 'unknown'}`,
+    `Task: ${state.task || '(not recorded)'}`,
+    `Profile: ${state.profile || DEFAULTS.profile}`,
+    `Collaboration: ${state.collaborationMode || DEFAULTS.collaborationMode}`,
+    `Complexity: ${state.taskComplexity || state.complexityMode || DEFAULTS.complexity}`,
+    `Output: ${state.outputDir || '(not recorded)'}`,
+    '',
+  ];
+
+  if (state.planSummary) {
+    lines.push('## Plan Summary');
+    lines.push('');
+    lines.push(state.planSummary);
+    lines.push('');
+  }
+
+  if (details.subtasks && details.subtasks.length) {
+    lines.push('## Team Structure');
+    lines.push('');
+    details.subtasks.forEach(subtask => {
+      const deps = Array.isArray(subtask.dependsOn) && subtask.dependsOn.length
+        ? ` depends on ${subtask.dependsOn.join(', ')}`
+        : '';
+      lines.push(`- [${subtask.agent}] ${subtask.id}: ${subtask.title}${deps}`);
+    });
+    lines.push('');
+  }
+
+  if (state.currentSubtask && state.currentSubtask.title) {
+    lines.push('## Current Focus');
+    lines.push('');
+    lines.push(`- ${state.currentSubtask.title} (${state.currentSubtask.agent})`);
+    lines.push('');
+  }
+
+  if (details.completedSubtasks && details.completedSubtasks.length) {
+    lines.push('## Completed Subtasks');
+    lines.push('');
+    details.completedSubtasks.forEach(item => {
+      lines.push(`- [${item.agent}] ${item.id} via ${item.provider}/${item.model}`);
+    });
+    lines.push('');
+  }
+
+  if (details.sharedMemoryText) {
+    lines.push('## Shared Run Memory');
+    lines.push('');
+    lines.push(details.sharedMemoryText);
+    lines.push('');
+  }
+
+  if (details.learnedMemoryText) {
+    lines.push('## Newly Learned Memory');
+    lines.push('');
+    lines.push(details.learnedMemoryText);
+    lines.push('');
+  }
+
+  if (details.persistentMemoryText) {
+    lines.push('## Persistent Cross-Run Memory');
+    lines.push('');
+    lines.push(details.persistentMemoryText);
+    lines.push('');
+  }
+
+  lines.push('## Usage');
+  lines.push('');
+  lines.push('- Codex should load `AGENTS.md`, then consult this file plus `agents-output/memory/knowledge-base.md` before major GP Link work.');
+  lines.push('- Claude should load `CLAUDE.md` or invoke `/gplink`, then consult this file plus `agents-output/memory/knowledge-base.md` before major GP Link work.');
+  lines.push('');
+
+  fs.writeFileSync(MEMORY_LATEST_SESSION_PATH, `${lines.join('\n')}\n`, 'utf8');
 }
 
 function scoreMemoryEntry(entry, queryTokens, role, files) {
@@ -1340,6 +1490,35 @@ function buildImplementationSchema() {
   };
 }
 
+function buildCorrectiveReviewSchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['summary', 'issues', 'files', 'sharedContext', 'handoff', 'notes'],
+    properties: {
+      summary: { type: 'string' },
+      issues: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['severity', 'file', 'description', 'fix'],
+          properties: {
+            severity: { type: 'string', enum: ['critical', 'warning', 'suggestion'] },
+            file: { type: 'string' },
+            description: { type: 'string' },
+            fix: { type: 'string' },
+          },
+        },
+      },
+      files: buildImplementationSchema().properties.files,
+      sharedContext: { type: 'array', items: { type: 'string' } },
+      handoff: { type: 'array', items: { type: 'string' } },
+      notes: { type: 'string' },
+    },
+  };
+}
+
 function buildResearchSchema(role) {
   const listField = role === 'research' ? 'findings' : 'risks';
   const itemProperties = role === 'research'
@@ -1535,15 +1714,15 @@ async function callClaudeCli(config, systemPrompt, userMessage, options = {}) {
 }
 
 function buildLeadSystemPrompt(options, availableProviders) {
-  return `You are the lead planner for a hybrid Codex + Claude coding workflow.
+  return `You are the team lead for a hybrid Codex + Claude GP Link coding workflow.
+
+You personally do the repository research, extrapolation, problem framing, and planning before delegating implementation and review work.
 
 Available specialist roles:
 - frontend: pages/, app/, components/, CSS, UI polish, client-side flows
-- backend: server.js, API routes, auth, integrations, request/response logic
-- database: supabase/migrations/, schema, RLS policies, data shape changes
-- research: repo investigation, implementation notes, file targeting, uncertainty reduction
-- extrapolation: edge cases, missing states, rollout considerations, testing implications
-- review: bug/risk review that checks the other agents' output
+- backend: server.js, API routes, auth, integrations, request/response logic, and Supabase migrations/policies when needed
+- security: hardening pass for secrets, authz/authn, injection, unsafe inputs, and deployment risk
+- alignment: GP Link product-fit pass for recruiter/GP workflow alignment, hallucination cleanup, and seamless integration
 
 Available providers right now: ${availableProviders.join(', ')}
 Requested routing profile: ${options.profile}
@@ -1551,11 +1730,22 @@ Collaboration mode: ${options.collaborationMode}
 
 Routing heuristics:
 - Prefer OpenAI/Codex for hands-on frontend/backend coding when available.
-- Prefer Claude for research, extrapolation, and database reasoning when available.
+- Prefer Claude for team-lead planning, security review, and GP Link alignment reasoning when available.
 - If the task involves navigating the local app, browser, or computer, prefer a Claude research/extrapolation pass when browser-use MCP is connected.
 - Use "modelPreference" only when a role clearly benefits from one provider.
-- Keep the plan lean. Use at most ${DEFAULTS.maxSubtasks} subtasks including review.
-- Review should always be the final subtask and depend on every non-review subtask.
+- Do not create separate research, extrapolation, database, or generic review subtasks. You absorb research/planning yourself as the team lead.
+- Always produce exactly 4 delegated subtasks in this order:
+  1. frontend-ui (frontend)
+  2. backend-data (backend)
+  3. security-hardening (security)
+  4. gp-link-alignment (alignment)
+- Dependencies must be:
+  - frontend-ui: []
+  - backend-data: []
+  - security-hardening: ["frontend-ui", "backend-data"]
+  - gp-link-alignment: ["frontend-ui", "backend-data", "security-hardening"]
+- The frontend and backend tasks should focus on implementation.
+- The security and alignment tasks must be empowered to patch files, not just comment.
 
 Return JSON only:
 {
@@ -1563,7 +1753,7 @@ Return JSON only:
   "assumptions": ["optional assumption"],
   "subtasks": [
     {
-      "agent": "frontend" | "backend" | "database" | "research" | "extrapolation" | "review",
+      "agent": "frontend" | "backend" | "security" | "alignment",
       "id": "short-kebab-id",
       "title": "short title",
       "description": "exactly what this specialist should produce",
@@ -1640,6 +1830,47 @@ function buildReviewSchemaDoc() {
 }`;
 }
 
+function buildCorrectiveReviewSchemaDoc(extraFocus) {
+  return `Return JSON only:
+{
+  "summary": "1-2 sentence overview of what you checked and fixed",
+  "issues": [
+    {
+      "severity": "critical" | "warning" | "suggestion",
+      "file": "repo-relative/path.ext or (general)",
+      "description": "what was wrong or risky",
+      "fix": "specific fix or mitigation"
+    }
+  ],
+  "files": [
+    {
+      "path": "repo-relative/path.ext",
+      "action": "edit" | "create",
+      "description": "why this file changes",
+      "changes": [
+        {
+          "description": "what this replacement does",
+          "find": "exact text to replace",
+          "replace": "replacement text"
+        }
+      ],
+      "fullContent": "complete file content for created files only"
+    }
+  ],
+  "sharedContext": ["important facts for later agents"],
+  "handoff": ["follow-up notes for downstream agents"],
+  "notes": "manual verification or residual risk notes"
+}
+
+Focus:
+${extraFocus}
+
+Rules:
+- You are allowed to patch files directly when you find a security, integration, or hallucination issue.
+- If no file changes are needed, return an empty "files" array.
+- Keep fixes grounded in the provided repository context.`;
+}
+
 function buildSystemPromptForRole(role) {
   if (role === 'frontend') {
     return `You are the frontend specialist for GP Link.
@@ -1653,30 +1884,49 @@ Constraints:
 ${buildImplementationSchemaDoc()}`;
   }
 
-  if (role === 'backend') {
-    return `You are the backend specialist for GP Link.
+  if (role === 'backend' || role === 'database') {
+    return `You are the backend and Supabase specialist for GP Link.
 
 Constraints:
 - server.js uses native Node.js HTTP routing, not Express.
 - Protected routes must verify auth before reading or mutating user data.
 - Always validate inputs server-side.
 - Never log secrets or return stack traces to the client.
+- When schema changes are needed, prefer additive Supabase migrations and grounded RLS updates.
+- Keep backend logic, database changes, and integration wiring internally consistent.
 - If you touch integrations or auth flows, call out manual verification steps in notes.
 
 ${buildImplementationSchemaDoc()}`;
   }
 
-  if (role === 'database') {
-    return `You are the database specialist for GP Link.
+  if (role === 'security') {
+    return `You are the security hardening specialist for GP Link.
 
 Constraints:
-- Supabase is the production database.
-- Prefer additive migrations.
-- Enable and maintain Row Level Security when creating or changing tables.
-- If schema changes require corresponding backend updates, note that clearly in handoff.
-- Do not invent tables or policies without grounding them in the task.
+- Inspect the combined implementation for exposed secrets, broken authorization, unsafe trust boundaries, SQL injection, XSS, CSRF, SSRF, insecure file handling, and dangerous prompt/tooling patterns.
+- Patch issues when you can do so safely from the repository context.
+- Never invent vulnerabilities. Stay grounded in the code shown.
+- If a risk cannot be fully fixed, document the mitigation clearly in "issues" and "notes".
 
-${buildImplementationSchemaDoc()}`;
+${buildCorrectiveReviewSchemaDoc(`- Verify auth and role enforcement on admin and GP flows.
+- Verify no API keys, service-role secrets, or auth tokens are exposed client-side.
+- Verify Supabase queries and dynamic SQL paths are not injection-prone.
+- Verify file upload, document, and bridge/orchestrator paths do not allow unsafe input or escalation.`)}`;
+  }
+
+  if (role === 'alignment') {
+    return `You are the GP Link product alignment specialist.
+
+Constraints:
+- Review the whole implementation as a real GP Link product change, not as a generic app exercise.
+- Ensure the result fits GP recruitment workflows, GP-facing onboarding, admin operations, and the existing product language.
+- Catch and fix AI hallucinations, invented routes, mismatched terminology, broken flow assumptions, and anything that feels off-brand or off-architecture.
+- Patch issues when you can do so safely from the repository context.
+
+${buildCorrectiveReviewSchemaDoc(`- Check the end result against the GP Link app's existing flows, naming, and user roles.
+- Ensure frontend, backend, and Supabase changes fit together cleanly.
+- Fix hallucinated file targets, fake endpoints, fake states, or mismatched UX assumptions.
+- Prefer changes that make the feature feel native to GP Link rather than bolted on.`)}`;
   }
 
   if (role === 'research' || role === 'extrapolation') {
@@ -1785,6 +2035,13 @@ function renderDependencyContext(dependencyRecords) {
   return truncateText(joined, DEFAULTS.maxDependencyContextChars);
 }
 
+function getSchemaForRole(role) {
+  if (role === 'review') return buildReviewSchema();
+  if (role === 'research' || role === 'extrapolation') return buildResearchSchema(role);
+  if (role === 'security' || role === 'alignment') return buildCorrectiveReviewSchema();
+  return buildImplementationSchema();
+}
+
 async function leadAgent(task, projectOverview, options, availableProviders, recalledMemory) {
   const plannerProvider = resolveProviderForRole(
     'planner',
@@ -1815,6 +2072,49 @@ async function leadAgent(task, projectOverview, options, availableProviders, rec
   return { plan, plannerConfig, raw: result.raw };
 }
 
+function combinePlanText(values, fallback) {
+  const combined = uniq(
+    values
+      .flatMap(value => String(value || '').split('\n'))
+      .map(value => value.trim())
+      .filter(Boolean)
+  ).join(' ');
+  return combined || fallback;
+}
+
+function mergeModelPreferences(values, fallback = 'either') {
+  const filtered = uniq(values.filter(value => ['openai', 'anthropic', 'either'].includes(value)));
+  if (!filtered.length) return fallback;
+  if (filtered.length === 1) return filtered[0];
+  if (filtered.includes('either')) return 'either';
+  return fallback;
+}
+
+function buildCanonicalSubtask(role, grouped, task) {
+  const blueprint = CANONICAL_SUBTASKS.find(item => item.agent === role);
+  const items = grouped.get(role) || [];
+  const fallbackDescription = blueprint.description;
+  const files = uniq(items.flatMap(item => item.files || [])).slice(0, 24);
+  const title = combinePlanText(items.map(item => item.title), blueprint.title);
+  const description = combinePlanText(
+    items.map(item => item.description),
+    `${fallbackDescription} Task context: ${task}`
+  );
+
+  return {
+    agent: blueprint.agent,
+    id: blueprint.id,
+    title,
+    description,
+    files,
+    dependsOn: [...blueprint.dependsOn],
+    modelPreference: mergeModelPreferences(
+      items.map(item => item.modelPreference),
+      blueprint.defaultModelPreference
+    ),
+  };
+}
+
 function normalizePlan(parsedPlan, task) {
   const source = parsedPlan && typeof parsedPlan === 'object' ? parsedPlan : {};
   const summary = typeof source.summary === 'string' && source.summary.trim()
@@ -1829,7 +2129,8 @@ function normalizePlan(parsedPlan, task) {
   const cleaned = rawSubtasks.map((subtask, index) => {
     if (!subtask || typeof subtask !== 'object') return null;
     const fallbackId = `step-${index + 1}`;
-    const agent = ALLOWED_AGENTS.has(subtask.agent) ? subtask.agent : 'research';
+    const requestedAgent = ALLOWED_AGENTS.has(subtask.agent) ? subtask.agent : 'alignment';
+    const agent = CANONICAL_ROLE_ALIASES[requestedAgent] || 'alignment';
     return {
       agent,
       id: slugify(subtask.id || subtask.title, fallbackId),
@@ -1843,41 +2144,31 @@ function normalizePlan(parsedPlan, task) {
     };
   }).filter(Boolean);
 
-  const dedupedById = [];
-  const seenIds = new Set();
+  const grouped = new Map();
   for (const subtask of cleaned) {
-    if (seenIds.has(subtask.id)) continue;
-    seenIds.add(subtask.id);
-    dedupedById.push(subtask);
+    const bucket = grouped.get(subtask.agent) || [];
+    bucket.push(subtask);
+    grouped.set(subtask.agent, bucket);
   }
 
-  const maxNonReview = Math.max(1, DEFAULTS.maxSubtasks - 1);
-  const nonReview = dedupedById.filter(subtask => subtask.agent !== 'review').slice(0, maxNonReview);
-  const validIds = new Set(nonReview.map(subtask => subtask.id));
-  for (const subtask of nonReview) {
-    subtask.dependsOn = subtask.dependsOn.filter(dep => dep !== subtask.id && validIds.has(dep));
+  const subtasks = CANONICAL_SUBTASKS.map(blueprint => buildCanonicalSubtask(blueprint.agent, grouped, task));
+  const implementationFiles = uniq(
+    subtasks
+      .filter(subtask => ['frontend', 'backend'].includes(subtask.agent))
+      .flatMap(subtask => subtask.files)
+  );
+  const securityTask = subtasks.find(subtask => subtask.agent === 'security');
+  if (securityTask) {
+    securityTask.files = uniq([...securityTask.files, ...implementationFiles]).slice(0, 24);
   }
-
-  let review = dedupedById.find(subtask => subtask.agent === 'review');
-  if (!review) {
-    review = {
-      agent: 'review',
-      id: 'cross-model-review',
-      title: 'Cross-model review',
-      description: 'Review all prior agent outputs for bugs, contradictions, security issues, and missing follow-up work.',
-      files: [],
-      dependsOn: [],
-      modelPreference: 'either',
-    };
+  const alignmentTask = subtasks.find(subtask => subtask.agent === 'alignment');
+  if (alignmentTask) {
+    alignmentTask.files = uniq([
+      ...alignmentTask.files,
+      ...implementationFiles,
+      ...(securityTask ? securityTask.files : []),
+    ]).slice(0, 24);
   }
-
-  review.dependsOn = nonReview.map(subtask => subtask.id);
-  review.files = uniq(Array.isArray(review.files) ? review.files.filter(isSafeRelativePath) : []);
-  review.modelPreference = ['openai', 'anthropic', 'either'].includes(review.modelPreference)
-    ? review.modelPreference
-    : 'either';
-
-  const subtasks = nonReview.length ? [...nonReview, review] : [review];
   return { summary, assumptions, subtasks };
 }
 
@@ -1914,13 +2205,9 @@ async function runSpecialist(subtask, assignment, projectOverview, sharedMemoryI
 
   return callProvider(assignment.primary, systemPrompt, userMessage, {
     label: `${subtask.agent}:${subtask.id}`,
-    maxTokens: subtask.agent === 'review' ? 4096 : 8192,
+    maxTokens: ['review', 'security', 'alignment'].includes(subtask.agent) ? 4096 : 8192,
     enableBrowserUseMcp: shouldUseClaudeBrowserMcp(subtask.agent, browserUseContext),
-    schema: subtask.agent === 'review'
-      ? buildReviewSchema()
-      : subtask.agent === 'research' || subtask.agent === 'extrapolation'
-        ? buildResearchSchema(subtask.agent)
-        : buildImplementationSchema(),
+    schema: getSchemaForRole(subtask.agent),
   });
 }
 
@@ -2009,9 +2296,9 @@ function getModelPolicy(
 
   const notes = [];
   if (taskComplexity === 'complex') {
-    notes.push('Complex redesign, architecture, and research work escalates to GPT-5.4 and Opus-class routing.');
+    notes.push('Complex redesign, architecture, and team-lead planning work escalates to GPT-5.4 and Opus-class routing.');
   } else if (taskComplexity === 'simple') {
-    notes.push('Simple work stays on lighter models by default to save capacity while keeping review safety in place.');
+    notes.push('Simple work stays on lighter models by default while keeping the security and GP Link alignment passes in place.');
   } else {
     notes.push('Standard work stays on the middle tier unless you force `--complexity complex`.');
   }
@@ -2025,6 +2312,7 @@ function getModelPolicy(
   if (browserUseRecommended) {
     notes.push('This task looks like a browser/computer walkthrough, so Claude browser-use MCP should be preferred when connected.');
   }
+  notes.push('The team lead plans, then delegates to frontend, backend/data, security, and GP Link alignment roles in that order.');
   notes.push('Lower-tier defaults can be overridden with environment variables if you want stricter or cheaper routing.');
 
   return {
@@ -2154,6 +2442,7 @@ Usage:
   node scripts/agents.js "your task"
   node scripts/agents.js --task "your task" --profile balanced --collaboration paired
   npm run agents -- "your task"
+  npm run gplink -- "your task"
 
 Flags:
   --task <text>              Task to execute
@@ -2255,6 +2544,9 @@ async function run(task, options) {
     error: '',
   };
   writeRunState(outputDir, baseRunState);
+  writeLatestSessionMemory(baseRunState, {
+    persistentMemoryText: formatMemoryRecall(sortMemoryEntries(persistentMemoryStore.entries).slice(0, DEFAULTS.memoryRecallItems)),
+  });
 
   console.log('');
   console.log('Hybrid GP Link Agent Orchestrator');
@@ -2281,6 +2573,14 @@ async function run(task, options) {
     status: 'running',
     phase: 'planning',
   });
+  writeLatestSessionMemory({
+    ...baseRunState,
+    status: 'running',
+    phase: 'planning',
+  }, {
+    persistentMemoryText: formatMemoryRecall(sortMemoryEntries(persistentMemoryStore.entries).slice(0, DEFAULTS.memoryRecallItems)),
+    learnedMemoryText: formatMemoryRecall(planningMemory),
+  });
 
   console.log('[plan] Generating plan...');
   const { plan, plannerConfig, raw: plannerRaw } = await leadAgent(task, projectOverview, options, availableProviders, planningMemory);
@@ -2298,7 +2598,7 @@ async function run(task, options) {
 
   fs.writeFileSync(path.join(outputDir, 'plan.json'), JSON.stringify(plan, null, 2));
   fs.writeFileSync(path.join(outputDir, 'resolved-plan.json'), JSON.stringify(resolvedPlan, null, 2));
-  writeRunState(outputDir, {
+  const plannedRunState = {
     ...baseRunState,
     status: 'running',
     phase: 'planned',
@@ -2320,6 +2620,12 @@ async function run(task, options) {
       } : null,
     })),
     currentSubtask: null,
+  };
+  writeRunState(outputDir, plannedRunState);
+  writeLatestSessionMemory(plannedRunState, {
+    subtasks: resolvedPlan.subtasks,
+    persistentMemoryText: formatMemoryRecall(sortMemoryEntries(persistentMemoryStore.entries).slice(0, DEFAULTS.memoryRecallItems)),
+    learnedMemoryText: formatMemoryRecall(planningMemory),
   });
 
   console.log('');
@@ -2341,7 +2647,7 @@ async function run(task, options) {
     safetyCounter++;
     const ready = remaining.filter(subtask => subtask.dependsOn.every(dep => completed[dep]));
     if (!ready.length) {
-      writeRunState(outputDir, {
+      const failedState = {
         ...baseRunState,
         status: 'failed',
         phase: 'error',
@@ -2354,6 +2660,14 @@ async function run(task, options) {
           model: record.model,
         })),
         error: `Dependency deadlock. Remaining subtasks: ${remaining.map(subtask => subtask.id).join(', ')}`,
+      };
+      writeRunState(outputDir, failedState);
+      writeLatestSessionMemory(failedState, {
+        subtasks: resolvedPlan.subtasks,
+        completedSubtasks: Object.values(completed),
+        sharedMemoryText: formatSharedMemory(sharedMemory),
+        learnedMemoryText: formatMemoryRecall(sortMemoryEntries(learnedMemoryThisRun).slice(0, DEFAULTS.memoryRecallItems)),
+        persistentMemoryText: formatMemoryRecall(sortMemoryEntries(persistentMemoryStore.entries).slice(0, DEFAULTS.memoryRecallItems)),
       });
       throw new Error(`Dependency deadlock. Remaining subtasks: ${remaining.map(subtask => subtask.id).join(', ')}`);
     }
@@ -2376,7 +2690,7 @@ async function run(task, options) {
       console.log('-'.repeat(60));
       console.log(`[run] ${subtask.id} (${subtask.agent})`);
       console.log(`      ${subtask.title}`);
-      writeRunState(outputDir, {
+      const executingRunState = {
         ...baseRunState,
         status: 'running',
         phase: 'executing',
@@ -2402,6 +2716,14 @@ async function run(task, options) {
           learnedCount: learnedMemoryThisRun.length,
           storePath: path.relative(ROOT, MEMORY_JSON_PATH),
         },
+      };
+      writeRunState(outputDir, executingRunState);
+      writeLatestSessionMemory(executingRunState, {
+        subtasks: resolvedPlan.subtasks,
+        completedSubtasks: Object.values(completed),
+        sharedMemoryText: formatSharedMemory(sharedMemorySnapshot),
+        learnedMemoryText: formatMemoryRecall(sortMemoryEntries(learnedMemoryThisRun).slice(0, DEFAULTS.memoryRecallItems)),
+        persistentMemoryText: formatMemoryRecall(sortMemoryEntries(persistentMemoryStore.entries).slice(0, DEFAULTS.memoryRecallItems)),
       });
       return {
         subtask,
@@ -2464,7 +2786,7 @@ async function run(task, options) {
         console.log('  [file] No file changes proposed');
       }
 
-      writeRunState(outputDir, {
+      const progressRunState = {
         ...baseRunState,
         status: 'running',
         phase: 'executing',
@@ -2484,6 +2806,14 @@ async function run(task, options) {
           learnedCount: learnedMemoryThisRun.length,
           storePath: path.relative(ROOT, MEMORY_JSON_PATH),
         },
+      };
+      writeRunState(outputDir, progressRunState);
+      writeLatestSessionMemory(progressRunState, {
+        subtasks: resolvedPlan.subtasks,
+        completedSubtasks: Object.values(completed),
+        sharedMemoryText: formatSharedMemory(sharedMemory),
+        learnedMemoryText: formatMemoryRecall(sortMemoryEntries(learnedMemoryThisRun).slice(0, DEFAULTS.memoryRecallItems * 2)),
+        persistentMemoryText: formatMemoryRecall(sortMemoryEntries(persistentMemoryStore.entries).slice(0, DEFAULTS.memoryRecallItems)),
       });
     }
   }
@@ -2538,6 +2868,7 @@ async function run(task, options) {
     '- Planner and resolved plan JSON: `plan.json`, `resolved-plan.json`',
     '- Shared memory snapshot: `shared-memory.md`',
     '- Persistent memory store: `../memory/knowledge-base.json`, `../memory/knowledge-base.md`',
+    '- Latest cross-tool session memory: `../memory/latest-session.md`',
     '',
     '## File Results',
     ...Object.values(completed).flatMap(record => {
@@ -2549,7 +2880,7 @@ async function run(task, options) {
   ];
 
   fs.writeFileSync(path.join(outputDir, 'REPORT.md'), reportLines.join('\n'), 'utf8');
-  writeRunState(outputDir, {
+  const completedRunState = {
     ...baseRunState,
     status: 'completed',
     phase: 'completed',
@@ -2570,6 +2901,14 @@ async function run(task, options) {
       storePath: path.relative(ROOT, MEMORY_JSON_PATH),
     },
     finishedAt: new Date().toISOString(),
+  };
+  writeRunState(outputDir, completedRunState);
+  writeLatestSessionMemory(completedRunState, {
+    subtasks: resolvedPlan.subtasks,
+    completedSubtasks: Object.values(completed),
+    sharedMemoryText,
+    learnedMemoryText: formatMemoryRecall(sortMemoryEntries(learnedMemoryThisRun).slice(0, DEFAULTS.memoryRecallItems * 2)),
+    persistentMemoryText: formatMemoryRecall(sortMemoryEntries(persistentMemoryStore.entries).slice(0, DEFAULTS.memoryRecallItems * 2)),
   });
 
   console.log('');

@@ -1,18 +1,19 @@
 # Hybrid Codex + Claude Agents
 
-`scripts/agents.js` is the repo's multi-model orchestration entrypoint. It plans a task, routes each subtask to the provider best suited for that role, keeps a shared memory handoff so later agents inherit the most useful context from earlier ones, and now maintains a persistent retrieval memory store across runs.
+`scripts/agents.js` is the repo's multi-model orchestration entrypoint. It plans a task, routes each subtask to the provider best suited for that role, keeps a shared memory handoff so later agents inherit the most useful context from earlier ones, and now maintains both a persistent retrieval memory store and a live cross-tool handoff file across runs.
 
-## Default routing
+## GP Link team structure
 
-Profile `balanced`:
-- `frontend` -> OpenAI/Codex
-- `backend` -> OpenAI/Codex
-- `database` -> Claude
-- `research` -> Claude
-- `extrapolation` -> Claude
-- `review` -> OpenAI/Codex
+The team lead handles research, extrapolation, understanding, and planning before it delegates to these fixed execution agents:
 
-Profile `codex-heavy` pushes implementation toward OpenAI/Codex. Profile `claude-heavy` keeps most planning and reasoning on Claude.
+- `frontend` -> UI and experience implementation, usually OpenAI/Codex
+- `backend` -> server-side plus grounded Supabase work, usually OpenAI/Codex with Claude advisor support
+- `security` -> auth, secret handling, injection, and hardening pass, usually Claude
+- `alignment` -> GP Link product fit, hallucination cleanup, and final integration pass, usually Claude
+
+The orchestrator enforces that order so the security and final GP Link alignment passes always happen after implementation.
+
+Profile `codex-heavy` pushes more implementation toward OpenAI/Codex. Profile `claude-heavy` keeps more planning and reasoning on Claude.
 
 ## Complexity-aware model allocation
 
@@ -45,6 +46,7 @@ The orchestrator now keeps two memory layers:
 
 - run memory: `shared-memory.md` captures the most important handoff context between subtasks in the current run
 - persistent memory: `agents-output/memory/knowledge-base.json` and `knowledge-base.md` keep reusable lessons from earlier runs
+- live cross-tool handoff: `agents-output/memory/latest-session.md` keeps the newest Codex <-> Claude working memory so you can switch tools mid-stream
 
 How it behaves:
 
@@ -52,6 +54,7 @@ How it behaves:
 - each specialist and advisor receives only the memory entries most relevant to that role, task wording, and planned file set
 - new summaries, shared-context notes, findings, risks, and review issues are normalized into durable memory after each subtask completes
 - repeated learnings are merged instead of duplicated, and reused entries get a higher relevance score over time
+- the latest-session handoff file is refreshed during orchestrator runs so Codex and Claude can pick up the newest context when you switch tools
 
 This is retrieval-based learning, not model fine-tuning. The agents do not silently change their underlying model weights; they reuse structured memory that you can inspect, version, and delete.
 
@@ -122,6 +125,8 @@ What this enables:
 ```bash
 npm run agents -- "build a new admin queue for pending visa tasks"
 
+npm run gplink -- "build a new admin queue for pending visa tasks"
+
 node scripts/agents.js \
   --task "add a recruiter-facing dashboard for registration blockers" \
   --profile balanced \
@@ -135,6 +140,55 @@ node scripts/agents.js \
 ```
 
 `--apply` only writes edits back into the repo when every requested `find`/`replace` matched exactly. Otherwise the script leaves the repo untouched and writes reviewable artifacts instead.
+
+## Codex and Claude entrypoints
+
+Codex:
+
+- repo startup instructions now live in `AGENTS.md`
+- Codex should read:
+  - `AGENTS.md`
+  - `CLAUDE.md`
+  - `agents-output/memory/latest-session.md`
+  - `agents-output/memory/knowledge-base.md`
+
+Claude:
+
+- project slash command now lives at `.claude/skills/gplink/SKILL.md`
+- invoke it with:
+
+```text
+/gplink
+```
+
+or
+
+```text
+/gplink redesign the master admin dashboard to control the hybrid agent workflow
+```
+
+Claude's `/gplink` skill is designed to load the same shared memory files Codex uses.
+
+Manual memory sync between direct Codex and direct Claude sessions:
+
+```bash
+npm run gplink:memory -- handoff \
+  --source codex \
+  --task "what you just worked on" \
+  --summary "what changed" \
+  --files "pages/admin.html,server.js" \
+  --next "what the next Claude or Codex session should do"
+```
+
+Durable learning update:
+
+```bash
+npm run gplink:memory -- learn \
+  --source claude \
+  --role alignment \
+  --text "Use same-origin plus super-admin gating on hybrid-agent launch endpoints." \
+  --files "server.js,pages/admin.html"
+```
 
 ## Output layout
 
@@ -153,6 +207,7 @@ Persistent cross-run memory lives outside each run folder:
 
 - `agents-output/memory/knowledge-base.json`
 - `agents-output/memory/knowledge-base.md`
+- `agents-output/memory/latest-session.md`
 
 ## Environment variables
 
@@ -207,4 +262,5 @@ The master admin dashboard at `pages/admin.html` now exposes an `Agent` tab for 
 - If Claude browser-use MCP is connected, Claude subtasks can use it for app/browser walkthrough work without changing the OpenAI/Codex side of the pipeline.
 - The script uses a compact repo overview for planning, then focused file snippets for each subtask so prompts stay smaller and more grounded than sending the whole codebase every time.
 - Persistent memory is retrieval-only and file-aware, so agents can share lessons safely without pretending they have magically retrained themselves.
+- `AGENTS.md` and Claude's `/gplink` skill both point at the same shared memory files so you can switch between Codex and Claude with the latest handoff context.
 - Review remains non-destructive by default. The safest workflow is to inspect `artifacts/` and `REPORT.md` before using `--apply`.
