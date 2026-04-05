@@ -3,6 +3,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -14,6 +15,8 @@ const DEFAULT_HOST = String(process.env.AGENT_BRIDGE_HOST || '127.0.0.1').trim()
 const DEFAULT_PORT = Math.max(1, Number.parseInt(process.env.AGENT_BRIDGE_PORT || '4317', 10) || 4317);
 const DEFAULT_RELAY_URL = String(process.env.AGENT_BRIDGE_RELAY_URL || '').trim();
 const DEFAULT_RELAY_TOKEN = String(process.env.AGENT_BRIDGE_RELAY_TOKEN || '').trim();
+const DEFAULT_WORKER_ID = String(process.env.AGENT_BRIDGE_WORKER_ID || '').trim();
+const DEFAULT_WORKER_NAME = String(process.env.AGENT_BRIDGE_WORKER_NAME || '').trim();
 const DEFAULT_RELAY_SYNC_MS = Math.max(1500, Number.parseInt(process.env.AGENT_BRIDGE_RELAY_SYNC_MS || '4000', 10) || 4000);
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://ceo.admin.mygplink.com.au',
@@ -43,6 +46,8 @@ const bridgeState = {
   relay: {
     baseUrl: DEFAULT_RELAY_URL.replace(/\/+$/, ''),
     token: DEFAULT_RELAY_TOKEN,
+    workerId: DEFAULT_WORKER_ID,
+    workerName: DEFAULT_WORKER_NAME,
     syncIntervalMs: DEFAULT_RELAY_SYNC_MS,
     connected: false,
     syncing: false,
@@ -59,6 +64,8 @@ function parseArgs(rawArgs) {
     port: DEFAULT_PORT,
     relay: DEFAULT_RELAY_URL,
     token: DEFAULT_RELAY_TOKEN,
+    workerId: DEFAULT_WORKER_ID,
+    workerName: DEFAULT_WORKER_NAME,
     syncIntervalMs: DEFAULT_RELAY_SYNC_MS,
     help: false,
   };
@@ -76,6 +83,12 @@ function parseArgs(rawArgs) {
       i++;
     } else if (arg === '--token') {
       options.token = String(rawArgs[i + 1] || options.token).trim();
+      i++;
+    } else if (arg === '--worker-id') {
+      options.workerId = String(rawArgs[i + 1] || options.workerId).trim();
+      i++;
+    } else if (arg === '--worker-name') {
+      options.workerName = String(rawArgs[i + 1] || options.workerName).trim();
       i++;
     } else if (arg === '--sync-interval-ms') {
       options.syncIntervalMs = Math.max(1500, Number.parseInt(rawArgs[i + 1] || String(options.syncIntervalMs), 10) || options.syncIntervalMs);
@@ -96,7 +109,7 @@ function printHelp() {
 Usage:
   node scripts/agent-bridge.js
   node scripts/agent-bridge.js --host 127.0.0.1 --port 4317
-  node scripts/agent-bridge.js --relay https://ceo.admin.mygplink.com.au --token <bridge-token>
+  node scripts/agent-bridge.js --relay https://ceo.admin.mygplink.com.au --worker-id <worker-id> --token <worker-token>
 
 This bridge runs on your Mac and lets the live admin dashboard call your local
 Codex and Claude CLIs over localhost, or sync securely back to the live dashboard
@@ -108,6 +121,8 @@ Environment:
   AGENT_BRIDGE_ALLOWED_ORIGINS  Default: ${Array.from(ALLOWED_ORIGINS).join(', ')}
   AGENT_BRIDGE_RELAY_URL        Default: ${DEFAULT_RELAY_URL || '(disabled)'}
   AGENT_BRIDGE_RELAY_TOKEN      Default: ${DEFAULT_RELAY_TOKEN ? '(set)' : '(disabled)'}
+  AGENT_BRIDGE_WORKER_ID        Default: ${DEFAULT_WORKER_ID || '(unset)'}
+  AGENT_BRIDGE_WORKER_NAME      Default: ${DEFAULT_WORKER_NAME || '(auto)'}
   AGENT_BRIDGE_RELAY_SYNC_MS    Default: ${DEFAULT_RELAY_SYNC_MS}`);
 }
 
@@ -377,8 +392,23 @@ function getLocalBridgeInfo() {
   };
 }
 
+function getRelayWorkerIdentity() {
+  let userName = '';
+  try {
+    userName = os.userInfo().username || '';
+  } catch {}
+  return {
+    id: String(bridgeState.relay.workerId || '').trim(),
+    name: String(bridgeState.relay.workerName || '').trim() || os.hostname(),
+    hostname: os.hostname(),
+    platform: `${os.platform()} ${os.release()}`.trim(),
+    user: userName,
+    pid: process.pid,
+  };
+}
+
 function relayEnabled() {
-  return !!(bridgeState.relay.baseUrl && bridgeState.relay.token);
+  return !!(bridgeState.relay.baseUrl && bridgeState.relay.token && bridgeState.relay.workerId);
 }
 
 function queueRelayCommandUpdate(update) {
@@ -468,6 +498,8 @@ async function syncRelayOnce(forceProviderRefresh = false) {
         Authorization: `Bearer ${bridgeState.relay.token}`,
       },
       body: JSON.stringify({
+        workerId: bridgeState.relay.workerId,
+        worker: getRelayWorkerIdentity(),
         providers: providers || bridgeState.providerStatusCache.data || null,
         providerStatusRefreshedAt: bridgeState.providerStatusCache.refreshedAt || '',
         runs: listRuns(12),
@@ -730,6 +762,8 @@ async function handleRequest(req, res) {
       relay: {
         enabled: relayEnabled(),
         baseUrl: bridgeState.relay.baseUrl || '',
+        workerId: bridgeState.relay.workerId || '',
+        workerName: bridgeState.relay.workerName || '',
         connected: !!bridgeState.relay.connected,
         lastSyncAt: bridgeState.relay.lastSyncAt || '',
         error: bridgeState.relay.error || '',
@@ -764,7 +798,7 @@ async function handleRequest(req, res) {
         openai: 'codex login',
         anthropic: 'claude auth login',
         localBridge: relayEnabled()
-          ? `/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js --relay "${bridgeState.relay.baseUrl}" --token "<bridge-token>"`
+          ? `/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js --relay "${bridgeState.relay.baseUrl}" --worker-id "${bridgeState.relay.workerId}" --token "<worker-token>"`
           : 'npm run agent-bridge',
       },
       bridge: Object.assign({}, getLocalBridgeInfo(), {
@@ -920,6 +954,8 @@ if (options.help) {
 
 bridgeState.relay.baseUrl = String(options.relay || '').trim().replace(/\/+$/, '');
 bridgeState.relay.token = String(options.token || '').trim();
+bridgeState.relay.workerId = String(options.workerId || '').trim();
+bridgeState.relay.workerName = String(options.workerName || '').trim();
 bridgeState.relay.syncIntervalMs = Math.max(1500, Number.parseInt(String(options.syncIntervalMs || DEFAULT_RELAY_SYNC_MS), 10) || DEFAULT_RELAY_SYNC_MS);
 
 server.listen(options.port, options.host, () => {
@@ -929,6 +965,8 @@ server.listen(options.port, options.host, () => {
   console.log(`Allowed origins: ${Array.from(ALLOWED_ORIGINS).join(', ')}`);
   if (relayEnabled()) {
     console.log(`Relay target: ${bridgeState.relay.baseUrl}`);
+    console.log(`Relay worker id: ${bridgeState.relay.workerId}`);
+    if (bridgeState.relay.workerName) console.log(`Relay worker name: ${bridgeState.relay.workerName}`);
     console.log(`Relay sync interval: ${bridgeState.relay.syncIntervalMs}ms`);
   } else {
     console.log('Relay target: disabled');

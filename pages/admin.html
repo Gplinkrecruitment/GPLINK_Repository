@@ -370,7 +370,7 @@
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
     selectedCaseId:null,view:"cases",filter:"all",query:"",expanded:{},refreshTimer:null,
     opsTasks:[],opsExpandedId:null,opsLoading:false,
-    agent:{providers:null,runs:[],policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
+    agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
       draftTask:"",profile:"balanced",collaborationMode:"paired",complexity:"auto",loading:false,submitting:false,
       warnings:[],security:null,providerStatusRefreshedAt:"",error:"",
       bridge:{connected:false,mode:"remote",baseUrl:"",error:"",status:null,candidates:["http://127.0.0.1:4317","http://localhost:4317"]}}};
@@ -408,6 +408,8 @@
     S.agent.providers=d.providers||null;
     S.agent.policy=d.dashboard&&d.dashboard.policy?d.dashboard.policy:null;
     S.agent.runs=d.dashboard&&Array.isArray(d.dashboard.runs)?d.dashboard.runs:[];
+    S.agent.workers=d.dashboard&&Array.isArray(d.dashboard.workers)?d.dashboard.workers:[];
+    S.agent.primaryWorkerId=d.dashboard&&d.dashboard.primaryWorkerId?d.dashboard.primaryWorkerId:"";
     S.agent.activeRunId=d.dashboard&&d.dashboard.activeRunId?d.dashboard.activeRunId:"";
     S.agent.connectCommands=Object.assign(agentConnectCommands(),d.connectCommands||{});
     S.agent.warnings=d.dashboard&&Array.isArray(d.dashboard.warnings)?d.dashboard.warnings:[];
@@ -919,9 +921,10 @@
     const bridge=S.agent.bridge||{};
     const connected=!!bridge.connected;
     const relay=bridge.status&&bridge.status.mode==="relay";
+    const workerName=bridge.status&&bridge.status.workerName?bridge.status.workerName:"";
     const mode=connected?(relay?"Secure Relay Ready":"Local Bridge Ready"):"Local Bridge Offline";
     const detail=connected
-      ?(relay?("Synced to the live dashboard via "+(bridge.status&&bridge.status.relayUrl?bridge.status.relayUrl:"secure relay")):(bridge.baseUrl||"Localhost bridge connected"))
+      ?(relay?((workerName?workerName+" • ":"")+"Synced to the live dashboard via "+(bridge.status&&bridge.status.relayUrl?bridge.status.relayUrl:"secure relay")):(bridge.baseUrl||"Localhost bridge connected"))
       :(bridge.error||"Start the local bridge on this Mac so the live dashboard can use your local CLIs.");
     const targetLabel=connected?(relay?"This Mac via secure relay":"This Mac"):"Remote server only";
     const urlLabel=relay?(bridge.status&&bridge.status.relayUrl?bridge.status.relayUrl:"Relay connected"):((bridge.baseUrl)||((bridge.candidates&&bridge.candidates[0])||"http://127.0.0.1:4317"));
@@ -956,6 +959,40 @@
     </div>`;
   }
 
+  function workerHostsCard(){
+    const workers=Array.isArray(S.agent.workers)?S.agent.workers:[];
+    if(!workers.length){
+      return `<div class="agent-card">
+        <h3>Registered Workers</h3>
+        <div class="agent-meta">No remote worker has been registered yet. Use Register Worker to create a persistent agent host command for another device.</div>
+        <div class="agent-toolbar" style="margin-top:12px">
+          <button class="btn sm" data-agent-register-worker>Register Worker</button>
+        </div>
+      </div>`;
+    }
+    return `<div class="agent-card">
+      <h3>Registered Workers</h3>
+      <div class="agent-meta">Choose which device the dashboard should target. The selected primary worker receives queued runs and sync requests.</div>
+      <div class="agent-progress-list">${workers.map(worker=>{
+        const state=worker.connected?"Connected":"Offline";
+        const device=(worker.meta&&worker.meta.hostname)||(worker.bridgeInfo&&worker.bridgeInfo.host)||worker.name||worker.id;
+        const platform=worker.meta&&worker.meta.platform?worker.meta.platform:"";
+        return `<div class="agent-progress-item">
+          <strong>${esc(worker.name||worker.id)}</strong>${worker.primary?` <span class="task-tag stage">Primary</span>`:""}<br>
+          ${esc(state)} • ${esc(device)}${platform?` • ${esc(platform)}`:""}<br>
+          Last seen ${esc(worker.lastSeenAt?fmtDT(worker.lastSeenAt):"never")} • ${esc(String(worker.availableProviderCount||0))} providers ready
+          <div class="agent-toolbar" style="margin-top:8px">
+            ${!worker.primary?`<button class="btn sm" data-agent-worker-select="${esc(worker.id)}">Use This</button>`:""}
+            <button class="btn sm" data-agent-worker-revoke="${esc(worker.id)}">Remove</button>
+          </div>
+        </div>`;
+      }).join("")}</div>
+      <div class="agent-toolbar" style="margin-top:12px">
+        <button class="btn sm" data-agent-register-worker>Register Worker</button>
+      </div>
+    </div>`;
+  }
+
   function renderAgentDetail(){
     const el=document.getElementById("detailContent");
     if(!isSA()){el.innerHTML=`<div class="detail-empty">Super admin access is required for Agent Control.</div>`;return;}
@@ -978,6 +1015,22 @@
         ${bridgeCard()}
         ${providerCard("openai","Codex / OpenAI",openai)}
         ${providerCard("anthropic","Claude / Anthropic",anthropic)}
+      </div>
+      <div class="agent-grid">
+        ${workerHostsCard()}
+        <div class="agent-card dark">
+          <h3>Model Policy</h3>
+          ${policy?`<div class="agent-meta">Complexity resolved as <strong style="color:#fff">${esc(policy.taskComplexity)}</strong>. Profile <strong style="color:#fff">${esc(policy.profile||S.agent.profile)}</strong> with <strong style="color:#fff">${esc(policy.collaborationMode||S.agent.collaborationMode)}</strong> collaboration.</div>
+          <div class="agent-pills">
+            <span class="agent-pill">Resolved Codex: ${esc(policy.selected&&policy.selected.openaiPrimary||"")}</span>
+            <span class="agent-pill">Resolved Review: ${esc(policy.selected&&policy.selected.openaiReview||"")}</span>
+            <span class="agent-pill">Resolved Claude: ${esc(policy.selected&&policy.selected.anthropicPrimary||"")}</span>
+            <span class="agent-pill">Forced mode: ${esc(policy.complexityMode||"auto")}</span>
+            ${policy.capabilities&&policy.capabilities.browserUseRecommended?`<span class="agent-pill">Claude browser-use recommended</span>`:""}
+          </div>
+          <div class="agent-role-list">${(policy.roleAssignments||[]).map(item=>`<div class="agent-role-row"><div><div class="agent-role-name">${esc(prettyRole(item.role))}</div></div><div class="agent-role-route">${esc(item.providerLabel||item.provider||"")}\u00a0/\u00a0${esc(item.model||"")}</div></div>`).join("")}</div>
+          <div class="agent-inline-list" style="margin-top:10px">${(policy.notes||[]).map(note=>`<div class="agent-inline-item">${esc(note)}</div>`).join("")}</div>`:`<div class="agent-meta">Policy will appear after the provider status loads.</div>`}
+        </div>
       </div>
       <div class="agent-grid">
         <div class="agent-card">
@@ -1004,19 +1057,7 @@
             <div class="agent-meta">Connection state last checked: ${esc(S.agent.providerStatusRefreshedAt?fmtDT(S.agent.providerStatusRefreshedAt):"not yet checked")} \u2022 Control mode: ${esc(agentBridgeActive()?"local bridge":((S.agent.bridge&&S.agent.bridge.connected&&S.agent.bridge.mode==="relay")?"secure relay":"remote server"))}</div>
           </div>
         </div>
-        <div class="agent-card dark">
-          <h3>Model Policy</h3>
-          ${policy?`<div class="agent-meta">Complexity resolved as <strong style="color:#fff">${esc(policy.taskComplexity)}</strong>. Profile <strong style="color:#fff">${esc(policy.profile||S.agent.profile)}</strong> with <strong style="color:#fff">${esc(policy.collaborationMode||S.agent.collaborationMode)}</strong> collaboration.</div>
-          <div class="agent-pills">
-            <span class="agent-pill">Resolved Codex: ${esc(policy.selected&&policy.selected.openaiPrimary||"")}</span>
-            <span class="agent-pill">Resolved Review: ${esc(policy.selected&&policy.selected.openaiReview||"")}</span>
-            <span class="agent-pill">Resolved Claude: ${esc(policy.selected&&policy.selected.anthropicPrimary||"")}</span>
-            <span class="agent-pill">Forced mode: ${esc(policy.complexityMode||"auto")}</span>
-            ${policy.capabilities&&policy.capabilities.browserUseRecommended?`<span class="agent-pill">Claude browser-use recommended</span>`:""}
-          </div>
-          <div class="agent-role-list">${(policy.roleAssignments||[]).map(item=>`<div class="agent-role-row"><div><div class="agent-role-name">${esc(prettyRole(item.role))}</div></div><div class="agent-role-route">${esc(item.providerLabel||item.provider||"")}\u00a0/\u00a0${esc(item.model||"")}</div></div>`).join("")}</div>
-          <div class="agent-inline-list" style="margin-top:10px">${(policy.notes||[]).map(note=>`<div class="agent-inline-item">${esc(note)}</div>`).join("")}</div>`:`<div class="agent-meta">Policy will appear after the provider status loads.</div>`}
-        </div>
+        <div class="agent-card"><h3>Launch Notes</h3><div class="agent-meta">Runs are sent to the selected primary worker when a remote worker is connected. If no worker is connected, the dashboard falls back to the server-local provider check.</div></div>
       </div>`;
 
     h+=`<div class="agent-grid">
@@ -1144,6 +1185,27 @@
     }catch(err){alert(err&&err.message?err.message:"Failed to refresh provider status.");}
   }
 
+  async function selectAgentWorker(workerId){
+    if(!workerId)return;
+    try{
+      const res=await fetchJson("/api/admin/agent-control/workers/select",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({workerId})});
+      const d=res.d||{};
+      if(!res.r.ok||!d.ok){alert(d.message||"Unable to select worker.");return;}
+      await refreshAgentStatus(true);
+    }catch(err){alert(err&&err.message?err.message:"Unable to select worker.");}
+  }
+
+  async function revokeAgentWorker(workerId){
+    if(!workerId)return;
+    if(!window.confirm("Remove this registered worker? The remote machine will need a new registration command to reconnect."))return;
+    try{
+      const res=await fetchJson("/api/admin/agent-control/workers/revoke",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({workerId})});
+      const d=res.d||{};
+      if(!res.r.ok||!d.ok){alert(d.message||"Unable to remove worker.");return;}
+      await refreshAgentStatus(true);
+    }catch(err){alert(err&&err.message?err.message:"Unable to remove worker.");}
+  }
+
   async function showAgentConnectHelp(provider){
     const cmds=agentConnectCommands();
     const cmd=cmds&&cmds[provider]?cmds[provider]:"";
@@ -1151,20 +1213,23 @@
     document.getElementById("modalTitle").textContent=title;
     document.getElementById("modalOverlay").classList.add("open");
     if(provider==="localBridge"){
-      document.getElementById("modalBody").innerHTML=`<div class="agent-meta">Generating a secure relay command for this dashboard session...</div>`;
+      document.getElementById("modalBody").innerHTML=`<div class="agent-meta">Registering a persistent worker and generating its startup command...</div>`;
       let relayCmd=cmd||"/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js";
-      let expiresText="";
+      let helperText="This creates a persistent worker record. You can start it again later with the same command until you remove or rotate that worker.";
       try{
-        const tokenRes=await fetchJson("/api/admin/agent-control/bridge/token",{credentials:"same-origin"});
+        const tokenRes=await fetchJson("/api/admin/agent-control/workers/register",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({})});
         if(tokenRes.r.ok&&tokenRes.d&&tokenRes.d.ok){
           relayCmd=tokenRes.d.command||relayCmd;
           S.agent.connectCommands=Object.assign(agentConnectCommands(),{localBridge:relayCmd});
-          expiresText=tokenRes.d.expiresAt?`Relay token expires ${fmtDT(tokenRes.d.expiresAt)}.`:"";
+          S.agent.workers=Array.isArray(tokenRes.d.workers)?tokenRes.d.workers:S.agent.workers;
+          S.agent.primaryWorkerId=tokenRes.d.primaryWorkerId||S.agent.primaryWorkerId;
+          helperText=tokenRes.d.workerName?`Registered worker ${tokenRes.d.workerName}. Run this command on the device that should host Codex and Claude.`:helperText;
+          if(S.view==="agent")renderDetail();
         }
       }catch{}
-      document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">Run this from the repo root on the Mac that has your Codex and Claude CLIs installed. Keep it running while you use the live dashboard. Relay mode is the most reliable option when the browser cannot fetch localhost directly.</p>
+      document.getElementById("modalBody").innerHTML=`<p style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px">Run this from the repo root on the device that should host your Codex and Claude CLIs. Keep it running in a background service or always-on terminal while you use the live dashboard from any device.</p>
         <div class="agent-pre">${esc(relayCmd)}</div>
-        <p style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:10px">${esc(expiresText||"If the token expires, open this panel again to generate a fresh relay command.")}</p>
+        <p style="font-size:12px;color:var(--muted);line-height:1.6;margin-top:10px">${esc(helperText)}</p>
         <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
           <button class="btn primary" data-copy-connect="${esc(provider)}">Copy Command</button>
           <button class="btn" data-close-modal>Close</button>
@@ -1418,6 +1483,9 @@
       const agRefresh=e.target.closest("[data-agent-refresh]");if(agRefresh){refreshAgentStatus(true);return;}
       const agRefreshProviders=e.target.closest("[data-agent-refresh-providers]");if(agRefreshProviders){refreshAgentProviders();return;}
       const agCancel=e.target.closest("[data-agent-cancel]");if(agCancel){cancelAgentRun(agCancel.getAttribute("data-agent-cancel"));return;}
+      const agRegisterWorker=e.target.closest("[data-agent-register-worker]");if(agRegisterWorker){showAgentConnectHelp("localBridge");return;}
+      const agWorkerSelect=e.target.closest("[data-agent-worker-select]");if(agWorkerSelect){selectAgentWorker(agWorkerSelect.getAttribute("data-agent-worker-select"));return;}
+      const agWorkerRevoke=e.target.closest("[data-agent-worker-revoke]");if(agWorkerRevoke){revokeAgentWorker(agWorkerRevoke.getAttribute("data-agent-worker-revoke"));return;}
       const agConnect=e.target.closest("[data-agent-connect]");if(agConnect){showAgentConnectHelp(agConnect.getAttribute("data-agent-connect"));return;}
       if(e.target.closest("[data-back]")){S.selectedCaseId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderDetail();return;}
       const ct=e.target.closest("[data-complete-task]");if(ct){completeTask(ct.getAttribute("data-complete-task"));return;}

@@ -76,15 +76,23 @@ npm run agent-bridge
 
 That starts a localhost-only bridge at `http://127.0.0.1:4317`. The super-admin Agent tab will try to detect it automatically and, when available, switch control mode from the remote server to your local Mac.
 
-If the live dashboard still shows `Local bridge: Failed to fetch`, open the `Start Bridge` help inside the Agent tab and use the generated relay command instead. That command looks like:
+If the live dashboard still shows `Local bridge: Failed to fetch`, open the `Start Bridge` help inside the Agent tab and register a persistent worker instead. That command now looks like:
 
 ```bash
 /usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js \
   --relay https://ceo.admin.mygplink.com.au \
-  --token <one-time-token>
+  --worker-id <worker-id> \
+  --token <worker-token>
 ```
 
-The token is issued by the super-admin dashboard and lets your local bridge poll the live server securely, so the dashboard can control local CLIs even when the browser cannot reach localhost directly.
+The worker id and token are issued by the super-admin dashboard and identify a persistent remote agent host. Once that machine is registered, the dashboard can target it from any other device, and the same command can be reused after a reboot until that worker is removed from the dashboard.
+
+The dashboard now keeps a registered-worker list so you can:
+
+- create a new persistent worker command
+- see which worker is connected
+- choose the primary worker the dashboard should target
+- remove stale or old workers
 
 What this enables:
 
@@ -137,8 +145,9 @@ Each run writes to `agents-output/<timestamp>/`:
 - `AGENT_BRIDGE_ALLOWED_ORIGINS`
 - `AGENT_BRIDGE_RELAY_URL`
 - `AGENT_BRIDGE_RELAY_TOKEN`
+- `AGENT_BRIDGE_WORKER_ID`
+- `AGENT_BRIDGE_WORKER_NAME`
 - `AGENT_BRIDGE_RELAY_SYNC_MS`
-- `HYBRID_AGENT_BRIDGE_TOKEN_TTL_MS`
 - `HYBRID_AGENT_BRIDGE_STALE_MS`
 - `OPENAI_COMPLEX_MODEL`
 - `OPENAI_STANDARD_MODEL`

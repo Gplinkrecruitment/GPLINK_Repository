@@ -643,7 +643,8 @@ function createEmptyState() {
     refreshTokens: {},
     users: {},
     userProfiles: {},
-    userState: {}
+    userState: {},
+    hybridAgentBridgeStore: null
   };
 }
 
@@ -672,7 +673,10 @@ function loadDbState() {
       refreshTokens: parsed && parsed.refreshTokens && typeof parsed.refreshTokens === 'object' ? parsed.refreshTokens : {},
       users: parsed && parsed.users && typeof parsed.users === 'object' ? parsed.users : {},
       userProfiles: parsed && parsed.userProfiles && typeof parsed.userProfiles === 'object' ? parsed.userProfiles : {},
-      userState: parsed && parsed.userState && typeof parsed.userState === 'object' ? parsed.userState : {}
+      userState: parsed && parsed.userState && typeof parsed.userState === 'object' ? parsed.userState : {},
+      hybridAgentBridgeStore: parsed && parsed.hybridAgentBridgeStore && typeof parsed.hybridAgentBridgeStore === 'object'
+        ? parsed.hybridAgentBridgeStore
+        : null
     };
   } catch (err) {
     console.error('[DB] Failed to parse DB file. Starting with empty state.', err);
@@ -687,7 +691,7 @@ let adminDashboardCache = {
   inFlight: null
 };
 const AGENT_OUTPUT_ROOT = path.join(process.cwd(), 'agents-output');
-const HYBRID_AGENT_BRIDGE_TOKEN_TTL_MS = Number(process.env.HYBRID_AGENT_BRIDGE_TOKEN_TTL_MS || 12 * 60 * 60 * 1000);
+const HYBRID_AGENT_RUNTIME_KV_KEY = 'hybrid_agent_bridge_store_v1';
 const HYBRID_AGENT_BRIDGE_STALE_MS = Number(process.env.HYBRID_AGENT_BRIDGE_STALE_MS || 45 * 1000);
 let hybridAgentControlState = {
   activeRunId: '',
@@ -698,19 +702,10 @@ let hybridAgentControlState = {
     data: null,
     inFlight: null
   },
-  bridgeTokens: {},
-  bridgeCommands: [],
-  bridgeCommandSeq: 0,
-  bridgeRelay: {
-    lastSeenAt: '',
-    tokenEmail: '',
-    providers: null,
-    providerStatusRefreshedAt: '',
-    runs: [],
-    activeRunId: '',
-    bridgeInfo: null,
-    relayOrigin: '',
-    lastCommandResultAt: ''
+  bridgeStoreCache: {
+    loadedAt: 0,
+    data: null,
+    inFlight: null
   },
 };
 
@@ -2276,72 +2271,147 @@ function updateHybridAgentRegistry(runId, patch) {
   return hybridAgentControlState.runs[safeRunId];
 }
 
-function pruneHybridAgentBridgeTokens() {
-  const current = now();
-  Object.keys(hybridAgentControlState.bridgeTokens).forEach(function (tokenHash) {
-    const entry = hybridAgentControlState.bridgeTokens[tokenHash];
-    if (!entry || entry.expiresAt <= current) delete hybridAgentControlState.bridgeTokens[tokenHash];
-  });
-}
-
-function createHybridAgentBridgeToken(email) {
-  pruneHybridAgentBridgeTokens();
-  const tokenValue = crypto.randomBytes(24).toString('hex');
-  const tokenHash = crypto.createHash('sha256').update(tokenValue).digest('hex');
-  hybridAgentControlState.bridgeTokens[tokenHash] = {
-    email: String(email || '').trim().toLowerCase(),
-    createdAt: now(),
-    expiresAt: now() + HYBRID_AGENT_BRIDGE_TOKEN_TTL_MS,
-    lastUsedAt: 0
-  };
-  return {
-    token: tokenValue,
-    expiresAt: hybridAgentControlState.bridgeTokens[tokenHash].expiresAt
-  };
-}
-
-function getHybridAgentBridgeTokenEntry(tokenValue) {
-  pruneHybridAgentBridgeTokens();
-  const tokenHash = crypto.createHash('sha256').update(String(tokenValue || '')).digest('hex');
-  const entry = hybridAgentControlState.bridgeTokens[tokenHash];
-  if (!entry) return null;
-  if (entry.expiresAt <= now()) {
-    delete hybridAgentControlState.bridgeTokens[tokenHash];
-    return null;
-  }
-  entry.lastUsedAt = now();
-  return entry;
-}
-
-function getActiveHybridAgentRelay() {
-  const relay = hybridAgentControlState.bridgeRelay;
-  if (!relay || !relay.lastSeenAt) return null;
-  const lastSeenMs = Date.parse(relay.lastSeenAt);
-  if (!Number.isFinite(lastSeenMs)) return null;
-  if ((now() - lastSeenMs) > HYBRID_AGENT_BRIDGE_STALE_MS) return null;
-  return {
-    ...relay,
-    connected: true,
-    mode: 'relay'
-  };
-}
-
 function getHybridAgentBridgeRequestToken(req) {
   const bearer = getBearerToken(req);
   if (bearer) return bearer;
   return String(req && req.headers && req.headers['x-agent-bridge-token'] ? req.headers['x-agent-bridge-token'] : '').trim();
 }
 
-function buildHybridAgentBridgeStatus(req) {
-  const relay = getActiveHybridAgentRelay();
+function createHybridAgentWorkerRegistration(store, email, options) {
+  const nextStore = normalizeHybridAgentBridgeStore(store);
+  const tokenValue = crypto.randomBytes(24).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(tokenValue).digest('hex');
+  const workerCount = Object.keys(nextStore.workers).length + 1;
+  const workerId = sanitizeHybridAgentWorkerId(options && options.workerId)
+    || sanitizeHybridAgentWorkerId(`worker-${Date.now().toString(36)}-${workerCount}`);
+  const workerName = sanitizeHybridAgentWorkerName(options && options.name) || `Agent Host ${workerCount}`;
+  const currentIso = new Date().toISOString();
+
+  nextStore.workers[workerId] = normalizeHybridAgentWorkerRecord(workerId, {
+    id: workerId,
+    name: workerName,
+    tokenHash,
+    createdAt: currentIso,
+    updatedAt: currentIso,
+    createdBy: String(email || '').trim().toLowerCase(),
+    enabled: true,
+    lastSeenAt: '',
+    providers: null,
+    providerStatusRefreshedAt: '',
+    runs: [],
+    activeRunId: '',
+    bridgeInfo: null,
+    relayOrigin: '',
+    lastCommandResultAt: '',
+    meta: {}
+  });
+  if (!nextStore.primaryWorkerId) nextStore.primaryWorkerId = workerId;
+
+  return {
+    store: nextStore,
+    workerId,
+    workerName,
+    token: tokenValue
+  };
+}
+
+function getSelectedHybridAgentWorker(store) {
+  const source = normalizeHybridAgentBridgeStore(store);
+  if (source.primaryWorkerId && source.workers[source.primaryWorkerId] && source.workers[source.primaryWorkerId].enabled !== false) {
+    return source.workers[source.primaryWorkerId];
+  }
+  return Object.values(source.workers).find(function (worker) { return worker && worker.enabled !== false; }) || null;
+}
+
+function isHybridAgentWorkerConnected(worker) {
+  if (!worker || !worker.lastSeenAt) return false;
+  const seenAtMs = Date.parse(worker.lastSeenAt);
+  if (!Number.isFinite(seenAtMs)) return false;
+  return (now() - seenAtMs) <= HYBRID_AGENT_BRIDGE_STALE_MS;
+}
+
+function getActiveHybridAgentRelay(store) {
+  const worker = getSelectedHybridAgentWorker(store);
+  if (!worker || !isHybridAgentWorkerConnected(worker)) return null;
+  return {
+    workerId: worker.id,
+    workerName: worker.name,
+    lastSeenAt: worker.lastSeenAt,
+    providers: worker.providers,
+    providerStatusRefreshedAt: worker.providerStatusRefreshedAt || '',
+    runs: Array.isArray(worker.runs) ? worker.runs : [],
+    activeRunId: worker.activeRunId || '',
+    bridgeInfo: worker.bridgeInfo || null,
+    relayOrigin: worker.relayOrigin || '',
+    lastCommandResultAt: worker.lastCommandResultAt || '',
+    meta: worker.meta || {},
+    connected: true,
+    mode: 'relay'
+  };
+}
+
+function getTargetHybridAgentWorkerId(store) {
+  const worker = getSelectedHybridAgentWorker(store);
+  return worker ? worker.id : '';
+}
+
+function listHybridAgentWorkers(store) {
+  const source = normalizeHybridAgentBridgeStore(store);
+  return Object.values(source.workers)
+    .map(function (worker) {
+      const connected = isHybridAgentWorkerConnected(worker);
+      const providers = worker.providers && typeof worker.providers === 'object' ? worker.providers : null;
+      const availableProviderCount = providers ? Object.values(providers).filter(function (entry) { return entry && entry.available; }).length : 0;
+      return {
+        id: worker.id,
+        name: worker.name || worker.id,
+        primary: source.primaryWorkerId === worker.id,
+        enabled: worker.enabled !== false,
+        connected,
+        createdAt: worker.createdAt || '',
+        updatedAt: worker.updatedAt || '',
+        lastSeenAt: worker.lastSeenAt || '',
+        relayOrigin: worker.relayOrigin || '',
+        bridgeInfo: worker.bridgeInfo || null,
+        activeRunId: worker.activeRunId || '',
+        providerStatusRefreshedAt: worker.providerStatusRefreshedAt || '',
+        availableProviderCount,
+        meta: worker.meta || {}
+      };
+    })
+    .sort(function (a, b) {
+      if (a.primary && !b.primary) return -1;
+      if (!a.primary && b.primary) return 1;
+      if (a.connected && !b.connected) return -1;
+      if (!a.connected && b.connected) return 1;
+      return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+    });
+}
+
+function findHybridAgentWorkerByCredentials(store, workerId, tokenValue) {
+  const source = normalizeHybridAgentBridgeStore(store);
+  const safeWorkerId = sanitizeHybridAgentWorkerId(workerId || '');
+  const worker = safeWorkerId ? source.workers[safeWorkerId] : null;
+  if (!worker || worker.enabled === false || !worker.tokenHash) return null;
+  const tokenHash = crypto.createHash('sha256').update(String(tokenValue || '')).digest('hex');
+  if (tokenHash !== worker.tokenHash) return null;
+  return worker;
+}
+
+function buildHybridAgentBridgeStatus(req, store) {
+  const source = normalizeHybridAgentBridgeStore(store);
+  const relay = getActiveHybridAgentRelay(source);
+  const workers = listHybridAgentWorkers(source);
+  const selectedWorker = getSelectedHybridAgentWorker(source);
   if (!relay) {
     return {
       connected: false,
       mode: 'remote',
       relayUrl: getRequestOrigin(req),
-      lastSeenAt: hybridAgentControlState.bridgeRelay && hybridAgentControlState.bridgeRelay.lastSeenAt
-        ? hybridAgentControlState.bridgeRelay.lastSeenAt
-        : ''
+      lastSeenAt: selectedWorker && selectedWorker.lastSeenAt ? selectedWorker.lastSeenAt : '',
+      workerId: selectedWorker ? selectedWorker.id : '',
+      workerName: selectedWorker ? selectedWorker.name : '',
+      workerCount: workers.length
     };
   }
   return {
@@ -2353,14 +2423,21 @@ function buildHybridAgentBridgeStatus(req) {
     baseUrl: relay.bridgeInfo && relay.bridgeInfo.baseUrl ? relay.bridgeInfo.baseUrl : '',
     host: relay.bridgeInfo && relay.bridgeInfo.host ? relay.bridgeInfo.host : '',
     port: relay.bridgeInfo && relay.bridgeInfo.port ? relay.bridgeInfo.port : '',
-    tokenEmail: relay.tokenEmail || ''
+    workerId: relay.workerId,
+    workerName: relay.workerName || relay.workerId,
+    workerCount: workers.length,
+    meta: relay.meta || {}
   };
 }
 
-function queueHybridAgentBridgeCommand(type, payload, requestedBy) {
-  hybridAgentControlState.bridgeCommandSeq += 1;
+function queueHybridAgentBridgeCommand(store, workerId, type, payload, requestedBy) {
+  const nextStore = normalizeHybridAgentBridgeStore(store);
+  const safeWorkerId = sanitizeHybridAgentWorkerId(workerId || '');
+  if (!safeWorkerId || !nextStore.workers[safeWorkerId]) return { store: nextStore, command: null };
+  nextStore.commandSeq += 1;
   const command = {
-    id: `bridge-${Date.now()}-${hybridAgentControlState.bridgeCommandSeq}`,
+    id: `bridge-${Date.now()}-${nextStore.commandSeq}`,
+    workerId: safeWorkerId,
     type: String(type || '').trim(),
     payload: payload && typeof payload === 'object' ? payload : {},
     requestedBy: String(requestedBy || '').trim(),
@@ -2372,55 +2449,68 @@ function queueHybridAgentBridgeCommand(type, payload, requestedBy) {
     result: null,
     message: ''
   };
-  hybridAgentControlState.bridgeCommands.push(command);
-  if (hybridAgentControlState.bridgeCommands.length > 80) {
-    hybridAgentControlState.bridgeCommands = hybridAgentControlState.bridgeCommands.slice(-80);
-  }
-  return command;
+  nextStore.commands.push(command);
+  if (nextStore.commands.length > 200) nextStore.commands = nextStore.commands.slice(-200);
+  return { store: nextStore, command };
 }
 
-function takePendingHybridAgentBridgeCommands(limit = 8) {
+function takePendingHybridAgentBridgeCommands(store, workerId, limit = 8) {
+  const nextStore = normalizeHybridAgentBridgeStore(store);
+  const safeWorkerId = sanitizeHybridAgentWorkerId(workerId || '');
   const currentIso = new Date().toISOString();
   const resendBeforeMs = now() - 30 * 1000;
-  const commands = hybridAgentControlState.bridgeCommands
+  const commands = nextStore.commands
     .filter(function (command) {
-      if (!command) return false;
+      if (!command || command.workerId !== safeWorkerId) return false;
       if (command.status === 'queued') return true;
       if (command.status !== 'sent') return false;
       const sentAtMs = Date.parse(command.sentAt || '');
       return !Number.isFinite(sentAtMs) || sentAtMs < resendBeforeMs;
     })
-    .slice(0, limit);
+    .slice(0, limit)
+    .map(function (command) {
+      command.status = 'sent';
+      command.sentAt = currentIso;
+      command.deliveryCount = (command.deliveryCount || 0) + 1;
+      return {
+        id: command.id,
+        workerId: command.workerId,
+        type: command.type,
+        payload: command.payload,
+        createdAt: command.createdAt
+      };
+    });
 
-  return commands.map(function (command) {
-    command.status = 'sent';
-    command.sentAt = currentIso;
-    command.deliveryCount = (command.deliveryCount || 0) + 1;
-    return {
-      id: command.id,
-      type: command.type,
-      payload: command.payload,
-      createdAt: command.createdAt
-    };
-  });
+  return { store: nextStore, commands };
 }
 
-function applyHybridAgentBridgeCommandUpdates(updates) {
-  if (!Array.isArray(updates) || !updates.length) return;
+function applyHybridAgentBridgeCommandUpdates(store, workerId, updates) {
+  const nextStore = normalizeHybridAgentBridgeStore(store);
+  const safeWorkerId = sanitizeHybridAgentWorkerId(workerId || '');
+  if (!Array.isArray(updates) || !updates.length || !safeWorkerId) return nextStore;
   const currentIso = new Date().toISOString();
   updates.forEach(function (update) {
     if (!update || typeof update !== 'object' || !update.id) return;
-    const command = hybridAgentControlState.bridgeCommands.find(function (candidate) { return candidate.id === update.id; });
+    const command = nextStore.commands.find(function (candidate) {
+      return candidate.id === update.id && candidate.workerId === safeWorkerId;
+    });
     if (!command) return;
     command.status = String(update.status || 'completed').trim() || 'completed';
     command.completedAt = currentIso;
     command.message = typeof update.message === 'string' ? update.message : command.message;
     command.result = update.result && typeof update.result === 'object' ? update.result : command.result;
   });
-  hybridAgentControlState.bridgeRelay.lastCommandResultAt = currentIso;
+  const worker = nextStore.workers[safeWorkerId];
+  if (worker) worker.lastCommandResultAt = currentIso;
+  return nextStore;
 }
 
-function updateHybridAgentBridgeSnapshot(payload, tokenEntry, req) {
+function updateHybridAgentBridgeSnapshot(store, workerId, payload, req) {
+  const nextStore = normalizeHybridAgentBridgeStore(store);
+  const safeWorkerId = sanitizeHybridAgentWorkerId(workerId || '');
+  const worker = nextStore.workers[safeWorkerId];
+  if (!worker) return nextStore;
+
   const currentIso = new Date().toISOString();
   const bridgeInfo = payload && payload.bridge && typeof payload.bridge === 'object' ? payload.bridge : null;
   const runs = Array.isArray(payload && payload.runs)
@@ -2429,18 +2519,34 @@ function updateHybridAgentBridgeSnapshot(payload, tokenEntry, req) {
   const activeRun = typeof payload.activeRunId === 'string' && payload.activeRunId
     ? payload.activeRunId
     : ((runs.find(function (run) { return run.status === 'running' || run.status === 'starting' || run.status === 'launching'; }) || {}).runId || '');
+  const workerMeta = payload && payload.worker && typeof payload.worker === 'object' ? payload.worker : {};
+  const derivedName = sanitizeHybridAgentWorkerName(workerMeta.name || workerMeta.hostname || worker.name || worker.id) || worker.name || worker.id;
 
-  hybridAgentControlState.bridgeRelay = {
+  nextStore.workers[safeWorkerId] = normalizeHybridAgentWorkerRecord(safeWorkerId, {
+    ...worker,
+    name: derivedName,
+    updatedAt: currentIso,
     lastSeenAt: currentIso,
-    tokenEmail: tokenEntry && tokenEntry.email ? tokenEntry.email : '',
     providers: payload && payload.providers && typeof payload.providers === 'object' ? payload.providers : null,
     providerStatusRefreshedAt: typeof (payload && payload.providerStatusRefreshedAt) === 'string' ? payload.providerStatusRefreshedAt : currentIso,
     runs,
     activeRunId: activeRun,
     bridgeInfo,
     relayOrigin: getRequestOrigin(req),
-    lastCommandResultAt: hybridAgentControlState.bridgeRelay.lastCommandResultAt || ''
-  };
+    lastCommandResultAt: worker.lastCommandResultAt || '',
+    meta: {
+      hostname: typeof workerMeta.hostname === 'string' ? workerMeta.hostname : '',
+      platform: typeof workerMeta.platform === 'string' ? workerMeta.platform : '',
+      user: typeof workerMeta.user === 'string' ? workerMeta.user : '',
+      pid: workerMeta.pid || ''
+    }
+  });
+
+  if (!nextStore.primaryWorkerId || !nextStore.workers[nextStore.primaryWorkerId]) {
+    nextStore.primaryWorkerId = safeWorkerId;
+  }
+
+  return nextStore;
 }
 
 async function getCachedHybridAgentProviderStatus(force = false) {
@@ -2533,7 +2639,8 @@ function buildHybridAgentDashboardState(taskText, options) {
   const profile = options && options.profile ? options.profile : 'balanced';
   const collaborationMode = options && options.collaborationMode ? options.collaborationMode : 'paired';
   const complexityMode = options && options.complexityMode ? options.complexityMode : 'auto';
-  const relay = options && options.bridgeState ? options.bridgeState : getActiveHybridAgentRelay();
+  const bridgeStore = options && options.bridgeStore ? options.bridgeStore : createEmptyHybridAgentBridgeStore();
+  const relay = options && options.bridgeState ? options.bridgeState : getActiveHybridAgentRelay(bridgeStore);
   const providerStates = options && options.providerStates
     ? options.providerStates
     : (relay && relay.providers ? relay.providers : hybridAgentControlState.providerStatusCache.data);
@@ -2562,6 +2669,8 @@ function buildHybridAgentDashboardState(taskText, options) {
     policy: hybridAgents.getModelPolicy(task, complexityMode, profile, collaborationMode),
     activeRunId: relay && relay.activeRunId ? relay.activeRunId : (hybridAgentControlState.activeRunId || ''),
     runs: relay && Array.isArray(relay.runs) ? relay.runs.slice(0, 12) : listHybridAgentRuns(12),
+    workers: listHybridAgentWorkers(bridgeStore),
+    primaryWorkerId: bridgeStore && bridgeStore.primaryWorkerId ? bridgeStore.primaryWorkerId : '',
     providerStatusRefreshedAt: relay && relay.providerStatusRefreshedAt
       ? relay.providerStatusRefreshedAt
       : (hybridAgentControlState.providerStatusCache.refreshedAt || ''),
@@ -6998,6 +7107,138 @@ async function deleteRuntimeKv(key) {
     { method: 'DELETE' }
   );
   return result.ok;
+}
+
+function createEmptyHybridAgentBridgeStore() {
+  return {
+    version: 1,
+    primaryWorkerId: '',
+    workers: {},
+    commands: [],
+    commandSeq: 0
+  };
+}
+
+function sanitizeHybridAgentWorkerId(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function sanitizeHybridAgentWorkerName(value) {
+  const raw = String(value || '').trim().replace(/\s+/g, ' ');
+  return raw.slice(0, 80);
+}
+
+function normalizeHybridAgentWorkerRecord(workerId, value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const safeId = sanitizeHybridAgentWorkerId(workerId || source.id || '');
+  if (!safeId) return null;
+  return {
+    id: safeId,
+    name: sanitizeHybridAgentWorkerName(source.name || '') || safeId,
+    tokenHash: typeof source.tokenHash === 'string' ? source.tokenHash : '',
+    createdAt: typeof source.createdAt === 'string' ? source.createdAt : '',
+    createdBy: typeof source.createdBy === 'string' ? source.createdBy : '',
+    updatedAt: typeof source.updatedAt === 'string' ? source.updatedAt : '',
+    enabled: source.enabled !== false,
+    revokedAt: typeof source.revokedAt === 'string' ? source.revokedAt : '',
+    lastSeenAt: typeof source.lastSeenAt === 'string' ? source.lastSeenAt : '',
+    providers: source.providers && typeof source.providers === 'object' ? source.providers : null,
+    providerStatusRefreshedAt: typeof source.providerStatusRefreshedAt === 'string' ? source.providerStatusRefreshedAt : '',
+    runs: Array.isArray(source.runs) ? source.runs.filter(function (run) { return run && typeof run === 'object' && run.runId; }).slice(0, 20) : [],
+    activeRunId: typeof source.activeRunId === 'string' ? source.activeRunId : '',
+    bridgeInfo: source.bridgeInfo && typeof source.bridgeInfo === 'object' ? source.bridgeInfo : null,
+    relayOrigin: typeof source.relayOrigin === 'string' ? source.relayOrigin : '',
+    lastCommandResultAt: typeof source.lastCommandResultAt === 'string' ? source.lastCommandResultAt : '',
+    meta: source.meta && typeof source.meta === 'object' ? source.meta : {}
+  };
+}
+
+function normalizeHybridAgentBridgeStore(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const workersInput = source.workers && typeof source.workers === 'object' ? source.workers : {};
+  const workers = {};
+  Object.keys(workersInput).forEach(function (workerId) {
+    const normalized = normalizeHybridAgentWorkerRecord(workerId, workersInput[workerId]);
+    if (normalized) workers[normalized.id] = normalized;
+  });
+
+  const commands = Array.isArray(source.commands) ? source.commands : [];
+  const normalizedCommands = commands
+    .filter(function (command) { return command && typeof command === 'object' && command.id; })
+    .map(function (command) {
+      return {
+        id: String(command.id),
+        workerId: sanitizeHybridAgentWorkerId(command.workerId || ''),
+        type: String(command.type || ''),
+        payload: command.payload && typeof command.payload === 'object' ? command.payload : {},
+        requestedBy: typeof command.requestedBy === 'string' ? command.requestedBy : '',
+        createdAt: typeof command.createdAt === 'string' ? command.createdAt : '',
+        status: typeof command.status === 'string' ? command.status : 'queued',
+        sentAt: typeof command.sentAt === 'string' ? command.sentAt : '',
+        completedAt: typeof command.completedAt === 'string' ? command.completedAt : '',
+        deliveryCount: Number(command.deliveryCount || 0) || 0,
+        result: command.result && typeof command.result === 'object' ? command.result : null,
+        message: typeof command.message === 'string' ? command.message : ''
+      };
+    })
+    .filter(function (command) { return command.workerId; })
+    .slice(-200);
+
+  const primaryWorkerId = sanitizeHybridAgentWorkerId(source.primaryWorkerId || '');
+  return {
+    version: 1,
+    primaryWorkerId: primaryWorkerId && workers[primaryWorkerId] ? primaryWorkerId : (Object.keys(workers)[0] || ''),
+    workers,
+    commands: normalizedCommands,
+    commandSeq: Math.max(0, Number(source.commandSeq || 0) || 0)
+  };
+}
+
+async function getPersistentHybridAgentBridgeStore(force = false) {
+  const cache = hybridAgentControlState.bridgeStoreCache;
+  if (!force && cache.data) return cache.data;
+  if (!force && cache.inFlight) return cache.inFlight;
+
+  const loadPromise = (async function () {
+    let value = null;
+    if (isSupabaseDbConfigured()) {
+      const runtime = await getRuntimeKv(HYBRID_AGENT_RUNTIME_KV_KEY);
+      value = runtime && runtime.value ? runtime.value : null;
+    } else {
+      value = dbState.hybridAgentBridgeStore || null;
+    }
+    const normalized = normalizeHybridAgentBridgeStore(value);
+    hybridAgentControlState.bridgeStoreCache.data = normalized;
+    hybridAgentControlState.bridgeStoreCache.loadedAt = now();
+    hybridAgentControlState.bridgeStoreCache.inFlight = null;
+    return normalized;
+  })().catch(function (error) {
+    hybridAgentControlState.bridgeStoreCache.inFlight = null;
+    throw error;
+  });
+
+  hybridAgentControlState.bridgeStoreCache.inFlight = loadPromise;
+  return loadPromise;
+}
+
+async function savePersistentHybridAgentBridgeStore(store) {
+  const normalized = normalizeHybridAgentBridgeStore(store);
+  hybridAgentControlState.bridgeStoreCache.data = normalized;
+  hybridAgentControlState.bridgeStoreCache.loadedAt = now();
+  hybridAgentControlState.bridgeStoreCache.inFlight = null;
+
+  if (isSupabaseDbConfigured()) {
+    const saved = await setRuntimeKv(HYBRID_AGENT_RUNTIME_KV_KEY, normalized, null);
+    return !!saved;
+  }
+
+  dbState.hybridAgentBridgeStore = normalized;
+  saveDbState();
+  return true;
 }
 
 function shouldTryNextZohoRecruitVariant(result) {
@@ -14632,27 +14873,52 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
-  if (pathname === '/api/admin/agent-control/bridge/token' && req.method === 'GET') {
+  if (pathname === '/api/admin/agent-control/workers' && req.method === 'GET') {
     const adminCtx = requireSuperAdminSession(req, res);
     if (!adminCtx) return;
-    const issued = createHybridAgentBridgeToken(adminCtx.email || '');
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    sendJson(res, 200, {
+      ok: true,
+      workers: listHybridAgentWorkers(bridgeStore),
+      primaryWorkerId: bridgeStore.primaryWorkerId || '',
+      bridge: buildHybridAgentBridgeStatus(req, bridgeStore)
+    });
+    return;
+  }
+
+  if ((pathname === '/api/admin/agent-control/workers/register' && req.method === 'POST')
+    || (pathname === '/api/admin/agent-control/bridge/token' && req.method === 'GET')) {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    let body = {};
+    if (req.method === 'POST') {
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, { ok: false, message: 'Invalid worker registration body.' });
+        return;
+      }
+    }
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const issued = createHybridAgentWorkerRegistration(bridgeStore, adminCtx.email || '', {
+      name: body && typeof body.name === 'string' ? body.name : ''
+    });
+    await savePersistentHybridAgentBridgeStore(issued.store);
     sendJson(res, 200, {
       ok: true,
       relayUrl: getRequestOrigin(req),
+      workerId: issued.workerId,
+      workerName: issued.workerName,
       token: issued.token,
-      expiresAt: new Date(issued.expiresAt).toISOString(),
-      command: `/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js --relay "${getRequestOrigin(req)}" --token "${issued.token}"`
+      command: `/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agent-bridge.js --relay "${getRequestOrigin(req)}" --worker-id "${issued.workerId}" --token "${issued.token}"`,
+      workers: listHybridAgentWorkers(issued.store),
+      primaryWorkerId: issued.store.primaryWorkerId || ''
     });
     return;
   }
 
   if (pathname === '/api/admin/agent-control/bridge/sync' && req.method === 'POST') {
     const bridgeToken = getHybridAgentBridgeRequestToken(req);
-    const bridgeEntry = bridgeToken ? getHybridAgentBridgeTokenEntry(bridgeToken) : null;
-    if (!bridgeEntry) {
-      sendJson(res, 401, { ok: false, message: 'Bridge token is missing or invalid.' });
-      return;
-    }
     let body;
     try {
       body = await readJsonBody(req);
@@ -14660,14 +14926,98 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Invalid bridge sync body.' });
       return;
     }
-
-    applyHybridAgentBridgeCommandUpdates(body && body.commandUpdates);
-    updateHybridAgentBridgeSnapshot(body || {}, bridgeEntry, req);
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const bridgeEntry = bridgeToken ? findHybridAgentWorkerByCredentials(bridgeStore, body && body.workerId, bridgeToken) : null;
+    if (!bridgeEntry) {
+      sendJson(res, 401, { ok: false, message: 'Bridge token is missing or invalid.' });
+      return;
+    }
+    let nextBridgeStore = applyHybridAgentBridgeCommandUpdates(bridgeStore, bridgeEntry.id, body && body.commandUpdates);
+    nextBridgeStore = updateHybridAgentBridgeSnapshot(nextBridgeStore, bridgeEntry.id, body || {}, req);
+    const pending = takePendingHybridAgentBridgeCommands(nextBridgeStore, bridgeEntry.id, 8);
+    nextBridgeStore = pending.store;
+    await savePersistentHybridAgentBridgeStore(nextBridgeStore);
     sendJson(res, 200, {
       ok: true,
       syncedAt: new Date().toISOString(),
-      commands: takePendingHybridAgentBridgeCommands(8),
-      bridge: buildHybridAgentBridgeStatus(req)
+      commands: pending.commands,
+      bridge: buildHybridAgentBridgeStatus(req, nextBridgeStore),
+      workers: listHybridAgentWorkers(nextBridgeStore),
+      primaryWorkerId: nextBridgeStore.primaryWorkerId || ''
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/workers/select' && req.method === 'POST') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid worker selection body.' });
+      return;
+    }
+    const workerId = sanitizeHybridAgentWorkerId(body && body.workerId);
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    if (!workerId || !bridgeStore.workers[workerId] || bridgeStore.workers[workerId].enabled === false) {
+      sendJson(res, 404, { ok: false, message: 'Worker not found.' });
+      return;
+    }
+    const nextBridgeStore = normalizeHybridAgentBridgeStore({
+      ...bridgeStore,
+      primaryWorkerId: workerId
+    });
+    await savePersistentHybridAgentBridgeStore(nextBridgeStore);
+    sendJson(res, 200, {
+      ok: true,
+      workerId,
+      workers: listHybridAgentWorkers(nextBridgeStore),
+      primaryWorkerId: nextBridgeStore.primaryWorkerId || '',
+      bridge: buildHybridAgentBridgeStatus(req, nextBridgeStore)
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/agent-control/workers/revoke' && req.method === 'POST') {
+    const adminCtx = requireSuperAdminSession(req, res);
+    if (!adminCtx) return;
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid worker revoke body.' });
+      return;
+    }
+    const workerId = sanitizeHybridAgentWorkerId(body && body.workerId);
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const worker = workerId ? bridgeStore.workers[workerId] : null;
+    if (!worker) {
+      sendJson(res, 404, { ok: false, message: 'Worker not found.' });
+      return;
+    }
+    const nextBridgeStore = normalizeHybridAgentBridgeStore({
+      ...bridgeStore,
+      primaryWorkerId: bridgeStore.primaryWorkerId === workerId ? '' : bridgeStore.primaryWorkerId,
+      workers: {
+        ...bridgeStore.workers,
+        [workerId]: {
+          ...worker,
+          enabled: false,
+          tokenHash: '',
+          revokedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      },
+      commands: Array.isArray(bridgeStore.commands) ? bridgeStore.commands.filter(function (command) { return command.workerId !== workerId; }) : []
+    });
+    await savePersistentHybridAgentBridgeStore(nextBridgeStore);
+    sendJson(res, 200, {
+      ok: true,
+      workerId,
+      workers: listHybridAgentWorkers(nextBridgeStore),
+      primaryWorkerId: nextBridgeStore.primaryWorkerId || '',
+      bridge: buildHybridAgentBridgeStatus(req, nextBridgeStore)
     });
     return;
   }
@@ -14676,7 +15026,8 @@ Return ONLY valid JSON with no markdown formatting:
     const adminCtx = requireSuperAdminSession(req, res);
     if (!adminCtx) return;
 
-    const relay = getActiveHybridAgentRelay();
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const relay = getActiveHybridAgentRelay(bridgeStore);
     let providers;
     if (relay && relay.providers) {
       providers = relay.providers;
@@ -14702,14 +15053,15 @@ Return ONLY valid JSON with no markdown formatting:
         collaborationMode,
         complexityMode,
         providerStates: providers,
-        bridgeState: relay
+        bridgeState: relay,
+        bridgeStore
       }),
       connectCommands: {
         openai: 'codex login',
         anthropic: 'claude auth login',
-        localBridge: 'Open Start Bridge help to generate a secure relay token.'
+        localBridge: 'Open Start Bridge help to register a persistent worker.'
       },
-      bridge: buildHybridAgentBridgeStatus(req)
+      bridge: buildHybridAgentBridgeStatus(req, bridgeStore)
     });
     return;
   }
@@ -14718,15 +15070,17 @@ Return ONLY valid JSON with no markdown formatting:
     const adminCtx = requireSuperAdminSession(req, res);
     if (!adminCtx) return;
 
-    const relay = getActiveHybridAgentRelay();
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const relay = getActiveHybridAgentRelay(bridgeStore);
     if (relay) {
-      const command = queueHybridAgentBridgeCommand('refresh-providers', {}, adminCtx.email || '');
+      const queued = queueHybridAgentBridgeCommand(bridgeStore, relay.workerId, 'refresh-providers', {}, adminCtx.email || '');
+      await savePersistentHybridAgentBridgeStore(queued.store);
       sendJson(res, 202, {
         ok: true,
         queued: true,
-        commandId: command.id,
+        commandId: queued.command ? queued.command.id : '',
         message: 'Queued a provider refresh for the connected local bridge.',
-        bridge: buildHybridAgentBridgeStatus(req)
+        bridge: buildHybridAgentBridgeStatus(req, queued.store)
       });
       return;
     }
@@ -14744,12 +15098,13 @@ Return ONLY valid JSON with no markdown formatting:
     const adminCtx = requireSuperAdminSession(req, res);
     if (!adminCtx) return;
     const limit = Math.max(1, Math.min(20, Number(url.searchParams.get('limit') || 12) || 12));
-    const relay = getActiveHybridAgentRelay();
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const relay = getActiveHybridAgentRelay(bridgeStore);
     sendJson(res, 200, {
       ok: true,
       runs: relay && Array.isArray(relay.runs) ? relay.runs.slice(0, limit) : listHybridAgentRuns(limit),
       activeRunId: relay && relay.activeRunId ? relay.activeRunId : (hybridAgentControlState.activeRunId || ''),
-      bridge: buildHybridAgentBridgeStatus(req)
+      bridge: buildHybridAgentBridgeStatus(req, bridgeStore)
     });
     return;
   }
@@ -14762,7 +15117,8 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Run id is required.' });
       return;
     }
-    const relay = getActiveHybridAgentRelay();
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const relay = getActiveHybridAgentRelay(bridgeStore);
     const run = relay && Array.isArray(relay.runs)
       ? (relay.runs.find(function (entry) { return entry.runId === runId; }) || null)
       : getHybridAgentRunSummary(runId);
@@ -14798,7 +15154,8 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    const relay = getActiveHybridAgentRelay();
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const relay = getActiveHybridAgentRelay(bridgeStore);
     let providers;
     if (relay && relay.providers) {
       providers = relay.providers;
@@ -14824,24 +15181,25 @@ Return ONLY valid JSON with no markdown formatting:
         return;
       }
       const runId = sanitizeAgentRunId(`agent-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
-      const command = queueHybridAgentBridgeCommand('start-run', {
+      const queued = queueHybridAgentBridgeCommand(bridgeStore, relay.workerId, 'start-run', {
         runId,
         task,
         profile,
         collaborationMode,
         complexity
       }, adminCtx.email || '');
+      await savePersistentHybridAgentBridgeStore(queued.store);
       sendJson(res, 202, {
         ok: true,
         queued: true,
-        commandId: command.id,
+        commandId: queued.command ? queued.command.id : '',
         run: { runId, task, profile, collaborationMode, complexityMode: complexity },
         message: 'Agent run queued for the connected local bridge.',
         policy: hybridAgents.getModelPolicy(task, complexity, profile, collaborationMode),
         warning: collaborationMode === 'paired' && availableProviders.length < 2
           ? 'Only one provider is connected, so this run will execute in routed mode until both providers are available.'
           : '',
-        bridge: buildHybridAgentBridgeStatus(req)
+        bridge: buildHybridAgentBridgeStatus(req, queued.store)
       });
       return;
     }
@@ -14878,16 +15236,18 @@ Return ONLY valid JSON with no markdown formatting:
       sendJson(res, 400, { ok: false, message: 'Run id is required.' });
       return;
     }
-    const relay = getActiveHybridAgentRelay();
+    const bridgeStore = await getPersistentHybridAgentBridgeStore(false);
+    const relay = getActiveHybridAgentRelay(bridgeStore);
     if (relay) {
-      const command = queueHybridAgentBridgeCommand('cancel-run', { runId }, adminCtx.email || '');
+      const queued = queueHybridAgentBridgeCommand(bridgeStore, relay.workerId, 'cancel-run', { runId }, adminCtx.email || '');
+      await savePersistentHybridAgentBridgeStore(queued.store);
       sendJson(res, 202, {
         ok: true,
         queued: true,
-        commandId: command.id,
+        commandId: queued.command ? queued.command.id : '',
         runId,
         message: 'Cancellation queued for the connected local bridge.',
-        bridge: buildHybridAgentBridgeStatus(req)
+        bridge: buildHybridAgentBridgeStatus(req, queued.store)
       });
       return;
     }
