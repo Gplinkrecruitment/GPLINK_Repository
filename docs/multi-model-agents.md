@@ -182,13 +182,13 @@ Attachment ingestion behavior:
 - images like PNG/JPG/HEIC: the wrapper runs local OCR on macOS and appends extracted text plus image metadata
 - the wrapper also writes an audit artifact at `agents-output/<run-id>/local-references.md`
 
-The wrapper prefers:
+The wrapper launches the orchestrator directly with the resolved Node binary:
 
 ```bash
-npm run gplink -- --task "your task" --run-id "<generated-run-id>"
+/usr/local/Cellar/node@18/18.20.8/bin/node scripts/agents.js --task "your task" --run-id "<generated-run-id>"
 ```
 
-and falls back to the direct Node entrypoint if `npm` is not available in the session environment.
+This avoids `npm` / shell-PATH issues inside Claude Code while still running the same hybrid orchestrator.
 
 Manual memory sync between direct Codex and direct Claude sessions:
 

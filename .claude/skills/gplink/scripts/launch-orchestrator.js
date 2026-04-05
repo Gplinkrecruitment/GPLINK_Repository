@@ -326,16 +326,29 @@ function runCommand(binary, args, options = {}) {
   });
 }
 
-function buildLaunchEnv(nodeBin, npmBin = '') {
+function buildLaunchEnv(nodeBin) {
   const pathParts = [
     path.dirname(nodeBin),
-    npmBin ? path.dirname(npmBin) : '',
     process.env.PATH || '',
   ].filter(Boolean);
 
   return {
     ...process.env,
     PATH: Array.from(new Set(pathParts.join(':').split(':').filter(Boolean))).join(':'),
+  };
+}
+
+function buildLaunchPlan(nodeBin, task, runId) {
+  return {
+    binary: nodeBin,
+    args: [
+      path.join(ROOT, 'scripts', 'agents.js'),
+      '--task',
+      task,
+      '--run-id',
+      runId,
+    ],
+    label: 'direct node via scripts/agents.js',
   };
 }
 
@@ -361,18 +374,13 @@ function main() {
     throw new Error('could not find a usable node binary');
   }
 
-  const npmBin = resolveBinary('npm', [
-    '/usr/local/Cellar/node@18/18.20.8/bin/npm',
-    '/usr/local/bin/npm',
-    '/opt/homebrew/bin/npm',
-  ]);
-
   const runId = `claude-skill-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`;
   const reportPath = path.join(ROOT, 'agents-output', runId, 'REPORT.md');
-  const launchEnv = buildLaunchEnv(nodeBin, npmBin);
+  const launchEnv = buildLaunchEnv(nodeBin);
   const enriched = enrichTaskWithReferences(originalTask, launchEnv);
   const task = enriched.task;
   const attachmentReportPath = path.join(ROOT, 'agents-output', runId, 'local-references.md');
+  const launchPlan = buildLaunchPlan(nodeBin, task, runId);
 
   ensureDir(MEMORY_DIR);
   ensureDir(path.dirname(attachmentReportPath));
@@ -398,9 +406,7 @@ function main() {
       `Run ID: ${runId}`,
       'Shared memory seeded: agents-output/memory/latest-session.md',
       enriched.records.length ? `Local references ingested: ${enriched.records.length}` : 'Local references ingested: 0',
-      npmBin
-        ? `Launch mode: npm run gplink -- --task "<task>" --run-id "${runId}"`
-        : 'Launch mode: direct node fallback via scripts/agents.js (npm not found in PATH)',
+      `Launch mode: ${launchPlan.label}`,
       enriched.records.length ? `Attachment context: ${attachmentReportPath}` : '',
       '',
       'Starting hybrid orchestrator...',
@@ -408,9 +414,7 @@ function main() {
     ].join('\n')
   );
 
-  const launchResult = npmBin
-    ? runCommand(npmBin, ['run', 'gplink', '--', '--task', task, '--run-id', runId], { env: launchEnv })
-    : runCommand(nodeBin, ['scripts/agents.js', '--task', task, '--run-id', runId], { env: launchEnv });
+  const launchResult = runCommand(launchPlan.binary, launchPlan.args, { env: launchEnv });
 
   process.stdout.write('\n');
 
@@ -453,6 +457,8 @@ module.exports = {
   enrichTaskWithReferences,
   extractLocalReferences,
   formatAttachmentSection,
+  buildLaunchEnv,
+  buildLaunchPlan,
   parseArgs,
   trimTask,
 };

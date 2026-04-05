@@ -48,4 +48,13 @@ describe('gplink wrapper local reference ingestion', () => {
     expect(enriched.attachmentSection).toContain('MyIntealth blockers');
     expect(enriched.task).toContain('Local reference attachments detected by the /gplink wrapper');
   });
+
+  it('builds a direct-node orchestrator launch plan instead of relying on npm', () => {
+    const launch = wrapper.buildLaunchPlan('/opt/node/bin/node', 'Rewrite the GP flow', 'claude-skill-123');
+
+    expect(launch.binary).toBe('/opt/node/bin/node');
+    expect(launch.label).toBe('direct node via scripts/agents.js');
+    expect(launch.args[0]).toMatch(/scripts\/agents\.js$/);
+    expect(launch.args.slice(1)).toEqual(['--task', 'Rewrite the GP flow', '--run-id', 'claude-skill-123']);
+  });
 });
