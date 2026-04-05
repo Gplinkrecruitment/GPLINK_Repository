@@ -4,6 +4,7 @@ import * as agents from '../scripts/agents.js';
 const {
   DEFAULTS,
   buildProviderEnv,
+  buildImplementationSchema,
   buildLearningCandidates,
   extractRelevantSections,
   formatMemoryRecall,
@@ -125,6 +126,21 @@ describe('provider child environment', () => {
     delete process.env.CLAUDE_SSE_PORT;
     delete process.env.OPENAI_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
+  });
+});
+
+describe('codex output schema compatibility', () => {
+  it('requires every file-item property that strict output-schema validation expects', () => {
+    const schema = buildImplementationSchema();
+    const fileItem = schema.properties.files.items;
+
+    expect(fileItem.required).toEqual([
+      'path',
+      'action',
+      'description',
+      'changes',
+      'fullContent',
+    ]);
   });
 });
 

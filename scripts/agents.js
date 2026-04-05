@@ -1467,7 +1467,7 @@ function buildImplementationSchema() {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['path', 'action', 'description'],
+          required: ['path', 'action', 'description', 'changes', 'fullContent'],
           properties: {
             path: { type: 'string' },
             action: { type: 'string', enum: ['edit', 'create'] },
@@ -1797,7 +1797,9 @@ function buildImplementationSchemaDoc() {
 
 Rules:
 - For edit actions, every "find" string must match the provided file content exactly.
-- For create actions, include "fullContent" and omit "changes".
+- Always include both "changes" and "fullContent" on every file item.
+- For edit actions, use "changes" and set "fullContent" to an empty string.
+- For create actions, use "fullContent" and set "changes" to an empty array.
 - Only reference files that exist in the repo unless you are creating a new one.
 - Do not wrap the JSON in markdown fences.`;
 }
@@ -1873,6 +1875,9 @@ ${extraFocus}
 
 Rules:
 - You are allowed to patch files directly when you find a security, integration, or hallucination issue.
+- Always include both "changes" and "fullContent" on every file item.
+- For edit actions, use "changes" and set "fullContent" to an empty string.
+- For create actions, use "fullContent" and set "changes" to an empty array.
 - If no file changes are needed, return an empty "files" array.
 - Keep fixes grounded in the provided repository context.`;
 }
@@ -2929,6 +2934,7 @@ async function run(task, options) {
 module.exports = {
   DEFAULTS,
   buildProviderEnv,
+  buildImplementationSchema,
   buildLearningCandidates,
   extractRelevantSections,
   formatMemoryRecall,
