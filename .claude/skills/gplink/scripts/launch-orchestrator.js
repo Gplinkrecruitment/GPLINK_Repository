@@ -102,6 +102,19 @@ function runCommand(binary, args, options = {}) {
   });
 }
 
+function buildLaunchEnv(nodeBin, npmBin = '') {
+  const pathParts = [
+    path.dirname(nodeBin),
+    npmBin ? path.dirname(npmBin) : '',
+    process.env.PATH || '',
+  ].filter(Boolean);
+
+  return {
+    ...process.env,
+    PATH: Array.from(new Set(pathParts.join(':').split(':').filter(Boolean))).join(':'),
+  };
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const task = trimTask(
@@ -132,6 +145,7 @@ function main() {
 
   const runId = `claude-skill-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`;
   const reportPath = path.join(ROOT, 'agents-output', runId, 'REPORT.md');
+  const launchEnv = buildLaunchEnv(nodeBin, npmBin);
 
   ensureDir(MEMORY_DIR);
 
@@ -144,7 +158,7 @@ function main() {
     '--files', '(orchestrator launch)',
     '--next', `Inspect agents-output/${runId}/REPORT.md, latest-session.md, and knowledge-base.md after the run completes.`,
     '--notes', `Run id: ${runId}`,
-  ]);
+  ], { env: launchEnv });
 
   process.stdout.write(
     [
@@ -162,8 +176,8 @@ function main() {
   );
 
   const launchResult = npmBin
-    ? runCommand(npmBin, ['run', 'gplink', '--', '--task', task, '--run-id', runId])
-    : runCommand(nodeBin, ['scripts/agents.js', '--task', task, '--run-id', runId]);
+    ? runCommand(npmBin, ['run', 'gplink', '--', '--task', task, '--run-id', runId], { env: launchEnv })
+    : runCommand(nodeBin, ['scripts/agents.js', '--task', task, '--run-id', runId], { env: launchEnv });
 
   process.stdout.write('\n');
 
@@ -194,7 +208,7 @@ function main() {
     '--risks', `The orchestrator exited with code ${launchResult.status}.`,
     '--next', 'Inspect the terminal output and rerun the task after fixing the blocker.',
     '--notes', `Failed run id: ${runId}`,
-  ]);
+  ], { env: launchEnv });
 
   throw new Error(`hybrid orchestrator failed with exit code ${launchResult.status}`);
 }
