@@ -2,8 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Job Details - GP Link</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Role Details - GP Link</title>
+  <script src="../js/nav-shell-bridge.js?v=20260407a" defer></script>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
   <script src="../js/state-sync.js?v=20260406a" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
@@ -579,7 +583,7 @@
       left: 0;
       right: 0;
       z-index: 100;
-      padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+      padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px) + var(--gp-shell-bottom-clearance, 0px));
       background: rgba(255, 255, 255, 0.88);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
@@ -636,6 +640,31 @@
     .btn-save-bottom.saved { background: var(--blue); color: #fff; border-color: var(--blue); }
     .btn-save-bottom.saved svg { fill: currentColor; }
     .btn-save-bottom-label {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .btn-share-bottom {
+      width: fit-content;
+      min-width: 138px;
+      height: auto;
+      justify-self: center;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      background: transparent;
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background .14s ease, transform .14s ease;
+    }
+    .btn-share-bottom:hover { background: rgba(15, 23, 42, 0.04); transform: translateY(-1px); }
+    .btn-share-bottom svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .btn-share-bottom-label {
       font-size: 12px;
       font-weight: 800;
       letter-spacing: 0.02em;
@@ -734,6 +763,135 @@
       z-index: 200;
     }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+
+    /* ── CV Upload Modal ── */
+    .cv-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(15, 23, 42, 0.5);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: grid;
+      place-items: center;
+      padding: 16px;
+    }
+    .cv-modal-backdrop[hidden] { display: none; }
+    .cv-modal {
+      background: var(--panel);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 24px 48px -16px rgba(2, 6, 23, 0.3);
+    }
+    .cv-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .cv-modal-title {
+      font-size: 18px;
+      font-weight: 800;
+      margin: 0;
+      color: var(--text);
+    }
+    .cv-modal-close {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: none;
+      font-size: 22px;
+      color: var(--muted);
+      cursor: pointer;
+      border-radius: 8px;
+    }
+    .cv-modal-close:hover { background: var(--panel-muted); }
+    .cv-modal-desc {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0 0 20px;
+      line-height: 1.5;
+    }
+    .cv-upload-area {
+      border: 2px dashed var(--line);
+      border-radius: 14px;
+      padding: 32px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      position: relative;
+    }
+    .cv-upload-area:hover { border-color: var(--blue); background: rgba(37, 99, 235, 0.03); }
+    .cv-upload-area[hidden] { display: none; }
+    .cv-upload-label {
+      display: block;
+      margin-top: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .cv-upload-input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .cv-file-preview {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: var(--panel-soft);
+      border-radius: 10px;
+      margin-top: 12px;
+    }
+    .cv-file-preview[hidden] { display: none; }
+    .cv-file-name {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cv-file-remove {
+      width: 24px;
+      height: 24px;
+      border: none;
+      background: none;
+      font-size: 18px;
+      color: var(--muted);
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .cv-file-remove:hover { background: var(--panel-muted); }
+    .cv-modal-actions {
+      margin-top: 20px;
+    }
+    .cv-btn-upload {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .cv-btn-upload:hover { background: var(--blue2); }
+    .cv-btn-upload:disabled { opacity: 0.5; cursor: not-allowed; }
+    .cv-modal-status {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 12px 0 0;
+      text-align: center;
+      min-height: 20px;
+    }
 
     /* ── Responsive ── */
     @media (max-width: 600px) {
@@ -859,11 +1017,44 @@
         <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
         <span class="btn-save-bottom-label">Save for later</span>
       </button>
+      <button class="btn-share-bottom" id="shareBtn" type="button" aria-label="Share this role">
+        <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        <span class="btn-share-bottom-label">Share</span>
+      </button>
     </div>
   </div>
 
   <!-- Toast -->
   <div class="toast" id="jobToast"></div>
+
+  <!-- CV Upload Modal -->
+  <div class="cv-modal-backdrop" id="cvModal" hidden>
+    <div class="cv-modal">
+      <div class="cv-modal-header">
+        <h3 class="cv-modal-title">Upload Your CV</h3>
+        <button class="cv-modal-close" id="cvModalClose" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="cv-modal-desc">A signed and dated CV is required to apply. Upload a PDF (max 10 MB).</p>
+
+      <div class="cv-upload-area" id="cvUploadArea">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
+        <span class="cv-upload-label">Tap to select file or drag &amp; drop</span>
+        <input class="cv-upload-input" id="cvFileInput" type="file" accept=".pdf,application/pdf" />
+      </div>
+
+      <div class="cv-file-preview" id="cvFilePreview" hidden>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span class="cv-file-name" id="cvFileName"></span>
+        <button class="cv-file-remove" id="cvFileRemove" type="button">&times;</button>
+      </div>
+
+      <div class="cv-modal-actions">
+        <button class="cv-btn-upload" id="cvUploadBtn" type="button" disabled>Upload &amp; Apply</button>
+      </div>
+
+      <p class="cv-modal-status" id="cvUploadStatus"></p>
+    </div>
+  </div>
 
 <script>
 (function () {
@@ -1253,7 +1444,7 @@
     stripLegacyTitleUi();
     setPageState("content");
     const heroLocationText = getHeroLocationText(role);
-    document.title = "Job Details - GP Link";
+    document.title = "Role Details - GP Link";
     heroLocationLabelEl.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 21s-6-5.1-6-11a6 6 0 1 1 12 0c0 5.9-6 11-6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><span>${escapeHtml(heroLocationText)}</span>`;
     if (heroCaptionCopyEl) heroCaptionCopyEl.textContent = getHeroCaption(role);
     billingPillEl.textContent = role.billing || "Billing to be confirmed";
@@ -1346,6 +1537,15 @@
           persistCareerState(state);
         }
         showToast("Application submitted");
+      } else if (data.requiresCv) {
+        applyBtnEl.textContent = "Apply";
+        applyBtnEl.disabled = false;
+        if (document.getElementById("cvModal")) {
+          openCvModal();
+        } else {
+          showToast("Please upload your CV first");
+          window.location.href = "my-documents.html";
+        }
       } else {
         applyBtnEl.textContent = "Apply";
         applyBtnEl.disabled = false;
@@ -1379,6 +1579,165 @@
     showToast(nowSaved ? "Saved for later" : "Removed from saved");
   });
 
+  const shareBtnEl = document.getElementById("shareBtn");
+  if (shareBtnEl) {
+    shareBtnEl.addEventListener("click", async () => {
+      const shareData = {
+        title: currentRole ? (currentRole.practiceName || "GP Role") + " - GP Link" : "GP Link Role",
+        text: currentRole ? "Check out this GP role" + (currentRole.location ? " in " + currentRole.location : "") : "Check out this GP role on GP Link",
+        url: window.location.href
+      };
+      if (window.gpShare) {
+        window.gpShare(shareData);
+      } else if (navigator.share) {
+        try { await navigator.share(shareData); } catch {}
+      } else {
+        try {
+          await navigator.clipboard.writeText(window.location.href);
+          showToast("Link copied to clipboard");
+        } catch {
+          showToast("Could not copy link");
+        }
+      }
+    });
+  }
+
+  /* ── CV Upload Modal ── */
+  var cvModal = document.getElementById("cvModal");
+  var cvFileInput = document.getElementById("cvFileInput");
+  var cvUploadArea = document.getElementById("cvUploadArea");
+  var cvFilePreview = document.getElementById("cvFilePreview");
+  var cvFileName = document.getElementById("cvFileName");
+  var cvFileRemove = document.getElementById("cvFileRemove");
+  var cvUploadBtn = document.getElementById("cvUploadBtn");
+  var cvUploadStatus = document.getElementById("cvUploadStatus");
+  var cvModalClose = document.getElementById("cvModalClose");
+  var selectedCvFile = null;
+
+  function openCvModal() {
+    if (cvModal) cvModal.hidden = false;
+  }
+
+  function closeCvModal() {
+    if (cvModal) cvModal.hidden = true;
+    selectedCvFile = null;
+    if (cvFileInput) cvFileInput.value = "";
+    if (cvUploadArea) cvUploadArea.hidden = false;
+    if (cvFilePreview) cvFilePreview.hidden = true;
+    if (cvUploadBtn) { cvUploadBtn.disabled = true; cvUploadBtn.textContent = "Upload & Apply"; }
+    if (cvUploadStatus) cvUploadStatus.textContent = "";
+  }
+
+  if (cvModalClose) cvModalClose.addEventListener("click", closeCvModal);
+  if (cvModal) cvModal.addEventListener("click", function (e) { if (e.target === cvModal) closeCvModal(); });
+
+  if (cvFileInput) {
+    cvFileInput.addEventListener("change", function () {
+      var file = cvFileInput.files && cvFileInput.files[0];
+      if (!file) return;
+
+      if (file.type !== "application/pdf") {
+        cvUploadStatus.textContent = "Please select a PDF file.";
+        cvFileInput.value = "";
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        cvUploadStatus.textContent = "File too large. Maximum 10 MB.";
+        cvFileInput.value = "";
+        return;
+      }
+
+      selectedCvFile = file;
+      cvFileName.textContent = file.name;
+      cvUploadArea.hidden = true;
+      cvFilePreview.hidden = false;
+      cvUploadBtn.disabled = false;
+      cvUploadStatus.textContent = "";
+    });
+  }
+
+  if (cvFileRemove) {
+    cvFileRemove.addEventListener("click", function () {
+      selectedCvFile = null;
+      cvFileInput.value = "";
+      cvUploadArea.hidden = false;
+      cvFilePreview.hidden = true;
+      cvUploadBtn.disabled = true;
+      cvUploadStatus.textContent = "";
+    });
+  }
+
+  if (cvUploadBtn) {
+    cvUploadBtn.addEventListener("click", async function () {
+      if (!selectedCvFile) return;
+      cvUploadBtn.disabled = true;
+      cvUploadBtn.textContent = "Uploading...";
+      cvUploadStatus.textContent = "";
+
+      try {
+        // Read file as base64 data URL
+        var dataUrl = await new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () { resolve(reader.result); };
+          reader.onerror = function () { reject(new Error("Failed to read file")); };
+          reader.readAsDataURL(selectedCvFile);
+        });
+
+        // Upload CV
+        var uploadRes = await fetch("/api/career/upload-cv", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            fileName: selectedCvFile.name,
+            fileDataUrl: dataUrl,
+            mimeType: selectedCvFile.type
+          })
+        });
+        var uploadData = await uploadRes.json();
+
+        if (!uploadData.ok) {
+          cvUploadStatus.textContent = uploadData.message || "Upload failed. Try again.";
+          cvUploadBtn.disabled = false;
+          cvUploadBtn.textContent = "Upload & Apply";
+          return;
+        }
+
+        // CV uploaded, now retry the application
+        cvUploadBtn.textContent = "Applying...";
+
+        var applyRes = await fetch("/api/career/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ roleId: currentRole.id })
+        });
+        var applyData = await applyRes.json();
+
+        if (applyData.ok) {
+          closeCvModal();
+          applyBtnEl.textContent = "Application submitted";
+          applyBtnEl.disabled = true;
+          var state = getCareerState();
+          if (!Array.isArray(state.applications)) state.applications = [];
+          if (!state.applications.some(function (a) { return a && a.roleId === currentRole.id; })) {
+            state.applications.unshift(createApplicationSnapshot(currentRole));
+            persistCareerState(state);
+          }
+          showToast("CV uploaded & application submitted!");
+        } else {
+          cvUploadStatus.textContent = applyData.message || "Application failed after upload.";
+          cvUploadBtn.disabled = false;
+          cvUploadBtn.textContent = "Upload & Apply";
+        }
+      } catch (err) {
+        cvUploadStatus.textContent = "Network error. Please try again.";
+        cvUploadBtn.disabled = false;
+        cvUploadBtn.textContent = "Upload & Apply";
+      }
+    });
+  }
+
   /* ── Init ── */
   async function init() {
     const roleId = getRoleIdFromUrl();
@@ -1387,7 +1746,7 @@
       return;
     }
 
-    document.title = "Job Details - GP Link";
+    document.title = "Role Details - GP Link";
     stripLegacyTitleUi();
     setPageState("loading");
 

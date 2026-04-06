@@ -89,6 +89,14 @@ const PBS_APPLICATION_TYPES = ['medicare_provider', 'pbs_prescriber'];
 const PBS_STATUSES = ['not_started', 'in_progress', 'submitted', 'approved', 'rejected', 'waiting_on_gp', 'under_review', 'complete', 'blocked'];
 const OPENAI_CAREER_MODEL = String(process.env.OPENAI_CAREER_MODEL || 'gpt-4.1-mini').trim() || 'gpt-4.1-mini';
 const CAREER_AI_PROFILE_VERSION = 2;
+// DoubleTick WhatsApp integration
+const DOUBLETICK_API_KEY = String(process.env.DOUBLETICK_API_KEY || '').trim();
+const DOUBLETICK_BASE_URL = String(process.env.DOUBLETICK_BASE_URL || 'https://public.doubletick.io').trim() || 'https://public.doubletick.io';
+const DOUBLETICK_WEBHOOK_SECRET = String(process.env.DOUBLETICK_WEBHOOK_SECRET || '').trim();
+const DOUBLETICK_WEBHOOK_RATE_MAX = 60; // max 60 deliveries per minute per source IP
+const DOUBLETICK_WEBHOOK_RATE_WINDOW_MS = 60 * 1000;
+const DOUBLETICK_CONVERSATION_URL_PREFIX = 'https://app.doubletick.io/';
+const DOUBLETICK_MESSAGE_BODY_MAX_LEN = 4096;
 const CAREER_HERO_IMAGE_VERSION = 3;
 const CAREER_HERO_LOOKUP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CAREER_HERO_CITY_LIBRARY_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -1448,6 +1456,259 @@ function readJsonBody(req) {
 
     req.on('error', reject);
   });
+}
+
+/**
+ * Read raw body bytes — preserves bytes for HMAC-SHA256 webhook verification.
+ * Unlike readJsonBody, this does NOT parse; caller must parse manually.
+ */
+function readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    const limit = maxBytes || MAX_JSON_BODY_BYTES;
+    req.on('data', (chunk) => {
+      total += chunk.length;
+      if (total > limit) {
+        reject(new Error('Payload too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+/**
+ * Normalise a phone number to E.164 format (best-effort).
+ * Assumes Australian (+61) local numbers if no country code prefix is present.
+ */
+function normalizePhone(phone) {
+  if (!phone || typeof phone !== 'string') return '';
+  const digits = phone.replace(/[^\d+]/g, '');
+  if (digits.startsWith('+')) return digits;
+  // Australian local format: 04xxxxxxxx → +614xxxxxxxx
+  if (digits.startsWith('0') && digits.length === 10) return '+61' + digits.slice(1);
+  if (digits.length >= 10 && digits.length <= 15) return '+' + digits;
+  return digits;
+}
+
+/**
+ * Verify a DoubleTick HMAC-SHA256 webhook signature using timing-safe comparison.
+ * Returns false (not an exception) so callers can log + reject with 401.
+ */
+function validateDoubleTickSignature(rawBody, signatureHeader) {
+  if (!DOUBLETICK_WEBHOOK_SECRET) return false;
+  if (!signatureHeader || typeof signatureHeader !== 'string') return false;
+  try {
+    const expected = crypto
+      .createHmac('sha256', DOUBLETICK_WEBHOOK_SECRET)
+      .update(rawBody)
+      .digest('hex');
+    // Header may arrive as "sha256=<hex>" or bare hex
+    const incoming = signatureHeader.replace(/^sha256=/, '');
+    const incomingBuf = Buffer.from(incoming, 'hex');
+    const expectedBuf = Buffer.from(expected, 'hex');
+    // Lengths must match before timingSafeEqual to avoid a TypeError
+    if (incomingBuf.length !== expectedBuf.length) return false;
+    return crypto.timingSafeEqual(incomingBuf, expectedBuf);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate and sanitize fields from a DoubleTick webhook payload.
+ * Returns a sanitized object or null if required fields are missing/invalid.
+ *
+ * Security controls applied here:
+ *   - message_body capped at DOUBLETICK_MESSAGE_BODY_MAX_LEN (4096)
+ *   - from_phone stripped of non-numeric characters
+ *   - conversation_url allow-listed to https://app.doubletick.io/ origin
+ *   - message_id restricted to alphanumeric + dash/underscore (idempotency key)
+ */
+function sanitizeDoubleTickPayload(body) {
+  if (!body || typeof body !== 'object') return null;
+  const messageBody = typeof body.message_body === 'string'
+    ? body.message_body.slice(0, DOUBLETICK_MESSAGE_BODY_MAX_LEN)
+    : null;
+  const fromPhone = typeof body.from_phone === 'string'
+    ? body.from_phone.replace(/[^\d+\-() ]/g, '').slice(0, 30)
+    : null;
+  // Allow-list: conversation URL must start with the DoubleTick app origin
+  const rawUrl = typeof body.conversation_url === 'string' ? body.conversation_url.trim() : '';
+  const conversationUrl = rawUrl.startsWith(DOUBLETICK_CONVERSATION_URL_PREFIX) ? rawUrl : null;
+  // Idempotency key: alphanumeric, dash, underscore only
+  const messageId = typeof body.message_id === 'string'
+    ? body.message_id.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 128)
+    : null;
+
+  if (!fromPhone || !messageBody) return null;
+  return { messageBody, fromPhone, conversationUrl, messageId };
+}
+
+/**
+ * POST /api/webhooks/doubletick
+ * Handles inbound DoubleTick WhatsApp message webhooks.
+ *
+ * IMPORTANT: Register this handler in the main request router BEFORE
+ * same-origin enforcement (ENFORCE_SAME_ORIGIN) because DoubleTick delivers
+ * from an external origin. Example registration (place before same-origin block):
+ *
+ *   if (method === 'POST' && pathname === '/api/webhooks/doubletick') {
+ *     return handleDoubleTickWebhook(req, res);
+ *   }
+ *
+ * Disabled (returns 503) when DOUBLETICK_WEBHOOK_SECRET is not configured.
+ */
+async function handleDoubleTickWebhook(req, res) {
+  if (!DOUBLETICK_WEBHOOK_SECRET) {
+    console.warn('[doubletick-webhook] DOUBLETICK_WEBHOOK_SECRET not set — webhook disabled');
+    sendJson(res, 503, { ok: false, message: 'Webhook not configured' });
+    return;
+  }
+
+  // Rate-limit by source IP (60 req/min) — prevents flood from a compromised account
+  const ip = getClientIp(req);
+  const allowed = await checkRateLimitWindow(
+    `doubletick_webhook:${ip}`,
+    DOUBLETICK_WEBHOOK_RATE_MAX,
+    DOUBLETICK_WEBHOOK_RATE_WINDOW_MS
+  );
+  if (!allowed) {
+    sendJson(res, 429, { ok: false, message: 'Too many requests' });
+    return;
+  }
+
+  // Read raw bytes BEFORE parsing so the HMAC can be verified against the
+  // original wire bytes (readJsonBody would discard them).
+  let rawBody;
+  try {
+    rawBody = await readRawBody(req, 64 * 1024); // 64 KB cap for webhook payloads
+  } catch {
+    sendJson(res, 413, { ok: false, message: 'Payload too large' });
+    return;
+  }
+
+  // Verify HMAC-SHA256 signature — timing-safe, no stack trace to client
+  const sigHeader = req.headers['x-doubletick-signature'] || req.headers['x-webhook-signature'] || '';
+  if (!validateDoubleTickSignature(rawBody, sigHeader)) {
+    console.warn('[doubletick-webhook] Signature verification failed from IP:', ip);
+    sendJson(res, 401, { ok: false, message: 'Unauthorized' });
+    return;
+  }
+
+  // Parse body (raw bytes → JSON)
+  let body;
+  try {
+    body = JSON.parse(rawBody.toString('utf8'));
+  } catch {
+    sendJson(res, 400, { ok: false, message: 'Invalid JSON' });
+    return;
+  }
+
+  // Validate and sanitize all fields; reject on missing required fields
+  const payload = sanitizeDoubleTickPayload(body);
+  if (!payload) {
+    sendJson(res, 400, { ok: false, message: 'Missing required fields: from_phone, message_body' });
+    return;
+  }
+
+  const { messageBody, fromPhone, conversationUrl, messageId } = payload;
+
+  // Only act on inbound help-request messages; ack and skip everything else
+  const HELP_PATTERNS = [/\bhelp\b/i, /\bneed help\b/i, /\bassist\b/i, /\bsupport\b/i, /\bstuck\b/i, /\bproblem\b/i];
+  if (!HELP_PATTERNS.some((p) => p.test(messageBody))) {
+    sendJson(res, 200, { ok: true, action: 'ignored' });
+    return;
+  }
+
+  try {
+    // Idempotency: skip if we've already handled this exact message
+    if (messageId && isSupabaseDbConfigured()) {
+      const existing = await supabaseDbRequest(
+        'registration_tasks',
+        'select=id&doubletick_message_id=eq.' + encodeURIComponent(messageId) + '&limit=1'
+      );
+      if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) {
+        sendJson(res, 200, { ok: true, action: 'duplicate_ignored' });
+        return;
+      }
+    }
+
+    // Resolve GP by phone (try E.164 normalised and raw formats)
+    const normalizedPhone = normalizePhone(fromPhone);
+    let gpProfile = null;
+    if (isSupabaseDbConfigured()) {
+      for (const pv of [...new Set([normalizedPhone, fromPhone].filter(Boolean))]) {
+        for (const col of ['phone_number', 'phone']) {
+          const r = await supabaseDbRequest(
+            'user_profiles',
+            'select=user_id,first_name,last_name,email,phone_number,phone&' + col + '=eq.' + encodeURIComponent(pv) + '&limit=1'
+          );
+          if (r.ok && Array.isArray(r.data) && r.data.length > 0) { gpProfile = r.data[0]; break; }
+        }
+        if (gpProfile) break;
+      }
+    }
+
+    // Find the most recent active registration case for this GP
+    let activeCase = null;
+    if (gpProfile && isSupabaseDbConfigured()) {
+      const cr = await supabaseDbRequest(
+        'registration_cases',
+        'select=id,stage,substage,user_id&user_id=eq.' + encodeURIComponent(gpProfile.user_id) + '&status=not.eq.closed&order=created_at.desc&limit=1'
+      );
+      if (cr.ok && Array.isArray(cr.data) && cr.data.length > 0) activeCase = cr.data[0];
+    }
+
+    if (!activeCase) {
+      console.warn('[doubletick-webhook] No active case for phone:', fromPhone);
+      sendJson(res, 200, { ok: true, action: 'no_active_case' });
+      return;
+    }
+
+    const gpName = gpProfile
+      ? [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim()
+      : '';
+
+    // Stage label map for human-readable VA task titles (DoubleTick webhook help tasks)
+    const _dtStageLabel = ({ myintealth: 'MyIntealth', amc: 'AMC', career: 'Career', ahpra: 'AHPRA', visa: 'Visa', pbs: 'PBS', commencement: 'Commencement' })[activeCase.stage] || (activeCase.stage || 'Registration');
+    const taskPayload = {
+      case_id: activeCase.id,
+      task_type: 'whatsapp_help',
+      title: 'GP requested WhatsApp help — ' + _dtStageLabel,
+      description: messageBody.slice(0, 500),
+      priority: 'high',
+      status: 'open',
+      source_trigger: 'doubletick_webhook',
+      related_stage: activeCase.stage || '',
+      doubletick_conversation_url: conversationUrl || null,
+      doubletick_message_id: messageId || null
+    };
+
+    if (isSupabaseDbConfigured()) {
+      const tRes = await supabaseDbRequest(
+        'registration_tasks',
+        '',
+        { method: 'POST', headers: { Prefer: 'return=representation' }, body: [taskPayload] }
+      );
+      if (!tRes.ok) {
+        // Internal error — do not expose details to webhook caller
+        console.error('[doubletick-webhook] Failed to create task');
+        sendJson(res, 500, { ok: false, message: 'Internal error' });
+        return;
+      }
+    }
+
+    sendJson(res, 200, { ok: true, action: 'task_created' });
+  } catch (err) {
+    // Never expose stack traces or internal details to the webhook caller
+    console.error('[doubletick-webhook] Unexpected error:', err && err.message);
+    sendJson(res, 500, { ok: false, message: 'Internal error' });
+  }
 }
 
 const QUAL_SCAN_OPTIONS = [
@@ -4823,6 +5084,19 @@ function sanitizeHttpUrl(value) {
     if (!/^https?:$/i.test(parsed.protocol)) return '';
     return parsed.toString();
   } catch (err) {
+    return '';
+  }
+}
+
+/** Validate a URL allowing only https: and the zoomus: deep-link scheme for interview join links */
+function safeZoomOrHttpUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'zoomus:') return raw;
+    return '';
+  } catch {
     return '';
   }
 }
@@ -10734,6 +11008,32 @@ async function pushPbsNotificationToOwner(appId, notification) {
   } catch (_) { /* non-critical */ }
 }
 
+async function pushCareerNotificationToUser(userId, notification) {
+  if (!isSupabaseDbConfigured() || !userId) return;
+  try {
+    const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+      ? stateResult.data[0].state
+      : {};
+    const updates = Array.isArray(currentState.gp_link_updates) ? currentState.gp_link_updates : [];
+    const entry = {
+      id: 'career_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+      type: notification.type || 'info',
+      title: notification.title || 'Career Update',
+      body: notification.body || '',
+      ts: new Date().toISOString(),
+      category: 'career'
+    };
+    updates.unshift(entry);
+    if (updates.length > 50) updates.length = 50;
+    const nextState = { ...currentState, gp_link_updates: updates };
+    await supabaseDbRequest('user_state', `user_id=eq.${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      body: { state: nextState }
+    });
+  } catch {}
+}
+
 function mapSupabaseProfileRowToApiProfile(row, email) {
   const phone = row.phone || [row.country_dial || '', row.phone_number || ''].filter(Boolean).join(' ').trim();
   return {
@@ -11237,6 +11537,131 @@ function cleanup() {
   if (dirty) saveDbState();
 }
 
+/* ───────── Zoom Server-to-Server OAuth ───────── */
+
+function isZoomConfigured() {
+  return !!(process.env.ZOOM_CLIENT_ID && process.env.ZOOM_CLIENT_SECRET && process.env.ZOOM_ACCOUNT_ID);
+}
+
+let _zoomAccessToken = '';
+let _zoomTokenExpiresAt = 0;
+
+async function getZoomAccessToken() {
+  if (_zoomAccessToken && Date.now() < _zoomTokenExpiresAt - 60000) {
+    return _zoomAccessToken;
+  }
+  const clientId = process.env.ZOOM_CLIENT_ID;
+  const clientSecret = process.env.ZOOM_CLIENT_SECRET;
+  const accountId = process.env.ZOOM_ACCOUNT_ID;
+  const credentials = Buffer.from(clientId + ':' + clientSecret).toString('base64');
+  const res = await fetch('https://zoom.us/oauth/token', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Basic ' + credentials,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: 'grant_type=account_credentials&account_id=' + encodeURIComponent(accountId)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error('Zoom OAuth failed: ' + res.status + ' ' + text);
+  }
+  const data = await res.json();
+  _zoomAccessToken = data.access_token || '';
+  _zoomTokenExpiresAt = Date.now() + ((data.expires_in || 3600) * 1000);
+  return _zoomAccessToken;
+}
+
+async function createZoomMeeting(options) {
+  const token = await getZoomAccessToken();
+  const body = {
+    topic: options.topic || 'GP Link Interview',
+    type: 2, // scheduled meeting
+    start_time: options.startTime, // ISO 8601
+    duration: options.duration || 30,
+    timezone: options.timezone || 'Australia/Sydney',
+    settings: {
+      host_video: true,
+      participant_video: true,
+      join_before_host: false,
+      waiting_room: true,
+      auto_recording: 'none',
+      meeting_authentication: false
+    }
+  };
+  const res = await fetch('https://api.zoom.us/v2/users/me/meetings', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error('Zoom meeting creation failed: ' + res.status + ' ' + text);
+  }
+  return res.json();
+}
+
+async function deleteZoomMeeting(meetingId) {
+  const token = await getZoomAccessToken();
+  const res = await fetch('https://api.zoom.us/v2/meetings/' + encodeURIComponent(meetingId), {
+    method: 'DELETE',
+    headers: { 'Authorization': 'Bearer ' + token }
+  });
+  return res.ok;
+}
+
+/* ───────── Email via Resend HTTP API ───────── */
+
+function isEmailConfigured() {
+  return !!(process.env.RESEND_API_KEY);
+}
+
+async function sendEmail({ to, subject, html, text }) {
+  if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
+  const fromName = process.env.RESEND_FROM_NAME || 'GP Link';
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: fromName + ' <' + fromEmail + '>',
+        to: Array.isArray(to) ? to : [to],
+        subject: subject,
+        html: html || '',
+        text: text || ''
+      })
+    });
+    if (!res.ok) return { ok: false, error: 'Resend API error: ' + res.status };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message || err) };
+  }
+}
+
+function buildCareerEmailHtml({ title, body, ctaText, ctaUrl, footer }) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+<div style="max-width:560px;margin:0 auto;padding:32px 16px">
+<div style="background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 16px rgba(2,6,23,0.08)">
+<div style="text-align:center;margin-bottom:24px">
+<span style="font-size:22px;font-weight:800;color:#0f172a">GP Link</span>
+</div>
+<h1 style="font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px">${title || ''}</h1>
+<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px">${body || ''}</p>
+${ctaText && ctaUrl ? '<div style="text-align:center;margin:24px 0"><a href="' + ctaUrl + '" style="display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px">' + ctaText + '</a></div>' : ''}
+${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px">' + footer + '</p>' : ''}
+</div>
+<p style="text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0">GP Link Australia &middot; <a href="https://app.mygplink.com.au" style="color:#64748b">app.mygplink.com.au</a></p>
+</div></body></html>`;
+}
+
 async function handleApi(req, res, pathname) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
@@ -11261,6 +11686,11 @@ async function handleApi(req, res, pathname) {
       supabaseDbConfigured: isSupabaseDbConfigured()
     });
     return;
+  }
+
+  // DoubleTick inbound webhook — external origin, must be before same-origin enforcement
+  if (pathname === '/api/webhooks/doubletick' && req.method === 'POST') {
+    return handleDoubleTickWebhook(req, res);
   }
 
   if (!enforceMutationOrigin(req, res)) return;
@@ -12222,6 +12652,30 @@ async function handleApi(req, res, pathname) {
       message: 'Application submitted successfully.',
       application: insertResult.data && insertResult.data[0] ? insertResult.data[0] : appRow
     });
+
+    // Push career notification (non-blocking)
+    const locationLabel = roleRow && roleRow.location_city ? `${roleRow.location_city}${roleRow.location_state ? ', ' + roleRow.location_state : ''}` : 'a new role';
+    pushCareerNotificationToUser(userId, {
+      type: 'success',
+      title: 'Application Submitted',
+      body: `Your application for the ${locationLabel} role has been submitted. We'll keep you updated on its progress.`
+    }).catch(() => {});
+
+    // Send email notification (non-blocking)
+    if (isEmailConfigured()) {
+      sendEmail({
+        to: email,
+        subject: 'Application Submitted — GP Link',
+        html: buildCareerEmailHtml({
+          title: 'Application Submitted',
+          body: 'Your application for the ' + locationLabel + ' role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.',
+          ctaText: 'View Your Applications',
+          ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications',
+          footer: 'You\'re receiving this because you applied for a role on GP Link.'
+        })
+      }).catch(() => {});
+    }
+
     return;
   }
 
@@ -12368,6 +12822,85 @@ async function handleApi(req, res, pathname) {
               body: patch
             }
           );
+
+          // Push notification on status change (non-blocking)
+          if (patch.status) {
+            const statusLabel = normalizeCareerApplicationStatusKey(status);
+            const practiceLabel = roleRow && roleRow.practice_name ? roleRow.practice_name : 'your application';
+            let notifTitle = 'Application Update';
+            let notifBody = `Your application status has been updated to: ${status}`;
+            let notifType = 'info';
+            if (statusLabel === 'interview_scheduled' || statusLabel === 'interview') {
+              notifTitle = 'Interview Scheduled';
+              notifBody = `An interview has been scheduled for ${practiceLabel}. Check your application for details.`;
+              notifType = 'action';
+            } else if (statusLabel === 'offer' || statusLabel === 'offer_pending' || statusLabel === 'offered') {
+              notifTitle = 'Offer Pending';
+              notifBody = `Great news! An offer is pending for ${practiceLabel}.`;
+              notifType = 'success';
+            } else if (isCareerPlacementSecuredStatus(statusLabel)) {
+              notifTitle = 'Placement Secured!';
+              notifBody = `Congratulations! Your placement at ${practiceLabel} has been secured.`;
+              notifType = 'success';
+            }
+            pushCareerNotificationToUser(userId, { type: notifType, title: notifTitle, body: notifBody }).catch(() => {});
+
+            // Send email on status change (non-blocking)
+            if (isEmailConfigured()) {
+              const gpEmail = email; // already available in scope
+              const practiceLabel2 = roleRow && roleRow.practice_name ? roleRow.practice_name : 'your application';
+              let emailSubject = 'Application Update — GP Link';
+              let emailTitle = 'Application Update';
+              let emailBody = 'Your application status has been updated.';
+              let emailCta = { text: 'View Application', url: 'https://app.mygplink.com.au/pages/career.html#applications' };
+              let emailFooter = 'You\'re receiving this because you have an active application on GP Link.';
+
+              if (statusLabel === 'interview_scheduled' || statusLabel === 'interview') {
+                emailSubject = 'Interview Scheduled — GP Link';
+                emailTitle = 'Interview Scheduled';
+                // Check for interview with Zoom link
+                let interviewDetail = '';
+                try {
+                  const intResult = await supabaseDbRequest('career_interviews', 'select=scheduled_at,zoom_join_url,format,duration_minutes,interviewer_name&application_id=eq.' + encodeURIComponent(localApp.id) + '&status=neq.cancelled&order=scheduled_at.desc&limit=1');
+                  if (intResult.ok && Array.isArray(intResult.data) && intResult.data[0]) {
+                    const iv = intResult.data[0];
+                    const ivDate = new Date(iv.scheduled_at);
+                    interviewDetail = '<br><br><strong>Interview Details:</strong><br>';
+                    interviewDetail += 'Date: ' + ivDate.toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) + '<br>';
+                    interviewDetail += 'Time: ' + ivDate.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }) + '<br>';
+                    if (iv.duration_minutes) interviewDetail += 'Duration: ' + iv.duration_minutes + ' minutes<br>';
+                    if (iv.interviewer_name) interviewDetail += 'Interviewer: ' + iv.interviewer_name + '<br>';
+                    if (iv.zoom_join_url) {
+                      emailCta = { text: 'Join Video Interview', url: iv.zoom_join_url };
+                      interviewDetail += '<br>Your Zoom meeting link is ready. Click the button below to join when it\'s time.';
+                    }
+                  }
+                } catch {}
+                emailBody = 'Great news! An interview has been scheduled for ' + practiceLabel2 + '.' + interviewDetail;
+              } else if (statusLabel === 'offer' || statusLabel === 'offer_pending' || statusLabel === 'offered') {
+                emailSubject = 'Offer Pending — GP Link';
+                emailTitle = 'Offer Pending';
+                emailBody = 'Exciting news! An offer is pending for ' + practiceLabel2 + '. Our team will be in touch with the details.';
+              } else if (isCareerPlacementSecuredStatus(statusLabel)) {
+                emailSubject = 'Placement Secured! — GP Link';
+                emailTitle = 'Congratulations!';
+                emailBody = 'Your placement at ' + practiceLabel2 + ' has been secured. Visit your dashboard to see your placement details, start date, and next steps.';
+                emailCta = { text: 'View Your Placement', url: 'https://app.mygplink.com.au/pages/career.html#secured' };
+              }
+
+              sendEmail({
+                to: gpEmail,
+                subject: emailSubject,
+                html: buildCareerEmailHtml({
+                  title: emailTitle,
+                  body: emailBody,
+                  ctaText: emailCta.text,
+                  ctaUrl: emailCta.url,
+                  footer: emailFooter
+                })
+              }).catch(() => {});
+            }
+          }
         }
       }
 
@@ -12383,6 +12916,390 @@ async function handleApi(req, res, pathname) {
     }
 
     sendJson(res, 200, { ok: true, applications: enriched });
+    return;
+  }
+
+  if (pathname === '/api/career/application' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const params = new URL(req.url, 'http://x').searchParams;
+    const id = String(params.get('id') || '').trim();
+    if (!id) { sendJson(res, 400, { ok: false, message: 'Missing id parameter.' }); return; }
+
+    // Query by id (UUID) or provider_role_id
+    const appResult = await supabaseDbRequest(
+      'gp_applications',
+      `select=*&user_id=eq.${encodeURIComponent(userId)}&or=(id.eq.${encodeURIComponent(id)},provider_role_id.eq.${encodeURIComponent(id)})&limit=1`
+    );
+    const appRow = appResult.ok && Array.isArray(appResult.data) && appResult.data[0] ? appResult.data[0] : null;
+    if (!appRow) {
+      sendJson(res, 404, { ok: false, message: 'Application not found.' });
+      return;
+    }
+
+    // Enrich with role data
+    let roleRow = null;
+    if (appRow.career_role_id) {
+      roleRow = await getCareerRoleRowById(appRow.career_role_id);
+    }
+    if (!roleRow && appRow.provider_role_id) {
+      roleRow = await getCareerRoleRow('zoho_recruit', appRow.provider_role_id);
+    }
+
+    // Get live Zoho status if available
+    const zoho = isZohoRecruitConfigured() ? await getZohoRecruitAccessTokenAndDomain() : null;
+    let liveStatus = '';
+    let liveRecord = null;
+    if (zoho && appRow.zoho_application_id) {
+      try {
+        const liveResult = await fetchZohoRecruitApplicationRecord(zoho, appRow.zoho_application_id);
+        if (liveResult) {
+          liveRecord = liveResult;
+          liveStatus = getZohoApplicationStatus(liveResult);
+        }
+      } catch {}
+    }
+    const status = normalizeCareerApplicationStatusKey(liveStatus)
+      || normalizeCareerApplicationStatusKey(appRow.status)
+      || 'applied';
+
+    const providerRoleId = String(appRow.provider_role_id || '').trim();
+    const roleClient = roleRow
+      ? mapCareerRoleRowToClient(roleRow)
+      : {
+        id: providerRoleId ? makeCareerRoleId('zoho_recruit', providerRoleId) : appRow.id,
+        practiceName: 'Medical Centre',
+        location: '',
+        billing: 'Billing pending',
+        roleType: 'General Practitioner'
+      };
+
+    // Build placement payload if status warrants it
+    let placement = null;
+    if (isCareerPlacementSecuredStatus(status)) {
+      try {
+        const profile = await getSupabaseUserProfile(email, userId);
+        const startDateIso = normalizePlacementStartDate(profile && profile.target_arrival_date);
+        let jobOpeningRecord = null;
+        if (zoho && providerRoleId) {
+          try { jobOpeningRecord = await fetchZohoRecruitJobOpeningRecord(zoho, providerRoleId); } catch {}
+        }
+        const clientId = getZohoApplicationClientId(liveRecord)
+          || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
+        let practiceContacts = [];
+        if (zoho && clientId) {
+          try { practiceContacts = await fetchZohoRecruitClientContacts(zoho, clientId); } catch {}
+        }
+        placement = await buildCareerPlacementPayload({
+          zoho,
+          applicationRecord: liveRecord,
+          roleRow,
+          jobOpeningRecord,
+          startDateIso: startDateIso
+            || normalizePlacementStartDate(getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Expected_Joining_Date']))
+            || normalizePlacementStartDate(getZohoField(jobOpeningRecord, ['Target_Date', 'Expected_Start_Date', 'Start_Date'])),
+          practiceContacts,
+          providerRoleId,
+          profile
+        });
+      } catch {}
+    }
+
+    // Sync status back to DB if changed
+    if (liveRecord && status && status !== String(appRow.status || '').trim()) {
+      supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(appRow.id)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: { status, updated_at: new Date().toISOString() }
+      }).catch(() => {});
+    }
+
+    // Query interview data (table may not exist yet)
+    let interview = null;
+    try {
+      const intResult = await supabaseDbRequest(
+        'career_interviews',
+        `select=*&application_id=eq.${encodeURIComponent(appRow.id)}&status=neq.cancelled&order=scheduled_at.desc&limit=1`
+      );
+      if (intResult.ok && Array.isArray(intResult.data) && intResult.data[0]) {
+        const raw = intResult.data[0];
+        // Sanitize join URL — only allow https:// or zoomus:// schemes
+        const sanitizedJoinUrl = raw.zoom_join_url ? safeZoomOrHttpUrl(raw.zoom_join_url) : null;
+        // Strip sensitive fields — never expose host URL, passcode, or internal notes to the GP
+        interview = {
+          id: raw.id,
+          application_id: raw.application_id,
+          scheduled_at: raw.scheduled_at,
+          duration_minutes: raw.duration_minutes,
+          timezone: raw.timezone,
+          format: raw.format,
+          status: raw.status,
+          zoom_join_url: sanitizedJoinUrl || null,
+          interviewer_name: raw.interviewer_name || '',
+          interviewer_role: raw.interviewer_role || '',
+          gp_notes: raw.gp_notes || '',
+          created_at: raw.created_at,
+          updated_at: raw.updated_at
+        };
+      }
+    } catch {}
+
+    const enrichedApp = {
+      id: appRow.id,
+      status,
+      appliedAt: appRow.applied_at || new Date().toISOString(),
+      role: roleClient,
+      placement,
+      interview
+    };
+
+    sendJson(res, 200, { ok: true, application: enrichedApp });
+    return;
+  }
+
+  if (pathname === '/api/career/interview' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    const qs = new URL(req.url, 'http://localhost').searchParams;
+    const applicationId = String(qs.get('applicationId') || '').trim();
+    if (!applicationId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    // Verify application belongs to user
+    const appCheck = await supabaseDbRequest('gp_applications', `select=id&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    if (!appCheck.ok || !Array.isArray(appCheck.data) || appCheck.data.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Application not found.' });
+      return;
+    }
+
+    try {
+      const result = await supabaseDbRequest(
+        'career_interviews',
+        `select=*&application_id=eq.${encodeURIComponent(applicationId)}&status=neq.cancelled&order=scheduled_at.desc&limit=1`
+      );
+      const raw = result.ok && Array.isArray(result.data) && result.data[0] ? result.data[0] : null;
+      // Strip sensitive fields — never expose host URL, passcode, or internal notes to the GP
+      const interview = raw ? {
+        id: raw.id,
+        application_id: raw.application_id,
+        scheduled_at: raw.scheduled_at,
+        duration_minutes: raw.duration_minutes,
+        timezone: raw.timezone,
+        format: raw.format,
+        status: raw.status,
+        zoom_join_url: raw.zoom_join_url ? safeZoomOrHttpUrl(raw.zoom_join_url) : null,
+        interviewer_name: raw.interviewer_name || '',
+        interviewer_role: raw.interviewer_role || '',
+        gp_notes: raw.gp_notes || '',
+        created_at: raw.created_at,
+        updated_at: raw.updated_at
+      } : null;
+      sendJson(res, 200, { ok: true, interview });
+    } catch {
+      sendJson(res, 200, { ok: true, interview: null });
+    }
+    return;
+  }
+
+  if (pathname === '/api/career/application/withdraw' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const applicationId = String(body && body.applicationId || '').trim();
+    if (!applicationId) { sendJson(res, 400, { ok: false, message: 'Missing applicationId.' }); return; }
+
+    // Verify application belongs to user
+    const appResult = await supabaseDbRequest('gp_applications', `select=id,status&id=eq.${encodeURIComponent(applicationId)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    if (!appResult.ok || !Array.isArray(appResult.data) || appResult.data.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Application not found.' });
+      return;
+    }
+
+    const app = appResult.data[0];
+    const currentStatus = normalizeCareerApplicationStatusKey(app.status);
+    if (isCareerPlacementSecuredStatus(currentStatus)) {
+      sendJson(res, 400, { ok: false, message: 'Cannot withdraw a secured placement. Contact GP Link support.' });
+      return;
+    }
+
+    // Update status to withdrawn
+    const patchResult = await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
+      method: 'PATCH',
+      body: { status: 'withdrawn', updated_at: new Date().toISOString() }
+    });
+
+    if (!patchResult.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to withdraw application.' });
+      return;
+    }
+
+    // Cancel any scheduled interviews
+    try {
+      const interviews = await supabaseDbRequest('career_interviews', `select=id,zoom_meeting_id&application_id=eq.${encodeURIComponent(applicationId)}&status=in.(scheduled,confirmed)`);
+      if (interviews.ok && Array.isArray(interviews.data)) {
+        for (const iv of interviews.data) {
+          await supabaseDbRequest('career_interviews', `id=eq.${encodeURIComponent(iv.id)}`, {
+            method: 'PATCH',
+            body: { status: 'cancelled', updated_at: new Date().toISOString() }
+          });
+          if (iv.zoom_meeting_id && isZoomConfigured()) {
+            deleteZoomMeeting(iv.zoom_meeting_id).catch(() => {});
+          }
+        }
+      }
+    } catch {}
+
+    sendJson(res, 200, { ok: true, message: 'Application withdrawn.' });
+    return;
+  }
+
+  if (pathname === '/api/career/upload-cv' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const fileName = String(body && body.fileName || '').trim().slice(0, 255);
+    const fileDataUrl = String(body && body.fileDataUrl || '');
+    const mimeType = String(body && body.mimeType || 'application/pdf').trim();
+
+    if (!fileDataUrl || !fileDataUrl.startsWith('data:')) {
+      sendJson(res, 400, { ok: false, message: 'Missing or invalid file data.' });
+      return;
+    }
+
+    if (mimeType !== 'application/pdf') {
+      sendJson(res, 400, { ok: false, message: 'Only PDF files are accepted.' });
+      return;
+    }
+
+    // Check approximate file size (base64 is ~33% larger than binary)
+    const base64Part = fileDataUrl.split(',')[1] || '';
+    const approxBytes = Math.ceil(base64Part.length * 0.75);
+    if (approxBytes > 10 * 1024 * 1024) {
+      sendJson(res, 400, { ok: false, message: 'File too large. Maximum 10 MB.' });
+      return;
+    }
+
+    const selectedCountry = 'AU';
+    const docKey = 'cv_signed_dated';
+    const storagePath = buildPreparedDocumentStoragePath(userId, selectedCountry, docKey);
+    const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, fileDataUrl, mimeType);
+    if (!uploaded) {
+      sendJson(res, 502, { ok: false, message: 'Failed to upload file.' });
+      return;
+    }
+
+    const result = await supabaseDbRequest(
+      'user_documents',
+      'on_conflict=user_id,document_key,country_code',
+      {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: [{
+          user_id: userId,
+          country_code: selectedCountry,
+          document_key: docKey,
+          status: 'uploaded',
+          file_name: fileName || 'cv.pdf',
+          file_url: storagePath,
+          updated_at: new Date().toISOString()
+        }]
+      }
+    );
+
+    if (!result.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save document record.' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.' });
+    return;
+  }
+
+  if (pathname === '/api/career/alerts' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const enabled = body && body.enabled === true;
+    const filters = body && typeof body.filters === 'object' ? {
+      location: String(body.filters.location || '').slice(0, 100),
+      billing: String(body.filters.billing || '').slice(0, 100),
+      tokens: Array.isArray(body.filters.tokens) ? body.filters.tokens.filter(t => typeof t === 'string').slice(0, 10).map(t => t.slice(0, 50)) : []
+    } : {};
+
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    try {
+      const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+      const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+        ? stateResult.data[0].state
+        : {};
+      currentState.gp_career_alerts = { enabled, filters, updatedAt: new Date().toISOString() };
+      await supabaseDbRequest('user_state', `user_id=eq.${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        body: { state: currentState }
+      });
+      sendJson(res, 200, { ok: true, alerts: currentState.gp_career_alerts });
+    } catch {
+      sendJson(res, 500, { ok: false, message: 'Failed to update alert preferences.' });
+    }
+    return;
+  }
+
+  if (pathname === '/api/career/alerts' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    try {
+      const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+      const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+        ? stateResult.data[0].state
+        : {};
+      sendJson(res, 200, { ok: true, alerts: currentState.gp_career_alerts || { enabled: false, filters: {} } });
+    } catch {
+      sendJson(res, 200, { ok: true, alerts: { enabled: false, filters: {} } });
+    }
     return;
   }
 
@@ -12762,6 +13679,256 @@ async function handleApi(req, res, pathname) {
       message: syncResult.message || '',
       connection: syncResult.connected || null
     });
+    return;
+  }
+
+  // ── Admin applications list ──────────────────────────────────
+
+  if (pathname === '/api/admin/career/applications' && req.method === 'GET') {
+    if (!requireAdminSession(req, res)) return;
+    try {
+      const result = await supabaseDbRequest(
+        'gp_applications',
+        'select=*&order=applied_at.desc&limit=200'
+      );
+      const applications = result.ok && Array.isArray(result.data) ? result.data : [];
+
+      // Enrich with user email and role info
+      const enriched = [];
+      for (const app of applications.slice(0, 100)) {
+        try {
+          const profileResult = await supabaseDbRequest('user_profiles', `select=email,first_name,last_name&user_id=eq.${encodeURIComponent(app.user_id)}&limit=1`);
+          if (profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0]) {
+            const p = profileResult.data[0];
+            app.gp_name = ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || p.email || '';
+            app.gp_email = p.email || '';
+          }
+        } catch {}
+        if (app.career_role_id) {
+          try {
+            const roleResult = await supabaseDbRequest('career_roles', `select=title,practice_name,location_city,location_state&id=eq.${encodeURIComponent(app.career_role_id)}&limit=1`);
+            if (roleResult.ok && Array.isArray(roleResult.data) && roleResult.data[0]) {
+              const r = roleResult.data[0];
+              app.role_title = r.title || 'General Practitioner';
+              app.practice_name = r.practice_name || '';
+              app.role_location = (r.location_city || '') + (r.location_state ? ', ' + r.location_state : '');
+            }
+          } catch {}
+        }
+        enriched.push(app);
+      }
+
+      sendJson(res, 200, { ok: true, applications: enriched });
+    } catch {
+      sendJson(res, 500, { ok: false, message: 'Failed to fetch applications.' });
+    }
+    return;
+  }
+
+  // ── Admin interview scheduling ──────────────────────────────────
+
+  if (pathname === '/api/admin/career/interviews' && req.method === 'GET') {
+    if (!requireAdminSession(req, res)) return;
+    try {
+      const result = await supabaseDbRequest(
+        'career_interviews',
+        'select=*&order=scheduled_at.desc&limit=100'
+      );
+      sendJson(res, 200, { ok: true, interviews: result.ok && Array.isArray(result.data) ? result.data : [] });
+    } catch {
+      sendJson(res, 500, { ok: false, message: 'Failed to fetch interviews.' });
+    }
+    return;
+  }
+
+  if (pathname === '/api/admin/career/interview/schedule' && req.method === 'POST') {
+    if (!requireAdminSession(req, res)) return;
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const applicationId = String(body && body.applicationId || '').trim();
+    const scheduledAt = String(body && body.scheduledAt || '').trim();
+    const duration = Math.max(15, Math.min(120, parseInt(body && body.duration || 30, 10) || 30));
+    const timezone = String(body && body.timezone || 'Australia/Sydney').trim();
+    const format = ['video', 'phone', 'in_person'].includes(body && body.format) ? body.format : 'video';
+    const interviewerName = String(body && body.interviewerName || '').trim().slice(0, 200);
+    const interviewerRole = String(body && body.interviewerRole || '').trim().slice(0, 200);
+    const interviewerEmail = String(body && body.interviewerEmail || '').trim().slice(0, 320);
+    const internalNotes = String(body && body.internalNotes || '').trim().slice(0, 2000);
+
+    if (!applicationId || !scheduledAt) {
+      sendJson(res, 400, { ok: false, message: 'Missing applicationId or scheduledAt.' });
+      return;
+    }
+
+    // Validate scheduledAt is a valid future date
+    const scheduledDate = new Date(scheduledAt);
+    if (isNaN(scheduledDate.getTime())) {
+      sendJson(res, 400, { ok: false, message: 'Invalid scheduledAt date.' });
+      return;
+    }
+
+    // Get the application and user
+    const appResult = await supabaseDbRequest('gp_applications', `select=*&id=eq.${encodeURIComponent(applicationId)}&limit=1`);
+    if (!appResult.ok || !Array.isArray(appResult.data) || appResult.data.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Application not found.' });
+      return;
+    }
+    const appRow = appResult.data[0];
+    const gpUserId = appRow.user_id;
+
+    // Create Zoom meeting if format is video and Zoom is configured
+    let zoomMeetingId = '';
+    let zoomJoinUrl = '';
+    let zoomHostUrl = '';
+    let zoomPasscode = '';
+
+    if (format === 'video' && isZoomConfigured()) {
+      try {
+        const meeting = await createZoomMeeting({
+          topic: 'GP Link Interview - ' + (interviewerName || 'Practice Interview'),
+          startTime: scheduledDate.toISOString(),
+          duration: duration,
+          timezone: timezone
+        });
+        zoomMeetingId = String(meeting.id || '');
+        zoomJoinUrl = String(meeting.join_url || '');
+        zoomHostUrl = String(meeting.start_url || '');
+        zoomPasscode = String(meeting.password || '');
+      } catch (err) {
+        // Zoom creation failed — continue without it
+      }
+    }
+
+    // Insert interview record
+    const interviewRow = {
+      application_id: applicationId,
+      user_id: gpUserId,
+      scheduled_at: scheduledDate.toISOString(),
+      duration_minutes: duration,
+      timezone: timezone,
+      format: format,
+      status: 'scheduled',
+      zoom_meeting_id: zoomMeetingId || null,
+      zoom_join_url: zoomJoinUrl || null,
+      zoom_host_url: zoomHostUrl || null,
+      zoom_passcode: zoomPasscode || null,
+      interviewer_name: interviewerName,
+      interviewer_role: interviewerRole,
+      interviewer_email: interviewerEmail,
+      internal_notes: internalNotes
+    };
+
+    const insertResult = await supabaseDbRequest('career_interviews', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [interviewRow]
+    });
+
+    if (!insertResult.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to save interview.' });
+      return;
+    }
+
+    // Update application status to interview_scheduled
+    await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
+      method: 'PATCH',
+      body: { status: 'interview_scheduled', updated_at: new Date().toISOString() }
+    });
+
+    // Notify GP
+    pushCareerNotificationToUser(gpUserId, {
+      type: 'action',
+      title: 'Interview Scheduled',
+      body: 'An interview has been scheduled for ' + scheduledDate.toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric' }) + '. Check your application for details.'
+    }).catch(() => {});
+
+    // Send email with Zoom link (non-blocking)
+    if (isEmailConfigured()) {
+      try {
+        const gpProfileResult = await supabaseDbRequest('user_profiles', 'select=email&user_id=eq.' + encodeURIComponent(gpUserId) + '&limit=1');
+        const gpEmail = gpProfileResult.ok && Array.isArray(gpProfileResult.data) && gpProfileResult.data[0] ? gpProfileResult.data[0].email : '';
+        if (gpEmail) {
+          let interviewDetail = 'Date: ' + scheduledDate.toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) + '<br>';
+          interviewDetail += 'Time: ' + scheduledDate.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }) + '<br>';
+          interviewDetail += 'Duration: ' + duration + ' minutes<br>';
+          if (interviewerName) interviewDetail += 'Interviewer: ' + interviewerName + '<br>';
+          const formatLabels = { video: 'Video Call (Zoom)', phone: 'Phone Call', in_person: 'In Person' };
+          interviewDetail += 'Format: ' + (formatLabels[format] || format) + '<br>';
+
+          sendEmail({
+            to: gpEmail,
+            subject: 'Interview Scheduled — GP Link',
+            html: buildCareerEmailHtml({
+              title: 'Interview Scheduled',
+              body: 'An interview has been scheduled for your GP Link application.<br><br>' + interviewDetail + (zoomJoinUrl ? '<br>Your Zoom meeting link is included in the button below.' : ''),
+              ctaText: zoomJoinUrl ? 'Join Video Interview' : 'View Application',
+              ctaUrl: zoomJoinUrl || 'https://app.mygplink.com.au/pages/career.html#applications',
+              footer: 'You\'re receiving this because you have an active application on GP Link.'
+            })
+          }).catch(() => {});
+        }
+      } catch {}
+    }
+
+    sendJson(res, 200, {
+      ok: true,
+      interview: insertResult.data && insertResult.data[0] ? insertResult.data[0] : interviewRow
+    });
+    return;
+  }
+
+  if (pathname === '/api/admin/career/interview' && req.method === 'PATCH') {
+    if (!requireAdminSession(req, res)) return;
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const interviewId = String(body && body.id || '').trim();
+    if (!interviewId) { sendJson(res, 400, { ok: false, message: 'Missing interview id.' }); return; }
+
+    const patch = { updated_at: new Date().toISOString() };
+    if (body.scheduledAt) patch.scheduled_at = new Date(body.scheduledAt).toISOString();
+    if (body.duration) patch.duration_minutes = Math.max(15, Math.min(120, parseInt(body.duration, 10) || 30));
+    if (body.status && ['scheduled', 'confirmed', 'cancelled', 'completed', 'no_show'].includes(body.status)) patch.status = body.status;
+    if (body.interviewerName !== undefined) patch.interviewer_name = String(body.interviewerName || '').slice(0, 200);
+    if (body.internalNotes !== undefined) patch.internal_notes = String(body.internalNotes || '').slice(0, 2000);
+
+    const result = await supabaseDbRequest('career_interviews', `id=eq.${encodeURIComponent(interviewId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: patch
+    });
+
+    if (!result.ok) {
+      sendJson(res, 502, { ok: false, message: 'Failed to update interview.' });
+      return;
+    }
+
+    // If cancelled, delete Zoom meeting
+    if (patch.status === 'cancelled') {
+      const row = result.data && result.data[0];
+      if (row && row.zoom_meeting_id && isZoomConfigured()) {
+        deleteZoomMeeting(row.zoom_meeting_id).catch(() => {});
+      }
+      // Notify GP
+      if (row && row.user_id) {
+        pushCareerNotificationToUser(row.user_id, {
+          type: 'info',
+          title: 'Interview Cancelled',
+          body: 'Your scheduled interview has been cancelled. GP Link will follow up with next steps.'
+        }).catch(() => {});
+      }
+    }
+
+    sendJson(res, 200, { ok: true, interview: result.data && result.data[0] ? result.data[0] : null });
     return;
   }
 
@@ -15687,7 +16854,7 @@ Return ONLY valid JSON with no markdown formatting:
     let stateMap = {};
     if (userIds.length > 0) {
       const [pRes, sRes] = await Promise.all([
-        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,country_of_qualification,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
+        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,phone,country_of_qualification,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
         supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')')
       ]);
       if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
@@ -15748,9 +16915,10 @@ Return ONLY valid JSON with no markdown formatting:
       const c = caseMap[t.case_id] || {};
       const p = profileMap[c.user_id] || {};
       return Object.assign({}, t, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || '',
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
+        gp_phone: p.phone || p.phone_number || '',
         gp_user_id: c.user_id || null,
         case_stage: c.stage || '',
         case_substage: c.substage || '',
@@ -15762,9 +16930,10 @@ Return ONLY valid JSON with no markdown formatting:
     const enrichedTickets = openTickets.map(function (tk) {
       const p = profileMap[tk.user_id] || {};
       return Object.assign({}, tk, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || '',
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
+        gp_phone: p.phone || p.phone_number || '',
         whatsapp_link: buildWhatsAppLink(tk.stage, p.first_name || '')
       });
     });

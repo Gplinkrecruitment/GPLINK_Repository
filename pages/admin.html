@@ -309,6 +309,10 @@
     .btn.wa:hover{background:#20b958;border-color:#20b958}
     .btn.nudge{background:var(--purple-2);color:#fff;border-color:var(--purple-2)}
     .btn.nudge:hover{background:var(--purple-1);border-color:var(--purple-1)}
+    .btn.dt{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+    .btn.dt:hover{background:#0284c7;border-color:#0284c7}
+    .task-gp-meta{font-size:11px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;line-height:1.4}
+    .task-gp-meta span{white-space:nowrap}
     .qual-section{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     @media(max-width:900px){.qual-section{grid-template-columns:1fr}}
     .qual-box{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px}
@@ -338,6 +342,63 @@
     .nudge-modal-body input,.nudge-modal-body textarea,.nudge-modal-body select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit}
     .nudge-modal-body textarea{resize:vertical;min-height:80px}
     .va-actions-bar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}
+
+    /* ══ Interviews Panel ══ */
+    .interviews-wrap{padding:16px;overflow:auto;height:100%}
+    .interviews-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap}
+    .interviews-header h2{font-size:18px;font-weight:800;margin:0}
+    .interviews-grid{display:grid;grid-template-columns:1fr 340px;gap:16px}
+    @media(max-width:900px){.interviews-grid{grid-template-columns:1fr}}
+    .iv-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:8px;box-shadow:var(--shadow)}
+    .iv-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px}
+    .iv-card-gp{font-size:14px;font-weight:800}
+    .iv-card-time{font-size:13px;font-weight:600;margin:4px 0}
+    .iv-card-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+    .iv-card-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+    .iv-format-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+    .iv-format-badge.video{background:#eff6ff;color:#1d4ed8}
+    .iv-format-badge.phone{background:#faf5ff;color:#7c3aed}
+    .iv-format-badge.in_person{background:#ecfdf5;color:#166534}
+    .iv-status-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800}
+    .iv-status-pill.scheduled{background:#eff6ff;color:#1d4ed8}
+    .iv-status-pill.confirmed{background:#ecfdf5;color:#166534}
+    .iv-status-pill.cancelled{background:#f1f5f9;color:#64748b}
+    .iv-status-pill.completed{background:#ecfdf5;color:#166534}
+    .iv-status-pill.no_show{background:#fef2f2;color:#dc2626}
+    .iv-form{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
+    .iv-form h3{font-size:14px;font-weight:800;margin-bottom:12px}
+    .iv-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    @media(max-width:600px){.iv-form-grid{grid-template-columns:1fr}}
+    .iv-form-field{display:grid;gap:3px}
+    .iv-form-field.full{grid-column:1/-1}
+    .iv-form-field label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+    .iv-form-field input,.iv-form-field select,.iv-form-field textarea{padding:7px 10px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-family:inherit;background:#fff}
+    .iv-form-field input:focus,.iv-form-field select:focus,.iv-form-field textarea:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
+    .iv-form-field textarea{min-height:60px;resize:vertical}
+    .iv-form-actions{display:flex;gap:6px;margin-top:12px;justify-content:flex-end}
+    /* ══ Applications Panel ══ */
+    .applications-wrap{padding:16px;overflow:auto;height:100%}
+    .applications-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap}
+    .applications-header h2{font-size:18px;font-weight:800;margin:0}
+    .applications-stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+    .applications-stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:8px 14px;box-shadow:var(--shadow);display:flex;flex-direction:column;align-items:center;min-width:80px}
+    .applications-stat .stat-num{font-size:18px;font-weight:800}
+    .applications-stat .stat-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+    .applications-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+    @media(max-width:700px){.applications-grid{grid-template-columns:1fr}}
+    .app-admin-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:6px}
+    .app-admin-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+    .app-admin-card-gp{font-size:14px;font-weight:800}
+    .app-admin-card-email{font-size:11px;color:var(--muted)}
+    .app-admin-card-role{font-size:13px;font-weight:600;margin-top:2px}
+    .app-admin-card-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+    .app-admin-card-actions{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+    .app-status-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+    .app-status-pill.applied,.app-status-pill.review{background:#eff6ff;color:#1d4ed8}
+    .app-status-pill.interview{background:#faf5ff;color:#7c3aed}
+    .app-status-pill.offer{background:#fffbeb;color:#b45309}
+    .app-status-pill.secured{background:#ecfdf5;color:#166534}
+    .app-status-pill.withdrawn{background:#fef2f2;color:#dc2626}
   </style>
 </head>
 <body>
@@ -361,6 +422,8 @@
         <div class="view-tab" data-view="tickets">Tickets</div>
         <div class="view-tab" data-view="queue">Work Queue</div>
         <div class="view-tab" data-view="ops">Ops Queue</div>
+        <div class="view-tab" data-view="interviews">Interviews</div>
+        <div class="view-tab" data-view="applications">Applications</div>
         <div class="view-tab" data-view="agent" id="agentTab" style="display:none">Agent</div>
       </div>
       <div class="filter-bar" id="filterBar"></div>
@@ -374,6 +437,8 @@
   </div>
   <div class="today-wrap" id="todayPanel" style="display:none"></div>
   <div class="tickets-wrap" id="ticketsPanel" style="display:none"></div>
+  <div class="interviews-wrap" id="interviewsPanel" style="display:none"></div>
+  <div class="applications-wrap" id="applicationsPanel" style="display:none"></div>
   <div class="ops-panel" id="opsPanel">
     <div class="ops-stats" id="opsStats"></div>
     <div class="ops-filters" id="opsFilters">
@@ -438,6 +503,8 @@
     selectedCaseId:null,view:"today",filter:"all",query:"",expanded:{},refreshTimer:null,
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     va:{dashboard:null,tickets:[],ticketsView:"open",selectedQuals:null,loading:false},
+    interviews:{list:[],loading:false},
+    applications:{list:[],loading:false},
     agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
       draftTask:"",profile:"balanced",collaborationMode:"paired",complexity:"auto",loading:false,submitting:false,
       warnings:[],security:null,providerStatusRefreshedAt:"",error:"",
@@ -461,6 +528,7 @@
     commencement:{gp:"Complete pre-arrival checklist, confirm arrival date.",va:"Prepare welcome pack. Coordinate with practice. Confirm all registrations complete."}
   };
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
+  function safeUrl(u,fallback){if(!u||typeof u!=="string")return fallback||"#";var t=u.trim().toLowerCase();if(t.startsWith("https://")||t.startsWith("http://")||t.startsWith("whatsapp://"))return esc(u.trim());return fallback||"#";}
   function ini(n){return(n||"?").split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();}
   function fmtD(d){if(!d)return"\u2014";try{return new Date(d).toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"});}catch{return"\u2014";}}
   function fmtDT(d){if(!d)return"\u2014";try{return new Date(d).toLocaleString("en-AU",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});}catch{return"\u2014";}}
@@ -1667,6 +1735,208 @@
   }
 
   /* ══════════════════════════════════════════════
+     Interviews Panel
+     ══════════════════════════════════════════════ */
+  async function loadInterviews(){
+    S.interviews.loading=true;
+    renderInterviewsPanel();
+    try{
+      const r=await fetch("/api/admin/career/interviews",{credentials:"same-origin"});
+      if(r.status===401){window.location.href="/pages/admin-signin.html";return;}
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok&&Array.isArray(d.interviews)){S.interviews.list=d.interviews;}
+    }catch{}
+    S.interviews.loading=false;
+    renderInterviewsPanel();
+  }
+
+  function fmtIvDate(iso){
+    if(!iso)return"—";
+    const d=new Date(iso);
+    return d.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"})+" at "+d.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
+  }
+  function ivFormatClass(f){return(f||"").toLowerCase().replace(/\s+/g,"_");}
+  function ivFormatLabel(f){
+    const map={video:"Video",phone:"Phone",in_person:"In Person","video call":"Video","phone call":"Phone","in person":"In Person"};
+    return map[(f||"").toLowerCase()]||f||"—";
+  }
+
+  function renderInterviewsPanel(){
+    const el=document.getElementById("interviewsPanel");if(!el)return;
+    if(S.interviews.loading){el.innerHTML='<div class="interviews-wrap"><div class="empty">Loading interviews...</div></div>';return;}
+    const interviews=S.interviews.list.slice().sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at));
+    const upcoming=interviews.filter(i=>i.status!=="cancelled"&&i.status!=="completed"&&i.status!=="no_show");
+    const past=interviews.filter(i=>i.status==="cancelled"||i.status==="completed"||i.status==="no_show");
+
+    let listHtml="";
+    if(upcoming.length===0&&past.length===0){
+      listHtml='<div class="empty">No interviews scheduled yet.</div>';
+    }else{
+      if(upcoming.length){
+        listHtml+='<div class="today-group-title">Upcoming <span class="count">'+upcoming.length+'</span></div>';
+        upcoming.forEach(iv=>{listHtml+=renderIvCard(iv);});
+      }
+      if(past.length){
+        listHtml+='<div class="today-group-title" style="margin-top:18px">Past / Closed <span class="count">'+past.length+'</span></div>';
+        past.forEach(iv=>{listHtml+=renderIvCard(iv);});
+      }
+    }
+
+    el.innerHTML='<div class="interviews-wrap">'+
+      '<div class="interviews-header"><div><h2>Interview Scheduler</h2><p style="font-size:12px;color:var(--muted);margin-top:2px">Manage GP interview scheduling</p></div>'+
+      '<button class="btn sm primary" data-iv-refresh>Refresh</button></div>'+
+      '<div class="interviews-grid">'+
+        '<div>'+listHtml+'</div>'+
+        '<div>'+renderIvForm()+'</div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  function renderIvCard(iv){
+    const gpName=iv.gp_name||iv.user_id||"Unknown GP";
+    const fmtCls=ivFormatClass(iv.format);
+    const isActive=iv.status==="scheduled"||iv.status==="confirmed";
+    return '<div class="iv-card">'+
+      '<div class="iv-card-top">'+
+        '<div class="iv-card-gp">'+esc(gpName)+'</div>'+
+        '<div style="display:flex;gap:6px;align-items:center">'+
+          '<span class="iv-format-badge '+esc(fmtCls)+'">'+esc(ivFormatLabel(iv.format))+'</span>'+
+          '<span class="iv-status-pill '+esc(iv.status||"")+'">'+esc((iv.status||"").replace(/_/g," "))+'</span>'+
+        '</div>'+
+      '</div>'+
+      '<div class="iv-card-time">'+fmtIvDate(iv.scheduled_at)+'</div>'+
+      '<div class="iv-card-meta">'+
+        '<span>Duration: '+(iv.duration||30)+' min</span>'+
+        (iv.interviewer_name?'<span>Interviewer: '+esc(iv.interviewer_name)+'</span>':'')+
+        (iv.timezone?'<span>'+esc(iv.timezone)+'</span>':'')+
+      '</div>'+
+      (iv.internal_notes?'<div style="font-size:11px;color:var(--muted);margin-top:6px;background:#f8fafc;padding:6px 8px;border-radius:6px">'+esc(iv.internal_notes)+'</div>':'')+
+      (isActive?'<div class="iv-card-actions">'+
+        '<button class="btn sm green" data-iv-complete="'+esc(iv.id)+'">Mark Complete</button>'+
+        '<button class="btn sm red" data-iv-cancel="'+esc(iv.id)+'">Cancel</button>'+
+      '</div>':'')+
+    '</div>';
+  }
+
+  function renderIvForm(){
+    return '<div class="iv-form"><h3>Schedule New Interview</h3>'+
+      '<div class="iv-form-grid">'+
+        '<div class="iv-form-field full"><label>Application ID</label><input type="text" id="ivAppId" placeholder="Paste application UUID" /></div>'+
+        '<div class="iv-form-field"><label>Date &amp; Time</label><input type="datetime-local" id="ivDateTime" /></div>'+
+        '<div class="iv-form-field"><label>Duration</label><select id="ivDuration"><option value="15">15 minutes</option><option value="30" selected>30 minutes</option><option value="45">45 minutes</option><option value="60">60 minutes</option></select></div>'+
+        '<div class="iv-form-field"><label>Format</label><select id="ivFormat"><option value="video">Video Call</option><option value="phone">Phone Call</option><option value="in_person">In Person</option></select></div>'+
+        '<div class="iv-form-field"><label>Timezone</label><select id="ivTimezone"><option value="Australia/Sydney">Australia/Sydney (AEST)</option><option value="Australia/Melbourne">Australia/Melbourne (AEST)</option><option value="Australia/Brisbane">Australia/Brisbane (AEST)</option><option value="Australia/Perth">Australia/Perth (AWST)</option><option value="Australia/Adelaide">Australia/Adelaide (ACST)</option></select></div>'+
+        '<div class="iv-form-field"><label>Interviewer Name</label><input type="text" id="ivInterviewerName" placeholder="Full name" /></div>'+
+        '<div class="iv-form-field"><label>Interviewer Role</label><input type="text" id="ivInterviewerRole" placeholder="e.g. Practice Manager" /></div>'+
+        '<div class="iv-form-field full"><label>Interviewer Email</label><input type="email" id="ivInterviewerEmail" placeholder="interviewer@example.com" /></div>'+
+        '<div class="iv-form-field full"><label>Internal Notes</label><textarea id="ivNotes" placeholder="Any notes for the team..."></textarea></div>'+
+      '</div>'+
+      '<div class="iv-form-actions"><button class="btn primary" data-iv-submit>Schedule Interview</button></div>'+
+    '</div>';
+  }
+
+  async function submitInterview(){
+    const appId=(document.getElementById("ivAppId")||{}).value||"";
+    const dateTime=(document.getElementById("ivDateTime")||{}).value||"";
+    const duration=parseInt((document.getElementById("ivDuration")||{}).value||"30",10);
+    const format=(document.getElementById("ivFormat")||{}).value||"video";
+    const timezone=(document.getElementById("ivTimezone")||{}).value||"Australia/Sydney";
+    const interviewerName=(document.getElementById("ivInterviewerName")||{}).value||"";
+    const interviewerRole=(document.getElementById("ivInterviewerRole")||{}).value||"";
+    const interviewerEmail=(document.getElementById("ivInterviewerEmail")||{}).value||"";
+    const internalNotes=(document.getElementById("ivNotes")||{}).value||"";
+
+    if(!appId.trim()){showOpsToast("Application ID is required","red");return;}
+    if(!dateTime){showOpsToast("Date and time is required","red");return;}
+    if(!interviewerName.trim()){showOpsToast("Interviewer name is required","red");return;}
+
+    const scheduledAt=new Date(dateTime).toISOString();
+    try{
+      const r=await fetch("/api/admin/career/interview/schedule",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({applicationId:appId.trim(),scheduledAt:scheduledAt,duration:duration,timezone:timezone,format:format,interviewerName:interviewerName.trim(),interviewerRole:interviewerRole.trim(),interviewerEmail:interviewerEmail.trim(),internalNotes:internalNotes.trim()})});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){showOpsToast("Interview scheduled");await loadInterviews();}
+      else{showOpsToast((d&&d.message)||"Failed to schedule interview","red");}
+    }catch{showOpsToast("Network error","red");}
+  }
+
+  async function updateInterviewStatus(id,status){
+    try{
+      const r=await fetch("/api/admin/career/interview",{method:"PATCH",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,status:status})});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){showOpsToast(status==="completed"?"Interview marked complete":status==="cancelled"?"Interview cancelled":"Interview updated");await loadInterviews();}
+      else{showOpsToast((d&&d.message)||"Failed to update interview","red");}
+    }catch{showOpsToast("Network error","red");}
+  }
+
+  /* ══════════════════════════════════════════════
+     Applications Panel
+     ══════════════════════════════════════════════ */
+  async function loadAdminApplications(){
+    S.applications.loading=true;
+    renderAdminApplicationsPanel();
+    try{
+      const r=await fetch("/api/admin/career/applications",{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok&&Array.isArray(d.applications)){S.applications.list=d.applications;}
+    }catch{}
+    S.applications.loading=false;
+    renderAdminApplicationsPanel();
+  }
+
+  function renderAdminApplicationsPanel(){
+    const el=document.getElementById("applicationsPanel");if(!el)return;
+    if(S.applications.loading){el.innerHTML='<div class="applications-wrap"><div class="empty">Loading applications...</div></div>';return;}
+    const apps=S.applications.list.slice().sort((a,b)=>new Date(b.applied_at||b.created_at||0)-new Date(a.applied_at||a.created_at||0));
+    const total=apps.length;
+    const counts={applied:0,review:0,interview:0,offer:0,secured:0,withdrawn:0};
+    apps.forEach(a=>{const s=(a.status||"applied").toLowerCase();if(counts[s]!==undefined)counts[s]++;else counts.applied++;});
+
+    let statsHtml='<div class="applications-stats">'+
+      '<div class="applications-stat"><span class="stat-num">'+total+'</span><span class="stat-label">Total</span></div>'+
+      '<div class="applications-stat"><span class="stat-num" style="color:#1d4ed8">'+counts.applied+'</span><span class="stat-label">Applied</span></div>'+
+      '<div class="applications-stat"><span class="stat-num" style="color:#1d4ed8">'+counts.review+'</span><span class="stat-label">Review</span></div>'+
+      '<div class="applications-stat"><span class="stat-num" style="color:#7c3aed">'+counts.interview+'</span><span class="stat-label">Interview</span></div>'+
+      '<div class="applications-stat"><span class="stat-num" style="color:#b45309">'+counts.offer+'</span><span class="stat-label">Offer</span></div>'+
+      '<div class="applications-stat"><span class="stat-num" style="color:#16a34a">'+counts.secured+'</span><span class="stat-label">Secured</span></div>'+
+      '<div class="applications-stat"><span class="stat-num" style="color:#dc2626">'+counts.withdrawn+'</span><span class="stat-label">Withdrawn</span></div>'+
+    '</div>';
+
+    let cardsHtml='';
+    if(!apps.length){
+      cardsHtml='<div class="empty">No applications found.</div>';
+    }else{
+      cardsHtml='<div class="applications-grid">';
+      apps.forEach(a=>{
+        const status=(a.status||"applied").toLowerCase();
+        const pillCls=status==="review"?"review":status==="interview"?"interview":status==="offer"?"offer":status==="secured"?"secured":status==="withdrawn"?"withdrawn":"applied";
+        cardsHtml+='<div class="app-admin-card">'+
+          '<div class="app-admin-card-top">'+
+            '<div><div class="app-admin-card-gp">'+esc(a.gp_name||"Unknown GP")+'</div>'+
+            '<div class="app-admin-card-email">'+esc(a.gp_email||"")+'</div></div>'+
+            '<span class="app-status-pill '+esc(pillCls)+'">'+esc(status)+'</span>'+
+          '</div>'+
+          '<div class="app-admin-card-role">'+esc(a.role_title||"Untitled Role")+'</div>'+
+          '<div class="app-admin-card-meta">'+
+            (a.practice_name?'<span>'+esc(a.practice_name)+'</span>':'')+
+            (a.role_location?'<span>'+esc(a.role_location)+'</span>':'')+
+            '<span>Applied '+esc(fmtR(a.applied_at||a.created_at))+'</span>'+
+          '</div>'+
+          '<div class="app-admin-card-actions">'+
+            '<button class="btn sm primary" data-app-schedule="'+esc(a.id)+'">Schedule Interview</button>'+
+          '</div>'+
+        '</div>';
+      });
+      cardsHtml+='</div>';
+    }
+
+    el.innerHTML='<div class="applications-wrap">'+
+      '<div class="applications-header"><div><h2>Applications</h2><p style="font-size:12px;color:var(--muted);margin-top:2px">All GP job applications</p></div>'+
+      '<button class="btn sm primary" data-app-refresh>Refresh</button></div>'+
+      statsHtml+cardsHtml+
+    '</div>';
+  }
+
+  /* ══════════════════════════════════════════════
      VA Dashboard rebuild — Today / Users / Tickets
      ══════════════════════════════════════════════ */
   async function loadVaDashboard(){
@@ -1693,10 +1963,14 @@
     document.getElementById("opsPanel").classList.remove("active");
     document.getElementById("todayPanel").style.display=(which==="today"?"block":"none");
     document.getElementById("ticketsPanel").style.display=(which==="tickets"?"block":"none");
+    document.getElementById("interviewsPanel").style.display=(which==="interviews"?"block":"none");
+    document.getElementById("applicationsPanel").style.display=(which==="applications"?"block":"none");
   }
   function vaHidePanels(){
     document.getElementById("todayPanel").style.display="none";
     document.getElementById("ticketsPanel").style.display="none";
+    document.getElementById("interviewsPanel").style.display="none";
+    document.getElementById("applicationsPanel").style.display="none";
     document.getElementById("mainLayout").style.display="grid";
   }
 
@@ -1729,13 +2003,14 @@
       return`<div class="todo-card ${esc(tk.priority)||"normal"}" data-todo-ticket="${esc(tk.id)}" data-user-id="${esc(tk.user_id)}">
         <div class="todo-card-top">
           <div class="todo-avatar">${esc(ini(tk.gp_name||""))}</div>
-          <div class="todo-gp">${esc(tk.gp_name||"Unknown")}</div>
+          <div class="todo-gp">${esc(tk.gp_name||"")}</div>
           <span class="todo-stage">${esc(tk.stage||"ticket")}</span>
         </div>
         <div class="todo-title">🎫 ${esc(tk.title||"Support request")}</div>
+        ${(tk.gp_phone||tk.gp_email)?'<div class="task-gp-meta">'+(tk.gp_phone?'<span>'+esc(tk.gp_phone)+'</span>':'')+(tk.gp_email?'<span>'+esc(tk.gp_email)+'</span>':'')+'</div>':''}
         <div class="todo-detail">${esc(tk.category||"")} • opened ${fmtR(tk.created_at)}</div>
         <div class="todo-actions">
-          <a class="btn wa" href="${esc(tk.whatsapp_link||"#")}" target="_blank" rel="noopener">WhatsApp</a>
+          <a class="btn wa" href="${safeUrl(tk.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
           <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
           <button class="btn primary sm" data-close-ticket="${esc(tk.id)}">Resolve</button>
         </div>
@@ -1746,13 +2021,15 @@
       return`<div class="todo-card ${esc(t.priority||"normal")} ${overdue?"overdue":""}" data-todo-task="${esc(t.id)}" data-todo-case="${esc(t.case_id)}" data-user-id="${esc(t.gp_user_id||"")}">
         <div class="todo-card-top">
           <div class="todo-avatar">${esc(ini(t.gp_name||""))}</div>
-          <div class="todo-gp">${esc(t.gp_name||"Unknown")}</div>
+          <div class="todo-gp">${esc(t.gp_name||"")}</div>
           <span class="todo-stage">${esc(t.case_stage||t.related_stage||"")}</span>
         </div>
         <div class="todo-title">${esc(t.title)}</div>
+        ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
         <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" • Due "+fmtD(t.due_date):""} ${overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""}</div>
         <div class="todo-actions">
-          <a class="btn wa" href="${esc(t.whatsapp_link||"#")}" target="_blank" rel="noopener">WhatsApp</a>
+          <a class="btn wa" href="${safeUrl(t.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+          ${t.doubletick_conversation_url?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url)+'" target="_blank" rel="noopener">💬 DoubleTick</a>':''}
           <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
           <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
           <button class="btn sm" data-view-todo-case="${esc(t.case_id)}">Open Case</button>
@@ -1790,14 +2067,14 @@
     else{
       h+=list.map(tk=>`<div class="ticket-card" data-ticket-id="${esc(tk.id)}">
         <div class="ticket-card-top">
-          <div><div class="ticket-card-gp">${esc(tk.gp_name||"Unknown")} <span class="todo-stage" style="margin-left:6px">${esc(tk.stage||"")}</span></div>
+          <div><div class="ticket-card-gp">${esc(tk.gp_name||"")} <span class="todo-stage" style="margin-left:6px">${esc(tk.stage||"")}</span></div>
           <div class="ticket-card-meta"><span>${esc(tk.gp_email||"")}</span><span>${esc(tk.category||"Other")}</span><span>${fmtR(tk.created_at)}</span></div></div>
           <span class="priority-pill ${esc(tk.priority||"normal")}">${esc(tk.priority||"normal")}</span>
         </div>
         <div class="ticket-card-title">${esc(tk.title||"Support request")}</div>
         ${tk.body?`<div class="todo-detail">${esc(tk.body)}</div>`:""}
         <div class="ticket-card-actions">
-          <a class="btn wa" href="${esc(tk.whatsapp_link||"#")}" target="_blank" rel="noopener">WhatsApp ${esc(tk.gp_first_name||"")}</a>
+          <a class="btn wa" href="${safeUrl(tk.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp ${esc(tk.gp_first_name||"")}</a>
           <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
           ${tk.status!=="closed"
             ?`<button class="btn primary sm" data-close-ticket="${esc(tk.id)}">Resolve & Close</button>`
@@ -1870,7 +2147,7 @@
     _origSwitchTabs.addEventListener("click",async e=>{
       const tab=e.target.closest("[data-view]");if(!tab)return;
       const view=tab.getAttribute("data-view");
-      if(view==="today"||view==="tickets"){
+      if(view==="today"||view==="tickets"||view==="interviews"||view==="applications"){
         // Consume the event so the legacy handler doesn't run switchFromOps() and re-show mainLayout
         e.stopPropagation();
         e.preventDefault();
@@ -1882,10 +2159,16 @@
           vaShowPanel("today");
           if(!S.va.dashboard){await loadVaDashboard();}
           renderTodayPanel();
-        }else{
+        }else if(view==="tickets"){
           vaShowPanel("tickets");
           await loadVaTickets();
           renderTicketsPanel();
+        }else if(view==="interviews"){
+          vaShowPanel("interviews");
+          await loadInterviews();
+        }else if(view==="applications"){
+          vaShowPanel("applications");
+          await loadAdminApplications();
         }
       }else{
         // Leaving a VA panel → ensure they're hidden so mainLayout/opsPanel can take over
@@ -1893,6 +2176,40 @@
       }
     },true);
   }
+
+  /* Delegated click handlers for interviews panel */
+  document.addEventListener("click",async e=>{
+    const ivPanel=document.getElementById("interviewsPanel");
+    if(!ivPanel||!ivPanel.contains(e.target))return;
+    const ivSubmit=e.target.closest("[data-iv-submit]");
+    if(ivSubmit){e.preventDefault();e.stopPropagation();await submitInterview();return;}
+    const ivComplete=e.target.closest("[data-iv-complete]");
+    if(ivComplete){e.preventDefault();e.stopPropagation();await updateInterviewStatus(ivComplete.getAttribute("data-iv-complete"),"completed");return;}
+    const ivCancel=e.target.closest("[data-iv-cancel]");
+    if(ivCancel){e.preventDefault();e.stopPropagation();await updateInterviewStatus(ivCancel.getAttribute("data-iv-cancel"),"cancelled");return;}
+    const ivRefresh=e.target.closest("[data-iv-refresh]");
+    if(ivRefresh){e.preventDefault();e.stopPropagation();await loadInterviews();return;}
+  },true);
+
+  /* Delegated click handlers for applications panel */
+  document.addEventListener("click",async e=>{
+    const appPanel=document.getElementById("applicationsPanel");
+    if(!appPanel||!appPanel.contains(e.target))return;
+    const appRefresh=e.target.closest("[data-app-refresh]");
+    if(appRefresh){e.preventDefault();e.stopPropagation();await loadAdminApplications();return;}
+    const appSchedule=e.target.closest("[data-app-schedule]");
+    if(appSchedule){
+      e.preventDefault();e.stopPropagation();
+      const appId=appSchedule.getAttribute("data-app-schedule");
+      S.view="interviews";
+      document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="interviews"));
+      vaShowPanel("interviews");
+      await loadInterviews();
+      const ivAppIdInput=document.getElementById("ivAppId");
+      if(ivAppIdInput){ivAppIdInput.value=appId;ivAppIdInput.focus();}
+      return;
+    }
+  },true);
 
   /* Delegated click handlers for new UI */
   document.addEventListener("click",async e=>{

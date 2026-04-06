@@ -36,7 +36,9 @@
     "/pages/commencement.html": true,
     "/pages/messages.html": true,
     "/pages/account.html": true,
-    "/pages/registration-intro.html": true
+    "/pages/registration-intro.html": true,
+    "/pages/application-detail.html": true,
+    "/pages/job.html": true
   };
   var NAV_GROUPS = {
     "/pages/index.html": { desktop: "home", mobile: "/pages/index.html" },
@@ -49,6 +51,8 @@
     "/pages/commencement.html": { desktop: "home", mobile: "/pages/index.html" },
     "/pages/my-documents.html": { desktop: "documents", mobile: "/pages/index.html" },
     "/pages/career.html": { desktop: "career", mobile: "/pages/career.html" },
+    "/pages/application-detail.html": { desktop: "career", mobile: "/pages/career.html" },
+    "/pages/job.html": { desktop: "career", mobile: "/pages/career.html" },
     "/pages/messages.html": { desktop: "support", mobile: "/pages/messages.html" },
     "/pages/account.html": { desktop: "account", mobile: "/pages/account.html" }
   };

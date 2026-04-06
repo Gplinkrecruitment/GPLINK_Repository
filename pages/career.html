@@ -61,7 +61,7 @@
   </script>
   <script src="../js/nav-shell-bridge.js?v=20260324a"></script>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
-  <script src="../js/state-sync.js?v=20260406a" defer></script>
+  <script src="../js/state-sync.js?v=20260407a" defer></script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260331c" defer></script>
@@ -495,6 +495,120 @@
       opacity: .7;
     }
 
+    .hero-search-bar {
+      position: relative;
+      max-width: 500px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .hero-search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      color: var(--muted);
+      pointer-events: none;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .hero-search-input {
+      width: 100%;
+      min-height: 44px;
+      padding: 0 36px 0 36px;
+      border-radius: 14px;
+      border: 1.5px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+      transition: border-color .2s ease, box-shadow .2s ease;
+      box-sizing: border-box;
+    }
+
+    .hero-search-input::placeholder {
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .hero-search-input:focus {
+      outline: none;
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+    }
+
+    .hero-search-clear {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      border: 0;
+      background: var(--panel-muted);
+      color: var(--muted);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .15s ease, color .15s ease;
+      padding: 0;
+    }
+
+    .hero-search-clear:hover {
+      background: var(--line);
+      color: var(--text);
+    }
+
+    .hero-filter-chips {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+      padding: 2px 0;
+    }
+
+    .hero-filter-chips::-webkit-scrollbar {
+      display: none;
+    }
+
+    .filter-chip {
+      flex: 0 0 auto;
+      border-radius: 20px;
+      border: 1.5px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      padding: 6px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .18s ease, color .18s ease, border-color .18s ease;
+    }
+
+    .filter-chip:hover {
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+
+    .filter-chip.is-active {
+      background: var(--blue);
+      color: #ffffff;
+      border-color: var(--blue);
+    }
+
     .hero-shortcuts {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -583,7 +697,8 @@
     }
 
     html[data-career-initial-view="secured"] [data-view-panel="browse"],
-    html[data-career-initial-view="secured"] [data-view-panel="applications"] {
+    html[data-career-initial-view="secured"] [data-view-panel="applications"],
+    html[data-career-initial-view="secured"] [data-view-panel="saved"] {
       display: none !important;
     }
 
@@ -694,8 +809,8 @@
       padding: 12px 16px;
       font-size: 13px;
       font-weight: 800;
-      letter-spacing: -0.02em;
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+      letter-spacing: 0.01em;
+      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.3);
     }
 
     .btn-primary:hover {
@@ -831,10 +946,12 @@
       display: grid;
       gap: 14px;
       cursor: pointer;
+      border-radius: 20px;
+      box-shadow: 0 2px 12px -4px rgba(2, 6, 23, 0.08);
     }
 
     .role-card:hover {
-      box-shadow: 0 12px 28px -12px rgba(37, 99, 235, 0.12);
+      box-shadow: 0 8px 24px -8px rgba(2, 6, 23, 0.14);
       transform: translateY(-2px);
       border-color: rgba(37, 99, 235, 0.18);
     }
@@ -1159,11 +1276,13 @@
       display: grid;
       gap: 14px;
       cursor: pointer;
+      border-radius: 20px;
+      box-shadow: 0 2px 12px -4px rgba(2, 6, 23, 0.08);
     }
 
     .application-card:hover {
-      box-shadow: 0 12px 28px -12px rgba(37, 99, 235, 0.1);
-      transform: translateY(-1px);
+      box-shadow: 0 8px 24px -8px rgba(2, 6, 23, 0.14);
+      transform: translateY(-2px);
     }
 
     .application-title {
@@ -1180,19 +1299,19 @@
     }
 
     .status-pill.interview {
-      background: #f1f5f9;
-      color: #334155;
-      border: 1px solid #e2e8f0;
+      background: #eef2ff;
+      color: #4f46e5;
+      border: 1px solid #c7d2fe;
     }
 
     .status-pill.offer {
-      background: var(--warning-soft);
-      color: var(--warning);
+      background: #fffbeb;
+      color: #b45309;
     }
 
     .status-pill.secured {
       background: #ecfdf5;
-      color: #15803d;
+      color: #059669;
       border: 1px solid #bbf7d0;
     }
 
@@ -1255,11 +1374,11 @@
 
     .hero-card {
       padding: 24px;
-      background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #1d4ed8 100%);
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 40%, #3b82f6 70%, #1d4ed8 100%);
       color: #fff;
       border-radius: 24px;
       border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 16px 36px -12px rgba(37, 99, 235, 0.3);
+      box-shadow: 0 16px 36px -12px rgba(37, 99, 235, 0.35);
       display: grid;
       gap: 18px;
     }
@@ -5683,6 +5802,165 @@
         transition-duration: 0.01ms !important;
       }
     }
+
+    /* ── Job alerts toggle ── */
+    .alerts-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .alerts-toggle input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--blue);
+    }
+
+    /* ── Dark mode ── */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --panel-soft: #1a2332;
+        --panel-muted: #162031;
+        --text: #f1f5f9;
+        --muted: #94a3b8;
+        --ink: #e2e8f0;
+        --charcoal: #cbd5e1;
+        --line: #334155;
+        --line-strong: #475569;
+        --blue: #3b82f6;
+        --blue2: #2563eb;
+        --blue3: #1e40af;
+        --success: #22c55e;
+        --success-soft: #052e16;
+        --warning: #f59e0b;
+        --warning-soft: #422006;
+        --shadow-soft: 0 4px 16px -8px rgba(0, 0, 0, 0.4);
+        --shadow-card: 0 12px 32px -16px rgba(0, 0, 0, 0.5);
+      }
+
+      html, body {
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      /* Override any hardcoded backgrounds */
+      .page-hero,
+      .role-card,
+      .application-card,
+      .summary-strip,
+      .empty-state,
+      .details-card,
+      .summary-card,
+      .placement-hero-card,
+      .placement-practice-contact-card,
+      .placement-checklist,
+      .placement-broker-card,
+      .placement-income-float,
+      .practice-lifestyle-module {
+        background: var(--panel);
+        border-color: var(--line);
+      }
+
+      /* Fix any rgba white backgrounds */
+      .hero-card,
+      .page-hero {
+        background: var(--panel) !important;
+      }
+
+      /* Status pills dark mode */
+      .status-pill.review { background: #1e293b; color: #93c5fd; }
+      .status-pill.interview { background: #1e293b; color: #a5b4fc; }
+      .status-pill.offer { background: #422006; color: #fbbf24; }
+      .status-pill.secured { background: #052e16; color: #4ade80; }
+
+      /* Billing pill */
+      .billing-pill { background: #1e293b; color: #93c5fd; }
+
+      /* Buttons */
+      .ghost-btn {
+        background: var(--panel);
+        border-color: var(--line);
+        color: var(--text);
+      }
+
+      /* Save button */
+      .save-btn {
+        background: var(--panel);
+        border-color: var(--line);
+      }
+
+      /* Filter selects */
+      .hero-filter-select {
+        background: var(--panel);
+        border-color: var(--line);
+        color: var(--text);
+      }
+
+      /* Search bar */
+      .hero-search-input {
+        background: var(--panel);
+        border-color: var(--line);
+        color: var(--text);
+      }
+
+      /* Filter chips */
+      .filter-chip {
+        background: var(--panel);
+        border-color: var(--line);
+        color: var(--text);
+      }
+      .filter-chip.is-active {
+        background: var(--blue);
+        border-color: var(--blue);
+        color: #fff;
+      }
+
+      /* Hero shortcuts */
+      .hero-shortcut {
+        background: var(--panel);
+        border-color: var(--line);
+      }
+
+      /* Navigation */
+      .desktop-topbar {
+        background: var(--bg);
+        border-color: var(--line);
+      }
+
+      .mobile-nav {
+        background: rgba(15, 23, 42, 0.95);
+        border-color: var(--line);
+      }
+
+      /* Scroll/link colors */
+      a { color: var(--blue); }
+
+      /* Input placeholders */
+      .hero-search-input::placeholder { color: var(--muted); }
+
+      /* Meta cards */
+      .meta-card {
+        background: var(--panel-soft);
+        border-color: var(--line);
+      }
+
+      /* Role modal */
+      .role-modal-dialog {
+        background: var(--panel);
+        border-color: var(--line);
+      }
+
+      /* Practice mask */
+      .practice-mask-bar {
+        background: var(--panel-muted);
+      }
+    }
   </style>
 </head>
 <body>
@@ -5717,6 +5995,18 @@
             <p class="page-subtitle" id="pageHeroSubtitle">Explore roles matched to your profile and relocation goals.</p>
           </div>
           <div class="hero-search-card">
+            <div class="hero-search-bar">
+              <svg class="hero-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input class="hero-search-input" id="heroSearchInput" type="text" placeholder="Search roles, locations, billing..." autocomplete="off" />
+              <button class="hero-search-clear" id="heroSearchClear" type="button" hidden aria-label="Clear search">&times;</button>
+            </div>
+            <div class="hero-filter-chips" id="heroFilterChips">
+              <button class="filter-chip" data-chip="regional" type="button">Regional</button>
+              <button class="filter-chip" data-chip="metro" type="button">Metro</button>
+              <button class="filter-chip" data-chip="dpa" type="button">DPA</button>
+              <button class="filter-chip" data-chip="visa_pathway_aligned" type="button">Visa Pathway</button>
+              <button class="filter-chip" data-chip="family_friendly" type="button">Family Friendly</button>
+            </div>
             <div class="hero-search-meta">
               <label class="hero-filter-field">
                 <select class="hero-filter-select" id="heroLocationSelect" aria-label="Filter by location"></select>
@@ -5781,6 +6071,25 @@
         <div class="empty-state" id="applicationsEmptyState">
           <h3 class="empty-state-title">No active applications yet</h3>
           <p class="empty-state-copy">Apply to a role to start tracking it here.</p>
+        </div>
+      </section>
+
+      <section class="view-panel" data-view-panel="saved">
+        <section class="summary-strip">
+          <div class="summary-strip-copy">
+            <h2 class="summary-strip-title">Saved Jobs</h2>
+            <p class="summary-strip-text">Roles you've bookmarked for later.</p>
+            <label class="alerts-toggle" id="alertsToggle">
+              <input type="checkbox" id="alertsCheckbox" />
+              <span class="alerts-toggle-label">Email me new roles</span>
+            </label>
+          </div>
+          <button class="btn-secondary" id="browseSavedBtn" type="button">Browse roles</button>
+        </section>
+        <div class="role-grid" id="savedRolesGrid"></div>
+        <div class="empty-state" id="savedEmptyState">
+          <h3 class="empty-state-title">No saved jobs yet</h3>
+          <p class="empty-state-copy">Save a role from the browse list and it will appear here.</p>
         </div>
       </section>
 
@@ -6741,6 +7050,8 @@
           activeView: "browse",
           filterLocation: "",
           filterBilling: "",
+          filterSearch: "",
+          filterChips: [],
           showSavedOnly: false,
           savedJobs: [],
           applications: []
@@ -6751,6 +7062,8 @@
         activeView: "browse",
         filterLocation: "",
         filterBilling: "",
+        filterSearch: "",
+        filterChips: [],
         showSavedOnly: false,
         savedJobs: activeRoles[0] ? [createSavedSnapshot(activeRoles[0])] : [],
         applications: [
@@ -6808,6 +7121,8 @@
           : (["browse", "applications", "secured"].includes(source.activeView) ? source.activeView : fallback.activeView),
         filterLocation: typeof source.filterLocation === "string" ? source.filterLocation : fallback.filterLocation,
         filterBilling: typeof source.filterBilling === "string" ? source.filterBilling : fallback.filterBilling,
+        filterSearch: typeof source.filterSearch === "string" ? source.filterSearch : fallback.filterSearch,
+        filterChips: Array.isArray(source.filterChips) ? source.filterChips.filter(c => typeof c === "string") : fallback.filterChips,
         showSavedOnly: hasLockedPlacement ? false : source.showSavedOnly === true,
         savedJobs: Array.isArray(source.savedJobs)
           ? source.savedJobs
@@ -6827,7 +7142,7 @@
     function replaceCareerUrlState(view, roleId) {
       const nextView = shouldLockCareerToSecuredView()
         ? "secured"
-        : (["browse", "applications", "secured"].includes(view) ? view : "browse");
+        : (["browse", "applications", "saved", "secured"].includes(view) ? view : "browse");
       const url = new URL(window.location.href);
       if (roleId && !shouldLockCareerToSecuredView()) {
         url.searchParams.set("role", roleId);
@@ -7137,7 +7452,7 @@
     function syncCareerViewFromLocation() {
       if (enforceLockedCareerView()) return;
       const hashView = window.location.hash.replace("#", "");
-      if (["browse", "applications", "secured"].includes(hashView)) {
+      if (["browse", "applications", "saved", "secured"].includes(hashView)) {
         careerState.activeView = hashView;
       }
     }
@@ -9106,6 +9421,19 @@
     function renderSearchFilterControls() {
       setSelectOptions(heroLocationSelectEl, getRoleLocationOptions(), "Any location", careerState.filterLocation);
       setSelectOptions(heroBillingSelectEl, getRoleBillingOptions(), "Any billing type", careerState.filterBilling);
+      const heroSearchInputEl = document.getElementById("heroSearchInput");
+      const heroSearchClearEl = document.getElementById("heroSearchClear");
+      if (heroSearchInputEl && heroSearchInputEl.value !== (careerState.filterSearch || "")) {
+        heroSearchInputEl.value = careerState.filterSearch || "";
+      }
+      if (heroSearchClearEl) heroSearchClearEl.hidden = !careerState.filterSearch;
+      syncFilterChipUi();
+    }
+
+    function syncFilterChipUi() {
+      document.querySelectorAll("[data-chip]").forEach(el => {
+        el.classList.toggle("is-active", careerState.filterChips.includes(el.getAttribute("data-chip")));
+      });
     }
 
     function openHowToApplyModal() {
@@ -9124,7 +9452,7 @@
       if (savedJobsShortcutCountEl) savedJobsShortcutCountEl.textContent = String(careerState.savedJobs.length);
       if (applicationsShortcutCountEl) applicationsShortcutCountEl.textContent = String(careerState.applications.length);
       if (savedJobsShortcutBtnEl) {
-        savedJobsShortcutBtnEl.classList.toggle("is-active", careerState.activeView === "browse" && careerState.showSavedOnly);
+        savedJobsShortcutBtnEl.classList.toggle("is-active", careerState.activeView === "saved");
       }
       if (applicationsShortcutBtnEl) {
         applicationsShortcutBtnEl.classList.toggle("is-active", careerState.activeView === "applications");
@@ -9355,6 +9683,23 @@
         if (!matchesLocation) return false;
         const matchesBilling = !filterBilling || String(role.billing || "").trim().toLowerCase() === filterBilling;
         if (!matchesBilling) return false;
+
+        const searchTerm = (careerState.filterSearch || "").trim().toLowerCase();
+        if (searchTerm) {
+          const searchFields = [
+            role.practiceName, role.location, role.billing, role.summary,
+            ...(Array.isArray(role.tags) ? role.tags : []),
+            ...(Array.isArray(role.filterTokens) ? role.filterTokens : [])
+          ].filter(Boolean).join(" ").toLowerCase();
+          if (!searchFields.includes(searchTerm)) return false;
+        }
+
+        if (careerState.filterChips.length > 0) {
+          const tokens = Array.isArray(role.filterTokens) ? role.filterTokens.map(t => t.toLowerCase()) : [];
+          const allChipsMatch = careerState.filterChips.every(chip => tokens.includes(chip.toLowerCase()));
+          if (!allChipsMatch) return false;
+        }
+
         return true;
       });
     }
@@ -9483,7 +9828,10 @@
             <div class="application-footer">
               <div style="display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;">
                 <button class="ghost-btn" type="button" data-save-role="${application.roleId}">${isSaved(application.roleId) ? "Saved" : "Save"}</button>
-                <button class="btn-primary" type="button" ${application.isPlacementSecured ? 'data-open-placement="true"' : `data-open-role="${application.roleId}"`}>${application.isPlacementSecured ? "Open placement" : "View details"}</button>
+                ${application.isPlacementSecured
+                  ? `<button class="btn-primary" type="button" data-open-placement="true">Open placement</button>`
+                  : `<a href="application-detail.html?id=${encodeURIComponent(application.id || '')}&role=${encodeURIComponent(application.roleId || '')}" class="btn-primary">View details</a>`
+                }
               </div>
             </div>
           </article>
@@ -9634,12 +9982,30 @@
     function setView(view) {
       const nextView = shouldLockCareerToSecuredView()
         ? "secured"
-        : (["browse", "applications", "secured"].includes(view) ? view : "browse");
+        : (["browse", "applications", "saved", "secured"].includes(view) ? view : "browse");
       careerState.activeView = nextView;
       if (nextView === "secured") careerState.showSavedOnly = false;
       syncActiveViewUi();
       replaceCareerUrlState(nextView, currentRoleId);
       persistCareerState();
+    }
+
+    function renderSavedJobs() {
+      const savedGrid = document.getElementById("savedRolesGrid");
+      const savedEmpty = document.getElementById("savedEmptyState");
+      if (!savedGrid) return;
+
+      const savedRoles = careerState.savedJobs
+        .map(saved => findRole(saved.id) || saved)
+        .filter(Boolean);
+
+      if (savedRoles.length === 0) {
+        savedGrid.innerHTML = "";
+        if (savedEmpty) savedEmpty.hidden = false;
+        return;
+      }
+      if (savedEmpty) savedEmpty.hidden = true;
+      savedGrid.innerHTML = savedRoles.map(role => buildRoleCardHtml(role)).join("");
     }
 
     function renderPage() {
@@ -9654,6 +10020,7 @@
       renderHeroShortcuts();
       renderRoles();
       renderApplications();
+      renderSavedJobs();
       renderSecuredPlacement();
       syncSecuredPlacementUiState();
       syncActiveViewUi();
@@ -9671,11 +10038,50 @@
       renderPage();
     });
 
-    savedJobsShortcutBtnEl.addEventListener("click", () => {
-      careerState.showSavedOnly = !(careerState.activeView === "browse" && careerState.showSavedOnly);
-      careerState.activeView = "browse";
-      persistCareerState();
+    const heroSearchInputEl = document.getElementById("heroSearchInput");
+    const heroSearchClearEl = document.getElementById("heroSearchClear");
+    let searchDebounceTimer;
+
+    if (heroSearchInputEl) {
+      heroSearchInputEl.addEventListener("input", () => {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+          careerState.filterSearch = heroSearchInputEl.value;
+          if (heroSearchClearEl) heroSearchClearEl.hidden = !heroSearchInputEl.value;
+          renderPage();
+          persistCareerState();
+        }, 200);
+      });
+    }
+
+    if (heroSearchClearEl) {
+      heroSearchClearEl.addEventListener("click", () => {
+        careerState.filterSearch = "";
+        if (heroSearchInputEl) heroSearchInputEl.value = "";
+        heroSearchClearEl.hidden = true;
+        renderPage();
+        persistCareerState();
+      });
+    }
+
+    document.addEventListener("click", (event) => {
+      const chipBtn = event.target.closest("[data-chip]");
+      if (!chipBtn) return;
+      const chip = chipBtn.getAttribute("data-chip");
+      if (!chip) return;
+      const idx = careerState.filterChips.indexOf(chip);
+      if (idx >= 0) {
+        careerState.filterChips = careerState.filterChips.filter(c => c !== chip);
+      } else {
+        careerState.filterChips = [...careerState.filterChips, chip];
+      }
+      syncFilterChipUi();
       renderPage();
+      persistCareerState();
+    });
+
+    savedJobsShortcutBtnEl.addEventListener("click", () => {
+      setView("saved");
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
 
@@ -9702,7 +10108,12 @@
     clearFiltersBtnEl.addEventListener("click", () => {
       careerState.filterLocation = "";
       careerState.filterBilling = "";
+      careerState.filterSearch = "";
+      careerState.filterChips = [];
       careerState.showSavedOnly = false;
+      if (heroSearchInputEl) heroSearchInputEl.value = "";
+      if (heroSearchClearEl) heroSearchClearEl.hidden = true;
+      syncFilterChipUi();
       persistCareerState();
       renderPage();
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -9712,6 +10123,43 @@
       careerState.showSavedOnly = false;
       setView("browse");
     });
+
+    const browseSavedBtn = document.getElementById("browseSavedBtn");
+    if (browseSavedBtn) {
+      browseSavedBtn.addEventListener("click", () => {
+        setView("browse");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+
+    const alertsCheckbox = document.getElementById("alertsCheckbox");
+    if (alertsCheckbox) {
+      fetch("/api/career/alerts", { credentials: "same-origin" })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.ok && data.alerts && data.alerts.enabled) {
+            alertsCheckbox.checked = true;
+          }
+        })
+        .catch(() => {});
+
+      alertsCheckbox.addEventListener("change", () => {
+        fetch("/api/career/alerts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            enabled: alertsCheckbox.checked,
+            filters: {
+              location: careerState.filterLocation || "",
+              billing: careerState.filterBilling || "",
+              tokens: careerState.filterChips || []
+            }
+          })
+        }).catch(() => {});
+      });
+    }
+
     securedApplicationsBtnEl.addEventListener("click", () => {
       setView("applications");
     });
@@ -9839,6 +10287,15 @@
         practiceLifestyleState.schoolSector = ["all", "public", "private", "catholic"].includes(nextSector) ? nextSector : "all";
         renderPracticeLifestyleExplorer(resolveSecuredPlacement().lifestyle);
         return;
+      }
+
+      const appDetailLink = event.target.closest("a[href*='application-detail.html']");
+      if (appDetailLink) {
+        const appId = new URL(appDetailLink.href, location.href).searchParams.get("id");
+        const app = careerState.applications.find(a => a && (a.id === appId || a.roleId === appId));
+        if (app) {
+          try { sessionStorage.setItem("gp_application_preview", JSON.stringify(app)); } catch (e) {}
+        }
       }
 
       const openPlacementBtn = event.target.closest("[data-open-placement]");

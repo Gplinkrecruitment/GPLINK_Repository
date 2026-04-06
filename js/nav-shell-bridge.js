@@ -19,7 +19,9 @@
     "/pages/commencement.html": true,
     "/pages/messages.html": true,
     "/pages/account.html": true,
-    "/pages/registration-intro.html": true
+    "/pages/registration-intro.html": true,
+    "/pages/application-detail.html": true,
+    "/pages/job.html": true
   };
 
   function normalizePath(pathname) {

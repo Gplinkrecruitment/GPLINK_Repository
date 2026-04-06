@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Application Details - GP Link</title>
+  <script src="../js/nav-shell-bridge.js?v=20260407a" defer></script>
+  <script src="../js/auth-guard.js?v=20260407a" defer></script>
+  <script src="../js/state-sync.js?v=20260407a" defer></script>
+  <script src="../js/updates-sync.js?v=20260407a" defer></script>
+  <script src="../js/qualification-camera.js?v=20260407a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260407a" defer></script>
+  <script src="../js/account-dropdown.js?v=20260407a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f0f4fa;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --panel-muted: #f1f5f9;
+      --text: #0f172a;
+      --muted: #64748b;
+      --ink: #0f172a;
+      --charcoal: #1e293b;
+      --line: #e2e8f0;
+      --line-strong: #cbd5e1;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --blue3: #1e3a8a;
+      --success: #16a34a;
+      --success-soft: #ecfdf5;
+      --warning: #d97706;
+      --warning-soft: #fffbeb;
+      --shadow-soft: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
+      --shadow-card: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+    }
+
+    :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(720px 360px at 50% -10%, rgba(37, 99, 235, 0.1), transparent 55%),
+        linear-gradient(180deg, #eef4fb 0%, #f6f9fd 45%, #f0f4fa 100%);
+      color: var(--text);
+      padding: 0;
+    }
+
+    button, input { font: inherit; }
+
+    /* ── Back bar ── */
+    .back-bar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+    }
+
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: none;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.06);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .14s ease;
+    }
+    .back-btn:hover { background: rgba(15, 23, 42, 0.1); }
+    .back-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+    .back-bar-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Shell ── */
+    .shell {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 80px);
+    }
+
+    /* ── Loading state ── */
+    .loading-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 240px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    /* ── Application header ── */
+    .app-header-section {
+      padding: 24px 16px 16px;
+    }
+
+    .app-practice-name {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 900;
+      color: var(--text);
+      line-height: 1.25;
+    }
+
+    .app-location {
+      margin: 6px 0 0;
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    /* ── Status pill ── */
+    .status-pill {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 12px;
+    }
+    .status-pill.review { background: #f1f5f9; color: #475569; }
+    .status-pill.interview { background: #eff6ff; color: #2563eb; }
+    .status-pill.offer { background: #fffbeb; color: #d97706; }
+    .status-pill.secured { background: #ecfdf5; color: #16a34a; }
+
+    /* ── Status timeline ── */
+    .status-timeline { padding: 24px 20px; }
+
+    .timeline-step { display: flex; gap: 16px; position: relative; padding-bottom: 32px; }
+    .timeline-step:last-child { padding-bottom: 0; }
+
+    .timeline-indicator { flex-shrink: 0; width: 24px; display: flex; flex-direction: column; align-items: center; }
+    .timeline-dot { width: 24px; height: 24px; border-radius: 50%; border: 3px solid var(--line); background: var(--panel); position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; }
+    .timeline-line { flex: 1; width: 3px; background: var(--line); margin-top: 4px; }
+
+    .timeline-step.step-completed .timeline-dot { background: var(--blue); border-color: var(--blue); }
+    .timeline-step.step-completed .timeline-line { background: var(--blue); }
+    .timeline-step.step-active .timeline-dot { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(37,99,235,0.15); }
+    .timeline-step.step-active .timeline-dot::after {
+      content: "";
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--blue);
+      animation: activePulse 1.8s ease-in-out infinite;
+    }
+    .timeline-step.step-pending .timeline-dot { border-color: var(--line-strong); }
+
+    .timeline-content { flex: 1; padding-top: 2px; }
+    .timeline-label { font-weight: 700; font-size: 15px; color: var(--text); }
+    .timeline-date { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .timeline-detail { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+    @keyframes activePulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.85); }
+    }
+
+    /* ── Interview card ── */
+    .interview-card { background: var(--panel); border-radius: var(--radius-md); border: 1.5px solid var(--blue); padding: 20px; margin: 0 16px 16px; }
+    .interview-card-title { font-weight: 800; font-size: 16px; margin: 0 0 12px; color: var(--text); }
+    .interview-meta { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .interview-meta-row { display: flex; justify-content: space-between; font-size: 14px; }
+    .interview-meta-label { color: var(--muted); }
+    .interview-meta-value { font-weight: 600; color: var(--text); }
+    .btn-join-interview { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border: none; border-radius: 12px; background: var(--blue); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .15s; }
+    .btn-join-interview:hover { background: var(--blue2); }
+
+    .btn-add-calendar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px;
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      color: var(--text);
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: background .15s, border-color .15s;
+    }
+    .btn-add-calendar:hover { background: var(--panel-soft); border-color: var(--blue); }
+
+    /* ── Prep tips card ── */
+    .prep-tips-card {
+      background: var(--panel);
+      border-radius: var(--radius-md);
+      border: 1.5px solid #dbeafe;
+      padding: 20px;
+      margin: 0 16px 16px;
+    }
+    .prep-tips-title {
+      font-weight: 800;
+      font-size: 15px;
+      margin: 0 0 12px;
+      color: var(--text);
+    }
+    .prep-tips-list {
+      margin: 0;
+      padding: 0 0 0 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .prep-tips-list li {
+      font-size: 14px;
+      color: var(--charcoal);
+      line-height: 1.5;
+    }
+
+    /* ── Meta cards ── */
+    .app-meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 16px 16px; }
+    .app-meta-card { background: var(--panel); border-radius: var(--radius-sm); padding: 14px; border: 1px solid var(--line); }
+    .app-meta-label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .app-meta-value { font-size: 15px; font-weight: 700; color: var(--text); margin-top: 4px; }
+
+    /* ── Role preview + actions ── */
+    .role-preview { background: var(--panel); border-radius: var(--radius-md); padding: 20px; margin: 0 16px 16px; border: 1px solid var(--line); }
+    .role-preview-title { font-weight: 700; font-size: 15px; margin: 0; }
+    .role-preview-location { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+    .action-bar { display: flex; gap: 12px; padding: 16px; }
+    .btn-secondary { flex: 1; padding: 14px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; text-decoration: none; transition: background .14s; }
+    .btn-secondary:hover { background: var(--panel-soft); }
+    .btn-primary { flex: 1; padding: 14px; border: none; border-radius: 12px; background: var(--blue); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; text-decoration: none; transition: background .14s; }
+    .btn-primary:hover { background: var(--blue2); }
+
+    .btn-withdraw {
+      flex: 1;
+      padding: 14px;
+      border: 1.5px solid #ef4444;
+      border-radius: 12px;
+      background: var(--panel);
+      color: #ef4444;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    .btn-withdraw:hover { background: #fef2f2; }
+    .btn-withdraw:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .status-pill.withdrawn { background: #fef2f2; color: #dc2626; }
+
+    /* ── Responsive ── */
+    @media (max-width: 767px) {
+      .shell {
+        padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 80px);
+      }
+      .app-header-section {
+        padding: 20px 14px 14px;
+      }
+      .app-practice-name {
+        font-size: 20px;
+      }
+      .status-timeline {
+        padding: 20px 16px;
+      }
+      .timeline-step {
+        padding-bottom: 26px;
+      }
+      .app-meta-grid {
+        padding: 0 14px 14px;
+      }
+      .interview-card,
+      .role-preview,
+      .prep-tips-card {
+        margin-left: 14px;
+        margin-right: 14px;
+      }
+      .action-bar {
+        padding: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="back-bar">
+    <a class="back-btn" id="backBtn" href="career.html#applications">
+      <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+      Back
+    </a>
+    <span class="back-bar-title" id="backBarTitle">Application</span>
+  </div>
+
+  <div class="shell">
+    <!-- Loading state -->
+    <div class="loading-state" id="loadingState">
+      <p>Loading application details...</p>
+    </div>
+
+    <!-- Content (hidden until loaded) -->
+    <div id="appContent" hidden>
+      <!-- Header -->
+      <div class="app-header-section">
+        <h2 class="app-practice-name" id="practiceName">Medical Centre</h2>
+        <p class="app-location" id="appLocation">Location</p>
+        <span class="status-pill" id="statusPill">Status</span>
+      </div>
+
+      <!-- Status Timeline -->
+      <div class="status-timeline" id="statusTimeline"></div>
+
+      <!-- Interview Card (shown conditionally) -->
+      <div class="interview-card" id="interviewCard" hidden>
+        <h3 class="interview-card-title">Upcoming Interview</h3>
+        <div class="interview-meta" id="interviewMeta"></div>
+        <button class="btn-join-interview" id="joinInterviewBtn" type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          Join Video Call
+        </button>
+        <button class="btn-add-calendar" id="addCalendarBtn" type="button" hidden>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Add to Calendar
+        </button>
+      </div>
+
+      <!-- Interview Prep Tips -->
+      <div class="prep-tips-card" id="prepTipsCard" hidden>
+        <h3 class="prep-tips-title">Interview Preparation</h3>
+        <ul class="prep-tips-list">
+          <li>Review the practice location and any publicly available information</li>
+          <li>Prepare questions about the practice workflow and patient demographics</li>
+          <li>Have your CV and qualification documents accessible</li>
+          <li>Test your camera and microphone before the interview</li>
+          <li>Join the meeting 2-3 minutes early</li>
+        </ul>
+      </div>
+
+      <!-- Meta Cards -->
+      <div class="app-meta-grid" id="metaGrid"></div>
+
+      <!-- Role Preview -->
+      <div class="role-preview" id="rolePreview">
+        <p class="role-preview-title" id="roleTitle">General Practitioner</p>
+        <p class="role-preview-location" id="roleLocation">Location</p>
+      </div>
+
+      <!-- Actions -->
+      <div class="action-bar">
+        <a class="btn-secondary" id="contactBtn" href="messages.html">Contact GP Link</a>
+        <a class="btn-primary" id="viewRoleBtn" href="career.html">View Full Role</a>
+        <button class="btn-withdraw" id="withdrawBtn" type="button" hidden>Withdraw Application</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var appId = params.get("id") || "";
+      var roleId = params.get("role") || "";
+
+      var TIMELINE_STEPS = [
+        { key: "applied", label: "Applied" },
+        { key: "under_review", label: "Under Review" },
+        { key: "interview", label: "Interview" },
+        { key: "offer", label: "Offer Pending" },
+        { key: "secured", label: "Practice Secured" }
+      ];
+
+      var STATUS_ORDER = {
+        applied: 0, review: 0,
+        under_review: 1, submitted: 1,
+        interview: 2, interview_scheduled: 2, shortlisted: 2,
+        offer: 3, offer_pending: 3, offered: 3,
+        hired: 4, secured: 4, placed: 4, placement_secured: 4, offer_accepted: 4, contract_signed: 4
+      };
+
+      function normalizeStatusKey(val) {
+        return String(val || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      }
+
+      function getStatusIndex(rawStatus) {
+        var key = normalizeStatusKey(rawStatus);
+        return STATUS_ORDER[key] !== undefined ? STATUS_ORDER[key] : 0;
+      }
+
+      function esc(str) {
+        var d = document.createElement("div");
+        d.textContent = str;
+        return d.innerHTML;
+      }
+
+      /** Validate URL is safe to open — only allow https: and zoomus: schemes for interview links */
+      function safeUrl(url) {
+        if (!url || typeof url !== "string") return "";
+        var trimmed = url.trim();
+        if (!trimmed) return "";
+        try {
+          var parsed = new URL(trimmed);
+          if (parsed.protocol === "https:" || parsed.protocol === "zoomus:") return trimmed;
+          return "";
+        } catch (e) { return ""; }
+      }
+
+      // Load from sessionStorage cache first, then fetch from API
+      var appData = null;
+      try {
+        var cached = sessionStorage.getItem("gp_application_preview");
+        if (cached) appData = JSON.parse(cached);
+      } catch (e) { /* ignore */ }
+
+      if (appData) {
+        renderApplication(appData);
+      }
+
+      // Fetch fresh data from API
+      fetch("/api/career/application?id=" + encodeURIComponent(appId || roleId), { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (data) {
+          if (data && data.ok && data.application) {
+            appData = data.application;
+            renderApplication(appData);
+          } else if (!appData) {
+            document.getElementById("loadingState").innerHTML = '<p>Application not found.</p>';
+          }
+        })
+        .catch(function () {
+          if (!appData) {
+            document.getElementById("loadingState").innerHTML = '<p>Could not load application details.</p>';
+          }
+        });
+
+      function renderApplication(app) {
+        document.getElementById("loadingState").hidden = true;
+        document.getElementById("appContent").hidden = false;
+
+        // Header
+        document.getElementById("practiceName").textContent = app.practiceName || "Medical Centre";
+        document.getElementById("appLocation").textContent = app.location || "";
+        var pillEl = document.getElementById("statusPill");
+        pillEl.textContent = app.status || "Applied";
+        pillEl.className = "status-pill " + (app.tone || "review");
+
+        // Back bar title
+        document.getElementById("backBarTitle").textContent = app.practiceName || "Application";
+
+        // Timeline
+        var statusIdx = getStatusIndex(app.rawStatus || app.status);
+        var timelineEl = document.getElementById("statusTimeline");
+        timelineEl.innerHTML = TIMELINE_STEPS.map(function (step, i) {
+          var stepClass = i < statusIdx ? "step-completed" : i === statusIdx ? "step-active" : "step-pending";
+          var meta = (app.meta || []).find(function (m) { return m && m.label && m.label.toLowerCase() === step.label.toLowerCase(); });
+          var dateLine = meta ? '<p class="timeline-date">' + esc(meta.value) + '</p>' : '';
+          var checkSvg = i < statusIdx
+            ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polyline points="20 6 9 17 4 12"/></svg>'
+            : '';
+          var linePart = i < TIMELINE_STEPS.length - 1 ? '<div class="timeline-line"></div>' : '';
+          return '<div class="timeline-step ' + stepClass + '">'
+            + '<div class="timeline-indicator"><div class="timeline-dot">' + checkSvg + '</div>' + linePart + '</div>'
+            + '<div class="timeline-content"><p class="timeline-label">' + esc(step.label) + '</p>' + dateLine + '</div>'
+            + '</div>';
+        }).join("");
+
+        // Interview card — use structured interview object from API when available
+        var isInterview = normalizeStatusKey(app.rawStatus || app.status).indexOf("interview") !== -1;
+        var interviewCard = document.getElementById("interviewCard");
+        var interviewObj = app.interview || null;
+        if (isInterview || interviewObj) {
+          interviewCard.hidden = false;
+          var interviewRows = [];
+
+          if (interviewObj && interviewObj.scheduled_at) {
+            var d = new Date(interviewObj.scheduled_at);
+            if (!isNaN(d.getTime())) {
+              interviewRows.push({ label: "Date", value: d.toLocaleDateString("en-AU", { weekday: "long", month: "long", day: "numeric" }) });
+              interviewRows.push({ label: "Time", value: d.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" }) });
+            }
+            if (interviewObj.duration_minutes) {
+              interviewRows.push({ label: "Duration", value: interviewObj.duration_minutes + " minutes" });
+            }
+            if (interviewObj.format) {
+              var formatLabels = { video: "Video Call", phone: "Phone Call", in_person: "In Person" };
+              interviewRows.push({ label: "Format", value: formatLabels[interviewObj.format] || interviewObj.format });
+            }
+            if (interviewObj.interviewer_name) {
+              interviewRows.push({ label: "Interviewer", value: interviewObj.interviewer_name + (interviewObj.interviewer_role ? " (" + interviewObj.interviewer_role + ")" : "") });
+            }
+          } else {
+            // Fallback to meta items
+            var metaLabels = ["Interview", "Format", "Lead"];
+            (app.meta || []).forEach(function (m) {
+              if (metaLabels.indexOf(m.label) !== -1) interviewRows.push(m);
+            });
+          }
+
+          document.getElementById("interviewMeta").innerHTML = interviewRows.map(function (m) {
+            return '<div class="interview-meta-row"><span class="interview-meta-label">' + esc(m.label) + '</span><span class="interview-meta-value">' + esc(m.value) + '</span></div>';
+          }).join("");
+
+          // Show/hide join button based on format
+          var joinBtn = document.getElementById("joinInterviewBtn");
+          if (interviewObj && interviewObj.format && interviewObj.format !== "video") {
+            joinBtn.hidden = true;
+          }
+        }
+
+        // Meta cards (exclude interview-specific labels)
+        var metaGrid = document.getElementById("metaGrid");
+        var displayMeta = (app.meta || []).filter(function (m) {
+          return ["Interview", "Format", "Lead"].indexOf(m.label) === -1;
+        });
+        metaGrid.innerHTML = displayMeta.map(function (m) {
+          return '<div class="app-meta-card"><p class="app-meta-label">' + esc(m.label) + '</p><p class="app-meta-value">' + esc(m.value) + '</p></div>';
+        }).join("");
+
+        // Role preview
+        document.getElementById("roleTitle").textContent = app.roleTitle || "General Practitioner";
+        document.getElementById("roleLocation").textContent = app.location || "";
+
+        // Action links
+        if (app.roleId) {
+          document.getElementById("viewRoleBtn").href = "job.html?id=" + encodeURIComponent(app.roleId);
+        }
+
+        // Join interview button — validate URL scheme before opening
+        document.getElementById("joinInterviewBtn").addEventListener("click", function () {
+          var joinUrl = (interviewObj && interviewObj.zoom_join_url) || app.interviewJoinUrl || "";
+          var validUrl = safeUrl(joinUrl);
+          if (validUrl) {
+            if (window.gpOpenExternal) {
+              window.gpOpenExternal(validUrl);
+            } else {
+              window.open(validUrl, "_blank", "noopener");
+            }
+          } else {
+            alert("Interview link not yet available. GP Link will send you the link before your interview.");
+          }
+        });
+
+        // Add to Calendar
+        var calendarBtn = document.getElementById("addCalendarBtn");
+        if (interviewObj && interviewObj.scheduled_at) {
+          calendarBtn.hidden = false;
+          calendarBtn.addEventListener("click", function () {
+            var start = new Date(interviewObj.scheduled_at);
+            var durationMin = interviewObj.duration_minutes || 30;
+            var end = new Date(start.getTime() + durationMin * 60000);
+
+            function pad(n) { return n < 10 ? "0" + n : String(n); }
+            function icsDate(d) {
+              return d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) + "T" + pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + pad(d.getUTCSeconds()) + "Z";
+            }
+
+            var title = "GP Link Interview" + (app.practiceName ? " \u2014 " + app.practiceName : "");
+            var description = "Interview for your GP Link application.";
+            if (interviewObj.interviewer_name) description += "\\nInterviewer: " + interviewObj.interviewer_name;
+            if (interviewObj.zoom_join_url) description += "\\nZoom Link: " + interviewObj.zoom_join_url;
+
+            var location = interviewObj.zoom_join_url || "Video Call";
+
+            var ics = [
+              "BEGIN:VCALENDAR",
+              "VERSION:2.0",
+              "PRODID:-//GP Link//Interview//EN",
+              "BEGIN:VEVENT",
+              "UID:" + (interviewObj.id || Date.now()) + "@mygplink.com.au",
+              "DTSTART:" + icsDate(start),
+              "DTEND:" + icsDate(end),
+              "SUMMARY:" + title,
+              "DESCRIPTION:" + description,
+              "LOCATION:" + location,
+              "STATUS:CONFIRMED",
+              "BEGIN:VALARM",
+              "TRIGGER:-PT15M",
+              "ACTION:DISPLAY",
+              "DESCRIPTION:Interview in 15 minutes",
+              "END:VALARM",
+              "END:VEVENT",
+              "END:VCALENDAR"
+            ].join("\r\n");
+
+            var blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = "gp-link-interview.ics";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          });
+        }
+
+        // Interview Prep Tips
+        var prepCard = document.getElementById("prepTipsCard");
+        if ((isInterview || interviewObj) && prepCard) {
+          prepCard.hidden = false;
+        }
+
+        // Withdrawal
+        var withdrawBtn = document.getElementById("withdrawBtn");
+        var statusKey = normalizeStatusKey(app.rawStatus || app.status);
+        var isSecured = ["hired", "secured", "placed", "placement_secured", "offer_accepted", "contract_signed"].indexOf(statusKey) !== -1;
+        var isWithdrawn = statusKey === "withdrawn";
+
+        if (!isSecured && !isWithdrawn) {
+          withdrawBtn.hidden = false;
+          withdrawBtn.addEventListener("click", function () {
+            if (!confirm("Are you sure you want to withdraw this application? This cannot be undone.")) return;
+            withdrawBtn.disabled = true;
+            withdrawBtn.textContent = "Withdrawing...";
+            fetch("/api/career/application/withdraw", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "same-origin",
+              body: JSON.stringify({ applicationId: app.id || appId })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.ok) {
+                withdrawBtn.textContent = "Application Withdrawn";
+                var pillEl = document.getElementById("statusPill");
+                pillEl.textContent = "Withdrawn";
+                pillEl.className = "status-pill withdrawn";
+                if (interviewCard) interviewCard.hidden = true;
+              } else {
+                withdrawBtn.disabled = false;
+                withdrawBtn.textContent = "Withdraw Application";
+                alert(data.message || "Could not withdraw application.");
+              }
+            })
+            .catch(function () {
+              withdrawBtn.disabled = false;
+              withdrawBtn.textContent = "Withdraw Application";
+              alert("Network error. Please try again.");
+            });
+          });
+        } else if (isWithdrawn) {
+          withdrawBtn.hidden = false;
+          withdrawBtn.disabled = true;
+          withdrawBtn.textContent = "Application Withdrawn";
+          withdrawBtn.style.borderColor = "var(--line)";
+          withdrawBtn.style.color = "var(--muted)";
+        }
+      }
+    })();
+  </script>
+</body>
+</html>
