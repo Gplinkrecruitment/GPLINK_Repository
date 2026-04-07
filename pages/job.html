@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Role Details - GP Link</title>
+  <script src="../js/native-bridge.js?v=20260407a"></script>
   <script src="../js/nav-shell-bridge.js?v=20260407a" defer></script>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
   <script src="../js/state-sync.js?v=20260406a" defer></script>
@@ -918,6 +919,34 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
       }
+    }
+
+    /* ── Dark mode ── */
+    html.dark-mode {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel-soft: #1a2332;
+      --panel-muted: #162031;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --ink: #e2e8f0;
+      --charcoal: #cbd5e1;
+      --line: #334155;
+      --line-strong: #475569;
+      --blue: #3b82f6;
+      --blue2: #2563eb;
+      --blue3: #1e40af;
+      --success: #22c55e;
+      --success-soft: #052e16;
+      --warning: #f59e0b;
+      --warning-soft: #422006;
+      --shadow-soft: 0 4px 16px -8px rgba(0, 0, 0, 0.4);
+      --shadow-card: 0 12px 32px -16px rgba(0, 0, 0, 0.5);
+    }
+
+    html.dark-mode body {
+      background: var(--bg);
+      color: var(--text);
     }
   </style>
 </head>

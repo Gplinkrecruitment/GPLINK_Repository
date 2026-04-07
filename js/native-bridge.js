@@ -69,4 +69,127 @@
 
   // Apply platform class to document for CSS targeting
   document.documentElement.classList.add("platform-" + window.gpPlatform());
+
+  /* ── Theme toggle ── */
+  var THEME_KEY = "gp_theme";
+
+  function applyTheme() {
+    var stored = localStorage.getItem(THEME_KEY);
+    var isDark = false;
+    if (stored === "dark") {
+      isDark = true;
+    } else if (stored === "light") {
+      isDark = false;
+    } else {
+      isDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    document.documentElement.classList.toggle("dark-mode", isDark);
+    document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+  }
+
+  window.gpSetTheme = function (theme) {
+    if (theme === "dark" || theme === "light") {
+      localStorage.setItem(THEME_KEY, theme);
+    } else {
+      localStorage.removeItem(THEME_KEY);
+    }
+    applyTheme();
+  };
+
+  window.gpGetTheme = function () {
+    return localStorage.getItem(THEME_KEY) || "system";
+  };
+
+  window.gpToggleTheme = function () {
+    var current = localStorage.getItem(THEME_KEY);
+    if (current === "dark") {
+      window.gpSetTheme("light");
+    } else if (current === "light") {
+      window.gpSetTheme("system");
+    } else {
+      window.gpSetTheme("dark");
+    }
+    return window.gpGetTheme();
+  };
+
+  // Listen for system theme changes
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+      if (!localStorage.getItem(THEME_KEY)) applyTheme();
+    });
+  }
+
+  // Apply on load
+  applyTheme();
+
+  /* ── Service worker registration ── */
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js").catch(function () {});
+    });
+  }
+
+  /* ── Online/offline detection ── */
+  function updateOnlineStatus() {
+    document.documentElement.classList.toggle("is-offline", !navigator.onLine);
+  }
+  window.addEventListener("online", updateOnlineStatus);
+  window.addEventListener("offline", updateOnlineStatus);
+  updateOnlineStatus();
+
+  /* ── Push notifications ── */
+  window.gpRegisterPush = function () {
+    if (!isNative) return;
+    if (!window.Capacitor || !window.Capacitor.Plugins || !window.Capacitor.Plugins.PushNotifications) return;
+
+    var PushNotifications = window.Capacitor.Plugins.PushNotifications;
+
+    PushNotifications.requestPermissions().then(function (result) {
+      if (result.receive === "granted") {
+        PushNotifications.register();
+      }
+    }).catch(function () {});
+
+    PushNotifications.addListener("registration", function (token) {
+      fetch("/api/push/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          token: token.value,
+          platform: window.gpPlatform()
+        })
+      }).catch(function () {});
+    });
+
+    PushNotifications.addListener("pushNotificationReceived", function (notification) {
+      // Notification received while app is in foreground — could show in-app toast
+    });
+
+    PushNotifications.addListener("pushNotificationActionPerformed", function (notification) {
+      var data = notification.notification && notification.notification.data;
+      if (data && data.url) {
+        window.location.href = data.url;
+      }
+    });
+  };
+
+  // Auto-register on native platforms after a short delay
+  if (isNative) {
+    setTimeout(function () { window.gpRegisterPush(); }, 2000);
+  }
+
+  /* ── Deep linking ── */
+  if (isNative && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+    window.Capacitor.Plugins.App.addListener("appUrlOpen", function (event) {
+      if (event && event.url) {
+        try {
+          var url = new URL(event.url);
+          if (url.pathname.startsWith("/pages/")) {
+            window.location.href = url.pathname + url.search;
+          }
+        } catch (e) {}
+      }
+    });
+  }
 })();

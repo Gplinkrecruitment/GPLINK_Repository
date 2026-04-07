@@ -2107,6 +2107,7 @@ function isNotModified(req, etag, stat) {
 
 function getStaticCacheControl(req, pathname, ext) {
   if (ext === '.html') return 'private, no-cache';
+  if (pathname === '/sw.js') return 'no-cache';
   if (pathname.startsWith('/media/')) return 'public, max-age=31536000, immutable';
 
   const requestUrl = String(req.url || '');
@@ -11645,6 +11646,36 @@ async function sendEmail({ to, subject, html, text }) {
   }
 }
 
+/* ───────── Push notifications via FCM ───────── */
+
+async function sendPushNotification(userId, { title, body, data }) {
+  if (!process.env.FCM_SERVER_KEY) return;
+  try {
+    const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+      ? stateResult.data[0].state
+      : {};
+    const pushTokens = Array.isArray(currentState.gp_push_tokens) ? currentState.gp_push_tokens : [];
+    if (pushTokens.length === 0) return;
+
+    for (const entry of pushTokens) {
+      if (!entry || !entry.token) continue;
+      fetch('https://fcm.googleapis.com/fcm/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'key=' + process.env.FCM_SERVER_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          to: entry.token,
+          notification: { title: title || 'GP Link', body: body || '' },
+          data: data || {}
+        })
+      }).catch(() => {});
+    }
+  } catch {}
+}
+
 function buildCareerEmailHtml({ title, body, ctaText, ctaUrl, footer }) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
@@ -12660,6 +12691,11 @@ async function handleApi(req, res, pathname) {
       title: 'Application Submitted',
       body: `Your application for the ${locationLabel} role has been submitted. We'll keep you updated on its progress.`
     }).catch(() => {});
+    sendPushNotification(userId, {
+      title: 'Application Submitted',
+      body: `Your application for the ${locationLabel} role has been submitted. We'll keep you updated on its progress.`,
+      data: { type: 'career', action: 'application_submitted', url: '/pages/career.html#applications' }
+    }).catch(() => {});
 
     // Send email notification (non-blocking)
     if (isEmailConfigured()) {
@@ -12844,6 +12880,11 @@ async function handleApi(req, res, pathname) {
               notifType = 'success';
             }
             pushCareerNotificationToUser(userId, { type: notifType, title: notifTitle, body: notifBody }).catch(() => {});
+            sendPushNotification(userId, {
+              title: notifTitle,
+              body: notifBody,
+              data: { type: 'career', action: 'status_change', url: '/pages/career.html#applications' }
+            }).catch(() => {});
 
             // Send email on status change (non-blocking)
             if (isEmailConfigured()) {
@@ -13299,6 +13340,53 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, { ok: true, alerts: currentState.gp_career_alerts || { enabled: false, filters: {} } });
     } catch {
       sendJson(res, 200, { ok: true, alerts: { enabled: false, filters: {} } });
+    }
+    return;
+  }
+
+  if (pathname === '/api/push/register' && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const token = String(body && body.token || '').trim().slice(0, 500);
+    const platform = ['ios', 'android', 'web'].includes(body && body.platform) ? body.platform : 'web';
+    if (!token) { sendJson(res, 400, { ok: false, message: 'Missing push token.' }); return; }
+
+    try {
+      const stateResult = await supabaseDbRequest('user_state', `select=state&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+      const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+        ? stateResult.data[0].state
+        : {};
+
+      // Store push tokens (allow multiple devices)
+      const pushTokens = Array.isArray(currentState.gp_push_tokens) ? currentState.gp_push_tokens : [];
+      const existing = pushTokens.findIndex(t => t && t.token === token);
+      if (existing >= 0) {
+        pushTokens[existing] = { token, platform, updatedAt: new Date().toISOString() };
+      } else {
+        pushTokens.push({ token, platform, registeredAt: new Date().toISOString() });
+      }
+      // Keep max 5 tokens per user
+      if (pushTokens.length > 5) pushTokens.splice(0, pushTokens.length - 5);
+
+      currentState.gp_push_tokens = pushTokens;
+      await supabaseDbRequest('user_state', `user_id=eq.${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        body: { state: currentState }
+      });
+      sendJson(res, 200, { ok: true });
+    } catch {
+      sendJson(res, 500, { ok: false, message: 'Failed to register push token.' });
     }
     return;
   }
@@ -13846,6 +13934,11 @@ async function handleApi(req, res, pathname) {
       title: 'Interview Scheduled',
       body: 'An interview has been scheduled for ' + scheduledDate.toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric' }) + '. Check your application for details.'
     }).catch(() => {});
+    sendPushNotification(gpUserId, {
+      title: 'Interview Scheduled',
+      body: 'An interview has been scheduled for ' + scheduledDate.toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric' }) + '. Check your application for details.',
+      data: { type: 'career', action: 'interview_scheduled', url: '/pages/career.html#applications' }
+    }).catch(() => {});
 
     // Send email with Zoom link (non-blocking)
     if (isEmailConfigured()) {
@@ -13924,6 +14017,11 @@ async function handleApi(req, res, pathname) {
           type: 'info',
           title: 'Interview Cancelled',
           body: 'Your scheduled interview has been cancelled. GP Link will follow up with next steps.'
+        }).catch(() => {});
+        sendPushNotification(row.user_id, {
+          title: 'Interview Cancelled',
+          body: 'Your scheduled interview has been cancelled. GP Link will follow up with next steps.',
+          data: { type: 'career', action: 'interview_cancelled', url: '/pages/career.html#applications' }
         }).catch(() => {});
       }
     }

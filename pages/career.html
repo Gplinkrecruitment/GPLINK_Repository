@@ -59,6 +59,7 @@
       }
     })();
   </script>
+  <script src="../js/native-bridge.js?v=20260407a"></script>
   <script src="../js/nav-shell-bridge.js?v=20260324a"></script>
   <script src="../js/auth-guard.js?v=20260311f" defer></script>
   <script src="../js/state-sync.js?v=20260407a" defer></script>
@@ -5821,145 +5822,160 @@
     }
 
     /* ── Dark mode ── */
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0f172a;
-        --panel: #1e293b;
-        --panel-soft: #1a2332;
-        --panel-muted: #162031;
-        --text: #f1f5f9;
-        --muted: #94a3b8;
-        --ink: #e2e8f0;
-        --charcoal: #cbd5e1;
-        --line: #334155;
-        --line-strong: #475569;
-        --blue: #3b82f6;
-        --blue2: #2563eb;
-        --blue3: #1e40af;
-        --success: #22c55e;
-        --success-soft: #052e16;
-        --warning: #f59e0b;
-        --warning-soft: #422006;
-        --shadow-soft: 0 4px 16px -8px rgba(0, 0, 0, 0.4);
-        --shadow-card: 0 12px 32px -16px rgba(0, 0, 0, 0.5);
-      }
+    html.dark-mode {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel-soft: #1a2332;
+      --panel-muted: #162031;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --ink: #e2e8f0;
+      --charcoal: #cbd5e1;
+      --line: #334155;
+      --line-strong: #475569;
+      --blue: #3b82f6;
+      --blue2: #2563eb;
+      --blue3: #1e40af;
+      --success: #22c55e;
+      --success-soft: #052e16;
+      --warning: #f59e0b;
+      --warning-soft: #422006;
+      --shadow-soft: 0 4px 16px -8px rgba(0, 0, 0, 0.4);
+      --shadow-card: 0 12px 32px -16px rgba(0, 0, 0, 0.5);
+    }
 
-      html, body {
-        background: var(--bg);
-        color: var(--text);
-      }
+    html.dark-mode, html.dark-mode body {
+      background: var(--bg);
+      color: var(--text);
+    }
 
-      /* Override any hardcoded backgrounds */
-      .page-hero,
-      .role-card,
-      .application-card,
-      .summary-strip,
-      .empty-state,
-      .details-card,
-      .summary-card,
-      .placement-hero-card,
-      .placement-practice-contact-card,
-      .placement-checklist,
-      .placement-broker-card,
-      .placement-income-float,
-      .practice-lifestyle-module {
-        background: var(--panel);
-        border-color: var(--line);
-      }
+    /* Override any hardcoded backgrounds */
+    html.dark-mode .page-hero,
+    html.dark-mode .role-card,
+    html.dark-mode .application-card,
+    html.dark-mode .summary-strip,
+    html.dark-mode .empty-state,
+    html.dark-mode .details-card,
+    html.dark-mode .summary-card,
+    html.dark-mode .placement-hero-card,
+    html.dark-mode .placement-practice-contact-card,
+    html.dark-mode .placement-checklist,
+    html.dark-mode .placement-broker-card,
+    html.dark-mode .placement-income-float,
+    html.dark-mode .practice-lifestyle-module {
+      background: var(--panel);
+      border-color: var(--line);
+    }
 
-      /* Fix any rgba white backgrounds */
-      .hero-card,
-      .page-hero {
-        background: var(--panel) !important;
-      }
+    /* Fix any rgba white backgrounds */
+    html.dark-mode .hero-card,
+    html.dark-mode .page-hero {
+      background: var(--panel) !important;
+    }
 
-      /* Status pills dark mode */
-      .status-pill.review { background: #1e293b; color: #93c5fd; }
-      .status-pill.interview { background: #1e293b; color: #a5b4fc; }
-      .status-pill.offer { background: #422006; color: #fbbf24; }
-      .status-pill.secured { background: #052e16; color: #4ade80; }
+    /* Status pills dark mode */
+    html.dark-mode .status-pill.review { background: #1e293b; color: #93c5fd; }
+    html.dark-mode .status-pill.interview { background: #1e293b; color: #a5b4fc; }
+    html.dark-mode .status-pill.offer { background: #422006; color: #fbbf24; }
+    html.dark-mode .status-pill.secured { background: #052e16; color: #4ade80; }
 
-      /* Billing pill */
-      .billing-pill { background: #1e293b; color: #93c5fd; }
+    /* Billing pill */
+    html.dark-mode .billing-pill { background: #1e293b; color: #93c5fd; }
 
-      /* Buttons */
-      .ghost-btn {
-        background: var(--panel);
-        border-color: var(--line);
-        color: var(--text);
-      }
+    /* Buttons */
+    html.dark-mode .ghost-btn {
+      background: var(--panel);
+      border-color: var(--line);
+      color: var(--text);
+    }
 
-      /* Save button */
-      .save-btn {
-        background: var(--panel);
-        border-color: var(--line);
-      }
+    /* Save button */
+    html.dark-mode .save-btn {
+      background: var(--panel);
+      border-color: var(--line);
+    }
 
-      /* Filter selects */
-      .hero-filter-select {
-        background: var(--panel);
-        border-color: var(--line);
-        color: var(--text);
-      }
+    /* Filter selects */
+    html.dark-mode .hero-filter-select {
+      background: var(--panel);
+      border-color: var(--line);
+      color: var(--text);
+    }
 
-      /* Search bar */
-      .hero-search-input {
-        background: var(--panel);
-        border-color: var(--line);
-        color: var(--text);
-      }
+    /* Search bar */
+    html.dark-mode .hero-search-input {
+      background: var(--panel);
+      border-color: var(--line);
+      color: var(--text);
+    }
 
-      /* Filter chips */
-      .filter-chip {
-        background: var(--panel);
-        border-color: var(--line);
-        color: var(--text);
-      }
-      .filter-chip.is-active {
-        background: var(--blue);
-        border-color: var(--blue);
-        color: #fff;
-      }
+    /* Filter chips */
+    html.dark-mode .filter-chip {
+      background: var(--panel);
+      border-color: var(--line);
+      color: var(--text);
+    }
+    html.dark-mode .filter-chip.is-active {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+    }
 
-      /* Hero shortcuts */
-      .hero-shortcut {
-        background: var(--panel);
-        border-color: var(--line);
-      }
+    /* Hero shortcuts */
+    html.dark-mode .hero-shortcut {
+      background: var(--panel);
+      border-color: var(--line);
+    }
 
-      /* Navigation */
-      .desktop-topbar {
-        background: var(--bg);
-        border-color: var(--line);
-      }
+    /* Navigation */
+    html.dark-mode .desktop-topbar {
+      background: var(--bg);
+      border-color: var(--line);
+    }
 
-      .mobile-nav {
-        background: rgba(15, 23, 42, 0.95);
-        border-color: var(--line);
-      }
+    html.dark-mode .mobile-nav {
+      background: rgba(15, 23, 42, 0.95);
+      border-color: var(--line);
+    }
 
-      /* Scroll/link colors */
-      a { color: var(--blue); }
+    /* Scroll/link colors */
+    html.dark-mode a { color: var(--blue); }
 
-      /* Input placeholders */
-      .hero-search-input::placeholder { color: var(--muted); }
+    /* Input placeholders */
+    html.dark-mode .hero-search-input::placeholder { color: var(--muted); }
 
-      /* Meta cards */
-      .meta-card {
-        background: var(--panel-soft);
-        border-color: var(--line);
-      }
+    /* Meta cards */
+    html.dark-mode .meta-card {
+      background: var(--panel-soft);
+      border-color: var(--line);
+    }
 
-      /* Role modal */
-      .role-modal-dialog {
-        background: var(--panel);
-        border-color: var(--line);
-      }
+    /* Role modal */
+    html.dark-mode .role-modal-dialog {
+      background: var(--panel);
+      border-color: var(--line);
+    }
 
-      /* Practice mask */
-      .practice-mask-bar {
-        background: var(--panel-muted);
-      }
+    /* Practice mask */
+    html.dark-mode .practice-mask-bar {
+      background: var(--panel-muted);
+    }
+
+    /* ── Offline indicator ── */
+    html.is-offline::after {
+      content: "You're offline — showing cached data";
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 9999;
+      padding: 6px 16px;
+      background: var(--warning);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 0.02em;
     }
   </style>
 </head>

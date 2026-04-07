@@ -8,7 +8,8 @@ const config: CapacitorConfig = {
     // In development, use the live server URL.
     // In production builds, the app is served from bundled files.
     // url: 'http://localhost:3000',
-    cleartext: false
+    cleartext: false,
+    hostname: 'app.mygplink.com.au'
   },
   ios: {
     scheme: 'GP Link',
