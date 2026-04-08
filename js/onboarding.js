@@ -274,11 +274,11 @@
 
       let infoHtml = "";
       if (status === "scanning") {
-        infoHtml = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> AI is verifying your document...</div>';
+        infoHtml = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Checking your document now...</div>';
       } else if (status === "verified" || status === "verified_name_pending") {
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; ' + (docState.fileName || "Document") + ' verified</div>';
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Verified — one less thing to think about.</div>';
       } else if (status === "failed" && retryCount >= MAX_RETRIES) {
-        infoHtml = '<div class="qual-doc-slot-info error">Max attempts reached. Will be reviewed manually.</div>';
+        infoHtml = '<div class="qual-doc-slot-info error">We\'ll have a team member verify this personally. No action needed from you.</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "failed") {
         const issues = humanizeScanIssues((docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues : ["Verification failed"], { documentTitle: doc.label, mode: "qualification" });
@@ -287,14 +287,14 @@
         // Actionable tips based on retry count
         var tips = ["Try removing any frame or cover", "Ensure there is no glare on the document", "Hold camera steady and use good lighting", "Try uploading a flat scan or screenshot instead"];
         if (retryCount > 0 && retryCount <= tips.length) {
-          infoHtml += '<div class="qual-doc-slot-retry" style="color:var(--blue);">Tip: ' + tips[retryCount - 1] + '</div>';
+          infoHtml += '<div class="qual-doc-slot-retry" style="color:var(--primary, #16A34A);">Tip: ' + tips[retryCount - 1] + '</div>';
         }
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "support_requested") {
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Support team will verify manually via email</div>';
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #16A34A);">Support team will verify manually via email</div>';
       } else if (status === "manual_review") {
         var reviewIssues = humanizeScanIssues((docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues : ["Queued for review"], { documentTitle: doc.label, mode: "qualification" });
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--blue);">Sent for manual review.<br>' + reviewIssues.map(escHtml).join("<br>") + '</div>';
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #16A34A);">Sent for manual review.<br>' + reviewIssues.map(escHtml).join("<br>") + '</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       }
 
@@ -540,13 +540,13 @@
 
     card.innerHTML =
       '<div style="width:56px;height:56px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">' +
-        '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+        '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
       '</div>' +
       '<h3 style="color:#fff;font-size:18px;font-weight:700;margin:0 0 8px;">Manual Verification Required</h3>' +
       '<p style="color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 20px;">' +
         'Due to discrepancies in your qualifications, our team will email you to manually verify your qualifications and resume onboarding.' +
       '</p>' +
-      '<button id="qualSupportSendBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#3b82f6;color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;font-family:inherit;">Send Support Request</button>' +
+      '<button id="qualSupportSendBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#16A34A;color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;font-family:inherit;">Send Support Request</button>' +
       '<button id="qualSupportCloseBtn" type="button" style="width:100%;padding:12px;border:none;border-radius:12px;background:transparent;color:#64748b;font-size:14px;cursor:pointer;font-family:inherit;">Close</button>';
 
     overlay.appendChild(card);
@@ -592,7 +592,7 @@
             '<p style="color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 20px;">' +
               'Our team has received your request and will email you to manually verify your qualifications. You can continue with the rest of the onboarding in the meantime.' +
             '</p>' +
-            '<button id="qualSupportDoneBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#3b82f6;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">OK</button>';
+            '<button id="qualSupportDoneBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#16A34A;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">OK</button>';
           document.getElementById("qualSupportDoneBtn").addEventListener("click", function () { overlay.remove(); });
         } else {
           btn.textContent = "Send Support Request";
@@ -811,17 +811,17 @@
     const status = idState.status || "pending";
 
     if (status === "scanning") {
-      statusEl.innerHTML = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Verifying your identity...</div>';
+      statusEl.innerHTML = '<div class="qual-doc-slot-info"><span class="qual-doc-spinner"></span> Confirming your identity...</div>';
       actionsEl.style.display = "none";
     } else if (status === "verified") {
-      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity verified — document has been deleted</div>';
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--green);">&#10003; Identity confirmed — your document has been deleted.</div>';
       actionsEl.style.display = "none";
     } else if (status === "failed") {
       const issues = humanizeScanIssues((idState.issues && idState.issues.length) ? idState.issues : ["Verification failed"], { mode: "identity" });
       statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues.map(escHtml).join("<br>") + '</div>';
       actionsEl.style.display = "";
     } else if (status === "support_requested") {
-      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--blue);">Support team will verify manually via email</div>';
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--primary, #16A34A);">Support team will verify manually via email</div>';
       actionsEl.style.display = "none";
     } else {
       statusEl.innerHTML = "";
