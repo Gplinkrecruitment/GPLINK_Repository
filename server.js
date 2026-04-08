@@ -3621,6 +3621,8 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
 
   let apiPath, reqBody;
 
+  const fromNumber = HAZEL_WHATSAPP_NUMBER.replace(/[^\d]/g, '');
+
   if (DOUBLETICK_USE_DIRECT_TEXT) {
     // Direct text message — no template approval needed (testing mode)
     const msgTpl = DOUBLETICK_STAGE_MESSAGES[stage];
@@ -3633,6 +3635,7 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
     reqBody = JSON.stringify({
       messages: [{
         to: normalised,
+        from: fromNumber,
         content: { text: text }
       }]
     });
@@ -3647,13 +3650,12 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
     reqBody = JSON.stringify({
       messages: [{
         to: normalised,
-        content: {
-          templateName: tpl.templateName,
-          language: tpl.language || 'en',
-          templateData: {
-            body: {
-              placeholders: [gpFirstName || 'there']
-            }
+        from: fromNumber,
+        templateName: tpl.templateName,
+        language: tpl.language || 'en',
+        templateData: {
+          body: {
+            placeholders: [gpFirstName || 'there']
           }
         }
       }]
@@ -3664,7 +3666,7 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
     const resp = await fetch(DOUBLETICK_BASE_URL + apiPath, {
       method: 'POST',
       headers: {
-        'Authorization': 'key ' + DOUBLETICK_API_KEY,
+        'Authorization': 'Basic ' + Buffer.from(DOUBLETICK_API_KEY).toString('base64'),
         'Content-Type': 'application/json'
       },
       body: reqBody
