@@ -1152,9 +1152,11 @@
     // Hide progress dots on intro slide
     var dotsEl = document.getElementById("progressDots");
     if (dotsEl) dotsEl.style.display = step === 0 ? "none" : "flex";
-    // Intro mode: center + enlarge Get Started button
+    // Intro mode: center + enlarge Get Started; remove intro-mode to slide right
     var btnRow = nextBtn.parentElement;
     if (btnRow) btnRow.classList.toggle("intro-mode", step === 0);
+    // Clear margin-right when leaving intro so button slides from center to right
+    nextBtn.style.marginRight = step === 0 ? "auto" : "";
 
     if (isSkippable(step)) {
       skipBtn.classList.remove("invisible");
@@ -1163,15 +1165,17 @@
       skipBtn.classList.add("invisible");
     }
 
-    if (step === TOTAL_STEPS - 1) {
-      nextBtn.textContent = "SUBMIT";
-      nextBtn.classList.add("submit");
-    } else if (step === 0) {
-      nextBtn.textContent = "Get Started";
-      nextBtn.classList.remove("submit");
+    // Fluid button label swap — text changes mid-slide
+    var newLabel = step === TOTAL_STEPS - 1 ? "SUBMIT" : step === 0 ? "Get Started" : "NEXT";
+    var isSubmit = step === TOTAL_STEPS - 1;
+    if (nextBtn.textContent !== newLabel) {
+      // Swap text after half the slide duration so it feels continuous
+      setTimeout(function () {
+        nextBtn.textContent = newLabel;
+        nextBtn.classList.toggle("submit", isSubmit);
+      }, 250);
     } else {
-      nextBtn.textContent = "NEXT";
-      nextBtn.classList.remove("submit");
+      nextBtn.classList.toggle("submit", isSubmit);
     }
 
     if (step === 3) {

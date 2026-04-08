@@ -110,21 +110,25 @@
       font-family: inherit;
       font-size: 15px;
       font-weight: 600;
-      padding: 14px 24px;
+      padding: 14px 0;
       border-radius: 999px;
       cursor: pointer;
-      transition: transform 0.15s ease, opacity 0.15s ease, background 0.2s ease;
-      min-width: 120px;
+      transition: transform 0.15s ease, opacity 0.4s ease, background 0.2s ease,
+                  max-width 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                  padding 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      max-width: 0;
       text-align: center;
       opacity: 0;
-      visibility: hidden;
+      overflow: hidden;
+      white-space: nowrap;
       pointer-events: none;
       transform-origin: center;
       will-change: transform;
     }
     .back-btn.visible {
+      max-width: 150px;
+      padding: 14px 24px;
       opacity: 1;
-      visibility: visible;
       pointer-events: auto;
     }
     .back-btn:hover {
@@ -170,8 +174,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 0;
-      padding: 16px 0 6px;
+      flex-shrink: 0;
+      padding: 28px 0 14px;
     }
     .slide-illustration svg {
       width: 160px;
@@ -180,13 +184,15 @@
     }
     .slide-illustration img {
       max-width: 100%;
+      max-height: 200px;
+      object-fit: contain;
     }
 
     /* ── CONTENT CARD ─────────────────────────── */
     .slide-content {
       background: var(--card);
       border-radius: var(--radius);
-      padding: 22px 24px 20px;
+      padding: 28px 24px 24px;
       box-shadow: 0 8px 30px rgba(15,23,42,0.08);
       flex: 1;
       display: flex;
@@ -197,15 +203,15 @@
       font-size: 24px;
       font-weight: 800;
       line-height: 1.2;
-      margin-bottom: 10px;
+      margin-bottom: 14px;
       color: var(--text);
     }
 
     .slide-content p {
       font-size: 15px;
       color: var(--muted);
-      line-height: 1.55;
-      margin-bottom: 14px;
+      line-height: 1.6;
+      margin-bottom: 16px;
     }
 
     .slide-content .form-area {
@@ -769,23 +775,12 @@
       background: var(--primary);
     }
 
-    /* button row */
+    /* button row — uses margin-left on .btn-next for fluid slide */
     .btn-row {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       width: 100%;
       gap: 12px;
-      transition: justify-content 0.4s ease;
-    }
-    /* Intro step: center the button, full width */
-    .btn-row.intro-mode {
-      justify-content: center;
-    }
-    .btn-row.intro-mode .btn-next {
-      min-width: 80%;
-      padding: 18px 40px;
-      font-size: 17px;
     }
 
     .btn-skip {
@@ -803,15 +798,31 @@
       padding: 14px 36px;
       border-radius: 999px;
       cursor: pointer;
-      transition: transform 0.15s, opacity 0.15s, background 0.2s, box-shadow 0.2s, min-width 0.4s ease, padding 0.4s ease, font-size 0.3s ease;
+      transition: transform 0.15s ease,
+                  background 0.2s ease,
+                  box-shadow 0.2s ease,
+                  margin-left 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+                  margin-right 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+                  min-width 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+                  padding 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+                  font-size 0.4s ease;
+      margin-left: auto;
       min-width: 120px;
       text-align: center;
       transform-origin: center;
-      will-change: transform;
+      will-change: transform, margin-left, min-width;
       box-shadow: 0 8px 24px -8px rgba(37, 99, 235, 0.4);
       position: relative;
       overflow: visible;
       z-index: 1;
+    }
+    /* Intro step: centered, wide, prominent */
+    .btn-row.intro-mode .btn-next {
+      margin-left: auto;
+      margin-right: auto;
+      min-width: 90%;
+      padding: 20px 48px;
+      font-size: 18px;
     }
     .btn-next::before,
     .btn-next::after {
@@ -943,7 +954,7 @@
       animation: marquee-scroll 22s linear infinite;
     }
     .marquee-track img {
-      height: 80px;
+      height: 100px;
       width: auto;
       opacity: 0.7;
       filter: grayscale(10%);
@@ -1025,7 +1036,7 @@
 
       <!-- STEP 1: Country of Specialist Registration -->
       <div class="slide" data-slide="1">
-        <div class="slide-illustration" style="padding:20px 0 8px;flex-shrink:0;">
+        <div class="slide-illustration">
           <img src="../media/images/onboarding-qualifications.png" alt="Specialist registration" style="width:180px;height:auto;" />
         </div>
         <div class="slide-content">
@@ -1237,6 +1248,6 @@
   </div>
 
   <script src="../js/qualification-camera.js?v=20260311a"></script>
-  <script src="../js/onboarding.js?v=20260409c"></script>
+  <script src="../js/onboarding.js?v=20260409e"></script>
 </body>
 </html>
