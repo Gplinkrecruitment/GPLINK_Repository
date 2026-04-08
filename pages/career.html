@@ -10077,7 +10077,12 @@
         if (app) {
           try { sessionStorage.setItem("gp_application_preview", JSON.stringify(app)); } catch {}
         }
-        window.location.href = "application-detail.html?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(appRoleId);
+        const detailRoute = "/pages/application-detail.html?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(appRoleId);
+        if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
+          window.parent.gpShellNavigate(detailRoute);
+        } else {
+          window.location.href = "application-detail.html?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(appRoleId);
+        }
         return;
       }
 
@@ -10089,7 +10094,12 @@
         }
         const roleId = openBtn.getAttribute("data-open-role");
         cacheRolePreview(roleId);
-        window.location.href = "job.html?id=" + encodeURIComponent(roleId);
+        const jobRoute = "/pages/job.html?id=" + encodeURIComponent(roleId);
+        if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window && window.parent.gpShellNavigate) {
+          window.parent.gpShellNavigate(jobRoute);
+        } else {
+          window.location.href = "job.html?id=" + encodeURIComponent(roleId);
+        }
         return;
       }
     });

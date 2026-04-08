@@ -1148,7 +1148,9 @@
 
     try {
       var childHref = frame.contentWindow.location.href;
+      if (!childHref || childHref === "about:blank") return;
       var childUrl = new URL(childHref);
+      if (childUrl.protocol !== "http:" && childUrl.protocol !== "https:") return;
       var childPath = normalizePath(childUrl.pathname);
       var childDoc = frame.contentDocument;
       var nextRoute = routeFromUrl(childUrl);
