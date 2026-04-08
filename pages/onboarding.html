@@ -6,7 +6,7 @@
   <title>Welcome - GP Link</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -27,7 +27,7 @@
 
     html, body {
       height: 100%;
-      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--bg);
       color: var(--text);
       -webkit-font-smoothing: antialiased;
@@ -100,9 +100,7 @@
     [data-step="4"] .blob-2 { background: #6ee7b7; }
     [data-step="4"] .blob-3 { background: #93c5fd; top: 40px; }
 
-    [data-step="5"] .blob-1 { background: #93c5fd; }
-    [data-step="5"] .blob-2 { background: #6ee7b7; }
-    [data-step="5"] .blob-3 { background: #fbbf24; }
+    /* step 5 removed — identity is now step 4 */
 
     /* ── PREVIOUS BUTTON ──────────────────────── */
     .back-btn {
@@ -193,10 +191,9 @@
     }
 
     .slide-content h1 {
-      font-family: "DM Serif Display", Georgia, serif;
-      font-size: 26px;
-      font-weight: 400;
-      line-height: 1.15;
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.2;
       margin-bottom: 10px;
       color: var(--text);
     }
@@ -409,7 +406,7 @@
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      font-family: 'DM Sans', sans-serif;
+      font-family: 'Inter', sans-serif;
       transition: background 0.2s, color 0.2s;
     }
     .qual-support-btn:active {
@@ -645,6 +642,39 @@
       margin-top: 12px;
     }
     .children-count-wrap.show { display: block; }
+    .child-age-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .child-age-row label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      min-width: 68px;
+      flex-shrink: 0;
+    }
+    .child-age-row select {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 30px;
+    }
+    .child-age-row select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
     .stepper-input {
       display: flex;
       align-items: center;
@@ -836,9 +866,8 @@
       stroke-linecap: round; stroke-linejoin: round;
     }
     .success-screen h1 {
-      font-family: "DM Serif Display", Georgia, serif;
-      font-size: 28px;
-      font-weight: 400;
+      font-size: 26px;
+      font-weight: 800;
       margin-bottom: 12px;
     }
     .success-screen p {
@@ -849,6 +878,44 @@
       margin-bottom: 32px;
     }
     .success-screen .btn-next { min-width: 200px; }
+
+    /* ── LOGO MARQUEE ─────────────────────────── */
+    .partners-section {
+      margin-top: 8px;
+      text-align: center;
+    }
+    .partners-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--light);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
+    }
+    .marquee-wrap {
+      overflow: hidden;
+      width: 100%;
+      -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+      mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+    }
+    .marquee-track {
+      display: flex;
+      align-items: center;
+      gap: 36px;
+      width: max-content;
+      animation: marquee-scroll 18s linear infinite;
+    }
+    .marquee-track img {
+      height: 32px;
+      width: auto;
+      opacity: 0.55;
+      filter: grayscale(30%);
+      flex-shrink: 0;
+    }
+    @keyframes marquee-scroll {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
 
     /* ── DESKTOP POLISH ───────────────────────── */
     @media (min-width: 520px) {
@@ -900,6 +967,21 @@
           <h1>Your fastest pathway to practising in Australia</h1>
           <p>Personalised to your qualifications, timeline, and family — set up in under 3 minutes.</p>
           <p style="font-size:13px;color:var(--light);margin-top:-8px;">Trusted by GPs from the UK, Ireland, and New Zealand.</p>
+          <div class="partners-section">
+            <div class="partners-label">We work with</div>
+            <div class="marquee-wrap">
+              <div class="marquee-track">
+                <img src="../media/images/logo-ama.png" alt="AMA" />
+                <img src="../media/images/logo-ecfmg.png" alt="ECFMG" />
+                <img src="../media/images/logo-amc.png" alt="AMC" />
+                <img src="../media/images/logo-ahpra.png" alt="AHPRA" />
+                <img src="../media/images/logo-ama.png" alt="AMA" />
+                <img src="../media/images/logo-ecfmg.png" alt="ECFMG" />
+                <img src="../media/images/logo-amc.png" alt="AMC" />
+                <img src="../media/images/logo-ahpra.png" alt="AHPRA" />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -946,20 +1028,8 @@
               <div class="field-error" id="countryError">Please select your country of qualification.</div>
               <div class="field-hint" id="countryHint" style="display:none;color:var(--red);font-size:13px;margin-top:8px;">We currently only accept GPs qualified in the United Kingdom, Ireland, or New Zealand.</div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 2: Verify qualification documents -->
-      <div class="slide" data-slide="2">
-        <div class="slide-illustration" style="min-height:200px;padding:20px 0 0;">
-          <img src="../media/images/onboarding-qualifications.png" alt="Verify qualifications" style="width:200px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
-        </div>
-        <div class="slide-content">
-          <h1>Let's verify your credentials</h1>
-          <p>Upload or photograph each document. Verification takes seconds, not days.</p>
-          <div class="form-area">
-            <div id="qualDocsContainer">
+            <!-- Qualification docs appear here after country selection -->
+            <div id="qualDocsContainer" style="margin-top:14px;">
               <!-- Populated dynamically by JS based on selected country -->
             </div>
             <div class="field-error" id="qualDocsError">Please verify all required documents.</div>
@@ -967,8 +1037,8 @@
         </div>
       </div>
 
-      <!-- STEP 3: Relocation details (merged date/city/who) -->
-      <div class="slide" data-slide="3">
+      <!-- STEP 2: Relocation details (merged date/city/who) -->
+      <div class="slide" data-slide="2">
         <div class="slide-illustration" style="min-height:200px;padding:10px 0 0;">
           <img src="../media/images/onboarding-relocation.png" alt="Family relocating" style="width:200px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
         </div>
@@ -1032,14 +1102,17 @@
                   <span class="stepper-value" id="childCount">1</span>
                   <button type="button" class="stepper-btn" id="childPlus">+</button>
                 </div>
+                <div id="childrenAgesWrap" style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+                  <!-- Populated dynamically by JS -->
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- STEP 4: Review -->
-      <div class="slide" data-slide="4">
+      <!-- STEP 3: Review -->
+      <div class="slide" data-slide="3">
         <div class="slide-illustration" style="min-height:140px; padding: 20px 0 0;">
           <svg viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg">
             <!-- Clipboard -->
@@ -1080,8 +1153,8 @@
         </div>
       </div>
 
-      <!-- STEP 5: Identity Check (final step) -->
-      <div class="slide" data-slide="5">
+      <!-- STEP 4: Identity Check (final step) -->
+      <div class="slide" data-slide="4">
         <div class="slide-illustration">
           <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
             <rect x="35" y="55" width="130" height="90" rx="12" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
@@ -1139,7 +1212,6 @@
         <div class="progress-dot"></div>
         <div class="progress-dot"></div>
         <div class="progress-dot"></div>
-        <div class="progress-dot"></div>
       </div>
       <div class="btn-row">
         <button class="back-btn" id="backBtn" aria-label="Go to previous step">Previous</button>
@@ -1150,6 +1222,6 @@
   </div>
 
   <script src="../js/qualification-camera.js?v=20260311a"></script>
-  <script src="../js/onboarding.js?v=20260409b"></script>
+  <script src="../js/onboarding.js?v=20260409c"></script>
 </body>
 </html>

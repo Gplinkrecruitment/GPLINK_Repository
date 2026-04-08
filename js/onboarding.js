@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const TOTAL_STEPS = 6;
+  const TOTAL_STEPS = 5;
   const STORAGE_KEY = "gp_onboarding";
   const MAX_RETRIES = 5;
 
@@ -42,7 +42,7 @@
 
   // Migrate old 8-step state to new 5-step layout
   if (state._version !== 2) {
-    var stepMap = { 0: 1, 1: 1, 2: 2, 3: 3, 4: 3, 5: 3, 6: 5, 7: 4 };
+    var stepMap = { 0: 1, 1: 1, 2: 1, 3: 2, 4: 2, 5: 2, 6: 4, 7: 3 };
     if (state.currentStep !== undefined && stepMap[state.currentStep] !== undefined) {
       state.currentStep = stepMap[state.currentStep];
     }
@@ -67,6 +67,7 @@
       preferredCity: "",
       whoMoving: "",
       childrenCount: 1,
+      childrenAges: [],
       idVerification: null,
       completedAt: null,
     };
@@ -142,6 +143,7 @@
     state.qualDocs = {};
     state.accountReviewFlag = false;
     saveState();
+    renderQualDocSlots();
   }
 
   countrySearch.addEventListener("input", () => renderCountryList(countrySearch.value));
@@ -939,6 +941,37 @@
   const childrenWrap = document.getElementById("childrenCountWrap");
   const childCountEl = document.getElementById("childCount");
 
+  var childrenAgesWrap = document.getElementById("childrenAgesWrap");
+
+  function renderChildrenAges() {
+    if (!childrenAgesWrap) return;
+    if (!state.childrenAges) state.childrenAges = [];
+    // Ensure array matches count
+    while (state.childrenAges.length < childrenCount) state.childrenAges.push("");
+    if (state.childrenAges.length > childrenCount) state.childrenAges.length = childrenCount;
+    var html = "";
+    for (var i = 0; i < childrenCount; i++) {
+      var val = state.childrenAges[i] || "";
+      html += '<div class="child-age-row">';
+      html += '<label>Child ' + (i + 1) + ' age</label>';
+      html += '<select data-child-age-idx="' + i + '">';
+      html += '<option value=""' + (val === "" ? " selected" : "") + '>Select age</option>';
+      for (var age = 0; age <= 17; age++) {
+        var label = age === 0 ? "Under 1" : age + (age === 1 ? " year" : " years");
+        html += '<option value="' + age + '"' + (String(val) === String(age) ? " selected" : "") + '>' + label + '</option>';
+      }
+      html += '</select></div>';
+    }
+    childrenAgesWrap.innerHTML = html;
+    childrenAgesWrap.querySelectorAll("select").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        var idx = parseInt(sel.dataset.childAgeIdx, 10);
+        state.childrenAges[idx] = sel.value;
+        saveState();
+      });
+    });
+  }
+
   function updateWhoUI() {
     whoCards.forEach((c) => {
       c.classList.toggle("selected", c.dataset.value === state.whoMoving);
@@ -946,6 +979,7 @@
     const hasChildren = state.whoMoving === "me_children" || state.whoMoving === "me_partner_children";
     childrenWrap.classList.toggle("show", hasChildren);
     childCountEl.textContent = childrenCount;
+    if (hasChildren) renderChildrenAges();
   }
 
   whoCards.forEach((card) => {
@@ -958,10 +992,10 @@
   });
 
   document.getElementById("childMinus").addEventListener("click", () => {
-    if (childrenCount > 1) { childrenCount--; childCountEl.textContent = childrenCount; saveState(); }
+    if (childrenCount > 1) { childrenCount--; childCountEl.textContent = childrenCount; renderChildrenAges(); saveState(); }
   });
   document.getElementById("childPlus").addEventListener("click", () => {
-    if (childrenCount < 20) { childrenCount++; childCountEl.textContent = childrenCount; saveState(); }
+    if (childrenCount < 20) { childrenCount++; childCountEl.textContent = childrenCount; renderChildrenAges(); saveState(); }
   });
   updateWhoUI();
 
@@ -991,7 +1025,7 @@
 
     switch (step) {
       case 0: return true; // intro
-      case 1: // country
+      case 1: // country + qualification docs
         if (!state.country) { showError("countryError"); return false; }
         if (!COUNTRY_DOCS[state.country]) {
           const hint = document.getElementById("countryHint");
@@ -999,15 +1033,13 @@
           return false;
         }
         hideError("countryError");
-        return true;
-      case 2: // qualification docs
         if (!allDocsComplete()) {
           showError("qualDocsError", "Please verify all required documents before continuing.");
           return false;
         }
         hideError("qualDocsError");
         return true;
-      case 3: // relocation details (date + city + who)
+      case 2: // relocation details (date + city + who)
         let ok = true;
         if (!state.targetDate) { showError("dateError", "Please select a target date."); ok = false; }
         else {
@@ -1020,8 +1052,8 @@
         if (!state.whoMoving) { showError("whoError"); ok = false; }
         else hideError("whoError");
         return ok;
-      case 4: return true; // review
-      case 5: // identity check
+      case 3: return true; // review
+      case 4: // identity check
         const idStatus = state.idVerification && state.idVerification.status;
         if (idStatus === "verified" || idStatus === "support_requested") {
           hideError("docsError");
@@ -1071,7 +1103,16 @@
       { label: "Preferred city", value: state.preferredCity || "Not set" },
       { label: "Who's moving", value: whoLabels[state.whoMoving] || "Not set" },
     ];
-    if (hasChildren) rows.push({ label: "Children", value: String(childrenCount) });
+    if (hasChildren) {
+      rows.push({ label: "Children", value: String(childrenCount) });
+      if (state.childrenAges && state.childrenAges.length) {
+        for (var ci = 0; ci < Math.min(childrenCount, state.childrenAges.length); ci++) {
+          var ageVal = state.childrenAges[ci];
+          var ageLabel = ageVal === "" || ageVal === undefined ? "Not set" : (ageVal === "0" || ageVal === 0 ? "Under 1" : ageVal + (String(ageVal) === "1" ? " year" : " years"));
+          rows.push({ label: "Child " + (ci + 1) + " age", value: ageLabel, cls: ageVal === "" || ageVal === undefined ? "status-missing" : "" });
+        }
+      }
+    }
 
     if (state.accountReviewFlag) {
       rows.push({ label: "Account", value: "Under Review", cls: "status-pending" });
@@ -1126,12 +1167,12 @@
       nextBtn.classList.remove("submit");
     }
 
-    if (step === 4) {
+    if (step === 3) {
       buildReview();
     }
 
-    if (step === 2) renderQualDocSlots();
-    if (step === 5) renderIdVerifyStatus();
+    if (step === 1) renderQualDocSlots();
+    if (step === 4) renderIdVerifyStatus();
 
     saveState();
   }
