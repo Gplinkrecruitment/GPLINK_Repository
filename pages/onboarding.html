@@ -170,20 +170,23 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 220px;
-      padding: 30px 0 10px;
+      min-height: 0;
+      padding: 16px 0 6px;
     }
     .slide-illustration svg {
-      width: 180px;
-      height: 180px;
+      width: 160px;
+      height: 160px;
       filter: drop-shadow(0 20px 30px rgba(0,0,0,0.10));
+    }
+    .slide-illustration img {
+      max-width: 100%;
     }
 
     /* ── CONTENT CARD ─────────────────────────── */
     .slide-content {
       background: var(--card);
       border-radius: var(--radius);
-      padding: 28px 24px 24px;
+      padding: 22px 24px 20px;
       box-shadow: 0 8px 30px rgba(15,23,42,0.08);
       flex: 1;
       display: flex;
@@ -202,7 +205,7 @@
       font-size: 15px;
       color: var(--muted);
       line-height: 1.55;
-      margin-bottom: 20px;
+      margin-bottom: 14px;
     }
 
     .slide-content .form-area {
@@ -738,7 +741,7 @@
     .bottom-controls {
       position: relative;
       z-index: 2;
-      padding: 16px 24px calc(env(safe-area-inset-bottom, 12px) + 16px);
+      padding: 12px 24px calc(env(safe-area-inset-bottom, 8px) + 12px);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -905,7 +908,7 @@
 
     /* ── LOGO MARQUEE ─────────────────────────── */
     .partners-section {
-      margin-top: 8px;
+      margin-top: 12px;
       text-align: center;
     }
     .partners-label {
@@ -914,7 +917,7 @@
       color: var(--light);
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     .marquee-wrap {
       overflow: hidden;
@@ -930,10 +933,10 @@
       animation: marquee-scroll 18s linear infinite;
     }
     .marquee-track img {
-      height: 48px;
+      height: 60px;
       width: auto;
-      opacity: 0.6;
-      filter: grayscale(20%);
+      opacity: 0.65;
+      filter: grayscale(15%);
       flex-shrink: 0;
       object-fit: contain;
     }
@@ -985,8 +988,8 @@
 
       <!-- STEP 0: Welcome / Intro -->
       <div class="slide active" data-slide="0">
-        <div class="slide-illustration" style="min-height:260px;padding:30px 0 0;">
-          <img src="../media/images/onboarding-welcome.png" alt="Doctor with Australia" style="width:240px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
+        <div class="slide-illustration">
+          <img src="../media/images/onboarding-welcome.png" alt="Doctor with Australia" style="width:220px;height:auto;" />
         </div>
         <div class="slide-content" style="text-align:center;">
           <h1>Your fastest pathway to practising in Australia</h1>
@@ -1012,8 +1015,8 @@
 
       <!-- STEP 1: Country of Specialist Registration -->
       <div class="slide" data-slide="1">
-        <div class="slide-illustration" style="min-height:200px;padding:20px 0 0;">
-          <img src="../media/images/onboarding-qualifications.png" alt="Specialist registration" style="width:200px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
+        <div class="slide-illustration">
+          <img src="../media/images/onboarding-qualifications.png" alt="Specialist registration" style="width:190px;height:auto;" />
         </div>
         <div class="slide-content">
           <h1>Country of Specialist Registration</h1>
@@ -1041,8 +1044,8 @@
 
       <!-- STEP 2: Relocation details (merged date/city/who) -->
       <div class="slide" data-slide="2">
-        <div class="slide-illustration" style="min-height:200px;padding:10px 0 0;">
-          <img src="../media/images/onboarding-relocation.png" alt="Family relocating" style="width:200px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
+        <div class="slide-illustration">
+          <img src="../media/images/onboarding-relocation.png" alt="Family relocating" style="width:190px;height:auto;" />
         </div>
         <div class="slide-content">
           <h1>Plan your move</h1>
@@ -1115,7 +1118,7 @@
 
       <!-- STEP 3: Review -->
       <div class="slide" data-slide="3">
-        <div class="slide-illustration" style="min-height:140px; padding: 20px 0 0;">
+        <div class="slide-illustration">
           <svg viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg">
             <!-- Clipboard -->
             <rect x="50" y="10" width="100" height="120" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
