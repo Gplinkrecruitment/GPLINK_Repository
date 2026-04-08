@@ -1127,44 +1127,57 @@
     ).join("");
   }
 
-  // ── FLIP-based button morph (translate + scale) ──
-  // Layout changes are instant; only transform animates (GPU-composited, 0 reflows).
+  // ── Button morph (translate + width/padding/font-size) ──
+  // Animates position with translateX and size with real property transitions.
+  // No scaleX/scaleY — avoids text and border-radius distortion.
   var btnRow = nextBtn.parentElement;
+  var flipEase = "cubic-bezier(0.22, 1, 0.36, 1)";
+  var flipDur = "0.55s";
 
   function flipNextBtn(applyLayoutChange) {
-    // FIRST — capture current rect
-    var first = nextBtn.getBoundingClientRect();
+    var cs = getComputedStyle(nextBtn);
+    var firstRect = nextBtn.getBoundingClientRect();
+    var firstWidth = firstRect.width;
+    var firstPadding = cs.padding;
+    var firstFontSize = cs.fontSize;
 
-    // Kill pulse during animation
     nextBtn.classList.add("flipping");
-
-    // Apply all layout changes instantly
     applyLayoutChange();
-
-    // LAST — where it ended up
-    var last = nextBtn.getBoundingClientRect();
-
-    // INVERT — translate + scale so it looks like nothing changed
-    var dx = first.left + first.width / 2 - (last.left + last.width / 2);
-    var sx = first.width / last.width;
-    var sy = first.height / last.height;
-
-    nextBtn.style.transition = "none";
-    nextBtn.style.transformOrigin = "center center";
-    nextBtn.style.transform = "translateX(" + dx + "px) scaleX(" + sx + ") scaleY(" + sy + ")";
-
-    // PLAY — force reflow then animate to identity
     void nextBtn.offsetWidth;
-    nextBtn.style.transition = "transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)";
-    nextBtn.style.transform = "translateX(0) scaleX(1) scaleY(1)";
+
+    var lastRect = nextBtn.getBoundingClientRect();
+    var lastWidth = lastRect.width;
+    var dx = firstRect.left + firstRect.width / 2 - (lastRect.left + lastRect.width / 2);
+
+    // Snap to old state
+    nextBtn.style.transition = "none";
+    nextBtn.style.transform = "translateX(" + dx + "px)";
+    nextBtn.style.width = firstWidth + "px";
+    nextBtn.style.minWidth = "0";
+    nextBtn.style.padding = firstPadding;
+    nextBtn.style.fontSize = firstFontSize;
+
+    void nextBtn.offsetWidth;
+
+    // Animate to new state
+    nextBtn.style.transition = [
+      "transform " + flipDur + " " + flipEase,
+      "width " + flipDur + " " + flipEase,
+      "padding " + flipDur + " " + flipEase,
+      "font-size " + flipDur + " " + flipEase
+    ].join(", ");
+    nextBtn.style.transform = "translateX(0)";
+    nextBtn.style.width = lastWidth + "px";
+    nextBtn.style.padding = "";
+    nextBtn.style.fontSize = "";
   }
 
-  // Clean up once animation finishes
   nextBtn.addEventListener("transitionend", function (e) {
     if (e.propertyName === "transform") {
       nextBtn.style.transition = "";
       nextBtn.style.transform = "";
-      nextBtn.style.transformOrigin = "";
+      nextBtn.style.width = "";
+      nextBtn.style.minWidth = "";
       nextBtn.classList.remove("flipping");
     }
   });
