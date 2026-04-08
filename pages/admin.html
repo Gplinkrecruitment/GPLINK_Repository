@@ -835,6 +835,7 @@
       <span class="tp ${esc(t.priority)}"></span>
       <div style="flex:1;min-width:0">
         <div class="wq-gp">${esc(t.gp_name||"")}</div>
+        ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
         <div class="wq-label">${esc(t.title)}</div>
         <div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div>
       </div>
@@ -1043,7 +1044,7 @@
   function wqItem(t){
     return`<div class="wq-item" data-wq-case="${esc(t.case_id)}">
       <span class="tp ${esc(t.priority)}"></span>
-      <div style="flex:1;min-width:0"><div class="wq-gp">${esc(t.gp_name||"")}</div><div class="wq-label">${esc(t.title)}</div><div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div></div>
+      <div style="flex:1;min-width:0"><div class="wq-gp">${esc(t.gp_name||"")}</div>${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}<div class="wq-label">${esc(t.title)}</div><div class="wq-detail">${esc(t.related_stage||"")} ${t.due_date?"\u2022 Due "+fmtD(t.due_date):""}</div></div>
       <span class="task-tag stage">${esc(t.related_stage||"")}</span>
     </div>`;
   }
@@ -2068,7 +2069,7 @@
       h+=list.map(tk=>`<div class="ticket-card" data-ticket-id="${esc(tk.id)}">
         <div class="ticket-card-top">
           <div><div class="ticket-card-gp">${esc(tk.gp_name||"")} <span class="todo-stage" style="margin-left:6px">${esc(tk.stage||"")}</span></div>
-          <div class="ticket-card-meta"><span>${esc(tk.gp_email||"")}</span><span>${esc(tk.category||"Other")}</span><span>${fmtR(tk.created_at)}</span></div></div>
+          <div class="ticket-card-meta">${tk.gp_phone?'<span>'+esc(tk.gp_phone)+'</span>':''}<span>${esc(tk.gp_email||"")}</span><span>${esc(tk.category||"Other")}</span><span>${fmtR(tk.created_at)}</span></div></div>
           <span class="priority-pill ${esc(tk.priority||"normal")}">${esc(tk.priority||"normal")}</span>
         </div>
         <div class="ticket-card-title">${esc(tk.title||"Support request")}</div>

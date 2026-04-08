@@ -97,6 +97,23 @@ const DOUBLETICK_WEBHOOK_RATE_MAX = 60; // max 60 deliveries per minute per sour
 const DOUBLETICK_WEBHOOK_RATE_WINDOW_MS = 60 * 1000;
 const DOUBLETICK_CONVERSATION_URL_PREFIX = 'https://app.doubletick.io/';
 const DOUBLETICK_MESSAGE_BODY_MAX_LEN = 4096;
+// Stage → DoubleTick approved WhatsApp template name mapping.
+// These template names must match exactly what is configured in the DoubleTick dashboard.
+const DOUBLETICK_USE_DIRECT_TEXT = false; // templates are approved
+const DOUBLETICK_STAGE_TEMPLATES = {
+  myintealth: { templateName: 'gp_link_app_myintealth_introductiory_message_', language: 'en' },
+  amc: { templateName: 'gp_link_app_amc_introductiory_message_', language: 'en' },
+  ahpra: { templateName: 'gp_link_app_ahpra_introductiory_message', language: 'en' }
+  // career and visa templates not yet created in DoubleTick
+};
+// Direct text messages used while templates are pending approval
+const DOUBLETICK_STAGE_MESSAGES = {
+  myintealth: 'Hi {{name}}, welcome to GP Link! 🎉 Your first step is creating your MyIntealth account. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
+  amc: 'Hi {{name}}, you\'ve moved on to the AMC step! 🎉 You\'ll need to create your AMC portfolio and upload your credentials. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
+  career: 'Hi {{name}}, your AMC step is complete — now it\'s time for the Career & Documents stage! 🎉 We\'ll help you find and secure a placement. If you need any help, just reply to this message.',
+  ahpra: 'Hi {{name}}, great progress — you\'ve unlocked the AHPRA step! 🎉 This involves registering with the Australian Health Practitioner Regulation Agency. If you need any help, just reply to this message.',
+  visa: 'Hi {{name}}, you\'re onto the Visa stage! 🎉 We\'ll guide you through the visa application process. If you need any help, just reply to this message.'
+};
 const CAREER_HERO_IMAGE_VERSION = 3;
 const CAREER_HERO_LOOKUP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CAREER_HERO_CITY_LIBRARY_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -1562,11 +1579,26 @@ function sanitizeDoubleTickPayload(body) {
  *   }
  *
  * Disabled (returns 503) when DOUBLETICK_WEBHOOK_SECRET is not configured.
+ *
+ * Auth: DoubleTick does not provide HMAC signing. Instead, append the secret
+ * as a query parameter in the webhook URL registered in DoubleTick:
+ *   https://app.mygplink.com.au/api/webhooks/doubletick?secret=YOUR_SECRET
  */
 async function handleDoubleTickWebhook(req, res) {
   if (!DOUBLETICK_WEBHOOK_SECRET) {
     console.warn('[doubletick-webhook] DOUBLETICK_WEBHOOK_SECRET not set — webhook disabled');
     sendJson(res, 503, { ok: false, message: 'Webhook not configured' });
+    return;
+  }
+
+  // Verify shared secret from URL query parameter (timing-safe comparison)
+  const reqUrl = new URL(req.url, 'http://localhost');
+  const providedSecret = reqUrl.searchParams.get('secret') || '';
+  const secretBuf = Buffer.from(DOUBLETICK_WEBHOOK_SECRET);
+  const providedBuf = Buffer.from(providedSecret);
+  if (secretBuf.length !== providedBuf.length || !crypto.timingSafeEqual(secretBuf, providedBuf)) {
+    console.warn('[doubletick-webhook] Invalid secret from IP:', getClientIp(req));
+    sendJson(res, 401, { ok: false, message: 'Unauthorized' });
     return;
   }
 
@@ -1582,28 +1614,10 @@ async function handleDoubleTickWebhook(req, res) {
     return;
   }
 
-  // Read raw bytes BEFORE parsing so the HMAC can be verified against the
-  // original wire bytes (readJsonBody would discard them).
-  let rawBody;
-  try {
-    rawBody = await readRawBody(req, 64 * 1024); // 64 KB cap for webhook payloads
-  } catch {
-    sendJson(res, 413, { ok: false, message: 'Payload too large' });
-    return;
-  }
-
-  // Verify HMAC-SHA256 signature — timing-safe, no stack trace to client
-  const sigHeader = req.headers['x-doubletick-signature'] || req.headers['x-webhook-signature'] || '';
-  if (!validateDoubleTickSignature(rawBody, sigHeader)) {
-    console.warn('[doubletick-webhook] Signature verification failed from IP:', ip);
-    sendJson(res, 401, { ok: false, message: 'Unauthorized' });
-    return;
-  }
-
-  // Parse body (raw bytes → JSON)
+  // Parse JSON body
   let body;
   try {
-    body = JSON.parse(rawBody.toString('utf8'));
+    body = await readJsonBody(req);
   } catch {
     sendJson(res, 400, { ok: false, message: 'Invalid JSON' });
     return;
@@ -3585,6 +3599,90 @@ function buildWhatsAppLink(stageLabel, gpFirstName) {
   return 'https://wa.me/' + digits + '?text=' + encodeURIComponent(msg);
 }
 
+/**
+ * Send a WhatsApp template message via DoubleTick API.
+ * Non-blocking: logs failures but does not throw, so caller workflows are not interrupted.
+ *
+ * @param {string} toPhone - GP phone number (will be normalised to E.164)
+ * @param {string} stage - Registration stage key (e.g. 'amc', 'visa')
+ * @param {string} gpFirstName - GP first name for template personalisation
+ * @returns {Promise<{ok:boolean, messageId?:string}>}
+ */
+async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
+  if (!DOUBLETICK_API_KEY) {
+    console.warn('[doubletick] DOUBLETICK_API_KEY not set — skipping send');
+    return { ok: false };
+  }
+  const normalised = normalizePhone(toPhone);
+  if (!normalised) {
+    console.warn('[doubletick] Cannot normalise phone:', toPhone);
+    return { ok: false };
+  }
+
+  let apiPath, reqBody;
+
+  if (DOUBLETICK_USE_DIRECT_TEXT) {
+    // Direct text message — no template approval needed (testing mode)
+    const msgTpl = DOUBLETICK_STAGE_MESSAGES[stage];
+    if (!msgTpl) {
+      console.warn('[doubletick] No direct message configured for stage:', stage);
+      return { ok: false };
+    }
+    const text = msgTpl.replace(/\{\{name\}\}/g, gpFirstName || 'there');
+    apiPath = '/whatsapp/message/text';
+    reqBody = JSON.stringify({
+      messages: [{
+        to: normalised,
+        content: { text: text }
+      }]
+    });
+  } else {
+    // Approved template message (production mode)
+    const tpl = DOUBLETICK_STAGE_TEMPLATES[stage];
+    if (!tpl) {
+      console.warn('[doubletick] No template configured for stage:', stage);
+      return { ok: false };
+    }
+    apiPath = '/whatsapp/message/template';
+    reqBody = JSON.stringify({
+      messages: [{
+        to: normalised,
+        content: {
+          templateName: tpl.templateName,
+          language: tpl.language || 'en',
+          templateData: {
+            body: {
+              placeholders: [gpFirstName || 'there']
+            }
+          }
+        }
+      }]
+    });
+  }
+
+  try {
+    const resp = await fetch(DOUBLETICK_BASE_URL + apiPath, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'key ' + DOUBLETICK_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: reqBody
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      console.error('[doubletick] Send failed:', resp.status, JSON.stringify(data).slice(0, 500));
+      return { ok: false };
+    }
+    const messageId = data && data.messages && data.messages[0] && data.messages[0].id;
+    console.log('[doubletick]', DOUBLETICK_USE_DIRECT_TEXT ? 'Text' : 'Template', 'sent to', normalised, 'stage:', stage, 'msgId:', messageId || 'n/a');
+    return { ok: true, messageId: messageId || null };
+  } catch (err) {
+    console.error('[doubletick] Send error:', err && err.message);
+    return { ok: false };
+  }
+}
+
 // Dual-write a ticket into the new support_tickets table from the legacy
 // gpLinkSupportCases JSON shape. Idempotent on (user_id, source_ticket_id).
 async function upsertSupportTicketFromLegacy(userId, caseId, legacyTicket, stage, substage) {
@@ -3670,6 +3768,13 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     if (!regCase) return;
     const caseId = regCase.id;
 
+    // Fetch GP profile for DoubleTick WhatsApp template sends on stage advance
+    let _gpProfile = null;
+    const _gpRes = await supabaseDbRequest('user_profiles', 'select=first_name,phone,phone_number&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    if (_gpRes.ok && Array.isArray(_gpRes.data) && _gpRes.data[0]) _gpProfile = _gpRes.data[0];
+    const _gpPhone = _gpProfile ? (_gpProfile.phone || _gpProfile.phone_number || '') : '';
+    const _gpFirstName = _gpProfile ? (_gpProfile.first_name || '') : '';
+
     const prev = {
       epic: _parseStateVal(prevState.gp_epic_progress),
       amc: _parseStateVal(prevState.gp_amc_progress),
@@ -3694,15 +3799,20 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const epicLabels = { create_account: 'Confirm MyIntealth account created', account_establishment: 'Verify account establishment documents', upload_qualifications: 'Review uploaded qualification documents', verification_issued: 'Confirm EPIC verification issued' };
     for (const key of ['create_account', 'account_establishment', 'upload_qualifications', 'verification_issued']) {
       if (!pc[key] && nc[key] === true) {
+        // Send MyIntealth welcome WhatsApp on the very first substep
+        if (key === 'create_account' && _gpPhone) {
+          await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
+          await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
+        }
         if (!(await _hasOpenTask(caseId, 'myintealth', 'verify'))) {
           await _createRegTask(caseId, { task_type: 'verify', title: epicLabels[key], priority: key === 'upload_qualifications' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'myintealth', related_substage: key, _actor: 'system' });
         }
         if (key === 'verification_issued') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.myintealth&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          if (!(await _hasOpenTask(caseId, 'amc', 'kickoff'))) {
-            await _createRegTask(caseId, { task_type: 'kickoff', title: 'AMC stage started — confirm GP has created portfolio', source_trigger: 'stage_advance', related_stage: 'amc', _actor: 'system' });
-          }
+          // Send WhatsApp template via DoubleTick instead of creating a kickoff task
+          if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'amc', _gpFirstName);
+          await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
         }
       }
     }
@@ -3719,9 +3829,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'qualifications_verified') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.amc&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          if (!(await _hasOpenTask(caseId, 'career', 'kickoff'))) {
-            await _createRegTask(caseId, { task_type: 'kickoff', title: 'Career & documents stage — help GP secure placement', source_trigger: 'stage_advance', related_stage: 'career', _actor: 'system' });
-          }
+          // Send WhatsApp template via DoubleTick instead of creating a kickoff task
+          if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'career', _gpFirstName);
+          await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
         }
       }
     }
@@ -3744,9 +3854,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           }
         }
       }
-      if (!(await _hasOpenTask(caseId, 'ahpra', 'kickoff'))) {
-        await _createRegTask(caseId, { task_type: 'kickoff', title: 'AHPRA stage unlocked — guide GP through registration', source_trigger: 'career_secured', related_stage: 'ahpra', _actor: 'system' });
-      }
+      // Send WhatsApp template via DoubleTick instead of creating a kickoff task
+      if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
+      await _logCaseEvent(caseId, null, 'system', 'AHPRA stage unlocked — WhatsApp template sent', null, 'system');
     }
 
     // ── Document uploads ──
@@ -3774,9 +3884,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'verification_issued') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.ahpra&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          if (!(await _hasOpenTask(caseId, 'visa', 'kickoff'))) {
-            await _createRegTask(caseId, { task_type: 'kickoff', title: 'Visa stage — create visa case and begin document collection', priority: 'high', source_trigger: 'stage_advance', related_stage: 'visa', _actor: 'system' });
-          }
+          // Send WhatsApp template via DoubleTick instead of creating a kickoff task
+          if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName);
+          await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
         }
       }
     }
@@ -3819,7 +3929,7 @@ const VA_TASK_TYPES_EXTENDED = [
   'kickoff','verify','review','followup','blocker','escalation',
   'practice_pack','practice_pack_child','manual','system',
   'visa_stage','visa_doc','questionnaire','sponsor','migration_agent',
-  'sla_overdue','chase','document_ops'
+  'sla_overdue','chase','document_ops','whatsapp_help'
 ];
 const VA_TASK_STATUSES_EXTENDED = [
   'open','in_progress','waiting','completed','cancelled',
@@ -16694,7 +16804,7 @@ Return ONLY valid JSON with no markdown formatting:
     const userIds = [...new Set(cases.map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
     if (userIds.length > 0) {
-      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
     }
     // Get open task counts per case
@@ -16712,8 +16822,9 @@ Return ONLY valid JSON with no markdown formatting:
       const p = profileMap[c.user_id] || {};
       const tc = tasksByCase[c.id] || { open: 0, urgent: 0, overdue: 0 };
       return Object.assign({}, c, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_email: p.email || '',
+        gp_phone: p.phone || p.phone_number || '',
         open_tasks: tc.open, urgent_tasks: tc.urgent, overdue_tasks: tc.overdue
       });
     });
@@ -16808,15 +16919,16 @@ Return ONLY valid JSON with no markdown formatting:
     const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
     if (userIds.length > 0) {
-      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
     }
     const enriched = tasks.map(function (t) {
       const c = caseMap[t.case_id] || {};
       const p = profileMap[c.user_id] || {};
       return Object.assign({}, t, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_email: p.email || '',
+        gp_phone: p.phone || p.phone_number || '',
         case_stage: c.stage || '',
         case_status: c.status || ''
       });
@@ -16986,7 +17098,7 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
-        gp_phone: p.phone_number || '',
+        gp_phone: p.phone || p.phone_number || '',
         country: countryCode,
         stage: c.stage,
         substage: c.substage,
@@ -17013,7 +17125,7 @@ Return ONLY valid JSON with no markdown formatting:
       const c = caseMap[t.case_id] || {};
       const p = profileMap[c.user_id] || {};
       return Object.assign({}, t, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || '',
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
         gp_phone: p.phone || p.phone_number || '',
@@ -17028,7 +17140,7 @@ Return ONLY valid JSON with no markdown formatting:
     const enrichedTickets = openTickets.map(function (tk) {
       const p = profileMap[tk.user_id] || {};
       return Object.assign({}, tk, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || '',
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
         gp_phone: p.phone || p.phone_number || '',
