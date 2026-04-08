@@ -798,28 +798,25 @@
       padding: 14px 36px;
       border-radius: 999px;
       cursor: pointer;
-      transition: transform 0.15s ease,
+      /* slide transition — transform is GPU-accelerated */
+      transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
                   background 0.2s ease,
                   box-shadow 0.2s ease,
-                  margin-left 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-                  margin-right 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-                  min-width 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-                  padding 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-                  font-size 0.4s ease;
+                  min-width 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+                  padding 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+                  font-size 0.45s ease;
       margin-left: auto;
       min-width: 120px;
       text-align: center;
       transform-origin: center;
-      will-change: transform, margin-left, min-width;
+      will-change: transform, min-width;
       box-shadow: 0 8px 24px -8px rgba(37, 99, 235, 0.4);
       position: relative;
       overflow: visible;
       z-index: 1;
     }
-    /* Intro step: centered, wide, prominent */
-    .btn-row.intro-mode .btn-next {
-      margin-left: auto;
-      margin-right: auto;
+    /* Intro step: wide + prominent (centering handled by JS transform) */
+    .btn-next.intro-size {
       min-width: 90%;
       padding: 20px 48px;
       font-size: 18px;
@@ -1239,15 +1236,15 @@
         <div class="progress-dot"></div>
         <div class="progress-dot"></div>
       </div>
-      <div class="btn-row intro-mode">
+      <div class="btn-row">
         <button class="back-btn" id="backBtn" aria-label="Go to previous step">Previous</button>
         <button class="btn-skip invisible" id="skipBtn">SKIP</button>
-        <button class="btn-next" id="nextBtn" style="margin-right:auto">Get Started</button>
+        <button class="btn-next intro-size" id="nextBtn">Get Started</button>
       </div>
     </div>
   </div>
 
   <script src="../js/qualification-camera.js?v=20260311a"></script>
-  <script src="../js/onboarding.js?v=20260409e"></script>
+  <script src="../js/onboarding.js?v=20260409f"></script>
 </body>
 </html>

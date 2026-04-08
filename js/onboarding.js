@@ -1127,6 +1127,40 @@
     ).join("");
   }
 
+  // ── Button centering via GPU transform ─────
+  var btnSlideReady = false; // skip transition on first paint
+  function centerNextBtn(centered) {
+    if (centered) {
+      requestAnimationFrame(function () {
+        var row = nextBtn.parentElement;
+        if (!row) return;
+        var rowW = row.offsetWidth;
+        var btnW = nextBtn.offsetWidth;
+        var offset = (rowW - btnW) / 2;
+        if (!btnSlideReady) {
+          // Snap into place on load — no transition
+          nextBtn.style.transition = "none";
+          nextBtn.style.transform = "translateX(" + -offset + "px)";
+          // Re-enable transitions next frame
+          requestAnimationFrame(function () {
+            nextBtn.style.transition = "";
+            btnSlideReady = true;
+          });
+        } else {
+          nextBtn.style.transform = "translateX(" + -offset + "px)";
+        }
+      });
+    } else {
+      nextBtn.style.transform = "";
+    }
+  }
+  // Center on first paint (before auth fetch completes)
+  centerNextBtn(true);
+  // Re-center if viewport resizes while on intro
+  window.addEventListener("resize", function () {
+    if (currentStep === 0) centerNextBtn(true);
+  });
+
   // ── Navigation ─────────────────────────────
   function goToStep(step) {
     if (step < 0 || step >= TOTAL_STEPS) return;
@@ -1152,11 +1186,12 @@
     // Hide progress dots on intro slide
     var dotsEl = document.getElementById("progressDots");
     if (dotsEl) dotsEl.style.display = step === 0 ? "none" : "flex";
-    // Intro mode: center + enlarge Get Started; remove intro-mode to slide right
-    var btnRow = nextBtn.parentElement;
-    if (btnRow) btnRow.classList.toggle("intro-mode", step === 0);
-    // Clear margin-right when leaving intro so button slides from center to right
-    nextBtn.style.marginRight = step === 0 ? "auto" : "";
+
+    // Intro size class (wide/large on step 0, compact otherwise)
+    nextBtn.classList.toggle("intro-size", step === 0);
+
+    // GPU-accelerated slide: center on step 0, natural position otherwise
+    centerNextBtn(step === 0);
 
     if (isSkippable(step)) {
       skipBtn.classList.remove("invisible");
@@ -1169,11 +1204,10 @@
     var newLabel = step === TOTAL_STEPS - 1 ? "SUBMIT" : step === 0 ? "Get Started" : "NEXT";
     var isSubmit = step === TOTAL_STEPS - 1;
     if (nextBtn.textContent !== newLabel) {
-      // Swap text after half the slide duration so it feels continuous
       setTimeout(function () {
         nextBtn.textContent = newLabel;
         nextBtn.classList.toggle("submit", isSubmit);
-      }, 250);
+      }, 280);
     } else {
       nextBtn.classList.toggle("submit", isSubmit);
     }
