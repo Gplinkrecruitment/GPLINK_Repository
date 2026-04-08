@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>GP Registration Portal Dashboard</title>
-  <script src="../js/nav-shell-bridge.js?v=20260324a"></script>
-  <script src="../js/auth-guard.js?v=20260311f" defer></script>
-  <script src="../js/state-sync.js?v=20260406a" defer></script>
-  <script src="../js/updates-sync.js?v=20260309c" defer></script>
-  <script src="../js/qualification-camera.js?v=20260310a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260331c" defer></script>
-  <script src="../js/account-dropdown.js" defer></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" /><title>Dashboard - GP Link</title>
+  <script src="../js/native-bridge.js?v=20260409a"></script>
+  <script src="../js/nav-shell-bridge.js?v=20260409a"></script>
+  <script src="../js/auth-guard.js?v=20260409a" defer></script>
+  <script src="../js/state-sync.js?v=20260409a" defer></script>
+  <script src="../js/updates-sync.js?v=20260409a" defer></script>
+  <script src="../js/qualification-camera.js?v=20260409a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260409a" defer></script>
+  <script src="../js/account-dropdown.js?v=20260409a" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -27,9 +28,6 @@
       --card: rgba(255, 255, 255, 0.92);
       --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
       --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
-      --glass-bg: rgba(255, 255, 255, 0.72);
-      --glass-border: rgba(191, 220, 255, 0.95);
-      --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 10px 16px -14px rgba(37, 99, 235, 0.45);
       --radius: 20px;
     }
 
@@ -50,7 +48,6 @@
       overflow: hidden;
       background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
       padding-top: env(safe-area-inset-top, 0px);
-      min-height: 340px;
     }
 
     .hero-video, .hero-fallback {
@@ -72,13 +69,7 @@
     .hero-gradient {
       position: absolute;
       inset: 0;
-      background: linear-gradient(
-        180deg,
-        rgba(15, 23, 42, 0.25) 0%,
-        rgba(15, 23, 42, 0.08) 35%,
-        rgba(15, 23, 42, 0.5) 85%,
-        rgba(240, 244, 250, 1) 100%
-      );
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.4) 0%, rgba(15, 23, 42, 0.85) 100%);
       z-index: 1;
       pointer-events: none;
     }
@@ -86,267 +77,279 @@
     .hero-content {
       position: relative;
       z-index: 2;
-      max-width: 960px;
+      max-width: 600px;
       margin: 0 auto;
-      padding: 0 16px 24px;
+      padding: 28px 24px 28px;
     }
 
-    /* Hero header overrides */
-    .hero-section .app-header {
-      display: flex;
-      padding: 20px 0 18px;
-    }
-
-    .hero-section .header-text h1 {
-      color: #fff;
-      font-size: 26px;
-      font-weight: 900;
-      letter-spacing: -0.03em;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.2);
-    }
-
-    .hero-section .header-text p {
-      color: rgba(255, 255, 255, 0.65);
-      font-size: 12px;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.15);
-    }
-
-    .hero-section .header-avatar {
-      width: 52px; height: 52px;
-      border-color: rgba(255, 255, 255, 0.25);
-      box-shadow: 0 4px 16px -4px rgba(0,0,0,0.35);
-      font-size: 20px;
-    }
-
-    .hero-section .header-icon-btn {
-      background: rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-      border-color: rgba(255, 255, 255, 0.15);
-      color: rgba(255, 255, 255, 0.9);
-      box-shadow: 0 2px 8px -2px rgba(0,0,0,0.2);
-    }
-
-    .hero-section .header-icon-btn:hover {
-      background: rgba(255, 255, 255, 0.18);
-      border-color: rgba(255, 255, 255, 0.25);
-    }
-
-    .hero-section .header-badge {
-      border-color: rgba(15, 23, 42, 0.6);
-    }
-
-    /* Glass dream card in hero — purple premium tint */
-    .hero-section .dream-card {
-      background: linear-gradient(135deg, rgba(124, 58, 237, 0.18) 0%, rgba(99, 102, 241, 0.14) 50%, rgba(139, 92, 246, 0.1) 100%);
-      backdrop-filter: blur(24px) saturate(180%);
-      -webkit-backdrop-filter: blur(24px) saturate(180%);
-      border: 1px solid rgba(167, 139, 250, 0.25);
-      box-shadow: 0 8px 32px -8px rgba(124, 58, 237, 0.2),
-                  inset 0 1px 0 rgba(255, 255, 255, 0.12);
-      margin-bottom: 0;
-    }
-
-    .hero-section .dream-card::before {
-      background: radial-gradient(circle at 90% 10%, rgba(167, 139, 250, 0.2), transparent 60%),
-                  radial-gradient(circle at 10% 90%, rgba(124, 58, 237, 0.12), transparent 50%);
-    }
-
-    .hero-section .dream-card-badge {
-      background: rgba(167, 139, 250, 0.2);
-      border: 1px solid rgba(167, 139, 250, 0.3);
-      color: #e9d5ff;
-    }
-
-    .hero-section .dream-card h3 {
-      color: #fff;
-    }
-
-    .hero-section .dream-card p {
-      color: rgba(255, 255, 255, 0.8);
-    }
-
-    .hero-section .dream-card-cta {
-      background: linear-gradient(135deg, #7c3aed, #6366f1);
-      color: #fff;
-      box-shadow: 0 4px 14px -4px rgba(124, 58, 237, 0.45);
-    }
-
-    .hero-section .dream-card-cta:hover {
-      background: linear-gradient(135deg, #6d28d9, #4f46e5);
-    }
-
-    .hero-section .dream-card-cta svg {
-      stroke: #fff;
-    }
-
-    .dash-wrap {
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 0 16px 120px;
-    }
-
-    /* ─── HEADER ─── */
-    .app-header {
+    /* ─── HERO GREETING ─── */
+    .hero-greeting {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 18px 0 14px;
+      margin-bottom: 24px;
     }
 
-    .header-greeting { display: flex; align-items: center; gap: 12px; }
+    .hero-greeting-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
 
-    .header-avatar {
-      width: 48px; height: 48px;
+    .hero-avatar {
+      width: 44px; height: 44px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      background: linear-gradient(135deg, #6366f1, #3b82f6);
       display: grid; place-items: center;
-      color: #fff; font-weight: 800; font-size: 18px;
+      color: #fff; font-weight: 800; font-size: 16px;
       flex-shrink: 0;
-      border: 2px solid #fff;
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
     }
 
-    .header-text h1 {
-      font-size: 20px; font-weight: 800;
-      letter-spacing: -0.02em; line-height: 1.2;
+    .hero-name {
+      font-size: 18px; font-weight: 800; color: #fff;
+      letter-spacing: -0.02em;
     }
 
-    .header-text p {
-      font-size: 13px; color: var(--muted);
+    .hero-pathway {
+      font-size: 12px; color: rgba(255,255,255,0.5);
       font-weight: 500; margin-top: 1px;
     }
 
-    .header-actions { display: flex; gap: 8px; align-items: center; }
-
-    .header-icon-btn {
-      width: 42px; height: 42px; border-radius: 14px;
-      border: 1px solid #e2e8f0; background: #fff;
-      display: grid; place-items: center; cursor: pointer;
-      position: relative; transition: all .15s ease;
-      color: #475569;
+    .hero-notif-btn {
+      width: 38px; height: 38px; border-radius: 12px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      display: grid; place-items: center;
+      cursor: pointer; position: relative;
+      transition: background .15s ease;
+      color: rgba(255,255,255,0.7);
     }
-
-    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
-
-    .header-icon-btn svg {
-      width: 20px; height: 20px; stroke: currentColor;
+    .hero-notif-btn:hover { background: rgba(255,255,255,0.14); }
+    .hero-notif-btn svg {
+      width: 18px; height: 18px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
-    .header-badge {
-      position: absolute; top: -4px; right: -4px;
-      width: 18px; height: 18px; border-radius: 50%;
-      background: #dc2626; color: #fff;
-      font-size: 10px; font-weight: 800;
+    .hero-notif-badge {
+      position: absolute; top: -3px; right: -3px;
+      min-width: 16px; height: 16px; border-radius: 50%;
+      background: #ef4444; color: #fff;
+      font-size: 9px; font-weight: 700;
       display: inline-flex; align-items: center; justify-content: center;
-      border: 2px solid #f0f4fa;
-      box-shadow: 0 2px 6px -2px rgba(220, 38, 38, 0.5);
+      padding: 0 4px;
+      border: 2px solid rgba(15, 23, 42, 0.6);
     }
 
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+    /* ─── GLASS PROGRESS CARD ─── */
+    .glass-progress {
+      background: rgba(255,255,255,0.07);
+      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 18px;
+      padding: 20px;
+      margin-bottom: 14px;
     }
 
-    /* ─── SECTION HEADING ─── */
-    .section-head {
-      display: flex; align-items: center;
+    .glass-progress-header {
+      display: flex;
       justify-content: space-between;
-      padding: 12px 0 10px;
+      align-items: center;
+      margin-bottom: 10px;
     }
 
-    .section-title {
-      font-size: 18px; font-weight: 800;
-      letter-spacing: -0.02em; color: var(--text);
-    }
-
-    .section-link {
+    .glass-progress-label {
       font-size: 13px; font-weight: 700;
-      color: var(--blue); text-decoration: none;
-      display: inline-flex; align-items: center; gap: 4px;
+      color: rgba(255,255,255,0.85);
     }
-    .section-link:hover { text-decoration: underline; }
 
-    /* ─── DREAM PRACTICE CARD ─── */
-    .dream-card {
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-      border-radius: var(--radius); padding: 22px 20px;
-      color: #fff; position: relative; overflow: hidden;
-      text-decoration: none; display: block;
-      margin-bottom: 16px; transition: transform .2s ease;
+    .glass-progress-percent {
+      font-size: 13px; font-weight: 800;
+      color: #60a5fa;
     }
-    .dream-card:hover { transform: translateY(-2px); }
-    .dream-card::before {
-      content: ""; position: absolute; inset: 0;
-      background: radial-gradient(circle at 90% 10%, rgba(99,102,241,0.25), transparent 60%);
-      pointer-events: none;
+
+    .glass-progress-bar {
+      height: 6px; border-radius: 99px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+      margin-bottom: 16px;
     }
-    .dream-card-badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 12px; border-radius: 999px;
-      background: rgba(99,102,241,0.3); backdrop-filter: blur(4px);
-      font-size: 11px; font-weight: 700; color: #c7d2fe;
-      margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+
+    .glass-progress-fill {
+      height: 100%; border-radius: 99px;
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      transition: width 0.4s ease;
     }
-    .dream-card-badge svg { width: 14px; height: 14px; fill: currentColor; }
-    .dream-card h3 {
-      font-size: 18px; font-weight: 800; letter-spacing: -0.02em;
-      line-height: 1.25; margin-bottom: 4px;
-    }
-    .dream-card p {
-      font-size: 13px; font-weight: 500; opacity: 0.8;
-      line-height: 1.4; margin-bottom: 14px;
-    }
-    .dream-card-cta {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 10px 18px; border-radius: 12px;
-      background: #6366f1; color: #fff;
-      font-size: 13px; font-weight: 700;
-      border: none; cursor: pointer;
-      box-shadow: 0 4px 12px -4px rgba(99,102,241,0.5);
+
+    .glass-next-action {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
       transition: background .15s ease;
     }
-    .dream-card-cta:hover { background: #4f46e5; }
-    .dream-card-cta svg {
-      width: 16px; height: 16px; stroke: currentColor;
+    .glass-next-action:hover { background: rgba(255,255,255,0.08); }
+
+    .glass-next-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: rgba(245,158,11,0.15);
+      display: grid; place-items: center;
+      flex-shrink: 0;
+    }
+    .glass-next-icon svg {
+      width: 14px; height: 14px; stroke: #f59e0b;
+      fill: none; stroke-width: 2.2; stroke-linecap: round;
+    }
+
+    .glass-next-title {
+      font-size: 13px; font-weight: 700; color: #fff;
+    }
+
+    .glass-next-sub {
+      font-size: 11px; color: rgba(255,255,255,0.4);
+      margin-top: 1px;
+    }
+
+    .glass-next-chevron {
+      flex-shrink: 0; margin-left: auto;
+    }
+    .glass-next-chevron svg {
+      width: 16px; height: 16px; stroke: rgba(255,255,255,0.3);
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ─── STAT PILLS ─── */
+    .stat-pills {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+
+    .stat-pill {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 14px 10px;
+      text-align: center;
+    }
+
+    .stat-pill-value {
+      font-size: 22px; font-weight: 800; line-height: 1;
+      color: #fff;
+    }
+    .stat-pill-value.blue { color: #60a5fa; }
+    .stat-pill-value.amber { color: #f59e0b; }
+
+    .stat-pill-label {
+      font-size: 10px; color: rgba(255,255,255,0.4);
+      font-weight: 600; margin-top: 4px;
+      text-transform: uppercase; letter-spacing: 0.3px;
+    }
+
+    /* ─── DREAM PRACTICE BANNER ─── */
+    .dream-banner {
+      background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%);
+      padding: 22px 24px;
+    }
+
+    .dream-banner-inner {
+      max-width: 600px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .dream-banner-tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-bottom: 6px;
+      font-size: 11px; font-weight: 700;
+      color: #93c5fd;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .dream-banner-tag svg {
+      width: 16px; height: 16px; stroke: #93c5fd;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    .dream-banner-title {
+      font-size: 16px; font-weight: 800; color: #fff;
+      line-height: 1.3; margin-bottom: 4px;
+    }
+
+    .dream-banner-sub {
+      font-size: 12px; color: rgba(255,255,255,0.6); line-height: 1.4;
+    }
+
+    .dream-banner-cta {
+      flex-shrink: 0;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 12px;
+      padding: 10px 18px;
+      font-size: 13px; font-weight: 700; color: #fff;
+      cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+      text-decoration: none;
+      transition: background .15s ease;
+    }
+    .dream-banner-cta:hover { background: rgba(255,255,255,0.22); }
+    .dream-banner-cta svg {
+      width: 14px; height: 14px; stroke: currentColor;
       fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
     }
 
-    /* ─── THE JOURNEY (Step List) ─── */
+    /* ─── MAIN CONTENT ─── */
+    .dash-wrap {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 22px 24px 120px;
+    }
+
+    .section-head {
+      font-size: 14px; font-weight: 800;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+
+    /* ─── JOURNEY LIST ─── */
     .journey-list { display: grid; gap: 0; }
 
     .journey-step {
       background: #fff; border: 1px solid #e8edf5;
       overflow: hidden; transition: all .2s ease;
     }
-    .journey-step:first-child { border-radius: 16px 16px 0 0; }
-    .journey-step:last-child { border-radius: 0 0 16px 16px; }
-    .journey-step:only-child { border-radius: 16px; }
+    .journey-step:first-child { border-radius: 14px 14px 0 0; }
+    .journey-step:last-child { border-radius: 0 0 14px 14px; }
+    .journey-step:only-child { border-radius: 14px; }
     .journey-step + .journey-step { border-top: none; }
 
-    .journey-step.active { border-color: #bfdbfe; z-index: 1; position: relative; }
-    .journey-step.locked { opacity: 0.55; }
+    .journey-step.active { border-color: #bfdbfe; z-index: 1; position: relative; background: #f8faff; }
+    .journey-step.locked { opacity: 0.45; }
 
     .journey-head {
-      display: flex; align-items: center; gap: 14px;
+      display: flex; align-items: center; gap: 12px;
       padding: 14px 16px; cursor: pointer;
       border: none; background: none; width: 100%;
       text-align: left; font: inherit; color: inherit;
       transition: background .15s ease;
     }
-    .journey-head:hover { background: #f8fafc; }
+    .journey-head:hover { background: rgba(248, 250, 255, 0.6); }
     .journey-step.locked .journey-head { cursor: default; }
     .journey-step.locked .journey-head:hover { background: none; }
 
     .journey-num {
-      width: 28px; height: 28px; border-radius: 50%;
+      width: 24px; height: 24px; border-radius: 50%;
       display: grid; place-items: center;
-      font-size: 12px; font-weight: 800; flex-shrink: 0;
-      border: 2px solid #e2e8f0; color: #94a3b8; background: #f8fafc;
+      font-size: 11px; font-weight: 800; flex-shrink: 0;
+      border: 2px solid #cbd5e1; color: #94a3b8; background: transparent;
     }
     .journey-step.active .journey-num {
       background: var(--blue); border-color: var(--blue);
-      color: #fff; box-shadow: 0 0 0 4px rgba(37,99,235,0.12);
+      color: #fff;
     }
     .journey-step.done .journey-num {
       background: var(--green2); border-color: var(--green2);
@@ -354,29 +357,30 @@
     }
 
     .journey-info { flex: 1; min-width: 0; }
-    .journey-title { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.3; }
-    .journey-subtitle { font-size: 12px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .journey-title { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3; }
+    .journey-subtitle { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 1px; }
 
     .journey-pill {
-      padding: 4px 12px; border-radius: 999px;
-      font-size: 11px; font-weight: 700; flex-shrink: 0;
+      padding: 3px 8px; border-radius: 6px;
+      font-size: 10px; font-weight: 700; flex-shrink: 0;
+      text-transform: uppercase;
     }
-    .journey-pill.current { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-    .journey-pill.done { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; }
-    .journey-pill.locked { background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; }
+    .journey-pill.current { background: #eff6ff; color: #1d4ed8; }
+    .journey-pill.done { background: transparent; color: #16a34a; }
+    .journey-pill.locked { background: transparent; color: #94a3b8; }
 
     .journey-caret {
-      width: 20px; height: 20px; color: #94a3b8; flex-shrink: 0;
+      width: 16px; height: 16px; color: #94a3b8; flex-shrink: 0;
       transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .journey-caret svg {
-      width: 20px; height: 20px; stroke: currentColor;
+      width: 16px; height: 16px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
     .journey-step.open .journey-caret { transform: rotate(180deg); }
 
     .journey-body {
-      padding: 0 16px 0 58px;
+      padding: 0 16px 0 52px;
       max-height: 0;
       overflow: hidden;
       opacity: 0;
@@ -412,7 +416,7 @@
       fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
     }
 
-    /* ─── Registration sub-steps ─── */
+    /* Registration sub-steps */
     .journey-subs { display: grid; gap: 0; }
 
     .journey-sub-item {
@@ -425,8 +429,8 @@
     .journey-sub-dot {
       width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
     }
-    .journey-sub-dot.done { background: var(--green2); box-shadow: 0 0 0 3px rgba(22,163,74,0.12); }
-    .journey-sub-dot.active { background: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); animation: pulse-dot 2s ease infinite; }
+    .journey-sub-dot.done { background: var(--green2); }
+    .journey-sub-dot.active { background: var(--blue); animation: pulse-dot 2s ease infinite; }
     .journey-sub-dot.locked { background: #cbd5e1; }
 
     .journey-sub-info { flex: 1; min-width: 0; }
@@ -435,460 +439,149 @@
 
     .journey-sub-item.locked { opacity: 0.55; }
 
-    /* ─── UPDATES CARD ─── */
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ─── UPDATES FEED ─── */
     .updates-section {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 18px;
-      margin-top: 12px;
+      background: #fff; border-radius: 14px;
+      border: 1px solid #e8edf5;
+      overflow: hidden;
+      margin-bottom: 22px;
     }
-
-    .updates-section-title {
-      display: flex; align-items: center; gap: 8px;
-      margin-bottom: 14px;
-    }
-
-    .updates-section-title svg {
-      width: 20px; height: 20px; stroke: var(--blue);
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    .updates-section-title span {
-      font-size: 16px; font-weight: 800;
-      letter-spacing: -0.01em;
-    }
-
-    .updates-feed { display: grid; gap: 8px; }
 
     .updates-list {
-      display: grid; gap: 8px;
-      max-height: clamp(220px, 35vh, 320px);
-      overflow: hidden; align-content: start;
+      display: grid; gap: 0;
     }
 
     .update-item {
-      border: 1px solid #e8edf5; border-radius: 14px;
-      background: #fafbfd; padding: 12px 14px;
-      display: grid; gap: 4px;
-      transition: border-color .15s ease;
+      padding: 14px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex; align-items: flex-start; gap: 10px;
+      text-decoration: none; color: inherit;
+      transition: background .15s ease;
     }
-    .update-item:hover { border-color: #c7d2fe; }
+    .update-item:last-child { border-bottom: none; }
+    .update-item:hover { background: #f8fafc; }
 
-    .update-item-link {
-      text-decoration: none; color: inherit; display: block;
+    .update-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      display: grid; place-items: center;
+      flex-shrink: 0; margin-top: 1px;
     }
+    .update-icon.action { background: #fef3c7; }
+    .update-icon.success { background: #ecfdf5; }
+    .update-icon.info { background: #eff6ff; }
+    .update-icon.case { background: #f0f9ff; }
 
-    .update-item.action {
-      border-left: 4px solid #f59e0b;
-      padding-left: 10px;
-      background: rgba(255, 251, 235, 0.9);
+    .update-icon svg {
+      width: 14px; height: 14px; fill: none; stroke-width: 2.2;
+      stroke-linecap: round; stroke-linejoin: round;
     }
+    .update-icon.action svg { stroke: #d97706; }
+    .update-icon.success svg { stroke: #16a34a; }
+    .update-icon.info svg { stroke: #2563eb; }
+    .update-icon.case svg { stroke: #0284c7; }
 
-    .update-top {
-      display: flex; align-items: center;
-      justify-content: space-between; gap: 8px; flex-wrap: wrap;
-    }
-
-    .update-badge {
-      display: inline-flex; align-items: center;
-      border-radius: 999px; padding: 3px 10px;
-      font-size: 10px; font-weight: 700;
-      text-transform: uppercase; letter-spacing: 0.03em;
-      border: 1px solid #dbe4ef; background: #f8fafc; color: #334155;
-    }
-    .update-badge.success { background: #ecfdf3; border-color: #bbf7d0; color: #166534; }
-    .update-badge.info { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
-    .update-badge.action { background: #fffbeb; border-color: #fde68a; color: #92400e; }
-    .update-badge.case { background: #f0f9ff; border-color: #bae6fd; color: #075985; }
-
-    .update-ts { font-size: 11px; color: #64748b; font-weight: 500; }
+    .update-content { flex: 1; min-width: 0; }
 
     .update-title {
-      margin: 0; font-size: 13px; color: #0f172a;
-      font-weight: 700; line-height: 1.4;
+      font-size: 13px; font-weight: 600; color: var(--text);
+      margin: 0; line-height: 1.4;
     }
 
     .update-detail {
-      margin: 0; font-size: 12px; color: #64748b;
-      font-weight: 500; line-height: 1.4;
+      font-size: 12px; color: var(--muted); font-weight: 500;
+      margin: 2px 0 0; line-height: 1.4;
     }
+
+    .update-ts {
+      font-size: 11px; color: #94a3b8; font-weight: 500;
+      margin-top: 2px;
+    }
+
+    .update-badge {
+      font-size: 10px; font-weight: 700;
+      padding: 3px 8px; border-radius: 6px;
+      text-transform: uppercase;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .update-badge.action { background: #fef3c7; color: #d97706; }
+    .update-badge.success { background: #ecfdf5; color: #16a34a; }
+    .update-badge.info { background: #eff6ff; color: #2563eb; }
+    .update-badge.case { background: #f0f9ff; color: #0284c7; }
 
     .updates-empty {
-      border: 1px dashed #d7e3f6; border-radius: 14px;
-      background: #f8fbff; padding: 14px;
-      font-size: 13px; color: #64748b;
-      font-weight: 500; line-height: 1.45;
-    }
-
-    .updates-link {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 13px; color: #1d4ed8;
-      text-decoration: none; font-weight: 700;
-      margin-top: 4px;
-    }
-    .updates-link:hover { text-decoration: underline; }
-
-    .updates-card.is-action {
-      border-color: rgba(245, 158, 11, 0.55);
-      background: linear-gradient(180deg, rgba(255, 251, 235, 0.82), rgba(255, 255, 255, 0.96));
-    }
-
-    .updates-alert {
-      margin: 6px 0 0; font-size: 12px; font-weight: 700;
-      color: #92400e; line-height: 1.35;
-    }
-
-    /* ─── NEXT STEPS CARD ─── */
-    .next-steps-card {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 18px;
-      margin-top: 12px;
-    }
-
-    .next-steps-title {
-      display: flex; align-items: center; gap: 8px;
-      margin-bottom: 12px;
-    }
-
-    .next-steps-title svg {
-      width: 20px; height: 20px; stroke: var(--blue);
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    .next-steps-title span {
-      font-size: 16px; font-weight: 800;
-      letter-spacing: -0.01em;
-    }
-
-    .next-steps-list {
-      display: grid; gap: 10px;
-    }
-
-    .next-step-row {
-      display: flex; gap: 12px; align-items: flex-start;
-      font-size: 13px; font-weight: 500; color: #334155;
-      line-height: 1.5;
-    }
-
-    .next-step-label { font-weight: 700; color: var(--text); white-space: nowrap; }
-
-    .next-step-arrow {
-      color: var(--blue); font-weight: 900; margin-top: 1px; flex-shrink: 0;
-    }
-
-    .need-line {
-      margin-top: 12px; font-size: 12px; color: #64748b;
+      padding: 20px 16px;
+      font-size: 13px; color: var(--muted);
       font-weight: 500; line-height: 1.5;
-      padding: 10px 14px; background: #f8fafc;
-      border-radius: 12px; border: 1px solid #e8edf5;
+      text-align: center;
     }
 
-    /* ─── HELP / TRUST ─── */
-    .help-card {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 18px;
-      margin-top: 12px;
-      display: flex; align-items: flex-start;
-      justify-content: space-between; gap: 16px; flex-wrap: wrap;
-    }
-
-    .help-card .txt {
-      font-size: 13px; font-weight: 500; color: #334155;
-      line-height: 1.5; max-width: 600px;
-    }
-
-    .help-card .txt strong {
-      display: block; font-weight: 800; font-size: 15px;
-      color: var(--text); margin-bottom: 4px;
-    }
-
-    .help-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-
-    .btn-modern {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 10px 16px; border-radius: 12px;
-      font-size: 13px; font-weight: 700;
-      text-decoration: none; border: 1px solid;
-      transition: all .15s ease; cursor: pointer;
-      font-family: inherit;
-    }
-    .btn-modern:hover { transform: translateY(-1px); }
-
-    .btn-primary {
-      background: var(--blue); color: #fff;
-      border-color: var(--blue);
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
-    }
-    .btn-primary:hover { background: var(--blue2); }
-
-    .btn-outline {
-      background: #fff; color: #334155;
-      border-color: #e2e8f0;
-    }
-    .btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; }
-
-    .trust-block {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 18px;
-      margin-top: 12px;
-    }
-
-    .trust-block > .trust-heading {
-      font-weight: 800; color: var(--text); font-size: 15px; margin-bottom: 12px;
-    }
-
-    .trust-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-    }
-
-    .trust-col {
-      border: 1px solid #e8edf5; border-radius: 14px;
-      background: #fafbfd; padding: 14px;
-    }
-
-    .trust-col h4 { font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
-
-    .trust-col ul {
-      list-style: none; display: grid; gap: 6px;
-    }
-
-    .trust-col li {
-      font-size: 12px; font-weight: 500; color: #334155;
-      display: flex; align-items: flex-start; gap: 8px;
-      line-height: 1.4;
-    }
-
-    .trust-col li::before {
-      content: "";
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--blue); flex-shrink: 0; margin-top: 5px;
-    }
-
-    .footer-links {
-      text-align: center; padding: 16px 0;
-      font-size: 12px; color: #94a3b8; font-weight: 600;
-    }
-    .footer-links a { color: #475569; text-decoration: underline; }
-
-    /* ─── MOBILE NAV ─── */
-    .mobile-nav {
-      position: fixed; left: 50%; bottom: 0;
-      transform: translateX(-50%);
-      width: 100%; max-width: 560px;
-      background: rgba(255, 255, 255, 0.92);
-      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-      border-top: 1px solid #e2e8f0;
-      padding: 6px 8px calc(env(safe-area-inset-bottom, 6px) + 6px);
-      display: none; grid-template-columns: repeat(5, 1fr);
-      gap: 4px; z-index: 50; overflow: visible;
-    }
-
-    .mobile-tab {
-      text-decoration: none; border: 0;
-      background: transparent; color: #94a3b8;
-      border-radius: 12px; min-height: 46px;
-      padding: 6px 4px; display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      gap: 0; cursor: pointer; font: inherit;
-      transition: all .15s ease;
-    }
-
-    .mobile-tab-icon {
-      position: relative;
-      display: inline-grid;
-      place-items: center;
-      color: #64748b;
-    }
-
-    .mobile-tab-icon svg {
-      width: 22px; height: 22px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    .mobile-tab-label { display: none; }
-
-    .mobile-tab-active {
-      background: rgba(20, 91, 196, 0.11);
-      color: #145bc4;
-    }
-
-    .mobile-tab-active .mobile-tab-icon { color: #145bc4; }
-    .mobile-tab-scan { transform: none; }
-    .mobile-tab-scan .mobile-tab-icon {
-      width: 36px; height: 36px; border-radius: 999px;
-      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-      color: #fff;
-      box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
-      animation: scanHaloPulse 2.8s ease-in-out infinite;
-    }
-    .mobile-tab-scan .mobile-tab-icon svg { width: 19px; height: 19px; }
-    @keyframes scanHaloPulse {
-      0%, 100% {
-        box-shadow: 0 0 0 4px rgba(147, 197, 253, 0.34), 0 8px 18px -14px rgba(37, 99, 235, 0.7);
-      }
-      50% {
-        box-shadow: 0 0 0 8px rgba(147, 197, 253, 0.18), 0 10px 20px -14px rgba(37, 99, 235, 0.78);
-      }
-    }
-
-    /* ─── DESKTOP NAV (wide) ─── */
-    .desktop-topbar {
-      padding: 12px 16px; border-radius: 16px;
-      margin-bottom: 6px; background: #fff;
+    /* ─── SUPPORT CARD ─── */
+    .support-card {
+      background: #fff; border-radius: 14px;
       border: 1px solid #e8edf5;
-      box-shadow: var(--shadow2);
+      padding: 16px 18px;
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 22px;
+      text-decoration: none; color: inherit;
+      transition: border-color .15s ease;
     }
+    .support-card:hover { border-color: #bfdbfe; }
 
-    .topbar-row {
-      display: grid; grid-template-columns: auto 1fr auto;
-      align-items: center; min-height: 52px; gap: 14px;
+    .support-card-icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: #eff6ff;
+      display: grid; place-items: center;
+      flex-shrink: 0;
     }
-
-    .brand-logo { display: inline-flex; align-items: center; text-decoration: none; }
-    .brand-logo img { display: block; width: 160px; height: auto; }
-
-    .nav-menu {
-      display: flex; gap: 6px; align-items: center;
-      justify-content: center; position: relative;
-      padding: 4px; border-radius: 14px;
-    }
-
-    .nav-item {
-      position: relative;
-      z-index: 2;
-      transition: color .18s ease, font-weight .18s ease;
-    }
-
-    .nav-link, .nav-action, .account-pill {
-      text-decoration: none;
-      border: 0;
-      background: transparent;
-      color: #111827;
-      padding: 8px 12px;
-      font-size: 13px;
-      font-weight: 500;
-      white-space: nowrap;
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      line-height: 1.15;
-      min-width: 92px;
-      border-radius: 12px;
-      cursor: pointer;
-      font-family: Inter, "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
-    }
-
-    .nav-link.active, .nav-action.active, .account-pill.active { color: #0f172a; font-weight: 700; }
-
-    .nav-icon {
-      width: 17px; height: 17px; stroke: currentColor;
+    .support-card-icon svg {
+      width: 18px; height: 18px; stroke: #2563eb;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-      color: #334155;
     }
 
-    .nav-icon-wrap { position: relative; display: inline-grid; place-items: center; line-height: 1; }
+    .support-card-text { flex: 1; }
+    .support-card-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .support-card-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
 
-    .nav-alert {
-      position: absolute; top: -8px; right: -8px;
-      width: 14px; height: 14px; border-radius: 50%;
-      display: inline-flex; align-items: center; justify-content: center;
-      font-size: 10px; font-weight: 900; color: #fff;
-      background: #dc2626; pointer-events: none; z-index: 2;
-      box-shadow: 0 6px 12px -10px rgba(220, 38, 38, 0.95);
-    }
-
-    .nav-glass {
-      position: absolute; top: 0; left: 0;
-      width: 96px; height: 44px; border-radius: 12px;
-      background: rgba(255,255,255,0.58);
-      border: 1px solid rgba(191,220,255,0.95);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 10px 16px -14px rgba(37,99,235,0.45);
-      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-      z-index: 1; pointer-events: none;
-      transition: left .3s cubic-bezier(.22,.9,.18,1.05), top .3s cubic-bezier(.22,.9,.18,1.05), width .3s cubic-bezier(.22,.9,.18,1.05), height .3s cubic-bezier(.22,.9,.18,1.05);
+    .support-card-chevron { flex-shrink: 0; }
+    .support-card-chevron svg {
+      width: 16px; height: 16px; stroke: #94a3b8;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
-    .nav-glass.engulf { background: rgba(37, 99, 235, 0.1); }
-
-    /* ─── REGISTRATION DROPDOWN (Desktop) ─── */
-    .reg-dropdown {
-      position: absolute; top: calc(100% + 4px); right: 0;
-      width: min(700px, 90vw); border-radius: 18px;
-      border: 1px solid #e8edf5; background: #fff;
-      box-shadow: 0 20px 40px -16px rgba(15, 23, 42, 0.18);
-      padding: 14px; z-index: 70;
-      opacity: 0; transform: translateY(6px);
-      pointer-events: none; visibility: hidden;
-      transition: opacity .15s ease, transform .15s ease, visibility .15s ease;
+    /* ─── SETUP PROFILE ─── */
+    .setup-profile-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 20px; border-radius: 10px;
+      background: #f1f5f9; color: #334155;
+      font-size: 13px; font-weight: 600;
+      text-decoration: none;
+      border: 1px solid #e2e8f0;
+      transition: background .15s ease;
     }
-    .reg-dropdown.show {
-      opacity: 1; transform: translateY(0);
-      pointer-events: auto; visibility: visible;
+    .setup-profile-link:hover { background: #e2e8f0; }
+    .setup-profile-link svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
-    .reg-head { margin: 0 0 10px; font-size: 14px; font-weight: 800; }
+    /* ─── FOOTER ─── */
+    .footer-links {
+      text-align: center; padding: 8px 0;
+      font-size: 11px; color: #94a3b8; font-weight: 600;
+    }
+    .footer-links a { color: #64748b; text-decoration: underline; }
 
-    .reg-table { display: grid; gap: 8px; }
-
-    .reg-row {
-      display: grid; grid-template-columns: 1.2fr auto auto;
-      align-items: center; gap: 10px;
-      border: 1px solid #e8edf5; background: #fafbfd;
-      border-radius: 14px; padding: 10px 12px;
-      position: relative;
-      overflow: hidden;
+    /* ─── HIDDEN METRICS ─── */
+    .metrics-hidden {
+      position: absolute; width: 1px; height: 1px;
+      margin: -1px; padding: 0; border: 0;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
     }
-
-    .reg-name { font-size: 13px; font-weight: 700; }
-    .reg-sub { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 2px; }
-    .reg-row.done {
-      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
-      border-color: #86efac;
-    }
-    .reg-row.done .reg-name,
-    .reg-row.done .reg-sub {
-      color: #166534;
-      text-decoration: line-through;
-      text-decoration-thickness: 1.5px;
-    }
-    .reg-row.done::before,
-    .reg-row.done::after {
-      content: "";
-      position: absolute;
-      left: 14px;
-      right: 14px;
-      top: 50%;
-      height: 2px;
-      border-radius: 999px;
-      background: rgba(15, 23, 42, 0.78);
-      pointer-events: none;
-    }
-    .reg-row.done::before { transform: rotate(6deg); }
-    .reg-row.done::after { transform: rotate(-6deg); }
-
-    .reg-pill {
-      font-size: 10px; text-transform: uppercase; font-weight: 800;
-      border-radius: 999px; padding: 4px 10px;
-      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
-    }
-    .reg-pill.done { background: #16a34a; color: #fff; border-color: #16a34a; }
-    .reg-pill.locked { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
-
-    .reg-btn {
-      text-decoration: none; padding: 8px 14px; border-radius: 10px;
-      font-size: 12px; font-weight: 700; white-space: nowrap;
-      color: var(--blue); background: #eff6ff;
-      border: 1px solid #bfdbfe; transition: all .15s ease;
-    }
-    .reg-btn:hover { background: #dbeafe; }
-    .reg-btn.done {
-      background: #dcfce7;
-      border-color: #86efac;
-      color: #166534;
-      cursor: not-allowed;
-    }
-    .reg-btn.locked { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
 
     /* ─── MOBILE REGISTRATION SHEET ─── */
     .mobile-reg-backdrop {
@@ -961,6 +654,50 @@
     .mobile-step-copy { font-size: 13px; color: #334155; font-weight: 500; line-height: 1.4; }
     .mobile-step-status { font-size: 13px; color: #334155; font-weight: 500; }
 
+    .reg-row {
+      display: grid; grid-template-columns: 1.2fr auto auto;
+      align-items: center; gap: 10px;
+      border: 1px solid #e8edf5; background: #fafbfd;
+      border-radius: 14px; padding: 10px 12px;
+      position: relative; overflow: hidden;
+    }
+    .reg-name { font-size: 13px; font-weight: 700; }
+    .reg-sub { font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+    .reg-row.done {
+      background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+      border-color: #86efac;
+    }
+    .reg-row.done .reg-name, .reg-row.done .reg-sub {
+      color: #166534; text-decoration: line-through; text-decoration-thickness: 1.5px;
+    }
+    .reg-row.done::before, .reg-row.done::after {
+      content: ""; position: absolute;
+      left: 14px; right: 14px; top: 50%;
+      height: 2px; border-radius: 999px;
+      background: rgba(15, 23, 42, 0.78);
+      pointer-events: none;
+    }
+    .reg-row.done::before { transform: rotate(6deg); }
+    .reg-row.done::after { transform: rotate(-6deg); }
+
+    .reg-pill {
+      font-size: 10px; text-transform: uppercase; font-weight: 800;
+      border-radius: 999px; padding: 4px 10px;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+    }
+    .reg-pill.done { background: #16a34a; color: #fff; border-color: #16a34a; }
+    .reg-pill.locked { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+
+    .reg-btn {
+      text-decoration: none; padding: 8px 14px; border-radius: 10px;
+      font-size: 12px; font-weight: 700; white-space: nowrap;
+      color: var(--blue); background: #eff6ff;
+      border: 1px solid #bfdbfe; transition: all .15s ease;
+    }
+    .reg-btn:hover { background: #dbeafe; }
+    .reg-btn.done { background: #dcfce7; border-color: #86efac; color: #166534; cursor: not-allowed; }
+    .reg-btn.locked { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
+
     /* ─── SUPPORT MODAL ─── */
     .modal {
       position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5);
@@ -983,176 +720,110 @@
       resize: vertical; font: inherit; font-size: 13px;
     }
 
-    /* ─── HIDDEN METRICS ─── */
-    .metrics-hidden {
-      position: absolute; width: 1px; height: 1px;
-      margin: -1px; padding: 0; border: 0;
-      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
+    .btn-modern {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 16px; border-radius: 12px;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; border: 1px solid;
+      transition: all .15s ease; cursor: pointer;
+      font-family: inherit;
     }
-
-    /* ─── FAQ SECTION (article style) ─── */
-    .faq-section {
-      margin-top: 24px;
+    .btn-primary {
+      background: var(--blue); color: #fff;
+      border-color: var(--blue);
     }
-
-    .faq-section .section-title {
-      font-size: 18px; font-weight: 800;
-      letter-spacing: -0.02em; color: var(--text);
-      padding: 12px 0 10px;
-      display: block;
+    .btn-primary:hover { background: var(--blue2); }
+    .btn-outline {
+      background: #fff; color: #334155;
+      border-color: #e2e8f0;
     }
-
-    .faq-list { display: grid; gap: 8px; }
-
-    .faq-item {
-      background: #fff;
-      border: 1px solid #e8edf5;
-      border-radius: 14px;
-      overflow: hidden;
-      transition: border-color 0.15s ease;
-    }
-    .faq-item.open { border-color: #bfdbfe; }
-
-    .faq-head {
-      display: flex; align-items: center; gap: 12px;
-      padding: 14px 16px;
-      cursor: pointer; border: none;
-      background: transparent; width: 100%;
-      text-align: left; font: inherit;
-    }
-
-    .faq-icon-box {
-      width: 36px; height: 36px; border-radius: 10px;
-      background: #eff6ff;
-      display: grid; place-items: center;
-      flex-shrink: 0;
-    }
-    .faq-icon-box svg {
-      width: 18px; height: 18px; stroke: #2563eb;
-      fill: none; stroke-width: 2;
-      stroke-linecap: round; stroke-linejoin: round;
-    }
-
-    .faq-info { flex: 1; min-width: 0; }
-
-    .faq-question {
-      font-size: 14px; font-weight: 700;
-      color: var(--text); margin: 0; line-height: 1.4;
-    }
-
-    .faq-meta {
-      font-size: 12px; color: #64748b; font-weight: 500;
-      display: flex; align-items: center; gap: 4px;
-      margin-top: 2px;
-    }
-    .faq-meta svg {
-      width: 13px; height: 13px; stroke: currentColor;
-      fill: none; stroke-width: 2;
-    }
-
-    .faq-chevron {
-      width: 20px; height: 20px; color: #94a3b8;
-      flex-shrink: 0;
-      stroke: currentColor; fill: none; stroke-width: 2;
-      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .faq-item.open .faq-chevron { transform: rotate(180deg); }
-
-    .faq-answer {
-      max-height: 0;
-      overflow: hidden;
-      opacity: 0;
-      transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-                  opacity 0.3s ease;
-      padding: 0 16px;
-    }
-    .faq-item.open .faq-answer {
-      max-height: 300px;
-      opacity: 1;
-      padding: 0 16px 16px;
-    }
-
-    .faq-answer p {
-      font-size: 13px; color: #475569;
-      font-weight: 500; line-height: 1.6;
-    }
-
-    .faq-feedback {
-      display: flex; align-items: center; gap: 8px;
-      margin-top: 12px; font-size: 13px;
-      color: #64748b; font-weight: 600;
-    }
-    .faq-feedback-btn {
-      width: 32px; height: 32px;
-      border: 1px solid #e8edf5; background: #fff;
-      border-radius: 8px; display: grid; place-items: center;
-      cursor: pointer;
-      transition: background 0.15s ease, border-color 0.15s ease;
-    }
-    .faq-feedback-btn:hover { background: #eff6ff; border-color: #bfdbfe; }
-    .faq-feedback-btn.selected { background: #dbeafe; border-color: #93c5fd; }
-    .faq-feedback-btn svg {
-      width: 16px; height: 16px; stroke: currentColor;
-      fill: none; stroke-width: 2;
-    }
+    .btn-outline:hover { background: #f8fafc; }
 
     /* ─── RESPONSIVE ─── */
     @media (min-width: 768px) {
-      .hero-section .app-header { display: flex; }
-      .desktop-topbar { display: block; }
-      .mobile-nav { display: none; }
       .dash-wrap { padding-bottom: 40px; }
-      .hero-section { min-height: 380px; }
-      .hero-section .header-text h1 { font-size: 32px; }
+      .hero-name { font-size: 20px; }
     }
-
-    @media (max-width: 767px) {
-      .desktop-topbar { display: none; }
-      .mobile-nav { display: grid; }
-      .hero-section .app-header { display: flex; }
-    }
-
-    /* (480px carousel breakpoint removed) */
   </style>
 </head>
 <body>
 
   <!-- HERO SECTION -->
   <section class="hero-section" id="heroSection">
-    <video class="hero-video" id="heroVideo" autoplay muted loop playsinline preload="none">
-    </video>
+    <video class="hero-video" id="heroVideo" autoplay muted loop playsinline preload="none"></video>
     <div class="hero-fallback" id="heroFallback"></div>
     <div class="hero-gradient"></div>
     <div class="hero-content">
-      <header class="app-header">
-        <div class="header-greeting">
-          <div class="header-avatar" id="headerAvatarMobile">GP</div>
-          <div class="header-text">
-            <h1 id="intro-title-mobile">Welcome Back</h1>
-            <p id="headerSubtitleMobile">To Australia Via Expedited Specialist Pathway</p>
+      <!-- Greeting row -->
+      <div class="hero-greeting">
+        <div class="hero-greeting-left">
+          <div class="hero-avatar" id="headerAvatarMobile">GP</div>
+          <div>
+            <div class="hero-name" id="intro-title-mobile">Welcome Back</div>
+            <div class="hero-pathway" id="headerSubtitleMobile">Standard Pathway</div>
           </div>
         </div>
-        <div class="header-actions">
-          <button class="header-icon-btn" id="mobileNotifBtn" type="button" aria-label="Notifications" data-alert-trigger>
-            <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
-            <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          </button>
-        </div>
-      </header>
+        <button class="hero-notif-btn" type="button" aria-label="Notifications" data-alert-trigger>
+          <span data-inbox-alert hidden class="hero-notif-badge" aria-hidden="true">!</span>
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+      </div>
 
-      <a class="dream-card" href="career.html#browse" id="dreamPracticeCard">
-        <div style="position:relative;z-index:1;">
-          <div class="dream-card-badge">
-            <svg viewBox="0 0 20 20"><path d="M10 1l2.39 4.84L17.82 6.7l-3.91 3.81.92 5.39L10 13.27 5.17 15.9l.92-5.39L2.18 6.7l5.43-.86L10 1z"/></svg>
-            Premium
-          </div>
-          <h3>Find My Dream Practice</h3>
-          <p>Browse GP roles across Australia. Apply early to secure your ideal placement before registration completes.</p>
-          <span class="dream-card-cta">
-            Explore Positions
-            <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
-          </span>
+      <!-- Glass progress card -->
+      <div class="glass-progress">
+        <div class="glass-progress-header">
+          <span class="glass-progress-label">Your journey</span>
+          <span class="glass-progress-percent" id="hero-progress-percent">3%</span>
         </div>
+        <div class="glass-progress-bar">
+          <div class="glass-progress-fill" id="hero-progress-bar" style="width:3%"></div>
+        </div>
+        <a class="glass-next-action" id="hero-next-action" href="myinthealth.html">
+          <div class="glass-next-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div style="flex:1;">
+            <div class="glass-next-title" id="hero-next-title">Getting started</div>
+            <div class="glass-next-sub" id="hero-next-sub">Complete your next step to continue</div>
+          </div>
+          <div class="glass-next-chevron">
+            <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+          </div>
+        </a>
+      </div>
+
+      <!-- Stat pills -->
+      <div class="stat-pills">
+        <div class="stat-pill">
+          <div class="stat-pill-value" id="stat-steps-done">0</div>
+          <div class="stat-pill-label">Steps done</div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-pill-value blue" id="stat-roles-open">0</div>
+          <div class="stat-pill-label">Roles open</div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-pill-value amber" id="stat-actions">0</div>
+          <div class="stat-pill-label">Action needed</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DREAM PRACTICE BANNER -->
+  <section class="dream-banner">
+    <div class="dream-banner-inner">
+      <div style="flex:1;">
+        <div class="dream-banner-tag">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Featured
+        </div>
+        <div class="dream-banner-title">Find Your Dream Practice</div>
+        <div class="dream-banner-sub" id="dreamBannerSub">Browse GP roles across Australia matched to your qualifications</div>
+      </div>
+      <a class="dream-banner-cta" href="career.html#browse">
+        Browse
+        <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
       </a>
     </div>
   </section>
@@ -1168,143 +839,35 @@
     </div>
 
     <!-- THE JOURNEY -->
-    <div class="section-head">
-      <span class="section-title">The Journey:</span>
-    </div>
-
+    <div class="section-head">The Journey</div>
     <div class="journey-list" id="journeyList"></div>
 
-    <!-- FAQ SECTION -->
-    <div class="faq-section">
-      <span class="section-title">Frequently Asked Questions</span>
-      <div class="faq-list" id="faqList">
-        <div class="faq-item">
-          <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
-            <div class="faq-info">
-              <p class="faq-question">How long does the GP registration process take?</p>
-              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 328 views</span>
-            </div>
-            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-answer">
-            <p>The full process typically takes 12 to 18 months from initial application to commencement. Timelines vary based on your country of qualification, document readiness, and processing times for EPIC verification, AMC portfolio assessment, and AHPRA registration. GP Link coordinates each stage to minimise delays.</p>
-            <div class="faq-feedback">
-              Helpful?
-              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
-              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="faq-item">
-          <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
-            <div class="faq-info">
-              <p class="faq-question">Can I apply for jobs before registration is complete?</p>
-              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 412 views</span>
-            </div>
-            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-answer">
-            <p>Yes. We encourage you to explore and apply for positions early through Find My Dream Practice. Securing a placement early helps with visa sponsorship and ensures you have a role lined up when your registration is finalised. Many practices are happy to offer positions to candidates in progress.</p>
-            <div class="faq-feedback">
-              Helpful?
-              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
-              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="faq-item">
-          <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-            <div class="faq-info">
-              <p class="faq-question">What documents do I need to prepare?</p>
-              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 534 views</span>
-            </div>
-            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-answer">
-            <p>Required documents depend on your country of qualification. Generally you will need certified copies of your primary medical degree, specialist qualification certificates (e.g. MRCGP, MICGP, FRNZCGP), a current CV, certificate of good standing, and proof of training completion. Each step in The Journey will guide you through exactly what is needed.</p>
-            <div class="faq-feedback">
-              Helpful?
-              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
-              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="faq-item">
-          <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-            <div class="faq-info">
-              <p class="faq-question">How does visa sponsorship work?</p>
-              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 234 views</span>
-            </div>
-            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-answer">
-            <p>Once you secure a practice placement, your employer will act as your visa sponsor. GP Link works with both you and the practice to prepare the nomination, lodge your visa application, and track it through to grant. The Visa Application step in The Journey provides full visibility into each stage of this process.</p>
-            <div class="faq-feedback">
-              Helpful?
-              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
-              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="faq-item">
-          <button class="faq-head" type="button" aria-expanded="false">
-            <span class="faq-icon-box"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-            <div class="faq-info">
-              <p class="faq-question">What support does GP Link provide?</p>
-              <span class="faq-meta"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> 189 views</span>
-            </div>
-            <svg class="faq-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-answer">
-            <p>GP Link manages your entire pathway from start to finish. We handle document verification, coordinate with EPIC, AMC and AHPRA, match you with practices, support your visa application, and prepare you for commencement. Our team responds during business hours and you can reach us anytime through the Messages tab.</p>
-            <div class="faq-feedback">
-              Helpful?
-              <button class="faq-feedback-btn" type="button" aria-label="Yes"><svg viewBox="0 0 24 24"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
-              <button class="faq-feedback-btn" type="button" aria-label="No"><svg viewBox="0 0 24 24"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <!-- UPDATES FEED -->
+    <div class="section-head" style="margin-top:22px;">Recent Updates</div>
+    <div class="updates-section" id="gp-updates-card">
+      <span id="updates-subtitle" hidden></span>
+      <span id="updates-alert" hidden></span>
+      <div class="updates-list" id="gp-updates-list"></div>
     </div>
 
-    <!-- HELP CARD -->
-    <div class="help-card" style="flex-direction:column;">
-      <div class="txt" style="max-width:100%;">
-        <strong>We're Here For You!</strong>
-        Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
+    <!-- SUPPORT CARD -->
+    <a class="support-card" href="messages.html">
+      <div class="support-card-icon">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </div>
-      <div class="trust-grid" style="grid-template-columns:1fr 1fr;width:100%;">
-        <div class="trust-col">
-          <h4>You do:</h4>
-          <ul>
-            <li>Upload required documents</li>
-            <li>Complete key forms</li>
-            <li>Confirm details when requested</li>
-          </ul>
-        </div>
-        <div class="trust-col">
-          <h4>We do:</h4>
-          <ul>
-            <li>Guide each step in order</li>
-            <li>Check progress and timelines</li>
-            <li>Flag issues and coordinate support</li>
-          </ul>
-        </div>
+      <div class="support-card-text">
+        <div class="support-card-title">Need help with your move?</div>
+        <div class="support-card-sub">Our team responds within 1 hour · Mon-Fri 9am-5pm AEST</div>
       </div>
-      <div class="help-actions" style="width:100%;">
-        <a class="btn-modern btn-primary" href="messages.html">Contact Support <span>&#8594;</span></a>
-        <a class="btn-modern btn-outline" href="messages.html#help-center">View FAQs <span>&#8594;</span></a>
+      <div class="support-card-chevron">
+        <svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
       </div>
-    </div>
+    </a>
 
-    <!-- Onboarding shortcut -->
-    <div style="text-align:center;margin:20px 0 8px;">
-      <a href="onboarding.html" style="display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:10px;background:#f1f5f9;color:#334155;font-size:13px;font-weight:600;text-decoration:none;border:1px solid #e2e8f0;">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+    <!-- Setup Profile -->
+    <div style="text-align:center;margin:0 0 16px;">
+      <a class="setup-profile-link" href="onboarding.html">
+        <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
         Setup Profile
       </a>
     </div>
@@ -1396,7 +959,6 @@
       supportModalEl.setAttribute("aria-hidden", "true");
     };
 
-    // mobileSupportBtn click is handled by updates-sync.js (alert panel)
     document.querySelectorAll("[data-close]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-close");
@@ -1406,6 +968,7 @@
     supportModalEl.addEventListener("click", (e) => {
       if (e.target === supportModalEl) closeSupportModal();
     });
+
     const registrationMenuBtn = document.getElementById("registrationMenuBtn");
     const registrationDropdown = document.getElementById("registrationDropdown");
     const regTableEl = document.getElementById("regTable");
@@ -1443,24 +1006,23 @@
     function applyIntroTitle() {
       const titleEl = document.getElementById("intro-title-mobile");
       if (titleEl) {
-        titleEl.textContent = sessionFirstName ? `Welcome Back Dr ${sessionFirstName}` : "Welcome Back";
+        titleEl.textContent = sessionFirstName ? `Good morning, Dr ${sessionFirstName}` : "Welcome Back";
       }
       const avatarEl = document.getElementById("headerAvatarMobile");
       if (avatarEl && sessionFirstName) {
         avatarEl.textContent = sessionFirstName.charAt(0).toUpperCase();
       }
-      /* Pathway subtitle */
       var subtitleEl = document.getElementById("headerSubtitleMobile");
       if (subtitleEl) {
-        var pathway = "Expedited Specialist Pathway";
+        var pathway = "Standard Pathway";
         try {
           var stored = localStorage.getItem("gp_registration_pathway");
           if (stored) {
             var parsed = JSON.parse(stored);
             if (typeof parsed === "string" && parsed.trim()) pathway = parsed.trim();
           }
-        } catch (e) { /* use default */ }
-        subtitleEl.textContent = "To Australia Via " + pathway;
+        } catch (e) {}
+        subtitleEl.textContent = pathway;
       }
     }
 
@@ -1566,10 +1128,7 @@
     function renderUpdatesFeed() {
       const listEl = document.getElementById("gp-updates-list");
       const cardEl = document.getElementById("gp-updates-card");
-      const subtitleEl = document.getElementById("updates-subtitle");
-      const alertEl = document.getElementById("updates-alert");
-      const MAX_ITEMS = 8;
-      const isMobileUpdates = window.matchMedia("(max-width: 767px)").matches;
+      const MAX_ITEMS = 5;
       if (!listEl) return;
       const messageDb = parseStorage("gpLinkMessageDB");
       const dbUpdates = messageDb && Array.isArray(messageDb.updates) ? messageDb.updates.slice() : [];
@@ -1607,28 +1166,12 @@
         ...actionUpdates.map((item) => ({ kind: "update", item })),
         ...openCases.map((item) => ({ kind: "case", item }))
       ];
-      let displayItems = [];
-      if (isMobileUpdates) {
-        if (actionUpdates.length) {
-          displayItems = [{ kind: "update", item: actionUpdates[0] }];
-        } else if (openCases.length) {
-          displayItems = [{ kind: "case", item: openCases[0] }];
-        } else if (regularUpdates.length) {
-          displayItems = [{ kind: "update", item: regularUpdates[0] }];
-        }
-      } else {
-        displayItems = (priorityItems.length ? priorityItems : regularUpdates.map((item) => ({ kind: "update", item }))).slice(0, MAX_ITEMS);
-      }
+      const displayItems = (priorityItems.length ? priorityItems : regularUpdates.map((item) => ({ kind: "update", item }))).slice(0, MAX_ITEMS);
 
-      const hasAction = actionUpdates.length > 0;
+      // Count actions for stat pill
+      updateActionCount(actionUpdates.length);
+
       listEl.innerHTML = "";
-      if (cardEl) cardEl.classList.toggle("is-action", hasAction);
-      if (alertEl) alertEl.hidden = !hasAction;
-      if (subtitleEl) {
-        subtitleEl.textContent = priorityItems.length
-          ? "Priority items from your workflow and support conversations."
-          : "Messages from the GP Link team about what changed and what to do next.";
-      }
       if (!displayItems.length) {
         const empty = document.createElement("div");
         empty.className = "updates-empty";
@@ -1637,29 +1180,36 @@
         return;
       }
 
-      const typeLabel = { success: "SUCCESS", info: "INFO", action: "ACTION REQUIRED", case: "OPEN CASE" };
-      const rows = [];
+      const iconSvgs = {
+        action: '<svg viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+        success: '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>',
+        info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+        case: '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
+      };
+      const typeLabel = { success: "Success", info: "Info", action: "Action", case: "Case" };
+
       displayItems.forEach((entry) => {
         if (entry.kind === "case") {
           const c = entry.item || {};
           const title = typeof c.title === "string" ? c.title : "Open support case";
           const last = Array.isArray(c.thread) && c.thread.length ? c.thread[c.thread.length - 1] : null;
-          const detail = last && typeof last.text === "string" ? last.text : "Support conversation is active.";
+          const detail = last && typeof last.text === "string" ? last.text : "";
           const tsText = formatUpdateTimestamp(c.updatedAt || c.createdAt || "");
           const href = `messages.html#case-${encodeURIComponent(c.id || "")}`;
 
           const row = document.createElement("a");
           row.href = href;
-          row.className = "update-item update-item-link info";
+          row.className = "update-item";
           row.innerHTML = `
-            <div class="update-top">
-              <span class="update-badge case">${typeLabel.case}</span>
-              <span class="update-ts">${tsText}</span>
+            <div class="update-icon case">${iconSvgs.case}</div>
+            <div class="update-content">
+              <p class="update-title">${title}</p>
+              ${detail ? `<p class="update-detail">${detail}</p>` : ""}
+              <div class="update-ts">${tsText}</div>
             </div>
-            <p class="update-title">${title}</p>
-            <p class="update-detail">${detail}</p>
+            <span class="update-badge case">${typeLabel.case}</span>
           `;
-          rows.push(row);
+          listEl.appendChild(row);
           return;
         }
 
@@ -1672,25 +1222,18 @@
 
         const row = document.createElement("a");
         row.href = href;
-        row.className = `update-item update-item-link ${type}`;
+        row.className = "update-item";
         row.innerHTML = `
-          <div class="update-top">
-            <span class="update-badge ${type}">${typeLabel[type] || "INFO"}</span>
-            <span class="update-ts">${tsText}</span>
+          <div class="update-icon ${type}">${iconSvgs[type] || iconSvgs.info}</div>
+          <div class="update-content">
+            <p class="update-title">${title}</p>
+            ${detail ? `<p class="update-detail">${detail}</p>` : ""}
+            <div class="update-ts">${tsText}</div>
           </div>
-          <p class="update-title">${title}</p>
-          ${detail ? `<p class="update-detail">${detail}</p>` : ""}
+          <span class="update-badge ${type}">${typeLabel[type] || "Info"}</span>
         `;
-        rows.push(row);
-      });
-
-      for (const row of rows) {
         listEl.appendChild(row);
-        if (listEl.scrollHeight > listEl.clientHeight + 1) {
-          row.remove();
-          break;
-        }
-      }
+      });
 
       if (typeof window.refreshInboxBadges === "function") {
         window.refreshInboxBadges();
@@ -1753,7 +1296,6 @@
           supervisedReady === UK_SUPERVISED_KEYS.length
         : false;
 
-      // For now visa/pbs/commencement done states are false (checked via API in career checklist)
       const visaDone = false;
       const pbsDone = false;
       const commencementDone = false;
@@ -1763,10 +1305,11 @@
 
       let currentRoute = "myinthealth.html";
       let currentTitle = "MyIntealth Account";
-      if (epicDone && !amcDone) { currentRoute = "amc.html"; currentTitle = "AMC Portfolio"; }
-      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career.html#browse"; currentTitle = "Career & Placement"; }
-      else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra.html"; currentTitle = "AHPRA Registration"; }
-      else if (epicDone && amcDone && careerSecured && ahpraDone) { currentRoute = "visa.html"; currentTitle = "Visa Application"; }
+      let currentSub = "Create your account to get started";
+      if (epicDone && !amcDone) { currentRoute = "amc.html"; currentTitle = "Complete AMC verification"; currentSub = "Upload your exam results to continue"; }
+      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career.html#browse"; currentTitle = "Find your practice placement"; currentSub = "Browse roles matched to your profile"; }
+      else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra.html"; currentTitle = "Complete AHPRA registration"; currentSub = "Submit your specialist registration application"; }
+      else if (epicDone && amcDone && careerSecured && ahpraDone) { currentRoute = "visa.html"; currentTitle = "Track visa application"; currentSub = "Monitor your visa from nomination to grant"; }
 
       return {
         epicDone, epicCurrentLabel,
@@ -1775,47 +1318,55 @@
         visaDone, pbsDone, commencementDone,
         docsDone, preparedUploaded, institutionRequested, supervisedReady,
         completedSteps, progressPercent,
-        currentRoute, currentTitle
+        currentRoute, currentTitle, currentSub
       };
     }
 
-    function getCareerCardSnapshot() {
+    function getCareerStats() {
       const career = parseStorage(CAREER_STATE_KEY);
-      const savedCount = Array.isArray(career && career.savedJobs) ? career.savedJobs.filter(Boolean).length : 0;
       const applicationCount = Array.isArray(career && career.applications) ? career.applications.filter(Boolean).length : 0;
-      const countToPercent = (count) => Math.max(18, Math.round((Math.min(count, 5) / 5) * 100));
+      const roles = Array.isArray(career && career.roles) ? career.roles.filter(Boolean).length : 0;
+      return { applicationCount, roles };
+    }
 
-      if (applicationCount > 0) {
-        return {
-          href: "career.html#applications",
-          label: "Applications",
-          value: applicationCount === 1 ? "1 Active" : `${applicationCount} Active`,
-          percent: countToPercent(applicationCount),
-          sub: applicationCount === 1
-            ? "You have 1 active application ready to review."
-            : `You have ${applicationCount} active applications ready to review.`
-        };
+    function updateActionCount(count) {
+      const el = document.getElementById("stat-actions");
+      if (el) el.textContent = String(count || 0);
+    }
+
+    function updateHeroStats(snap) {
+      // Progress
+      const percentEl = document.getElementById("hero-progress-percent");
+      const barEl = document.getElementById("hero-progress-bar");
+      if (percentEl) percentEl.textContent = Math.round(snap.progressPercent) + "%";
+      if (barEl) barEl.style.width = snap.progressPercent + "%";
+
+      // Next action
+      const actionEl = document.getElementById("hero-next-action");
+      const titleEl = document.getElementById("hero-next-title");
+      const subEl = document.getElementById("hero-next-sub");
+      if (actionEl) actionEl.href = snap.currentRoute;
+      if (titleEl) titleEl.textContent = snap.currentTitle;
+      if (subEl) subEl.textContent = snap.currentSub;
+
+      // Stat pills
+      const stepsEl = document.getElementById("stat-steps-done");
+      const rolesEl = document.getElementById("stat-roles-open");
+      if (stepsEl) stepsEl.textContent = String(snap.completedSteps);
+
+      const careerStats = getCareerStats();
+      if (rolesEl) rolesEl.textContent = String(careerStats.roles || 0);
+
+      // Dream banner subtitle
+      const bannerSub = document.getElementById("dreamBannerSub");
+      if (bannerSub) {
+        const parts = [];
+        if (careerStats.roles > 0) parts.push(careerStats.roles + " roles matched");
+        if (careerStats.applicationCount > 0) parts.push(careerStats.applicationCount + " application" + (careerStats.applicationCount !== 1 ? "s" : "") + " active");
+        bannerSub.textContent = parts.length
+          ? parts.join(" \u00B7 ")
+          : "Browse GP roles across Australia matched to your qualifications";
       }
-
-      if (savedCount > 0) {
-        return {
-          href: "career.html#browse",
-          label: "Saved Roles",
-          value: savedCount === 1 ? "1 Saved" : `${savedCount} Saved`,
-          percent: countToPercent(savedCount),
-          sub: savedCount === 1
-            ? "You have 1 saved role ready to revisit."
-            : `You have ${savedCount} saved roles ready to revisit.`
-        };
-      }
-
-      return {
-        href: "career.html#browse",
-        label: "Status",
-        value: "Ready",
-        percent: 18,
-        sub: "Browse roles, review applications and track your placement progress."
-      };
     }
 
     function renderJourneyList() {
@@ -1836,16 +1387,16 @@
 
       const steps = [
         { num: 1, key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
-        { num: 2, key: "visa", title: "Visa Application", sub: snap.visaDone ? "Granted" : "Nomination to grant", detail: "Track your visa from nomination through lodgement and processing to grant. Your practice sponsor and GP Link team coordinate this together.", done: snap.visaDone, locked: !bypassAll && !snap.ahpraDone, href: "visa.html" },
-        { num: 3, key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number to begin prescribing in Australia.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" },
-        { num: 4, key: "commencement", title: "Commencement", sub: snap.commencementDone ? "Ready to start" : "Pre-arrival checklist", detail: "Complete your pre-arrival checklist: travel, accommodation, medical indemnity, bank account, TFN, and practice orientation.", done: snap.commencementDone, locked: !bypassAll && !snap.pbsDone, href: "commencement.html" }
+        { num: 2, key: "career", title: "Secured Placement", sub: snap.careerSecured ? "Practice secured" : "Find and secure a placement", detail: "Browse GP roles, apply to practices, and secure your placement before registration completes.", done: snap.careerSecured, locked: false, href: "career.html#browse" },
+        { num: 3, key: "visa", title: "Visa Application", sub: snap.visaDone ? "Granted" : "Nomination to grant", detail: "Track your visa from nomination through lodgement and processing to grant.", done: snap.visaDone, locked: !bypassAll && !snap.ahpraDone, href: "visa.html" },
+        { num: 4, key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" },
+        { num: 5, key: "commencement", title: "Commencement", sub: snap.commencementDone ? "Ready to start" : "Pre-arrival checklist", detail: "Complete your pre-arrival checklist: travel, accommodation, medical indemnity, bank account, TFN, and practice orientation.", done: snap.commencementDone, locked: !bypassAll && !snap.pbsDone, href: "commencement.html" }
       ];
 
-      // Determine which top-level step is current
       let currentIdx = steps.findIndex(s => !s.done && !s.locked);
       if (currentIdx === -1) currentIdx = steps.length - 1;
 
-      const checkSvg = '<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
+      const checkSvg = '<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:#fff;fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>';
 
       listEl.innerHTML = "";
       steps.forEach((step, idx) => {
@@ -1859,14 +1410,10 @@
         const pillClass = step.done ? "done" : step.locked ? "locked" : "current";
         const pillText = step.done ? "Done" : step.locked ? "Locked" : isActive ? "Current" : "Ready";
 
-        // Build body content
         let bodyHtml = "";
         if (step.subs) {
-          // Registration parent — render sub-steps inside
           bodyHtml = '<div class="journey-subs">' + step.subs.map((sub) => {
             const subState = sub.done ? "done" : sub.locked ? "locked" : "active";
-            const subPillClass = sub.done ? "done" : sub.locked ? "locked" : "current";
-            const subPillText = sub.done ? "Done" : sub.locked ? "Locked" : "Continue";
             return `
               <div class="journey-sub-item ${subState}">
                 <span class="journey-sub-dot ${subState}"></span>
@@ -1929,12 +1476,8 @@
       const snap = getProgressSnapshot();
       const ringOffset = Math.max(0, ringCirc - (snap.progressPercent * ringCirc) / 100);
 
-      const stepsCompleteEl = document.getElementById("steps-complete");
-      const progressBarEl = document.getElementById("progress-bar");
-      if (stepsCompleteEl) stepsCompleteEl.textContent = `${snap.completedSteps}/${TOTAL_STEPS}`;
       document.getElementById("ring-num").textContent = `${Math.round(snap.progressPercent)}%`;
       document.getElementById("progress-ring").setAttribute("stroke-dashoffset", ringOffset.toFixed(4));
-      if (progressBarEl) progressBarEl.style.width = `${snap.progressPercent}%`;
 
       const nextMilestoneEl = document.getElementById("next-milestone");
       if (nextMilestoneEl) {
@@ -1942,6 +1485,7 @@
         nextMilestoneEl.textContent = `Next milestone: Step ${nextStep} complete`;
       }
 
+      updateHeroStats(snap);
       renderJourneyList();
       renderUpdatesFeed();
     }
@@ -2069,16 +1613,16 @@
         `;
         const headBtn = cardEl.querySelector(".mobile-step-head");
         const bodyEl = cardEl.querySelector(".mobile-step-body");
-        const actionEl = actionDisabled ? document.createElement("button") : document.createElement("a");
-        actionEl.className = `reg-btn ${row.done ? "done" : row.locked ? "locked" : ""}`.trim();
-        actionEl.textContent = row.cta;
+        const actionEl2 = actionDisabled ? document.createElement("button") : document.createElement("a");
+        actionEl2.className = `reg-btn ${row.done ? "done" : row.locked ? "locked" : ""}`.trim();
+        actionEl2.textContent = row.cta;
         if (actionDisabled) {
-          actionEl.type = "button";
-          actionEl.disabled = true;
+          actionEl2.type = "button";
+          actionEl2.disabled = true;
         } else {
-          actionEl.href = row.href;
+          actionEl2.href = row.href;
         }
-        bodyEl.appendChild(actionEl);
+        bodyEl.appendChild(actionEl2);
         let autoCloseTimer = null;
         if (headBtn && bodyEl && !isCurrent) {
           headBtn.addEventListener("click", () => {
@@ -2223,6 +1767,7 @@
     renderRegistrationRows();
     activeNavItem = navMenuEl ? (document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null) : null;
     if (activeNavItem) setActiveNav(activeNavItem, false);
+
     function getClosestNavItemByX(clientX) {
       let closest = null;
       let minDistance = Number.POSITIVE_INFINITY;
@@ -2250,7 +1795,6 @@
     }
     window.addEventListener("resize", () => {
       if (activeNavItem) moveNavGlass(activeNavItem, false);
-      renderUpdatesFeed();
     });
     window.addEventListener("storage", (event) => {
       if (!event || typeof event.key !== "string") return;
@@ -2264,14 +1808,11 @@
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") renderUpdatesFeed();
     });
-    // Re-render after state-sync hydrates the current user's data from the server
     window.addEventListener("gp-state-hydrated", function () {
       renderDashboard();
       renderUpdatesFeed();
       renderRegistrationRows();
     }, { once: true });
-
-    // (carousel removed — replaced by The Journey stepper)
 
     // Touch drag to close mobile reg sheet
     let startY = 0;
@@ -2298,7 +1839,7 @@
       if (deltaY > 90) { closeMobileRegistration(); } else { mobileRegSheet.style.transform = ""; }
     });
 
-    // ─── VIDEO FALLBACK ───
+    // Video fallback
     (function initHeroVideo() {
       const hero = document.getElementById("heroSection");
       const video = document.getElementById("heroVideo");
@@ -2309,7 +1850,6 @@
         hero.classList.add("use-fallback");
       }
 
-      // Check if device can play mp4 at all
       if (video.canPlayType && !video.canPlayType("video/mp4")) {
         activateFallback();
         return;
@@ -2317,7 +1857,6 @@
 
       video.addEventListener("error", activateFallback);
 
-      // Lazy-load: inject source after critical content is painted
       requestAnimationFrame(function() {
         var source = document.createElement("source");
         source.src = "../media/videos/gp-link-hero-mobile.mp4";
@@ -2332,7 +1871,6 @@
         }
       });
 
-      // If video stalls for too long, use fallback
       var stallTimer = setTimeout(function() {
         if (video.readyState < 2) activateFallback();
       }, 5000);
@@ -2340,43 +1878,6 @@
       video.addEventListener("canplay", function() {
         clearTimeout(stallTimer);
       }, { once: true });
-    })();
-
-    // ─── FAQ ACCORDION ───
-    (function initFaqAccordion() {
-      const faqList = document.getElementById("faqList");
-      if (!faqList) return;
-
-      faqList.addEventListener("click", function(e) {
-        // Handle feedback buttons
-        var fbBtn = e.target.closest(".faq-feedback-btn");
-        if (fbBtn) {
-          var siblings = fbBtn.parentElement.querySelectorAll(".faq-feedback-btn");
-          var wasSelected = fbBtn.classList.contains("selected");
-          siblings.forEach(function(s) { s.classList.remove("selected"); });
-          if (!wasSelected) fbBtn.classList.add("selected");
-          return;
-        }
-
-        var head = e.target.closest(".faq-head");
-        if (!head) return;
-
-        var item = head.closest(".faq-item");
-        if (!item) return;
-
-        var wasOpen = item.classList.contains("open");
-
-        faqList.querySelectorAll(".faq-item.open").forEach(function(openItem) {
-          openItem.classList.remove("open");
-          var btn = openItem.querySelector(".faq-head");
-          if (btn) btn.setAttribute("aria-expanded", "false");
-        });
-
-        if (!wasOpen) {
-          item.classList.add("open");
-          head.setAttribute("aria-expanded", "true");
-        }
-      });
     })();
   </script>
 </body>
