@@ -123,21 +123,20 @@
     /* ── Application header ── */
     .app-header-section {
       padding: 24px 16px 16px;
+      text-align: center;
     }
 
     .app-practice-name {
-      margin: 0;
       font-size: 22px;
-      font-weight: 900;
+      font-weight: 800;
+      margin: 0 0 4px;
       color: var(--text);
-      line-height: 1.25;
     }
 
     .app-location {
-      margin: 6px 0 0;
       font-size: 14px;
       color: var(--muted);
-      font-weight: 500;
+      margin: 0 0 12px;
     }
 
     /* ── Status pill ── */
@@ -217,63 +216,58 @@
     }
     .btn-add-calendar:hover { background: var(--panel-soft); border-color: var(--blue); }
 
-    /* ── Prep tips card ── */
-    .prep-tips-card {
-      background: var(--panel);
-      border-radius: var(--radius-md);
-      border: 1.5px solid #dbeafe;
-      padding: 20px;
-      margin: 0 16px 16px;
+    /* ── Detail rows ── */
+    .detail-section {
+      padding: 0 16px 16px;
     }
-    .prep-tips-title {
-      font-weight: 800;
-      font-size: 15px;
-      margin: 0 0 12px;
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label {
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .detail-value {
+      font-size: 14px;
+      font-weight: 600;
       color: var(--text);
     }
-    .prep-tips-list {
-      margin: 0;
-      padding: 0 0 0 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .prep-tips-list li {
-      font-size: 14px;
-      color: var(--charcoal);
-      line-height: 1.5;
-    }
-
-    /* ── Meta cards ── */
-    .app-meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 16px 16px; }
-    .app-meta-card { background: var(--panel); border-radius: var(--radius-sm); padding: 14px; border: 1px solid var(--line); }
-    .app-meta-label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-    .app-meta-value { font-size: 15px; font-weight: 700; color: var(--text); margin-top: 4px; }
 
     /* ── Role preview + actions ── */
-    .role-preview { background: var(--panel); border-radius: var(--radius-md); padding: 20px; margin: 0 16px 16px; border: 1px solid var(--line); }
-    .role-preview-title { font-weight: 700; font-size: 15px; margin: 0; }
+    .role-preview {
+      padding: 16px;
+      text-align: center;
+    }
+    .role-preview-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      margin: 0;
+    }
     .role-preview-location { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
-    .action-bar { display: flex; gap: 12px; padding: 16px; }
-    .btn-secondary { flex: 1; padding: 14px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; text-decoration: none; transition: background .14s; }
-    .btn-secondary:hover { background: var(--panel-soft); }
-    .btn-primary { flex: 1; padding: 14px; border: none; border-radius: 12px; background: var(--blue); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; text-decoration: none; transition: background .14s; }
+    .action-bar { display: flex; flex-direction: column; gap: 0; padding: 16px; }
+    .btn-primary { width: 100%; padding: 14px; border: none; border-radius: 12px; background: var(--blue); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; text-decoration: none; transition: background .14s; }
     .btn-primary:hover { background: var(--blue2); }
 
     .btn-withdraw {
-      flex: 1;
-      padding: 14px;
-      border: 1.5px solid #ef4444;
-      border-radius: 12px;
-      background: var(--panel);
-      color: #ef4444;
-      font-weight: 700;
-      font-size: 14px;
+      padding: 10px;
+      border: none;
+      background: none;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
-      transition: background .15s, color .15s;
+      text-align: center;
+      width: 100%;
+      margin-top: 4px;
     }
-    .btn-withdraw:hover { background: #fef2f2; }
+    .btn-withdraw:hover { color: #dc2626; }
     .btn-withdraw:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .status-pill.withdrawn { background: #fef2f2; color: #dc2626; }
@@ -295,12 +289,10 @@
       .timeline-step {
         padding-bottom: 26px;
       }
-      .app-meta-grid {
+      .detail-section {
         padding: 0 14px 14px;
       }
-      .interview-card,
-      .role-preview,
-      .prep-tips-card {
+      .interview-card {
         margin-left: 14px;
         margin-right: 14px;
       }
@@ -392,7 +384,7 @@
       </div>
 
       <!-- Meta Cards -->
-      <div class="app-meta-grid" id="metaGrid"></div>
+      <div class="detail-section" id="metaGrid"></div>
 
       <!-- Role Preview -->
       <div class="role-preview" id="rolePreview">
@@ -402,7 +394,6 @@
 
       <!-- Actions -->
       <div class="action-bar">
-        <a class="btn-secondary" id="contactBtn" href="messages.html">Contact GP Link</a>
         <a class="btn-primary" id="viewRoleBtn" href="career.html">View Full Role</a>
         <button class="btn-withdraw" id="withdrawBtn" type="button" hidden>Withdraw Application</button>
       </div>
@@ -566,7 +557,7 @@
           return ["Interview", "Format", "Lead"].indexOf(m.label) === -1;
         });
         metaGrid.innerHTML = displayMeta.map(function (m) {
-          return '<div class="app-meta-card"><p class="app-meta-label">' + esc(m.label) + '</p><p class="app-meta-value">' + esc(m.value) + '</p></div>';
+          return '<div class="detail-row"><span class="detail-label">' + esc(m.label) + '</span><span class="detail-value">' + esc(m.value) + '</span></div>';
         }).join("");
 
         // Role preview
@@ -647,10 +638,19 @@
           });
         }
 
-        // Interview Prep Tips
+        // Interview Prep Tips — inject inside interview card
         var prepCard = document.getElementById("prepTipsCard");
         if ((isInterview || interviewObj) && prepCard) {
-          prepCard.hidden = false;
+          var tipsHtml = '<hr style="border:none;border-top:1px solid var(--line);margin:16px 0">'
+            + '<p style="font-weight:700;font-size:14px;color:var(--text);margin:0 0 10px">Preparation</p>'
+            + '<ul style="margin:0;padding:0 0 0 18px;font-size:13px;color:var(--muted);line-height:1.8">'
+            + '<li>Review the practice location and available information</li>'
+            + '<li>Prepare questions about workflow and patient demographics</li>'
+            + '<li>Test your camera and microphone beforehand</li>'
+            + '<li>Join 2-3 minutes early</li>'
+            + '</ul>';
+          document.getElementById("interviewMeta").insertAdjacentHTML("afterend", tipsHtml);
+          prepCard.hidden = true;
         }
 
         // Withdrawal

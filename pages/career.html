@@ -345,8 +345,6 @@
     }
 
     .page-hero,
-    .role-card,
-    .application-card,
     .hero-card,
     .details-card,
     .summary-card,
@@ -410,7 +408,7 @@
 
     .hero-search-card {
       display: grid;
-      gap: 12px;
+      gap: 10px;
       background: #ffffff;
       border-radius: 18px;
       padding: 16px;
@@ -419,9 +417,9 @@
     }
 
     .hero-search-meta {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .hero-filter-field {
@@ -431,10 +429,11 @@
     }
 
     .hero-filter-select {
+      flex: 1;
+      min-width: 140px;
       width: 100%;
-      min-height: 46px;
-      padding: 0 40px 0 14px;
-      border-radius: 12px;
+      padding: 8px 40px 8px 12px;
+      border-radius: 10px;
       background: #f8fafc;
       border: 1px solid rgba(226, 232, 240, 0.8);
       color: #0f172a;
@@ -472,29 +471,6 @@
       pointer-events: none;
     }
 
-    .hero-search-footer {
-      display: flex;
-      justify-content: flex-end;
-    }
-
-    .hero-clear-btn {
-      border: 0;
-      background: transparent;
-      color: #64748b;
-      padding: 0;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: color .16s ease, opacity .16s ease;
-    }
-
-    .hero-clear-btn:hover {
-      color: #0f172a;
-    }
-
-    .hero-clear-btn:active {
-      opacity: .7;
-    }
 
     .hero-search-bar {
       position: relative;
@@ -571,121 +547,33 @@
       color: var(--text);
     }
 
-    .hero-filter-chips {
+
+    .hero-nav {
       display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-      padding: 2px 0;
+      gap: 4px;
+      margin-top: 16px;
     }
-
-    .hero-filter-chips::-webkit-scrollbar {
-      display: none;
-    }
-
-    .filter-chip {
-      flex: 0 0 auto;
-      border-radius: 20px;
-      border: 1.5px solid var(--line);
-      background: var(--panel);
-      color: var(--text);
-      padding: 6px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: background .18s ease, color .18s ease, border-color .18s ease;
-    }
-
-    .filter-chip:hover {
-      border-color: var(--blue);
-      color: var(--blue);
-    }
-
-    .filter-chip.is-active {
-      background: var(--blue);
-      color: #ffffff;
-      border-color: var(--blue);
-    }
-
-    .hero-shortcuts {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .hero-shortcut {
-      border: 1px solid rgba(226, 232, 240, 0.6);
-      background: #ffffff;
-      color: var(--text);
-      text-align: center;
-      padding: 12px 14px;
-      min-height: 74px;
-      display: grid;
-      gap: 8px;
-      justify-items: center;
-      align-content: center;
-      cursor: pointer;
-      position: relative;
-      border-radius: 16px;
-      box-shadow: 0 2px 8px -4px rgba(15, 23, 42, 0.06);
-      transition: all .2s ease;
-    }
-
-    .hero-shortcut:hover,
-    .hero-shortcut.is-active {
-      background: #fff;
-      border-color: rgba(37, 99, 235, 0.28);
-      color: var(--text);
-      box-shadow: 0 8px 20px -8px rgba(37, 99, 235, 0.12);
-      transform: translateY(-1px);
-    }
-
-    .hero-shortcut-icon {
-      width: 34px;
-      height: 34px;
-      border-radius: 14px;
-      background: rgba(37, 99, 235, 0.12);
-      display: grid;
-      place-items: center;
-      color: #2563eb;
-      position: relative;
-    }
-
-    .hero-shortcut-icon svg {
-      width: 18px;
-      height: 18px;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .hero-shortcut-badge {
-      position: absolute;
-      top: -4px;
-      right: -4px;
-      min-width: 18px;
-      height: 18px;
-      padding: 0 5px;
-      border-radius: 999px;
-      background: #22c55e;
-      color: #fff;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-weight: 900;
-      line-height: 1;
-    }
-
-    .hero-shortcut-title {
+    .hero-nav-item {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
       font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.14s, color 0.14s;
+    }
+    .hero-nav-item:hover { background: var(--panel-muted); color: var(--text); }
+    .hero-nav-item.is-active { background: var(--panel); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .hero-nav-count {
+      font-size: 12px;
       font-weight: 800;
-      letter-spacing: -0.02em;
+      background: var(--blue);
+      color: #fff;
+      padding: 1px 6px;
+      border-radius: 6px;
+      margin-left: 4px;
     }
 
     .view-panel {
@@ -836,41 +724,6 @@
       transform: scale(0.98);
     }
 
-    .filter-row {
-      display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      padding-bottom: 2px;
-      scrollbar-width: none;
-    }
-
-    .filter-row::-webkit-scrollbar {
-      display: none;
-    }
-
-    .filter-chip {
-      border: 1px solid rgba(226, 232, 240, 0.7);
-      border-radius: 999px;
-      background: #ffffff;
-      color: #334155;
-      padding: 10px 14px;
-      white-space: nowrap;
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      cursor: pointer;
-      transition: all .2s ease;
-    }
-
-    .filter-chip.active {
-      background: var(--blue);
-      color: #fff;
-      border-color: var(--blue);
-    }
-
-    .filter-chip:active {
-      transform: scale(0.98);
-    }
 
     .search-modal-card {
       width: min(460px, 100%);
@@ -935,27 +788,118 @@
       gap: 6px;
     }
 
-    .role-grid,
+    .role-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
     .application-grid,
     .opportunity-grid {
       display: grid;
-      gap: 12px;
+      gap: 16px;
     }
 
     .role-card {
-      padding: 18px;
-      display: grid;
-      gap: 14px;
-      cursor: pointer;
-      border-radius: 20px;
-      box-shadow: 0 2px 12px -4px rgba(2, 6, 23, 0.08);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: box-shadow 0.18s ease, transform 0.18s ease;
     }
 
     .role-card:hover {
-      box-shadow: 0 8px 24px -8px rgba(2, 6, 23, 0.14);
-      transform: translateY(-2px);
-      border-color: rgba(37, 99, 235, 0.18);
+      box-shadow: 0 8px 24px -8px rgba(2, 6, 23, 0.12);
+      transform: translateY(-1px);
     }
+
+    .role-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .role-card-tags {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .role-tag {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--panel-muted);
+      color: var(--muted);
+    }
+
+    .role-tag-muted {
+      background: transparent;
+      border: 1px solid var(--line);
+    }
+
+    .role-save-btn {
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      transition: background 0.14s;
+    }
+    .role-save-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke: var(--muted);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .role-save-btn:hover { background: var(--panel-muted); }
+    .role-save-btn.saved svg { fill: var(--blue); stroke: var(--blue); }
+
+    .role-card-location {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0;
+    }
+
+    .role-card-summary {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .role-card-cta {
+      margin-top: auto;
+      padding: 10px 0;
+      border: none;
+      background: none;
+      color: var(--blue);
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: left;
+      transition: color 0.14s;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .role-card-cta:hover { color: var(--blue2); }
 
     .card-head,
     .card-top-row {
@@ -969,7 +913,19 @@
       align-items: center;
     }
 
-    .status-pill,
+    .status-pill {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .status-pill.review { background: #f1f5f9; color: #475569; }
+    .status-pill.interview { background: #eff6ff; color: #2563eb; }
+    .status-pill.offer { background: #fef3c7; color: #b45309; }
+    .status-pill.secured { background: #ecfdf5; color: #059669; }
+
     .badge,
     .badge-soft,
     .badge-dark {
@@ -986,17 +942,6 @@
       white-space: nowrap;
     }
 
-    .role-title {
-      margin: 6px 0 4px;
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 24px;
-      line-height: 1.02;
-      letter-spacing: -0.04em;
-      font-weight: 800;
-      color: var(--ink);
-    }
-
-    .role-location,
     .application-sub,
     .timeline-sub,
     .detail-subcopy {
@@ -1008,31 +953,6 @@
       font-weight: 700;
     }
 
-    .save-btn {
-      width: 42px;
-      height: 42px;
-      border-radius: 14px;
-      border: 1px solid rgba(226, 232, 240, 0.7);
-      background: #ffffff;
-      color: #0f172a;
-      display: grid;
-      place-items: center;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: all .2s ease;
-    }
-
-    .save-btn.saved {
-      background: var(--blue);
-      color: #fff;
-      border-color: var(--blue);
-    }
-
-    .save-btn:active {
-      transform: scale(0.96);
-    }
-
-    .role-summary,
     .next-step-copy,
     .modal-summary,
     .detail-value,
@@ -1042,13 +962,6 @@
       font-size: 14px;
       line-height: 1.55;
       font-weight: 700;
-    }
-
-    .role-summary {
-      display: -webkit-box;
-      -webkit-line-clamp: 4;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
     }
 
     .badge-row {
@@ -1075,21 +988,6 @@
       border: 1px solid var(--blue3);
     }
 
-    .billing-pill {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: fit-content;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: var(--blue);
-      color: #fff;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      box-shadow: 0 4px 12px -8px rgba(37, 99, 235, 0.72);
-    }
 
     .privacy-stack {
       display: grid;
@@ -1252,12 +1150,6 @@
       stroke-linejoin: round;
     }
 
-    .application-top {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-    }
 
     .role-benefit-chip {
       display: inline-flex;
@@ -1273,75 +1165,53 @@
     }
 
     .application-card {
-      padding: 18px;
-      display: grid;
-      gap: 14px;
-      cursor: pointer;
-      border-radius: 20px;
-      box-shadow: 0 2px 12px -4px rgba(2, 6, 23, 0.08);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
-    .application-card:hover {
-      box-shadow: 0 8px 24px -8px rgba(2, 6, 23, 0.14);
-      transform: translateY(-2px);
+    .app-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .application-title {
+    .app-card-location {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
       margin: 0;
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 18px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
     }
 
-    .status-pill.review {
-      background: #eff6ff;
-      color: #1d4ed8;
-    }
-
-    .status-pill.interview {
-      background: #eef2ff;
-      color: #4f46e5;
-      border: 1px solid #c7d2fe;
-    }
-
-    .status-pill.offer {
-      background: #fffbeb;
-      color: #b45309;
-    }
-
-    .status-pill.secured {
-      background: #ecfdf5;
-      color: #059669;
-      border: 1px solid #bbf7d0;
-    }
-
-    .application-meta {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-      padding-top: 12px;
-      border-top: 1px solid var(--line);
-    }
-
-    .meta-card {
-      display: grid;
+    .app-card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
       gap: 4px;
-      min-width: 0;
-    }
-
-    .meta-label {
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      font-weight: 800;
+      font-size: 13px;
       color: var(--muted);
     }
 
-    .meta-value {
-      font-size: 12px;
-      font-weight: 800;
-      color: #0f172a;
+    .app-meta-inline {
+      white-space: nowrap;
+    }
+
+    .app-meta-key {
+      font-weight: 600;
+      color: var(--charcoal);
+    }
+
+    .app-meta-dot {
+      margin: 0 4px;
+      color: var(--line-strong);
+    }
+
+    .app-card-footer {
+      margin-top: 4px;
     }
 
     .summary-strip {
@@ -5106,54 +4976,13 @@
         display: none;
       }
 
-      .hero-shortcuts {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-      }
-
-      .hero-shortcut {
-        min-height: 74px;
-        padding: 10px 8px;
-        gap: 8px;
-        border: 1px solid rgba(226, 232, 240, 0.5);
-        background: rgba(255, 255, 255, 0.9);
-        color: var(--text);
-        box-shadow: 0 2px 6px -2px rgba(15, 23, 42, 0.06);
-        border-radius: 14px;
-      }
-
-      .hero-shortcut:hover,
-      .hero-shortcut.is-active {
-        background: #fff;
-        color: var(--text);
-        border-color: rgba(37, 99, 235, 0.2);
-      }
-
-      .hero-shortcut + .hero-shortcut {
-        border-left: 1px solid rgba(226, 232, 240, 0.5);
-        border-top: 1px solid rgba(226, 232, 240, 0.5);
-      }
-
-      .hero-shortcut-icon {
-        background: rgba(37, 99, 235, 0.1);
-        color: #2563eb;
-      }
-
-      .hero-shortcut-title {
-        font-size: 12px;
-      }
-
       .hero-search-meta {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .hero-filter-select {
-        min-height: 44px;
+        flex-direction: column;
       }
 
       .hero-filter-select {
         font-size: 12px;
-        padding: 0 36px 0 12px;
+        padding: 8px 36px 8px 12px;
       }
 
       .section-title {
@@ -5177,10 +5006,6 @@
         padding: 16px;
       }
 
-      .role-title {
-        font-size: 21px;
-      }
-
       .practice-mask {
         min-height: 76px;
         padding: 14px 16px;
@@ -5194,11 +5019,9 @@
         font-size: 11px;
       }
 
-      .role-location,
       .application-sub,
       .timeline-sub,
       .detail-subcopy,
-      .role-summary,
       .next-step-copy,
       .modal-summary,
       .detail-value,
@@ -5206,21 +5029,11 @@
         font-size: 12.5px;
       }
 
-      .save-btn {
-        width: 38px;
-        height: 38px;
-        border-radius: 12px;
-      }
-
-      .role-footer,
-      .application-footer,
-      .saved-job-footer,
       .modal-actions {
         flex-direction: column;
         align-items: stretch;
       }
 
-      .application-top,
       .hero-top,
       .summary-strip,
       .next-step-head,
@@ -5232,11 +5045,6 @@
         display: grid;
       }
 
-      .card-top-row {
-        gap: 10px;
-      }
-
-      .application-meta,
       .placement-broker-actions,
       .summary-grid,
       .modal-detail-grid,
@@ -5880,19 +5688,12 @@
     html.dark-mode .status-pill.secured { background: #052e16; color: #4ade80; }
 
     /* Billing pill */
-    html.dark-mode .billing-pill { background: #1e293b; color: #93c5fd; }
 
     /* Buttons */
     html.dark-mode .ghost-btn {
       background: var(--panel);
       border-color: var(--line);
       color: var(--text);
-    }
-
-    /* Save button */
-    html.dark-mode .save-btn {
-      background: var(--panel);
-      border-color: var(--line);
     }
 
     /* Filter selects */
@@ -5909,23 +5710,6 @@
       color: var(--text);
     }
 
-    /* Filter chips */
-    html.dark-mode .filter-chip {
-      background: var(--panel);
-      border-color: var(--line);
-      color: var(--text);
-    }
-    html.dark-mode .filter-chip.is-active {
-      background: var(--blue);
-      border-color: var(--blue);
-      color: #fff;
-    }
-
-    /* Hero shortcuts */
-    html.dark-mode .hero-shortcut {
-      background: var(--panel);
-      border-color: var(--line);
-    }
 
     /* Navigation */
     html.dark-mode .desktop-topbar {
@@ -6016,13 +5800,6 @@
               <input class="hero-search-input" id="heroSearchInput" type="text" placeholder="Search roles, locations, billing..." autocomplete="off" />
               <button class="hero-search-clear" id="heroSearchClear" type="button" hidden aria-label="Clear search">&times;</button>
             </div>
-            <div class="hero-filter-chips" id="heroFilterChips">
-              <button class="filter-chip" data-chip="regional" type="button">Regional</button>
-              <button class="filter-chip" data-chip="metro" type="button">Metro</button>
-              <button class="filter-chip" data-chip="dpa" type="button">DPA</button>
-              <button class="filter-chip" data-chip="visa_pathway_aligned" type="button">Visa Pathway</button>
-              <button class="filter-chip" data-chip="family_friendly" type="button">Family Friendly</button>
-            </div>
             <div class="hero-search-meta">
               <label class="hero-filter-field">
                 <select class="hero-filter-select" id="heroLocationSelect" aria-label="Filter by location"></select>
@@ -6033,32 +5810,15 @@
                 <svg class="hero-search-chip-caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg>
               </label>
             </div>
-            <div class="hero-search-footer">
-              <button class="hero-clear-btn" id="clearFiltersBtn" type="button">Clear filters</button>
-            </div>
           </div>
-          <div class="hero-shortcuts">
-            <button class="hero-shortcut" id="savedJobsShortcutBtn" type="button">
-              <span class="hero-shortcut-icon">
-                <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
-                <span class="hero-shortcut-badge" id="savedJobsShortcutCount">0</span>
-              </span>
-              <span class="hero-shortcut-title">Saved Jobs</span>
+          <nav class="hero-nav" id="heroNav">
+            <button class="hero-nav-item" id="savedJobsShortcutBtn" type="button">
+              Saved <span class="hero-nav-count" id="savedJobsShortcutCount">0</span>
             </button>
-            <button class="hero-shortcut" id="applicationsShortcutBtn" type="button">
-              <span class="hero-shortcut-icon">
-                <svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
-                <span class="hero-shortcut-badge" id="applicationsShortcutCount">0</span>
-              </span>
-              <span class="hero-shortcut-title">Applications</span>
+            <button class="hero-nav-item" id="applicationsShortcutBtn" type="button">
+              Applications
             </button>
-            <button class="hero-shortcut" id="howToApplyShortcutBtn" type="button">
-              <span class="hero-shortcut-icon">
-                <svg viewBox="0 0 24 24"><path d="M9.1 9a3 3 0 1 1 5.8 1c0 2-3 2-3 4"></path><path d="M12 17h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>
-              </span>
-              <span class="hero-shortcut-title">How to apply</span>
-            </button>
-          </div>
+          </nav>
         </div>
       </section>
 
@@ -9443,13 +9203,6 @@
         heroSearchInputEl.value = careerState.filterSearch || "";
       }
       if (heroSearchClearEl) heroSearchClearEl.hidden = !careerState.filterSearch;
-      syncFilterChipUi();
-    }
-
-    function syncFilterChipUi() {
-      document.querySelectorAll("[data-chip]").forEach(el => {
-        el.classList.toggle("is-active", careerState.filterChips.includes(el.getAttribute("data-chip")));
-      });
     }
 
     function openHowToApplyModal() {
@@ -9512,35 +9265,29 @@
       `;
     }
 
-    function buildRoleCardHtml(role, options = {}) {
-      const saveEnabled = options.saveEnabled !== false;
-      const primaryLabel = options.primaryLabel || "View role";
-      const saveLabel = isSaved(role.id) ? "Saved" : "Save";
-      const billingLabel = role && role.billing ? role.billing : "Billing to be confirmed";
-      return `
-        <article class="role-card">
-          <div class="card-top-row">
-            <span class="billing-pill">${escapeHtml(billingLabel)}</span>
-            ${saveEnabled ? `
-              <button class="save-btn${isSaved(role.id) ? " saved" : ""}" type="button" data-save-role="${role.id}" aria-label="${isSaved(role.id) ? "Remove saved job" : "Save job"}">
-                <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
-              </button>
-            ` : ""}
+    function buildRoleCardHtml(role) {
+      const saved = isSaved(role.id);
+      const billingLabel = String(role.billing || "Billing TBC").replace(/ billing/i, "");
+      const location = String(role.location || "Australia");
+      const summary = String(role.summary || "").slice(0, 120);
+      const earnings = String(role.earnings || "");
+
+      return `<article class="role-card">
+        <div class="role-card-header">
+          <div class="role-card-tags">
+            <span class="role-tag">${escapeHtml(billingLabel)}</span>
+            ${earnings ? `<span class="role-tag role-tag-muted">${escapeHtml(earnings)}</span>` : ""}
           </div>
-          <div class="privacy-stack">
-            ${buildPracticeMaskHtml(role)}
-            ${buildRoleMetricsHtml(role)}
-            <p class="role-summary">${escapeHtml(role.summary || "Confidential practice profile with GP Link support.")}</p>
-            ${buildBenefitListHtml(role.benefits)}
-          </div>
-          <div class="role-footer">
-            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;">
-              ${saveEnabled ? `<button class="ghost-btn" type="button" data-save-role="${role.id}">${saveLabel}</button>` : ""}
-              <button class="btn-primary" type="button" data-open-role="${role.id}">${escapeHtml(primaryLabel)}</button>
-            </div>
-          </div>
-        </article>
-      `;
+          <button class="role-save-btn${saved ? " saved" : ""}" type="button" data-save-role="${escapeHtml(role.id)}" aria-label="${saved ? "Remove from saved" : "Save"}">
+            <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
+          </button>
+        </div>
+        <div class="role-card-body">
+          <p class="role-card-location">${escapeHtml(location)}</p>
+          ${summary ? `<p class="role-card-summary">${escapeHtml(summary)}</p>` : ""}
+        </div>
+        <button class="role-card-cta" data-open-role="${escapeHtml(role.id)}">View details</button>
+      </article>`;
     }
 
     function resetRoleMap(role) {
@@ -9710,12 +9457,6 @@
           if (!searchFields.includes(searchTerm)) return false;
         }
 
-        if (careerState.filterChips.length > 0) {
-          const tokens = Array.isArray(role.filterTokens) ? role.filterTokens.map(t => t.toLowerCase()) : [];
-          const allChipsMatch = careerState.filterChips.every(chip => tokens.includes(chip.toLowerCase()));
-          if (!allChipsMatch) return false;
-        }
-
         return true;
       });
     }
@@ -9821,37 +9562,24 @@
       const hasApplications = careerState.applications.length > 0;
       applicationsEmptyStateEl.classList.toggle("is-visible", !hasApplications);
       applicationsGridEl.innerHTML = careerState.applications.map((application) => {
-        const role = findRole(application.roleId);
-        const billingLabel = role && role.billing ? role.billing : "Billing to be confirmed";
-        return `
-          <article class="application-card">
-            <div class="application-top">
-              <span class="billing-pill">${escapeHtml(billingLabel)}</span>
-              <span class="status-pill ${application.tone}">${escapeHtml(application.status)}</span>
-            </div>
-            <div class="privacy-stack">
-              ${buildPracticeMaskHtml(role || application, { reveal: application.isPlacementSecured })}
-              ${buildRoleMetricsHtml(role || application)}
-            </div>
-            <div class="application-meta">
-              ${application.meta.map((item) => `
-                <div class="meta-card">
-                  <span class="meta-label">${escapeHtml(item.label)}</span>
-                  <span class="meta-value">${escapeHtml(item.value)}</span>
-                </div>
-              `).join("")}
-            </div>
-            <div class="application-footer">
-              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;">
-                <button class="ghost-btn" type="button" data-save-role="${application.roleId}">${isSaved(application.roleId) ? "Saved" : "Save"}</button>
-                ${application.isPlacementSecured
-                  ? `<button class="btn-primary" type="button" data-open-placement="true">Open placement</button>`
-                  : `<a href="application-detail.html?id=${encodeURIComponent(application.id || '')}&role=${encodeURIComponent(application.roleId || '')}" class="btn-primary">View details</a>`
-                }
-              </div>
-            </div>
-          </article>
-        `;
+        const metaText = (application.meta || [])
+          .slice(0, 3)
+          .map(m => `<span class="app-meta-inline"><span class="app-meta-key">${escapeHtml(m.label)}</span> ${escapeHtml(m.value)}</span>`)
+          .join('<span class="app-meta-dot">&middot;</span>');
+
+        return `<article class="application-card">
+          <div class="app-card-header">
+            <span class="status-pill ${application.tone}">${escapeHtml(application.status)}</span>
+          </div>
+          <p class="app-card-location">${escapeHtml(application.location || application.practiceName || "")}</p>
+          <div class="app-card-meta">${metaText}</div>
+          <div class="app-card-footer">
+            ${application.isPlacementSecured
+              ? `<button class="role-card-cta" data-open-placement="true">Open placement</button>`
+              : `<a class="role-card-cta" href="application-detail.html?id=${encodeURIComponent(application.id || '')}&role=${encodeURIComponent(application.roleId || '')}">View details</a>`
+            }
+          </div>
+        </article>`;
       }).join("");
     }
 
@@ -10080,22 +9808,6 @@
       });
     }
 
-    document.addEventListener("click", (event) => {
-      const chipBtn = event.target.closest("[data-chip]");
-      if (!chipBtn) return;
-      const chip = chipBtn.getAttribute("data-chip");
-      if (!chip) return;
-      const idx = careerState.filterChips.indexOf(chip);
-      if (idx >= 0) {
-        careerState.filterChips = careerState.filterChips.filter(c => c !== chip);
-      } else {
-        careerState.filterChips = [...careerState.filterChips, chip];
-      }
-      syncFilterChipUi();
-      renderPage();
-      persistCareerState();
-    });
-
     savedJobsShortcutBtnEl.addEventListener("click", () => {
       setView("saved");
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -10107,33 +9819,34 @@
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
 
-    howToApplyShortcutBtnEl.addEventListener("click", openHowToApplyModal);
-    howToApplyCloseBtnEl.addEventListener("click", closeHowToApplyModal);
-    howToApplyDoneBtnEl.addEventListener("click", closeHowToApplyModal);
-    howToApplyModalEl.addEventListener("click", (event) => {
+    if (howToApplyShortcutBtnEl) howToApplyShortcutBtnEl.addEventListener("click", openHowToApplyModal);
+    if (howToApplyCloseBtnEl) howToApplyCloseBtnEl.addEventListener("click", closeHowToApplyModal);
+    if (howToApplyDoneBtnEl) howToApplyDoneBtnEl.addEventListener("click", closeHowToApplyModal);
+    if (howToApplyModalEl) howToApplyModalEl.addEventListener("click", (event) => {
       if (event.target === howToApplyModalEl) closeHowToApplyModal();
     });
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        if (howToApplyModalEl.classList.contains("is-open")) closeHowToApplyModal();
+        if (howToApplyModalEl && howToApplyModalEl.classList.contains("is-open")) closeHowToApplyModal();
         if (roleModalEl.classList.contains("is-open")) closeRoleModal();
       }
     });
 
-    clearFiltersBtnEl.addEventListener("click", () => {
-      careerState.filterLocation = "";
-      careerState.filterBilling = "";
-      careerState.filterSearch = "";
-      careerState.filterChips = [];
-      careerState.showSavedOnly = false;
-      if (heroSearchInputEl) heroSearchInputEl.value = "";
-      if (heroSearchClearEl) heroSearchClearEl.hidden = true;
-      syncFilterChipUi();
-      persistCareerState();
-      renderPage();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
+    if (clearFiltersBtnEl) {
+      clearFiltersBtnEl.addEventListener("click", () => {
+        careerState.filterLocation = "";
+        careerState.filterBilling = "";
+        careerState.filterSearch = "";
+        careerState.filterChips = [];
+        careerState.showSavedOnly = false;
+        if (heroSearchInputEl) heroSearchInputEl.value = "";
+        if (heroSearchClearEl) heroSearchClearEl.hidden = true;
+        persistCareerState();
+        renderPage();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
 
     browseRolesBtnEl.addEventListener("click", () => {
       careerState.showSavedOnly = false;
@@ -10169,7 +9882,7 @@
             filters: {
               location: careerState.filterLocation || "",
               billing: careerState.filterBilling || "",
-              tokens: careerState.filterChips || []
+              tokens: []
             }
           })
         }).catch(() => {});
