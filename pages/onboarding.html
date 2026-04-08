@@ -820,11 +820,20 @@
       border-radius: 999px;
       background: rgba(37, 99, 235, 0.35);
       z-index: -1;
-      animation: btn-pulse 2s ease-in-out infinite;
+      opacity: 0;
+      animation: none;
     }
     .btn-next::after {
       inset: -6px;
       background: rgba(37, 99, 235, 0.15);
+    }
+    /* Pulse only on intro step, and stop during FLIP morph */
+    .btn-next.intro-size:not(.flipping)::before,
+    .btn-next.intro-size:not(.flipping)::after {
+      opacity: 1;
+      animation: btn-pulse 2s ease-in-out infinite;
+    }
+    .btn-next.intro-size:not(.flipping)::after {
       animation-delay: 0.4s;
     }
     @keyframes btn-pulse {
@@ -1235,6 +1244,6 @@
   </div>
 
   <script src="../js/qualification-camera.js?v=20260311a"></script>
-  <script src="../js/onboarding.js?v=20260409g"></script>
+  <script src="../js/onboarding.js?v=20260409h"></script>
 </body>
 </html>

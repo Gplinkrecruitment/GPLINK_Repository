@@ -1127,38 +1127,45 @@
     ).join("");
   }
 
-  // ── FLIP-based button slide ─────────────────
+  // ── FLIP-based button morph (translate + scale) ──
   // Layout changes are instant; only transform animates (GPU-composited, 0 reflows).
   var btnRow = nextBtn.parentElement;
 
   function flipNextBtn(applyLayoutChange) {
-    // FIRST — capture where the button is now
+    // FIRST — capture current rect
     var first = nextBtn.getBoundingClientRect();
 
-    // Apply all layout changes instantly (no transitions on layout props)
+    // Kill pulse during animation
+    nextBtn.classList.add("flipping");
+
+    // Apply all layout changes instantly
     applyLayoutChange();
 
-    // LAST — where the button ended up after layout
+    // LAST — where it ended up
     var last = nextBtn.getBoundingClientRect();
 
-    // INVERT — push it back to where it was visually
+    // INVERT — translate + scale so it looks like nothing changed
     var dx = first.left + first.width / 2 - (last.left + last.width / 2);
-    if (Math.abs(dx) < 1) return; // no meaningful movement
+    var sx = first.width / last.width;
+    var sy = first.height / last.height;
 
     nextBtn.style.transition = "none";
-    nextBtn.style.transform = "translateX(" + dx + "px)";
+    nextBtn.style.transformOrigin = "center center";
+    nextBtn.style.transform = "translateX(" + dx + "px) scaleX(" + sx + ") scaleY(" + sy + ")";
 
-    // PLAY — let it animate to final position (force reflow commits the above)
+    // PLAY — force reflow then animate to identity
     void nextBtn.offsetWidth;
     nextBtn.style.transition = "transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)";
-    nextBtn.style.transform = "";
+    nextBtn.style.transform = "translateX(0) scaleX(1) scaleY(1)";
   }
 
-  // Clean up inline styles once FLIP animation ends
+  // Clean up once animation finishes
   nextBtn.addEventListener("transitionend", function (e) {
     if (e.propertyName === "transform") {
       nextBtn.style.transition = "";
       nextBtn.style.transform = "";
+      nextBtn.style.transformOrigin = "";
+      nextBtn.classList.remove("flipping");
     }
   });
 
