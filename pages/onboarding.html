@@ -776,6 +776,16 @@
       justify-content: space-between;
       width: 100%;
       gap: 12px;
+      transition: justify-content 0.4s ease;
+    }
+    /* Intro step: center the button, full width */
+    .btn-row.intro-mode {
+      justify-content: center;
+    }
+    .btn-row.intro-mode .btn-next {
+      min-width: 80%;
+      padding: 18px 40px;
+      font-size: 17px;
     }
 
     .btn-skip {
@@ -793,7 +803,7 @@
       padding: 14px 36px;
       border-radius: 999px;
       cursor: pointer;
-      transition: transform 0.15s, opacity 0.15s, background 0.2s, box-shadow 0.2s;
+      transition: transform 0.15s, opacity 0.15s, background 0.2s, box-shadow 0.2s, min-width 0.4s ease, padding 0.4s ease, font-size 0.3s ease;
       min-width: 120px;
       text-align: center;
       transform-origin: center;
@@ -928,15 +938,15 @@
     .marquee-track {
       display: flex;
       align-items: center;
-      gap: 36px;
+      gap: 48px;
       width: max-content;
-      animation: marquee-scroll 18s linear infinite;
+      animation: marquee-scroll 22s linear infinite;
     }
     .marquee-track img {
-      height: 60px;
+      height: 80px;
       width: auto;
-      opacity: 0.65;
-      filter: grayscale(15%);
+      opacity: 0.7;
+      filter: grayscale(10%);
       flex-shrink: 0;
       object-fit: contain;
     }
@@ -1015,8 +1025,8 @@
 
       <!-- STEP 1: Country of Specialist Registration -->
       <div class="slide" data-slide="1">
-        <div class="slide-illustration">
-          <img src="../media/images/onboarding-qualifications.png" alt="Specialist registration" style="width:190px;height:auto;" />
+        <div class="slide-illustration" style="padding:20px 0 8px;flex-shrink:0;">
+          <img src="../media/images/onboarding-qualifications.png" alt="Specialist registration" style="width:180px;height:auto;" />
         </div>
         <div class="slide-content">
           <h1>Country of Specialist Registration</h1>

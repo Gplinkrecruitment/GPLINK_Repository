@@ -1152,6 +1152,9 @@
     // Hide progress dots on intro slide
     var dotsEl = document.getElementById("progressDots");
     if (dotsEl) dotsEl.style.display = step === 0 ? "none" : "flex";
+    // Intro mode: center + enlarge Get Started button
+    var btnRow = nextBtn.parentElement;
+    if (btnRow) btnRow.classList.toggle("intro-mode", step === 0);
 
     if (isSkippable(step)) {
       skipBtn.classList.remove("invisible");
