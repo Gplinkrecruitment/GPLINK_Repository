@@ -3797,15 +3797,18 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const pc = prev.epic.completed || {};
     const nc = nxt.epic.completed || {};
 
-    // ── MyIntealth transitions ──
+    // ── MyIntealth welcome — send when GP first starts (epic progress appears for the first time) ──
+    const prevHasEpic = prev.epic && prev.epic.stage;
+    const nextHasEpic = nxt.epic && nxt.epic.stage;
+    if (!prevHasEpic && nextHasEpic && _gpPhone) {
+      await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
+      await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
+    }
+
+    // ── MyIntealth substep transitions ──
     const epicLabels = { create_account: 'Confirm MyIntealth account created', account_establishment: 'Verify account establishment documents', upload_qualifications: 'Review uploaded qualification documents', verification_issued: 'Confirm EPIC verification issued' };
     for (const key of ['create_account', 'account_establishment', 'upload_qualifications', 'verification_issued']) {
       if (!pc[key] && nc[key] === true) {
-        // Send MyIntealth welcome WhatsApp on the very first substep
-        if (key === 'create_account' && _gpPhone) {
-          await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
-          await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
-        }
         if (!(await _hasOpenTask(caseId, 'myintealth', 'verify'))) {
           await _createRegTask(caseId, { task_type: 'verify', title: epicLabels[key], priority: key === 'upload_qualifications' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'myintealth', related_substage: key, _actor: 'system' });
         }
