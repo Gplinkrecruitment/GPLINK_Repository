@@ -796,6 +796,28 @@
       transform-origin: center;
       will-change: transform;
       box-shadow: 0 8px 24px -8px rgba(37, 99, 235, 0.4);
+      position: relative;
+      overflow: visible;
+      z-index: 1;
+    }
+    .btn-next::before,
+    .btn-next::after {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.35);
+      z-index: -1;
+      animation: btn-pulse 2s ease-in-out infinite;
+    }
+    .btn-next::after {
+      inset: -6px;
+      background: rgba(37, 99, 235, 0.15);
+      animation-delay: 0.4s;
+    }
+    @keyframes btn-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.08); opacity: 0.4; }
     }
     .btn-next:hover {
       background: var(--primary-dark);
@@ -804,6 +826,8 @@
     }
     .btn-next:active { transform: translateY(0) scale(0.97); }
     .btn-next:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+    .btn-next:disabled::before,
+    .btn-next:disabled::after { display: none; }
     .btn-next.submit {
       background: var(--primary);
     }
@@ -906,11 +930,12 @@
       animation: marquee-scroll 18s linear infinite;
     }
     .marquee-track img {
-      height: 32px;
+      height: 48px;
       width: auto;
-      opacity: 0.55;
-      filter: grayscale(30%);
+      opacity: 0.6;
+      filter: grayscale(20%);
       flex-shrink: 0;
+      object-fit: contain;
     }
     @keyframes marquee-scroll {
       0% { transform: translateX(0); }
@@ -971,53 +996,28 @@
             <div class="partners-label">We work with</div>
             <div class="marquee-wrap">
               <div class="marquee-track">
-                <img src="../media/images/logo-ama.svg" alt="AMA" />
-                <img src="../media/images/logo-ecfmg.svg" alt="ECFMG" />
-                <img src="../media/images/logo-amc.svg" alt="AMC" />
-                <img src="../media/images/logo-ahpra.svg" alt="AHPRA" />
-                <img src="../media/images/logo-ama.svg" alt="AMA" />
-                <img src="../media/images/logo-ecfmg.svg" alt="ECFMG" />
-                <img src="../media/images/logo-amc.svg" alt="AMC" />
-                <img src="../media/images/logo-ahpra.svg" alt="AHPRA" />
+                <img src="../media/images/logo-ama.png" alt="AMA" />
+                <img src="../media/images/logo-ecfmg.png" alt="ECFMG" />
+                <img src="../media/images/logo-amc.png" alt="AMC" />
+                <img src="../media/images/logo-ahpra.png" alt="AHPRA" />
+                <img src="../media/images/logo-ama.png" alt="AMA" />
+                <img src="../media/images/logo-ecfmg.png" alt="ECFMG" />
+                <img src="../media/images/logo-amc.png" alt="AMC" />
+                <img src="../media/images/logo-ahpra.png" alt="AHPRA" />
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- STEP 1: Country of qualification -->
+      <!-- STEP 1: Country of Specialist Registration -->
       <div class="slide" data-slide="1">
-        <div class="slide-illustration">
-          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="100" cy="85" r="55" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
-            <path d="M50 85h100M100 30v110" stroke="#bfdbfe" stroke-width="1"/>
-            <ellipse cx="100" cy="85" rx="55" ry="20" fill="none" stroke="#bfdbfe" stroke-width="1"/>
-            <ellipse cx="100" cy="85" rx="25" ry="55" fill="none" stroke="#bfdbfe" stroke-width="1"/>
-            <circle cx="65" cy="70" r="5" fill="#3b82f6"/>
-            <circle cx="120" cy="60" r="4" fill="#2563eb"/>
-            <circle cx="85" cy="100" r="4" fill="#f59e0b"/>
-            <circle cx="135" cy="90" r="5" fill="#ef4444"/>
-            <circle cx="112" cy="108" r="4" fill="#8b5cf6"/>
-            <line x1="65" y1="70" x2="120" y2="60" stroke="#d1d5db" stroke-width="1"/>
-            <line x1="120" y1="60" x2="135" y2="90" stroke="#d1d5db" stroke-width="1"/>
-            <line x1="85" y1="100" x2="112" y2="108" stroke="#d1d5db" stroke-width="1"/>
-            <g transform="translate(112,100)">
-              <path d="M0-6c-4 0-7 3-7 7s7 13 7 13 7-9 7-13-3-7-7-7z" fill="#2563eb"/>
-              <circle cx="0" cy="1" r="2.5" fill="#fff"/>
-            </g>
-            <g transform="translate(30,135)">
-              <rect x="0" y="0" width="30" height="40" rx="4" fill="#1e40af"/>
-              <rect x="5" y="5" width="20" height="14" rx="2" fill="#dbeafe"/>
-              <line x1="5" y1="24" x2="25" y2="24" stroke="#93c5fd" stroke-width="1.5"/>
-              <line x1="5" y1="28" x2="20" y2="28" stroke="#93c5fd" stroke-width="1.5"/>
-              <line x1="5" y1="32" x2="22" y2="32" stroke="#93c5fd" stroke-width="1.5"/>
-            </g>
-          </svg>
+        <div class="slide-illustration" style="min-height:200px;padding:20px 0 0;">
+          <img src="../media/images/onboarding-qualifications.png" alt="Specialist registration" style="width:200px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
         </div>
         <div class="slide-content">
-          <h1>Where did you qualify?</h1>
-          <p>We'll tailor every step to your country's registration pathway.</p>
-          <p style="font-size:13px;color:var(--light);margin-top:-14px;">Your personalised pathway is 3 minutes away. Progress saves automatically.</p>
+          <h1>Country of Specialist Registration</h1>
+          <p>Select the country where you obtained your current specialist GP qualification. This helps us determine the fastest registration pathway to Australia.</p>
           <div class="form-area">
             <div>
               <label class="field-label" for="countrySearch">Country of qualification</label>
@@ -1028,6 +1028,8 @@
               <div class="field-error" id="countryError">Please select your country of qualification.</div>
               <div class="field-hint" id="countryHint" style="display:none;color:var(--red);font-size:13px;margin-top:8px;">We currently only accept GPs qualified in the United Kingdom, Ireland, or New Zealand.</div>
             </div>
+            <!-- Explanation above upload cards -->
+            <p id="qualDocsExplainer" style="font-size:13px;color:var(--light);margin-top:10px;margin-bottom:-4px;display:none;">Upload your certificates so we can quickly assess the best pathway to Australia and tailor the journey for you.</p>
             <!-- Qualification docs appear here after country selection -->
             <div id="qualDocsContainer" style="margin-top:14px;">
               <!-- Populated dynamically by JS based on selected country -->

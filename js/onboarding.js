@@ -250,11 +250,15 @@
     if (!qualDocsContainer) return;
     const docs = COUNTRY_DOCS[state.country] || [];
     qualDocsContainer.innerHTML = "";
+    var explainer = document.getElementById("qualDocsExplainer");
 
     if (docs.length === 0) {
       qualDocsContainer.innerHTML = '<p style="color:var(--muted);font-size:14px;">Select a country first.</p>';
+      if (explainer) explainer.style.display = "none";
       return;
     }
+
+    if (explainer) explainer.style.display = "block";
 
     docs.forEach((doc, idx) => {
       const docState = (state.qualDocs && state.qualDocs[doc.key]) || {};
