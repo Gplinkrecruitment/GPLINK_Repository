@@ -9207,7 +9207,7 @@
     function getRoleLocationOptions() {
       const options = new Set();
       roleData.forEach((role) => {
-        const value = String(role && role.location ? role.location : "").trim();
+        const value = String(role && role.majorCity ? role.majorCity : "").trim();
         if (value) options.add(value);
       });
       return Array.from(options).sort((a, b) => a.localeCompare(b));
@@ -9305,7 +9305,7 @@
     function buildRoleCardHtml(role) {
       const saved = isSaved(role.id);
       const billingLabel = String(role.billing || "Billing TBC").replace(/ billing/i, "");
-      const location = String(role.majorCity || role.location || "Australia");
+      const location = String(role.location || "Australia");
       const summary = String(role.summary || "").slice(0, 120);
       const earnings = String(role.earnings || "");
       const heroUrl = String(role.heroImageUrl || "");
@@ -9482,7 +9482,7 @@
       return roleData.filter((role) => {
         const matchesSaved = !careerState.showSavedOnly || isSaved(role.id);
         if (!matchesSaved) return false;
-        const matchesLocation = !filterLocation || String(role.location || "").trim().toLowerCase() === filterLocation;
+        const matchesLocation = !filterLocation || String(role.majorCity || role.location || "").trim().toLowerCase() === filterLocation;
         if (!matchesLocation) return false;
         const matchesBilling = !filterBilling || String(role.billing || "").trim().toLowerCase() === filterBilling;
         if (!matchesBilling) return false;
