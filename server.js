@@ -7213,6 +7213,24 @@ async function ensureCareerRoleAiProfile(row) {
   }
 }
 
+const AUSTRALIAN_MAJOR_CITIES = {
+  'NSW': 'Sydney',
+  'VIC': 'Melbourne',
+  'QLD': 'Brisbane',
+  'WA': 'Perth',
+  'SA': 'Adelaide',
+  'TAS': 'Hobart',
+  'ACT': 'Canberra',
+  'NT': 'Darwin'
+};
+
+function mapToMajorCity(locationCity, locationState) {
+  const state = String(locationState || '').trim().toUpperCase();
+  const city = AUSTRALIAN_MAJOR_CITIES[state] || '';
+  if (!city && !state) return 'Australia';
+  return city ? (city + ', ' + state) : state;
+}
+
 function mapCareerRoleRowToClient(row) {
   const gpLinkMeta = getCareerRoleGpLinkMeta(row);
   const location = buildLocationLabel([
@@ -7267,6 +7285,8 @@ function mapCareerRoleRowToClient(row) {
     heroImageCredit: gpLinkMeta.heroImageCredit || '',
     mapQuery: gpLinkMeta.mapQuery || '',
     mapLabel: gpLinkMeta.suburb || row.location_city || row.location_label || '',
+    majorCity: mapToMajorCity(row && row.location_city, row && row.location_state),
+    qualifyHint: (row && row.visa_pathway_aligned) ? 'Visa pathway' : (row && row.dpa) ? 'DPA eligible' : '',
     aiStatus: gpLinkMeta.aiStatus || 'fallback'
   };
 }

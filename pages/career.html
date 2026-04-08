@@ -926,6 +926,18 @@
     }
     .role-card-cta:hover { color: var(--blue2); }
 
+    .role-qualify-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
     .card-head,
     .card-top-row {
       display: flex;
@@ -9293,7 +9305,7 @@
     function buildRoleCardHtml(role) {
       const saved = isSaved(role.id);
       const billingLabel = String(role.billing || "Billing TBC").replace(/ billing/i, "");
-      const location = String(role.location || "Australia");
+      const location = String(role.majorCity || role.location || "Australia");
       const summary = String(role.summary || "").slice(0, 120);
       const earnings = String(role.earnings || "");
       const heroUrl = String(role.heroImageUrl || "");
@@ -9311,6 +9323,7 @@
             </button>
           </div>
           <p class="role-card-location">${escapeHtml(location)}</p>
+          ${role.qualifyHint ? `<span class="role-qualify-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> ${escapeHtml(role.qualifyHint)}</span>` : ""}
           ${summary ? `<p class="role-card-summary">${escapeHtml(summary)}</p>` : ""}
           <button class="role-card-cta" data-open-role="${escapeHtml(role.id)}">View details</button>
         </div>
@@ -10056,6 +10069,8 @@
 
       const openAppBtn = event.target.closest("[data-open-application]");
       if (openAppBtn) {
+        event.preventDefault();
+        event.stopPropagation();
         const appId = openAppBtn.getAttribute("data-open-application") || "";
         const appRoleId = openAppBtn.getAttribute("data-open-application-role") || "";
         const app = careerState.applications.find(a => a && ((a.id && a.id === appId) || (a.roleId && a.roleId === appRoleId)));
@@ -10188,6 +10203,43 @@
       moveNavGlass(activeNavItem);
     });
 
+    async function loadRoleCardHeroImages() {
+      const cards = document.querySelectorAll(".role-card:not(.hero-loaded)");
+      for (const card of cards) {
+        const roleBtn = card.querySelector("[data-open-role]");
+        if (!roleBtn) continue;
+        const id = roleBtn.getAttribute("data-open-role");
+        if (!id) continue;
+
+        const existingHero = card.querySelector(".role-card-hero-img");
+        if (existingHero && existingHero.src && !existingHero.src.includes("data:")) {
+          card.classList.add("hero-loaded");
+          continue;
+        }
+
+        try {
+          const res = await fetch("/api/career/hero-image?roleId=" + encodeURIComponent(id), { credentials: "same-origin" });
+          if (!res.ok) { card.classList.add("hero-loaded"); continue; }
+          const data = await res.json();
+          if (data.ok && data.heroImageUrl) {
+            let heroDiv = card.querySelector(".role-card-hero");
+            if (!heroDiv) {
+              heroDiv = document.createElement("div");
+              heroDiv.className = "role-card-hero";
+              card.insertBefore(heroDiv, card.firstChild);
+              card.classList.add("has-hero");
+            }
+            heroDiv.innerHTML = '<img class="role-card-hero-img" src="' + escapeHtml(data.heroImageUrl) + '" alt="" loading="lazy" />';
+            card.classList.add("hero-loaded");
+          } else {
+            card.classList.add("hero-loaded");
+          }
+        } catch {
+          card.classList.add("hero-loaded");
+        }
+      }
+    }
+
     (async function init() {
       const hadStoredCareerState = !!localStorage.getItem(CAREER_STATE_KEY);
       remoteApplicationsSettled = hasConcreteSecuredPlacementData();
@@ -10203,6 +10255,7 @@
       await loadRemoteApplications({ render: false });
       syncCareerViewFromLocation();
       renderPage();
+      loadRoleCardHeroImages();
       if (handleRequestedRoleRedirect()) return;
       syncInboxIndicators();
     })();
