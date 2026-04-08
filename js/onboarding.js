@@ -1127,38 +1127,39 @@
     ).join("");
   }
 
-  // ── Button centering via GPU transform ─────
-  var btnSlideReady = false; // skip transition on first paint
-  function centerNextBtn(centered) {
-    if (centered) {
-      requestAnimationFrame(function () {
-        var row = nextBtn.parentElement;
-        if (!row) return;
-        var rowW = row.offsetWidth;
-        var btnW = nextBtn.offsetWidth;
-        var offset = (rowW - btnW) / 2;
-        if (!btnSlideReady) {
-          // Snap into place on load — no transition
-          nextBtn.style.transition = "none";
-          nextBtn.style.transform = "translateX(" + -offset + "px)";
-          // Re-enable transitions next frame
-          requestAnimationFrame(function () {
-            nextBtn.style.transition = "";
-            btnSlideReady = true;
-          });
-        } else {
-          nextBtn.style.transform = "translateX(" + -offset + "px)";
-        }
-      });
-    } else {
+  // ── FLIP-based button slide ─────────────────
+  // Layout changes are instant; only transform animates (GPU-composited, 0 reflows).
+  var btnRow = nextBtn.parentElement;
+
+  function flipNextBtn(applyLayoutChange) {
+    // FIRST — capture where the button is now
+    var first = nextBtn.getBoundingClientRect();
+
+    // Apply all layout changes instantly (no transitions on layout props)
+    applyLayoutChange();
+
+    // LAST — where the button ended up after layout
+    var last = nextBtn.getBoundingClientRect();
+
+    // INVERT — push it back to where it was visually
+    var dx = first.left + first.width / 2 - (last.left + last.width / 2);
+    if (Math.abs(dx) < 1) return; // no meaningful movement
+
+    nextBtn.style.transition = "none";
+    nextBtn.style.transform = "translateX(" + dx + "px)";
+
+    // PLAY — let it animate to final position (force reflow commits the above)
+    void nextBtn.offsetWidth;
+    nextBtn.style.transition = "transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)";
+    nextBtn.style.transform = "";
+  }
+
+  // Clean up inline styles once FLIP animation ends
+  nextBtn.addEventListener("transitionend", function (e) {
+    if (e.propertyName === "transform") {
+      nextBtn.style.transition = "";
       nextBtn.style.transform = "";
     }
-  }
-  // Center on first paint (before auth fetch completes)
-  centerNextBtn(true);
-  // Re-center if viewport resizes while on intro
-  window.addEventListener("resize", function () {
-    if (currentStep === 0) centerNextBtn(true);
   });
 
   // ── Navigation ─────────────────────────────
@@ -1187,11 +1188,17 @@
     var dotsEl = document.getElementById("progressDots");
     if (dotsEl) dotsEl.style.display = step === 0 ? "none" : "flex";
 
-    // Intro size class (wide/large on step 0, compact otherwise)
-    nextBtn.classList.toggle("intro-size", step === 0);
-
-    // GPU-accelerated slide: center on step 0, natural position otherwise
-    centerNextBtn(step === 0);
+    // FLIP the button: capture pos → change layout → animate with transform
+    var needsFlip = (prev === 0 && step === 1) || (prev === 1 && step === 0);
+    if (needsFlip) {
+      flipNextBtn(function () {
+        nextBtn.classList.toggle("intro-size", step === 0);
+        btnRow.classList.toggle("intro-center", step === 0);
+      });
+    } else {
+      nextBtn.classList.toggle("intro-size", step === 0);
+      btnRow.classList.toggle("intro-center", step === 0);
+    }
 
     if (isSkippable(step)) {
       skipBtn.classList.remove("invisible");
@@ -1200,14 +1207,15 @@
       skipBtn.classList.add("invisible");
     }
 
-    // Fluid button label swap — text changes mid-slide
+    // Button label — swap text mid-slide so it changes during the motion
     var newLabel = step === TOTAL_STEPS - 1 ? "SUBMIT" : step === 0 ? "Get Started" : "NEXT";
     var isSubmit = step === TOTAL_STEPS - 1;
     if (nextBtn.textContent !== newLabel) {
+      var delay = needsFlip ? 300 : 0;
       setTimeout(function () {
         nextBtn.textContent = newLabel;
         nextBtn.classList.toggle("submit", isSubmit);
-      }, 280);
+      }, delay);
     } else {
       nextBtn.classList.toggle("submit", isSubmit);
     }
