@@ -11,17 +11,17 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --primary: #16A34A;
-      --primary-dark: #15803D;
-      --green: #16A34A;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --green: #10b981;
       --red: #dc2626;
       --orange: #f59e0b;
-      --text: #1C2024;
-      --muted: #5F6B64;
-      --light: #8A9690;
-      --bg: #F4F5F0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --light: #94a3b8;
+      --bg: #f8fafc;
       --card: #ffffff;
-      --border: #D5DCD6;
+      --border: #e2e8f0;
       --radius: 20px;
     }
 
@@ -65,40 +65,44 @@
     }
     .blob-1 {
       width: 260px; height: 260px;
-      background: #86EFAC;
+      background: #93c5fd;
       top: -80px; left: -40px;
     }
     .blob-2 {
       width: 220px; height: 220px;
-      background: #BBF7D0;
+      background: #a5b4fc;
       top: -40px; right: -60px;
     }
     .blob-3 {
       width: 180px; height: 180px;
-      background: #FDE68A;
+      background: #6ee7b7;
       top: 60px; left: 40%;
     }
 
-    /* per-step blob color variations (5 steps: 0-4) */
-    [data-step="0"] .blob-1 { background: #86EFAC; top: -60px; left: -20px; }
-    [data-step="0"] .blob-2 { background: #BBF7D0; }
-    [data-step="0"] .blob-3 { background: #FDE68A; }
+    /* per-step blob color variations (6 steps: 0-5) */
+    [data-step="0"] .blob-1 { background: #93c5fd; top: -60px; left: -20px; }
+    [data-step="0"] .blob-2 { background: #a5b4fc; }
+    [data-step="0"] .blob-3 { background: #fbbf24; }
 
-    [data-step="1"] .blob-1 { background: #A7F3D0; }
-    [data-step="1"] .blob-2 { background: #FBCFE8; }
-    [data-step="1"] .blob-3 { background: #86EFAC; top: 80px; }
+    [data-step="1"] .blob-1 { background: #6ee7b7; top: -60px; left: -20px; }
+    [data-step="1"] .blob-2 { background: #93c5fd; }
+    [data-step="1"] .blob-3 { background: #fbbf24; }
 
-    [data-step="2"] .blob-1 { background: #BAE6FD; }
-    [data-step="2"] .blob-2 { background: #86EFAC; }
-    [data-step="2"] .blob-3 { background: #FDE68A; }
+    [data-step="2"] .blob-1 { background: #a5b4fc; }
+    [data-step="2"] .blob-2 { background: #f9a8d4; }
+    [data-step="2"] .blob-3 { background: #93c5fd; top: 80px; }
 
-    [data-step="3"] .blob-1 { background: #FDE68A; }
-    [data-step="3"] .blob-2 { background: #86EFAC; }
-    [data-step="3"] .blob-3 { background: #C4B5FD; }
+    [data-step="3"] .blob-1 { background: #fbbf24; }
+    [data-step="3"] .blob-2 { background: #6ee7b7; }
+    [data-step="3"] .blob-3 { background: #a5b4fc; }
 
-    [data-step="4"] .blob-1 { background: #A7F3D0; top: -100px; }
-    [data-step="4"] .blob-2 { background: #86EFAC; }
-    [data-step="4"] .blob-3 { background: #BAE6FD; top: 40px; }
+    [data-step="4"] .blob-1 { background: #a5b4fc; top: -100px; }
+    [data-step="4"] .blob-2 { background: #6ee7b7; }
+    [data-step="4"] .blob-3 { background: #93c5fd; top: 40px; }
+
+    [data-step="5"] .blob-1 { background: #93c5fd; }
+    [data-step="5"] .blob-2 { background: #6ee7b7; }
+    [data-step="5"] .blob-3 { background: #fbbf24; }
 
     /* ── PREVIOUS BUTTON ──────────────────────── */
     .back-btn {
@@ -244,7 +248,7 @@
     }
     input:focus, select:focus, textarea:focus {
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(22,163,74,0.12);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
     }
 
     textarea {
@@ -290,7 +294,7 @@
     }
     .country-search-input:focus {
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(22,163,74,0.12);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
     }
     .country-list {
       list-style: none;
@@ -312,9 +316,9 @@
       gap: 10px;
     }
     .country-list li:hover,
-    .country-list li.highlighted { background: rgba(22,163,74,0.06); }
+    .country-list li.highlighted { background: rgba(37,99,235,0.06); }
     .country-list li.selected {
-      background: rgba(22,163,74,0.10);
+      background: rgba(37,99,235,0.10);
       font-weight: 600;
       color: var(--primary);
     }
@@ -353,7 +357,7 @@
     .qual-doc-slot-badge.verified { background: #ecfdf5; color: var(--green); }
     .qual-doc-slot-badge.failed { background: #fef2f2; color: var(--red); }
     .qual-doc-slot-badge.scanning { background: #fef3c7; color: #d97706; }
-    .qual-doc-slot-badge.review { background: #DCFCE7; color: var(--primary); }
+    .qual-doc-slot-badge.review { background: #dbeafe; color: var(--primary); }
     .qual-doc-slot-actions {
       display: flex;
       gap: 8px;
@@ -375,7 +379,7 @@
       cursor: pointer;
       transition: border-color 0.15s, background 0.15s;
     }
-    .qual-doc-btn:hover { border-color: var(--primary); background: rgba(22,163,74,0.04); }
+    .qual-doc-btn:hover { border-color: var(--primary); background: rgba(37,99,235,0.04); }
     .qual-doc-btn:active { transform: scale(0.97); }
     .qual-doc-btn svg {
       width: 18px; height: 18px;
@@ -416,8 +420,8 @@
       display: flex;
       align-items: flex-start;
       gap: 10px;
-      background: rgba(22,163,74,0.06);
-      border: 1px solid rgba(22,163,74,0.18);
+      background: rgba(37,99,235,0.06);
+      border: 1px solid rgba(37,99,235,0.18);
       border-radius: 12px;
       padding: 14px 16px;
       margin-bottom: 18px;
@@ -614,7 +618,7 @@
     .option-card:active { transform: scale(0.97); }
     .option-card.selected {
       border-color: var(--primary);
-      background: rgba(22,163,74,0.06);
+      background: rgba(37,99,235,0.06);
     }
     .option-card-icon {
       display: flex;
@@ -661,7 +665,7 @@
       transition: border-color 0.15s, background 0.15s;
     }
     .stepper-btn:hover { border-color: var(--primary); }
-    .stepper-btn:active { background: rgba(22,163,74,0.06); }
+    .stepper-btn:active { background: rgba(37,99,235,0.06); }
     .stepper-value {
       font-size: 20px;
       font-weight: 700;
@@ -761,12 +765,12 @@
       text-align: center;
       transform-origin: center;
       will-change: transform;
-      box-shadow: 0 8px 24px -8px rgba(22, 163, 74, 0.4);
+      box-shadow: 0 8px 24px -8px rgba(37, 99, 235, 0.4);
     }
     .btn-next:hover {
       background: var(--primary-dark);
       transform: translateY(-1px) scaleX(1.02) scaleY(0.98);
-      box-shadow: 0 12px 28px -8px rgba(22, 163, 74, 0.5);
+      box-shadow: 0 12px 28px -8px rgba(37, 99, 235, 0.5);
     }
     .btn-next:active { transform: translateY(0) scale(0.97); }
     .btn-next:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
@@ -887,37 +891,44 @@
     <!-- slides viewport -->
     <div class="slides-viewport">
 
-      <!-- STEP 0: Country of qualification -->
+      <!-- STEP 0: Welcome / Intro -->
       <div class="slide active" data-slide="0">
+        <div class="slide-illustration" style="min-height:260px;padding:30px 0 0;">
+          <img src="../media/images/onboarding-welcome.png" alt="Doctor with Australia" style="width:240px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
+        </div>
+        <div class="slide-content" style="text-align:center;">
+          <h1>Your fastest pathway to practising in Australia</h1>
+          <p>Personalised to your qualifications, timeline, and family — set up in under 3 minutes.</p>
+          <p style="font-size:13px;color:var(--light);margin-top:-8px;">Trusted by GPs from the UK, Ireland, and New Zealand.</p>
+        </div>
+      </div>
+
+      <!-- STEP 1: Country of qualification -->
+      <div class="slide" data-slide="1">
         <div class="slide-illustration">
           <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <!-- Globe network -->
-            <circle cx="100" cy="85" r="55" fill="#ecfdf5" stroke="#6ee7b7" stroke-width="2"/>
-            <path d="M50 85h100M100 30v110" stroke="#a7f3d0" stroke-width="1"/>
-            <ellipse cx="100" cy="85" rx="55" ry="20" fill="none" stroke="#a7f3d0" stroke-width="1"/>
-            <ellipse cx="100" cy="85" rx="25" ry="55" fill="none" stroke="#a7f3d0" stroke-width="1"/>
-            <!-- Connection dots -->
-            <circle cx="65" cy="70" r="5" fill="#10b981"/>
-            <circle cx="120" cy="60" r="4" fill="#16A34A"/>
+            <circle cx="100" cy="85" r="55" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+            <path d="M50 85h100M100 30v110" stroke="#bfdbfe" stroke-width="1"/>
+            <ellipse cx="100" cy="85" rx="55" ry="20" fill="none" stroke="#bfdbfe" stroke-width="1"/>
+            <ellipse cx="100" cy="85" rx="25" ry="55" fill="none" stroke="#bfdbfe" stroke-width="1"/>
+            <circle cx="65" cy="70" r="5" fill="#3b82f6"/>
+            <circle cx="120" cy="60" r="4" fill="#2563eb"/>
             <circle cx="85" cy="100" r="4" fill="#f59e0b"/>
             <circle cx="135" cy="90" r="5" fill="#ef4444"/>
             <circle cx="112" cy="108" r="4" fill="#8b5cf6"/>
-            <!-- Lines between dots -->
             <line x1="65" y1="70" x2="120" y2="60" stroke="#d1d5db" stroke-width="1"/>
             <line x1="120" y1="60" x2="135" y2="90" stroke="#d1d5db" stroke-width="1"/>
             <line x1="85" y1="100" x2="112" y2="108" stroke="#d1d5db" stroke-width="1"/>
-            <!-- Arrow pointing to Australia pin -->
             <g transform="translate(112,100)">
-              <path d="M0-6c-4 0-7 3-7 7s7 13 7 13 7-9 7-13-3-7-7-7z" fill="#16A34A"/>
+              <path d="M0-6c-4 0-7 3-7 7s7 13 7 13 7-9 7-13-3-7-7-7z" fill="#2563eb"/>
               <circle cx="0" cy="1" r="2.5" fill="#fff"/>
             </g>
-            <!-- Passport icon -->
             <g transform="translate(30,135)">
-              <rect x="0" y="0" width="30" height="40" rx="4" fill="#14532D"/>
-              <rect x="5" y="5" width="20" height="14" rx="2" fill="#DCFCE7"/>
-              <line x1="5" y1="24" x2="25" y2="24" stroke="#86EFAC" stroke-width="1.5"/>
-              <line x1="5" y1="28" x2="20" y2="28" stroke="#86EFAC" stroke-width="1.5"/>
-              <line x1="5" y1="32" x2="22" y2="32" stroke="#86EFAC" stroke-width="1.5"/>
+              <rect x="0" y="0" width="30" height="40" rx="4" fill="#1e40af"/>
+              <rect x="5" y="5" width="20" height="14" rx="2" fill="#dbeafe"/>
+              <line x1="5" y1="24" x2="25" y2="24" stroke="#93c5fd" stroke-width="1.5"/>
+              <line x1="5" y1="28" x2="20" y2="28" stroke="#93c5fd" stroke-width="1.5"/>
+              <line x1="5" y1="32" x2="22" y2="32" stroke="#93c5fd" stroke-width="1.5"/>
             </g>
           </svg>
         </div>
@@ -939,30 +950,10 @@
         </div>
       </div>
 
-      <!-- STEP 1: Verify qualification documents -->
-      <div class="slide" data-slide="1">
-        <div class="slide-illustration" style="min-height:160px;padding:20px 0 0;">
-          <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
-            <!-- Shield with document -->
-            <rect x="45" y="20" width="110" height="90" rx="8" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
-            <rect x="45" y="20" width="110" height="22" rx="8" fill="#DCFCE7"/>
-            <rect x="45" y="34" width="110" height="8" rx="0" fill="#DCFCE7"/>
-            <rect x="60" y="55" width="80" height="4" rx="2" fill="#e2e8f0"/>
-            <rect x="65" y="65" width="60" height="4" rx="2" fill="#e2e8f0"/>
-            <rect x="60" y="75" width="70" height="4" rx="2" fill="#e2e8f0"/>
-            <circle cx="100" cy="96" r="8" fill="#fbbf24"/>
-            <path d="M97 96l2.5 2.5 5-5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>
-            <g transform="translate(130,75)">
-              <path d="M15 2l12 4v10c0 8-5 14-12 17-7-3-12-9-12-17V6z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
-              <path d="M10 14l4 4 8-8" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-            </g>
-            <!-- Camera icon -->
-            <g transform="translate(15,100)">
-              <rect x="2" y="8" width="30" height="22" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
-              <path d="M10 8l2-4h10l2 4" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.5"/>
-              <circle cx="17" cy="20" r="6" fill="#DCFCE7" stroke="#16A34A" stroke-width="1.5"/>
-            </g>
-          </svg>
+      <!-- STEP 2: Verify qualification documents -->
+      <div class="slide" data-slide="2">
+        <div class="slide-illustration" style="min-height:200px;padding:20px 0 0;">
+          <img src="../media/images/onboarding-qualifications.png" alt="Verify qualifications" style="width:200px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
         </div>
         <div class="slide-content">
           <h1>Let's verify your credentials</h1>
@@ -976,102 +967,10 @@
         </div>
       </div>
 
-      <!-- STEP 2: Quick Identity Check -->
-      <div class="slide" data-slide="2">
-        <div class="slide-illustration">
-          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-            <!-- ID Card -->
-            <rect x="35" y="55" width="130" height="90" rx="12" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
-            <rect x="35" y="55" width="130" height="28" rx="12" fill="#DCFCE7"/>
-            <rect x="35" y="75" width="130" height="8" fill="#DCFCE7"/>
-            <!-- Photo area -->
-            <rect x="48" y="92" width="36" height="42" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1.5"/>
-            <circle cx="66" cy="105" r="9" fill="#cbd5e1"/>
-            <path d="M52 130c0-8 6-14 14-14s14 6 14 14" fill="#cbd5e1"/>
-            <!-- Text lines -->
-            <rect x="94" y="94" width="56" height="4" rx="2" fill="#e2e8f0"/>
-            <rect x="94" y="104" width="42" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="94" y="113" width="50" height="3" rx="1.5" fill="#e2e8f0"/>
-            <rect x="94" y="122" width="30" height="3" rx="1.5" fill="#e2e8f0"/>
-            <!-- Shield check -->
-            <g transform="translate(130,30)">
-              <path d="M20 2l16 5v13c0 10-6 18-16 22-10-4-16-12-16-22V7z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
-              <path d="M13 18l5 5 10-10" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-            </g>
-          </svg>
-        </div>
-        <div class="slide-content">
-          <h1>One last step — confirm your identity</h1>
-          <p>Upload your <strong>passport</strong> or <strong>driver's licence</strong> so we can match it to your qualifications.</p>
-          <div class="form-area">
-            <div class="id-check-info">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              <span>Your document is <strong>deleted immediately</strong> after verification. We only check the name — nothing is stored.</span>
-            </div>
-
-            <!-- ID verification area -->
-            <div id="idVerifyArea">
-              <div class="id-verify-status" id="idVerifyStatus"></div>
-              <div class="qual-doc-slot-actions" id="idVerifyActions">
-                <button class="qual-doc-btn" id="idVerifyUploadBtn" type="button">
-                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                  Upload
-                </button>
-                <button class="qual-doc-btn" id="idVerifyCameraBtn" type="button">
-                  <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                  Camera
-                </button>
-              </div>
-              <input type="file" id="idVerifyFileInput" accept="image/*" style="display:none;" />
-            </div>
-
-            <div class="field-error" id="docsError">Please upload your passport or driver's licence.</div>
-          </div>
-        </div>
-      </div>
-
       <!-- STEP 3: Relocation details (merged date/city/who) -->
       <div class="slide" data-slide="3">
-        <div class="slide-illustration" style="min-height:160px;padding:10px 0 0;">
-          <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg">
-            <!-- Calendar -->
-            <rect x="15" y="20" width="75" height="65" rx="7" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
-            <rect x="15" y="20" width="75" height="18" rx="7" fill="#16A34A"/>
-            <rect x="15" y="32" width="75" height="6" rx="0" fill="#16A34A"/>
-            <g fill="#e2e8f0">
-              <rect x="22" y="45" width="8" height="8" rx="2"/>
-              <rect x="34" y="45" width="8" height="8" rx="2"/>
-              <rect x="46" y="45" width="8" height="8" rx="2"/>
-              <rect x="58" y="45" width="8" height="8" rx="2"/>
-              <rect x="70" y="45" width="8" height="8" rx="2"/>
-              <rect x="22" y="58" width="8" height="8" rx="2"/>
-              <rect x="34" y="58" width="8" height="8" rx="2"/>
-            </g>
-            <rect x="46" y="58" width="8" height="8" rx="2" fill="#16A34A"/>
-            <g fill="#e2e8f0">
-              <rect x="58" y="58" width="8" height="8" rx="2"/>
-              <rect x="70" y="58" width="8" height="8" rx="2"/>
-              <rect x="22" y="71" width="8" height="8" rx="2"/>
-            </g>
-            <!-- Australia silhouette -->
-            <g transform="translate(105,15)">
-              <path d="M10 20c-3 1-6 8-4 14s8 14 16 16 18-1 22-6 6-12 3-18-8-10-14-11-10 0-14 2-5 2-9 3z" fill="#DCFCE7" stroke="#86EFAC" stroke-width="1.5"/>
-              <circle cx="38" cy="28" r="3" fill="#16A34A"/>
-              <circle cx="32" cy="36" r="2.5" fill="#4ADE80"/>
-              <circle cx="22" cy="38" r="2.5" fill="#86EFAC"/>
-            </g>
-            <!-- People icons -->
-            <g transform="translate(110,80)">
-              <circle cx="15" cy="8" r="10" fill="#fbbf24"/>
-              <rect x="5" y="18" width="20" height="20" rx="6" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
-            </g>
-            <g transform="translate(145,85)">
-              <circle cx="10" cy="6" r="8" fill="#f9a8d4"/>
-              <rect x="2" y="14" width="16" height="16" rx="5" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/>
-            </g>
-            <!-- Arrow -->
-            <path d="M85 70 Q100 55 112 45" fill="none" stroke="#16A34A" stroke-width="1.5" stroke-dasharray="4 3"/>
-          </svg>
+        <div class="slide-illustration" style="min-height:200px;padding:10px 0 0;">
+          <img src="../media/images/onboarding-relocation.png" alt="Family relocating" style="width:200px;height:auto;filter:drop-shadow(0 20px 30px rgba(0,0,0,0.10));" />
         </div>
         <div class="slide-content">
           <h1>Plan your move</h1>
@@ -1139,7 +1038,7 @@
         </div>
       </div>
 
-      <!-- STEP 4: Review & Submit -->
+      <!-- STEP 4: Review -->
       <div class="slide" data-slide="4">
         <div class="slide-illustration" style="min-height:140px; padding: 20px 0 0;">
           <svg viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg">
@@ -1165,8 +1064,8 @@
               <rect x="18" y="3" width="45" height="4" rx="2" fill="#e2e8f0"/>
             </g>
             <g transform="translate(62,110)">
-              <circle cx="6" cy="6" r="6" fill="#DCFCE7"/><path d="M3 6l2.5 2.5 5-5" stroke="#16A34A" stroke-width="2" fill="none" stroke-linecap="round"/>
-              <rect x="18" y="3" width="55" height="4" rx="2" fill="#DCFCE7"/>
+              <circle cx="6" cy="6" r="6" fill="#dbeafe"/><path d="M3 6l2.5 2.5 5-5" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <rect x="18" y="3" width="55" height="4" rx="2" fill="#dbeafe"/>
             </g>
           </svg>
         </div>
@@ -1181,6 +1080,55 @@
         </div>
       </div>
 
+      <!-- STEP 5: Identity Check (final step) -->
+      <div class="slide" data-slide="5">
+        <div class="slide-illustration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <rect x="35" y="55" width="130" height="90" rx="12" fill="#fff" stroke="#e2e8f0" stroke-width="2"/>
+            <rect x="35" y="55" width="130" height="28" rx="12" fill="#dbeafe"/>
+            <rect x="35" y="75" width="130" height="8" fill="#dbeafe"/>
+            <rect x="48" y="92" width="36" height="42" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1.5"/>
+            <circle cx="66" cy="105" r="9" fill="#cbd5e1"/>
+            <path d="M52 130c0-8 6-14 14-14s14 6 14 14" fill="#cbd5e1"/>
+            <rect x="94" y="94" width="56" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="94" y="104" width="42" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="94" y="113" width="50" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="94" y="122" width="30" height="3" rx="1.5" fill="#e2e8f0"/>
+            <g transform="translate(130,30)">
+              <path d="M20 2l16 5v13c0 10-6 18-16 22-10-4-16-12-16-22V7z" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+              <path d="M13 18l5 5 10-10" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </svg>
+        </div>
+        <div class="slide-content">
+          <h1>Confirm your identity</h1>
+          <p>Upload your <strong>passport</strong> or <strong>driver's licence</strong> so we can match it to your qualifications.</p>
+          <div class="form-area">
+            <div class="id-check-info">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <span>Your document is <strong>deleted immediately</strong> after verification. We only check the name — nothing is stored.</span>
+            </div>
+
+            <div id="idVerifyArea">
+              <div class="id-verify-status" id="idVerifyStatus"></div>
+              <div class="qual-doc-slot-actions" id="idVerifyActions">
+                <button class="qual-doc-btn" id="idVerifyUploadBtn" type="button">
+                  <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Upload
+                </button>
+                <button class="qual-doc-btn" id="idVerifyCameraBtn" type="button">
+                  <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  Camera
+                </button>
+              </div>
+              <input type="file" id="idVerifyFileInput" accept="image/*" style="display:none;" />
+            </div>
+
+            <div class="field-error" id="docsError">Please upload your passport or driver's licence.</div>
+          </div>
+        </div>
+      </div>
+
     </div><!-- end slides-viewport -->
 
     <!-- bottom controls -->
@@ -1191,16 +1139,17 @@
         <div class="progress-dot"></div>
         <div class="progress-dot"></div>
         <div class="progress-dot"></div>
+        <div class="progress-dot"></div>
       </div>
       <div class="btn-row">
         <button class="back-btn" id="backBtn" aria-label="Go to previous step">Previous</button>
         <button class="btn-skip invisible" id="skipBtn">SKIP</button>
-        <button class="btn-next" id="nextBtn">NEXT</button>
+        <button class="btn-next" id="nextBtn">Get Started</button>
       </div>
     </div>
   </div>
 
   <script src="../js/qualification-camera.js?v=20260311a"></script>
-  <script src="../js/onboarding.js?v=20260409a"></script>
+  <script src="../js/onboarding.js?v=20260409b"></script>
 </body>
 </html>

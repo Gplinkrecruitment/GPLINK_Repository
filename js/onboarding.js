@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const TOTAL_STEPS = 5;
+  const TOTAL_STEPS = 6;
   const STORAGE_KEY = "gp_onboarding";
   const MAX_RETRIES = 5;
 
@@ -42,7 +42,7 @@
 
   // Migrate old 8-step state to new 5-step layout
   if (state._version !== 2) {
-    var stepMap = { 0: 0, 1: 0, 2: 1, 3: 3, 4: 3, 5: 3, 6: 2, 7: 4 };
+    var stepMap = { 0: 1, 1: 1, 2: 2, 3: 3, 4: 3, 5: 3, 6: 5, 7: 4 };
     if (state.currentStep !== undefined && stepMap[state.currentStep] !== undefined) {
       state.currentStep = stepMap[state.currentStep];
     }
@@ -287,14 +287,14 @@
         // Actionable tips based on retry count
         var tips = ["Try removing any frame or cover", "Ensure there is no glare on the document", "Hold camera steady and use good lighting", "Try uploading a flat scan or screenshot instead"];
         if (retryCount > 0 && retryCount <= tips.length) {
-          infoHtml += '<div class="qual-doc-slot-retry" style="color:var(--primary, #16A34A);">Tip: ' + tips[retryCount - 1] + '</div>';
+          infoHtml += '<div class="qual-doc-slot-retry" style="color:var(--primary, #2563eb);">Tip: ' + tips[retryCount - 1] + '</div>';
         }
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       } else if (status === "support_requested") {
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #16A34A);">Support team will verify manually via email</div>';
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Support team will verify manually via email</div>';
       } else if (status === "manual_review") {
         var reviewIssues = humanizeScanIssues((docState.scanResult && docState.scanResult.issues) ? docState.scanResult.issues : ["Queued for review"], { documentTitle: doc.label, mode: "qualification" });
-        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #16A34A);">Sent for manual review.<br>' + reviewIssues.map(escHtml).join("<br>") + '</div>';
+        infoHtml = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Sent for manual review.<br>' + reviewIssues.map(escHtml).join("<br>") + '</div>';
         infoHtml += '<button class="qual-support-btn" data-support-doc="' + doc.key + '" type="button">Contact Support</button>';
       }
 
@@ -540,13 +540,13 @@
 
     card.innerHTML =
       '<div style="width:56px;height:56px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">' +
-        '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+        '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
       '</div>' +
       '<h3 style="color:#fff;font-size:18px;font-weight:700;margin:0 0 8px;">Manual Verification Required</h3>' +
       '<p style="color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 20px;">' +
         'Due to discrepancies in your qualifications, our team will email you to manually verify your qualifications and resume onboarding.' +
       '</p>' +
-      '<button id="qualSupportSendBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#16A34A;color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;font-family:inherit;">Send Support Request</button>' +
+      '<button id="qualSupportSendBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;font-family:inherit;">Send Support Request</button>' +
       '<button id="qualSupportCloseBtn" type="button" style="width:100%;padding:12px;border:none;border-radius:12px;background:transparent;color:#64748b;font-size:14px;cursor:pointer;font-family:inherit;">Close</button>';
 
     overlay.appendChild(card);
@@ -592,7 +592,7 @@
             '<p style="color:#94a3b8;font-size:14px;line-height:1.5;margin:0 0 20px;">' +
               'Our team has received your request and will email you to manually verify your qualifications. You can continue with the rest of the onboarding in the meantime.' +
             '</p>' +
-            '<button id="qualSupportDoneBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#16A34A;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">OK</button>';
+            '<button id="qualSupportDoneBtn" type="button" style="width:100%;padding:14px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;">OK</button>';
           document.getElementById("qualSupportDoneBtn").addEventListener("click", function () { overlay.remove(); });
         } else {
           btn.textContent = "Send Support Request";
@@ -821,7 +821,7 @@
       statusEl.innerHTML = '<div class="qual-doc-slot-info error">' + issues.map(escHtml).join("<br>") + '</div>';
       actionsEl.style.display = "";
     } else if (status === "support_requested") {
-      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--primary, #16A34A);">Support team will verify manually via email</div>';
+      statusEl.innerHTML = '<div class="qual-doc-slot-info" style="color:var(--primary, #2563eb);">Support team will verify manually via email</div>';
       actionsEl.style.display = "none";
     } else {
       statusEl.innerHTML = "";
@@ -990,7 +990,8 @@
     }
 
     switch (step) {
-      case 0: // country
+      case 0: return true; // intro
+      case 1: // country
         if (!state.country) { showError("countryError"); return false; }
         if (!COUNTRY_DOCS[state.country]) {
           const hint = document.getElementById("countryHint");
@@ -999,21 +1000,13 @@
         }
         hideError("countryError");
         return true;
-      case 1: // qualification docs
+      case 2: // qualification docs
         if (!allDocsComplete()) {
           showError("qualDocsError", "Please verify all required documents before continuing.");
           return false;
         }
         hideError("qualDocsError");
         return true;
-      case 2: // identity check
-        const idStatus = state.idVerification && state.idVerification.status;
-        if (idStatus === "verified" || idStatus === "support_requested") {
-          hideError("docsError");
-          return true;
-        }
-        showError("docsError", "Please upload your passport or driver's licence.");
-        return false;
       case 3: // relocation details (date + city + who)
         let ok = true;
         if (!state.targetDate) { showError("dateError", "Please select a target date."); ok = false; }
@@ -1028,6 +1021,14 @@
         else hideError("whoError");
         return ok;
       case 4: return true; // review
+      case 5: // identity check
+        const idStatus = state.idVerification && state.idVerification.status;
+        if (idStatus === "verified" || idStatus === "support_requested") {
+          hideError("docsError");
+          return true;
+        }
+        showError("docsError", "Please upload your passport or driver's licence.");
+        return false;
       default: return true;
     }
   }
@@ -1071,12 +1072,6 @@
       { label: "Who's moving", value: whoLabels[state.whoMoving] || "Not set" },
     ];
     if (hasChildren) rows.push({ label: "Children", value: String(childrenCount) });
-    const idStatus = state.idVerification && state.idVerification.status;
-    rows.push({
-      label: "Identity check",
-      value: idStatus === "verified" ? "Verified" : idStatus === "support_requested" ? "Support contacted" : "Not verified",
-      cls: idStatus === "verified" ? "status-verified" : idStatus === "support_requested" ? "status-pending" : "status-missing",
-    });
 
     if (state.accountReviewFlag) {
       rows.push({ label: "Account", value: "Under Review", cls: "status-pending" });
@@ -1109,6 +1104,9 @@
     });
 
     backBtn.classList.toggle("visible", step > 0);
+    // Hide progress dots on intro slide
+    var dotsEl = document.getElementById("progressDots");
+    if (dotsEl) dotsEl.style.display = step === 0 ? "none" : "flex";
 
     if (isSkippable(step)) {
       skipBtn.classList.remove("invisible");
@@ -1120,17 +1118,20 @@
     if (step === TOTAL_STEPS - 1) {
       nextBtn.textContent = "SUBMIT";
       nextBtn.classList.add("submit");
+    } else if (step === 0) {
+      nextBtn.textContent = "Get Started";
+      nextBtn.classList.remove("submit");
     } else {
       nextBtn.textContent = "NEXT";
       nextBtn.classList.remove("submit");
     }
 
-    if (step === TOTAL_STEPS - 1) {
+    if (step === 4) {
       buildReview();
     }
 
-    if (step === 1) renderQualDocSlots();
-    if (step === 2) renderIdVerifyStatus();
+    if (step === 2) renderQualDocSlots();
+    if (step === 5) renderIdVerifyStatus();
 
     saveState();
   }
