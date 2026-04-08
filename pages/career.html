@@ -804,16 +804,41 @@
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 16px;
-      padding: 20px;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
-      gap: 12px;
       transition: box-shadow 0.18s ease, transform 0.18s ease;
     }
 
     .role-card:hover {
       box-shadow: 0 8px 24px -8px rgba(2, 6, 23, 0.12);
       transform: translateY(-1px);
+    }
+
+    .role-card-hero {
+      width: 100%;
+      height: 140px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
+    }
+
+    .role-card-hero-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .role-card-content {
+      padding: 16px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .role-card:not(.has-hero) .role-card-content {
+      padding-top: 20px;
     }
 
     .role-card-header {
@@ -9271,22 +9296,24 @@
       const location = String(role.location || "Australia");
       const summary = String(role.summary || "").slice(0, 120);
       const earnings = String(role.earnings || "");
+      const heroUrl = String(role.heroImageUrl || "");
 
-      return `<article class="role-card">
-        <div class="role-card-header">
-          <div class="role-card-tags">
-            <span class="role-tag">${escapeHtml(billingLabel)}</span>
-            ${earnings ? `<span class="role-tag role-tag-muted">${escapeHtml(earnings)}</span>` : ""}
+      return `<article class="role-card${heroUrl ? " has-hero" : ""}">
+        ${heroUrl ? `<div class="role-card-hero"><img class="role-card-hero-img" src="${escapeHtml(heroUrl)}" alt="${escapeHtml(location)}" loading="lazy" /></div>` : ""}
+        <div class="role-card-content">
+          <div class="role-card-header">
+            <div class="role-card-tags">
+              <span class="role-tag">${escapeHtml(billingLabel)}</span>
+              ${earnings ? `<span class="role-tag role-tag-muted">${escapeHtml(earnings)}</span>` : ""}
+            </div>
+            <button class="role-save-btn${saved ? " saved" : ""}" type="button" data-save-role="${escapeHtml(role.id)}" aria-label="${saved ? "Remove from saved" : "Save"}">
+              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
+            </button>
           </div>
-          <button class="role-save-btn${saved ? " saved" : ""}" type="button" data-save-role="${escapeHtml(role.id)}" aria-label="${saved ? "Remove from saved" : "Save"}">
-            <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"></path></svg>
-          </button>
-        </div>
-        <div class="role-card-body">
           <p class="role-card-location">${escapeHtml(location)}</p>
           ${summary ? `<p class="role-card-summary">${escapeHtml(summary)}</p>` : ""}
+          <button class="role-card-cta" data-open-role="${escapeHtml(role.id)}">View details</button>
         </div>
-        <button class="role-card-cta" data-open-role="${escapeHtml(role.id)}">View details</button>
       </article>`;
     }
 
@@ -9576,7 +9603,7 @@
           <div class="app-card-footer">
             ${application.isPlacementSecured
               ? `<button class="role-card-cta" data-open-placement="true">Open placement</button>`
-              : `<a class="role-card-cta" href="application-detail.html?id=${encodeURIComponent(application.id || '')}&role=${encodeURIComponent(application.roleId || '')}">View details</a>`
+              : `<button class="role-card-cta" data-open-application="${escapeHtml(application.id || '')}" data-open-application-role="${escapeHtml(application.roleId || '')}">View details</button>`
             }
           </div>
         </article>`;
@@ -10018,19 +10045,24 @@
         return;
       }
 
-      const appDetailLink = event.target.closest("a[href*='application-detail.html']");
-      if (appDetailLink) {
-        const appId = new URL(appDetailLink.href, location.href).searchParams.get("id");
-        const app = careerState.applications.find(a => a && (a.id === appId || a.roleId === appId));
-        if (app) {
-          try { sessionStorage.setItem("gp_application_preview", JSON.stringify(app)); } catch (e) {}
-        }
-      }
+
 
       const openPlacementBtn = event.target.closest("[data-open-placement]");
       if (openPlacementBtn) {
         setView("secured");
         window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+
+      const openAppBtn = event.target.closest("[data-open-application]");
+      if (openAppBtn) {
+        const appId = openAppBtn.getAttribute("data-open-application") || "";
+        const appRoleId = openAppBtn.getAttribute("data-open-application-role") || "";
+        const app = careerState.applications.find(a => a && ((a.id && a.id === appId) || (a.roleId && a.roleId === appRoleId)));
+        if (app) {
+          try { sessionStorage.setItem("gp_application_preview", JSON.stringify(app)); } catch {}
+        }
+        window.location.href = "application-detail.html?id=" + encodeURIComponent(appId) + "&role=" + encodeURIComponent(appRoleId);
         return;
       }
 
