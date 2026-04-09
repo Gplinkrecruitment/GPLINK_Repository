@@ -5798,6 +5798,44 @@
       text-align: center;
       letter-spacing: 0.02em;
     }
+    .card-status-action {
+      display: block;
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      text-align: center;
+      transition: background 0.14s;
+    }
+    .card-status-interview {
+      background: rgba(37, 99, 235, 0.06);
+      color: #2563eb;
+      border: 1px solid rgba(37, 99, 235, 0.1);
+    }
+    .card-status-interview:hover { background: rgba(37, 99, 235, 0.1); }
+    .card-status-offer {
+      background: rgba(217, 119, 6, 0.06);
+      color: #d97706;
+      border: 1px solid rgba(217, 119, 6, 0.1);
+    }
+    .card-status-offer:hover { background: rgba(217, 119, 6, 0.1); }
+    .area-guide-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(37, 99, 235, 0.04);
+      border: 1px solid rgba(37, 99, 235, 0.08);
+      text-decoration: none;
+      color: inherit;
+      margin-bottom: 16px;
+      transition: background 0.14s;
+    }
+    .area-guide-link:hover { background: rgba(37, 99, 235, 0.08); }
+    .area-guide-link svg:first-child { color: #2563eb; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -5983,6 +6021,15 @@
             </div>
             <div class="placement-checklist-list" id="securedChecklistList"></div>
           </section>
+
+          <a href="area-guide.html" class="area-guide-link" id="areaGuideLink">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            <div>
+              <div style="font-weight:800;font-size:14px;">Area Guide</div>
+              <div style="font-size:12px;color:var(--muted,#64748b);margin-top:2px;">Cost of living, commute, amenities & more</div>
+            </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;margin-left:auto;opacity:0.4;"><path d="m9 18 6-6-6-6"/></svg>
+          </a>
 
           <div class="placement-primary-grid">
             <section class="practice-lifestyle-module" aria-labelledby="practiceLifestyleHeading">
@@ -9607,6 +9654,13 @@
           .map(m => `<span class="app-meta-inline"><span class="app-meta-key">${escapeHtml(m.label)}</span> ${escapeHtml(m.value)}</span>`)
           .join('<span class="app-meta-dot">&middot;</span>');
 
+        var statusAction = '';
+        if (application.status === 'interview' || application.status === 'interview_scheduled') {
+          statusAction = '<a href="interview-prep.html?id=' + encodeURIComponent(application.applicationId || application.id) + '" class="card-status-action card-status-interview" onclick="event.stopPropagation();">Interview Strategy \u2192</a>';
+        } else if (application.status === 'offer' || application.status === 'offer_pending' || application.status === 'offered') {
+          statusAction = '<a href="offer-review.html?id=' + encodeURIComponent(application.applicationId || application.id) + '" class="card-status-action card-status-offer" onclick="event.stopPropagation();">Review Offer \u2192</a>';
+        }
+
         return `<article class="application-card">
           <div class="app-card-header">
             <span class="status-pill ${application.tone}">${escapeHtml(application.status)}</span>
@@ -9618,6 +9672,7 @@
               ? `<button class="role-card-cta" data-open-placement="true">Open placement</button>`
               : `<button class="role-card-cta" data-open-application="${escapeHtml(application.id || '')}" data-open-application-role="${escapeHtml(application.roleId || '')}">View details</button>`
             }
+            ${statusAction}
           </div>
         </article>`;
       }).join("");
@@ -10064,6 +10119,19 @@
       if (openPlacementBtn) {
         setView("secured");
         window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+
+      // Area guide link
+      var areaLink = event.target.closest('#areaGuideLink');
+      if (areaLink) {
+        event.preventDefault();
+        var route = '/pages/area-guide.html';
+        if (window.parent && window.parent !== window && typeof window.parent.gpShellNavigate === 'function') {
+          window.parent.gpShellNavigate(route, 'Area Guide');
+        } else {
+          window.location.href = 'area-guide.html';
+        }
         return;
       }
 
