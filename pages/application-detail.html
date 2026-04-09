@@ -216,6 +216,70 @@
     }
     .btn-add-calendar:hover { background: var(--panel-soft); border-color: var(--blue); }
 
+    .interview-strategy-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: rgba(37, 99, 235, 0.06);
+      border: 1px solid rgba(37, 99, 235, 0.1);
+      color: var(--blue, #2563eb);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: background 0.14s;
+      margin-top: 8px;
+    }
+    .interview-strategy-btn:hover {
+      background: rgba(37, 99, 235, 0.1);
+    }
+
+    /* ── Offer card ── */
+    .offer-card {
+      margin-top: 16px;
+      padding: 20px;
+      border-radius: 14px;
+      background: rgba(217, 119, 6, 0.06);
+      border: 1px solid rgba(217, 119, 6, 0.12);
+      margin-left: 16px;
+      margin-right: 16px;
+    }
+    .offer-card-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(217, 119, 6, 0.1);
+      color: #d97706;
+      margin-bottom: 8px;
+    }
+    .offer-card-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .offer-review-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: #d97706;
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: background 0.14s;
+    }
+    .offer-review-btn:hover { background: #b45309; }
+
     /* ── Detail rows ── */
     .detail-section {
       padding: 0 16px 16px;
@@ -328,6 +392,20 @@
       background: var(--bg);
       color: var(--text);
     }
+
+    html.dark-mode .interview-strategy-btn {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.15);
+      color: #3b82f6;
+    }
+    html.dark-mode .offer-card {
+      background: rgba(251, 191, 36, 0.08);
+      border-color: rgba(251, 191, 36, 0.12);
+    }
+    html.dark-mode .offer-card-badge {
+      background: rgba(251, 191, 36, 0.12);
+      color: #fbbf24;
+    }
   </style>
 </head>
 <body>
@@ -371,16 +449,16 @@
         </button>
       </div>
 
-      <!-- Interview Prep Tips -->
-      <div class="prep-tips-card" id="prepTipsCard" hidden>
-        <h3 class="prep-tips-title">Interview Preparation</h3>
-        <ul class="prep-tips-list">
-          <li>Review the practice location and any publicly available information</li>
-          <li>Prepare questions about the practice workflow and patient demographics</li>
-          <li>Have your CV and qualification documents accessible</li>
-          <li>Test your camera and microphone before the interview</li>
-          <li>Join the meeting 2-3 minutes early</li>
-        </ul>
+      <!-- Offer Card (shown when status is offer-related) -->
+      <div class="offer-card" id="offerCard" style="display:none;">
+        <div class="offer-card-header">
+          <div class="offer-card-badge">Offer Received</div>
+          <div class="offer-card-title">You have an offer from this practice</div>
+        </div>
+        <a href="#" class="offer-review-link offer-review-btn" id="offerReviewLink">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><polyline points="20 6 9 17 4 12"/></svg>
+          Review Offer
+        </a>
       </div>
 
       <!-- Meta Cards -->
@@ -549,6 +627,13 @@
           if (interviewObj && interviewObj.format && interviewObj.format !== "video") {
             joinBtn.hidden = true;
           }
+
+          // Interview Strategy link
+          var strategyLink = document.createElement('a');
+          strategyLink.href = 'interview-prep.html?id=' + encodeURIComponent(appId);
+          strategyLink.className = 'interview-strategy-btn';
+          strategyLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg> Interview Strategy';
+          interviewCard.appendChild(strategyLink);
         }
 
         // Meta cards (exclude interview-specific labels)
@@ -638,19 +723,17 @@
           });
         }
 
-        // Interview Prep Tips — inject inside interview card
-        var prepCard = document.getElementById("prepTipsCard");
-        if ((isInterview || interviewObj) && prepCard) {
-          var tipsHtml = '<hr style="border:none;border-top:1px solid var(--line);margin:16px 0">'
-            + '<p style="font-weight:700;font-size:14px;color:var(--text);margin:0 0 10px">Preparation</p>'
-            + '<ul style="margin:0;padding:0 0 0 18px;font-size:13px;color:var(--muted);line-height:1.8">'
-            + '<li>Review the practice location and available information</li>'
-            + '<li>Prepare questions about workflow and patient demographics</li>'
-            + '<li>Test your camera and microphone beforehand</li>'
-            + '<li>Join 2-3 minutes early</li>'
-            + '</ul>';
-          document.getElementById("interviewMeta").insertAdjacentHTML("afterend", tipsHtml);
-          prepCard.hidden = true;
+        // Offer card — show when status is offer-related
+        var offerStatuses = ['offer', 'offer_pending', 'offered'];
+        if (offerStatuses.indexOf(normalizeStatusKey(app.rawStatus || app.status)) !== -1) {
+          var offerCard = document.getElementById('offerCard');
+          if (offerCard) {
+            offerCard.style.display = 'block';
+            var offerLink = document.getElementById('offerReviewLink');
+            if (offerLink) {
+              offerLink.href = 'offer-review.html?id=' + encodeURIComponent(appId);
+            }
+          }
         }
 
         // Withdrawal
