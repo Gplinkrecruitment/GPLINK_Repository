@@ -3525,6 +3525,14 @@ async function _hasOpenTask(caseId, stage, type) {
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
+async function _hasDoubleTickBeenSent(caseId, stageTitle) {
+  if (!isSupabaseDbConfigured()) return false;
+  const exactTitle = stageTitle + ' started — WhatsApp template sent';
+  const q = await supabaseDbRequest('task_timeline',
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&event_type=eq.system&title=eq.' + encodeURIComponent(exactTitle) + '&limit=1');
+  return q.ok && Array.isArray(q.data) && q.data.length > 0;
+}
+
 async function _hasOpenTaskForDoc(caseId, docKey) {
   if (!isSupabaseDbConfigured()) return false;
   const q = await supabaseDbRequest('registration_tasks',
@@ -3808,15 +3816,17 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const pc = prev.epic.completed || {};
     const nc = nxt.epic.completed || {};
 
-    // ── MyIntealth welcome — send when GP first starts (epic progress appears for the first time) ──
-    const prevHasEpic = prev.epic && prev.epic.stage;
+    // ── MyIntealth welcome — send when GP has epic progress and message hasn't been sent yet ──
     const nextHasEpic = nxt.epic && nxt.epic.stage;
-    console.log('[task-automation] DoubleTick check: prevHasEpic=', prevHasEpic, 'nextHasEpic=', nextHasEpic, '_gpPhone=', _gpPhone, 'condition=', !prevHasEpic && nextHasEpic && _gpPhone);
-    if (!prevHasEpic && nextHasEpic && _gpPhone) {
-      console.log('[task-automation] SENDING DoubleTick template for myintealth to', _gpPhone);
-      const dtResult = await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
-      console.log('[task-automation] DoubleTick result:', JSON.stringify(dtResult));
-      await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
+    if (nextHasEpic && _gpPhone) {
+      const alreadySent = await _hasDoubleTickBeenSent(caseId, 'MyIntealth');
+      console.log('[task-automation] DoubleTick myintealth check: nextHasEpic=', nextHasEpic, '_gpPhone=', _gpPhone, 'alreadySent=', alreadySent);
+      if (!alreadySent) {
+        console.log('[task-automation] SENDING DoubleTick template for myintealth to', _gpPhone);
+        const dtResult = await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
+        console.log('[task-automation] DoubleTick result:', JSON.stringify(dtResult));
+        await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
+      }
     }
 
     // ── MyIntealth substep transitions ──
