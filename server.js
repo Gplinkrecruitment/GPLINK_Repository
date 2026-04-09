@@ -3660,11 +3660,13 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
       messages: [{
         to: normalised,
         from: fromNumber,
-        templateName: tpl.templateName,
-        language: tpl.language || 'en',
-        templateData: {
-          body: {
-            placeholders: [gpFirstName || 'there']
+        content: {
+          templateName: tpl.templateName,
+          language: tpl.language || 'en',
+          templateData: {
+            body: {
+              placeholders: [gpFirstName || 'there']
+            }
           }
         }
       }]
