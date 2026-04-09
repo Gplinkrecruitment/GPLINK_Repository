@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Offer Review — GP Link</title>
+  <script src="../js/native-bridge.js?v=20260410a"></script>
+  <script src="../js/nav-shell-bridge.js?v=20260410a" defer></script>
+  <script src="../js/auth-guard.js?v=20260410a" defer></script>
+  <script src="../js/state-sync.js?v=20260410a" defer></script>
+  <script src="../js/updates-sync.js?v=20260410a" defer></script>
+  <script src="../js/qualification-camera.js?v=20260410a" defer></script>
+  <script src="../js/qualification-scan.js?v=20260410a" defer></script>
+  <script src="../js/account-dropdown.js?v=20260410a" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; }
+
+  :root {
+    --bg: #f0f4fa;
+    --surface-glass: rgba(255, 255, 255, 0.55);
+    --surface-glass-border: rgba(255, 255, 255, 0.7);
+    --surface-glass-highlight: rgba(255, 255, 255, 0.8);
+    --surface-glass-shadow: rgba(15, 23, 42, 0.08);
+    --surface-subtle: rgba(15, 23, 42, 0.03);
+    --surface-subtle-border: rgba(15, 23, 42, 0.05);
+    --text: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+    --text-faint: #94a3b8;
+    --blue: #2563eb;
+    --blue-dark: #1d4ed8;
+    --blue-soft: rgba(37, 99, 235, 0.08);
+    --blue-soft-border: rgba(37, 99, 235, 0.06);
+    --green: #16a34a;
+    --green-soft: rgba(22, 163, 74, 0.08);
+    --green-soft-border: rgba(22, 163, 74, 0.06);
+    --amber: #d97706;
+    --amber-soft: rgba(217, 119, 6, 0.08);
+    --amber-soft-border: rgba(217, 119, 6, 0.06);
+    --red: #dc2626;
+    --divider: rgba(15, 23, 42, 0.06);
+    --line: rgba(15, 23, 42, 0.05);
+    --line-faint: rgba(15, 23, 42, 0.04);
+    --grain-opacity: 0.018;
+    --bar-bg: rgba(240, 244, 250, 0.72);
+    --bar-border: rgba(15, 23, 42, 0.06);
+    --btn-bg: rgba(15, 23, 42, 0.05);
+    --btn-bg-hover: rgba(15, 23, 42, 0.08);
+    --btn-border: rgba(15, 23, 42, 0.04);
+    --btn-color: #334155;
+    --btn-color-hover: #0f172a;
+    --ring-inner-bg: #fff;
+    --ring-inner-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    --ring-track: rgba(15, 23, 42, 0.06);
+    --tile-bg: rgba(255, 255, 255, 0.5);
+    --tile-border: rgba(255, 255, 255, 0.7);
+    --tile-highlight: rgba(255, 255, 255, 0.6);
+    --tile-shadow: rgba(15, 23, 42, 0.06);
+    --toast-bg: rgba(15, 23, 42, 0.85);
+    --toast-color: #fff;
+    --atmo-1: rgba(37, 99, 235, 0.06);
+    --atmo-2: rgba(99, 102, 241, 0.03);
+    --atmo-3: rgba(37, 99, 235, 0.02);
+    --stat-bg: rgba(255, 255, 255, 0.45);
+    --stat-border: rgba(255, 255, 255, 0.6);
+    --stat-highlight: rgba(255, 255, 255, 0.7);
+    --stat-shadow: rgba(15, 23, 42, 0.04);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1120;
+      --surface-glass: rgba(255, 255, 255, 0.03);
+      --surface-glass-border: rgba(255, 255, 255, 0.06);
+      --surface-glass-highlight: rgba(255, 255, 255, 0.04);
+      --surface-glass-shadow: rgba(0, 0, 0, 0.3);
+      --surface-subtle: rgba(255, 255, 255, 0.04);
+      --surface-subtle-border: rgba(255, 255, 255, 0.04);
+      --text: #e2e8f0;
+      --text-secondary: #cbd5e1;
+      --text-muted: #64748b;
+      --text-faint: #475569;
+      --blue: #3b82f6;
+      --blue-dark: #2563eb;
+      --blue-soft: rgba(37, 99, 235, 0.15);
+      --blue-soft-border: rgba(37, 99, 235, 0.1);
+      --green: #22c55e;
+      --green-soft: rgba(34, 197, 94, 0.12);
+      --green-soft-border: rgba(34, 197, 94, 0.08);
+      --amber: #fbbf24;
+      --amber-soft: rgba(251, 191, 36, 0.12);
+      --amber-soft-border: rgba(251, 191, 36, 0.08);
+      --red: #f87171;
+      --divider: rgba(255, 255, 255, 0.06);
+      --line: rgba(255, 255, 255, 0.04);
+      --line-faint: rgba(255, 255, 255, 0.03);
+      --grain-opacity: 0.025;
+      --bar-bg: rgba(11, 17, 32, 0.65);
+      --bar-border: rgba(255, 255, 255, 0.04);
+      --btn-bg: rgba(255, 255, 255, 0.06);
+      --btn-bg-hover: rgba(255, 255, 255, 0.1);
+      --btn-border: rgba(255, 255, 255, 0.06);
+      --btn-color: #cbd5e1;
+      --btn-color-hover: #fff;
+      --ring-inner-bg: #0f172a;
+      --ring-inner-shadow: none;
+      --ring-track: rgba(255, 255, 255, 0.06);
+      --tile-bg: rgba(255, 255, 255, 0.03);
+      --tile-border: rgba(255, 255, 255, 0.05);
+      --tile-highlight: none;
+      --tile-shadow: none;
+      --toast-bg: rgba(255, 255, 255, 0.1);
+      --toast-color: #e2e8f0;
+      --atmo-1: rgba(37, 99, 235, 0.12);
+      --atmo-2: rgba(99, 102, 241, 0.06);
+      --atmo-3: rgba(37, 99, 235, 0.04);
+      --stat-bg: rgba(255, 255, 255, 0.03);
+      --stat-border: rgba(255, 255, 255, 0.05);
+      --stat-highlight: rgba(255, 255, 255, 0.03);
+      --stat-shadow: none;
+    }
+  }
+
+  html.dark-mode {
+    --bg: #0b1120;
+    --surface-glass: rgba(255, 255, 255, 0.03);
+    --surface-glass-border: rgba(255, 255, 255, 0.06);
+    --surface-glass-highlight: rgba(255, 255, 255, 0.04);
+    --surface-glass-shadow: rgba(0, 0, 0, 0.3);
+    --surface-subtle: rgba(255, 255, 255, 0.04);
+    --surface-subtle-border: rgba(255, 255, 255, 0.04);
+    --text: #e2e8f0;
+    --text-secondary: #cbd5e1;
+    --text-muted: #64748b;
+    --text-faint: #475569;
+    --blue: #3b82f6;
+    --blue-dark: #2563eb;
+    --blue-soft: rgba(37, 99, 235, 0.15);
+    --blue-soft-border: rgba(37, 99, 235, 0.1);
+    --green: #22c55e;
+    --green-soft: rgba(34, 197, 94, 0.12);
+    --green-soft-border: rgba(34, 197, 94, 0.08);
+    --amber: #fbbf24;
+    --amber-soft: rgba(251, 191, 36, 0.12);
+    --amber-soft-border: rgba(251, 191, 36, 0.08);
+    --red: #f87171;
+    --divider: rgba(255, 255, 255, 0.06);
+    --line: rgba(255, 255, 255, 0.04);
+    --line-faint: rgba(255, 255, 255, 0.03);
+    --grain-opacity: 0.025;
+    --bar-bg: rgba(11, 17, 32, 0.65);
+    --bar-border: rgba(255, 255, 255, 0.04);
+    --btn-bg: rgba(255, 255, 255, 0.06);
+    --btn-bg-hover: rgba(255, 255, 255, 0.1);
+    --btn-border: rgba(255, 255, 255, 0.06);
+    --btn-color: #cbd5e1;
+    --btn-color-hover: #fff;
+    --ring-inner-bg: #0f172a;
+    --ring-inner-shadow: none;
+    --ring-track: rgba(255, 255, 255, 0.06);
+    --tile-bg: rgba(255, 255, 255, 0.03);
+    --tile-border: rgba(255, 255, 255, 0.05);
+    --tile-highlight: none;
+    --tile-shadow: none;
+    --toast-bg: rgba(255, 255, 255, 0.1);
+    --toast-color: #e2e8f0;
+    --atmo-1: rgba(37, 99, 235, 0.12);
+    --atmo-2: rgba(99, 102, 241, 0.06);
+    --atmo-3: rgba(37, 99, 235, 0.04);
+    --stat-bg: rgba(255, 255, 255, 0.03);
+    --stat-border: rgba(255, 255, 255, 0.05);
+    --stat-highlight: rgba(255, 255, 255, 0.03);
+    --stat-shadow: none;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 70% 0%, var(--atmo-1), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 10% 80%, var(--atmo-2), transparent 50%),
+      radial-gradient(ellipse 50% 30% at 90% 60%, var(--atmo-3), transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+    opacity: var(--grain-opacity);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .page {
+    position: relative;
+    z-index: 2;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 16px 100px;
+  }
+
+  /* ── Back bar ── */
+  .back-bar {
+    position: sticky; top: 0; z-index: 100;
+    margin: 0 -16px; padding: 14px 16px;
+    background: var(--bar-bg);
+    backdrop-filter: blur(28px) saturate(1.6);
+    -webkit-backdrop-filter: blur(28px) saturate(1.6);
+    border-bottom: 1px solid var(--bar-border);
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 8px 14px; border: none; border-radius: 10px;
+    background: var(--btn-bg); border: 1px solid var(--btn-border);
+    color: var(--btn-color); font-size: 13px; font-weight: 700;
+    cursor: pointer; font-family: inherit; transition: all 0.14s;
+    text-decoration: none;
+  }
+  .back-btn:hover { background: var(--btn-bg-hover); color: var(--btn-color-hover); }
+  .back-btn svg { width: 16px; height: 16px; }
+
+  .back-title { font-size: 14px; font-weight: 700; color: var(--text-faint); }
+
+  /* ── Hero ── */
+  .hero { margin-top: 24px; display: grid; gap: 20px; animation: fadeUp 0.5s cubic-bezier(0.22, 0.9, 0.18, 1.05) both; }
+
+  .practice-block { display: grid; gap: 6px; }
+  .practice-name { font-size: 28px; font-weight: 900; letter-spacing: -0.045em; line-height: 1.05; }
+  .practice-role { font-size: 14px; font-weight: 700; color: var(--text-muted); margin-top: 4px; }
+  .practice-address {
+    font-size: 13px; font-weight: 600; color: var(--text-faint);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .practice-address svg { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.5; }
+
+  /* ── Status badge ── */
+  .offer-status {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 12px; border-radius: 8px;
+    font-size: 12px; font-weight: 800; letter-spacing: 0.02em;
+    background: var(--green-soft); color: var(--green);
+    border: 1px solid var(--green-soft-border);
+  }
+  .offer-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* ── Deadline strip ── */
+  .deadline-strip {
+    display: flex; align-items: center; gap: 14px;
+    padding: 18px 20px; border-radius: 18px;
+    background: var(--surface-glass);
+    border: 1px solid var(--surface-glass-border);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    box-shadow: inset 0 1px 0 var(--surface-glass-highlight), 0 8px 32px -12px var(--surface-glass-shadow);
+  }
+
+  .deadline-ring {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--amber) 0%, var(--amber) var(--ring-pct, 30%), var(--ring-track) var(--ring-pct, 30%));
+    display: grid; place-items: center; flex-shrink: 0;
+  }
+  .deadline-ring-inner {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--ring-inner-bg);
+    display: grid; place-items: center;
+    font-size: 13px; font-weight: 900; letter-spacing: -0.03em;
+    box-shadow: var(--ring-inner-shadow);
+  }
+
+  .deadline-info { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .deadline-label { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); }
+  .deadline-time { font-size: 16px; font-weight: 800; letter-spacing: -0.03em; }
+  .deadline-date { font-size: 12px; font-weight: 600; color: var(--text-faint); }
+
+  /* ── Divider ── */
+  .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--divider), transparent); margin: 28px 0; border: none; }
+
+  /* ── Offer summary stats ── */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-card {
+    padding: 16px; border-radius: 16px;
+    background: var(--stat-bg);
+    border: 1px solid var(--stat-border);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: inset 0 1px 0 var(--stat-highlight), 0 2px 8px -4px var(--stat-shadow);
+  }
+  .stat-label { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 6px; }
+  .stat-value { font-size: 22px; font-weight: 900; letter-spacing: -0.04em; line-height: 1.1; }
+  .stat-sub { font-size: 11px; font-weight: 600; color: var(--text-faint); margin-top: 4px; }
+  .stat-value-sm { font-size: 17px; }
+
+  /* ── Glass section ── */
+  .glass-section {
+    padding: 24px 22px; border-radius: 20px;
+    background: var(--surface-glass); border: 1px solid var(--surface-glass-border);
+    backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    box-shadow: inset 0 1px 0 var(--surface-glass-highlight), 0 12px 40px -16px var(--surface-glass-shadow);
+    animation: fadeUp 0.5s 0.08s cubic-bezier(0.22, 0.9, 0.18, 1.05) both;
+  }
+
+  .section-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 6px;
+    font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+    background: var(--green-soft); color: var(--green); border: 1px solid var(--green-soft-border);
+    margin-bottom: 14px;
+  }
+  .section-badge svg { width: 12px; height: 12px; }
+  .section-badge-blue { background: var(--blue-soft); color: var(--blue); border-color: var(--blue-soft-border); }
+
+  .section-title { font-size: 20px; font-weight: 800; letter-spacing: -0.04em; margin-bottom: 18px; }
+
+  /* ── Negotiated items ── */
+  .nego-item {
+    display: grid; grid-template-columns: 5px 1fr; gap: 14px; align-items: start;
+    padding: 13px 0; border-bottom: 1px solid var(--line);
+  }
+  .nego-item:last-child { border-bottom: none; }
+  .nego-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); margin-top: 8px; box-shadow: 0 0 8px rgba(22, 163, 74, 0.3); }
+  .nego-text { font-size: 14px; font-weight: 700; line-height: 1.5; }
+  .nego-detail { font-size: 12px; font-weight: 600; color: var(--text-faint); margin-top: 4px; }
+
+  /* ── Section ── */
+  .section { margin-top: 0; }
+  .section-label { font-size: 10px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 16px; }
+  .section-head { font-size: 18px; font-weight: 800; letter-spacing: -0.035em; margin-bottom: 16px; }
+
+  /* ── Contract items ── */
+  .contract-item {
+    display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start;
+    padding: 11px 0; border-bottom: 1px solid var(--line-faint);
+    font-size: 14px; font-weight: 600; color: var(--text-secondary); line-height: 1.5;
+  }
+  .contract-item:last-child { border-bottom: none; }
+  .contract-item strong { color: var(--text); }
+  .contract-icon { width: 18px; height: 18px; display: grid; place-items: center; margin-top: 2px; }
+  .contract-icon svg { width: 14px; height: 14px; color: var(--blue); }
+
+  /* ── CTA buttons ── */
+  .cta-stack { display: grid; gap: 10px; }
+  .cta-accept {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 16px; border-radius: 14px; border: none;
+    background: var(--green); color: #fff;
+    font-family: inherit; font-size: 15px; font-weight: 800;
+    cursor: pointer; transition: all 0.14s;
+    box-shadow: 0 4px 18px -4px rgba(22, 163, 74, 0.3);
+  }
+  .cta-accept:hover { background: #15803d; transform: translateY(-1px); box-shadow: 0 8px 24px -6px rgba(22, 163, 74, 0.35); }
+  .cta-accept:active { transform: scale(0.98); }
+  .cta-accept svg { width: 18px; height: 18px; }
+
+  .cta-secondary {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 14px; border-radius: 14px;
+    background: var(--btn-bg); border: 1px solid var(--btn-border);
+    color: var(--btn-color);
+    font-family: inherit; font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: all 0.14s; text-decoration: none;
+  }
+  .cta-secondary:hover { background: var(--btn-bg-hover); color: var(--btn-color-hover); }
+  .cta-secondary svg { width: 16px; height: 16px; }
+
+  /* ── Officer ── */
+  .officer-row { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
+  .officer-avatar {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: linear-gradient(135deg, #15803d, #22c55e); color: #fff;
+    display: grid; place-items: center; font-weight: 800; font-size: 16px;
+    flex-shrink: 0; box-shadow: 0 4px 14px -4px rgba(22, 163, 74, 0.3);
+  }
+  .officer-info { flex: 1; min-width: 0; }
+  .officer-name { font-size: 15px; font-weight: 800; letter-spacing: -0.02em; }
+  .officer-copy { font-size: 12px; font-weight: 600; color: var(--text-faint); margin-top: 2px; line-height: 1.4; }
+
+  .whatsapp-btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; padding: 14px; border-radius: 14px; border: none;
+    background: #25d366; color: #fff;
+    font-family: inherit; font-size: 14px; font-weight: 800;
+    text-decoration: none; transition: all 0.14s;
+    box-shadow: 0 4px 18px -4px rgba(37, 211, 102, 0.3);
+  }
+  .whatsapp-btn:hover { background: #20bd5a; transform: translateY(-1px); box-shadow: 0 8px 24px -6px rgba(37, 211, 102, 0.35); }
+  .whatsapp-btn:active { transform: scale(0.98); }
+  .whatsapp-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+  /* ── Post-accept state ── */
+  .post-accept { display: none; }
+  .page.accepted .pre-accept { display: none; }
+  .page.accepted .post-accept { display: block; }
+
+  .celebration-card {
+    margin-top: 24px; padding: 32px 22px; border-radius: 20px; text-align: center;
+    background: var(--surface-glass); border: 1px solid var(--surface-glass-border);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: inset 0 1px 0 var(--surface-glass-highlight), 0 12px 40px -16px var(--surface-glass-shadow);
+    display: grid; gap: 14px;
+  }
+  .celebration-icon { font-size: 48px; line-height: 1; }
+  .celebration-title { font-size: 24px; font-weight: 900; letter-spacing: -0.04em; }
+  .celebration-sub { font-size: 14px; font-weight: 600; color: var(--text-faint); line-height: 1.5; }
+
+  .next-steps-item {
+    display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start;
+    padding: 12px 0; border-bottom: 1px solid var(--line-faint);
+    text-align: left;
+  }
+  .next-steps-item:last-child { border-bottom: none; }
+  .step-num {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--blue-soft); color: var(--blue); border: 1px solid var(--blue-soft-border);
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 900;
+  }
+  .step-text { font-size: 14px; font-weight: 600; color: var(--text-secondary); line-height: 1.5; }
+  .step-text strong { color: var(--text); }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<div class="page" id="pageRoot">
+
+  <div class="back-bar">
+    <a class="back-btn" id="backBtn" href="application-detail.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      Back
+    </a>
+    <span class="back-title">Offer Review</span>
+  </div>
+
+  <!-- PRE-ACCEPT STATE -->
+  <div class="pre-accept">
+
+    <div class="hero">
+      <div class="practice-block">
+        <div class="offer-status">
+          <div class="offer-status-dot"></div>
+          Offer Received
+        </div>
+        <div class="practice-name" style="margin-top: 10px;">Bayside Family<br>Medical Centre</div>
+        <div class="practice-role">General Practitioner — Full Time</div>
+        <div class="practice-address">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          42 Marine Parade, Brighton VIC 3186
+        </div>
+      </div>
+
+      <div class="deadline-strip">
+        <div class="deadline-ring" id="deadlineRing">
+          <div class="deadline-ring-inner" id="deadlineShort">5d</div>
+        </div>
+        <div class="deadline-info">
+          <div class="deadline-label">Response Deadline</div>
+          <div class="deadline-time" id="deadlineTime">5 days remaining</div>
+          <div class="deadline-date">Tuesday 15 April · 5:00 PM AEST</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OFFER SUMMARY -->
+    <hr class="divider">
+    <div class="section">
+      <div class="section-label">Offer Summary</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Earnings</div>
+          <div class="stat-value">$350k+</div>
+          <div class="stat-sub">Estimated annual (70% billing)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Billing Split</div>
+          <div class="stat-value">70 / 30</div>
+          <div class="stat-sub">You keep 70%</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Sessions</div>
+          <div class="stat-value stat-value-sm">8 per week</div>
+          <div class="stat-sub">Mon–Fri, flexible start</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Start Date</div>
+          <div class="stat-value stat-value-sm">1 July 2026</div>
+          <div class="stat-sub">12-week notice period</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WHAT GP LINK NEGOTIATED -->
+    <hr class="divider">
+    <div class="glass-section">
+      <div class="section-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Negotiated for you
+      </div>
+      <div class="section-title">What GP Link Secured</div>
+
+      <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text">Billing split increased from 65% to 70%</div><div class="nego-detail">Standard for the area is 65% — we pushed for and secured 70%</div></div></div>
+      <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text">6 weeks paid leave (was 4)</div><div class="nego-detail">Includes 2 weeks professional development leave</div></div></div>
+      <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text">$5,000 relocation allowance</div><div class="nego-detail">Covers moving costs, paid upon commencement</div></div></div>
+      <div class="nego-item"><div class="nego-dot"></div><div><div class="nego-text">Guaranteed minimum income for 3 months</div><div class="nego-detail">$6,500/week floor while you build your patient base</div></div></div>
+    </div>
+
+    <!-- CONTRACT HIGHLIGHTS -->
+    <hr class="divider">
+    <div class="section">
+      <div class="section-head">Contract Highlights</div>
+
+      <div class="contract-item">
+        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+        <div><strong>Contract length:</strong> 2 years initial, then rolling annually</div>
+      </div>
+      <div class="contract-item">
+        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <div><strong>Medical indemnity:</strong> Practice covers 100% of indemnity insurance</div>
+      </div>
+      <div class="contract-item">
+        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <div><strong>Support staff:</strong> Dedicated nurse + receptionist assigned to you</div>
+      </div>
+      <div class="contract-item">
+        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+        <div><strong>After-hours:</strong> No mandatory after-hours or on-call requirements</div>
+      </div>
+      <div class="contract-item">
+        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+        <div><strong>Equipment:</strong> Modern consulting rooms with telehealth setup provided</div>
+      </div>
+      <div class="contract-item">
+        <div class="contract-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+        <div><strong>Restrictive covenant:</strong> 5 km radius, 12 months post-contract</div>
+      </div>
+    </div>
+
+    <!-- ACTIONS -->
+    <hr class="divider">
+    <div class="section">
+      <div class="section-label">Your Decision</div>
+      <div class="cta-stack">
+        <button class="cta-accept" id="acceptOfferBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Accept Offer
+        </button>
+        <a class="cta-secondary" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Request Changes
+        </a>
+        <a class="cta-secondary" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Full Contract
+        </a>
+      </div>
+    </div>
+
+    <!-- GUIDANCE OFFICER -->
+    <hr class="divider">
+    <div class="section">
+      <div class="section-label">Your Registration Guidance Officer</div>
+      <div class="officer-row">
+        <div class="officer-avatar">H</div>
+        <div class="officer-info">
+          <div class="officer-name">Hazel</div>
+          <div class="officer-copy">Have questions about the offer? I can walk you through the contract details.</div>
+        </div>
+      </div>
+      <a class="whatsapp-btn" href="https://wa.me/61400000000" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+        Message Hazel on WhatsApp
+      </a>
+    </div>
+
+  </div><!-- /pre-accept -->
+
+  <!-- POST-ACCEPT STATE -->
+  <div class="post-accept">
+    <div class="celebration-card">
+      <div class="celebration-icon">🎉</div>
+      <div class="celebration-title">Placement Secured</div>
+      <div class="celebration-sub">You've accepted your offer at Bayside Family Medical Centre. Here's what happens next.</div>
+
+      <div class="next-steps-item">
+        <div class="step-num">1</div>
+        <div class="step-text"><strong>Contract signing</strong> — Hazel will send the formal contract within 48 hours</div>
+      </div>
+      <div class="next-steps-item">
+        <div class="step-num">2</div>
+        <div class="step-text"><strong>Visa processing</strong> — Your sponsorship paperwork begins immediately</div>
+      </div>
+      <div class="next-steps-item">
+        <div class="step-num">3</div>
+        <div class="step-text"><strong>Relocation support</strong> — Access housing search & area guides for Brighton</div>
+      </div>
+      <div class="next-steps-item">
+        <div class="step-num">4</div>
+        <div class="step-text"><strong>Onboarding</strong> — Practice orientation scheduled 2 weeks before start</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  // ── Query params ──
+  var params = new URLSearchParams(window.location.search);
+  var applicationId = params.get('id') || params.get('applicationId') || '';
+  // Phase 2: fetch real data. For now, demo data from mockup.
+
+  // ── Back button (shell-aware) ──
+  document.getElementById('backBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.location.href = 'application-detail.html';
+    }
+  });
+
+  // ── Restore accepted state from localStorage ──
+  var acceptKey = applicationId ? 'gp_offer_accepted_' + applicationId : 'gp_offer_accepted';
+  if (localStorage.getItem(acceptKey)) {
+    document.getElementById('pageRoot').classList.add('accepted');
+  }
+
+  // ── Deadline countdown ──
+  // Demo: deadline is ~5 days from now
+  var deadlineDate = new Date(Date.now() + 5 * 24 * 3600000);
+  var totalSeconds = 7 * 24 * 3600; // 7-day response window
+
+  function updateDeadline() {
+    var now = Date.now();
+    var diff = deadlineDate.getTime() - now;
+
+    if (diff <= 0) {
+      document.getElementById('deadlineTime').textContent = 'Deadline passed';
+      document.getElementById('deadlineShort').textContent = '0d';
+      return;
+    }
+
+    var days = Math.floor(diff / 86400000);
+    var hours = Math.floor((diff % 86400000) / 3600000);
+
+    document.getElementById('deadlineShort').textContent = days + 'd';
+    document.getElementById('deadlineTime').textContent = days + (days === 1 ? ' day, ' : ' days, ') + hours + (hours === 1 ? ' hour' : ' hours') + ' remaining';
+
+    var elapsed = totalSeconds - (diff / 1000);
+    var pct = Math.min(100, Math.max(0, (elapsed / totalSeconds) * 100));
+    document.getElementById('deadlineRing').style.setProperty('--ring-pct', pct + '%');
+  }
+
+  updateDeadline();
+  setInterval(updateDeadline, 60000);
+
+  // ── Accept offer (event delegation) ──
+  document.addEventListener('click', function(e) {
+    var acceptBtn = e.target.closest('#acceptOfferBtn');
+    if (acceptBtn) {
+      document.getElementById('pageRoot').classList.add('accepted');
+      localStorage.setItem(acceptKey, '1');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
