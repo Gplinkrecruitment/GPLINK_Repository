@@ -3666,7 +3666,7 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
     const resp = await fetch(DOUBLETICK_BASE_URL + apiPath, {
       method: 'POST',
       headers: {
-        'Authorization': 'Basic ' + Buffer.from(DOUBLETICK_API_KEY).toString('base64'),
+        'Authorization': DOUBLETICK_API_KEY,
         'Content-Type': 'application/json'
       },
       body: reqBody
