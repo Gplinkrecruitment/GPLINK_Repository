@@ -622,11 +622,11 @@
     <div class="section">
       <div class="section-title">Questions to Ask</div>
       <div class="section-intro">Tap any question to copy it.</div>
-      <div class="question-item" onclick="copyQ(this)">What does a fully booked GP's day look like here?</div>
-      <div class="question-item" onclick="copyQ(this)">How quickly do new GPs typically build up their patient base?</div>
-      <div class="question-item" onclick="copyQ(this)">What support is provided during the first 3 months?</div>
-      <div class="question-item" onclick="copyQ(this)">What would success look like in the first 6 months?</div>
-      <div class="question-item" onclick="copyQ(this)">Is there scope for special interest clinics down the line?</div>
+      <div class="question-item">What does a fully booked GP's day look like here?</div>
+      <div class="question-item">How quickly do new GPs typically build up their patient base?</div>
+      <div class="question-item">What support is provided during the first 3 months?</div>
+      <div class="question-item">What would success look like in the first 6 months?</div>
+      <div class="question-item">Is there scope for special interest clinics down the line?</div>
     </div>
 
     <!-- GUIDANCE OFFICER -->
@@ -689,6 +689,7 @@
     var diff = interviewDate.getTime() - now;
 
     if (diff <= 0) {
+      clearInterval(countdownInterval);
       document.getElementById('pageRoot').classList.add('interview-passed');
       return;
     }
@@ -720,7 +721,7 @@
   }
 
   updateCountdown();
-  setInterval(updateCountdown, 1000);
+  var countdownInterval = setInterval(updateCountdown, 1000);
 
   // ── Notes persistence ──
   var notesEl = document.getElementById('personalNotes');
@@ -730,25 +731,51 @@
   notesEl.addEventListener('input', function () {
     localStorage.setItem(notesKey, notesEl.value);
   });
-})();
 
-// ── Tap-to-copy questions ──
-function copyQ(el) {
-  var text = el.textContent.trim();
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text);
-  } else {
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
+  // ── Tap-to-copy questions (delegated) ──
+  function copyQ(el) {
+    var text = el.textContent.trim();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    var toast = document.getElementById('copyToast');
+    toast.classList.add('show');
+    setTimeout(function () { toast.classList.remove('show'); }, 1600);
   }
-  var toast = document.getElementById('copyToast');
-  toast.classList.add('show');
-  setTimeout(function () { toast.classList.remove('show'); }, 1600);
-}
+
+  document.addEventListener('click', function(e) {
+    var qi = e.target.closest('.question-item');
+    if (qi) copyQ(qi);
+  });
+
+  // ── Send Feedback button (demo — Phase 2 will wire API) ──
+  var feedbackBtn = document.querySelector('.post-submit');
+  if (feedbackBtn) {
+    feedbackBtn.addEventListener('click', function () {
+      var textarea = document.querySelector('.post-note-input');
+      var feedbackText = textarea ? textarea.value.trim() : '';
+      var feedbackKey = applicationId ? 'gp_interview_feedback_' + applicationId : 'gp_interview_feedback';
+      if (feedbackText) {
+        localStorage.setItem(feedbackKey, feedbackText);
+      }
+      feedbackBtn.disabled = true;
+      feedbackBtn.textContent = 'Feedback Sent';
+      feedbackBtn.style.opacity = '0.6';
+      feedbackBtn.style.cursor = 'default';
+      if (textarea) {
+        textarea.disabled = true;
+        textarea.style.opacity = '0.6';
+      }
+    });
+  }
+})();
 </script>
 
 </body>

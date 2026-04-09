@@ -21,7 +21,10 @@
     "/pages/account.html": true,
     "/pages/registration-intro.html": true,
     "/pages/application-detail.html": true,
-    "/pages/job.html": true
+    "/pages/job.html": true,
+    "/pages/interview-prep.html": true,
+    "/pages/offer-review.html": true,
+    "/pages/area-guide.html": true
   };
 
   function normalizePath(pathname) {
