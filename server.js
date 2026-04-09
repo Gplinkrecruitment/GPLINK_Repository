@@ -14454,6 +14454,23 @@ Verify this document.`;
 
       applyQualificationNameMatchPolicy(verification, profileName, verifiedNames);
 
+      // Server-side date enforcement — don't trust AI alone
+      if (verification.verified && !isPrimaryMedDegree && verification.dateFound && expectedCountry !== 'any') {
+        const dateCutoffs = { GB: '2007-08-01', IE: '2009-01-01', NZ: '2010-01-01' };
+        const cutoff = dateCutoffs[expectedCountry];
+        if (cutoff) {
+          try {
+            const docDate = new Date(verification.dateFound);
+            const cutoffDate = new Date(cutoff);
+            if (!isNaN(docDate.getTime()) && docDate < cutoffDate) {
+              verification.verified = false;
+              verification.issues = verification.issues || [];
+              verification.issues.push('This document is dated ' + verification.dateFound + ', which is before the required date (' + dateRule + ') for the ' + expectedCountry + ' pathway.');
+            }
+          } catch (e) { /* non-critical — AI flagging is the fallback */ }
+        }
+      }
+
       sendJson(res, 200, {
         ok: true,
         verification,
@@ -14982,6 +14999,19 @@ Return ONLY valid JSON with no markdown formatting:
         verification.verified = false;
         verification.issues = verification.issues || [];
         verification.issues.push('Please upload a passport or driver\'s licence. This appears to be: ' + (verification.documentType || 'unknown'));
+      }
+
+      // Server-side expiry enforcement — don't trust AI alone
+      if (verification.verified && verification.expiryDate) {
+        try {
+          const expiry = new Date(verification.expiryDate);
+          if (!isNaN(expiry.getTime()) && expiry < new Date()) {
+            verification.verified = false;
+            verification.expired = true;
+            verification.issues = verification.issues || [];
+            verification.issues.push('This document expired on ' + verification.expiryDate + '. Please upload a valid, non-expired ID.');
+          }
+        } catch (e) { /* non-critical — AI flagging is the fallback */ }
       }
 
       // Name matching against profile, qualification name, AND previously verified documents

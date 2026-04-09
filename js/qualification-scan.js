@@ -105,7 +105,10 @@
     if (wrongDocMatch) {
       return "This looks like " + wrongDocMatch[1] + ", not " + targetLabel + ". Please upload the correct document for this step.";
     }
-    if (/dated before|date on the document must be from|issue date/.test(lower)) {
+    if (/expired on|document expired|has expired|is expired|non-expired/.test(lower)) {
+      return "This document has expired. Please upload a valid, non-expired document.";
+    }
+    if (/dated before|date on the document must be from|issue date|before the required date/.test(lower)) {
       return "The issue date on this document is outside the accepted date range for this pathway. Please upload the correct certificate or a later version if available.";
     }
     if (/passport or driver.?s licence|identity document/.test(lower)) {
@@ -522,97 +525,58 @@
       return;
     }
 
-    /* ── Certification mode but non-image (PDF etc.) — use Claude AI to classify ── */
+    /* ── Certification mode for non-image (PDF etc.) — full verification flow ── */
     if (certContext && !isImage) {
       var ctx2 = certContext;
-      var resultEl2 = document.getElementById("gpScanResult");
-      var docBase64 = "";
-      var docDataUrl = "";
-      showStep("result");
-      if (resultEl2) {
-        resultEl2.innerHTML = '<div class="cert-scanning" style="padding:32px 0;text-align:center;"><div class="cert-scan-spinner"></div> Verifying document...</div>';
-      }
-      fileToBase64(file).then(function(base64) {
-        docBase64 = base64;
-        docDataUrl = base64ToDataUrl(base64, file.type || "application/pdf");
-        return fetch("/api/ai/classify-document", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileBase64: base64, mimeType: /^image\//i.test(file.type || "") ? (file.type || "application/octet-stream") : (file.type || "application/pdf"), expectedKey: ctx2.key, expectedLabel: ctx2.title })
+      var pdfBase64 = "";
+      fileToBase64(file).then(function (base64) {
+        pdfBase64 = base64;
+        return verifyCertifiedDocument(file, {
+          docKey: ctx2.key,
+          documentType: ctx2.title || "qualification document"
         });
-      }).then(function(res) { return res.json(); }).then(function(data) {
-        if (data.ok && data.classification && data.classification.matches) {
-          var certifyIssue = "We can see this is " + ctx2.title + ", but we cannot confirm the certification from this file. Upload a clear image showing the certifier's statement, signature, printed name, occupation and date.";
-          if (data.classification && data.classification.reason) {
-            certifyIssue += " " + data.classification.reason;
-          }
-          var certifyIssueList = humanizeScanIssues([certifyIssue], { documentTitle: ctx2.title, mode: "certification" });
-          if (ctx2.callback) ctx2.callback({
-            fileName: file.name,
-            certified: false,
-            verification: { issues: certifyIssueList },
-            mimeType: file.type || "application/pdf",
-            fileSize: Number(file.size || 0),
-            fileDataUrl: docDataUrl
-          });
+      }).then(function (data) {
+        if (data.ok && data.verification) {
+          var v = data.verification;
+          var isCertified = !!v.certified;
+          var resultEl2 = document.getElementById("gpScanResult");
           if (resultEl2) {
-            resultEl2.innerHTML =
-              '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
-              '<h4>Scan Failed</h4>' +
-              '<p>' + certifyIssueList.map(esc).join("<br>") + '</p>' +
-              '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
-              '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
+            if (isCertified) {
+              resultEl2.innerHTML =
+                '<div class="ok"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>' +
+                '<h4>Scan Successful</h4>' +
+                '<p>Document and certification verified for <strong>' + esc(ctx2.title) + '</strong></p>' +
+                '<button class="scan-submit" data-scan-action="certdone" type="button">Done</button>';
+            } else {
+              var issuesList = humanizeScanIssues((v.issues && v.issues.length > 0) ? v.issues : ["The document does not appear to be properly certified."], {
+                documentTitle: ctx2.title,
+                mode: "certification"
+              });
+              resultEl2.innerHTML =
+                '<div class="err"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
+                '<h4>Scan Failed</h4>' +
+                '<p style="color:#dc2626;font-size:13px;line-height:1.5;">' + issuesList.map(esc).join("<br>") + '</p>' +
+                '<p style="font-size:12px;color:#64748b;margin-top:8px;">Please adjust accordingly and try again.</p>' +
+                '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
+                '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
+            }
           }
+          if (ctx2.callback) {
+            ctx2.callback({
+              fileName: file.name,
+              certified: isCertified,
+              verification: v,
+              mimeType: file.type || "application/pdf",
+              fileSize: Number(file.size || 0),
+              fileDataUrl: base64ToDataUrl(pdfBase64, file.type || "application/pdf")
+            });
+          }
+          showStep("result");
         } else {
-          var reason = "This file does not appear to be the correct document.";
-          if (data.classification && data.classification.identifiedAs) {
-            reason = "This appears to be <strong>" + esc(data.classification.identifiedAs) + "</strong>, not <strong>" + esc(ctx2.title) + "</strong>.";
-          }
-          var reasonPlain = "This file does not appear to be the correct document.";
-          if (data.classification && data.classification.identifiedAs) {
-            reasonPlain = "This appears to be " + data.classification.identifiedAs + ", not " + ctx2.title + ".";
-          }
-          if (data.classification && data.classification.reason) {
-            reasonPlain += " " + data.classification.reason;
-          }
-          if (ctx2.callback) ctx2.callback({
-            fileName: file.name,
-            certified: false,
-            verification: { issues: humanizeScanIssues([reasonPlain], { documentTitle: ctx2.title, mode: "classification" }) },
-            mimeType: file.type || "application/pdf",
-            fileSize: Number(file.size || 0),
-            fileDataUrl: docDataUrl
-          });
-          if (resultEl2) {
-            resultEl2.innerHTML =
-              '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
-              '<h4>Wrong Document</h4>' +
-              '<p>' + reason + '</p>' +
-              (data.classification && data.classification.reason ? '<p style="color:#64748b;font-size:13px;">' + esc(data.classification.reason) + '</p>' : '') +
-              '<p style="color:#64748b;font-size:13px;">Please upload the correct document and try again.</p>' +
-              '<button class="scan-submit" data-scan-action="certdone" type="button">OK</button>';
-          }
+          throw new Error((data && data.message) || "Could not verify this document.");
         }
-      }).catch(function(err) {
-        var failureMessage = err && err.message ? err.message : "Could not verify this document.";
-        var friendlyFailureList = humanizeScanIssues([failureMessage], { documentTitle: ctx2.title, mode: "certification" });
-        if (ctx2.callback) ctx2.callback({
-          fileName: file.name,
-          certified: false,
-          verification: { issues: friendlyFailureList },
-          mimeType: file.type || "application/pdf",
-          fileSize: Number(file.size || 0),
-          fileDataUrl: docDataUrl
-        });
-        if (resultEl2) {
-          resultEl2.innerHTML =
-            '<div class="fail"><svg viewBox="0 0 24 24" width="56" height="56" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
-            '<h4>Scan Failed</h4>' +
-            '<p>' + friendlyFailureList.map(esc).join("<br>") + '</p>' +
-            '<button class="scan-submit" data-scan-action="another" type="button">Try Again</button>' +
-            '<button class="scan-btn-outline" data-scan-action="close" type="button">Cancel</button>';
-        }
+      }).catch(function (err) {
+        showScanError(err && err.message ? err.message : err);
       });
       return;
     }
