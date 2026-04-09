@@ -3609,6 +3609,7 @@ function buildWhatsAppLink(stageLabel, gpFirstName) {
  * @returns {Promise<{ok:boolean, messageId?:string}>}
  */
 async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
+  console.log('[doubletick] sendDoubleTickTemplate called:', { toPhone, stage, gpFirstName, hasApiKey: !!DOUBLETICK_API_KEY, baseUrl: DOUBLETICK_BASE_URL });
   if (!DOUBLETICK_API_KEY) {
     console.warn('[doubletick] DOUBLETICK_API_KEY not set — skipping send');
     return { ok: false };
@@ -3663,7 +3664,9 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
   }
 
   try {
-    const resp = await fetch(DOUBLETICK_BASE_URL + apiPath, {
+    const fullUrl = DOUBLETICK_BASE_URL + apiPath;
+    console.log('[doubletick] POST', fullUrl, 'body:', reqBody.slice(0, 500));
+    const resp = await fetch(fullUrl, {
       method: 'POST',
       headers: {
         'Authorization': DOUBLETICK_API_KEY,
@@ -3671,16 +3674,19 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
       },
       body: reqBody
     });
-    const data = await resp.json().catch(() => ({}));
+    const rawText = await resp.text();
+    console.log('[doubletick] Response status:', resp.status, 'body:', rawText.slice(0, 500));
+    let data = {};
+    try { data = JSON.parse(rawText); } catch (_) {}
     if (!resp.ok) {
-      console.error('[doubletick] Send failed:', resp.status, JSON.stringify(data).slice(0, 500));
+      console.error('[doubletick] Send failed:', resp.status, rawText.slice(0, 500));
       return { ok: false };
     }
     const messageId = data && data.messages && data.messages[0] && data.messages[0].id;
     console.log('[doubletick]', DOUBLETICK_USE_DIRECT_TEXT ? 'Text' : 'Template', 'sent to', normalised, 'stage:', stage, 'msgId:', messageId || 'n/a');
     return { ok: true, messageId: messageId || null };
   } catch (err) {
-    console.error('[doubletick] Send error:', err && err.message);
+    console.error('[doubletick] Send error:', err && err.message, err && err.stack);
     return { ok: false };
   }
 }
@@ -3766,8 +3772,9 @@ async function getUserQualificationSnapshot(userId, country) {
 async function processRegistrationTaskAutomation(userId, email, prevState, nextState) {
   if (!isSupabaseDbConfigured()) return;
   try {
+    console.log('[task-automation] START for user:', userId, 'email:', email);
     const regCase = await _ensureRegCase(userId);
-    if (!regCase) return;
+    if (!regCase) { console.log('[task-automation] No regCase found — exiting'); return; }
     const caseId = regCase.id;
 
     // Fetch GP profile for DoubleTick WhatsApp template sends on stage advance
@@ -3776,6 +3783,10 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     if (_gpRes.ok && Array.isArray(_gpRes.data) && _gpRes.data[0]) _gpProfile = _gpRes.data[0];
     const _gpPhone = _gpProfile ? (_gpProfile.phone || _gpProfile.phone_number || '') : '';
     const _gpFirstName = _gpProfile ? (_gpProfile.first_name || '') : '';
+    console.log('[task-automation] profile:', JSON.stringify({ phone: _gpPhone, firstName: _gpFirstName, profileFound: !!_gpProfile }));
+
+    console.log('[task-automation] prevState.gp_epic_progress type:', typeof prevState.gp_epic_progress, 'value:', JSON.stringify(prevState.gp_epic_progress).slice(0, 200));
+    console.log('[task-automation] nextState.gp_epic_progress type:', typeof nextState.gp_epic_progress, 'value:', JSON.stringify(nextState.gp_epic_progress).slice(0, 200));
 
     const prev = {
       epic: _parseStateVal(prevState.gp_epic_progress),
@@ -3800,8 +3811,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // ── MyIntealth welcome — send when GP first starts (epic progress appears for the first time) ──
     const prevHasEpic = prev.epic && prev.epic.stage;
     const nextHasEpic = nxt.epic && nxt.epic.stage;
+    console.log('[task-automation] DoubleTick check: prevHasEpic=', prevHasEpic, 'nextHasEpic=', nextHasEpic, '_gpPhone=', _gpPhone, 'condition=', !prevHasEpic && nextHasEpic && _gpPhone);
     if (!prevHasEpic && nextHasEpic && _gpPhone) {
-      await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
+      console.log('[task-automation] SENDING DoubleTick template for myintealth to', _gpPhone);
+      const dtResult = await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
+      console.log('[task-automation] DoubleTick result:', JSON.stringify(dtResult));
       await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
     }
 
