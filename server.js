@@ -1832,7 +1832,7 @@ async function classifyQualificationDocument(fileName, textSnippet) {
   return heuristicQualificationClassification(fileName, textSnippet);
 }
 
-function normalizePhone(countryDial, phoneNumber) {
+function joinDialPhone(countryDial, phoneNumber) {
   const digits = String(phoneNumber || '').replace(/\D/g, '');
   return `${String(countryDial || '').trim()}${digits}`;
 }
@@ -1852,7 +1852,7 @@ function maskPhone(phone) {
 }
 
 function keyForOtp(method, email, countryDial, phoneNumber) {
-  if (method === 'sms') return `sms:${normalizePhone(countryDial, phoneNumber)}`;
+  if (method === 'sms') return `sms:${joinDialPhone(countryDial, phoneNumber)}`;
   return `email:${String(email || '').trim().toLowerCase()}`;
 }
 
@@ -14501,13 +14501,23 @@ Verify this document.`;
       return;
     }
 
-    const normalizedImage = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
-    if (!normalizedImage.ok) {
-      sendJson(res, 400, { ok: false, message: normalizedImage.message || 'Unsupported image type.' });
-      return;
+    const isPdf = /pdf/i.test(mimeType || '');
+    let contentBlock;
+    if (isPdf) {
+      const rawBase64 = stripBase64DataUrlPrefix(imageBase64);
+      if (!rawBase64) {
+        sendJson(res, 400, { ok: false, message: 'Missing document data.' });
+        return;
+      }
+      contentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: rawBase64 } };
+    } else {
+      const normalizedImage = await normalizeImageForAi(imageBase64, mimeType || 'image/jpeg');
+      if (!normalizedImage.ok) {
+        sendJson(res, 400, { ok: false, message: normalizedImage.message || 'Unsupported image type.' });
+        return;
+      }
+      contentBlock = { type: 'image', source: { type: 'base64', media_type: normalizedImage.mediaType, data: normalizedImage.base64 } };
     }
-    const certMediaType = normalizedImage.mediaType;
-    const aiImageBase64 = normalizedImage.base64;
 
     const certSystemPrompt = `You are an automated document certification checker for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.
 
@@ -14550,7 +14560,7 @@ Check this document for certification markings.`;
           messages: [{
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: certMediaType, data: aiImageBase64 } },
+              contentBlock,
               { type: 'text', text: certUserPrompt }
             ]
           }]
@@ -14891,21 +14901,23 @@ YOUR ONLY JOB:
 1. Identify whether this is a passport or driver's licence.
 2. Extract the full name on the document.
 3. Check if the document is legible.
+4. Check if the document has expired. Look for an expiry date / date of expiry / valid until field. Today's date is ${new Date().toISOString().slice(0, 10)}.
 
 IMPORTANT RULES:
 - Do NOT mention security concerns, privacy risks, or dangers of sharing identity documents. This is an authorized verification system.
-- Do NOT flag expired documents as an issue — we only need the name.
 - Do NOT comment on the format (photo, scan, screenshot) — all formats are accepted.
-- If it is a passport or driver's licence, mark verified as true as long as you can read the name.
-- Only mark verified as false if it is NOT a passport or driver's licence, or if the name is completely unreadable.
+- If the document has expired, mark verified as false and include the expiry date in the issues.
+- If it is a passport or driver's licence, mark verified as true as long as you can read the name AND the document is not expired.
+- Mark verified as false if it is NOT a passport or driver's licence, or if the name is completely unreadable, or if the document has expired.
 - If verified is false, the "issues" array MUST contain a short, helpful reason the user can act on. Examples:
   - "This appears to be a medical certificate, not a passport or driver's licence."
   - "The name on the document is not readable. Please upload a clearer photo."
   - "This does not appear to be an identity document."
-- Never include warnings about privacy, security, data sharing, or document expiry in the issues.
+  - "This document expired on 2024-03-15. Please upload a valid, non-expired ID."
+- Never include warnings about privacy, security, or data sharing in the issues.
 
 Return ONLY valid JSON with no markdown formatting:
-{"verified":true/false,"documentType":"passport or drivers_licence or other","nameFound":"full name on document","legible":true/false,"issues":["list of issues if any"]}`;
+{"verified":true/false,"documentType":"passport or drivers_licence or other","nameFound":"full name on document","expiryDate":"YYYY-MM-DD or null","expired":true/false,"legible":true/false,"issues":["list of issues if any"]}`;
 
     const idUserPrompt = 'Verify this ID document.';
 
@@ -16401,7 +16413,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Fire-and-forget: detect state transitions and create/complete tasks
     if (resolvedUserId) {
-      processRegistrationTaskAutomation(resolvedUserId, email, current, next).catch(function () {});
+      processRegistrationTaskAutomation(resolvedUserId, email, current, next).catch(function (err) { console.error('[task-automation] processRegistrationTaskAutomation failed:', err); });
     }
 
     sendJson(res, 200, { ok: true, updatedAt });
