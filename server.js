@@ -17212,11 +17212,19 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // Enriched today's tasks (case + GP info joined)
+    // Urgent rule: a task is urgent when 24h have elapsed since it was created
+    // and it has not yet been marked complete. Overdue = due_date in the past.
+    const nowMs = Date.now();
+    const URGENT_AGE_MS = 24 * 60 * 60 * 1000;
     const caseMap = {};
     cases.forEach(function (c) { caseMap[c.id] = c; });
     const enrichedTasks = tasks.map(function (t) {
       const c = caseMap[t.case_id] || {};
       const p = profileMap[c.user_id] || {};
+      const createdMs = t.created_at ? new Date(t.created_at).getTime() : nowMs;
+      const ageMs = Number.isFinite(createdMs) ? (nowMs - createdMs) : 0;
+      const isUrgent = ageMs >= URGENT_AGE_MS;
+      const isOverdue = !!(t.due_date && new Date(t.due_date).getTime() < nowMs);
       return Object.assign({}, t, {
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_first_name: p.first_name || '',
@@ -17225,6 +17233,9 @@ Return ONLY valid JSON with no markdown formatting:
         gp_user_id: c.user_id || null,
         case_stage: c.stage || '',
         case_substage: c.substage || '',
+        age_hours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))),
+        is_urgent: isUrgent,
+        is_overdue: isOverdue,
         whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '')
       });
     });
@@ -17241,8 +17252,8 @@ Return ONLY valid JSON with no markdown formatting:
       });
     });
 
-    const urgentCount = enrichedTasks.filter(function (t) { return t.priority === 'urgent'; }).length;
-    const overdueCount = enrichedTasks.filter(function (t) { return t.due_date && new Date(t.due_date) < new Date(); }).length;
+    const urgentCount = enrichedTasks.filter(function (t) { return t.is_urgent; }).length;
+    const overdueCount = enrichedTasks.filter(function (t) { return t.is_overdue; }).length;
 
     sendJson(res, 200, {
       ok: true,
@@ -17408,6 +17419,48 @@ Return ONLY valid JSON with no markdown formatting:
     }
     const snap = await getUserQualificationSnapshot(userId, country);
     sendJson(res, 200, { ok: true, snapshot: snap });
+    return;
+  }
+
+  // ── VA admin: download any GP's uploaded onboarding document ──
+  // Unlike /api/onboarding-documents/download (which downloads the current
+  // session user's doc), this takes an explicit user_id and is admin-gated.
+  if (pathname === '/api/admin/va/user-document-download' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const targetUserId = url.searchParams.get('user_id') || '';
+    const country = normalizeDocumentCountry(url.searchParams.get('country') || '');
+    const key = sanitizeUserString(url.searchParams.get('key') || '', 120);
+    if (!targetUserId || !country || !ONBOARDING_DOCUMENT_KEYS.has(key)) {
+      sendJson(res, 400, { ok: false, message: 'Invalid download request.' });
+      return;
+    }
+
+    const existing = await getOnboardingDocumentRow(targetUserId, country, key);
+    const mapped = mapPreparedDocumentRow(existing);
+    if (!mapped || !mapped.storagePath) {
+      sendJson(res, 404, { ok: false, message: 'Document not found.' });
+      return;
+    }
+
+    const signedUrl = await supabaseStorageCreateSignedUrl(
+      mapped.storageBucket || SUPABASE_DOCUMENT_BUCKET,
+      mapped.storagePath,
+      mapped.fileName || ''
+    );
+    if (!signedUrl) {
+      sendJson(res, 502, { ok: false, message: 'Failed to create document download URL.' });
+      return;
+    }
+
+    res.writeHead(302, {
+      Location: signedUrl,
+      'Cache-Control': 'no-store',
+      ...SECURITY_HEADERS
+    });
+    res.end();
     return;
   }
 

@@ -282,10 +282,52 @@
     .today-header p{margin:2px 0 0;font-size:12px;color:var(--muted)}
     .today-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px}
     .today-metric{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;box-shadow:var(--shadow)}
+    .today-metric.clickable{cursor:pointer;transition:all .15s;user-select:none}
+    .today-metric.clickable:hover{border-color:var(--purple-2);transform:translateY(-1px);box-shadow:0 6px 18px rgba(91,33,182,.14)}
     .today-metric-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
     .today-metric-value{font-size:22px;font-weight:800;margin-top:2px}
+    .today-metric-hint{font-size:10px;color:var(--muted);margin-top:2px;font-weight:600}
     .today-metric.urgent .today-metric-value{color:var(--red)}
     .today-metric.overdue .today-metric-value{color:var(--amber)}
+    /* GP list grid + profile view */
+    .gp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+    .gp-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:10px}
+    .gp-card:hover{border-color:var(--purple-2);transform:translateY(-2px);box-shadow:0 8px 22px rgba(91,33,182,.12)}
+    .gp-card-top{display:flex;align-items:center;gap:10px}
+    .gp-card-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--purple-1),var(--purple-2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0}
+    .gp-card-name{font-size:14px;font-weight:800;line-height:1.2;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .gp-card-meta{font-size:11px;color:var(--muted);line-height:1.4}
+    .gp-card-meta span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .gp-card-stage{display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:3px 7px;border-radius:6px;background:#eef2ff;color:var(--purple-2);margin-top:2px}
+    .gp-card-badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+    .gp-card-badge{font-size:10px;font-weight:800;padding:2px 6px;border-radius:6px;background:#f1f5f9;color:var(--text)}
+    .gp-card-badge.urgent{background:#fee2e2;color:var(--red)}
+    .gp-card-badge.overdue{background:#fef3c7;color:var(--amber)}
+    .gp-card-progress{height:6px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin-top:4px}
+    .gp-card-progress>span{display:block;height:100%;background:linear-gradient(90deg,var(--purple-1),var(--purple-2));transition:width .2s}
+    .gp-card-progress-label{font-size:10px;color:var(--muted);font-weight:700;margin-top:2px}
+    .gp-profile-header{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow);display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+    .gp-profile-header .d-name{font-size:22px;font-weight:800;margin-bottom:6px}
+    .gp-profile-header .d-meta{font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap}
+    .gp-profile-progress{margin-top:10px;display:flex;align-items:center;gap:10px}
+    .gp-profile-progress .bar{flex:1;height:10px;background:#e2e8f0;border-radius:6px;overflow:hidden}
+    .gp-profile-progress .bar>span{display:block;height:100%;background:linear-gradient(90deg,var(--purple-1),var(--purple-2));transition:width .2s}
+    .gp-profile-progress .label{font-size:12px;font-weight:800;color:var(--purple-2)}
+    .gp-profile-section{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);margin-bottom:12px}
+    .gp-profile-section h3{margin:0 0 10px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+    .doc-row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#f8fafc;margin-bottom:6px;gap:10px}
+    .doc-row-info{min-width:0;flex:1}
+    .doc-row-title{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .doc-row-file{font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .doc-row-status{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:3px 8px;border-radius:6px}
+    .doc-row-status.approved{background:#dcfce7;color:#166534}
+    .doc-row-status.pending{background:#fef3c7;color:#92400e}
+    .doc-row-status.missing{background:#fee2e2;color:#991b1b}
+    .doc-row-actions{display:flex;gap:6px;flex-shrink:0}
+    .back-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+    .back-bar .back-btn{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;color:var(--text)}
+    .back-bar .back-btn:hover{border-color:var(--purple-2);color:var(--purple-2)}
+    .back-bar h2{margin:0;font-size:18px;font-weight:800}
     .today-group-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:14px 0 8px;display:flex;align-items:center;gap:6px}
     .today-group-title .count{background:#f1f5f9;color:var(--text);padding:2px 8px;border-radius:8px;font-size:11px}
     .today-group-title .count.red{background:#fee2e2;color:var(--red)}
@@ -439,6 +481,9 @@
   <div class="tickets-wrap" id="ticketsPanel" style="display:none"></div>
   <div class="interviews-wrap" id="interviewsPanel" style="display:none"></div>
   <div class="applications-wrap" id="applicationsPanel" style="display:none"></div>
+  <div class="today-wrap" id="gpsListPanel" style="display:none"></div>
+  <div class="today-wrap" id="gpProfilePanel" style="display:none"></div>
+  <div class="today-wrap" id="metricTasksPanel" style="display:none"></div>
   <div class="ops-panel" id="opsPanel">
     <div class="ops-stats" id="opsStats"></div>
     <div class="ops-filters" id="opsFilters">
@@ -1966,12 +2011,18 @@
     document.getElementById("ticketsPanel").style.display=(which==="tickets"?"block":"none");
     document.getElementById("interviewsPanel").style.display=(which==="interviews"?"block":"none");
     document.getElementById("applicationsPanel").style.display=(which==="applications"?"block":"none");
+    document.getElementById("gpsListPanel").style.display=(which==="gpsList"?"block":"none");
+    document.getElementById("gpProfilePanel").style.display=(which==="gpProfile"?"block":"none");
+    document.getElementById("metricTasksPanel").style.display=(which==="metricTasks"?"block":"none");
   }
   function vaHidePanels(){
     document.getElementById("todayPanel").style.display="none";
     document.getElementById("ticketsPanel").style.display="none";
     document.getElementById("interviewsPanel").style.display="none";
     document.getElementById("applicationsPanel").style.display="none";
+    document.getElementById("gpsListPanel").style.display="none";
+    document.getElementById("gpProfilePanel").style.display="none";
+    document.getElementById("metricTasksPanel").style.display="none";
     document.getElementById("mainLayout").style.display="grid";
   }
 
@@ -1993,9 +2044,9 @@
       <div style="display:flex;gap:6px"><button class="btn" data-va-refresh>Refresh</button><button class="btn" data-va-sweep-weekly>Run Weekly Check-in Sweep</button></div>
     </div>`;
     h+=`<div class="today-metrics">
-      <div class="today-metric"><div class="today-metric-label">Total GPs</div><div class="today-metric-value">${m.total_gps||0}</div></div>
-      <div class="today-metric urgent"><div class="today-metric-label">Urgent</div><div class="today-metric-value">${m.urgent||0}</div></div>
-      <div class="today-metric overdue"><div class="today-metric-label">Overdue</div><div class="today-metric-value">${m.overdue||0}</div></div>
+      <div class="today-metric clickable" data-va-metric="gps" title="View all GPs"><div class="today-metric-label">Total GPs</div><div class="today-metric-value">${m.total_gps||0}</div><div class="today-metric-hint">View all →</div></div>
+      <div class="today-metric urgent clickable" data-va-metric="urgent" title="Tasks open for 24h+ without completion"><div class="today-metric-label">Urgent</div><div class="today-metric-value">${m.urgent||0}</div><div class="today-metric-hint">≥ 24h without complete →</div></div>
+      <div class="today-metric overdue clickable" data-va-metric="overdue" title="Tasks past their due date"><div class="today-metric-label">Overdue</div><div class="today-metric-value">${m.overdue||0}</div><div class="today-metric-hint">Past due date →</div></div>
       <div class="today-metric"><div class="today-metric-label">Open Tasks</div><div class="today-metric-value">${m.open_tasks||0}</div></div>
       <div class="today-metric"><div class="today-metric-label">Open Tickets</div><div class="today-metric-value">${m.open_tickets||0}</div></div>
     </div>`;
@@ -2054,6 +2105,303 @@
       h+=`<div class="empty" style="margin-top:20px">All clear — no pending tasks or tickets.</div>`;
     }
     el.innerHTML=h;
+  }
+
+  /* ── GP list (triggered from Total GPs metric card) ── */
+  function renderGpsListPanel(){
+    const el=document.getElementById("gpsListPanel");if(!el)return;
+    const dash=S.va.dashboard;
+    const users=(dash&&Array.isArray(dash.users))?dash.users.slice():[];
+    // Sort: urgent tasks first, then alphabetical by name
+    users.sort((a,b)=>{
+      const au=(a.urgent_tasks||0),bu=(b.urgent_tasks||0);
+      if(au!==bu)return bu-au;
+      return(a.gp_name||"").localeCompare(b.gp_name||"");
+    });
+    let h=`<div class="back-bar">
+      <button class="back-btn" data-va-back>← Back</button>
+      <h2>All GPs <span style="color:var(--muted);font-weight:600;font-size:13px">(${users.length})</span></h2>
+    </div>`;
+    if(!users.length){
+      h+=`<div class="empty">No GPs yet.</div>`;
+      el.innerHTML=h;return;
+    }
+    h+=`<div class="gp-grid">`;
+    users.forEach(u=>{
+      const progress=u.quals_required>0?Math.round((u.quals_approved/u.quals_required)*100):0;
+      const stageLabel=(u.stage||"").replace(/_/g," ")||"—";
+      h+=`<div class="gp-card" data-gp-profile="${esc(u.user_id||"")}" data-case-id="${esc(u.case_id||"")}">
+        <div class="gp-card-top">
+          <div class="gp-card-avatar">${esc(ini(u.gp_name||""))}</div>
+          <div style="min-width:0;flex:1">
+            <div class="gp-card-name">${esc(u.gp_name||"(no name)")}</div>
+            <span class="gp-card-stage">${esc(stageLabel)}</span>
+          </div>
+        </div>
+        <div class="gp-card-meta">
+          ${u.gp_email?`<span>📧 ${esc(u.gp_email)}</span>`:""}
+          ${u.gp_phone?`<span>📱 ${esc(u.gp_phone)}</span>`:""}
+          ${u.country?`<span>🌍 ${esc(u.country)}</span>`:""}
+        </div>
+        <div>
+          <div class="gp-card-progress"><span style="width:${progress}%"></span></div>
+          <div class="gp-card-progress-label">Qualifications: ${u.quals_approved||0} / ${u.quals_required||0} approved</div>
+        </div>
+        <div class="gp-card-badges">
+          ${u.open_tasks?`<span class="gp-card-badge">${u.open_tasks} task${u.open_tasks===1?"":"s"}</span>`:""}
+          ${u.urgent_tasks?`<span class="gp-card-badge urgent">${u.urgent_tasks} urgent</span>`:""}
+          ${u.overdue_tasks?`<span class="gp-card-badge overdue">${u.overdue_tasks} overdue</span>`:""}
+          ${u.open_tickets?`<span class="gp-card-badge">${u.open_tickets} ticket${u.open_tickets===1?"":"s"}</span>`:""}
+          ${!u.open_tasks&&!u.urgent_tasks&&!u.overdue_tasks&&!u.open_tickets?`<span class="gp-card-badge" style="background:#dcfce7;color:#166534">All clear</span>`:""}
+        </div>
+      </div>`;
+    });
+    h+=`</div>`;
+    el.innerHTML=h;
+  }
+
+  /* ── Individual GP profile (triggered from GP card) ── */
+  async function renderGpProfilePanel(userId){
+    const el=document.getElementById("gpProfilePanel");if(!el)return;
+    const dash=S.va.dashboard;
+    const user=(dash&&Array.isArray(dash.users))?dash.users.find(u=>u.user_id===userId):null;
+    if(!user){
+      el.innerHTML=`<div class="back-bar"><button class="back-btn" data-va-back-to="gpsList">← Back to GPs</button></div><div class="empty">GP not found.</div>`;
+      return;
+    }
+    // All open tasks for this GP
+    const allTasks=(dash&&Array.isArray(dash.todays_tasks))?dash.todays_tasks.filter(t=>t.gp_user_id===userId):[];
+    const stageLabel=(user.stage||"").replace(/_/g," ")||"—";
+    const progress=user.quals_required>0?Math.round((user.quals_approved/user.quals_required)*100):0;
+
+    let h=`<div class="back-bar">
+      <button class="back-btn" data-va-back-to="gpsList">← Back to GPs</button>
+    </div>`;
+    h+=`<div class="gp-profile-header">
+      <div style="min-width:0;flex:1">
+        <div class="d-name">${esc(user.gp_name||"(no name)")}</div>
+        <div class="d-meta">
+          ${user.gp_email?`<span>📧 ${esc(user.gp_email)}</span>`:""}
+          ${user.gp_phone?`<span>📱 ${esc(user.gp_phone)}</span>`:""}
+          <span>🌍 ${esc(user.country||"—")}</span>
+          <span>Stage: <b>${esc(stageLabel)}</b></span>
+          ${user.blocker_status?`<span style="color:var(--red)">Blocked: ${esc(user.blocker_status.replace(/_/g," "))}</span>`:""}
+        </div>
+        <div class="gp-profile-progress">
+          <span class="label">Qualifications ${progress}%</span>
+          <div class="bar"><span style="width:${progress}%"></span></div>
+          <span class="label">${user.quals_approved||0} / ${user.quals_required||0}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a class="btn wa" href="${safeUrl(user.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+        <button class="btn" data-view-case-from-profile="${esc(user.case_id||"")}">Open Full Case</button>
+      </div>
+    </div>`;
+
+    // Progress summary
+    h+=`<div class="gp-profile-section">
+      <h3>Current Progress</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+        <div class="today-metric"><div class="today-metric-label">Open Tasks</div><div class="today-metric-value">${user.open_tasks||0}</div></div>
+        <div class="today-metric urgent"><div class="today-metric-label">Urgent</div><div class="today-metric-value">${user.urgent_tasks||0}</div></div>
+        <div class="today-metric overdue"><div class="today-metric-label">Overdue</div><div class="today-metric-value">${user.overdue_tasks||0}</div></div>
+        <div class="today-metric"><div class="today-metric-label">Open Tickets</div><div class="today-metric-value">${user.open_tickets||0}</div></div>
+      </div>
+    </div>`;
+
+    // Open tasks list
+    h+=`<div class="gp-profile-section"><h3>Open Tasks (${allTasks.length})</h3>`;
+    if(!allTasks.length){
+      h+=`<div class="empty">No open tasks.</div>`;
+    }else{
+      allTasks.forEach(t=>{
+        h+=`<div class="task-row">
+          <span class="tp ${esc(t.priority||"normal")}"></span>
+          <div class="task-body">
+            <div class="task-title">${esc(t.title)}
+              ${t.is_urgent?`<span class="task-badge urgent" style="margin-left:6px">URGENT ${t.age_hours||0}h</span>`:""}
+              ${t.is_overdue?`<span class="task-badge overdue" style="margin-left:6px">OVERDUE</span>`:""}
+            </div>
+            <div class="task-desc">${esc(t.description||"")} ${t.due_date?"• Due "+fmtD(t.due_date):""} ${t.related_stage?"• "+esc(t.related_stage):""}</div>
+            <div class="task-actions">
+              <button class="btn sm primary" data-complete-todo-task="${esc(t.id)}">Complete</button>
+            </div>
+          </div>
+        </div>`;
+      });
+    }
+    h+=`</div>`;
+
+    // Documents placeholder — filled async
+    h+=`<div class="gp-profile-section" id="gpProfileDocs"><h3>Documents</h3><div class="empty">Loading documents…</div></div>`;
+
+    el.innerHTML=h;
+
+    // Load qualifications + documents async
+    loadGpProfileDocuments(userId);
+  }
+
+  async function loadGpProfileDocuments(userId){
+    const el=document.getElementById("gpProfileDocs");if(!el)return;
+    try{
+      const r=await fetch("/api/admin/va/user-qualifications?user_id="+encodeURIComponent(userId),{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(!d||!d.ok||!d.snapshot){
+        el.innerHTML=`<h3>Documents</h3><div class="empty">Unable to load documents.</div>`;
+        return;
+      }
+      const snap=d.snapshot;
+      const country=snap.country||"GB";
+      const approved=Array.isArray(snap.approved)?snap.approved:[];
+      const pending=Array.isArray(snap.uploaded_unverified)?snap.uploaded_unverified:[];
+      const missing=Array.isArray(snap.missing)?snap.missing:[];
+
+      function viewUrl(key){
+        return "/api/admin/va/user-document-download?user_id="+encodeURIComponent(userId)+"&country="+encodeURIComponent(country)+"&key="+encodeURIComponent(key);
+      }
+
+      let h=`<h3>Documents — ${esc(country)}</h3>`;
+
+      // Approved documents
+      h+=`<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:6px">✓ Approved (${approved.length})</div>`;
+      if(approved.length){
+        approved.forEach(q=>{
+          h+=`<div class="doc-row">
+            <div class="doc-row-info">
+              <div class="doc-row-title">${esc(q.label||q.key)}</div>
+              <div class="doc-row-file">${esc(q.file_name||"")}</div>
+            </div>
+            <span class="doc-row-status approved">Approved</span>
+            <div class="doc-row-actions">
+              <a class="btn sm primary" href="${esc(viewUrl(q.key))}" target="_blank" rel="noopener">View</a>
+            </div>
+          </div>`;
+        });
+      }else{
+        h+=`<div class="empty" style="padding:8px">None approved yet.</div>`;
+      }
+      h+=`</div>`;
+
+      // Pending documents (uploaded but not yet verified)
+      h+=`<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:6px">⧗ Uploaded — awaiting AI (${pending.length})</div>`;
+      if(pending.length){
+        pending.forEach(q=>{
+          h+=`<div class="doc-row">
+            <div class="doc-row-info">
+              <div class="doc-row-title">${esc(q.label||q.key)}</div>
+              <div class="doc-row-file">${esc(q.file_name||"")} • ${esc(q.status||"pending")}</div>
+            </div>
+            <span class="doc-row-status pending">${esc(q.status||"pending")}</span>
+            <div class="doc-row-actions">
+              <a class="btn sm" href="${esc(viewUrl(q.key))}" target="_blank" rel="noopener">View</a>
+            </div>
+          </div>`;
+        });
+      }else{
+        h+=`<div class="empty" style="padding:8px">Nothing awaiting verification.</div>`;
+      }
+      h+=`</div>`;
+
+      // Missing documents
+      h+=`<div><div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:6px">⚠ Not yet submitted (${missing.length})</div>`;
+      if(missing.length){
+        missing.forEach(q=>{
+          h+=`<div class="doc-row">
+            <div class="doc-row-info">
+              <div class="doc-row-title">${esc(q.label||q.key)}</div>
+              <div class="doc-row-file">Not uploaded</div>
+            </div>
+            <span class="doc-row-status missing">Missing</span>
+          </div>`;
+        });
+      }else{
+        h+=`<div class="empty" style="padding:8px">All required docs accounted for. 🎉</div>`;
+      }
+      h+=`</div>`;
+
+      el.innerHTML=h;
+    }catch(err){
+      el.innerHTML=`<h3>Documents</h3><div class="empty">Failed to load documents.</div>`;
+    }
+  }
+
+  /* ── Urgent / Overdue task list (triggered from metric cards) ── */
+  function renderMetricTasksPanel(mode){
+    const el=document.getElementById("metricTasksPanel");if(!el)return;
+    const dash=S.va.dashboard;
+    const allTasks=(dash&&Array.isArray(dash.todays_tasks))?dash.todays_tasks.slice():[];
+    const filtered=mode==="urgent"
+      ?allTasks.filter(t=>t.is_urgent)
+      :allTasks.filter(t=>t.is_overdue);
+
+    // Sort: urgent by oldest created, overdue by most overdue
+    if(mode==="urgent"){
+      filtered.sort((a,b)=>(new Date(a.created_at).getTime()||0)-(new Date(b.created_at).getTime()||0));
+    }else{
+      filtered.sort((a,b)=>(new Date(a.due_date).getTime()||0)-(new Date(b.due_date).getTime()||0));
+    }
+
+    const title=mode==="urgent"?"Urgent Tasks":"Overdue Tasks";
+    const subtitle=mode==="urgent"
+      ?"Tasks that have been open for 24 hours or longer without being completed."
+      :"Tasks whose due date has passed.";
+
+    let h=`<div class="back-bar">
+      <button class="back-btn" data-va-back>← Back</button>
+      <h2>${esc(title)} <span style="color:var(--muted);font-weight:600;font-size:13px">(${filtered.length})</span></h2>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin:-6px 0 14px">${esc(subtitle)}</p>`;
+
+    if(!filtered.length){
+      h+=`<div class="empty">No ${esc(mode)} tasks. 🎉</div>`;
+      el.innerHTML=h;return;
+    }
+
+    h+=`<div class="today-grid">`;
+    filtered.forEach(t=>{
+      const ageStr=mode==="urgent"?`${t.age_hours||0}h old`:(t.due_date?"Due "+fmtD(t.due_date):"");
+      h+=`<div class="todo-card ${esc(t.priority||"normal")} ${t.is_overdue?"overdue":""}" data-todo-task="${esc(t.id)}" data-user-id="${esc(t.gp_user_id||"")}">
+        <div class="todo-card-top">
+          <div class="todo-avatar">${esc(ini(t.gp_name||""))}</div>
+          <div class="todo-gp">${esc(t.gp_name||"")}</div>
+          <span class="todo-stage">${esc(t.case_stage||t.related_stage||"")}</span>
+        </div>
+        <div class="todo-title">${esc(t.title)}</div>
+        ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
+        <div class="todo-detail">${esc(t.description||"")} • ${esc(ageStr)} ${t.is_overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""} ${t.is_urgent?'<span style="color:var(--red);font-weight:800"> • URGENT</span>':""}</div>
+        <div class="todo-actions">
+          <a class="btn wa" href="${safeUrl(t.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+          <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
+          <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
+          <button class="btn sm" data-gp-profile="${esc(t.gp_user_id||"")}">GP Profile</button>
+        </div>
+      </div>`;
+    });
+    h+=`</div>`;
+    el.innerHTML=h;
+  }
+
+  /* Navigation helpers for the new panels */
+  function vaOpenGpsList(){
+    vaShowPanel("gpsList");
+    renderGpsListPanel();
+  }
+  function vaOpenGpProfile(userId){
+    S.va.selectedGpUserId=userId;
+    vaShowPanel("gpProfile");
+    renderGpProfilePanel(userId);
+  }
+  function vaOpenMetricTasks(mode){
+    S.va.metricTasksMode=mode;
+    vaShowPanel("metricTasks");
+    renderMetricTasksPanel(mode);
+  }
+  function vaBackToToday(){
+    S.view="today";
+    document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="today"));
+    vaShowPanel("today");
+    renderTodayPanel();
   }
 
   function renderTicketsPanel(){
@@ -2216,8 +2564,62 @@
   document.addEventListener("click",async e=>{
     const todayPanel=document.getElementById("todayPanel");
     const ticketsPanel=document.getElementById("ticketsPanel");
-    const inNewPanel=(todayPanel&&todayPanel.contains(e.target))||(ticketsPanel&&ticketsPanel.contains(e.target));
+    const gpsListPanel=document.getElementById("gpsListPanel");
+    const gpProfilePanel=document.getElementById("gpProfilePanel");
+    const metricTasksPanel=document.getElementById("metricTasksPanel");
+    const inNewPanel=(todayPanel&&todayPanel.contains(e.target))
+      ||(ticketsPanel&&ticketsPanel.contains(e.target))
+      ||(gpsListPanel&&gpsListPanel.contains(e.target))
+      ||(gpProfilePanel&&gpProfilePanel.contains(e.target))
+      ||(metricTasksPanel&&metricTasksPanel.contains(e.target));
     if(!inNewPanel&&!e.target.closest(".modal"))return;
+
+    // Metric card clicks (Total GPs / Urgent / Overdue)
+    const metricClick=e.target.closest("[data-va-metric]");
+    if(metricClick){
+      e.preventDefault();e.stopPropagation();
+      const which=metricClick.getAttribute("data-va-metric");
+      if(which==="gps")vaOpenGpsList();
+      else if(which==="urgent")vaOpenMetricTasks("urgent");
+      else if(which==="overdue")vaOpenMetricTasks("overdue");
+      return;
+    }
+    // Explicit "GP Profile" button (e.g. from task cards in metric view)
+    const gpProfileBtn=e.target.closest("button[data-gp-profile]");
+    if(gpProfileBtn){
+      e.preventDefault();e.stopPropagation();
+      vaOpenGpProfile(gpProfileBtn.getAttribute("data-gp-profile"));
+      return;
+    }
+    // GP card click (in GPs list) — open profile unless click was on a nested link/button
+    const gpCard=e.target.closest(".gp-card[data-gp-profile]");
+    if(gpCard&&!e.target.closest("a,button")){
+      e.preventDefault();e.stopPropagation();
+      vaOpenGpProfile(gpCard.getAttribute("data-gp-profile"));
+      return;
+    }
+    // Back buttons
+    const backBtn=e.target.closest("[data-va-back]");
+    if(backBtn){e.preventDefault();e.stopPropagation();vaBackToToday();return;}
+    const backToBtn=e.target.closest("[data-va-back-to]");
+    if(backToBtn){
+      e.preventDefault();e.stopPropagation();
+      const dest=backToBtn.getAttribute("data-va-back-to");
+      if(dest==="gpsList")vaOpenGpsList();
+      else vaBackToToday();
+      return;
+    }
+    // Open full case (from GP profile header)
+    const viewCaseFromProfile=e.target.closest("[data-view-case-from-profile]");
+    if(viewCaseFromProfile){
+      e.preventDefault();e.stopPropagation();
+      S.selectedCaseId=viewCaseFromProfile.getAttribute("data-view-case-from-profile");
+      S.view="cases";
+      document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));
+      vaHidePanels();renderCaseList();renderDetail();
+      document.getElementById("mainLayout").classList.add("detail-open");
+      return;
+    }
 
     const nudgeBtn=e.target.closest("[data-nudge-user]");
     if(nudgeBtn){e.preventDefault();e.stopPropagation();openNudgeModal(nudgeBtn.getAttribute("data-nudge-user"),nudgeBtn.getAttribute("data-nudge-stage"),nudgeBtn.getAttribute("data-nudge-substage"),nudgeBtn.getAttribute("data-nudge-name"));return;}
@@ -2226,7 +2628,17 @@
     const reopenTk=e.target.closest("[data-reopen-ticket]");
     if(reopenTk){e.preventDefault();e.stopPropagation();closeTicketAction(reopenTk.getAttribute("data-reopen-ticket"),"open");return;}
     const completeTodo=e.target.closest("[data-complete-todo-task]");
-    if(completeTodo){e.preventDefault();e.stopPropagation();await completeTask(completeTodo.getAttribute("data-complete-todo-task"));await loadVaDashboard();renderTodayPanel();return;}
+    if(completeTodo){
+      e.preventDefault();e.stopPropagation();
+      await completeTask(completeTodo.getAttribute("data-complete-todo-task"));
+      await loadVaDashboard();
+      // Re-render whichever panel is currently visible
+      if(gpProfilePanel&&gpProfilePanel.style.display!=="none"&&S.va.selectedGpUserId)renderGpProfilePanel(S.va.selectedGpUserId);
+      else if(metricTasksPanel&&metricTasksPanel.style.display!=="none"&&S.va.metricTasksMode)renderMetricTasksPanel(S.va.metricTasksMode);
+      else if(gpsListPanel&&gpsListPanel.style.display!=="none")renderGpsListPanel();
+      else renderTodayPanel();
+      return;
+    }
     const viewTodoCase=e.target.closest("[data-view-todo-case]");
     if(viewTodoCase){e.preventDefault();e.stopPropagation();S.selectedCaseId=viewTodoCase.getAttribute("data-view-todo-case");S.view="cases";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));vaHidePanels();renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     const subtab=e.target.closest("[data-tickets-subtab]");
