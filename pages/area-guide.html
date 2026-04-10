@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)" />
+  <meta name="color-scheme" content="light dark" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Area Guide — GP Link</title>
@@ -22,7 +24,7 @@
   * { box-sizing: border-box; margin: 0; }
 
   :root {
-    --bg: #f0f4fa;
+    --bg: #ffffff;
     --surface-glass: rgba(255, 255, 255, 0.55);
     --surface-glass-border: rgba(255, 255, 255, 0.7);
     --surface-glass-highlight: rgba(255, 255, 255, 0.8);
@@ -419,6 +421,111 @@
   /* Tab content visibility */
   .tab-content { display: none; }
   .tab-content.active { display: block; }
+
+  /* ── Desktop optimization ── */
+  @media (min-width: 768px) {
+    .page {
+      max-width: 760px;
+      padding: 0 24px 120px;
+    }
+    .back-bar {
+      margin: 0 -24px;
+      padding: 16px 24px;
+    }
+    .area-name {
+      font-size: 36px;
+    }
+    .tab {
+      padding: 11px 0;
+      font-size: 13px;
+    }
+    .stats-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .climate-grid {
+      gap: 12px;
+    }
+    .action-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .glass-section {
+      padding: 28px 28px;
+    }
+    .glass-title {
+      font-size: 22px;
+    }
+    .divider {
+      margin: 32px 0;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .page {
+      max-width: 1080px;
+      padding: 0 32px 120px;
+    }
+    .back-bar {
+      margin: 0 -32px;
+      padding: 18px 32px;
+    }
+    .hero {
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      gap: 24px 32px;
+      align-items: center;
+    }
+    .area-name {
+      font-size: 44px;
+    }
+    .tab-bar {
+      margin-top: 0;
+    }
+    .stats-grid {
+      gap: 16px;
+    }
+    .stat-card {
+      padding: 20px;
+    }
+    .stat-value {
+      font-size: 26px;
+    }
+    .glass-section {
+      padding: 32px 32px;
+    }
+    .glass-title {
+      font-size: 24px;
+    }
+    /* Two-column layout for area guide body */
+    .area-two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 28px;
+      align-items: start;
+    }
+    .amenity-item {
+      padding: 16px 0;
+    }
+    .whatsapp-btn {
+      max-width: 360px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .page {
+      max-width: 1200px;
+      padding: 0 48px 120px;
+    }
+    .back-bar {
+      margin: 0 -48px;
+      padding: 20px 48px;
+    }
+    .area-name {
+      font-size: 50px;
+    }
+  }
 </style>
 </head>
 <body>

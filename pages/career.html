@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+  <meta name="color-scheme" content="light dark" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Career - GP Link</title>
@@ -72,7 +74,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #f0f4fa;
+      --bg: #ffffff;
       --panel: #ffffff;
       --panel-soft: #f8fafc;
       --panel-muted: #f1f5f9;
@@ -5836,6 +5838,117 @@
     }
     .area-guide-link:hover { background: rgba(37, 99, 235, 0.08); }
     .area-guide-link svg:first-child { color: #2563eb; flex-shrink: 0; }
+
+    /* ── Desktop optimization (tablet + desktop) ── */
+    @media (min-width: 768px) {
+      .shell {
+        padding: 0 32px 96px;
+      }
+      .main {
+        padding: 24px 0 0;
+        gap: 20px;
+      }
+      .hero-search-card {
+        padding: 20px 24px;
+      }
+    }
+
+    @media (min-width: 1024px) {
+      .shell {
+        max-width: 1120px;
+        padding: 0 40px 96px;
+      }
+      .main {
+        gap: 24px;
+      }
+      .page-hero {
+        gap: 24px;
+      }
+      .desktop-hero-copy h1 {
+        font-size: 42px;
+        letter-spacing: -0.055em;
+      }
+      .page-subtitle {
+        font-size: 15px;
+        max-width: 64ch;
+      }
+      .hero-search-card {
+        padding: 22px 26px;
+        border-radius: 22px;
+      }
+      .hero-search-input {
+        min-height: 48px;
+        font-size: 15px;
+      }
+      .role-grid {
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 22px;
+      }
+      .application-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+      }
+      .opportunity-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+      }
+      body.career-mode-secured .shell {
+        max-width: 1120px;
+      }
+      body.career-mode-secured .secured-grid {
+        max-width: 100%;
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+        gap: 24px;
+      }
+      body.career-mode-secured .placement-primary-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+      body.career-mode-secured .placement-dock {
+        max-width: 1120px;
+      }
+    }
+
+    @media (min-width: 1280px) {
+      .shell {
+        max-width: 1240px;
+        padding: 0 48px 120px;
+      }
+      .main {
+        gap: 28px;
+      }
+      .desktop-hero-copy h1 {
+        font-size: 48px;
+      }
+      .role-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 24px;
+      }
+      .role-card-hero {
+        height: 168px;
+      }
+      .hero-search-card {
+        padding: 26px 30px;
+      }
+      body.career-mode-secured .shell {
+        max-width: 1240px;
+      }
+      body.career-mode-secured .placement-dock {
+        max-width: 1240px;
+      }
+    }
+
+    @media (min-width: 1536px) {
+      .shell {
+        max-width: 1360px;
+      }
+      body.career-mode-secured .shell {
+        max-width: 1360px;
+      }
+      body.career-mode-secured .placement-dock {
+        max-width: 1360px;
+      }
+    }
   </style>
 </head>
 <body>
