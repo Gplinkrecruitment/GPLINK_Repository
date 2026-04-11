@@ -396,9 +396,28 @@
     var snap = getProgressSnapshot();
     var bypassLocks = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
+    // NOTE: Visa step is intentionally hidden from the user-facing registration
+    // journey for the v1 release. Backend + pages/visa.html remain in place so
+    // the feature can be re-enabled later. See docs/deferred-visa-application.md
+    // for restoration steps.
+    var ahpraUnlocked = snap.careerSecured && snap.amcDone;
+    var ahpraLockedHint = !snap.careerSecured
+      ? "Secure a placement to unlock"
+      : !snap.amcDone
+        ? "Unlocked after AMC is complete"
+        : snap.ahpraDone ? "Completed" : "In progress";
+
     return [
+      buildRegistrationRow("career", {
+        title: "1. Secure Your Placement",
+        sub: "Find and secure a practice position through GP Link.",
+        mobileDetail: "Browse roles, apply, and secure a placement at a practice.",
+        mobileStatus: snap.careerSecured ? "Placement secured" : "Searching",
+        done: snap.careerSecured,
+        href: "/pages/career.html"
+      }),
       buildRegistrationRow("myinthealth", {
-        title: "1. MyIntealth Account",
+        title: "2. MyIntealth Account",
         sub: "Create account and complete EPIC verification.",
         mobileDetail: "EPIC verification is set up and moving forward.",
         mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
@@ -406,55 +425,37 @@
         href: "/pages/myinthealth.html?" + REGISTRATION_CONTINUE_PARAM + "=1"
       }),
       buildRegistrationRow("amc", {
-        title: "2. AMC Portfolio",
+        title: "3. AMC Portfolio",
         sub: "Create AMC candidate portfolio and upload credentials.",
         mobileDetail: "AMC portfolio is created and connected to your verification.",
-        mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after Step 1 is complete",
+        mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete",
         locked: !bypassLocks && !snap.epicDone,
         done: snap.amcDone,
         href: "/pages/amc.html"
-      }),
-      buildRegistrationRow("career", {
-        title: "3. Career & Placement",
-        sub: "Secure a practice position through GP Link.",
-        mobileDetail: "Browse roles, apply and secure a placement at a practice.",
-        mobileStatus: !snap.amcDone ? "Unlocked after Step 2 is complete" : snap.careerSecured ? "Placement secured" : "Searching",
-        locked: !bypassLocks && !snap.amcDone,
-        done: snap.careerSecured,
-        href: "/pages/career.html"
       }),
       buildRegistrationRow("ahpra", {
         title: "4. AHPRA Registration",
         sub: "Prepare and submit your specialist registration application.",
         mobileDetail: "Specialist registration application is prepared and submitted correctly.",
-        mobileStatus: !snap.careerSecured ? "Secure a position to unlock" : snap.ahpraDone ? "Completed" : "In progress",
-        locked: !bypassLocks && !snap.careerSecured,
+        mobileStatus: ahpraLockedHint,
+        locked: !bypassLocks && !ahpraUnlocked,
         done: snap.ahpraDone,
         href: "/pages/ahpra.html"
       }),
-      buildRegistrationRow("visa", {
-        title: "5. Visa Application",
-        sub: "Track your visa nomination, lodgement and processing.",
-        mobileDetail: "Visa status from nomination through to grant.",
-        mobileStatus: !snap.ahpraDone ? "Unlocked after Step 4 is complete" : "In progress",
-        locked: !bypassLocks && !snap.ahpraDone,
-        done: false,
-        href: "/pages/visa.html"
-      }),
       buildRegistrationRow("pbs", {
-        title: "6. PBS & Medicare",
+        title: "5. PBS & Medicare",
         sub: "Apply for Medicare provider number and PBS prescriber number.",
         mobileDetail: "Medicare and PBS registration for prescribing authority.",
-        mobileStatus: !snap.ahpraDone ? "Unlocked after Step 4 is complete" : "In progress",
+        mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
         locked: !bypassLocks && !snap.ahpraDone,
         done: false,
         href: "/pages/pbs.html"
       }),
       buildRegistrationRow("commencement", {
-        title: "7. Commencement",
+        title: "6. Commencement",
         sub: "Pre-arrival checklist and first-day preparation.",
         mobileDetail: "Everything to prepare before your start date.",
-        mobileStatus: !snap.ahpraDone ? "Unlocked after Step 4 is complete" : "In progress",
+        mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
         locked: !bypassLocks && !snap.ahpraDone,
         done: false,
         href: "/pages/commencement.html"
