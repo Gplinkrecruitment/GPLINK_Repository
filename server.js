@@ -114,7 +114,7 @@ const DOUBLETICK_STAGE_MESSAGES = {
   ahpra: 'Hi {{name}}, great progress — you\'ve unlocked the AHPRA step! 🎉 This involves registering with the Australian Health Practitioner Regulation Agency. If you need any help, just reply to this message.',
   visa: 'Hi {{name}}, you\'re onto the Visa stage! 🎉 We\'ll guide you through the visa application process. If you need any help, just reply to this message.'
 };
-const CAREER_HERO_IMAGE_VERSION = 3;
+const CAREER_HERO_IMAGE_VERSION = 4;
 const CAREER_HERO_LOOKUP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CAREER_HERO_CITY_LIBRARY_CACHE_TTL_MS = 60 * 60 * 1000;
 const CAREER_HERO_IMAGE_BUCKET = String(process.env.CAREER_HERO_IMAGE_BUCKET || 'career-hero-images').trim() || 'career-hero-images';
@@ -5743,92 +5743,6 @@ async function fetchCareerHeroImageCandidates(context = {}) {
     .slice(0, 8);
 }
 
-async function chooseCareerHeroImageCandidate(context = {}, candidates = []) {
-  if (!Array.isArray(candidates) || candidates.length === 0) return null;
-  if (!OPENAI_API_KEY) return candidates[0];
-
-  const shortlisted = candidates.slice(0, 6);
-  const content = [
-    {
-      type: 'input_text',
-      text: [
-        'Choose the best public hero image candidate for a confidential GP job listing.',
-        'This is a strict visual review task.',
-        'STRICT RULES:',
-        '- Select only a genuine wide landscape image of the suburb or its broader surrounding area.',
-        '- Good examples: skyline, aerial, coast, foreshore, river, neighbourhood, or broad streetscape views.',
-        '- The image must feel like a location hero banner, not an event photo or close-up subject.',
-        '- Reject any image dominated by cars, traffic, racetracks, sports venues, events, people, single buildings, houses, stations, trains, logos, maps, or documents.',
-        '- If none clearly qualify, return an empty selected_id.',
-        `suburb: ${String(context.suburb || '').trim()}`,
-        `state: ${String(context.state || '').trim()}`,
-        `nearest_city: ${String(context.city || '').trim()}`,
-        'Return strict JSON only: {"selected_id":"candidate id or empty string","reason":"short reason"}'
-      ].join('\n')
-    }
-  ];
-
-  shortlisted.forEach((candidate, index) => {
-    content.push({
-      type: 'input_text',
-      text: [
-        `Candidate ${index + 1}`,
-        `id: ${candidate.id}`,
-        `title: ${candidate.title}`,
-        `description: ${candidate.description}`,
-        `categories: ${candidate.categories}`,
-        `width: ${candidate.width}`,
-        `height: ${candidate.height}`,
-        `score: ${candidate.score}`
-      ].join('\n')
-    });
-    if (candidate.imageUrl) {
-      content.push({
-        type: 'input_image',
-        image_url: candidate.imageUrl
-      });
-    }
-  });
-
-  try {
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: OPENAI_CAREER_MODEL,
-        input: [{ role: 'user', content }],
-        max_output_tokens: 160,
-        temperature: 0.1
-      })
-    });
-
-    if (!response.ok) return null;
-    const payload = await response.json().catch(() => null);
-    const text = payload && typeof payload.output_text === 'string' ? payload.output_text : '';
-    if (!text) return null;
-
-    let parsed = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch (err) {
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) parsed = JSON.parse(match[0]);
-    }
-
-    const selectedId = parsed && typeof parsed.selected_id === 'string' ? parsed.selected_id.trim() : '';
-    const selected = candidates.find((candidate) => candidate.id === selectedId);
-    if (selected) {
-      selected.reason = typeof parsed.reason === 'string' ? parsed.reason.trim() : '';
-      return selected;
-    }
-  } catch (err) {}
-
-  return null;
-}
-
 function shouldRefreshCareerHeroImage(row, meta) {
   if (!meta || typeof meta !== 'object') return false;
   const hasLocation = !!String(meta.suburb || row && row.location_city || row && row.location_label || '').trim();
@@ -5885,7 +5799,8 @@ function buildCareerHeroLookupCacheKey(context = {}) {
     String(context.suburb || '').trim().toLowerCase(),
     String(context.state || '').trim().toLowerCase(),
     String(context.city || '').trim().toLowerCase(),
-    String(context.country || '').trim().toLowerCase()
+    String(context.country || '').trim().toLowerCase(),
+    String(CAREER_HERO_IMAGE_VERSION)
   ].join('|');
 }
 
@@ -6287,6 +6202,44 @@ function selectNearestCareerHeroCity(cities = [], coordinates = null) {
   return chosen;
 }
 
+async function resolveCareerHeroImageFromWikimedia(context = {}, normalized = {}, checkedAt) {
+  try {
+    const candidates = await fetchCareerHeroImageCandidates({
+      ...context,
+      suburb: normalized.suburb || context.suburb,
+      state: normalized.state || context.state,
+      city: normalized.city || context.city,
+      country: normalized.country || context.country
+    });
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+    const sorted = candidates
+      .slice()
+      .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+    const top = sorted[0];
+    if (!top || !top.imageUrl) return null;
+
+    const locationLabel = [normalized.suburb, normalized.state].filter(Boolean).join(', ');
+    const creditParts = [
+      locationLabel,
+      top.artist ? `Photo: ${top.artist}` : '',
+      top.license || '',
+      'Wikimedia Commons'
+    ].filter(Boolean);
+
+    return {
+      heroImageUrl: top.imageUrl,
+      heroImageSourceUrl: top.sourceUrl || top.imageUrl,
+      heroImageCredit: creditParts.join(' · '),
+      heroImageStatus: 'success',
+      heroImageCheckedAt: checkedAt,
+      heroImageVersion: CAREER_HERO_IMAGE_VERSION
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
 async function resolveCareerHeroImageFromContext(context = {}) {
   const normalized = normalizeCareerHeroLookupContext(context);
   const hasLocation = !!String(normalized.suburb || normalized.city || '').trim();
@@ -6306,45 +6259,46 @@ async function resolveCareerHeroImageFromContext(context = {}) {
   }
 
   const library = await loadCareerHeroCityLibrary();
-  if (!library.cities.length) {
-    const unavailable = createCareerHeroUnavailable(checkedAt);
-    _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: unavailable });
-    return { ...unavailable };
+
+  // Curated library path (Supabase-backed) — highest priority when populated.
+  if (library.cities.length) {
+    const suburbCoordinates = await resolveCareerSuburbCoordinates(normalized);
+    const chosenCity = selectNearestCareerHeroCity(library.cities, suburbCoordinates)
+      || findCareerHeroCityExactMatch(library.cities, normalized);
+
+    if (chosenCity) {
+      const images = library.imagesByCityId.get(chosenCity.id) || [];
+      const selectedImage = pickStableCareerHeroImage(images, buildCareerHeroRoleSeed(context));
+      if (selectedImage) {
+        const creditParts = [
+          [chosenCity.cityName, chosenCity.stateCode].filter(Boolean).join(', '),
+          selectedImage.credit
+        ].filter(Boolean);
+
+        const resolved = {
+          heroImageUrl: selectedImage.publicUrl,
+          heroImageSourceUrl: selectedImage.publicUrl,
+          heroImageCredit: creditParts.join(' · '),
+          heroImageStatus: 'success',
+          heroImageCheckedAt: checkedAt,
+          heroImageVersion: CAREER_HERO_IMAGE_VERSION
+        };
+        _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: resolved });
+        return { ...resolved };
+      }
+    }
   }
 
-  const suburbCoordinates = await resolveCareerSuburbCoordinates(normalized);
-  const chosenCity = selectNearestCareerHeroCity(library.cities, suburbCoordinates)
-    || findCareerHeroCityExactMatch(library.cities, normalized);
-
-  if (!chosenCity) {
-    const unavailable = createCareerHeroUnavailable(checkedAt);
-    _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: unavailable });
-    return { ...unavailable };
+  // Fallback: Wikimedia Commons pipeline for scenic suburb photos.
+  const wikimediaResolved = await resolveCareerHeroImageFromWikimedia(context, normalized, checkedAt);
+  if (wikimediaResolved) {
+    _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: wikimediaResolved });
+    return { ...wikimediaResolved };
   }
 
-  const images = library.imagesByCityId.get(chosenCity.id) || [];
-  const selectedImage = pickStableCareerHeroImage(images, buildCareerHeroRoleSeed(context));
-  if (!selectedImage) {
-    const unavailable = createCareerHeroUnavailable(checkedAt);
-    _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: unavailable });
-    return { ...unavailable };
-  }
-
-  const creditParts = [
-    [chosenCity.cityName, chosenCity.stateCode].filter(Boolean).join(', '),
-    selectedImage.credit
-  ].filter(Boolean);
-
-  const resolved = {
-    heroImageUrl: selectedImage.publicUrl,
-    heroImageSourceUrl: selectedImage.publicUrl,
-    heroImageCredit: creditParts.join(' · '),
-    heroImageStatus: 'success',
-    heroImageCheckedAt: checkedAt,
-    heroImageVersion: CAREER_HERO_IMAGE_VERSION
-  };
-  _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: resolved });
-  return { ...resolved };
+  const unavailable = createCareerHeroUnavailable(checkedAt);
+  _careerHeroLookupCache.set(cacheKey, { ts: Date.now(), value: unavailable });
+  return { ...unavailable };
 }
 
 async function ensureCareerRoleHeroImage(row) {

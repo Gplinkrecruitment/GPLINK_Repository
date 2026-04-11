@@ -962,13 +962,10 @@
       inset: 0 0 auto 0;
       height: 3px;
       background: linear-gradient(90deg, #2563eb 0%, #6366f1 50%, #06b6d4 100%);
-      opacity: 0;
-      transition: opacity 0.28s ease;
+      opacity: 1;
       z-index: 2;
       border-radius: 18px 18px 0 0;
     }
-
-    .role-card:not(.has-hero)::before { opacity: 1; }
 
     .role-card:hover {
       box-shadow: 0 24px 48px -28px rgba(15, 23, 42, 0.22),
@@ -976,8 +973,6 @@
       transform: translateY(-3px);
       border-color: rgba(37, 99, 235, 0.18);
     }
-
-    .role-card:hover::before { opacity: 1; }
 
     .role-card::after {
       content: "";
@@ -991,24 +986,8 @@
     }
     .role-card:hover::after { opacity: 1; }
 
-    .role-card-hero {
-      width: 100%;
-      height: 140px;
-      overflow: hidden;
-      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
-      position: relative;
-      z-index: 1;
-    }
-
-    .role-card-hero-img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
     .role-card-content {
-      padding: 18px 22px 20px;
+      padding: 24px 22px 20px;
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -1017,8 +996,25 @@
       z-index: 1;
     }
 
-    .role-card:not(.has-hero) .role-card-content {
-      padding-top: 24px;
+    .role-card-scenery {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 12px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%);
+      position: relative;
+    }
+
+    .role-card-scenery-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.32s cubic-bezier(0.22, 0.9, 0.18, 1.05);
+    }
+
+    .role-card:hover .role-card-scenery-img {
+      transform: scale(1.03);
     }
 
     .role-card-header {
@@ -1087,17 +1083,6 @@
       color: var(--text);
       margin: 2px 0 0;
       line-height: 1.2;
-    }
-
-    .role-card-summary {
-      font-size: 13.5px;
-      color: var(--muted);
-      margin: 0;
-      line-height: 1.55;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
     }
 
     .role-card-cta {
@@ -6054,6 +6039,9 @@
     html.dark-mode .role-card::after {
       background: radial-gradient(ellipse 90% 55% at 50% -10%, rgba(96, 165, 250, 0.14), transparent 65%);
     }
+    html.dark-mode .role-card-scenery {
+      background: linear-gradient(135deg, #1e2a44 0%, #16243e 50%, #0f1a30 100%);
+    }
 
     /* Page hero: kill the !important panel background so hero stays transparent like light mode */
     html.dark-mode .page-hero {
@@ -6247,8 +6235,8 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 24px;
       }
-      .role-card-hero {
-        height: 168px;
+      .role-card-scenery {
+        aspect-ratio: 16 / 10;
       }
       .hero-search-card {
         padding: 26px 30px;
@@ -9782,12 +9770,10 @@
       const saved = isSaved(role.id);
       const billingLabel = String(role.billing || "Billing TBC").replace(/ billing/i, "");
       const location = String(role.location || "Australia");
-      const summary = String(role.summary || "").slice(0, 120);
       const earnings = String(role.earnings || "");
       const heroUrl = String(role.heroImageUrl || "");
 
-      return `<article class="role-card${heroUrl ? " has-hero" : ""}">
-        ${heroUrl ? `<div class="role-card-hero"><img class="role-card-hero-img" src="${escapeHtml(heroUrl)}" alt="${escapeHtml(location)}" loading="lazy" /></div>` : ""}
+      return `<article class="role-card">
         <div class="role-card-content">
           <div class="role-card-header">
             <div class="role-card-tags">
@@ -9800,7 +9786,7 @@
           </div>
           <p class="role-card-location">${escapeHtml(location)}</p>
           ${role.qualifyHint ? `<span class="role-qualify-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> ${escapeHtml(role.qualifyHint)}</span>` : ""}
-          ${summary ? `<p class="role-card-summary">${escapeHtml(summary)}</p>` : ""}
+          ${heroUrl ? `<div class="role-card-scenery"><img class="role-card-scenery-img" src="${escapeHtml(heroUrl)}" alt="${escapeHtml(location)}" loading="lazy" /></div>` : ""}
           <button class="role-card-cta" data-open-role="${escapeHtml(role.id)}">View details</button>
         </div>
       </article>`;
@@ -10712,31 +10698,38 @@
 
     async function loadRoleCardHeroImages() {
       const cards = document.querySelectorAll(".role-card:not(.hero-loaded)");
-      for (const card of cards) {
+      await Promise.allSettled(Array.from(cards).map(async (card) => {
         const roleBtn = card.querySelector("[data-open-role]");
-        if (!roleBtn) continue;
+        if (!roleBtn) return;
         const id = roleBtn.getAttribute("data-open-role");
-        if (!id) continue;
+        if (!id) return;
 
-        const existingHero = card.querySelector(".role-card-hero-img");
-        if (existingHero && existingHero.src && !existingHero.src.includes("data:")) {
+        const existingScenery = card.querySelector(".role-card-scenery-img");
+        if (existingScenery && existingScenery.src && !existingScenery.src.includes("data:")) {
           card.classList.add("hero-loaded");
-          continue;
+          return;
         }
 
         try {
           const res = await fetch("/api/career/hero-image?roleId=" + encodeURIComponent(id), { credentials: "same-origin" });
-          if (!res.ok) { card.classList.add("hero-loaded"); continue; }
+          if (!res.ok) { card.classList.add("hero-loaded"); return; }
           const data = await res.json();
           if (data.ok && data.heroImageUrl) {
-            let heroDiv = card.querySelector(".role-card-hero");
-            if (!heroDiv) {
-              heroDiv = document.createElement("div");
-              heroDiv.className = "role-card-hero";
-              card.insertBefore(heroDiv, card.firstChild);
-              card.classList.add("has-hero");
+            const content = card.querySelector(".role-card-content");
+            if (!content) { card.classList.add("hero-loaded"); return; }
+            let sceneryDiv = content.querySelector(".role-card-scenery");
+            if (!sceneryDiv) {
+              sceneryDiv = document.createElement("div");
+              sceneryDiv.className = "role-card-scenery";
+              const cta = content.querySelector(".role-card-cta");
+              if (cta) {
+                content.insertBefore(sceneryDiv, cta);
+              } else {
+                content.appendChild(sceneryDiv);
+              }
             }
-            heroDiv.innerHTML = '<img class="role-card-hero-img" src="' + escapeHtml(data.heroImageUrl) + '" alt="" loading="lazy" />';
+            const locationLabel = (card.querySelector(".role-card-location") || {}).textContent || "";
+            sceneryDiv.innerHTML = '<img class="role-card-scenery-img" src="' + escapeHtml(data.heroImageUrl) + '" alt="' + escapeHtml(locationLabel) + '" loading="lazy" />';
             card.classList.add("hero-loaded");
           } else {
             card.classList.add("hero-loaded");
@@ -10744,7 +10737,7 @@
         } catch {
           card.classList.add("hero-loaded");
         }
-      }
+      }));
     }
 
     (async function init() {
