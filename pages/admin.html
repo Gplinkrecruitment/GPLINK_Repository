@@ -1841,6 +1841,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const note=e.target.closest("[data-search-note-case]");
       if(note){S.selectedCaseId=note.getAttribute("data-search-note-case");S.gpsProfileTab="notes";S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();S.search.open=false;renderSearchResults();document.getElementById("globalSearch").value="";return;}
     });
+    document.addEventListener("keydown",e=>{
+      if(e.key==="/"&&document.activeElement.tagName!=="INPUT"&&document.activeElement.tagName!=="TEXTAREA"){
+        e.preventDefault();
+        const gs=document.getElementById("globalSearch");
+        if(gs)gs.focus();
+        return;
+      }
+      if(e.key==="Escape"){
+        S.search.open=false;
+        renderSearchResults();
+        const gs=document.getElementById("globalSearch");
+        if(gs){gs.value="";gs.blur();}
+      }
+    });
     document.querySelector(".view-tabs").addEventListener("click",async e=>{
       const tab=e.target.closest("[data-view]");if(!tab)return;
       const view=tab.getAttribute("data-view");
