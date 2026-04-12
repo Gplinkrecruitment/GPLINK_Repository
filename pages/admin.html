@@ -443,19 +443,20 @@
     .app-status-pill.withdrawn{background:#fef2f2;color:#dc2626}
 /* ── VA dashboard consolidation (2026-04-11) ── */
 .top-search{flex:1 1 auto;max-width:500px;position:relative;margin:0 12px}
-.top-search input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);background:var(--bg2,#171a22);color:var(--text,#e6e9f0);font-size:14px}
-.top-search input:focus{outline:2px solid var(--accent,#4f46e5);outline-offset:1px}
-.top-search-results{position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:480px;overflow-y:auto;background:var(--bg2,#171a22);border:1px solid var(--border,#2a2f3a);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:500}
-.top-search-group{padding:6px 0;border-bottom:1px solid var(--border,#2a2f3a)}
+.top-search input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.15);color:#fff;font-size:14px}
+.top-search input::placeholder{color:rgba(255,255,255,.6)}
+.top-search input:focus{outline:2px solid #818cf8;outline-offset:1px;background:rgba(255,255,255,.2)}
+.top-search-results{position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:480px;overflow-y:auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);z-index:500;color:#1e293b}
+.top-search-group{padding:6px 0;border-bottom:1px solid #e2e8f0}
 .top-search-group:last-child{border-bottom:none}
-.top-search-group-title{padding:6px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#9aa3b2)}
-.top-search-row{padding:8px 12px;cursor:pointer;display:flex;gap:8px;align-items:center}
-.top-search-row:hover,.top-search-row.active{background:var(--bg3,#1f2330)}
+.top-search-group-title{padding:6px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b}
+.top-search-row{padding:8px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;color:#1e293b}
+.top-search-row:hover,.top-search-row.active{background:#f1f5f9}
 .top-search-row-main{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.top-search-row-sub{font-size:12px;color:var(--muted,#9aa3b2);flex-shrink:0}
-.top-search-more{padding:6px 12px;font-size:12px;color:var(--accent,#4f46e5);cursor:pointer;text-align:center}
-.top-search-footer{padding:6px 12px;font-size:11px;color:var(--muted,#9aa3b2);border-top:1px solid var(--border,#2a2f3a)}
-.top-search-empty{padding:16px;text-align:center;color:var(--muted,#9aa3b2);font-size:13px}
+.top-search-row-sub{font-size:12px;color:#64748b;flex-shrink:0}
+.top-search-more{padding:6px 12px;font-size:12px;color:#4f46e5;cursor:pointer;text-align:center}
+.top-search-footer{padding:6px 12px;font-size:11px;color:#64748b;border-top:1px solid #e2e8f0}
+.top-search-empty{padding:16px;text-align:center;color:#64748b;font-size:13px}
 .tools-wrap{padding:16px 20px}
 .tools-subnav{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border,#2a2f3a);padding-bottom:12px}
 .tools-subnav-btn{padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted,#9aa3b2);background:transparent;border:1px solid transparent}
