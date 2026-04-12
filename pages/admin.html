@@ -36,7 +36,7 @@
     .list-header{padding:12px 14px;border-bottom:1px solid var(--line)}
     .search-input{width:100%;padding:8px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-family:inherit;outline:none;background:#f8fafc}
     .search-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.08)}
-    .view-tabs{display:flex;border-bottom:1px solid var(--line)}
+    .view-tabs{display:flex;border-bottom:1px solid var(--line);padding:0 14px;background:#fff}
     .view-tab{flex:1;padding:8px 0;text-align:center;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
     .view-tab.active{color:var(--blue);border-bottom-color:var(--blue)}
     .view-tab:hover{color:var(--text)}
@@ -502,16 +502,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <button class="btn ghost" id="logoutBtn">Logout</button>
     </div>
   </div>
+  <div class="view-tabs">
+    <div class="view-tab active" data-view="inbox">Inbox</div>
+    <div class="view-tab" data-view="gps">GPs</div>
+    <div class="view-tab" data-view="interviews">Interviews</div>
+    <div class="view-tab" data-view="applications">Applications</div>
+    <div class="view-tab" data-view="tools">Tools</div>
+  </div>
   <div class="layout" id="mainLayout">
     <div class="list-panel">
       <div class="list-header"><input class="search-input" id="searchInput" placeholder="Search GPs..." /></div>
-      <div class="view-tabs">
-        <div class="view-tab active" data-view="inbox">Inbox</div>
-        <div class="view-tab" data-view="gps">GPs</div>
-        <div class="view-tab" data-view="interviews">Interviews</div>
-        <div class="view-tab" data-view="applications">Applications</div>
-        <div class="view-tab" data-view="tools">Tools</div>
-      </div>
       <div class="filter-bar" id="filterBar"></div>
       <div class="case-list" id="caseList"></div>
     </div>
