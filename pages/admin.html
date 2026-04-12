@@ -2329,6 +2329,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!q||q.length<2){S.search.open=false;renderSearchResults();return;}
     S.search.query=q;
     const ql=q.toLowerCase();
+    console.log("[VA-search] query="+q+" cases="+S.cases.length+" dashUsers="+(S.va.dashboard&&S.va.dashboard.users?S.va.dashboard.users.length:0));
 
     // Client-side: GPs — merge dashboard users + S.cases for coverage
     const dashUsers=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))?S.va.dashboard.users:[];
