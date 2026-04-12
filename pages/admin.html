@@ -2299,6 +2299,15 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
     },300);
   })();
 
+  /* Responsive breakpoint: add body.gp-mobile at ≤900px */
+  (function installResponsiveToggle(){
+    const mq=window.matchMedia("(max-width: 900px)");
+    function apply(){document.body.classList.toggle("gp-mobile",mq.matches);}
+    apply();
+    if(typeof mq.addEventListener==="function")mq.addEventListener("change",apply);
+    else if(typeof mq.addListener==="function")mq.addListener(apply);
+  })();
+
   /* ══ Init ══ */
   bind();
   loadSession().then(ok=>{
