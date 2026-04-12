@@ -473,6 +473,9 @@ body.gp-mobile .gp-detail-grid{grid-template-columns:1fr;height:auto}
 body.gp-mobile .gp-detail-meta{border-right:none;border-bottom:1px solid var(--border,#2a2f3a)}
 body.gp-mobile .gp-detail-tabs{display:none}
 body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
+body.gp-mobile .gp-detail-meta [data-gp-back]{display:inline-block !important}
+body.gp-mobile #mainLayout.detail-open .list-panel{display:none}
+body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .inbox-section-title{margin:20px 0 8px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#9aa3b2);display:flex;align-items:center;gap:8px}
 .inbox-section-title .count{padding:2px 8px;border-radius:999px;background:var(--bg3,#1f2330);font-size:11px}
 .inbox-section-title .count.red{background:var(--red,#ef4444);color:#fff}
@@ -975,105 +978,91 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
     </div>`).join("");
   }
 
-  async function renderDetail(){
-    const el=document.getElementById("detailContent");
-    if(S.view==="agent"){renderAgentDetail();return;}
-    if(!S.selectedCaseId){
-      // Global work queue
-      const tasks=S.tasks.slice().sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);});
-      const urgent=tasks.filter(t=>t.priority==="urgent"),high=tasks.filter(t=>t.priority==="high"),normal=tasks.filter(t=>t.priority!=="urgent"&&t.priority!=="high");
-      let h=`<div class="wq-header"><h2>Today's Work Queue</h2><p>All open tasks across every GP, sorted by urgency. Click any item to jump to that case.</p></div>`;
-      if(!tasks.length)h+=`<div class="empty">No pending tasks. All cases are on track.</div>`;
-      else{
-        if(urgent.length){h+=`<div class="wq-section-title">Urgent <span class="wq-count red">${urgent.length}</span></div>`;urgent.forEach(t=>{h+=wqItem(t);});}
-        if(high.length){h+=`<div class="wq-section-title">High Priority <span class="wq-count amber">${high.length}</span></div>`;high.forEach(t=>{h+=wqItem(t);});}
-        if(normal.length){h+=`<div class="wq-section-title">Normal <span class="wq-count blue">${normal.length}</span></div>`;normal.forEach(t=>{h+=wqItem(t);});}
-      }
-      el.innerHTML=h;return;
-    }
+  function renderCaseManagementForm(c){
+    return`<div class="case-mgmt">
+      <div class="case-field"><label>Status</label><select data-case-field="status">
+        ${["active","on_hold","blocked","complete","withdrawn"].map(s=>`<option value="${s}" ${c.status===s?"selected":""}>${s}</option>`).join("")}
+      </select></div>
+      <div class="case-field"><label>Blocker</label><select data-case-field="blocker_status">
+        <option value="" ${!c.blocker_status?"selected":""}>None</option>
+        ${["waiting_on_gp","waiting_on_practice","waiting_on_external","internal_review"].map(s=>`<option value="${s}" ${c.blocker_status===s?"selected":""}>${s.replace(/_/g," ")}</option>`).join("")}
+      </select></div>
+      <div class="case-field"><label>Follow-up Date</label><input type="date" data-case-field="next_followup_date" value="${c.next_followup_date||""}" /></div>
+      <div class="case-field"><label>Practice Name</label><input type="text" data-case-field="practice_name" value="${esc(c.practice_name||"")}" placeholder="Enter practice..." /></div>
+      <div class="case-field" style="grid-column:1/-1"><label>Handover Notes</label><textarea data-case-field="handover_notes" rows="2" placeholder="Notes for handover...">${esc(c.handover_notes||"")}</textarea></div>
+      <div class="case-field"><label>VA Verified Stage</label><select data-case-field="gp_verified_stage">
+        <option value="" ${!c.gp_verified_stage?"selected":""}>Not verified</option>
+        ${STEPS.map(s=>`<option value="${s.key}" ${c.gp_verified_stage===s.key?"selected":""}>${s.label}</option>`).join("")}
+      </select></div>
+      <div style="display:flex;gap:6px;align-items:end"><button class="btn primary" data-save-case="${esc(c.id)}">Save Changes</button></div>
+    </div>`;
+  }
 
-    // Find case by ID
-    let rc=S.cases.find(c=>c.id===S.selectedCaseId);
-    let gp=rc?findGp(rc):gps().find(g=>(g.userId||g.email)===S.selectedCaseId);
-    if(!rc&&gp){rc={gp_name:gp.name||gp.email,gp_email:gp.email,stage:"unknown",status:"active",user_id:gp.userId};}
-    if(!rc&&!gp){el.innerHTML=`<div class="empty">Case not found.</div>`;return;}
-
-    const name=rc?rc.gp_name:gp?gp.name||gp.email:"Unknown";
-    const email=rc?rc.gp_email:gp?gp.email:"";
-    const progress=gp?gp.progressPercent||0:0;
-    const cTasks=rc&&rc.id?caseTasks(rc.id):[];
-    const openTasks=cTasks.filter(t=>t.status!=="completed"&&t.status!=="cancelled");
-    const journey=gp?buildJourney(gp):[];
-    const tickets=rc?gpTix(rc):[];
-    const vc=rc?findVisa(rc):null;
-    const pc=rc?findPbs(rc):null;
-
-    let h=`<div class="mobile-back"><button class="btn" data-back>\u2190 Back</button></div>`;
-
-    // Header
-    h+=`<div class="d-header"><div class="d-header-top"><div>
-      <div class="d-name">${esc(name)}</div>
-      <div class="d-meta"><span>${esc(email||"\u2014")}</span><span>Stage: <span class="case-stage-pill stage-${esc(rc?rc.stage:"")}">${esc(rc?rc.stage:"\u2014")}</span></span>
-      <span>Active ${esc(gp?fmtR(gp.lastActiveAt):fmtR(rc?rc.last_gp_activity_at:""))}</span>
-      ${rc&&rc.assigned_va?`<span>VA: ${esc(rc.assigned_va_email||rc.assigned_va)}</span>`:""}
-      ${rc&&rc.blocker_status?`<span style="color:var(--red)">Blocked: ${esc(rc.blocker_status.replace(/_/g," "))}</span>`:""}
-      </div></div>
-      <div class="d-actions"><a class="btn" href="mailto:${esc(email)}">Email GP</a></div>
-    </div>
-    <div class="d-progress"><div class="d-progress-bar"><span style="width:${progress}%"></span></div><span class="d-progress-label">${progress}%</span></div></div>`;
-
-    // VA action bar: WhatsApp + Send Nudge (new)
-    if(rc&&rc.user_id){
-      const firstName=(name||"").split(" ")[0]||"";
-      const waDigits=(S.va.dashboard&&S.va.dashboard.whatsapp_number||"+61494391968").replace(/[^\d]/g,"");
-      const waMsg=encodeURIComponent(`Hi Hazel, I'm ${firstName} on the ${rc.stage||"registration"} step. I need some help with my GP Link application.`);
-      h+=`<div class="va-actions-bar">
-        <a class="btn wa" href="https://wa.me/${waDigits}?text=${waMsg}" target="_blank" rel="noopener">WhatsApp ${esc(firstName)}</a>
-        <button class="btn nudge" data-case-nudge="${esc(rc.user_id)}" data-nudge-stage="${esc(rc.stage||"")}" data-nudge-substage="${esc(rc.substage||"")}" data-nudge-name="${esc(firstName)}">Send Nudge</button>
+  function renderGpTasksPane(c){
+    const tasks=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="complete"&&t.status!=="completed");
+    if(!tasks.length)return'<div class="empty">No open tasks.</div><button class="btn sm" data-add-task>+ Add Task</button>';
+    const byPri={urgent:[],high:[],normal:[]};
+    tasks.forEach(t=>{(byPri[t.priority]||byPri.normal).push(t);});
+    const nextAction=tasks[0];
+    let h='';
+    if(nextAction){
+      h+=`<div class="todo-card" style="border-left:4px solid var(--accent,#4f46e5);margin-bottom:12px">
+        <div style="font-size:11px;text-transform:uppercase;color:var(--accent,#4f46e5);font-weight:700">Next Action</div>
+        <div class="todo-title">${esc(nextAction.title)}</div>
+        <div class="todo-detail">${esc(nextAction.description||"")}</div>
+        <div class="todo-actions"><button class="btn primary sm" data-complete-task="${esc(nextAction.id)}">Complete</button><button class="btn sm" data-start-task="${esc(nextAction.id)}">Start</button></div>
       </div>`;
-      // Qualification snapshot placeholder — filled async by loadCaseQualifications
-      h+=`<div class="section"><div class="section-title">Qualifications</div><div id="caseQualSection"><div class="empty">Loading qualifications…</div></div></div>`;
     }
+    ["urgent","high","normal"].forEach(pri=>{
+      if(!byPri[pri].length)return;
+      h+=`<div class="inbox-section-title">${esc(pri)} <span class="count">${byPri[pri].length}</span></div>`;
+      h+=byPri[pri].map(t=>`<div class="todo-card ${esc(t.priority)}" data-task-row="${esc(t.id)}">
+        <div class="todo-title">${esc(t.title)}</div>
+        <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" \u2022 Due "+fmtD(t.due_date):""}</div>
+        <div class="todo-actions"><button class="btn primary sm" data-complete-task="${esc(t.id)}">Complete</button><button class="btn sm" data-start-task="${esc(t.id)}">Start</button></div>
+      </div>`).join("");
+    });
+    h+='<div style="margin-top:12px"><button class="btn sm" data-add-task>+ Add Task</button></div>';
+    return h;
+  }
 
-    // Next Action
-    if(openTasks.length){
-      const t=openTasks.sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);})[0];
-      h+=`<div class="next-action"><div class="next-action-kicker">Next Action</div>
-        <div class="next-action-label">${esc(t.title)}</div>
-        <div class="next-action-detail">${esc(t.description||"")} ${t.due_date?"Due: "+fmtD(t.due_date):""}</div>
-        <div style="display:flex;gap:6px">
-          <button class="btn primary" data-complete-task="${esc(t.id)}">Mark Complete</button>
-          <button class="btn sm" data-start-task="${esc(t.id)}" ${t.status==="in_progress"?"disabled":""}>Start</button>
-        </div></div>`;
-    }
+  function renderGpDocumentsPane(c){
+    const cache=S.va.gpDetailCache[c.user_id]||{};
+    const snap=cache.quals;
+    if(!snap){loadGpDocuments(c.user_id,c.id);return '<div class="empty">Loading documents\u2026</div>';}
+    let h='';
+    const approved=Array.isArray(snap.approved)?snap.approved:[];const pending=Array.isArray(snap.uploaded_unverified)?snap.uploaded_unverified:[];const missing=Array.isArray(snap.missing)?snap.missing:[];
+    h+='<div class="inbox-section-title">Approved <span class="count">'+approved.length+'</span></div>';
+    if(!approved.length)h+='<div class="empty">None approved yet.</div>';
+    else h+=approved.map(d=>'<div class="todo-card"><div class="todo-title">'+esc(d.label||d.key)+'</div><div class="todo-detail">'+esc(d.file_name||"")+'</div><div class="todo-actions"><a class="btn sm" target="_blank" rel="noopener" href="/api/admin/va/user-document-download?user_id='+encodeURIComponent(c.user_id)+'&country='+encodeURIComponent(d.country||snap.country||"")+'&key='+encodeURIComponent(d.key)+'">View</a></div></div>').join("");
+    h+='<div class="inbox-section-title">Pending <span class="count">'+pending.length+'</span></div>';
+    if(!pending.length)h+='<div class="empty">Nothing awaiting verification.</div>';
+    else h+=pending.map(d=>'<div class="todo-card"><div class="todo-title">'+esc(d.label||d.key)+' <span class="todo-stage">'+esc(d.status||"pending")+'</span></div><div class="todo-detail">'+esc(d.file_name||"")+'</div></div>').join("");
+    h+='<div class="inbox-section-title">Missing <span class="count">'+missing.length+'</span></div>';
+    if(!missing.length)h+='<div class="empty">All required docs accounted for.</div>';
+    else h+=missing.map(d=>'<div class="todo-card"><div class="todo-title">'+esc(d.label||d.key)+' <span class="todo-stage" style="background:var(--red,#ef4444);color:#fff">Missing</span></div></div>').join("");
+    return h;
+  }
+  async function loadGpDocuments(userId,caseId){
+    try{
+      const r=await fetch("/api/admin/va/user-qualifications?user_id="+encodeURIComponent(userId),{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){
+        S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
+        S.va.gpDetailCache[userId].quals=d.snapshot||d;
+        if(S.view==="gps"&&S.selectedCaseId===caseId)renderDetail();
+      }
+    }catch(err){console.error("[VA] loadGpDocuments failed",err);}
+  }
 
-    // Active Tasks
-    h+=`<div class="section"><div class="section-title">Active Tasks <span class="cnt">${openTasks.length}</span>
-      <button class="btn sm" style="margin-left:auto" data-add-task>+ Add Task</button></div>`;
-    if(openTasks.length){
-      openTasks.forEach(t=>{
-        const overdue=t.due_date&&new Date(t.due_date)<new Date();
-        h+=`<div class="task-row">
-          <span class="tp ${esc(t.priority)}"></span>
-          <div class="task-body">
-            <div class="task-title">${esc(t.title)} ${overdue?`<span style="color:var(--red);font-size:10px">OVERDUE</span>`:""}</div>
-            <div class="task-desc">${esc(t.description||"")} ${t.due_date?"Due: "+fmtD(t.due_date):""} ${t.related_stage?"\u2022 "+t.related_stage:""}</div>
-            <div class="task-actions">
-              <button class="btn sm" data-complete-task="${esc(t.id)}">Complete</button>
-              <button class="btn sm" data-start-task="${esc(t.id)}" ${t.status==="in_progress"?"disabled":""}>Start</button>
-              ${t.task_type==="practice_pack_child"?`<span class="task-tag">${esc(t.related_document_key||"")}</span>`:""}
-              <span class="task-tag stage">${esc(t.related_stage||"")}</span>
-            </div>
-          </div>
-        </div>`;
-      });
-    } else h+=`<div class="empty">No open tasks.</div>`;
-    h+=`</div>`;
-
-    // Journey
-    h+=`<div class="section"><div class="section-title">Registration Journey</div><div class="journey-stepper">`;
+  function renderGpJourneyPane(c){
+    const gp=findGp(c);
+    if(typeof buildJourney!=="function")return '<div class="empty">Journey renderer unavailable.</div>';
+    const journey=gp?buildJourney(gp):[];
+    if(!journey.length)return '<div class="empty">No journey data available.</div>';
+    let h='<div class="journey-stepper">';
     journey.forEach((step,idx)=>{
-      const icon=step.status==="done"?"\u2713":step.status==="current"?step.num:step.num;
+      const icon=step.status==="done"?"\u2713":step.num;
       const badge=step.status==="done"?"done":step.status==="current"?"current":step.status==="locked"?"locked":"pending";
       const pb=PLAYBOOK[step.key];
       const isOpen=S.expanded[step.key]||step.status==="current";
@@ -1085,52 +1074,107 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
         ${step.key==="visa"?`<a class="btn sm" href="/pages/admin-visa.html">Manage Visa</a>`:step.key==="pbs"?`<a class="btn sm" href="/pages/admin-pbs.html">Manage PBS</a>`:""}`:""}
         </div></div>`;
     });
-    h+=`</div></div>`;
+    h+='</div>';
+    return h;
+  }
 
-    // Case Management
-    if(rc&&rc.id){
-      h+=`<div class="section"><div class="section-title">Case Management</div><div class="case-mgmt">
-        <div class="case-field"><label>Status</label><select data-case-field="status">
-          ${["active","on_hold","blocked","complete","withdrawn"].map(s=>`<option value="${s}" ${rc.status===s?"selected":""}>${s}</option>`).join("")}
-        </select></div>
-        <div class="case-field"><label>Blocker</label><select data-case-field="blocker_status">
-          <option value="" ${!rc.blocker_status?"selected":""}>None</option>
-          ${["waiting_on_gp","waiting_on_practice","waiting_on_external","internal_review"].map(s=>`<option value="${s}" ${rc.blocker_status===s?"selected":""}>${s.replace(/_/g," ")}</option>`).join("")}
-        </select></div>
-        <div class="case-field"><label>Follow-up Date</label><input type="date" data-case-field="next_followup_date" value="${rc.next_followup_date||""}" /></div>
-        <div class="case-field"><label>Practice Name</label><input type="text" data-case-field="practice_name" value="${esc(rc.practice_name||"")}" placeholder="Enter practice..." /></div>
-        <div class="case-field" style="grid-column:1/-1"><label>Handover Notes</label><textarea data-case-field="handover_notes" rows="2" placeholder="Notes for handover...">${esc(rc.handover_notes||"")}</textarea></div>
-        <div class="case-field"><label>VA Verified Stage</label><select data-case-field="gp_verified_stage">
-          <option value="" ${!rc.gp_verified_stage?"selected":""}>Not verified</option>
-          ${STEPS.map(s=>`<option value="${s.key}" ${rc.gp_verified_stage===s.key?"selected":""}>${s.label}</option>`).join("")}
-        </select></div>
-        <div style="display:flex;gap:6px;align-items:end"><button class="btn primary" data-save-case="${esc(rc.id)}">Save Changes</button></div>
-      </div></div>`;
+  function renderGpNotesPane(c){
+    const cache=S.va.gpDetailCache[c.user_id]||{};
+    const timeline=cache.timeline;
+    if(!timeline)loadGpTimeline(c.user_id,c.id);
+    const tickets=(S.va.dashboard&&S.va.dashboard.open_tickets)?S.va.dashboard.open_tickets.filter(t=>t.user_id===c.user_id):[];
+    let h='';
+    h+='<div class="inbox-section-title">Add a note</div>';
+    h+='<textarea id="gpNoteInput" placeholder="Type a note\u2026" style="width:100%;min-height:60px;padding:8px;background:var(--bg2,#171a22);border:1px solid var(--border,#2a2f3a);border-radius:6px;color:var(--text,#e6e9f0);font-family:inherit;font-size:13px"></textarea>';
+    h+='<button class="btn primary sm" data-add-note="'+esc(c.id)+'" style="margin-top:6px">Add note</button>';
+    h+='<div class="inbox-section-title">Support tickets <span class="count">'+tickets.length+'</span></div>';
+    if(!tickets.length)h+='<div class="empty">No open tickets.</div>';
+    else h+=tickets.map(ticketCard).join("");
+    h+='<div class="inbox-section-title">Timeline</div>';
+    if(!timeline)h+='<div class="empty">Loading\u2026</div>';
+    else if(!timeline.length)h+='<div class="empty">No activity yet.</div>';
+    else h+=timeline.map(ev=>'<div class="todo-card" data-timeline-row="'+esc(ev.id||"")+'"><div class="todo-title">'+esc(ev.title||ev.event_type||"event")+'</div>'+(ev.detail?'<div class="todo-detail">'+esc(ev.detail)+'</div>':'')+'<div class="todo-detail" style="font-size:11px;color:var(--muted,#9aa3b2)">'+esc(ev.actor||"")+' \u2022 '+fmtR(ev.created_at)+'</div></div>').join("");
+    return h;
+  }
+  async function loadGpTimeline(userId,caseId){
+    try{
+      const r=await fetch("/api/admin/case?id="+encodeURIComponent(caseId),{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){
+        S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
+        S.va.gpDetailCache[userId].timeline=Array.isArray(d.timeline)?d.timeline:[];
+        if(S.view==="gps"&&S.selectedCaseId===caseId)renderDetail();
+      }
+    }catch(err){console.error("[VA] loadGpTimeline failed",err);}
+  }
 
-      // Add Note
-      h+=`<div class="section"><div class="section-title">Add Note</div>
-        <textarea class="textarea" id="caseNoteInput" placeholder="Type a note..."></textarea>
-        <button class="btn primary sm" data-add-note="${esc(rc.id)}">Add Note</button></div>`;
+  function renderDetail(){
+    const el=document.getElementById("detailContent");if(!el)return;
+    if(S.view==="agent"){renderAgentDetail();return;}
+    if(S.view==="gps"){
+      const c=S.cases.find(x=>x.id===S.selectedCaseId);
+      if(!c){el.innerHTML='<div class="detail-empty">Select a GP from the list.</div>';return;}
+      const u=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))
+        ?(S.va.dashboard.users.find(x=>x.case_id===c.id||x.user_id===c.user_id)||{})
+        :{};
+      const metaHtml=`
+        <div class="gp-detail-meta">
+          <button class="btn sm" data-gp-back style="margin-bottom:8px;display:none" aria-label="Back to list">\u2190 Back to list</button>
+          <div class="todo-avatar" style="width:64px;height:64px;font-size:24px">${esc(ini(u.gp_name||c.gp_name||""))}</div>
+          <h3 style="margin:8px 0 4px">${esc(u.gp_name||c.gp_name||"Unknown")}</h3>
+          <div class="todo-stage">${esc(c.stage||"")}</div>
+          <div style="margin-top:12px;font-size:12px;color:var(--muted,#9aa3b2)">
+            ${u.gp_email?'<div>'+esc(u.gp_email)+'</div>':''}
+            ${u.gp_phone?'<div>'+esc(u.gp_phone)+'</div>':''}
+            ${u.country?'<div>Country: '+esc(u.country)+'</div>':''}
+          </div>
+          <div style="margin-top:12px">
+            <div style="font-size:11px;color:var(--muted,#9aa3b2);margin-bottom:4px">Qualification progress</div>
+            <div style="height:6px;background:var(--bg3,#1f2330);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.round(((u.quals_approved||0)/Math.max(1,(u.quals_required||1)))*100)}%;background:var(--green,#22c55e)"></div>
+            </div>
+            <div style="font-size:11px;color:var(--muted,#9aa3b2);margin-top:4px">${u.quals_approved||0} / ${u.quals_required||0} approved</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
+            <a class="btn wa" href="${safeUrl(u.whatsapp_link||c.whatsapp_link||"")}" target="_blank" rel="noopener">WhatsApp</a>
+            <button class="btn nudge" data-case-nudge="${esc(c.id)}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())}">Send Nudge</button>
+          </div>
+          <div style="margin-top:16px">
+            <h4 style="margin:0 0 6px;font-size:12px;text-transform:uppercase;color:var(--muted,#9aa3b2)">Case Management</h4>
+            ${renderCaseManagementForm(c)}
+          </div>
+        </div>
+      `;
+      const tab=S.gpsProfileTab||"tasks";
+      const tabsBar=`<div class="gp-detail-tabs">
+        <div class="gp-detail-tab ${tab==="tasks"?"active":""}" data-gp-tab="tasks">Tasks</div>
+        <div class="gp-detail-tab ${tab==="documents"?"active":""}" data-gp-tab="documents">Documents</div>
+        <div class="gp-detail-tab ${tab==="journey"?"active":""}" data-gp-tab="journey">Journey</div>
+        <div class="gp-detail-tab ${tab==="notes"?"active":""}" data-gp-tab="notes">Notes</div>
+      </div>`;
+      const panesHtml=`
+        <div class="gp-detail-tab-pane" data-gp-pane="tasks" style="${tab==="tasks"?"":"display:none"}">${renderGpTasksPane(c)}</div>
+        <div class="gp-detail-tab-pane" data-gp-pane="documents" style="${tab==="documents"?"":"display:none"}">${renderGpDocumentsPane(c)}</div>
+        <div class="gp-detail-tab-pane" data-gp-pane="journey" style="${tab==="journey"?"":"display:none"}">${renderGpJourneyPane(c)}</div>
+        <div class="gp-detail-tab-pane" data-gp-pane="notes" style="${tab==="notes"?"":"display:none"}">${renderGpNotesPane(c)}</div>
+      `;
+      el.innerHTML=`<div class="gp-detail-grid">${metaHtml}<div class="gp-detail-tabs-wrap">${tabsBar}${panesHtml}</div></div>`;
+      return;
     }
-
-    // Tickets
-    const openTix=tickets.filter(t=>t.status!=="closed");
-    h+=`<div class="section"><div class="section-title">Support Tickets <span class="cnt">${openTix.length} open</span></div>`;
-    if(tickets.length){tickets.forEach(t=>{h+=`<div class="ticket-row"><div class="ticket-info"><div class="ticket-title">${esc(t.title||"Support ticket")}</div><div class="ticket-meta">${esc(t.category||"")} \u2022 ${t.messagesCount||0} msgs \u2022 ${esc(fmtR(t.updatedAt))}</div></div><span class="status-pill ${t.status==="closed"?"closed":"open"}">${esc(t.status)}</span><button class="btn sm" data-view-ticket="${esc(t.id)}" data-email="${esc(t.candidateEmail||"")}">View</button></div>`;});}
-    else h+=`<div class="empty">No tickets.</div>`;
-    h+=`</div>`;
-
-    // Timeline (load async)
-    if(rc&&rc.id){
-      h+=`<div class="section"><div class="section-title">Case Timeline</div><div id="timelineContent"><div class="empty">Loading...</div></div></div>`;
+    // Non-GPs view — show default empty or existing content
+    if(!S.selectedCaseId){
+      const tasks=S.tasks.slice().sort((a,b)=>{const p={urgent:0,high:1,normal:2,low:3};return(p[a.priority]||2)-(p[b.priority]||2);});
+      const urgent=tasks.filter(t=>t.priority==="urgent"),high=tasks.filter(t=>t.priority==="high"),normal=tasks.filter(t=>t.priority!=="urgent"&&t.priority!=="high");
+      let h=`<div class="wq-header"><h2>Today's Work Queue</h2><p>All open tasks across every GP, sorted by urgency. Click any item to jump to that case.</p></div>`;
+      if(!tasks.length)h+=`<div class="empty">No pending tasks. All cases are on track.</div>`;
+      else{
+        if(urgent.length){h+=`<div class="wq-section-title">Urgent <span class="wq-count red">${urgent.length}</span></div>`;urgent.forEach(t=>{h+=wqItem(t);});}
+        if(high.length){h+=`<div class="wq-section-title">High Priority <span class="wq-count amber">${high.length}</span></div>`;high.forEach(t=>{h+=wqItem(t);});}
+        if(normal.length){h+=`<div class="wq-section-title">Normal <span class="wq-count blue">${normal.length}</span></div>`;normal.forEach(t=>{h+=wqItem(t);});}
+      }
+      el.innerHTML=h;return;
     }
-
-    el.innerHTML=h;
-
-    // Load timeline
-    if(rc&&rc.id){loadTimeline(rc.id);}
-    // Load qualifications snapshot for the case detail panel
-    if(rc&&rc.user_id){loadCaseQualifications(rc.user_id);}
+    el.innerHTML='<div class="detail-empty">Select a case from the list.</div>';
   }
 
   async function loadCaseQualifications(userId){
@@ -1624,7 +1668,7 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
     await loadAll(true);
   }
   async function addCaseNote(caseId){
-    const input=document.getElementById("caseNoteInput");
+    const input=document.getElementById("caseNoteInput")||document.getElementById("gpNoteInput");
     const text=input?input.value.trim():"";if(!text)return;
     await fetch("/api/admin/case/note?id="+encodeURIComponent(caseId),{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text})});
     if(input)input.value="";
@@ -1807,6 +1851,10 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
       const agWorkerSelect=e.target.closest("[data-agent-worker-select]");if(agWorkerSelect){selectAgentWorker(agWorkerSelect.getAttribute("data-agent-worker-select"));return;}
       const agWorkerRevoke=e.target.closest("[data-agent-worker-revoke]");if(agWorkerRevoke){revokeAgentWorker(agWorkerRevoke.getAttribute("data-agent-worker-revoke"));return;}
       const agConnect=e.target.closest("[data-agent-connect]");if(agConnect){showAgentConnectHelp(agConnect.getAttribute("data-agent-connect"));return;}
+      const gpTab=e.target.closest("[data-gp-tab]");
+      if(gpTab){S.gpsProfileTab=gpTab.getAttribute("data-gp-tab");renderDetail();return;}
+      const gpBack=e.target.closest("[data-gp-back]");
+      if(gpBack){S.selectedCaseId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderCaseList();renderDetail();return;}
       if(e.target.closest("[data-back]")){S.selectedCaseId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderDetail();return;}
       const ct=e.target.closest("[data-complete-task]");if(ct){completeTask(ct.getAttribute("data-complete-task"));return;}
       const st=e.target.closest("[data-start-task]");if(st){startTask(st.getAttribute("data-start-task"));return;}
@@ -2081,6 +2129,7 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
      VA Dashboard rebuild — Today / Users / Tickets
      ══════════════════════════════════════════════ */
   async function loadVaDashboard(){
+    S.va.gpDetailCache={};
     try{
       const r=await fetch("/api/admin/va/dashboard",{credentials:"same-origin"});
       if(r.status===401){window.location.href="/pages/admin-signin.html";return;}
