@@ -1818,6 +1818,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   /* ══ Events ══ */
   function bind(){
     document.getElementById("searchInput").addEventListener("input",e=>{S.query=e.target.value||"";renderCaseList();});
+    const gs=document.getElementById("globalSearch");
+    if(gs){
+      gs.addEventListener("input",e=>{runGlobalSearch((e.target.value||"").trim());});
+      gs.addEventListener("focus",()=>{if(S.search.query.length>=2){S.search.open=true;renderSearchResults();}});
+    }
+    document.addEventListener("click",e=>{
+      const sr=document.getElementById("globalSearchResults");
+      const si=document.getElementById("globalSearch");
+      if(sr&&si&&!sr.contains(e.target)&&e.target!==si){S.search.open=false;renderSearchResults();}
+    });
+    const srEl=document.getElementById("globalSearchResults");
+    if(srEl)srEl.addEventListener("click",e=>{
+      const gp=e.target.closest("[data-search-gp]");
+      if(gp){S.selectedCaseId=gp.getAttribute("data-search-gp");S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();S.search.open=false;renderSearchResults();document.getElementById("globalSearch").value="";return;}
+      const task=e.target.closest("[data-search-task]");
+      if(task){S.selectedCaseId=task.getAttribute("data-search-case");S.gpsProfileTab="tasks";S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();S.search.open=false;renderSearchResults();document.getElementById("globalSearch").value="";return;}
+      const ticket=e.target.closest("[data-search-ticket]");
+      if(ticket){const uid=ticket.getAttribute("data-search-user");const c=(S.cases||[]).find(x=>x.user_id===uid);if(c)S.selectedCaseId=c.id;S.gpsProfileTab="notes";S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();S.search.open=false;renderSearchResults();document.getElementById("globalSearch").value="";return;}
+      const doc=e.target.closest("[data-search-doc-user]");
+      if(doc){const uid=doc.getAttribute("data-search-doc-user");const c=(S.cases||[]).find(x=>x.user_id===uid);if(c)S.selectedCaseId=c.id;S.gpsProfileTab="documents";S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();S.search.open=false;renderSearchResults();document.getElementById("globalSearch").value="";return;}
+      const note=e.target.closest("[data-search-note-case]");
+      if(note){S.selectedCaseId=note.getAttribute("data-search-note-case");S.gpsProfileTab="notes";S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();S.search.open=false;renderSearchResults();document.getElementById("globalSearch").value="";return;}
+    });
     document.querySelector(".view-tabs").addEventListener("click",async e=>{
       const tab=e.target.closest("[data-view]");if(!tab)return;
       const view=tab.getAttribute("data-view");
@@ -2285,6 +2308,88 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         else{toast((d&&d.message)||"Failed to send nudge","red");}
       }catch{toast("Network error","red");}
     };
+  }
+
+  function runGlobalSearch(q){
+    if(!q||q.length<2){S.search.open=false;renderSearchResults();return;}
+    S.search.query=q;
+    const ql=q.toLowerCase();
+
+    // Client-side: GPs
+    const gpList=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))?S.va.dashboard.users:[];
+    S.search.clientResults.gps=gpList.filter(u=>
+      (u.gp_name||"").toLowerCase().includes(ql)||
+      (u.gp_email||"").toLowerCase().includes(ql)||
+      (u.gp_phone||"").includes(ql)||
+      (u.practice_name||"").toLowerCase().includes(ql)
+    ).slice(0,20);
+
+    // Client-side: Tasks
+    const taskList=[...(S.tasks||[]),...((S.va.dashboard&&S.va.dashboard.todays_tasks)||[])];
+    const seenT=new Set();
+    S.search.clientResults.tasks=taskList.filter(t=>{
+      if(seenT.has(t.id))return false;seenT.add(t.id);
+      return(t.title||"").toLowerCase().includes(ql)||(t.description||"").toLowerCase().includes(ql);
+    }).slice(0,20);
+
+    // Client-side: Tickets
+    const ticketList=[...((S.va.dashboard&&S.va.dashboard.open_tickets)||[]),...(S.va.tickets||[])];
+    const seenTk=new Set();
+    S.search.clientResults.tickets=ticketList.filter(tk=>{
+      if(seenTk.has(tk.id))return false;seenTk.add(tk.id);
+      return(tk.title||"").toLowerCase().includes(ql)||(tk.body||"").toLowerCase().includes(ql)||(tk.category||"").toLowerCase().includes(ql);
+    }).slice(0,20);
+
+    S.search.open=true;
+    renderSearchResults();
+
+    // Server-side: documents + notes
+    S.search.loading=true;
+    clearTimeout(S.search.debounceTimer);
+    S.search.debounceTimer=setTimeout(async()=>{
+      try{
+        const r=await fetch("/api/admin/va/search?q="+encodeURIComponent(q),{credentials:"same-origin"});
+        const d=await r.json().catch(()=>({}));
+        if(d&&d.ok&&d.results){
+          S.search.serverResults.documents=Array.isArray(d.results.documents)?d.results.documents:[];
+          S.search.serverResults.notes=Array.isArray(d.results.notes)?d.results.notes:[];
+        }
+      }catch{
+        S.search.serverResults.documents=[];
+        S.search.serverResults.notes=[];
+      }
+      S.search.loading=false;
+      if(S.search.open)renderSearchResults();
+    },200);
+  }
+
+  function renderSearchResults(){
+    const el=document.getElementById("globalSearchResults");if(!el)return;
+    if(!S.search.open){el.style.display="none";return;}
+    el.style.display="block";
+    const gps=S.search.clientResults.gps.slice(0,5);
+    const tasks=S.search.clientResults.tasks.slice(0,5);
+    const tickets=S.search.clientResults.tickets.slice(0,5);
+    const docs=S.search.serverResults.documents.slice(0,5);
+    const notes=S.search.serverResults.notes.slice(0,5);
+    const total=gps.length+tasks.length+tickets.length+docs.length+notes.length;
+    if(!total&&!S.search.loading){el.innerHTML='<div class="top-search-empty">No results found.</div>';return;}
+    let h='';
+    function group(title,items,renderer,allItems){
+      if(!items.length)return'';
+      let s='<div class="top-search-group"><div class="top-search-group-title">'+esc(title)+'</div>';
+      s+=items.map(renderer).join("");
+      if(allItems.length>5)s+='<div class="top-search-more" data-search-expand="'+esc(title.toLowerCase())+'">+ '+(allItems.length-5)+' more</div>';
+      s+='</div>';
+      return s;
+    }
+    h+=group("GPs",gps,function(g){return'<div class="top-search-row" data-search-gp="'+esc(g.case_id)+'"><div class="top-search-row-main">'+esc(g.gp_name)+'</div><div class="top-search-row-sub">'+esc(g.stage||"")+'</div></div>';},S.search.clientResults.gps);
+    h+=group("Tasks",tasks,function(t){return'<div class="top-search-row" data-search-task="'+esc(t.id)+'" data-search-case="'+esc(t.case_id)+'"><div class="top-search-row-main">'+esc(t.title)+'</div><div class="top-search-row-sub">'+esc(t.gp_name||"")+'</div></div>';},S.search.clientResults.tasks);
+    h+=group("Tickets",tickets,function(tk){return'<div class="top-search-row" data-search-ticket="'+esc(tk.id)+'" data-search-user="'+esc(tk.user_id)+'"><div class="top-search-row-main">'+esc(tk.title||"Support request")+'</div><div class="top-search-row-sub">'+esc(tk.gp_name||"")+'</div></div>';},S.search.clientResults.tickets);
+    h+=group("Documents",docs,function(d){return'<div class="top-search-row" data-search-doc-user="'+esc(d.user_id)+'" data-search-doc-key="'+esc(d.key)+'"><div class="top-search-row-main">'+esc(d.label)+' — '+esc(d.file_name)+'</div><div class="top-search-row-sub">'+esc(d.gp_name||"")+'</div></div>';},S.search.serverResults.documents);
+    h+=group("Notes",notes,function(n){return'<div class="top-search-row" data-search-note-case="'+esc(n.case_id)+'"><div class="top-search-row-main">'+esc(n.title||n.event_type||"note")+'</div><div class="top-search-row-sub">'+esc(n.gp_name||"")+' · '+fmtR(n.created_at)+'</div></div>';},S.search.serverResults.notes);
+    if(S.search.loading)h+='<div class="top-search-footer">Searching documents and notes…</div>';
+    el.innerHTML=h;
   }
 
   async function closeTicketAction(ticketId,nextStatus){
