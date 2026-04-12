@@ -524,57 +524,61 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   <div class="today-wrap" id="inboxPanel" style="display:none"></div>
   <div class="interviews-wrap" id="interviewsPanel" style="display:none"></div>
   <div class="applications-wrap" id="applicationsPanel" style="display:none"></div>
-  <div class="tools-wrap" id="toolsPanel" style="display:none"></div>
-  <div class="ops-panel" id="opsPanel">
-    <div class="ops-stats" id="opsStats"></div>
-    <div class="ops-filters" id="opsFilters">
-      <select id="opsDomain">
-        <option value="">All Domains</option>
-        <option value="registration">Registration</option>
-        <option value="visa">Visa</option>
-        <option value="questionnaire">Questionnaire</option>
-        <option value="sponsor">Sponsor</option>
-        <option value="document">Document</option>
-        <option value="system">System</option>
-      </select>
-      <select id="opsStatus">
-        <option value="open">Open</option>
-        <option value="in_progress">In Progress</option>
-        <option value="waiting_on_gp">Waiting on GP</option>
-        <option value="waiting_on_practice">Waiting on Practice</option>
-        <option value="waiting_on_external">Waiting on External</option>
-        <option value="blocked">Blocked</option>
-        <option value="all_active">All Active</option>
-        <option value="completed">Completed</option>
-      </select>
-      <select id="opsPriority">
-        <option value="">All Priorities</option>
-        <option value="urgent">Urgent</option>
-        <option value="high">High</option>
-        <option value="normal">Normal</option>
-        <option value="low">Low</option>
-      </select>
-      <label class="ops-cb"><input type="checkbox" id="opsOverdue" /> Overdue only</label>
-      <button class="btn sm" id="opsSlaBtn">Run SLA Check</button>
-      <button class="btn sm primary" id="opsRefreshBtn">Refresh</button>
+  <div class="tools-wrap" id="toolsPanel" style="display:none">
+    <div class="tools-subnav" id="toolsSubnav"></div>
+    <div class="tools-sub-pane" id="toolsOps" style="display:none">
+      <div class="ops-stats" id="opsStats"></div>
+      <div class="ops-filters" id="opsFilters">
+        <select id="opsDomain">
+          <option value="">All Domains</option>
+          <option value="registration">Registration</option>
+          <option value="visa">Visa</option>
+          <option value="questionnaire">Questionnaire</option>
+          <option value="sponsor">Sponsor</option>
+          <option value="document">Document</option>
+          <option value="system">System</option>
+        </select>
+        <select id="opsStatus">
+          <option value="open">Open</option>
+          <option value="in_progress">In Progress</option>
+          <option value="waiting_on_gp">Waiting on GP</option>
+          <option value="waiting_on_practice">Waiting on Practice</option>
+          <option value="waiting_on_external">Waiting on External</option>
+          <option value="blocked">Blocked</option>
+          <option value="all_active">All Active</option>
+          <option value="completed">Completed</option>
+        </select>
+        <select id="opsPriority">
+          <option value="">All Priorities</option>
+          <option value="urgent">Urgent</option>
+          <option value="high">High</option>
+          <option value="normal">Normal</option>
+          <option value="low">Low</option>
+        </select>
+        <label class="ops-cb"><input type="checkbox" id="opsOverdue" /> Overdue only</label>
+        <button class="btn sm" id="opsSlaBtn">Run SLA Check</button>
+        <button class="btn sm primary" id="opsRefreshBtn">Refresh</button>
+      </div>
+      <div class="ops-table-wrap">
+        <table class="ops-table">
+          <thead>
+            <tr>
+              <th>GP Name</th>
+              <th>Title</th>
+              <th>Domain</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Due Date</th>
+              <th class="hide-mobile">Stage</th>
+              <th class="hide-mobile">Created</th>
+            </tr>
+          </thead>
+          <tbody id="opsTableBody"></tbody>
+        </table>
+      </div>
     </div>
-    <div class="ops-table-wrap">
-      <table class="ops-table">
-        <thead>
-          <tr>
-            <th>GP Name</th>
-            <th>Title</th>
-            <th>Domain</th>
-            <th>Status</th>
-            <th>Priority</th>
-            <th>Due Date</th>
-            <th class="hide-mobile">Stage</th>
-            <th class="hide-mobile">Created</th>
-          </tr>
-        </thead>
-        <tbody id="opsTableBody"></tbody>
-      </table>
-    </div>
+    <div class="tools-sub-pane" id="toolsSweep" style="display:none"></div>
+    <div class="tools-sub-pane" id="toolsAgent" style="display:none"></div>
   </div>
   <div class="modal-overlay" id="modalOverlay">
     <div class="modal">
@@ -2207,8 +2211,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     el.innerHTML=h;
   }
   function renderToolsPanel(){
-    var el=document.getElementById("toolsPanel");if(!el)return;
-    el.innerHTML='<div class="empty">Tools loading…</div>';
+    const el=document.getElementById("toolsPanel");if(!el)return;
+    const subnav=document.getElementById("toolsSubnav");if(!subnav)return;
+    const saOnly=typeof isSA==="function"&&isSA();
+    const items=[{key:"ops",label:"Ops Queue"},{key:"sweep",label:"Weekly Sweep"}];
+    if(saOnly)items.push({key:"agent",label:"Agent"});
+    if(S.toolsSubView==="agent"&&!saOnly)S.toolsSubView="ops";
+    subnav.innerHTML=items.map(i=>`<button class="tools-subnav-btn ${S.toolsSubView===i.key?"active":""}" data-tools-sub="${esc(i.key)}">${esc(i.label)}</button>`).join("");
+    document.getElementById("toolsOps").style.display=(S.toolsSubView==="ops"?"block":"none");
+    document.getElementById("toolsSweep").style.display=(S.toolsSubView==="sweep"?"block":"none");
+    document.getElementById("toolsAgent").style.display=(S.toolsSubView==="agent"?"block":"none");
+    if(S.toolsSubView==="ops"&&typeof loadOpsQueue==="function")loadOpsQueue();
+    else if(S.toolsSubView==="sweep")renderToolsSweepPane();
+    else if(S.toolsSubView==="agent")renderToolsAgentPane();
+  }
+  function renderToolsSweepPane(){
+    const el=document.getElementById("toolsSweep");if(!el)return;
+    el.innerHTML='<div class="empty">Weekly Sweep — Task 12</div>';
+  }
+  function renderToolsAgentPane(){
+    const el=document.getElementById("toolsAgent");if(!el)return;
+    el.innerHTML='<div class="empty">Agent — Task 13</div>';
   }
 
   /* renderTodayPanel removed — replaced by renderInboxPanel */
@@ -2314,6 +2337,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const inInbox=ib&&ib.contains(e.target);
     const inTools=tl&&tl.contains(e.target);
     if(!inInbox&&!inTools)return;
+
+    const subBtn=e.target.closest("[data-tools-sub]");
+    if(subBtn){e.preventDefault();e.stopPropagation();S.toolsSubView=subBtn.getAttribute("data-tools-sub");renderToolsPanel();return;}
 
     const refresh=e.target.closest("[data-va-refresh]");
     if(refresh){e.preventDefault();e.stopPropagation();await loadVaDashboard();if(S.view==="inbox")renderInboxPanel();return;}
