@@ -614,6 +614,53 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
   };
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
   function safeUrl(u,fallback){if(!u||typeof u!=="string")return fallback||"#";var t=u.trim().toLowerCase();if(t.startsWith("https://")||t.startsWith("http://")||t.startsWith("whatsapp://"))return esc(u.trim());return fallback||"#";}
+  function ticketCard(tk){
+    return`<div class="todo-card ${esc(tk.priority)||"normal"}" data-todo-ticket="${esc(tk.id)}" data-user-id="${esc(tk.user_id)}">
+      <div class="todo-card-top">
+        <div class="todo-avatar">${esc(ini(tk.gp_name||""))}</div>
+        <div class="todo-gp">${esc(tk.gp_name||"")}</div>
+        <span class="todo-stage">${esc(tk.stage||"ticket")}</span>
+      </div>
+      <div class="todo-title">🎫 ${esc(tk.title||"Support request")}</div>
+      ${(tk.gp_phone||tk.gp_email)?'<div class="task-gp-meta">'+(tk.gp_phone?'<span>'+esc(tk.gp_phone)+'</span>':'')+(tk.gp_email?'<span>'+esc(tk.gp_email)+'</span>':'')+'</div>':''}
+      <div class="todo-detail">${esc(tk.category||"")} • opened ${fmtR(tk.created_at)}</div>
+      <div class="todo-actions">
+        <a class="btn wa" href="${safeUrl(tk.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+        <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
+        <button class="btn primary sm" data-close-ticket="${esc(tk.id)}">Resolve & Close</button>
+      </div>
+    </div>`;
+  }
+  function taskCard(t){
+    const overdue=t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date());
+    return`<div class="todo-card ${esc(t.priority||"normal")} ${overdue?"overdue":""}" data-todo-task="${esc(t.id)}" data-todo-case="${esc(t.case_id)}" data-user-id="${esc(t.gp_user_id||"")}">
+      <div class="todo-card-top">
+        <div class="todo-avatar">${esc(ini(t.gp_name||""))}</div>
+        <div class="todo-gp">${esc(t.gp_name||"")}</div>
+        <span class="todo-stage">${esc(t.case_stage||t.related_stage||"")}</span>
+      </div>
+      <div class="todo-title">${esc(t.title)}</div>
+      ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
+      <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" • Due "+fmtD(t.due_date):""} ${overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""}</div>
+      <div class="todo-actions">
+        <a class="btn wa" href="${safeUrl(t.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+        ${t.doubletick_conversation_url?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url)+'" target="_blank" rel="noopener">💬 DoubleTick</a>':''}
+        <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
+        <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
+        <button class="btn sm" data-view-todo-case="${esc(t.case_id)}">Open Case</button>
+      </div>
+    </div>`;
+  }
+  function blockerRow(u){
+    return`<div class="blocker-row" data-blocker-case="${esc(u.case_id)}">
+      <div class="todo-avatar">${esc(ini(u.gp_name||""))}</div>
+      <div class="blocker-row-main">
+        <div class="blocker-row-name">${esc(u.gp_name||"")} <span class="todo-stage">${esc(u.stage||"")}</span></div>
+        <div class="blocker-row-reason">${esc(u.blocker_status||"Blocked")}</div>
+      </div>
+      <button class="btn sm primary" data-view-todo-case="${esc(u.case_id)}">Open profile</button>
+    </div>`;
+  }
   function ini(n){return(n||"?").split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();}
   function fmtD(d){if(!d)return"\u2014";try{return new Date(d).toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"});}catch{return"\u2014";}}
   function fmtDT(d){if(!d)return"\u2014";try{return new Date(d).toLocaleString("en-AU",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});}catch{return"\u2014";}}
@@ -758,7 +805,7 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
     await Promise.all(jobs);
     S.loading=false;
     renderAll();
-    if(S.view==="today"){vaShowPanel("today");renderTodayPanel();}
+    if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();}
     else if(S.view==="tickets"){vaShowPanel("tickets");await loadVaTickets();/*TASK4 renderTicketsPanel()*/}
     if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
   }
@@ -2064,101 +2111,65 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
     document.getElementById("mainLayout").style.display="grid";
   }
   function renderInboxPanel(){
-    var el=document.getElementById("inboxPanel");if(!el)return;
-    el.innerHTML='<div class="empty">Inbox loading…</div>';
+    const el=document.getElementById("inboxPanel");if(!el)return;
+    const dash=S.va.dashboard;
+    if(!dash){el.innerHTML='<div class="empty">Loading inbox…</div>';return;}
+    const tasks=Array.isArray(dash.todays_tasks)?dash.todays_tasks.slice():[];
+    const tickets=Array.isArray(dash.open_tickets)?dash.open_tickets.slice():[];
+    const users=Array.isArray(dash.users)?dash.users.slice():[];
+    tickets.sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const overdue=[],urgent=[],normal=[];
+    for(const t of tasks){
+      if(t.is_overdue)overdue.push(t);
+      else if(t.is_urgent)urgent.push(t);
+      else normal.push(t);
+    }
+    overdue.sort((a,b)=>new Date(a.due_date||0)-new Date(b.due_date||0));
+    urgent.sort((a,b)=>new Date(a.created_at||0)-new Date(b.created_at||0));
+    const priOrder={urgent:0,high:1,normal:2,low:3};
+    normal.sort((a,b)=>{
+      const pa=priOrder[a.priority]||9,pb=priOrder[b.priority]||9;
+      if(pa!==pb)return pa-pb;
+      return new Date(a.created_at||0)-new Date(b.created_at||0);
+    });
+    const blocked=users.filter(u=>u.blocker_status);
+    let h=`<div class="today-header">
+      <div><h2>Inbox</h2><p>Everything live right now, sorted by what needs action first.</p></div>
+      <div><button class="btn" data-va-refresh>Refresh</button></div>
+    </div>`;
+    if(tickets.length){
+      h+=`<div class="inbox-section-title">🎫 Support Tickets (FIFO) <span class="count red">${tickets.length}</span></div><div class="today-grid">${tickets.map(ticketCard).join("")}</div>`;
+    }
+    if(urgent.length){
+      h+=`<div class="inbox-section-title">Urgent <span class="count red">${urgent.length}</span></div><div class="today-grid">${urgent.map(taskCard).join("")}</div>`;
+    }
+    if(overdue.length){
+      h+=`<div class="inbox-section-title">Overdue <span class="count amber">${overdue.length}</span></div><div class="today-grid">${overdue.map(taskCard).join("")}</div>`;
+    }
+    if(blocked.length){
+      h+=`<div class="inbox-section-title">Blocked cases <span class="count">${blocked.length}</span></div><div>${blocked.map(blockerRow).join("")}</div>`;
+    }
+    if(normal.length){
+      h+=`<div class="inbox-section-title">Normal <span class="count">${normal.length}</span></div><div class="today-grid">${normal.map(taskCard).join("")}</div>`;
+    }
+    if(!tickets.length&&!urgent.length&&!overdue.length&&!blocked.length&&!normal.length){
+      h+='<div class="empty" style="margin-top:20px">All clear — no pending tickets or tasks. 🎉</div>';
+    }
+    el.innerHTML=h;
   }
   function renderToolsPanel(){
     var el=document.getElementById("toolsPanel");if(!el)return;
     el.innerHTML='<div class="empty">Tools loading…</div>';
   }
 
-  function renderTodayPanel(){
-    const el=document.getElementById("todayPanel");if(!el)return;
-    const dash=S.va.dashboard;
-    if(!dash){el.innerHTML=`<div class="empty">Loading today's work…</div>`;return;}
-    const m=dash.metrics||{};
-    const tasks=Array.isArray(dash.todays_tasks)?dash.todays_tasks.slice():[];
-    const tickets=Array.isArray(dash.open_tickets)?dash.open_tickets.slice():[];
-    // Support tickets come FIRST and are FIFO (oldest first) per user spec
-    tickets.sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
-    const urgent=tasks.filter(t=>t.priority==="urgent");
-    const high=tasks.filter(t=>t.priority==="high");
-    const normal=tasks.filter(t=>t.priority==="normal"||t.priority==="low");
-
-    let h=`<div class="today-header">
-      <div><h2>Today's To-Do</h2><p>Every open task across every GP, plus live support tickets — newest cases first, FIFO for tickets.</p></div>
-      <div style="display:flex;gap:6px"><button class="btn" data-va-refresh>Refresh</button><button class="btn" data-va-sweep-weekly>Run Weekly Check-in Sweep</button></div>
-    </div>`;
-    h+=`<div class="today-metrics">
-      <div class="today-metric clickable" data-va-metric="gps" title="View all GPs"><div class="today-metric-label">Total GPs</div><div class="today-metric-value">${m.total_gps||0}</div><div class="today-metric-hint">View all →</div></div>
-      <div class="today-metric urgent clickable" data-va-metric="urgent" title="Tasks open for 24h+ without completion"><div class="today-metric-label">Urgent</div><div class="today-metric-value">${m.urgent||0}</div><div class="today-metric-hint">≥ 24h without complete →</div></div>
-      <div class="today-metric overdue clickable" data-va-metric="overdue" title="Tasks past their due date"><div class="today-metric-label">Overdue</div><div class="today-metric-value">${m.overdue||0}</div><div class="today-metric-hint">Past due date →</div></div>
-      <div class="today-metric"><div class="today-metric-label">Open Tasks</div><div class="today-metric-value">${m.open_tasks||0}</div></div>
-      <div class="today-metric"><div class="today-metric-label">Open Tickets</div><div class="today-metric-value">${m.open_tickets||0}</div></div>
-    </div>`;
-
-    function ticketCard(tk){
-      return`<div class="todo-card ${esc(tk.priority)||"normal"}" data-todo-ticket="${esc(tk.id)}" data-user-id="${esc(tk.user_id)}">
-        <div class="todo-card-top">
-          <div class="todo-avatar">${esc(ini(tk.gp_name||""))}</div>
-          <div class="todo-gp">${esc(tk.gp_name||"")}</div>
-          <span class="todo-stage">${esc(tk.stage||"ticket")}</span>
-        </div>
-        <div class="todo-title">🎫 ${esc(tk.title||"Support request")}</div>
-        ${(tk.gp_phone||tk.gp_email)?'<div class="task-gp-meta">'+(tk.gp_phone?'<span>'+esc(tk.gp_phone)+'</span>':'')+(tk.gp_email?'<span>'+esc(tk.gp_email)+'</span>':'')+'</div>':''}
-        <div class="todo-detail">${esc(tk.category||"")} • opened ${fmtR(tk.created_at)}</div>
-        <div class="todo-actions">
-          <a class="btn wa" href="${safeUrl(tk.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
-          <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
-          <button class="btn primary sm" data-close-ticket="${esc(tk.id)}">Resolve</button>
-        </div>
-      </div>`;
-    }
-    function taskCard(t){
-      const overdue=t.due_date&&new Date(t.due_date)<new Date();
-      return`<div class="todo-card ${esc(t.priority||"normal")} ${overdue?"overdue":""}" data-todo-task="${esc(t.id)}" data-todo-case="${esc(t.case_id)}" data-user-id="${esc(t.gp_user_id||"")}">
-        <div class="todo-card-top">
-          <div class="todo-avatar">${esc(ini(t.gp_name||""))}</div>
-          <div class="todo-gp">${esc(t.gp_name||"")}</div>
-          <span class="todo-stage">${esc(t.case_stage||t.related_stage||"")}</span>
-        </div>
-        <div class="todo-title">${esc(t.title)}</div>
-        ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
-        <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" • Due "+fmtD(t.due_date):""} ${overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""}</div>
-        <div class="todo-actions">
-          <a class="btn wa" href="${safeUrl(t.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
-          ${t.doubletick_conversation_url?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url)+'" target="_blank" rel="noopener">💬 DoubleTick</a>':''}
-          <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
-          <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
-          <button class="btn sm" data-view-todo-case="${esc(t.case_id)}">Open Case</button>
-        </div>
-      </div>`;
-    }
-
-    if(tickets.length){
-      h+=`<div class="today-group-title">🎫 Support Tickets (FIFO) <span class="count red">${tickets.length}</span></div><div class="today-grid">${tickets.map(ticketCard).join("")}</div>`;
-    }
-    if(urgent.length){
-      h+=`<div class="today-group-title">Urgent <span class="count red">${urgent.length}</span></div><div class="today-grid">${urgent.map(taskCard).join("")}</div>`;
-    }
-    if(high.length){
-      h+=`<div class="today-group-title">High Priority <span class="count amber">${high.length}</span></div><div class="today-grid">${high.map(taskCard).join("")}</div>`;
-    }
-    if(normal.length){
-      h+=`<div class="today-group-title">Normal <span class="count">${normal.length}</span></div><div class="today-grid">${normal.map(taskCard).join("")}</div>`;
-    }
-    if(!tickets.length&&!urgent.length&&!high.length&&!normal.length){
-      h+=`<div class="empty" style="margin-top:20px">All clear — no pending tasks or tickets.</div>`;
-    }
-    el.innerHTML=h;
-  }
+  /* renderTodayPanel removed — replaced by renderInboxPanel */
 
 
 
 
   async function refreshVaAll(){
     await loadVaDashboard();
-    if(S.view==="today")renderTodayPanel();
+    if(S.view==="inbox")renderInboxPanel();
     if(S.view==="cases"){renderCaseList();renderDetail();}
   }
 
@@ -2196,7 +2207,7 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
     try{
       const r=await fetch("/api/admin/va/ticket/"+encodeURIComponent(ticketId),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:nextStatus})});
       const d=await r.json().catch(()=>({}));
-      if(d&&d.ok){toast(nextStatus==="closed"?"Ticket resolved":"Ticket reopened");await loadVaDashboard();if(S.view==="tickets"){await loadVaTickets();/*TASK4 renderTicketsPanel()*/}else if(S.view==="today"){renderTodayPanel();}}
+      if(d&&d.ok){toast(nextStatus==="closed"?"Ticket resolved":"Ticket reopened");await loadVaDashboard();if(S.view==="tickets"){await loadVaTickets();/*TASK4 renderTicketsPanel()*/}else if(S.view==="inbox"){renderInboxPanel();}}
       else toast((d&&d.message)||"Failed","red");
     }catch{toast("Network error","red");}
   }
@@ -2208,7 +2219,7 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
       if(d&&d.ok)toast("Weekly sweep: "+d.created+" new check-in tasks (scanned "+d.scanned+")");
       else toast("Sweep failed","red");
       await loadVaDashboard();
-      if(S.view==="today")renderTodayPanel();
+      if(S.view==="inbox")renderInboxPanel();
     }catch{toast("Network error","red");}
   }
 
@@ -2245,6 +2256,33 @@ body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
       if(ivAppIdInput){ivAppIdInput.value=appId;ivAppIdInput.focus();}
       return;
     }
+  },true);
+
+  /* Delegated click handlers for Inbox and Tools panels */
+  document.addEventListener("click",async e=>{
+    const ib=document.getElementById("inboxPanel");
+    const tl=document.getElementById("toolsPanel");
+    const inInbox=ib&&ib.contains(e.target);
+    const inTools=tl&&tl.contains(e.target);
+    if(!inInbox&&!inTools)return;
+
+    const refresh=e.target.closest("[data-va-refresh]");
+    if(refresh){e.preventDefault();e.stopPropagation();await loadVaDashboard();if(S.view==="inbox")renderInboxPanel();return;}
+
+    const closeT=e.target.closest("[data-close-ticket]");
+    if(closeT){e.preventDefault();e.stopPropagation();await closeTicketAction(closeT.getAttribute("data-close-ticket"),"closed");return;}
+
+    const nudge=e.target.closest("[data-nudge-user]");
+    if(nudge){e.preventDefault();e.stopPropagation();openNudgeModal(nudge.getAttribute("data-nudge-user"),nudge.getAttribute("data-nudge-stage"),nudge.getAttribute("data-nudge-substage"),nudge.getAttribute("data-nudge-name"));return;}
+
+    const complete=e.target.closest("[data-complete-todo-task]");
+    if(complete){e.preventDefault();e.stopPropagation();const tid=complete.getAttribute("data-complete-todo-task");await completeTask(tid);await loadVaDashboard();if(S.view==="inbox")renderInboxPanel();return;}
+
+    const openCase=e.target.closest("[data-view-todo-case]");
+    if(openCase){e.preventDefault();e.stopPropagation();S.selectedCaseId=openCase.getAttribute("data-view-todo-case");S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();return;}
+
+    const blocker=e.target.closest("[data-blocker-case]");
+    if(blocker&&!e.target.closest("[data-view-todo-case]")){e.preventDefault();e.stopPropagation();S.selectedCaseId=blocker.getAttribute("data-blocker-case");S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();return;}
   },true);
 
   /* Init-time auto-load for the default "inbox" view */
