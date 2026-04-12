@@ -441,6 +441,46 @@
     .app-status-pill.offer{background:#fffbeb;color:#b45309}
     .app-status-pill.secured{background:#ecfdf5;color:#166534}
     .app-status-pill.withdrawn{background:#fef2f2;color:#dc2626}
+/* ── VA dashboard consolidation (2026-04-11) ── */
+.top-search{flex:1 1 auto;max-width:500px;position:relative;margin:0 12px}
+.top-search input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border,#2a2f3a);background:var(--bg2,#171a22);color:var(--text,#e6e9f0);font-size:14px}
+.top-search input:focus{outline:2px solid var(--accent,#4f46e5);outline-offset:1px}
+.top-search-results{position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:480px;overflow-y:auto;background:var(--bg2,#171a22);border:1px solid var(--border,#2a2f3a);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:500}
+.top-search-group{padding:6px 0;border-bottom:1px solid var(--border,#2a2f3a)}
+.top-search-group:last-child{border-bottom:none}
+.top-search-group-title{padding:6px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#9aa3b2)}
+.top-search-row{padding:8px 12px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.top-search-row:hover,.top-search-row.active{background:var(--bg3,#1f2330)}
+.top-search-row-main{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top-search-row-sub{font-size:12px;color:var(--muted,#9aa3b2);flex-shrink:0}
+.top-search-more{padding:6px 12px;font-size:12px;color:var(--accent,#4f46e5);cursor:pointer;text-align:center}
+.top-search-footer{padding:6px 12px;font-size:11px;color:var(--muted,#9aa3b2);border-top:1px solid var(--border,#2a2f3a)}
+.top-search-empty{padding:16px;text-align:center;color:var(--muted,#9aa3b2);font-size:13px}
+.tools-wrap{padding:16px 20px}
+.tools-subnav{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border,#2a2f3a);padding-bottom:12px}
+.tools-subnav-btn{padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted,#9aa3b2);background:transparent;border:1px solid transparent}
+.tools-subnav-btn:hover{background:var(--bg3,#1f2330);color:var(--text,#e6e9f0)}
+.tools-subnav-btn.active{background:var(--accent,#4f46e5);color:#fff}
+.tools-sub-pane{min-height:400px}
+.gp-detail-grid{display:grid;grid-template-columns:260px 1fr;gap:20px;height:100%}
+.gp-detail-meta{padding:16px;border-right:1px solid var(--border,#2a2f3a);overflow-y:auto}
+.gp-detail-tabs-wrap{padding:16px;overflow-y:auto}
+.gp-detail-tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border,#2a2f3a)}
+.gp-detail-tab{padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted,#9aa3b2);border-bottom:2px solid transparent}
+.gp-detail-tab:hover{color:var(--text,#e6e9f0)}
+.gp-detail-tab.active{color:var(--accent,#4f46e5);border-bottom-color:var(--accent,#4f46e5)}
+body.gp-mobile .gp-detail-grid{grid-template-columns:1fr;height:auto}
+body.gp-mobile .gp-detail-meta{border-right:none;border-bottom:1px solid var(--border,#2a2f3a)}
+body.gp-mobile .gp-detail-tabs{display:none}
+body.gp-mobile .gp-detail-tab-pane{display:block !important;margin-bottom:16px}
+.inbox-section-title{margin:20px 0 8px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#9aa3b2);display:flex;align-items:center;gap:8px}
+.inbox-section-title .count{padding:2px 8px;border-radius:999px;background:var(--bg3,#1f2330);font-size:11px}
+.inbox-section-title .count.red{background:var(--red,#ef4444);color:#fff}
+.inbox-section-title .count.amber{background:var(--amber,#f59e0b);color:#fff}
+.blocker-row{padding:12px;border:1px solid var(--border,#2a2f3a);border-radius:8px;background:var(--bg2,#171a22);margin-bottom:8px;display:flex;align-items:center;gap:12px}
+.blocker-row-main{flex:1;min-width:0}
+.blocker-row-name{font-weight:700}
+.blocker-row-reason{font-size:12px;color:var(--muted,#9aa3b2);margin-top:2px}
   </style>
 </head>
 <body>
@@ -449,6 +489,10 @@
       <h1 id="topTitle">VA Command Centre</h1>
       <div class="top-chips" id="topChips"></div>
     </div>
+    <div class="top-search">
+        <input type="search" id="globalSearch" placeholder="Search GPs, tasks, tickets, documents, notes…" autocomplete="off" spellcheck="false" />
+        <div class="top-search-results" id="globalSearchResults" style="display:none"></div>
+      </div>
     <div class="top-right">
       <span class="top-meta" id="topMeta"></span>
       <button class="btn ghost" id="syncBtn" title="Sync cases">Sync</button>
@@ -459,14 +503,11 @@
     <div class="list-panel">
       <div class="list-header"><input class="search-input" id="searchInput" placeholder="Search GPs..." /></div>
       <div class="view-tabs">
-        <div class="view-tab active" data-view="today">Today</div>
-        <div class="view-tab" data-view="cases">Users</div>
-        <div class="view-tab" data-view="tickets">Tickets</div>
-        <div class="view-tab" data-view="queue">Work Queue</div>
-        <div class="view-tab" data-view="ops">Ops Queue</div>
+        <div class="view-tab active" data-view="inbox">Inbox</div>
+        <div class="view-tab" data-view="gps">GPs</div>
         <div class="view-tab" data-view="interviews">Interviews</div>
         <div class="view-tab" data-view="applications">Applications</div>
-        <div class="view-tab" data-view="agent" id="agentTab" style="display:none">Agent</div>
+        <div class="view-tab" data-view="tools">Tools</div>
       </div>
       <div class="filter-bar" id="filterBar"></div>
       <div class="case-list" id="caseList"></div>
@@ -477,10 +518,10 @@
       </div>
     </div>
   </div>
-  <div class="today-wrap" id="todayPanel" style="display:none"></div>
-  <div class="tickets-wrap" id="ticketsPanel" style="display:none"></div>
+  <div class="today-wrap" id="inboxPanel" style="display:none"></div>
   <div class="interviews-wrap" id="interviewsPanel" style="display:none"></div>
   <div class="applications-wrap" id="applicationsPanel" style="display:none"></div>
+  <div class="tools-wrap" id="toolsPanel" style="display:none"></div>
   <div class="ops-panel" id="opsPanel">
     <div class="ops-stats" id="opsStats"></div>
     <div class="ops-filters" id="opsFilters">
@@ -542,11 +583,13 @@
 (function(){
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
-    selectedCaseId:null,view:"today",filter:"all",query:"",expanded:{},refreshTimer:null,
+    selectedCaseId:null,view:"inbox",filter:"all",query:"",expanded:{},refreshTimer:null,
     opsTasks:[],opsExpandedId:null,opsLoading:false,
-    va:{dashboard:null,tickets:[],ticketsView:"open",selectedQuals:null,loading:false},
+    toolsSubView:"ops",gpsProfileTab:"tasks",
+    va:{dashboard:null,tickets:[],ticketsView:"open",selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null},
     interviews:{list:[],loading:false},
     applications:{list:[],loading:false},
+    search:{query:"",loading:false,clientResults:{gps:[],tasks:[],tickets:[]},serverResults:{documents:[],notes:[]},open:false,debounceTimer:null},
     agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
       draftTask:"",profile:"balanced",collaborationMode:"paired",complexity:"auto",loading:false,submitting:false,
       warnings:[],security:null,providerStatusRefreshedAt:"",error:"",
@@ -1680,7 +1723,25 @@
   /* ══ Events ══ */
   function bind(){
     document.getElementById("searchInput").addEventListener("input",e=>{S.query=e.target.value||"";renderCaseList();});
-    document.querySelector(".view-tabs").addEventListener("click",e=>{const tab=e.target.closest("[data-view]");if(!tab)return;S.view=tab.getAttribute("data-view");document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t===tab));if(S.view==="ops"){/*REMOVED switchToOps()*/}else{/*REMOVED switchFromOps()*/renderCaseList();renderDetail();if(S.view==="agent")refreshAgentStatus(true);}});
+    document.querySelector(".view-tabs").addEventListener("click",async e=>{
+      const tab=e.target.closest("[data-view]");if(!tab)return;
+      const view=tab.getAttribute("data-view");
+      S.view=view;
+      document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t===tab));
+      vaShowPanel(view);
+      if(view==="inbox"){
+        if(!S.va.dashboard)await loadVaDashboard();
+        renderInboxPanel();
+      }else if(view==="gps"){
+        renderCaseList();renderDetail();
+      }else if(view==="interviews"){
+        await loadInterviews();
+      }else if(view==="applications"){
+        await loadAdminApplications();
+      }else if(view==="tools"){
+        renderToolsPanel();
+      }
+    });
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
     document.getElementById("caseList").addEventListener("click",e=>{
       const agentRun=e.target.closest("[data-agent-run-id]");
@@ -1992,19 +2053,23 @@
   }
 
   function vaShowPanel(which){
-    document.getElementById("mainLayout").style.display="none";
-    document.getElementById("opsPanel").classList.remove("active");
-    document.getElementById("todayPanel").style.display=(which==="today"?"block":"none");
-    document.getElementById("ticketsPanel").style.display=(which==="tickets"?"block":"none");
-    document.getElementById("interviewsPanel").style.display=(which==="interviews"?"block":"none");
-    document.getElementById("applicationsPanel").style.display=(which==="applications"?"block":"none");
+    document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
+    const panels={"inboxPanel":"inbox","interviewsPanel":"interviews","applicationsPanel":"applications","toolsPanel":"tools"};
+    Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   function vaHidePanels(){
-    document.getElementById("todayPanel").style.display="none";
-    document.getElementById("ticketsPanel").style.display="none";
-    document.getElementById("interviewsPanel").style.display="none";
-    document.getElementById("applicationsPanel").style.display="none";
+    ["inboxPanel","interviewsPanel","applicationsPanel","toolsPanel"].forEach(function(id){
+      var el=document.getElementById(id);if(el)el.style.display="none";
+    });
     document.getElementById("mainLayout").style.display="grid";
+  }
+  function renderInboxPanel(){
+    var el=document.getElementById("inboxPanel");if(!el)return;
+    el.innerHTML='<div class="empty">Inbox loading…</div>';
+  }
+  function renderToolsPanel(){
+    var el=document.getElementById("toolsPanel");if(!el)return;
+    el.innerHTML='<div class="empty">Tools loading…</div>';
   }
 
   function renderTodayPanel(){
@@ -2182,7 +2247,19 @@
     }
   },true);
 
-
+  /* Init-time auto-load for the default "inbox" view */
+  (function hookInitialLoad(){
+    window.__gplinkVaLoaded=false;
+    const tick=setInterval(async()=>{
+      if(window.__gplinkVaLoaded)return;
+      if(S.cases&&S.cases.length!==undefined){
+        window.__gplinkVaLoaded=true;
+        clearInterval(tick);
+        await loadVaDashboard();
+        if(S.view==="inbox"){vaShowPanel("inbox");if(typeof renderInboxPanel==="function")renderInboxPanel();}
+      }
+    },300);
+  })();
 
   /* ══ Init ══ */
   bind();
