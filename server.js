@@ -941,6 +941,21 @@ function sanitizeUserString(str, maxLen) {
   return s;
 }
 
+/** Sanitize a VA global-search query string. */
+function sanitizeVaSearchQuery(raw) {
+  const base = sanitizeUserString(raw, 80);
+  return base.replace(/[*,%]/g, '');
+}
+
+/** Parse the `scope` query param for /api/admin/va/search. */
+function parseVaSearchScope(raw) {
+  if (typeof raw !== 'string') return 'both';
+  const v = raw.trim().toLowerCase();
+  if (v === 'documents') return 'documents';
+  if (v === 'notes') return 'notes';
+  return 'both';
+}
+
 const NAME_NOISE_PARTS = new Set(['dr', 'mr', 'mrs', 'ms', 'miss', 'mx', 'sir', 'prof', 'professor', 'md', 'mbbs', 'mbchb', 'phd']);
 
 function normalizeNameParts(name) {
@@ -19839,5 +19854,7 @@ module.exports.__testUtils = {
   normalizeDomainListing,
   normalizeDomainSourceUrl,
   parseLifestylePriceValue,
-  resizeDomainImageUrl
+  parseVaSearchScope,
+  resizeDomainImageUrl,
+  sanitizeVaSearchQuery
 };
