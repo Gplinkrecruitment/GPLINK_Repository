@@ -17476,6 +17476,116 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Global search across documents + case notes ──
+  if (pathname === '/api/admin/va/search' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const rawQ = url.searchParams.get('q') || '';
+    const q = sanitizeVaSearchQuery(rawQ);
+    if (q.length < 2) { sendJson(res, 400, { ok: false, message: 'Query must be at least 2 characters.' }); return; }
+    const scope = parseVaSearchScope(url.searchParams.get('scope'));
+    const pattern = '*' + q + '*'; // PostgREST ilike wildcard syntax
+
+    // Build a flat key→label map once so we can resolve labels quickly.
+    // GP_DOCUMENT_META is keyed by country bucket; GP_LINK_DOCUMENT_META is a flat array.
+    const docLabelMap = {};
+    Object.values(GP_DOCUMENT_META).forEach(function (arr) {
+      if (Array.isArray(arr)) arr.forEach(function (d) { if (d && d.key) docLabelMap[d.key] = d.label; });
+    });
+    (GP_LINK_DOCUMENT_META || []).forEach(function (d) { if (d && d.key) docLabelMap[d.key] = d.label; });
+    ONBOARDING_DOCUMENT_KEYS.forEach(function (k) { if (!docLabelMap[k]) docLabelMap[k] = k; });
+
+    async function searchDocuments() {
+      const allowedKeys = [
+        ...Array.from(ONBOARDING_DOCUMENT_KEYS),
+        ...Array.from(PREPARED_DOCUMENT_KEYS)
+      ];
+      if (allowedKeys.length === 0) return [];
+      const keysCsv = allowedKeys.map(encodeURIComponent).join(',');
+      const r = await supabaseDbRequest('user_documents',
+        'select=user_id,country_code,document_key,file_name,status,updated_at' +
+        '&file_name=ilike.' + encodeURIComponent(pattern) +
+        '&document_key=in.(' + keysCsv + ')' +
+        '&order=updated_at.desc&limit=20');
+      if (!r.ok || !Array.isArray(r.data)) return [];
+      const rows = r.data;
+      const userIds = [...new Set(rows.map(function (x) { return x.user_id; }).filter(Boolean))];
+      if (userIds.length === 0) return [];
+      const pRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name,email' +
+        '&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      const profileMap = {};
+      if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
+      return rows.map(function (x) {
+        const p = profileMap[x.user_id] || {};
+        return {
+          user_id: x.user_id,
+          gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
+          country: x.country_code || null,
+          key: x.document_key,
+          label: docLabelMap[x.document_key] || x.document_key,
+          file_name: x.file_name || '',
+          status: x.status || null
+        };
+      });
+    }
+
+    async function searchNotes() {
+      const orFilter = 'or=(title.ilike.' + encodeURIComponent(pattern) + ',detail.ilike.' + encodeURIComponent(pattern) + ')';
+      const r = await supabaseDbRequest('task_timeline',
+        'select=case_id,task_id,event_type,title,detail,actor,created_at' +
+        '&' + orFilter +
+        '&order=created_at.desc&limit=20');
+      if (!r.ok || !Array.isArray(r.data)) return [];
+      const rows = r.data;
+      const caseIds = [...new Set(rows.map(function (x) { return x.case_id; }).filter(Boolean))];
+      if (caseIds.length === 0) return rows.map(function (x) { return Object.assign({ gp_name: 'Unknown' }, x); });
+      const cRes = await supabaseDbRequest('registration_cases',
+        'select=id,user_id' +
+        '&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
+      const cases = (cRes.ok && Array.isArray(cRes.data)) ? cRes.data : [];
+      const caseMap = {};
+      cases.forEach(function (c) { caseMap[c.id] = c; });
+      const userIds = [...new Set(cases.map(function (c) { return c.user_id; }).filter(Boolean))];
+      let profileMap = {};
+      if (userIds.length > 0) {
+        const pRes = await supabaseDbRequest('user_profiles',
+          'select=user_id,first_name,last_name,email' +
+          '&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+        if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
+      }
+      return rows.map(function (x) {
+        const c = caseMap[x.case_id] || {};
+        const p = profileMap[c.user_id] || {};
+        return {
+          case_id: x.case_id,
+          task_id: x.task_id || null,
+          gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
+          event_type: x.event_type || null,
+          title: x.title || '',
+          detail: x.detail || '',
+          created_at: x.created_at || null
+        };
+      });
+    }
+
+    try {
+      const wantDocs = (scope === 'documents' || scope === 'both');
+      const wantNotes = (scope === 'notes' || scope === 'both');
+      const [documents, notes] = await Promise.all([
+        wantDocs ? searchDocuments() : Promise.resolve([]),
+        wantNotes ? searchNotes() : Promise.resolve([])
+      ]);
+      sendJson(res, 200, { ok: true, query: q, results: { documents: documents, notes: notes } });
+    } catch (err) {
+      console.error('[VA SEARCH]', err);
+      sendJson(res, 200, { ok: true, query: q, results: { documents: [], notes: [] }, partial: true });
+    }
+    return;
+  }
+
   // ══════ User-facing nudge endpoints ══════
 
   // ── List my nudges (unread first) ──
