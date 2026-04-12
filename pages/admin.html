@@ -2227,11 +2227,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function renderToolsSweepPane(){
     const el=document.getElementById("toolsSweep");if(!el)return;
-    el.innerHTML='<div class="empty">Weekly Sweep — Task 12</div>';
+    const last=S.va.lastSweepResult;
+    const lastHtml=last
+      ? `<div class="todo-card" style="margin-top:12px"><div class="todo-title">Last run</div><div class="todo-detail">Scanned ${esc(String(last.scanned||0))} — created ${esc(String(last.created||0))} new tasks · Ran at ${esc(new Date(last.at).toLocaleTimeString())}</div></div>`
+      : '<div class="empty" style="margin-top:12px">No sweep run yet this session.</div>';
+    el.innerHTML=`<h2 style="margin:0 0 6px">Weekly Check-in Sweep</h2>
+      <p style="color:var(--muted,#9aa3b2);margin:0 0 12px">Creates check-in tasks for GPs stalled 14+ days in MyIntealth or AMC without an existing check-in task in the last 7 days.</p>
+      <button class="btn primary" data-tools-sweep-run>Run Sweep Now</button>${lastHtml}`;
   }
   function renderToolsAgentPane(){
     const el=document.getElementById("toolsAgent");if(!el)return;
-    el.innerHTML='<div class="empty">Agent — Task 13</div>';
+    el.innerHTML=`<div style="display:grid;grid-template-columns:320px 1fr;gap:16px;min-height:400px">
+      <div id="toolsAgentRunList" style="border-right:1px solid var(--border,#2a2f3a);padding-right:16px;overflow-y:auto"></div>
+      <div id="toolsAgentDetail" style="overflow-y:auto"></div>
+    </div>`;
+    if(typeof refreshAgentStatus==="function")refreshAgentStatus(true);
+    if(typeof renderAgentRunList==="function")renderAgentRunList();
+    if(typeof renderAgentDetail==="function")renderAgentDetail();
   }
 
   /* renderTodayPanel removed — replaced by renderInboxPanel */
@@ -2288,10 +2300,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try{
       const r=await fetch("/api/admin/va/weekly-checkin/sweep",{method:"POST",credentials:"same-origin"});
       const d=await r.json().catch(()=>({}));
-      if(d&&d.ok)toast("Weekly sweep: "+d.created+" new check-in tasks (scanned "+d.scanned+")");
-      else toast("Sweep failed","red");
+      if(d&&d.ok){
+        S.va.lastSweepResult={scanned:d.scanned||0,created:d.created||0,at:new Date().toISOString()};
+        toast("Weekly sweep: "+(d.created||0)+" new check-in tasks (scanned "+(d.scanned||0)+")");
+      }else toast("Sweep failed","red");
       await loadVaDashboard();
       if(S.view==="inbox")renderInboxPanel();
+      if(S.view==="tools"&&S.toolsSubView==="sweep")renderToolsSweepPane();
     }catch{toast("Network error","red");}
   }
 
@@ -2341,6 +2356,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const subBtn=e.target.closest("[data-tools-sub]");
     if(subBtn){e.preventDefault();e.stopPropagation();S.toolsSubView=subBtn.getAttribute("data-tools-sub");renderToolsPanel();return;}
 
+    const sweepRun=e.target.closest("[data-tools-sweep-run]");
+    if(sweepRun){e.preventDefault();e.stopPropagation();runWeeklyCheckinSweep();return;}
+
     const refresh=e.target.closest("[data-va-refresh]");
     if(refresh){e.preventDefault();e.stopPropagation();await loadVaDashboard();if(S.view==="inbox")renderInboxPanel();return;}
 
@@ -2358,6 +2376,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     const blocker=e.target.closest("[data-blocker-case]");
     if(blocker&&!e.target.closest("[data-view-todo-case]")){e.preventDefault();e.stopPropagation();S.selectedCaseId=blocker.getAttribute("data-blocker-case");S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();return;}
+  },true);
+
+  /* Delegated click handlers for Agent sub-view (SA only) */
+  document.addEventListener("click",async e=>{
+    const root=document.getElementById("toolsAgentDetail");
+    if(!root||!root.contains(e.target))return;
+    const agStart=e.target.closest("[data-agent-start]");if(agStart){startAgentRun();return;}
+    const agRefresh=e.target.closest("[data-agent-refresh]");if(agRefresh){refreshAgentStatus(true);return;}
+    const agCancel=e.target.closest("[data-agent-cancel]");if(agCancel){cancelAgentRun(agCancel.getAttribute("data-agent-cancel"));return;}
+    const agConnect=e.target.closest("[data-agent-connect]");if(agConnect){showAgentConnectHelp(agConnect.getAttribute("data-agent-connect"));return;}
+  },true);
+  document.addEventListener("click",async e=>{
+    const root=document.getElementById("toolsAgentRunList");
+    if(!root||!root.contains(e.target))return;
+    const agentRun=e.target.closest("[data-agent-run-id]");
+    if(agentRun){S.agent.selectedRunId=agentRun.getAttribute("data-agent-run-id");S.agent.currentRun=null;renderToolsAgentPane();loadAgentRun(S.agent.selectedRunId);return;}
   },true);
 
   /* Init-time auto-load for the default "inbox" view */
