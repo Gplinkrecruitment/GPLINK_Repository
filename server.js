@@ -1551,6 +1551,77 @@ function validateDoubleTickSignature(rawBody, signatureHeader) {
   }
 }
 
+// Per-phone AI classification spend tracker: { phone: { date, totalCostUsd } }
+const dtClassifyPhoneSpend = {};
+const DT_CLASSIFY_PHONE_DAILY_LIMIT_USD = 0.001;
+// Haiku pricing: $0.80/M input, $4/M output
+const HAIKU_INPUT_COST_PER_TOKEN = 0.80 / 1000000;
+const HAIKU_OUTPUT_COST_PER_TOKEN = 4 / 1000000;
+
+function checkDtPhoneBudget(phone) {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = dtClassifyPhoneSpend[phone];
+  if (!entry || entry.date !== today) return true;
+  return entry.totalCostUsd < DT_CLASSIFY_PHONE_DAILY_LIMIT_USD;
+}
+
+function recordDtPhoneSpend(phone, inputTokens, outputTokens) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (!dtClassifyPhoneSpend[phone] || dtClassifyPhoneSpend[phone].date !== today) {
+    dtClassifyPhoneSpend[phone] = { date: today, totalCostUsd: 0 };
+  }
+  dtClassifyPhoneSpend[phone].totalCostUsd += (inputTokens * HAIKU_INPUT_COST_PER_TOKEN) + (outputTokens * HAIKU_OUTPUT_COST_PER_TOKEN);
+}
+
+/**
+ * Use AI to classify whether a DoubleTick message is a question or help request.
+ * Falls back to keyword matching if AI is unavailable or over budget.
+ * Rate-limited to $0.001/phone/day for AI classification calls.
+ */
+async function classifyDoubleTickMessage(messageBody, fromPhone) {
+  // Fast keyword pre-check — obvious help requests skip the AI call
+  const HELP_PATTERNS = [/\bhelp\b/i, /\bneed help\b/i, /\bassist\b/i, /\bsupport\b/i, /\bstuck\b/i, /\bproblem\b/i, /\bissue\b/i, /\bquestion\b/i];
+  if (HELP_PATTERNS.some((p) => p.test(messageBody))) return true;
+
+  // Skip AI if not configured, over global budget, or over per-phone budget
+  if (!ANTHROPIC_API_KEY || !checkAnthropicBudget() || !checkDtPhoneBudget(fromPhone)) {
+    return false;
+  }
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4,
+        messages: [{
+          role: 'user',
+          content: 'You are a message classifier for a medical registration support service. Determine if the following WhatsApp message is a question, help request, complaint, or expression of confusion — even if it has no question mark. Reply with exactly YES or NO.\n\nMessage: ' + messageBody.slice(0, 500)
+        }]
+      })
+    });
+    if (!resp.ok) {
+      console.warn('[doubletick-webhook] AI classify failed:', resp.status);
+      return false;
+    }
+    const result = await resp.json();
+    const answer = (result.content && result.content[0] && result.content[0].text || '').trim().toUpperCase();
+    const usage = result.usage || {};
+    // Record against both global and per-phone budgets
+    recordAnthropicSpend(usage.input_tokens || 0, usage.output_tokens || 0, usage.cache_read_input_tokens || 0, usage.cache_creation_input_tokens || 0);
+    recordDtPhoneSpend(fromPhone, usage.input_tokens || 0, usage.output_tokens || 0);
+    return answer === 'YES';
+  } catch (err) {
+    console.warn('[doubletick-webhook] AI classify error:', err && err.message);
+    return false;
+  }
+}
+
 /**
  * Validate and sanitize fields from a DoubleTick webhook payload.
  * Returns a sanitized object or null if required fields are missing/invalid.
@@ -1647,9 +1718,9 @@ async function handleDoubleTickWebhook(req, res) {
 
   const { messageBody, fromPhone, conversationUrl, messageId } = payload;
 
-  // Only act on inbound help-request messages; ack and skip everything else
-  const HELP_PATTERNS = [/\bhelp\b/i, /\bneed help\b/i, /\bassist\b/i, /\bsupport\b/i, /\bstuck\b/i, /\bproblem\b/i];
-  if (!HELP_PATTERNS.some((p) => p.test(messageBody))) {
+  // Use AI to determine if the message is a question or help request
+  const isHelpRequest = await classifyDoubleTickMessage(messageBody, fromPhone);
+  if (!isHelpRequest) {
     sendJson(res, 200, { ok: true, action: 'ignored' });
     return;
   }
