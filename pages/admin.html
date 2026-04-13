@@ -2329,21 +2329,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!q||q.length<2){S.search.open=false;renderSearchResults();return;}
     S.search.query=q;
     const ql=q.toLowerCase();
-    console.log("[VA-search] query="+q+" cases="+S.cases.length+" dashUsers="+(S.va.dashboard&&S.va.dashboard.users?S.va.dashboard.users.length:0));
 
-    // Client-side: GPs — merge dashboard users + S.cases for coverage
+    // Client-side: GPs — merge dashboard users + S.cases + dashboard candidates
     const dashUsers=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))?S.va.dashboard.users:[];
-    const caseUsers=S.cases.map(c=>({case_id:c.id,user_id:c.user_id,gp_name:c.gp_name||c.gp_email||"",gp_email:c.gp_email||"",gp_phone:c.gp_phone||"",stage:c.stage||""}));
+    const caseUsers=(S.cases||[]).map(function(c){return{case_id:c.id,user_id:c.user_id,gp_name:c.gp_name||c.gp_email||"",gp_email:c.gp_email||"",gp_phone:c.gp_phone||"",stage:c.stage||""};});
+    const candidateUsers=(S.dashboard&&Array.isArray(S.dashboard.candidates))?S.dashboard.candidates.map(function(g){return{case_id:g.userId||g.email,user_id:g.userId||"",gp_name:g.name||g.email||"",gp_email:g.email||"",gp_phone:"",stage:"candidate"};}):[];
     const seenGp=new Set();
     const gpList=[];
-    dashUsers.forEach(u=>{gpList.push(u);seenGp.add(u.case_id);});
-    caseUsers.forEach(u=>{if(!seenGp.has(u.case_id))gpList.push(u);});
-    S.search.clientResults.gps=gpList.filter(u=>
-      (u.gp_name||"").toLowerCase().includes(ql)||
-      (u.gp_email||"").toLowerCase().includes(ql)||
-      (u.gp_phone||"").includes(ql)||
-      (u.practice_name||"").toLowerCase().includes(ql)
-    ).slice(0,20);
+    dashUsers.forEach(function(u){gpList.push(u);seenGp.add(u.case_id);if(u.user_id)seenGp.add(u.user_id);});
+    caseUsers.forEach(function(u){if(!seenGp.has(u.case_id)){gpList.push(u);seenGp.add(u.case_id);if(u.user_id)seenGp.add(u.user_id);}});
+    candidateUsers.forEach(function(u){if(!seenGp.has(u.case_id)&&!seenGp.has(u.user_id))gpList.push(u);});
+    S.search.clientResults.gps=gpList.filter(function(u){
+      return(u.gp_name||"").toLowerCase().indexOf(ql)!==-1||
+        (u.gp_email||"").toLowerCase().indexOf(ql)!==-1||
+        (u.gp_phone||"").indexOf(ql)!==-1||
+        (u.practice_name||"").toLowerCase().indexOf(ql)!==-1;
+    }).slice(0,20);
 
     // Client-side: Tasks
     const taskList=[...(S.tasks||[]),...((S.va.dashboard&&S.va.dashboard.todays_tasks)||[])];
@@ -2394,7 +2395,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const docs=S.search.serverResults.documents.slice(0,5);
     const notes=S.search.serverResults.notes.slice(0,5);
     const total=gps.length+tasks.length+tickets.length+docs.length+notes.length;
-    if(!total&&!S.search.loading){el.innerHTML='<div class="top-search-empty">No results found.</div>';return;}
+    if(!total&&!S.search.loading){el.innerHTML='<div class="top-search-empty">No results found. [debug: cases='+S.cases.length+' dashUsers='+(S.va.dashboard&&S.va.dashboard.users?S.va.dashboard.users.length:'null')+' gpList='+S.search.clientResults.gps.length+']</div>';return;}
     let h='';
     function group(title,items,renderer,allItems){
       if(!items.length)return'';
