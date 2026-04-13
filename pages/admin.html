@@ -374,6 +374,8 @@
     .gp-task-row .task-row-title{flex:1;font-weight:500}
     .gp-task-row .task-row-stage{font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted)}
     .gp-task-row .btn{padding:2px 8px;font-size:10px}
+    .gp-task-complete-btn{background:#fff!important;color:var(--muted)!important;border:1px solid var(--line)!important;font-weight:600!important}
+    .gp-task-complete-btn:hover{background:var(--green)!important;color:#fff!important;border-color:var(--green)!important}
     .qual-section{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     @media(max-width:900px){.qual-section{grid-template-columns:1fr}}
     .qual-box{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px}
@@ -681,6 +683,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   /* GP-centric card: groups all tasks for a GP into one card */
   function gpTaskCard(gpGroup){
     const g=gpGroup;
+    const displayName=g.name||g.email||"Unknown GP";
     const topPri=g.tasks.some(t=>t.priority==="urgent")?"urgent":g.tasks.some(t=>t.priority==="high")?"high":"normal";
     const hasOverdue=g.tasks.some(t=>t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date()));
     const urgentCount=g.tasks.filter(t=>t.priority==="urgent").length;
@@ -693,14 +696,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <span class="task-pri ${esc(t.priority||"normal")}"></span>
         <span class="task-row-title">${esc(t.title)}${od?' <span style="color:var(--red);font-weight:700;font-size:10px">OVERDUE</span>':''}</span>
         <span class="task-row-stage">${esc(t.related_stage||"")}</span>
-        <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Done</button>
+        <button class="btn sm gp-task-complete-btn" data-complete-todo-task="${esc(t.id)}">Mark complete</button>
       </div>`;
     }
     return`<div class="todo-card ${esc(topPri)} ${hasOverdue?"overdue":""}" data-view-todo-case="${esc(g.caseId)}" data-user-id="${esc(g.userId||"")}">
       <div class="todo-card-top">
-        <div class="todo-avatar">${esc(ini(g.name||""))}</div>
+        <div class="todo-avatar">${esc(ini(displayName))}</div>
         <div style="flex:1;min-width:0">
-          <div class="todo-gp">${esc(g.name||"Unknown")}</div>
+          <div class="todo-gp">${esc(displayName)}</div>
           <div class="gp-card-contact">
             ${g.email?'<span>'+esc(g.email)+'</span>':''}
             ${g.phone?'<span>'+esc(g.phone)+'</span>':''}
@@ -709,7 +712,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <span class="todo-stage">${esc(g.stage||"")}</span>
       </div>
       <div class="gp-card-task-summary">
-        ${esc(String(g.tasks.length))} task${g.tasks.length===1?"":"s"}
+        ${esc(String(g.tasks.length))} open task${g.tasks.length===1?"":"s"}
         ${urgentCount?'<span class="task-count-pill urgent">'+urgentCount+' urgent</span>':''}
         ${highCount?'<span class="task-count-pill high">'+highCount+' high</span>':''}
       </div>
@@ -721,24 +724,33 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div class="gp-card-tasks-dropdown">${taskRows}</div>
     </div>`;
   }
-  function groupTasksByGP(tasks){
+  function groupTasksByGP(tasks,gpLookup){
+    const lu=gpLookup||{};
     const map=new Map();
     for(const t of tasks){
       const key=t.case_id||t.id;
       if(!map.has(key)){
+        /* Cross-reference from dashboard users list for missing GP info */
+        const ref=lu[t.case_id]||{};
         map.set(key,{
           caseId:t.case_id||"",
           userId:t.gp_user_id||"",
-          name:t.gp_name||"",
-          firstName:t.gp_first_name||"",
-          email:t.gp_email||"",
-          phone:t.gp_phone||"",
+          name:t.gp_name||ref.name||"",
+          firstName:t.gp_first_name||ref.firstName||"",
+          email:t.gp_email||ref.email||"",
+          phone:t.gp_phone||ref.phone||"",
           stage:t.case_stage||t.related_stage||"",
           whatsappLink:t.whatsapp_link||"",
           tasks:[]
         });
       }
-      map.get(key).tasks.push(t);
+      /* Backfill name/email/phone from later tasks if first was empty */
+      const grp=map.get(key);
+      if(!grp.name&&t.gp_name)grp.name=t.gp_name;
+      if(!grp.email&&t.gp_email)grp.email=t.gp_email;
+      if(!grp.phone&&t.gp_phone)grp.phone=t.gp_phone;
+      if(!grp.firstName&&t.gp_first_name)grp.firstName=t.gp_first_name;
+      grp.tasks.push(t);
     }
     return Array.from(map.values());
   }
@@ -2345,10 +2357,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return new Date(a.created_at||0)-new Date(b.created_at||0);
     });
     const blocked=users.filter(u=>u.blocker_status);
+    /* Build lookup from dashboard users (enriched with names) to fill gaps in task data */
+    const gpLookup={};
+    for(const u of users){
+      if(u.case_id)gpLookup[u.case_id]={name:u.gp_name||"",email:u.gp_email||"",phone:u.gp_phone||"",firstName:u.gp_first_name||""};
+    }
     /* Group tasks by GP for card display */
-    const urgentGroups=groupTasksByGP(urgent);
-    const overdueGroups=groupTasksByGP(overdue);
-    const normalGroups=groupTasksByGP(normal);
+    const urgentGroups=groupTasksByGP(urgent,gpLookup);
+    const overdueGroups=groupTasksByGP(overdue,gpLookup);
+    const normalGroups=groupTasksByGP(normal,gpLookup);
     let h=`<div class="today-header">
       <div><h2>Inbox</h2><p>Everything live right now, sorted by what needs action first. Hover a card to see tasks.</p></div>
       <div><button class="btn" data-va-refresh>Refresh</button></div>
