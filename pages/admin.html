@@ -2338,9 +2338,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const el=document.getElementById("inboxPanel");if(!el)return;
     const dash=S.va.dashboard;
     if(!dash){el.innerHTML='<div class="empty">Loading inbox…</div>';return;}
-    const rawTasks=Array.isArray(dash.todays_tasks)?dash.todays_tasks:[];
-    /* Hide practice_pack parent tasks — only show individual document children */
-    const tasks=rawTasks.filter(t=>t.task_type!=="practice_pack");
+    const tasks=Array.isArray(dash.todays_tasks)?dash.todays_tasks:[];
     const tickets=Array.isArray(dash.open_tickets)?dash.open_tickets.slice():[];
     const users=Array.isArray(dash.users)?dash.users.slice():[];
     tickets.sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));

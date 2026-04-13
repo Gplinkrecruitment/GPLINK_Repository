@@ -3968,13 +3968,10 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.career&status=in.(open,in_progress,waiting)');
       if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
       await _createRegTask(caseId, { task_type: 'verify', title: 'Verify secured placement with practice', priority: 'high', source_trigger: 'career_secured', related_stage: 'career', _actor: 'system' });
-      if (!(await _hasOpenTask(caseId, 'career', 'practice_pack'))) {
-        const parent = await _createRegTask(caseId, { task_type: 'practice_pack', title: 'Complete practice pack', source_trigger: 'career_secured', related_stage: 'career', _actor: 'system' });
-        if (parent) {
-          const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };
-          for (const dk of Object.keys(packLabels)) {
-            await _createRegTask(caseId, { task_type: 'practice_pack_child', title: packLabels[dk], parent_task_id: parent.id, source_trigger: 'career_secured', related_stage: 'career', related_document_key: dk, _actor: 'system' });
-          }
+      if (!(await _hasOpenTask(caseId, 'career', 'practice_pack_child'))) {
+        const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };
+        for (const dk of Object.keys(packLabels)) {
+          await _createRegTask(caseId, { task_type: 'practice_pack_child', title: packLabels[dk], source_trigger: 'career_secured', related_stage: 'career', related_document_key: dk, _actor: 'system' });
         }
       }
       // Send WhatsApp template via DoubleTick instead of creating a kickoff task
@@ -4050,7 +4047,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
 const VA_TASK_DOMAINS = ['registration', 'visa', 'questionnaire', 'sponsor', 'document', 'system'];
 const VA_TASK_TYPES_EXTENDED = [
   'kickoff','verify','review','followup','blocker','escalation',
-  'practice_pack','practice_pack_child','manual','system',
+  'practice_pack_child','manual','system',
   'visa_stage','visa_doc','questionnaire','sponsor','migration_agent',
   'sla_overdue','chase','document_ops','whatsapp_help'
 ];
