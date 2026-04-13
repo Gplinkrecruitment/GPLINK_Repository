@@ -17203,7 +17203,7 @@ Return ONLY valid JSON with no markdown formatting:
     let stateMap = {};
     if (userIds.length > 0) {
       const [pRes, sRes] = await Promise.all([
-        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,phone,country_of_qualification,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
+        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,phone,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
         supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')')
       ]);
       if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
@@ -17454,11 +17454,9 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     const userId = url.searchParams.get('user_id');
     if (!userId) { sendJson(res, 400, { ok: false, message: 'user_id required.' }); return; }
-    const pRes = await supabaseDbRequest('user_profiles', 'select=country_of_qualification&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     const sRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     let country = 'GB';
-    if (pRes.ok && Array.isArray(pRes.data) && pRes.data[0] && pRes.data[0].country_of_qualification) country = String(pRes.data[0].country_of_qualification).toUpperCase();
-    else if (sRes.ok && Array.isArray(sRes.data) && sRes.data[0]) {
+    if (sRes.ok && Array.isArray(sRes.data) && sRes.data[0]) {
       const st = sRes.data[0].state || {};
       const raw = (st.gp_selected_country || (st.gp_onboarding && st.gp_onboarding.country) || 'GB').toString().toUpperCase();
       country = ({ 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'IRELAND': 'IE', 'NEW ZEALAND': 'NZ' })[raw] || (['GB','IE','NZ'].includes(raw) ? raw : 'GB');
