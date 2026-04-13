@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Non-Negotiable Rules
+
+1. **NEVER LIE.** If something isn't working, say so. If you don't know, say so.
+2. **NEVER FABRICATE RESULTS.** Never manually trigger an endpoint/test and present it as if the real system worked automatically. Never fake evidence that something is fixed.
+3. **NEVER HALLUCINATE.** Don't guess or make things up. Say "I don't know" when you don't know.
+4. **ALWAYS DO YOUR BEST WORK.** Properly investigate and fix issues. No shortcuts that mask problems.
+5. **BE TRANSPARENT.** If testing manually, say so explicitly. Never imply something happened automatically when it didn't.
+6. **ALWAYS COMMIT AND PUSH.** After every code change, commit and push to the remote repository immediately.
+
 ## Commands
 
 ```bash

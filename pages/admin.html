@@ -332,16 +332,16 @@
     .today-group-title .count{background:#f1f5f9;color:var(--text);padding:2px 8px;border-radius:8px;font-size:11px}
     .today-group-title .count.red{background:#fee2e2;color:var(--red)}
     .today-group-title .count.amber{background:#fef3c7;color:var(--amber)}
-    .today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
-    .todo-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;box-shadow:var(--shadow);cursor:pointer;transition:all .12s;display:flex;flex-direction:column;gap:8px}
+    .today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+    .todo-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);cursor:pointer;transition:all .12s;display:flex;flex-direction:column;gap:8px;position:relative}
     .todo-card:hover{border-color:var(--blue);transform:translateY(-1px);box-shadow:0 4px 12px rgba(15,23,42,.08)}
     .todo-card.urgent{border-left:4px solid var(--red)}
     .todo-card.high{border-left:4px solid var(--amber)}
     .todo-card.normal{border-left:4px solid var(--blue)}
     .todo-card.overdue{background:#fef2f2}
-    .todo-card-top{display:flex;align-items:center;gap:8px}
-    .todo-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--purple-1),var(--purple-2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0}
-    .todo-gp{font-size:13px;font-weight:800;line-height:1.2;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .todo-card-top{display:flex;align-items:center;gap:10px}
+    .todo-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--purple-1),var(--purple-2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0}
+    .todo-gp{font-size:14px;font-weight:800;line-height:1.2;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .todo-stage{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 6px;border-radius:6px;background:#eef2ff;color:var(--purple-2)}
     .todo-title{font-size:13px;line-height:1.35;font-weight:600}
     .todo-detail{font-size:11px;color:var(--muted);line-height:1.4}
@@ -355,6 +355,25 @@
     .btn.dt:hover{background:#0284c7;border-color:#0284c7}
     .task-gp-meta{font-size:11px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;line-height:1.4}
     .task-gp-meta span{white-space:nowrap}
+    .gp-card-contact{font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:2px;margin:-2px 0 0}
+    .gp-card-contact a{color:var(--blue);text-decoration:none}
+    .gp-card-contact a:hover{text-decoration:underline}
+    .gp-card-task-summary{font-size:12px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px}
+    .gp-card-task-summary .task-count-pill{font-size:10px;font-weight:800;padding:2px 7px;border-radius:8px;background:#eef2ff;color:var(--purple-2)}
+    .gp-card-task-summary .task-count-pill.urgent{background:#fee2e2;color:var(--red)}
+    .gp-card-task-summary .task-count-pill.high{background:#fef3c7;color:var(--amber)}
+    .gp-card-tasks-dropdown{display:none;position:absolute;left:0;right:0;top:100%;z-index:50;background:var(--panel);border:1px solid var(--blue);border-top:none;border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px rgba(15,23,42,.12);max-height:320px;overflow-y:auto;padding:6px 0}
+    .todo-card:hover .gp-card-tasks-dropdown{display:block}
+    .gp-task-row{display:flex;align-items:center;gap:8px;padding:7px 14px;font-size:12px;border-bottom:1px solid var(--line)}
+    .gp-task-row:last-child{border-bottom:none}
+    .gp-task-row .task-pri{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+    .gp-task-row .task-pri.urgent{background:var(--red)}
+    .gp-task-row .task-pri.high{background:var(--amber)}
+    .gp-task-row .task-pri.normal{background:var(--blue)}
+    .gp-task-row .task-pri.low{background:var(--muted)}
+    .gp-task-row .task-row-title{flex:1;font-weight:500}
+    .gp-task-row .task-row-stage{font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted)}
+    .gp-task-row .btn{padding:2px 8px;font-size:10px}
     .qual-section{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     @media(max-width:900px){.qual-section{grid-template-columns:1fr}}
     .qual-box{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px}
@@ -652,12 +671,76 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" • Due "+fmtD(t.due_date):""} ${overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""}</div>
       <div class="todo-actions">
         <a class="btn wa" href="${safeUrl(t.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
-        ${t.doubletick_conversation_url?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url)+'" target="_blank" rel="noopener">💬 DoubleTick</a>':''}
+        ${t.doubletick_conversation_url?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url)+'" target="_blank" rel="noopener">DoubleTick</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
         <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
         <button class="btn sm" data-view-todo-case="${esc(t.case_id)}">Open Case</button>
       </div>
     </div>`;
+  }
+  /* GP-centric card: groups all tasks for a GP into one card */
+  function gpTaskCard(gpGroup){
+    const g=gpGroup;
+    const topPri=g.tasks.some(t=>t.priority==="urgent")?"urgent":g.tasks.some(t=>t.priority==="high")?"high":"normal";
+    const hasOverdue=g.tasks.some(t=>t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date()));
+    const urgentCount=g.tasks.filter(t=>t.priority==="urgent").length;
+    const highCount=g.tasks.filter(t=>t.priority==="high").length;
+    const firstTask=g.tasks[0]||{};
+    let taskRows="";
+    for(const t of g.tasks){
+      const od=t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date());
+      taskRows+=`<div class="gp-task-row">
+        <span class="task-pri ${esc(t.priority||"normal")}"></span>
+        <span class="task-row-title">${esc(t.title)}${od?' <span style="color:var(--red);font-weight:700;font-size:10px">OVERDUE</span>':''}</span>
+        <span class="task-row-stage">${esc(t.related_stage||"")}</span>
+        <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Done</button>
+      </div>`;
+    }
+    return`<div class="todo-card ${esc(topPri)} ${hasOverdue?"overdue":""}" data-view-todo-case="${esc(g.caseId)}" data-user-id="${esc(g.userId||"")}">
+      <div class="todo-card-top">
+        <div class="todo-avatar">${esc(ini(g.name||""))}</div>
+        <div style="flex:1;min-width:0">
+          <div class="todo-gp">${esc(g.name||"Unknown")}</div>
+          <div class="gp-card-contact">
+            ${g.email?'<span>'+esc(g.email)+'</span>':''}
+            ${g.phone?'<span>'+esc(g.phone)+'</span>':''}
+          </div>
+        </div>
+        <span class="todo-stage">${esc(g.stage||"")}</span>
+      </div>
+      <div class="gp-card-task-summary">
+        ${esc(String(g.tasks.length))} task${g.tasks.length===1?"":"s"}
+        ${urgentCount?'<span class="task-count-pill urgent">'+urgentCount+' urgent</span>':''}
+        ${highCount?'<span class="task-count-pill high">'+highCount+' high</span>':''}
+      </div>
+      <div class="todo-actions">
+        <a class="btn wa" href="${safeUrl(firstTask.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+        <button class="btn nudge" data-nudge-user="${esc(g.userId||"")}" data-nudge-stage="${esc(g.stage||"")}" data-nudge-substage="" data-nudge-name="${esc(g.firstName||"")}">Send Nudge</button>
+        <button class="btn sm" data-view-todo-case="${esc(g.caseId)}">Open Profile</button>
+      </div>
+      <div class="gp-card-tasks-dropdown">${taskRows}</div>
+    </div>`;
+  }
+  function groupTasksByGP(tasks){
+    const map=new Map();
+    for(const t of tasks){
+      const key=t.case_id||t.id;
+      if(!map.has(key)){
+        map.set(key,{
+          caseId:t.case_id||"",
+          userId:t.gp_user_id||"",
+          name:t.gp_name||"",
+          firstName:t.gp_first_name||"",
+          email:t.gp_email||"",
+          phone:t.gp_phone||"",
+          stage:t.case_stage||t.related_stage||"",
+          whatsappLink:t.whatsapp_link||"",
+          tasks:[]
+        });
+      }
+      map.get(key).tasks.push(t);
+    }
+    return Array.from(map.values());
   }
   function blockerRow(u){
     return`<div class="blocker-row" data-blocker-case="${esc(u.case_id)}">
@@ -2262,27 +2345,31 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return new Date(a.created_at||0)-new Date(b.created_at||0);
     });
     const blocked=users.filter(u=>u.blocker_status);
+    /* Group tasks by GP for card display */
+    const urgentGroups=groupTasksByGP(urgent);
+    const overdueGroups=groupTasksByGP(overdue);
+    const normalGroups=groupTasksByGP(normal);
     let h=`<div class="today-header">
-      <div><h2>Inbox</h2><p>Everything live right now, sorted by what needs action first.</p></div>
+      <div><h2>Inbox</h2><p>Everything live right now, sorted by what needs action first. Hover a card to see tasks.</p></div>
       <div><button class="btn" data-va-refresh>Refresh</button></div>
     </div>`;
     if(tickets.length){
-      h+=`<div class="inbox-section-title">🎫 Support Tickets (FIFO) <span class="count red">${tickets.length}</span></div><div class="today-grid">${tickets.map(ticketCard).join("")}</div>`;
+      h+=`<div class="inbox-section-title">Support Tickets (FIFO) <span class="count red">${tickets.length}</span></div><div class="today-grid">${tickets.map(ticketCard).join("")}</div>`;
     }
-    if(urgent.length){
-      h+=`<div class="inbox-section-title">Urgent <span class="count red">${urgent.length}</span></div><div class="today-grid">${urgent.map(taskCard).join("")}</div>`;
+    if(urgentGroups.length){
+      h+=`<div class="inbox-section-title">Urgent <span class="count red">${urgent.length} tasks across ${urgentGroups.length} GP${urgentGroups.length===1?"":"s"}</span></div><div class="today-grid">${urgentGroups.map(gpTaskCard).join("")}</div>`;
     }
-    if(overdue.length){
-      h+=`<div class="inbox-section-title">Overdue <span class="count amber">${overdue.length}</span></div><div class="today-grid">${overdue.map(taskCard).join("")}</div>`;
+    if(overdueGroups.length){
+      h+=`<div class="inbox-section-title">Overdue <span class="count amber">${overdue.length} tasks across ${overdueGroups.length} GP${overdueGroups.length===1?"":"s"}</span></div><div class="today-grid">${overdueGroups.map(gpTaskCard).join("")}</div>`;
     }
     if(blocked.length){
       h+=`<div class="inbox-section-title">Blocked cases <span class="count">${blocked.length}</span></div><div>${blocked.map(blockerRow).join("")}</div>`;
     }
-    if(normal.length){
-      h+=`<div class="inbox-section-title">Normal <span class="count">${normal.length}</span></div><div class="today-grid">${normal.map(taskCard).join("")}</div>`;
+    if(normalGroups.length){
+      h+=`<div class="inbox-section-title">NORMAL <span class="count">${normal.length} tasks across ${normalGroups.length} GP${normalGroups.length===1?"":"s"}</span></div><div class="today-grid">${normalGroups.map(gpTaskCard).join("")}</div>`;
     }
     if(!tickets.length&&!urgent.length&&!overdue.length&&!blocked.length&&!normal.length){
-      h+='<div class="empty" style="margin-top:20px">All clear — no pending tickets or tasks. 🎉</div>';
+      h+='<div class="empty" style="margin-top:20px">All clear — no pending tickets or tasks.</div>';
     }
     el.innerHTML=h;
   }
@@ -2539,7 +2626,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(complete){e.preventDefault();e.stopPropagation();const tid=complete.getAttribute("data-complete-todo-task");await completeTask(tid);await loadVaDashboard();if(S.view==="inbox")renderInboxPanel();return;}
 
     const openCase=e.target.closest("[data-view-todo-case]");
-    if(openCase){e.preventDefault();e.stopPropagation();S.selectedCaseId=openCase.getAttribute("data-view-todo-case");S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();return;}
+    if(openCase){
+      /* Don't intercept clicks on links or buttons inside the card — let them do their own thing */
+      const isLink=e.target.closest("a[href]");
+      const isBtn=e.target.closest("button");
+      if(isLink)return;/* allow link navigation */
+      if(isBtn&&!isBtn.hasAttribute("data-view-todo-case")&&isBtn!==openCase)return;/* allow other buttons */
+      e.preventDefault();e.stopPropagation();S.selectedCaseId=openCase.getAttribute("data-view-todo-case");S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();return;
+    }
 
     const blocker=e.target.closest("[data-blocker-case]");
     if(blocker&&!e.target.closest("[data-view-todo-case]")){e.preventDefault();e.stopPropagation();S.selectedCaseId=blocker.getAttribute("data-blocker-case");S.view="gps";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));vaShowPanel("gps");renderCaseList();renderDetail();return;}
