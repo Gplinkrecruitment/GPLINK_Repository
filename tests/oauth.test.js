@@ -642,3 +642,46 @@ describe('password change invalidates refresh tokens', () => {
     expect(cookieStr).toContain('Max-Age=0');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 9. PASSWORD RESET REQUEST DOES NOT PREMATURELY REVOKE TOKENS
+// ---------------------------------------------------------------------------
+describe('password reset request does not prematurely revoke tokens', () => {
+  const PR_EMAIL = `pwreset-${RUN_ID}@gplink-test.local`;
+  const PR_PASSWORD = 'ResetTestP@ss1234!';
+
+  beforeAll(async () => {
+    const signup = await post('/api/auth/oauth/token', {
+      grant_type: 'signup',
+      email: PR_EMAIL,
+      password: PR_PASSWORD,
+      firstName: 'Reset',
+      lastName: 'Test',
+    });
+    expect(signup.status).toBe(200);
+  });
+
+  it('refresh token survives a password reset request', async () => {
+    // Login to get refresh token
+    const login = await post('/api/auth/oauth/token', {
+      grant_type: 'password',
+      email: PR_EMAIL,
+      password: PR_PASSWORD,
+    });
+    expect(login.status).toBe(200);
+    const refreshToken = login.body.refresh_token;
+
+    // Request password reset (local DB will log the token)
+    const resetReq = await post('/api/auth/request-password-reset', {
+      email: PR_EMAIL,
+    });
+    expect(resetReq.status).toBe(200);
+
+    // Verify the refresh token still works (reset was only requested, not completed)
+    const r1 = await post('/api/auth/oauth/token', {
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    });
+    expect(r1.status).toBe(200);
+  });
+});

@@ -16018,6 +16018,7 @@ Return ONLY valid JSON with no markdown formatting:
     };
     saveDbState();
     revokeAllRefreshTokensForEmail(email);
+    clearSession(res, req);
     sendJson(res, 200, { ok: true, message: 'Password reset successful.' });
     return;
   }
