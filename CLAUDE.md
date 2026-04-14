@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 4. **ALWAYS DO YOUR BEST WORK.** Properly investigate and fix issues. No shortcuts that mask problems.
 5. **BE TRANSPARENT.** If testing manually, say so explicitly. Never imply something happened automatically when it didn't.
 6. **ALWAYS COMMIT AND PUSH.** After every code change, commit and push to the remote repository immediately.
+7. **ALWAYS USE SUBAGENTS.** When executing implementation plans, always use subagent-driven development (one subagent per task). Never ask which execution approach to use.
 
 ## Commands
 
