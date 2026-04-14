@@ -410,6 +410,39 @@
       text-underline-offset: 2px;
     }
 
+    /* ── Reset password panel ── */
+    .reset-password-container {
+      left: 0;
+      z-index: 200;
+      display: none;
+    }
+
+    .reset-password-container.active {
+      display: grid;
+    }
+
+    .pw-req-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 10px;
+      color: var(--muted);
+      display: grid;
+      gap: 2px;
+    }
+
+    .pw-req-list li::before {
+      content: "•  ";
+    }
+
+    .pw-req-list li.met {
+      color: var(--ok);
+    }
+
+    .pw-req-list li.met::before {
+      content: "✓  ";
+    }
+
     @media (max-width: 980px) {
       .auth-shell {
         height: auto;
@@ -430,6 +463,9 @@
       .sign-up-container { display: none; opacity: 1; }
       .auth-shell.right-panel-active .sign-in-container { display: none; }
       .auth-shell.right-panel-active .sign-up-container { display: grid; }
+      .reset-password-container.active ~ .sign-in-container,
+      .reset-password-container.active ~ .sign-up-container { display: none !important; }
+      .reset-password-container.active ~ .overlay-container { display: none !important; }
 
       .overlay-container {
         position: relative;
@@ -471,6 +507,34 @@
 </head>
 <body>
   <section class="auth-shell" id="authShell" aria-label="Authentication">
+    <div class="form-container reset-password-container" id="resetPasswordContainer" aria-label="Set new password">
+      <img class="auth-brand" src="../media/images/gp-link-logo.png" alt="GP Link" />
+      <h1 class="auth-title">Set new password</h1>
+      <p class="auth-sub">Choose a strong password for your account.</p>
+
+      <form class="auth-form" id="resetPasswordForm" novalidate>
+        <div class="field">
+          <label for="resetNewPassword">New password</label>
+          <input id="resetNewPassword" name="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required />
+          <p class="field-error" id="resetNewPasswordError"></p>
+        </div>
+        <div class="field">
+          <label for="resetConfirmPassword">Confirm password</label>
+          <input id="resetConfirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required />
+          <p class="field-error" id="resetConfirmPasswordError"></p>
+        </div>
+        <ul class="pw-req-list" id="resetPwReqs">
+          <li data-req="length">At least 12 characters</li>
+          <li data-req="upper">One uppercase letter</li>
+          <li data-req="lower">One lowercase letter</li>
+          <li data-req="number">One number</li>
+          <li data-req="symbol">One symbol</li>
+        </ul>
+        <button class="submit-btn" id="resetPasswordSubmitBtn" type="submit">UPDATE PASSWORD</button>
+        <p class="status" id="resetPasswordStatus" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+
     <div class="form-container sign-up-container" aria-hidden="true">
       <img class="auth-brand" src="../media/images/gp-link-logo.png" alt="GP Link" />
       <h1 class="auth-title">Start your journey</h1>
@@ -965,6 +1029,27 @@
       const hasOAuthParams = hash.includes("access_token") || hash.includes("error_description") || search.includes("code=");
       if (!hasOAuthParams) return;
 
+      // ── Detect password recovery flow ──
+      const isRecovery = hash.includes("type=recovery");
+      if (isRecovery) {
+        try {
+          const client = await ensureSupabaseClient();
+          // Exchange the recovery token fragments for a session
+          const { data, error } = await client.auth.getSession();
+          if (error || !data || !data.session) {
+            setStatus(signInStatusEl, "Recovery link is invalid or expired. Please request a new one.", "error");
+            return;
+          }
+          // Clean the URL but keep the recovery session active in the Supabase client
+          const cleanUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({}, "", cleanUrl);
+          showResetPasswordPanel();
+        } catch (err) {
+          setStatus(signInStatusEl, "Unable to process recovery link. Please try again.", "error");
+        }
+        return;
+      }
+
       try {
         const client = await ensureSupabaseClient();
         const { data, error } = await client.auth.getSession();
@@ -1023,6 +1108,93 @@
       } finally {
         forgotPasswordBtnEl.disabled = false;
       }
+    }
+
+    // ── Reset password panel ──
+    const resetPasswordContainerEl = document.getElementById("resetPasswordContainer");
+    const resetPasswordFormEl = document.getElementById("resetPasswordForm");
+    const resetPasswordStatusEl = document.getElementById("resetPasswordStatus");
+    const resetNewPasswordEl = document.getElementById("resetNewPassword");
+    const resetConfirmPasswordEl = document.getElementById("resetConfirmPassword");
+    const resetPasswordSubmitBtnEl = document.getElementById("resetPasswordSubmitBtn");
+    const resetPwReqsEl = document.getElementById("resetPwReqs");
+
+    function showResetPasswordPanel() {
+      resetPasswordContainerEl.classList.add("active");
+      // Hide sign-in/sign-up panels and overlay
+      document.querySelector(".sign-in-container").style.display = "none";
+      document.querySelector(".sign-up-container").style.display = "none";
+      document.querySelector(".overlay-container").style.display = "none";
+      resetNewPasswordEl.focus();
+    }
+
+    function checkPasswordRequirements(value) {
+      const reqs = {
+        length: value.length >= 12,
+        upper: /[A-Z]/.test(value),
+        lower: /[a-z]/.test(value),
+        number: /[0-9]/.test(value),
+        symbol: /[^A-Za-z0-9]/.test(value)
+      };
+      if (resetPwReqsEl) {
+        resetPwReqsEl.querySelectorAll("li[data-req]").forEach(function(li) {
+          li.classList.toggle("met", !!reqs[li.dataset.req]);
+        });
+      }
+      return reqs.length && reqs.upper && reqs.lower && reqs.number && reqs.symbol;
+    }
+
+    if (resetNewPasswordEl) {
+      resetNewPasswordEl.addEventListener("input", function() {
+        checkPasswordRequirements(this.value);
+      });
+    }
+
+    if (resetPasswordFormEl) {
+      resetPasswordFormEl.addEventListener("submit", async function(event) {
+        event.preventDefault();
+        const newPassword = resetNewPasswordEl.value;
+        const confirmPassword = resetConfirmPasswordEl.value;
+
+        setError("resetNewPasswordError", "");
+        setError("resetConfirmPasswordError", "");
+        setStatus(resetPasswordStatusEl, "", "");
+
+        if (!checkPasswordRequirements(newPassword)) {
+          setError("resetNewPasswordError", "Password must be at least 12 characters with upper, lower, number, and symbol.");
+          return;
+        }
+
+        if (newPassword !== confirmPassword) {
+          setError("resetConfirmPasswordError", "Passwords do not match.");
+          return;
+        }
+
+        resetPasswordSubmitBtnEl.disabled = true;
+        try {
+          const client = await ensureSupabaseClient();
+          const { data, error } = await client.auth.updateUser({ password: newPassword });
+          if (error) {
+            setStatus(resetPasswordStatusEl, error.message || "Unable to update password. Please try again.", "error");
+            return;
+          }
+
+          // Sign out the recovery session so the user logs in fresh with new password
+          await client.auth.signOut().catch(function() {});
+
+          // Show success and redirect to sign-in
+          resetPasswordContainerEl.classList.remove("active");
+          document.querySelector(".sign-in-container").style.display = "";
+          document.querySelector(".sign-up-container").style.display = "";
+          document.querySelector(".overlay-container").style.display = "";
+          setPanel("signin");
+          setStatus(signInStatusEl, "Password updated. Please sign in with your new password.", "ok");
+        } catch (err) {
+          setStatus(resetPasswordStatusEl, "Network error. Please try again.", "error");
+        } finally {
+          resetPasswordSubmitBtnEl.disabled = false;
+        }
+      });
     }
 
     signInFormEl.addEventListener("submit", async (event) => {
