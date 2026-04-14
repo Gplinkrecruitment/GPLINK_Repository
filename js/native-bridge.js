@@ -169,7 +169,12 @@
     PushNotifications.addListener("pushNotificationActionPerformed", function (notification) {
       var data = notification.notification && notification.notification.data;
       if (data && data.url) {
-        window.location.href = data.url;
+        try {
+          var targetUrl = new URL(data.url, window.location.origin);
+          if (targetUrl.origin === window.location.origin) {
+            window.location.href = targetUrl.href;
+          }
+        } catch (e) {}
       }
     });
   };
