@@ -3331,12 +3331,6 @@ function timingSafeEqualStrings(left, right) {
   }
 }
 
-function getBearerToken(req) {
-  const header = String(req.headers.authorization || '').trim();
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : '';
-}
-
 function requireZohoRecruitCronAuth(req, res) {
   if (!ZOHO_RECRUIT_SYNC_CRON_SECRET) {
     sendJson(res, 503, { ok: false, message: 'Zoho Recruit cron secret is not configured.' });
@@ -17418,6 +17412,25 @@ Return ONLY valid JSON with no markdown formatting:
       if (sRes.ok && Array.isArray(sRes.data)) sRes.data.forEach(function (s) { stateMap[s.user_id] = (s && typeof s.state === 'object') ? s.state : {}; });
     }
 
+    // Build practice contact lookup from career state
+    const practiceContactMap = {};
+    for (const uid of userIds) {
+      const st = stateMap[uid] || {};
+      const career = typeof st.gp_career_state === 'string' ? {} : (st.gp_career_state || {});
+      const apps = Array.isArray(career.applications) ? career.applications : [];
+      const secured = apps.find(function (a) { return a && a.isPlacementSecured === true; });
+      if (secured && secured.placement) {
+        practiceContactMap[uid] = {
+          practiceName: secured.placement.practiceName || '',
+          contactName: secured.placement.practiceContact ? secured.placement.practiceContact.name : '',
+          contactEmail: secured.placement.practiceContact ? secured.placement.practiceContact.email : '',
+          contactPhone: secured.placement.practiceContact ? secured.placement.practiceContact.phone : '',
+          roleTitle: secured.placement.roleTitle || '',
+          location: secured.placement.location || ''
+        };
+      }
+    }
+
     // Task/ticket counts per case
     const taskCountsByCase = {};
     tasks.forEach(function (t) {
@@ -17490,7 +17503,13 @@ Return ONLY valid JSON with no markdown formatting:
         age_hours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))),
         is_urgent: isUrgent,
         is_overdue: isOverdue,
-        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '')
+        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || ''),
+        practice_contact: practiceContactMap[c.user_id] || {},
+        attachment_url: !!t.attachment_url,
+        attachment_filename: t.attachment_filename || '',
+        zoho_attachment_id: t.zoho_attachment_id || '',
+        google_drive_file_id: t.google_drive_file_id || '',
+        document_html: (t.related_document_key === 'position_description') ? (t.document_html || '') : ''
       });
     });
 
@@ -17866,6 +17885,272 @@ Return ONLY valid JSON with no markdown formatting:
       console.error('[VA SEARCH]', err);
       sendJson(res, 200, { ok: true, query: q, results: { documents: [], notes: [] }, partial: true });
     }
+    return;
+  }
+
+  // ── Generate Position Description (AI) ──
+  if (pathname === '/api/admin/va/task/generate-position-description' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const body = await readJsonBody(req);
+    const taskId = String(body.task_id || '').trim();
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+
+    const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !Array.isArray(taskRes.data) || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    const task = taskRes.data[0];
+    if (task.related_document_key !== 'position_description') { sendJson(res, 400, { ok: false, message: 'Not a position description task.' }); return; }
+
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    const userId = caseRes.ok && caseRes.data[0] ? caseRes.data[0].user_id : null;
+    if (!userId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    const stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const state = stateRes.ok && stateRes.data[0] ? stateRes.data[0].state : {};
+    const career = _parseStateVal(state.gp_career_state);
+    const apps = Array.isArray(career.applications) ? career.applications : [];
+    const secured = apps.find(function (a) { return a && a.isPlacementSecured === true; });
+    const placement = secured && secured.placement ? secured.placement : {};
+
+    const practiceName = placement.practiceName || 'the practice';
+    const roleTitle = placement.roleTitle || 'General Practitioner';
+    const location = placement.location || 'Australia';
+
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 503, { ok: false, message: 'Anthropic API not configured.' }); return; }
+    const budgetOk = await checkAnthropicBudget();
+    if (!budgetOk) { sendJson(res, 429, { ok: false, message: 'Anthropic daily budget exceeded.' }); return; }
+
+    const prompt = buildPositionDescriptionPrompt(practiceName, roleTitle, location);
+    try {
+      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+          max_tokens: 2000,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      const aiData = await aiRes.json();
+      const html = aiData.content && aiData.content[0] ? aiData.content[0].text : '';
+
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+        method: 'PATCH',
+        body: { document_html: html, status: 'in_progress' }
+      });
+
+      await _logCaseEvent(task.case_id, taskId, 'system', 'Position description generated by AI', null, adminCtx.email);
+      sendJson(res, 200, { ok: true, html: html, practiceName: practiceName, roleTitle: roleTitle, location: location });
+    } catch (aiErr) {
+      console.error('[PracticePack] AI generation error:', aiErr.message);
+      sendJson(res, 500, { ok: false, message: 'AI generation failed.' });
+    }
+    return;
+  }
+
+  // ── Approve / Submit document to GP MyDocuments + Drive ──
+  if (pathname === '/api/admin/va/task/approve-document' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const body = await readJsonBody(req);
+    const taskId = String(body.task_id || '').trim();
+    const html = body.html || null;
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+
+    const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    const task = taskRes.data[0];
+    const docKey = task.related_document_key;
+
+    const caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    const userId = caseRes.ok && caseRes.data[0] ? caseRes.data[0].user_id : null;
+    if (!userId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    let fileBuffer = null;
+    let fileName = '';
+    let mimeType = 'application/pdf';
+
+    if (docKey === 'position_description') {
+      const finalHtml = html || task.document_html || '';
+      if (!finalHtml) { sendJson(res, 400, { ok: false, message: 'No document content to approve.' }); return; }
+
+      const PDFDocument = require('pdfkit');
+      fileBuffer = await new Promise(function (resolve) {
+        const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+        const chunks = [];
+        doc.on('data', function (c) { chunks.push(c); });
+        doc.on('end', function () { resolve(Buffer.concat(chunks)); });
+
+        const stripped = finalHtml.replace(/<[^>]*>/g, function (tag) {
+          if (tag.match(/^<h2/i)) return '\n##HEADING2##';
+          if (tag.match(/^<h3/i)) return '\n##HEADING3##';
+          if (tag.match(/^<li/i)) return '\n• ';
+          if (tag.match(/^<p/i)) return '\n';
+          if (tag.match(/^<\/p|^<\/ul|^<\/ol|^<\/li|^<\/h/i)) return '\n';
+          return '';
+        }).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+        const lines = stripped.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('##HEADING2##')) {
+            doc.moveDown(0.5);
+            doc.fontSize(16).font('Helvetica-Bold').text(trimmed.replace('##HEADING2##', '').trim());
+            doc.fontSize(11).font('Helvetica');
+          } else if (trimmed.startsWith('##HEADING3##')) {
+            doc.moveDown(0.3);
+            doc.fontSize(13).font('Helvetica-Bold').text(trimmed.replace('##HEADING3##', '').trim());
+            doc.fontSize(11).font('Helvetica');
+          } else {
+            doc.text(trimmed);
+          }
+        }
+        doc.end();
+      });
+      fileName = 'Position Description.pdf';
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+        method: 'PATCH', body: { document_html: html || finalHtml }
+      });
+
+    } else if (docKey === 'offer_contract' || docKey === 'supervisor_cv') {
+      if (task.zoho_attachment_id && !task.attachment_url) {
+        const sr = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+        const st = sr.ok && sr.data[0] ? sr.data[0].state : {};
+        const careerState = _parseStateVal(st.gp_career_state);
+        const apps = Array.isArray(careerState.applications) ? careerState.applications : [];
+        const secured = apps.find(function (a) { return a && a.isPlacementSecured; });
+        const appId = secured ? (secured.zohoApplicationId || secured.applicationId || secured.id) : null;
+        if (appId) {
+          try {
+            const dl = await downloadZohoRecruitApplicationAttachment(appId, task.zoho_attachment_id);
+            if (dl && dl.buffer) {
+              fileBuffer = dl.buffer;
+              fileName = dl.fileName || task.attachment_filename || (docKey === 'offer_contract' ? 'Offer-Contract.pdf' : 'Supervisor CV.pdf');
+              mimeType = dl.mimeType || 'application/pdf';
+            }
+          } catch (dlErr) {
+            console.error('[PracticePack] Zoho download error:', dlErr.message);
+          }
+        }
+      } else if (task.attachment_url) {
+        try {
+          if (task.attachment_url.startsWith('data:')) {
+            const parts = task.attachment_url.split(',');
+            fileBuffer = Buffer.from(parts[1], 'base64');
+            mimeType = (parts[0].match(/data:([^;]+)/) || [])[1] || 'application/pdf';
+          } else {
+            const resp = await fetch(task.attachment_url);
+            if (resp.ok) fileBuffer = Buffer.from(await resp.arrayBuffer());
+          }
+          fileName = task.attachment_filename || (docKey === 'offer_contract' ? 'Offer-Contract.pdf' : 'Supervisor CV.pdf');
+        } catch (fetchErr) {
+          console.error('[PracticePack] fetch attachment error:', fetchErr.message);
+        }
+      }
+      if (!fileBuffer) { sendJson(res, 400, { ok: false, message: 'No document file available to approve.' }); return; }
+    } else {
+      sendJson(res, 400, { ok: false, message: 'Unsupported document type for approval.' }); return;
+    }
+
+    const label = GP_LINK_DOCUMENT_META.find(function (m) { return m.key === docKey; });
+    const delivery = await deliverToMyDocuments(userId, task.case_id, docKey, fileName, fileBuffer, mimeType);
+    await _completeRegTask(taskId, task.case_id, adminCtx.email);
+    await _logCaseEvent(task.case_id, taskId, 'system', (label ? label.label : docKey) + ' approved and delivered to GP', null, adminCtx.email);
+
+    sendJson(res, 200, { ok: true, delivery: delivery });
+    return;
+  }
+
+  // ── Upload document to a task ──
+  if (pathname === '/api/admin/va/task/upload-document' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const body = await readJsonBody(req);
+    const taskId = String(body.task_id || '').trim();
+    const fileData = String(body.file_data || '').trim();
+    const fileName = String(body.file_name || '').trim();
+    if (!taskId || !fileData || !fileName) { sendJson(res, 400, { ok: false, message: 'task_id, file_data, and file_name required.' }); return; }
+
+    const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    const task = taskRes.data[0];
+    if (!['offer_contract', 'supervisor_cv'].includes(task.related_document_key)) {
+      sendJson(res, 400, { ok: false, message: 'Upload only supported for Offer/Contract and Supervisor CV.' }); return;
+    }
+
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH',
+      body: {
+        attachment_url: fileData,
+        attachment_filename: fileName,
+        status: 'in_progress'
+      }
+    });
+
+    await _logCaseEvent(task.case_id, taskId, 'system', fileName + ' uploaded by VA for review', null, adminCtx.email);
+    sendJson(res, 200, { ok: true, message: 'Document uploaded.' });
+    return;
+  }
+
+  // ── Preview / download document attached to a task ──
+  if (pathname === '/api/admin/va/task/preview-document' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const taskId = url.searchParams.get('task_id');
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+
+    const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    const task = taskRes.data[0];
+
+    if (task.zoho_attachment_id && !task.attachment_url) {
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      const userId = caseRes.ok && caseRes.data[0] ? caseRes.data[0].user_id : null;
+      if (userId) {
+        const sr = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+        const st = sr.ok && sr.data[0] ? sr.data[0].state : {};
+        const career = _parseStateVal(st.gp_career_state);
+        const apps = Array.isArray(career.applications) ? career.applications : [];
+        const secured = apps.find(function (a) { return a && a.isPlacementSecured; });
+        const appId = secured ? (secured.zohoApplicationId || secured.applicationId || secured.id) : null;
+        if (appId) {
+          try {
+            const dl = await downloadZohoRecruitApplicationAttachment(appId, task.zoho_attachment_id);
+            if (dl && dl.buffer) {
+              res.writeHead(200, {
+                'Content-Type': dl.mimeType || 'application/pdf',
+                'Content-Disposition': 'inline; filename="' + (dl.fileName || 'document.pdf') + '"'
+              });
+              res.end(dl.buffer);
+              return;
+            }
+          } catch (e) { /* fall through */ }
+        }
+      }
+    }
+
+    if (task.attachment_url && task.attachment_url.startsWith('data:')) {
+      const parts = task.attachment_url.split(',');
+      const mime = (parts[0].match(/data:([^;]+)/) || [])[1] || 'application/pdf';
+      const buf = Buffer.from(parts[1], 'base64');
+      res.writeHead(200, {
+        'Content-Type': mime,
+        'Content-Disposition': 'inline; filename="' + (task.attachment_filename || 'document.pdf') + '"'
+      });
+      res.end(buf);
+      return;
+    }
+
+    sendJson(res, 404, { ok: false, message: 'No document attached to this task.' });
     return;
   }
 
