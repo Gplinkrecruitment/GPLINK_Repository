@@ -182,6 +182,129 @@ const SUPER_ADMIN_EMAILS = new Set(
 );
 let _domainApiAccessTokenCache = new Map();
 
+// ── Google Drive integration ──
+const GOOGLE_SERVICE_ACCOUNT_EMAIL = String(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim();
+const GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = String(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n').trim();
+const GOOGLE_DRIVE_ROOT_FOLDER_ID = String(process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '').trim();
+
+function isGoogleDriveConfigured() {
+  return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_DRIVE_ROOT_FOLDER_ID);
+}
+
+let _googleDriveClient = null;
+async function getGoogleDriveClient() {
+  if (_googleDriveClient) return _googleDriveClient;
+  if (!isGoogleDriveConfigured()) return null;
+  const { google } = require('googleapis');
+  const auth = new google.auth.JWT(
+    GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    null,
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    ['https://www.googleapis.com/auth/drive.file']
+  );
+  _googleDriveClient = google.drive({ version: 'v3', auth });
+  return _googleDriveClient;
+}
+
+async function createGoogleDriveFolder(folderName, parentFolderId) {
+  const drive = await getGoogleDriveClient();
+  if (!drive) return null;
+  try {
+    const res = await drive.files.create({
+      requestBody: {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentFolderId || GOOGLE_DRIVE_ROOT_FOLDER_ID]
+      },
+      fields: 'id,name,webViewLink'
+    });
+    return res.data;
+  } catch (err) {
+    console.error('[GoogleDrive] createFolder error:', err.message);
+    return null;
+  }
+}
+
+async function uploadToGoogleDrive(folderId, fileName, buffer, mimeType) {
+  const drive = await getGoogleDriveClient();
+  if (!drive) return null;
+  const { Readable } = require('stream');
+  try {
+    const res = await drive.files.create({
+      requestBody: {
+        name: fileName,
+        parents: [folderId]
+      },
+      media: {
+        mimeType: mimeType || 'application/pdf',
+        body: Readable.from(buffer)
+      },
+      fields: 'id,name,webViewLink'
+    });
+    return res.data;
+  } catch (err) {
+    console.error('[GoogleDrive] upload error:', err.message);
+    return null;
+  }
+}
+
+async function ensureGPDriveFolder(caseId, gpFirstName, gpLastName) {
+  if (!isGoogleDriveConfigured()) return null;
+  const caseRes = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  if (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] && caseRes.data[0].google_drive_folder_id) {
+    return caseRes.data[0].google_drive_folder_id;
+  }
+  const folderName = 'Dr ' + [(gpFirstName || ''), (gpLastName || '')].join(' ').trim();
+  const folder = await createGoogleDriveFolder(folderName, GOOGLE_DRIVE_ROOT_FOLDER_ID);
+  if (folder && folder.id) {
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
+      method: 'PATCH',
+      body: { google_drive_folder_id: folder.id }
+    });
+    return folder.id;
+  }
+  return null;
+}
+
+function buildMailtoLink(to, subject, body) {
+  return 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+}
+
+function buildPositionDescriptionPrompt(practiceName, roleTitle, location) {
+  return 'Generate a professional position description for a General Practitioner joining ' + practiceName + ' in ' + location + ' for the role of ' + roleTitle + '. Include: practice overview, key responsibilities, supervision arrangements, working hours expectations, and professional development opportunities. Return well-structured HTML using <h2>, <h3>, <p>, <ul>, and <li> tags only. Do not include <html>, <head>, or <body> wrapper tags.';
+}
+
+async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mimeType) {
+  const results = { userDoc: null, driveFile: null };
+
+  // 1. Upsert into user_documents
+  const existing = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+  const docRecord = {
+    user_id: userId,
+    document_key: docKey,
+    file_name: fileName,
+    status: 'approved',
+    reviewed_by: 'system',
+    reviewed_at: new Date().toISOString()
+  };
+  if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+    await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existing.data[0].id), { method: 'PATCH', body: docRecord });
+    results.userDoc = existing.data[0].id;
+  } else {
+    const ins = await supabaseDbRequest('user_documents', '', { method: 'POST', body: [docRecord] });
+    if (ins.ok && Array.isArray(ins.data) && ins.data[0]) results.userDoc = ins.data[0].id;
+  }
+
+  // 2. Upload to Google Drive
+  const folderId = await ensureGPDriveFolder(caseId, null, null);
+  if (folderId && buffer) {
+    const driveFile = await uploadToGoogleDrive(folderId, fileName, buffer, mimeType || 'application/pdf');
+    if (driveFile) results.driveFile = driveFile.id;
+  }
+
+  return results;
+}
+
 function validateRuntimeConfig() {
   if (NODE_ENV !== 'production') return;
 
