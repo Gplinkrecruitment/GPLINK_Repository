@@ -1579,6 +1579,20 @@ function revokeOAuthRefreshToken(tokenValue) {
   saveDbState();
 }
 
+function revokeAllRefreshTokensForEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return 0;
+  let count = 0;
+  for (const tokenHash of Object.keys(dbState.refreshTokens)) {
+    if (dbState.refreshTokens[tokenHash] && dbState.refreshTokens[tokenHash].email === normalizedEmail) {
+      delete dbState.refreshTokens[tokenHash];
+      count++;
+    }
+  }
+  if (count > 0) saveDbState();
+  return count;
+}
+
 function getBearerToken(req) {
   const auth = req.headers.authorization || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
@@ -15891,7 +15905,9 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, updateResult.status || 502, { ok: false, message: msg });
         return;
       }
-      sendJson(res, 200, { ok: true, message: 'Password updated.' });
+      revokeAllRefreshTokensForEmail(email);
+      clearSession(res, req);
+      sendJson(res, 200, { ok: true, message: 'Password updated. Please sign in again.' });
       return;
     }
 
@@ -15909,7 +15925,9 @@ Return ONLY valid JSON with no markdown formatting:
       updatedAt: new Date().toISOString()
     };
     saveDbState();
-    sendJson(res, 200, { ok: true, message: 'Password updated.' });
+    revokeAllRefreshTokensForEmail(email);
+    clearSession(res, req);
+    sendJson(res, 200, { ok: true, message: 'Password updated. Please sign in again.' });
     return;
   }
 
@@ -15999,6 +16017,7 @@ Return ONLY valid JSON with no markdown formatting:
       usedAt: now()
     };
     saveDbState();
+    revokeAllRefreshTokensForEmail(email);
     sendJson(res, 200, { ok: true, message: 'Password reset successful.' });
     return;
   }

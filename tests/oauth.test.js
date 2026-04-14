@@ -93,7 +93,9 @@ const WEAK_PASSWORD = 'short1';
 // Boot the server in test mode
 // ---------------------------------------------------------------------------
 beforeAll(async () => {
-  // Force test configuration
+  // Force test configuration — AGENT_SKIP_DOTENV must be set first to prevent
+  // scripts/agents.js from loading the .env file and overriding our test values.
+  process.env.AGENT_SKIP_DOTENV = 'true';
   process.env.NODE_ENV = 'test';
   process.env.AUTH_DISABLED = 'false';
   process.env.AUTH_SECRET = 'test-secret-for-oauth-tests-' + RUN_ID;
@@ -527,5 +529,116 @@ describe('backwards compatibility with cookie sessions', () => {
     expect(session.body.ok).toBe(true);
     expect(session.body.authenticated).toBe(true);
     expect(session.body.profile.email).toBe(TEST_EMAIL);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. PASSWORD CHANGE INVALIDATES REFRESH TOKENS
+// ---------------------------------------------------------------------------
+describe('password change invalidates refresh tokens', () => {
+  const PC_EMAIL = `pwchange-${RUN_ID}@gplink-test.local`;
+  const PC_PASSWORD = 'OriginalP@ss1234!';
+  const PC_NEW_PASSWORD = 'NewSecureP@ss5678!';
+  let sessionCookie;
+
+  beforeAll(async () => {
+    // Create the test account
+    const signup = await post('/api/auth/oauth/token', {
+      grant_type: 'signup',
+      email: PC_EMAIL,
+      password: PC_PASSWORD,
+      firstName: 'PwChange',
+      lastName: 'Test',
+    });
+    expect(signup.status).toBe(200);
+  });
+
+  it('revokes all refresh tokens when password is changed via set-password', async () => {
+    // Login and get tokens
+    const login = await post('/api/auth/oauth/token', {
+      grant_type: 'password',
+      email: PC_EMAIL,
+      password: PC_PASSWORD,
+    });
+    expect(login.status).toBe(200);
+    const refreshToken = login.body.refresh_token;
+    sessionCookie = cookieHeader({ gp_session: login.cookies.gp_session });
+
+    // Change password
+    const change = await post('/api/auth/set-password', {
+      currentPassword: PC_PASSWORD,
+      newPassword: PC_NEW_PASSWORD,
+    }, { cookie: sessionCookie });
+    expect(change.status).toBe(200);
+    expect(change.body.ok).toBe(true);
+
+    // Old refresh token must now be rejected
+    const refresh = await post('/api/auth/oauth/token', {
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    });
+    expect(refresh.status).toBe(401);
+    expect(refresh.body.error).toBe('invalid_refresh_token');
+  });
+
+  it('revokes multiple outstanding refresh tokens on password change', async () => {
+    // Login twice to create two refresh tokens
+    const login1 = await post('/api/auth/oauth/token', {
+      grant_type: 'password',
+      email: PC_EMAIL,
+      password: PC_NEW_PASSWORD,
+    });
+    const login2 = await post('/api/auth/oauth/token', {
+      grant_type: 'password',
+      email: PC_EMAIL,
+      password: PC_NEW_PASSWORD,
+    });
+    expect(login1.status).toBe(200);
+    expect(login2.status).toBe(200);
+    const rt1 = login1.body.refresh_token;
+    const rt2 = login2.body.refresh_token;
+    sessionCookie = cookieHeader({ gp_session: login1.cookies.gp_session });
+
+    // Change password again
+    const change = await post('/api/auth/set-password', {
+      currentPassword: PC_NEW_PASSWORD,
+      newPassword: PC_PASSWORD, // swap back
+    }, { cookie: sessionCookie });
+    expect(change.status).toBe(200);
+
+    // Both old refresh tokens must be rejected
+    const r1 = await post('/api/auth/oauth/token', {
+      grant_type: 'refresh_token',
+      refresh_token: rt1,
+    });
+    expect(r1.status).toBe(401);
+
+    const r2 = await post('/api/auth/oauth/token', {
+      grant_type: 'refresh_token',
+      refresh_token: rt2,
+    });
+    expect(r2.status).toBe(401);
+  });
+
+  it('clears session cookie on password change', async () => {
+    const login = await post('/api/auth/oauth/token', {
+      grant_type: 'password',
+      email: PC_EMAIL,
+      password: PC_PASSWORD,
+    });
+    sessionCookie = cookieHeader({ gp_session: login.cookies.gp_session });
+
+    const change = await post('/api/auth/set-password', {
+      currentPassword: PC_PASSWORD,
+      newPassword: PC_NEW_PASSWORD,
+    }, { cookie: sessionCookie });
+    expect(change.status).toBe(200);
+
+    // Response should clear the session cookie
+    expect(change.cookies.gp_session).toBeDefined();
+    // The cleared cookie value should be empty (Max-Age=0)
+    const rawSetCookie = change.headers['set-cookie'];
+    const cookieStr = Array.isArray(rawSetCookie) ? rawSetCookie.join('; ') : rawSetCookie || '';
+    expect(cookieStr).toContain('Max-Age=0');
   });
 });
