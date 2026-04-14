@@ -127,6 +127,26 @@ const OPENAI_SCAN_MODEL = String(process.env.OPENAI_SCAN_MODEL || 'gpt-4.1-mini'
 const ANTHROPIC_API_KEY = String(process.env.ANTHROPIC_API_KEY || '').trim();
 const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6').trim() || 'claude-sonnet-4-6';
 const ANTHROPIC_DAILY_LIMIT_USD = Number(process.env.ANTHROPIC_DAILY_LIMIT_USD || 100);
+// Whitelist of document types accepted by the AI qualification verification endpoint.
+// Values must be lowercase. Sourced from DOC_LABELS in js/qualification-scan.js
+// and COUNTRY_DOCS in js/onboarding.js.
+const ALLOWED_QUAL_DOC_TYPES = new Set([
+  'primary medical degree',
+  'mrcgp certificate',
+  'cct certificate',
+  'micgp certificate',
+  'cscst certificate',
+  'icgp confirmation letter',
+  'frnzcgp certificate',
+  'rnzcgp confirmation letter',
+  'signed cv',
+  'certificate of good standing',
+  'confirmation of training',
+  'criminal history check',
+  'unknown - identify this document',
+  'qualification document'
+]);
+const MAX_IMAGE_BASE64_LENGTH = 20 * 1024 * 1024; // 20MB base64 (~15MB raw image)
 const DEFAULT_GOOGLE_MAPS_BROWSER_API_KEY = '';
 const DEFAULT_GOOGLE_MAPS_MAP_ID = '';
 const GOOGLE_MAPS_BROWSER_API_KEY = String(
@@ -538,53 +558,74 @@ async function supabaseStorageUploadObject(bucket, objectPath, dataUrl, mimeType
   const parsed = parseDataUrlPayload(dataUrl);
   if (!parsed) return false;
 
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': mimeType || parsed.mimeType || 'application/octet-stream',
-      'x-upsert': 'true'
-    },
-    body: parsed.buffer
-  }).catch(() => null);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': mimeType || parsed.mimeType || 'application/octet-stream',
+        'x-upsert': 'true'
+      },
+      body: parsed.buffer
+    }).catch(() => null);
 
-  return !!(response && response.ok);
+    return !!(response && response.ok);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function supabaseStorageDeleteObject(bucket, objectPath) {
   if (!isSupabaseDbConfigured()) return false;
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
-    method: 'DELETE',
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-    }
-  }).catch(() => null);
-  return !!(response && response.ok);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
+      method: 'DELETE',
+      signal: controller.signal,
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+      }
+    }).catch(() => null);
+    return !!(response && response.ok);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function supabaseStorageCreateSignedUrl(bucket, objectPath, fileName) {
   if (!isSupabaseDbConfigured()) return '';
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      expiresIn: 60 * 60,
-      download: fileName || undefined
-    })
-  }).catch(() => null);
-  if (!response || !response.ok) return '';
-  const payload = await response.json().catch(() => null);
-  const signedPath = payload && typeof payload.signedURL === 'string'
-    ? payload.signedURL
-    : (payload && typeof payload.signedUrl === 'string' ? payload.signedUrl : '');
-  if (!signedPath) return '';
-  return signedPath.startsWith('http') ? signedPath : `${SUPABASE_URL}/storage/v1${signedPath}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        expiresIn: 60 * 60,
+        download: fileName || undefined
+      })
+    }).catch(() => null);
+    if (!response || !response.ok) return '';
+    const payload = await response.json().catch(() => null);
+    const signedPath = payload && typeof payload.signedURL === 'string'
+      ? payload.signedURL
+      : (payload && typeof payload.signedUrl === 'string' ? payload.signedUrl : '');
+    if (!signedPath) return '';
+    return signedPath.startsWith('http') ? signedPath : `${SUPABASE_URL}/storage/v1${signedPath}`;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function buildSupabaseStoragePublicUrl(bucket, objectPath) {
@@ -950,35 +991,42 @@ async function invokeSupabaseEdgeFunction(functionName, payload) {
     return { ok: false, message: 'Supabase configuration is required for image normalization.' };
   }
 
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/${encodeURIComponent(functionName)}`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload || {})
-  }).catch((err) => {
-    console.error('[Supabase Function] Request failed:', err && err.message ? err.message : err);
-    return null;
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/${encodeURIComponent(functionName)}`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload || {})
+    }).catch((err) => {
+      console.error('[Supabase Function] Request failed:', err && err.message ? err.message : err);
+      return null;
+    });
 
-  if (!response) {
-    return { ok: false, message: 'Failed to reach Supabase image normalization service.' };
+    if (!response) {
+      return { ok: false, message: 'Failed to reach Supabase image normalization service.' };
+    }
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        message: data && typeof data.message === 'string'
+          ? data.message
+          : `Supabase image normalization failed with status ${response.status}.`
+      };
+    }
+
+    return { ok: true, data };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      message: data && typeof data.message === 'string'
-        ? data.message
-        : `Supabase image normalization failed with status ${response.status}.`
-    };
-  }
-
-  return { ok: true, data };
 }
 
 async function normalizeImageForAi(base64, mimeType) {
@@ -1725,9 +1773,12 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
     return false;
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': ANTHROPIC_API_KEY,
@@ -1756,6 +1807,8 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
   } catch (err) {
     console.warn('[doubletick-webhook] AI classify error:', err && err.message);
     return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -2031,45 +2084,52 @@ async function classifyQualificationWithAI(fileName, textSnippet) {
     `text_snippet: ${String(textSnippet || '').slice(0, 7000)}`
   ].join('\n');
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: OPENAI_SCAN_MODEL,
-      input: prompt,
-      max_output_tokens: 180,
-      temperature: 0
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error('AI model request failed');
-  }
-  const payload = await response.json();
-  const text = payload && typeof payload.output_text === 'string'
-    ? payload.output_text
-    : '';
-  if (!text) throw new Error('AI model returned empty output');
-
-  let parsed = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    const objMatch = text.match(/\{[\s\S]*\}/);
-    if (objMatch) parsed = JSON.parse(objMatch[0]);
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_SCAN_MODEL,
+        input: prompt,
+        max_output_tokens: 180,
+        temperature: 0
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('AI model request failed');
+    }
+    const payload = await response.json();
+    const text = payload && typeof payload.output_text === 'string'
+      ? payload.output_text
+      : '';
+    if (!text) throw new Error('AI model returned empty output');
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      const objMatch = text.match(/\{[\s\S]*\}/);
+      if (objMatch) parsed = JSON.parse(objMatch[0]);
+    }
+    if (!parsed || typeof parsed !== 'object') throw new Error('AI response JSON invalid');
+
+    const selectedKey = String(parsed.key || '').trim();
+    const valid = QUAL_SCAN_OPTIONS.find((item) => item.key === selectedKey);
+    if (!valid) throw new Error('AI selected unsupported key');
+
+    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence || 0.7)));
+    const reason = String(parsed.reason || 'Classified by AI model').slice(0, 220);
+    return { key: valid.key, label: valid.label, confidence, reason };
+  } finally {
+    clearTimeout(timeout);
   }
-  if (!parsed || typeof parsed !== 'object') throw new Error('AI response JSON invalid');
-
-  const selectedKey = String(parsed.key || '').trim();
-  const valid = QUAL_SCAN_OPTIONS.find((item) => item.key === selectedKey);
-  if (!valid) throw new Error('AI selected unsupported key');
-
-  const confidence = Math.max(0, Math.min(1, Number(parsed.confidence || 0.7)));
-  const reason = String(parsed.reason || 'Classified by AI model').slice(0, 220);
-  return { key: valid.key, label: valid.label, confidence, reason };
 }
 
 async function classifyQualificationDocument(fileName, textSnippet) {
@@ -3918,11 +3978,14 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
     });
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const fullUrl = DOUBLETICK_BASE_URL + apiPath;
     console.log('[doubletick] POST', fullUrl, 'body:', reqBody.slice(0, 500));
     const resp = await fetch(fullUrl, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Authorization': DOUBLETICK_API_KEY,
         'Content-Type': 'application/json'
@@ -3943,6 +4006,8 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
   } catch (err) {
     console.error('[doubletick] Send error:', err && err.message, err && err.stack);
     return { ok: false };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -14621,6 +14686,14 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 400, { ok: false, message: 'Missing required fields: imageBase64, documentType, expectedCountry.' });
       return;
     }
+    if (!ALLOWED_QUAL_DOC_TYPES.has(documentType.toLowerCase())) {
+      sendJson(res, 400, { ok: false, message: 'Invalid document type.' });
+      return;
+    }
+    if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
+      sendJson(res, 413, { ok: false, message: 'Image too large. Maximum size is 15MB.' });
+      return;
+    }
 
     const isPdf = /pdf/i.test(mimeType || '');
     let mediaType, aiImageBase64, contentBlock;
@@ -14825,6 +14898,10 @@ Verify this document.`;
     const documentType = sanitizeUserString(body.documentType, 200);
     if (!imageBase64) {
       sendJson(res, 400, { ok: false, message: 'Missing required field: imageBase64.' });
+      return;
+    }
+    if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
+      sendJson(res, 413, { ok: false, message: 'Image too large. Maximum size is 15MB.' });
       return;
     }
 
@@ -15211,6 +15288,10 @@ Classify this document.`;
     const profileName = await resolveVerificationProfileName(session, body.profileName);
     if (!imageBase64) {
       sendJson(res, 400, { ok: false, message: 'Missing image data.' });
+      return;
+    }
+    if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
+      sendJson(res, 413, { ok: false, message: 'Image too large. Maximum size is 15MB.' });
       return;
     }
 
