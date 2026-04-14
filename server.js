@@ -4097,6 +4097,94 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           await _createRegTask(caseId, { task_type: 'practice_pack_child', title: packLabels[dk], source_trigger: 'career_secured', related_stage: 'career', related_document_key: dk, _actor: 'system' });
         }
       }
+
+      // Create Google Drive folder and auto-deliver Section G
+      if (isGoogleDriveConfigured()) {
+        const _gpProfileForDrive = await (async function () {
+          const pr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+          return pr.ok && Array.isArray(pr.data) && pr.data[0] ? pr.data[0] : {};
+        })();
+        const driveFolderId = await ensureGPDriveFolder(caseId, _gpProfileForDrive.first_name || '', _gpProfileForDrive.last_name || '');
+
+        // Auto-deliver Section G
+        try {
+          const _fs = require('fs');
+          const _path = require('path');
+          const sectionGPath = _path.join(__dirname, 'documents', 'section_g.pdf');
+          if (_fs.existsSync(sectionGPath)) {
+            const sectionGBuffer = _fs.readFileSync(sectionGPath);
+            await deliverToMyDocuments(userId, caseId, 'section_g', 'Section G.pdf', sectionGBuffer, 'application/pdf');
+            const sgTask = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.section_g&status=in.(open,in_progress,waiting)&limit=1');
+            if (sgTask.ok && Array.isArray(sgTask.data) && sgTask.data[0]) {
+              await _completeRegTask(sgTask.data[0].id, caseId, 'system');
+            }
+            await _logCaseEvent(caseId, null, 'system', 'Section G auto-delivered to MyDocuments and Google Drive', null, 'system');
+          }
+        } catch (sgErr) {
+          console.error('[PracticePack] Section G auto-delivery error:', sgErr.message);
+        }
+
+        // Sync existing qualification docs to Drive
+        if (driveFolderId) {
+          try {
+            const existingDocs = await supabaseDbRequest('user_documents', 'select=document_key,file_name,file_url&user_id=eq.' + encodeURIComponent(userId));
+            if (existingDocs.ok && Array.isArray(existingDocs.data)) {
+              for (const d of existingDocs.data) {
+                if (d.file_url && d.file_name) {
+                  try {
+                    if (d.file_url.startsWith('data:')) {
+                      const parts = d.file_url.split(',');
+                      const buf = Buffer.from(parts[1], 'base64');
+                      await uploadToGoogleDrive(driveFolderId, d.file_name, buf, 'application/pdf');
+                    } else {
+                      const resp = await fetch(d.file_url);
+                      if (resp.ok) {
+                        const buf = Buffer.from(await resp.arrayBuffer());
+                        await uploadToGoogleDrive(driveFolderId, d.file_name, buf, 'application/pdf');
+                      }
+                    }
+                  } catch (syncErr) {
+                    console.error('[GoogleDrive] sync doc error:', d.document_key, syncErr.message);
+                  }
+                }
+              }
+            }
+          } catch (syncAllErr) {
+            console.error('[GoogleDrive] sync all docs error:', syncAllErr.message);
+          }
+        }
+      }
+
+      // Check Zoho Recruit for existing contract attachment
+      try {
+        const _careerStateForOC = _parseStateVal(nxt.gp_career_state);
+        const _appsForOC = Array.isArray(_careerStateForOC.applications) ? _careerStateForOC.applications : [];
+        const _securedApp = _appsForOC.find(function (a) { return a && a.isPlacementSecured === true; });
+        const _appId = _securedApp ? (_securedApp.zohoApplicationId || _securedApp.applicationId || _securedApp.id) : null;
+        if (_appId && typeof listZohoRecruitApplicationAttachments === 'function') {
+          const _attachments = await listZohoRecruitApplicationAttachments(_appId);
+          if (Array.isArray(_attachments) && _attachments.length > 0) {
+            const _candidates = typeof selectZohoContractAttachmentCandidates === 'function' ? selectZohoContractAttachmentCandidates(_attachments) : _attachments;
+            if (_candidates.length > 0) {
+              const _best = _candidates[0];
+              const ocTask = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.offer_contract&status=in.(open,in_progress,waiting)&limit=1');
+              if (ocTask.ok && Array.isArray(ocTask.data) && ocTask.data[0]) {
+                await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(ocTask.data[0].id), {
+                  method: 'PATCH',
+                  body: {
+                    zoho_attachment_id: String(_best.id || ''),
+                    attachment_filename: (typeof getZohoAttachmentFileName === 'function' ? getZohoAttachmentFileName(_best) : _best.File_Name) || 'contract.pdf'
+                  }
+                });
+                await _logCaseEvent(caseId, ocTask.data[0].id, 'system', 'Contract attachment found on Zoho Recruit: ' + ((_best.File_Name || _best.file_name || 'document')), null, 'system');
+              }
+            }
+          }
+        }
+      } catch (ocErr) {
+        console.error('[PracticePack] Offer/Contract attachment check error:', ocErr.message);
+      }
+
       // Send WhatsApp template via DoubleTick instead of creating a kickoff task
       if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
       await _logCaseEvent(caseId, null, 'system', 'AHPRA stage unlocked — WhatsApp template sent', null, 'system');
