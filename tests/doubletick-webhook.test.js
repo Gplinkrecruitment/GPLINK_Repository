@@ -33,19 +33,41 @@ function validateDoubleTickSignature(rawBody, signatureHeader, secret = TEST_SEC
 
 function sanitizeDoubleTickPayload(body) {
   if (!body || typeof body !== 'object') return null;
-  const messageBody = typeof body.message_body === 'string'
-    ? body.message_body.slice(0, DOUBLETICK_MESSAGE_BODY_MAX_LEN)
+
+  // Extract message text: DoubleTick nests it under message.text (TEXT) or message.caption (media)
+  const msg = body.message && typeof body.message === 'object' ? body.message : null;
+  const rawMessageBody = msg
+    ? (typeof msg.text === 'string' ? msg.text : (typeof msg.caption === 'string' ? msg.caption : null))
     : null;
-  const fromPhone = typeof body.from_phone === 'string'
-    ? body.from_phone.replace(/[^\d+\-() ]/g, '').slice(0, 30)
+  const messageBody = typeof rawMessageBody === 'string'
+    ? rawMessageBody.slice(0, DOUBLETICK_MESSAGE_BODY_MAX_LEN)
     : null;
+
+  // Phone: DoubleTick uses "from"
+  const rawPhone = typeof body.from === 'string' ? body.from : null;
+  const fromPhone = typeof rawPhone === 'string'
+    ? rawPhone.replace(/[^\d+\-() ]/g, '').slice(0, 30)
+    : null;
+
+  // Contact name from DoubleTick's contact object
+  const contactName = (body.contact && typeof body.contact.name === 'string')
+    ? body.contact.name.replace(/[<>]/g, '').slice(0, 200)
+    : null;
+
+  // Allow-list: conversation URL must start with the DoubleTick app origin (not sent by default)
   const rawUrl = typeof body.conversation_url === 'string' ? body.conversation_url.trim() : '';
   const conversationUrl = rawUrl.startsWith(DOUBLETICK_CONVERSATION_URL_PREFIX) ? rawUrl : null;
-  const messageId = typeof body.message_id === 'string'
-    ? body.message_id.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 128)
+
+  // Idempotency key: DoubleTick uses "messageId" or "dtMessageId"
+  const rawMsgId = typeof body.dtMessageId === 'string'
+    ? body.dtMessageId
+    : (typeof body.messageId === 'string' ? body.messageId : null);
+  const messageId = typeof rawMsgId === 'string'
+    ? rawMsgId.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 128)
     : null;
+
   if (!fromPhone || !messageBody) return null;
-  return { messageBody, fromPhone, conversationUrl, messageId };
+  return { messageBody, fromPhone, contactName, conversationUrl, messageId };
 }
 
 function normalizePhone(phone) {
@@ -69,7 +91,7 @@ function classifyDoubleTickMessageKeywords(messageBody) {
 
 // ---------------------------------------------------------------------------
 
-const SAMPLE_BODY = Buffer.from('{"from_phone":"+61400000001","message_body":"I need help"}');
+const SAMPLE_BODY = Buffer.from('{"from":"+61400000001","message":{"type":"TEXT","text":"I need help"}}');
 
 function signBody(body, secret = TEST_SECRET) {
   return 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
@@ -89,7 +111,7 @@ describe('validateDoubleTickSignature', () => {
 
   it('rejects a tampered body', () => {
     const sig = signBody(SAMPLE_BODY);
-    const tampered = Buffer.from('{"from_phone":"+61400000001","message_body":"injected payload"}');
+    const tampered = Buffer.from('{"from":"+61400000001","message":{"type":"TEXT","text":"injected payload"}}');
     expect(validateDoubleTickSignature(tampered, sig)).toBe(false);
   });
 
@@ -118,63 +140,105 @@ describe('validateDoubleTickSignature', () => {
   });
 });
 
-// ── sanitizeDoubleTickPayload ───────────────────────────────────────────────
+// ── sanitizeDoubleTickPayload (DoubleTick actual format) ────────────────────
 
 describe('sanitizeDoubleTickPayload', () => {
-  it('accepts a complete valid payload', () => {
+  it('accepts a complete DoubleTick TEXT message payload', () => {
     const result = sanitizeDoubleTickPayload({
-      from_phone: '+61400000001',
-      message_body: 'I need help please',
-      conversation_url: 'https://app.doubletick.io/conversations/abc-123',
-      message_id: 'msg-abc-123'
+      from: '+61400000001',
+      messageId: 'HBgMOTE3NjAwNzI4MjU0',
+      dtMessageId: '3bf23c11-6c34-4c1e-b259-12a0e518d3cd',
+      contact: { name: 'Dr Smith' },
+      message: { type: 'TEXT', text: 'I need help please' }
     });
     expect(result).not.toBeNull();
     expect(result.fromPhone).toBe('+61400000001');
     expect(result.messageBody).toBe('I need help please');
-    expect(result.conversationUrl).toBe('https://app.doubletick.io/conversations/abc-123');
-    expect(result.messageId).toBe('msg-abc-123');
+    expect(result.contactName).toBe('Dr Smith');
+    expect(result.messageId).toBe('3bf23c11-6c34-4c1e-b259-12a0e518d3cd');
   });
 
-  it('returns null when from_phone is missing', () => {
-    expect(sanitizeDoubleTickPayload({ message_body: 'help' })).toBeNull();
+  it('extracts caption from media messages (IMAGE, DOCUMENT, etc.)', () => {
+    const result = sanitizeDoubleTickPayload({
+      from: '+61400000001',
+      messageId: 'msg-001',
+      message: { type: 'IMAGE', caption: 'Is this the right document?', url: 'https://example.com/img.jpg' }
+    });
+    expect(result).not.toBeNull();
+    expect(result.messageBody).toBe('Is this the right document?');
   });
 
-  it('returns null when message_body is missing', () => {
-    expect(sanitizeDoubleTickPayload({ from_phone: '+61400000001' })).toBeNull();
+  it('prefers dtMessageId over messageId for idempotency', () => {
+    const result = sanitizeDoubleTickPayload({
+      from: '+61400000001',
+      messageId: 'whatsapp-id-abc',
+      dtMessageId: 'dt-uuid-preferred',
+      message: { type: 'TEXT', text: 'help' }
+    });
+    expect(result.messageId).toBe('dt-uuid-preferred');
   });
 
-  it('caps message_body at 4096 characters', () => {
+  it('falls back to messageId when dtMessageId is absent', () => {
+    const result = sanitizeDoubleTickPayload({
+      from: '+61400000001',
+      messageId: 'whatsapp-id-only',
+      message: { type: 'TEXT', text: 'help' }
+    });
+    expect(result.messageId).toBe('whatsapp-id-only');
+  });
+
+  it('returns null when from is missing', () => {
+    expect(sanitizeDoubleTickPayload({
+      message: { type: 'TEXT', text: 'help' }
+    })).toBeNull();
+  });
+
+  it('returns null when message is missing', () => {
+    expect(sanitizeDoubleTickPayload({ from: '+61400000001' })).toBeNull();
+  });
+
+  it('returns null when message.text is missing (e.g. status update)', () => {
+    expect(sanitizeDoubleTickPayload({
+      from: '+61400000001',
+      message: { type: 'LOCATION', latitude: '-33.8', longitude: '151.2' }
+    })).toBeNull();
+  });
+
+  it('caps message text at 4096 characters', () => {
     const longBody = 'a'.repeat(5000);
-    const result = sanitizeDoubleTickPayload({ from_phone: '+61400000001', message_body: longBody });
+    const result = sanitizeDoubleTickPayload({
+      from: '+61400000001',
+      message: { type: 'TEXT', text: longBody }
+    });
     expect(result).not.toBeNull();
     expect(result.messageBody.length).toBe(4096);
   });
 
+  it('strips script tags from contact name', () => {
+    const result = sanitizeDoubleTickPayload({
+      from: '+61400000001',
+      contact: { name: '<script>alert(1)</script>Dr Evil' },
+      message: { type: 'TEXT', text: 'help' }
+    });
+    expect(result.contactName).not.toContain('<');
+    expect(result.contactName).not.toContain('>');
+  });
+
   it('rejects conversation_url not on https://app.doubletick.io/', () => {
     const result = sanitizeDoubleTickPayload({
-      from_phone: '+61400000001',
-      message_body: 'help',
+      from: '+61400000001',
+      message: { type: 'TEXT', text: 'help' },
       conversation_url: 'https://evil.example.com/redirect'
     });
     expect(result).not.toBeNull();
     expect(result.conversationUrl).toBeNull();
   });
 
-  it('rejects javascript: conversation_url (protocol injection)', () => {
+  it('strips special characters from messageId', () => {
     const result = sanitizeDoubleTickPayload({
-      from_phone: '+61400000001',
-      message_body: 'help',
-      conversation_url: 'javascript:alert(1)'
-    });
-    expect(result).not.toBeNull();
-    expect(result.conversationUrl).toBeNull();
-  });
-
-  it('strips special characters from message_id', () => {
-    const result = sanitizeDoubleTickPayload({
-      from_phone: '+61400000001',
-      message_body: 'help',
-      message_id: 'msg<script>alert(1)</script>'
+      from: '+61400000001',
+      message: { type: 'TEXT', text: 'help' },
+      messageId: 'msg<script>alert(1)</script>'
     });
     expect(result).not.toBeNull();
     expect(result.messageId).not.toContain('<');

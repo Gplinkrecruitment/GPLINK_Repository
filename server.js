@@ -1763,30 +1763,52 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
  * Validate and sanitize fields from a DoubleTick webhook payload.
  * Returns a sanitized object or null if required fields are missing/invalid.
  *
+ * DoubleTick payload format (MESSAGE_RECEIVED):
+ *   { from: "61400000001", message: { type: "TEXT", text: "..." }, messageId: "...", dtMessageId: "...", contact: { name: "..." } }
+ *
  * Security controls applied here:
- *   - message_body capped at DOUBLETICK_MESSAGE_BODY_MAX_LEN (4096)
- *   - from_phone stripped of non-numeric characters
- *   - conversation_url allow-listed to https://app.doubletick.io/ origin
- *   - message_id restricted to alphanumeric + dash/underscore (idempotency key)
+ *   - messageBody capped at DOUBLETICK_MESSAGE_BODY_MAX_LEN (4096)
+ *   - fromPhone stripped of non-numeric characters
+ *   - conversationUrl allow-listed to https://app.doubletick.io/ origin
+ *   - messageId restricted to alphanumeric + dash/underscore (idempotency key)
  */
 function sanitizeDoubleTickPayload(body) {
   if (!body || typeof body !== 'object') return null;
-  const messageBody = typeof body.message_body === 'string'
-    ? body.message_body.slice(0, DOUBLETICK_MESSAGE_BODY_MAX_LEN)
+
+  // Extract message text: DoubleTick nests it under message.text (TEXT) or message.caption (media)
+  const msg = body.message && typeof body.message === 'object' ? body.message : null;
+  const rawMessageBody = msg
+    ? (typeof msg.text === 'string' ? msg.text : (typeof msg.caption === 'string' ? msg.caption : null))
     : null;
-  const fromPhone = typeof body.from_phone === 'string'
-    ? body.from_phone.replace(/[^\d+\-() ]/g, '').slice(0, 30)
+  const messageBody = typeof rawMessageBody === 'string'
+    ? rawMessageBody.slice(0, DOUBLETICK_MESSAGE_BODY_MAX_LEN)
     : null;
-  // Allow-list: conversation URL must start with the DoubleTick app origin
+
+  // Phone: DoubleTick uses "from"
+  const rawPhone = typeof body.from === 'string' ? body.from : null;
+  const fromPhone = typeof rawPhone === 'string'
+    ? rawPhone.replace(/[^\d+\-() ]/g, '').slice(0, 30)
+    : null;
+
+  // Contact name from DoubleTick's contact object
+  const contactName = (body.contact && typeof body.contact.name === 'string')
+    ? body.contact.name.replace(/[<>]/g, '').slice(0, 200)
+    : null;
+
+  // Allow-list: conversation URL must start with the DoubleTick app origin (not sent by default)
   const rawUrl = typeof body.conversation_url === 'string' ? body.conversation_url.trim() : '';
   const conversationUrl = rawUrl.startsWith(DOUBLETICK_CONVERSATION_URL_PREFIX) ? rawUrl : null;
-  // Idempotency key: alphanumeric, dash, underscore only
-  const messageId = typeof body.message_id === 'string'
-    ? body.message_id.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 128)
+
+  // Idempotency key: DoubleTick uses "messageId" or "dtMessageId"
+  const rawMsgId = typeof body.dtMessageId === 'string'
+    ? body.dtMessageId
+    : (typeof body.messageId === 'string' ? body.messageId : null);
+  const messageId = typeof rawMsgId === 'string'
+    ? rawMsgId.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 128)
     : null;
 
   if (!fromPhone || !messageBody) return null;
-  return { messageBody, fromPhone, conversationUrl, messageId };
+  return { messageBody, fromPhone, contactName, conversationUrl, messageId };
 }
 
 /**
@@ -1853,14 +1875,14 @@ async function handleDoubleTickWebhook(req, res) {
   const payload = sanitizeDoubleTickPayload(body);
   if (!payload) {
     console.warn('[doubletick-webhook] Sanitize rejected payload — keys:', body ? Object.keys(body).join(', ') : 'null');
-    sendJson(res, 400, { ok: false, message: 'Missing required fields: from_phone, message_body' });
+    sendJson(res, 400, { ok: false, message: 'Missing required fields: from, message.text' });
     return;
   }
 
-  const { messageBody, fromPhone, conversationUrl, messageId } = payload;
+  const { messageBody, fromPhone, contactName, conversationUrl, messageId } = payload;
 
   // Use AI to determine if the message is a question or help request
-  console.log('[doubletick-webhook] Classifying message from', fromPhone, ':', messageBody.slice(0, 200));
+  console.log('[doubletick-webhook] Classifying message from', fromPhone, (contactName ? '(' + contactName + ')' : ''), ':', messageBody.slice(0, 200));
   const isHelpRequest = await classifyDoubleTickMessage(messageBody, fromPhone);
   console.log('[doubletick-webhook] Classification result:', isHelpRequest ? 'HELP' : 'IGNORED');
   if (!isHelpRequest) {
