@@ -4232,10 +4232,16 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
                       const buf = Buffer.from(parts[1], 'base64');
                       await uploadToGoogleDrive(driveFolderId, d.file_name, buf, 'application/pdf');
                     } else {
-                      const resp = await fetch(d.file_url);
-                      if (resp.ok) {
-                        const buf = Buffer.from(await resp.arrayBuffer());
-                        await uploadToGoogleDrive(driveFolderId, d.file_name, buf, 'application/pdf');
+                      const dlController = new AbortController();
+                      const dlTimeout = setTimeout(() => dlController.abort(), 15000);
+                      try {
+                        const resp = await fetch(d.file_url, { signal: dlController.signal });
+                        if (resp.ok) {
+                          const buf = Buffer.from(await resp.arrayBuffer());
+                          await uploadToGoogleDrive(driveFolderId, d.file_name, buf, 'application/pdf');
+                        }
+                      } finally {
+                        clearTimeout(dlTimeout);
                       }
                     }
                   } catch (syncErr) {
@@ -5412,9 +5418,12 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch(url, {
       method: options.method || 'GET',
+      signal: controller.signal,
       headers,
       body: options && options.body !== undefined ? JSON.stringify(options.body) : undefined
     });
@@ -5430,6 +5439,8 @@ async function supabaseDbRequest(pathname, query = '', options = {}) {
     return { ok: response.ok, status: response.status, data };
   } catch (err) {
     return { ok: false, status: 502, data: { message: 'Failed to reach Supabase database service.' } };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -6078,9 +6089,17 @@ async function fetchCareerHeroImageCandidates(context = {}) {
       url.searchParams.set('iiurlwidth', '1600');
       url.searchParams.set('format', 'json');
 
-      const response = await fetch(url.toString(), {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GP Link Career Hero/1.0; +https://app.mygplink.com.au)' }
-      });
+      const wikiController = new AbortController();
+      const wikiTimeout = setTimeout(() => wikiController.abort(), 15000);
+      let response;
+      try {
+        response = await fetch(url.toString(), {
+          signal: wikiController.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GP Link Career Hero/1.0; +https://app.mygplink.com.au)' }
+        });
+      } finally {
+        clearTimeout(wikiTimeout);
+      }
       if (!response.ok) continue;
 
       const payload = await response.json().catch(() => null);
@@ -6396,6 +6415,8 @@ async function fetchCareerSuburbCoordinates(context = {}) {
   const query = buildCareerGeocodeQuery(context);
   if (!query) return null;
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const url = new URL('https://nominatim.openstreetmap.org/search');
     url.searchParams.set('q', query);
@@ -6405,6 +6426,7 @@ async function fetchCareerSuburbCoordinates(context = {}) {
     url.searchParams.set('addressdetails', '1');
 
     const response = await fetch(url.toString(), {
+      signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; GP Link Career Hero Geocoder/1.0; +https://app.mygplink.com.au)',
         Accept: 'application/json'
@@ -6424,7 +6446,10 @@ async function fetchCareerSuburbCoordinates(context = {}) {
         geocodeSource: 'nominatim'
       };
     }
-  } catch (err) {}
+  } catch (err) {
+  } finally {
+    clearTimeout(timeout);
+  }
 
   return null;
 }
@@ -6433,6 +6458,8 @@ async function fetchCareerSuburbPostcode(context = {}) {
   const query = buildCareerGeocodeQuery(context);
   if (!query) return '';
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const url = new URL('https://nominatim.openstreetmap.org/search');
     url.searchParams.set('q', query);
@@ -6442,6 +6469,7 @@ async function fetchCareerSuburbPostcode(context = {}) {
     url.searchParams.set('addressdetails', '1');
 
     const response = await fetch(url.toString(), {
+      signal: controller.signal,
       headers: {
         'User-Agent': HOMELY_LIFESTYLE_USER_AGENT,
         Accept: 'application/json'
@@ -6459,7 +6487,10 @@ async function fetchCareerSuburbPostcode(context = {}) {
       );
       if (postcode) return postcode;
     }
-  } catch (err) {}
+  } catch (err) {
+  } finally {
+    clearTimeout(timeout);
+  }
 
   return '';
 }
@@ -6469,6 +6500,8 @@ async function reverseGeocodeCareerLocationContext(coords = {}) {
   const longitude = parseCareerCoordinate(coords && coords.lng);
   if (!isAustralianCoordinate(latitude, longitude)) return null;
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const url = new URL('https://nominatim.openstreetmap.org/reverse');
     url.searchParams.set('lat', String(latitude));
@@ -6478,6 +6511,7 @@ async function reverseGeocodeCareerLocationContext(coords = {}) {
     url.searchParams.set('addressdetails', '1');
 
     const response = await fetch(url.toString(), {
+      signal: controller.signal,
       headers: {
         'User-Agent': HOMELY_LIFESTYLE_USER_AGENT,
         Accept: 'application/json'
@@ -6516,6 +6550,8 @@ async function reverseGeocodeCareerLocationContext(coords = {}) {
     };
   } catch (err) {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -6767,19 +6803,27 @@ async function createCareerRoleAiProfile(row, gpLinkMeta, websiteText) {
     'Return JSON only.'
   ].join('\n');
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: OPENAI_CAREER_MODEL,
-      input: prompt,
-      max_output_tokens: 500,
-      temperature: 0.4
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_CAREER_MODEL,
+        input: prompt,
+        max_output_tokens: 500,
+        temperature: 0.4
+      })
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error('Career AI request failed');
@@ -7042,9 +7086,12 @@ async function zohoFormRequest(accountsServer, params) {
     body.set(key, String(value));
   });
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(`${base}/oauth/v2/token`, {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString()
     });
@@ -7056,6 +7103,8 @@ async function zohoFormRequest(accountsServer, params) {
     return { ok: response.ok, status: response.status, data };
   } catch (err) {
     return { ok: false, status: 502, data: { error: 'network_error', message: 'Failed to reach Zoho OAuth service.' } };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -7199,9 +7248,12 @@ async function zohoRecruitApiGet(apiDomain, resourcePath, accessToken, queryPara
   });
   const maxRetries = 2;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await fetch(url.toString(), {
         method: 'GET',
+        signal: controller.signal,
         headers: {
           Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`
         }
@@ -7223,6 +7275,8 @@ async function zohoRecruitApiGet(apiDomain, resourcePath, accessToken, queryPara
         continue;
       }
       return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API.' } };
+    } finally {
+      clearTimeout(timeout);
     }
   }
   return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API after retries.' } };
@@ -7234,9 +7288,12 @@ async function zohoRecruitApiPost(apiDomain, resourcePath, accessToken, bodyData
     return { ok: false, status: 400, data: { message: 'Zoho Recruit API domain is missing.' } };
   }
   const url = `${base}/recruit/v2/${String(resourcePath || '').replace(/^\/+/, '')}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(url, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`,
         'Content-Type': 'application/json'
@@ -7251,6 +7308,8 @@ async function zohoRecruitApiPost(apiDomain, resourcePath, accessToken, bodyData
     return { ok: response.ok, status: response.status, data };
   } catch (err) {
     return { ok: false, status: 502, data: { message: 'Failed to reach Zoho Recruit API.' } };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -7264,9 +7323,12 @@ async function zohoRecruitApiUploadAttachment(apiDomain, moduleName, recordId, a
   const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`;
   const footer = `\r\n--${boundary}--\r\n`;
   const body = Buffer.concat([Buffer.from(header), fileBuffer, Buffer.from(footer)]);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(url, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`,
         'Content-Type': `multipart/form-data; boundary=${boundary}`
@@ -7281,6 +7343,8 @@ async function zohoRecruitApiUploadAttachment(apiDomain, moduleName, recordId, a
     return { ok: response.ok, status: response.status, data };
   } catch (err) {
     return { ok: false, status: 502, data: { message: 'Failed to upload attachment to Zoho Recruit.' } };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -7854,9 +7918,12 @@ async function runZohoRecruitScheduledSync() {
 
 async function supabaseStorageDownloadObject(bucket, objectPath) {
   if (!isSupabaseDbConfigured()) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodeSupabaseObjectPath(objectPath)}`, {
       method: 'GET',
+      signal: controller.signal,
       headers: {
         apikey: SUPABASE_SERVICE_ROLE_KEY,
         Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
@@ -7868,6 +7935,8 @@ async function supabaseStorageDownloadObject(bucket, objectPath) {
     return { buffer, mimeType: contentType };
   } catch (err) {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -8228,9 +8297,12 @@ async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, ap
   for (const base of bases) {
     for (const resourcePath of paths) {
       const url = `${normalizeUrlBase(base, '')}/recruit/v2/${String(resourcePath || '').replace(/^\/+/, '')}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
       try {
         const response = await fetch(url, {
           method: 'GET',
+          signal: controller.signal,
           headers: {
             Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`
           }
@@ -8255,7 +8327,10 @@ async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, ap
           mimeType,
           fileName
         };
-      } catch (err) {}
+      } catch (err) {
+      } finally {
+        clearTimeout(timeout);
+      }
     }
   }
 
@@ -8812,9 +8887,12 @@ Rules:
     });
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': ANTHROPIC_API_KEY,
@@ -8859,6 +8937,8 @@ Rules:
     };
   } catch (err) {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -9097,9 +9177,12 @@ async function getDomainClientCredentialsAccessToken(scopeOverride = '') {
     scope: requestedScope
   });
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(DOMAIN_AUTH_TOKEN_URL, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         Accept: 'application/json',
         Authorization: `Basic ${authHeader}`,
@@ -9131,6 +9214,8 @@ async function getDomainClientCredentialsAccessToken(scopeOverride = '') {
   } catch (err) {
     logDomainApiWarning('OAuth token request threw an error.', err && err.message ? String(err.message) : '');
     return '';
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -9616,10 +9701,13 @@ function scoreHomelyLocationCandidate(candidate, locationContext) {
 async function fetchHomelyLocationMatches(query) {
   const searchQuery = String(query || '').replace(/\s+/g, ' ').trim();
   if (!searchQuery) return [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const url = new URL(HOMELY_LOCATION_SEARCH_URL);
     url.searchParams.set('q', searchQuery);
     const response = await fetch(url.toString(), {
+      signal: controller.signal,
       headers: {
         Accept: 'application/json',
         'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
@@ -9630,6 +9718,8 @@ async function fetchHomelyLocationMatches(query) {
     return Array.isArray(payload && payload.locations) ? payload.locations : [];
   } catch (err) {
     return [];
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -9837,8 +9927,11 @@ function normalizeHomelyListing(record, practiceCoords, market) {
 async function fetchHomelyLifestyleSearchPage(url) {
   const requestUrl = String(url || '').trim();
   if (!requestUrl) return { ok: false, listings: [], totalPages: 0 };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(requestUrl, {
+      signal: controller.signal,
       headers: {
         Accept: 'text/html,application/xhtml+xml',
         'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
@@ -9865,6 +9958,8 @@ async function fetchHomelyLifestyleSearchPage(url) {
     };
   } catch (err) {
     return { ok: false, listings: [], totalPages: 0 };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -9903,8 +9998,11 @@ async function fetchHomelyBuildId(locationContext, market = 'rent') {
   }
   const pageUrl = buildHomelyLifestyleSearchUrl(locationContext, market, 1);
   if (!pageUrl) return '';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(pageUrl, {
+      signal: controller.signal,
       headers: {
         Accept: 'text/html,application/xhtml+xml',
         'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
@@ -9927,14 +10025,19 @@ async function fetchHomelyBuildId(locationContext, market = 'rent') {
     return buildId;
   } catch (err) {
     return '';
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
 async function fetchHomelyLifestyleSearchJsonPage(locationContext, market, pageNumber, buildId) {
   const requestUrl = buildHomelyLifestyleSearchDataUrl(locationContext, market, pageNumber, buildId);
   if (!requestUrl) return { ok: false, listings: [], totalPages: 0 };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(requestUrl, {
+      signal: controller.signal,
       headers: {
         Accept: 'application/json,text/plain,*/*',
         'User-Agent': HOMELY_LIFESTYLE_USER_AGENT
@@ -9960,6 +10063,8 @@ async function fetchHomelyLifestyleSearchJsonPage(locationContext, market, pageN
     };
   } catch (err) {
     return { ok: false, listings: [], totalPages: 0 };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -10283,9 +10388,12 @@ async function domainApiRequest(resourcePath, options = {}) {
   const url = resourcePath.startsWith('http') ? resourcePath : `${DOMAIN_API_BASE}${resourcePath}`;
   const headers = await buildDomainApiHeaders(method, options.scope || '');
   if (!headers) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(url, {
       method,
+      signal: controller.signal,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body)
     });
@@ -10301,6 +10409,8 @@ async function domainApiRequest(resourcePath, options = {}) {
   } catch (err) {
     logDomainApiWarning(`${method} ${resourcePath} threw an error.`, err && err.message ? String(err.message) : '');
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -10894,8 +11004,11 @@ async function querySchoolFinderSql(query) {
   if (!sql) return [];
   const url = new URL(NSW_SCHOOL_FINDER_SQL_ENDPOINT);
   url.searchParams.set('q', sql);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(url.toString(), {
+      signal: controller.signal,
       headers: { Accept: 'application/json' }
     });
     if (!response.ok) return [];
@@ -10903,6 +11016,8 @@ async function querySchoolFinderSql(query) {
     return Array.isArray(payload && payload.rows) ? payload.rows : [];
   } catch (err) {
     return [];
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -11844,9 +11959,12 @@ async function supabaseAuthRequest(endpoint, payload) {
     return { ok: false, status: 503, data: { message: 'Supabase is not configured.' } };
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch(`${SUPABASE_URL}/auth/v1/${endpoint}`, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         apikey: SUPABASE_PUBLISHABLE_KEY,
         Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
@@ -11858,6 +11976,8 @@ async function supabaseAuthRequest(endpoint, payload) {
     return { ok: response.ok, status: response.status, data };
   } catch (err) {
     return { ok: false, status: 502, data: { message: 'Failed to reach Supabase auth service.' } };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -11866,9 +11986,12 @@ async function supabaseAuthAdminRequest(pathname, options = {}) {
     return { ok: false, status: 503, data: { message: 'Supabase admin auth is not configured.' } };
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch(`${SUPABASE_URL}/auth/v1/${pathname}`, {
       method: options.method || 'GET',
+      signal: controller.signal,
       headers: {
         apikey: SUPABASE_SERVICE_ROLE_KEY,
         Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
@@ -11881,6 +12004,8 @@ async function supabaseAuthAdminRequest(pathname, options = {}) {
     return { ok: response.ok, status: response.status, data };
   } catch (err) {
     return { ok: false, status: 502, data: { message: 'Failed to reach Supabase admin auth service.' } };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -12065,22 +12190,29 @@ async function getZoomAccessToken() {
   const clientSecret = process.env.ZOOM_CLIENT_SECRET;
   const accountId = process.env.ZOOM_ACCOUNT_ID;
   const credentials = Buffer.from(clientId + ':' + clientSecret).toString('base64');
-  const res = await fetch('https://zoom.us/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Basic ' + credentials,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: 'grant_type=account_credentials&account_id=' + encodeURIComponent(accountId)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error('Zoom OAuth failed: ' + res.status + ' ' + text);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch('https://zoom.us/oauth/token', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Authorization': 'Basic ' + credentials,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: 'grant_type=account_credentials&account_id=' + encodeURIComponent(accountId)
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error('Zoom OAuth failed: ' + res.status + ' ' + text);
+    }
+    const data = await res.json();
+    _zoomAccessToken = data.access_token || '';
+    _zoomTokenExpiresAt = Date.now() + ((data.expires_in || 3600) * 1000);
+    return _zoomAccessToken;
+  } finally {
+    clearTimeout(timeout);
   }
-  const data = await res.json();
-  _zoomAccessToken = data.access_token || '';
-  _zoomTokenExpiresAt = Date.now() + ((data.expires_in || 3600) * 1000);
-  return _zoomAccessToken;
 }
 
 async function createZoomMeeting(options) {
@@ -12100,28 +12232,42 @@ async function createZoomMeeting(options) {
       meeting_authentication: false
     }
   };
-  const res = await fetch('https://api.zoom.us/v2/users/me/meetings', {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Bearer ' + token,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error('Zoom meeting creation failed: ' + res.status + ' ' + text);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch('https://api.zoom.us/v2/users/me/meetings', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error('Zoom meeting creation failed: ' + res.status + ' ' + text);
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
   }
-  return res.json();
 }
 
 async function deleteZoomMeeting(meetingId) {
   const token = await getZoomAccessToken();
-  const res = await fetch('https://api.zoom.us/v2/meetings/' + encodeURIComponent(meetingId), {
-    method: 'DELETE',
-    headers: { 'Authorization': 'Bearer ' + token }
-  });
-  return res.ok;
+  const delController = new AbortController();
+  const delTimeout = setTimeout(() => delController.abort(), 15000);
+  try {
+    const res = await fetch('https://api.zoom.us/v2/meetings/' + encodeURIComponent(meetingId), {
+      method: 'DELETE',
+      signal: delController.signal,
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    return res.ok;
+  } finally {
+    clearTimeout(delTimeout);
+  }
 }
 
 /* ───────── Email via Resend HTTP API ───────── */
@@ -12134,9 +12280,12 @@ async function sendEmail({ to, subject, html, text }) {
   if (!isEmailConfigured()) return { ok: false, error: 'Email not configured' };
   const fromEmail = process.env.RESEND_FROM_EMAIL || 'notifications@mygplink.com.au';
   const fromName = process.env.RESEND_FROM_NAME || 'GP Link';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
         'Content-Type': 'application/json'
@@ -12153,6 +12302,8 @@ async function sendEmail({ to, subject, html, text }) {
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -12170,8 +12321,11 @@ async function sendPushNotification(userId, { title, body, data }) {
 
     for (const entry of pushTokens) {
       if (!entry || !entry.token) continue;
+      const fcmController = new AbortController();
+      const fcmTimeout = setTimeout(() => fcmController.abort(), 10000);
       fetch('https://fcm.googleapis.com/fcm/send', {
         method: 'POST',
+        signal: fcmController.signal,
         headers: {
           'Authorization': 'key=' + process.env.FCM_SERVER_KEY,
           'Content-Type': 'application/json'
@@ -12181,7 +12335,7 @@ async function sendPushNotification(userId, { title, body, data }) {
           notification: { title: title || 'GP Link', body: body || '' },
           data: data || {}
         })
-      }).catch(() => {});
+      }).catch(() => {}).finally(() => clearTimeout(fcmTimeout));
     }
   } catch {}
 }
@@ -12671,8 +12825,11 @@ async function handleApi(req, res, pathname) {
     }
 
     let userData = null;
+    const supaAuthController = new AbortController();
+    const supaAuthTimeout = setTimeout(() => supaAuthController.abort(), 10000);
     try {
       const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        signal: supaAuthController.signal,
         headers: {
           apikey: SUPABASE_PUBLISHABLE_KEY,
           Authorization: `Bearer ${accessToken}`
@@ -12691,6 +12848,8 @@ async function handleApi(req, res, pathname) {
     } catch (err) {
       sendJson(res, 502, { ok: false, message: 'Failed to reach Supabase auth service.' });
       return;
+    } finally {
+      clearTimeout(supaAuthTimeout);
     }
 
     const email = upsertLocalUserFromSupabaseUser(userData);
@@ -14767,9 +14926,12 @@ ${isPrimaryMedDegree ? '' : `Expected country of qualification: ${expectedCountr
 
 Verify this document.`;
 
+    const qualController = new AbortController();
+    const qualTimeout = setTimeout(() => qualController.abort(), 30000);
     try {
       const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal: qualController.signal,
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': ANTHROPIC_API_KEY,
@@ -14863,6 +15025,8 @@ Verify this document.`;
     } catch (fetchErr) {
       console.error('[AI Verify] Fetch error:', fetchErr.message || fetchErr);
       sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
+    } finally {
+      clearTimeout(qualTimeout);
     }
     return;
   }
@@ -14949,9 +15113,12 @@ Return ONLY valid JSON with no markdown formatting:
 
 Check this document for certification markings.`;
 
+    const certController = new AbortController();
+    const certTimeout = setTimeout(() => certController.abort(), 30000);
     try {
       const certRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal: certController.signal,
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': ANTHROPIC_API_KEY,
@@ -15015,6 +15182,8 @@ Check this document for certification markings.`;
     } catch (fetchErr) {
       console.error('[AI CertCheck] Fetch error:', fetchErr.message || fetchErr);
       sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
+    } finally {
+      clearTimeout(certTimeout);
     }
     return;
   }
@@ -15099,9 +15268,12 @@ Return ONLY valid JSON with no markdown formatting:
 
 Classify this document.`;
 
+    const classifyController = new AbortController();
+    const classifyTimeout = setTimeout(() => classifyController.abort(), 30000);
     try {
       const classifyRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal: classifyController.signal,
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': ANTHROPIC_API_KEY,
@@ -15158,6 +15330,8 @@ Classify this document.`;
     } catch (fetchErr) {
       console.error('[AI Classify] Fetch error:', fetchErr.message || fetchErr);
       sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
+    } finally {
+      clearTimeout(classifyTimeout);
     }
     return;
   }
@@ -15329,9 +15503,12 @@ Return ONLY valid JSON with no markdown formatting:
 
     const idUserPrompt = 'Verify this ID document.';
 
+    const idController = new AbortController();
+    const idTimeout = setTimeout(() => idController.abort(), 30000);
     try {
       const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal: idController.signal,
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': ANTHROPIC_API_KEY,
@@ -15444,6 +15621,8 @@ Return ONLY valid JSON with no markdown formatting:
     } catch (fetchErr) {
       console.error('[ID Verify] Fetch error:', fetchErr.message || fetchErr);
       sendJson(res, 502, { ok: false, message: 'Failed to connect to AI service.' });
+    } finally {
+      clearTimeout(idTimeout);
     }
     return;
   }
@@ -15485,9 +15664,17 @@ Return ONLY valid JSON with no markdown formatting:
     // Save ticket to user state
     if (isSupabaseDbConfigured()) {
       try {
-        const stateRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${encodeURIComponent(session.user_id || '')}`, {
-          headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
-        });
+        const stateController = new AbortController();
+        const stateTimeout = setTimeout(() => stateController.abort(), 10000);
+        let stateRes;
+        try {
+          stateRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?user_id=eq.${encodeURIComponent(session.user_id || '')}`, {
+            signal: stateController.signal,
+            headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
+          });
+        } finally {
+          clearTimeout(stateTimeout);
+        }
         const rows = await stateRes.json();
         const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
         const existingState = (row && row.state && typeof row.state === 'object') ? row.state : {};
@@ -15743,9 +15930,17 @@ Return ONLY valid JSON with no markdown formatting:
     const tickets = [];
     if (isSupabaseDbConfigured()) {
       try {
-        const allStatesRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?select=user_id,state,updated_at`, {
-          headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
-        });
+        const allStatesController = new AbortController();
+        const allStatesTimeout = setTimeout(() => allStatesController.abort(), 10000);
+        let allStatesRes;
+        try {
+          allStatesRes = await fetch(`${SUPABASE_URL}/rest/v1/user_state?select=user_id,state,updated_at`, {
+            signal: allStatesController.signal,
+            headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}` }
+          });
+        } finally {
+          clearTimeout(allStatesTimeout);
+        }
         const allStates = await allStatesRes.json().catch(() => []);
         if (Array.isArray(allStates)) {
           allStates.forEach(row => {
@@ -15902,17 +16097,24 @@ Return ONLY valid JSON with no markdown formatting:
     // Update in Supabase
     if (isSupabaseDbConfigured()) {
       try {
-        const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?email=eq.${encodeURIComponent(email)}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: SUPABASE_SERVICE_ROLE_KEY,
-            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-            Prefer: 'return=minimal'
-          },
-          body: JSON.stringify({ first_name: firstName, last_name: lastName })
-        });
-        if (!patchRes.ok) console.error('[UpdateName] Supabase PATCH error:', patchRes.status);
+        const patchController = new AbortController();
+        const patchTimeout = setTimeout(() => patchController.abort(), 10000);
+        try {
+          const patchRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?email=eq.${encodeURIComponent(email)}`, {
+            method: 'PATCH',
+            signal: patchController.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              Prefer: 'return=minimal'
+            },
+            body: JSON.stringify({ first_name: firstName, last_name: lastName })
+          });
+          if (!patchRes.ok) console.error('[UpdateName] Supabase PATCH error:', patchRes.status);
+        } finally {
+          clearTimeout(patchTimeout);
+        }
       } catch (e) { console.error('[UpdateName] Supabase error:', e.message); }
     }
 
@@ -18045,9 +18247,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (!budgetOk) { sendJson(res, 429, { ok: false, message: 'Anthropic daily budget exceeded.' }); return; }
 
     const prompt = buildPositionDescriptionPrompt(practiceName, roleTitle, location);
+    const pdController = new AbortController();
+    const pdTimeout = setTimeout(() => pdController.abort(), 30000);
     try {
       const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
+        signal: pdController.signal,
         headers: {
           'x-api-key': ANTHROPIC_API_KEY,
           'anthropic-version': '2023-06-01',
@@ -18072,6 +18277,8 @@ Return ONLY valid JSON with no markdown formatting:
     } catch (aiErr) {
       console.error('[PracticePack] AI generation error:', aiErr.message);
       sendJson(res, 500, { ok: false, message: 'AI generation failed.' });
+    } finally {
+      clearTimeout(pdTimeout);
     }
     return;
   }
@@ -18169,8 +18376,14 @@ Return ONLY valid JSON with no markdown formatting:
             fileBuffer = Buffer.from(parts[1], 'base64');
             mimeType = (parts[0].match(/data:([^;]+)/) || [])[1] || 'application/pdf';
           } else {
-            const resp = await fetch(task.attachment_url);
-            if (resp.ok) fileBuffer = Buffer.from(await resp.arrayBuffer());
+            const attachController = new AbortController();
+            const attachTimeout = setTimeout(() => attachController.abort(), 15000);
+            try {
+              const resp = await fetch(task.attachment_url, { signal: attachController.signal });
+              if (resp.ok) fileBuffer = Buffer.from(await resp.arrayBuffer());
+            } finally {
+              clearTimeout(attachTimeout);
+            }
           }
           fileName = task.attachment_filename || (docKey === 'offer_contract' ? 'Offer-Contract.pdf' : 'Supervisor CV.pdf');
         } catch (fetchErr) {
@@ -19606,7 +19819,9 @@ Return ONLY valid JSON with no markdown formatting:
       try {
         const keyword = type === 'secondary' ? 'secondary school' : type === 'primary' ? 'primary school' : 'school';
         const placesUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${radius * 1000}&type=school&keyword=${encodeURIComponent(keyword)}&key=${encodeURIComponent(GOOGLE_PLACES_API_KEY)}`;
-        const placesResponse = await fetch(placesUrl).catch(() => null);
+        const placesController = new AbortController();
+        const placesTimeout = setTimeout(() => placesController.abort(), 15000);
+        const placesResponse = await fetch(placesUrl, { signal: placesController.signal }).catch(() => null).finally(() => clearTimeout(placesTimeout));
         if (placesResponse && placesResponse.ok) {
           const placesData = await placesResponse.json().catch(() => null);
           if (placesData && Array.isArray(placesData.results)) {
