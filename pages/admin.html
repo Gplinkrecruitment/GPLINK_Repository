@@ -506,6 +506,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .blocker-row-main{flex:1;min-width:0}
 .blocker-row-name{font-weight:700}
 .blocker-row-reason{font-size:12px;color:var(--muted,#9aa3b2);margin-top:2px}
+    /* ── Practice Pack Document Actions ── */
+    .doc-task-actions{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+    .doc-task-actions .btn-action{padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none;color:#fff;transition:opacity .15s}
+    .doc-task-actions .btn-generate{background:#6c5ce7}
+    .doc-task-actions .btn-submit{background:#00b894}
+    .doc-task-actions .btn-review{background:#0984e3}
+    .doc-task-actions .btn-mailto{background:#fdcb6e;color:#2d3436;text-decoration:none;display:inline-block}
+    .doc-task-actions .btn-upload{background:#dfe6e9;color:#2d3436;position:relative;overflow:hidden}
+    .doc-task-actions .btn-upload input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+    .doc-task-actions .btn-disabled{background:#b2bec3;cursor:not-allowed;opacity:.6}
+    .doc-task-status{font-size:11px;color:#636e72;margin-top:4px;font-style:italic}
+    .doc-task-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;color:#fff}
+    .doc-task-badge.auto-delivered{background:#00b894}
+    .doc-task-badge.waiting{background:#fdcb6e;color:#2d3436}
+    .doc-task-badge.pending-setup{background:#b2bec3}
+    .pd-editor{min-height:300px;border:1px solid #dfe6e9;border-radius:8px;padding:16px;margin:12px 0;font-size:14px;line-height:1.6;outline:none;background:#fff;overflow-y:auto;max-height:60vh}
+    .pd-editor h2{font-size:18px;margin:12px 0 6px}
+    .pd-editor h3{font-size:15px;margin:10px 0 4px}
+    .pd-editor ul{margin:4px 0 4px 20px}
+    .pd-editor li{margin:2px 0}
+    .pd-meta{font-size:12px;color:#636e72;margin-bottom:8px}
   </style>
 </head>
 <body>
@@ -764,6 +785,77 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <button class="btn sm primary" data-view-todo-case="${esc(u.case_id)}">Open profile</button>
     </div>`;
   }
+  /* ── Practice Pack document action helpers ── */
+  function buildMailtoLinkFE(to, subject, body) {
+    return 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body.replace(/\\n/g, '\n'));
+  }
+
+  function renderDocTaskActions(task) {
+    var dk = task.related_document_key;
+    var pc = task.practice_contact || {};
+    var gpName = task.gp_name || 'the GP';
+
+    if (dk === 'sppa_00') {
+      return '<div class="doc-task-actions"><button class="btn-action btn-disabled" disabled>Send SPPA-00</button></div>' +
+             '<div class="doc-task-status"><span class="doc-task-badge pending-setup">Pending Zoho Sign setup</span></div>';
+    }
+
+    if (dk === 'section_g') {
+      if (task.status === 'completed') {
+        return '<div class="doc-task-actions"><span class="doc-task-badge auto-delivered">Auto-delivered</span></div>';
+      }
+      return '<div class="doc-task-status">Will auto-deliver when GP enters AHPRA stage</div>';
+    }
+
+    if (dk === 'position_description') {
+      if (task.document_html) {
+        return '<div class="doc-task-actions">' +
+          '<button class="btn-action btn-review" onclick="openPDEditor(\'' + task.id + '\')">Edit & Review</button>' +
+          '<button class="btn-action btn-submit" onclick="approvePositionDescription(\'' + task.id + '\')">Approve & Send to GP</button>' +
+          '</div>';
+      }
+      return '<div class="doc-task-actions">' +
+        '<button class="btn-action btn-generate" onclick="generatePositionDescription(\'' + task.id + '\')">Generate Position Description</button>' +
+        '</div>';
+    }
+
+    if (dk === 'offer_contract') {
+      var html = '<div class="doc-task-actions">';
+      if (task.zoho_attachment_id || task.attachment_url) {
+        html += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review: ' + (task.attachment_filename || 'Contract').replace(/'/g, "\\'") + '</button>';
+        html += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Submit to GP</button>';
+      } else {
+        var mailto = buildMailtoLinkFE(pc.contactEmail || '',
+          'Offer/Contract Required \u2014 ' + gpName + ' at ' + (pc.practiceName || 'the practice'),
+          'Hi ' + (pc.contactName || '') + ',\\n\\nWe require the completed employment agreement between ' + (pc.practiceName || 'the practice') + ' and ' + gpName + ' for the ' + (pc.roleTitle || 'General Practitioner') + ' position.\\n\\nPlease reply with the signed document attached.\\n\\nKind regards,\\nGP Link Team');
+        html += '<a class="btn-action btn-mailto" href="' + mailto + '" onclick="markTaskWaiting(\'' + task.id + '\')">Email Practice for Contract</a>';
+      }
+      html += '<label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label>';
+      html += '</div>';
+      if (task.status === 'waiting_on_practice') html += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
+      return html;
+    }
+
+    if (dk === 'supervisor_cv') {
+      var html2 = '<div class="doc-task-actions">';
+      if (task.attachment_url) {
+        html2 += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review: ' + (task.attachment_filename || 'Supervisor CV').replace(/'/g, "\\'") + '</button>';
+        html2 += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Submit to GP</button>';
+      } else {
+        var mailto2 = buildMailtoLinkFE(pc.contactEmail || '',
+          'Supervisor CV Required \u2014 ' + gpName + ' at ' + (pc.practiceName || 'the practice'),
+          'Hi ' + (pc.contactName || '') + ',\\n\\nWe require the supervising doctor\\\'s CV for ' + gpName + '\\\'s Specialist Registration application at ' + (pc.practiceName || 'the practice') + '.\\n\\nPlease reply with the supervisor\\\'s CV attached.\\n\\nKind regards,\\nGP Link Team');
+        html2 += '<a class="btn-action btn-mailto" href="' + mailto2 + '" onclick="markTaskWaiting(\'' + task.id + '\')">Email Practice for Supervisor CV</a>';
+      }
+      html2 += '<label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label>';
+      html2 += '</div>';
+      if (task.status === 'waiting_on_practice') html2 += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
+      return html2;
+    }
+
+    return '';
+  }
+
   function ini(n){return(n||"?").split(" ").map(w=>w[0]||"").join("").substring(0,2).toUpperCase();}
   function fmtD(d){if(!d)return"\u2014";try{return new Date(d).toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"});}catch{return"\u2014";}}
   function fmtDT(d){if(!d)return"\u2014";try{return new Date(d).toLocaleString("en-AU",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});}catch{return"\u2014";}}
@@ -1106,21 +1198,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const nextAction=tasks[0];
     let h='';
     if(nextAction){
+      const naDocActions=nextAction.task_type==='practice_pack_child'?renderDocTaskActions(nextAction):'';
       h+=`<div class="todo-card" style="border-left:4px solid var(--accent,#4f46e5);margin-bottom:12px">
         <div style="font-size:11px;text-transform:uppercase;color:var(--accent,#4f46e5);font-weight:700">Next Action</div>
         <div class="todo-title">${esc(nextAction.title)}</div>
         <div class="todo-detail">${esc(nextAction.description||"")}</div>
-        <div class="todo-actions"><button class="btn primary sm" data-complete-task="${esc(nextAction.id)}">Complete</button><button class="btn sm" data-start-task="${esc(nextAction.id)}">Start</button></div>
+        ${naDocActions?naDocActions:`<div class="todo-actions"><button class="btn primary sm" data-complete-task="${esc(nextAction.id)}">Complete</button><button class="btn sm" data-start-task="${esc(nextAction.id)}">Start</button></div>`}
       </div>`;
     }
     ["urgent","high","normal"].forEach(pri=>{
       if(!byPri[pri].length)return;
       h+=`<div class="inbox-section-title">${esc(pri)} <span class="count">${byPri[pri].length}</span></div>`;
-      h+=byPri[pri].map(t=>`<div class="todo-card ${esc(t.priority)}" data-task-row="${esc(t.id)}">
+      h+=byPri[pri].map(t=>{const docAct=t.task_type==='practice_pack_child'?renderDocTaskActions(t):'';return`<div class="todo-card ${esc(t.priority)}" data-task-row="${esc(t.id)}">
         <div class="todo-title">${esc(t.title)}</div>
         <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" \u2022 Due "+fmtD(t.due_date):""}</div>
-        <div class="todo-actions"><button class="btn primary sm" data-complete-task="${esc(t.id)}">Complete</button><button class="btn sm" data-start-task="${esc(t.id)}">Start</button></div>
-      </div>`).join("");
+        ${docAct?docAct:`<div class="todo-actions"><button class="btn primary sm" data-complete-task="${esc(t.id)}">Complete</button><button class="btn sm" data-start-task="${esc(t.id)}">Start</button></div>`}
+      </div>`;}).join("");
     });
     h+='<div style="margin-top:12px"><button class="btn sm" data-add-task>+ Add Task</button></div>';
     return h;
@@ -1796,6 +1889,117 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"in_progress"})});
     await loadAll(true);
   }
+
+  /* ── Practice Pack document action handlers (Task 9) ── */
+  async function generatePositionDescription(taskId) {
+    var btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    try {
+      var res = await fetch('/api/admin/va/task/generate-position-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId })
+      });
+      var data = await res.json();
+      if (!data.ok) { alert(data.message || 'Generation failed'); btn.disabled = false; btn.textContent = 'Generate Position Description'; return; }
+      openPDEditorWithHtml(taskId, data.html, data.practiceName, data.roleTitle, data.location);
+      if (typeof loadVaDashboard === 'function') loadVaDashboard();
+    } catch (e) {
+      alert('Error: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = 'Generate Position Description';
+    }
+  }
+
+  function openPDEditor(taskId) {
+    var dash = S.va && S.va.dashboard;
+    var tasks = dash ? dash.todays_tasks : [];
+    var task = tasks.find(function (t) { return t.id === taskId; });
+    if (!task || !task.document_html) { alert('No content to edit. Generate first.'); return; }
+    openPDEditorWithHtml(taskId, task.document_html, '', '', '');
+  }
+
+  function openPDEditorWithHtml(taskId, html, practiceName, roleTitle, location) {
+    var modal = document.getElementById('modalOverlay');
+    var titleEl = document.getElementById('modalTitle');
+    var bodyEl = document.getElementById('modalBody');
+    titleEl.textContent = 'Position Description' + (practiceName ? ' \u2014 ' + practiceName : '');
+    bodyEl.innerHTML =
+      (practiceName ? '<div class="pd-meta">Practice: ' + practiceName + ' | Role: ' + roleTitle + ' | Location: ' + location + '</div>' : '') +
+      '<div class="pd-editor" contenteditable="true" id="pd-editor-content">' + html + '</div>' +
+      '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn-action btn-submit" style="padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;color:#fff;background:#00b894" onclick="approvePositionDescription(\'' + taskId + '\')">Approve & Send to GP</button>' +
+      '<button style="padding:8px 20px;border-radius:6px;font-size:13px;cursor:pointer;border:none;background:#b2bec3;color:#fff" onclick="closeModal()">Cancel</button>' +
+      '</div>';
+    modal.classList.add('open');
+  }
+
+  async function approvePositionDescription(taskId) {
+    var editor = document.getElementById('pd-editor-content');
+    var html = editor ? editor.innerHTML : '';
+    if (!html.trim()) { alert('Document is empty.'); return; }
+    if (!confirm('Approve and send this position description to the GP?')) return;
+    try {
+      var res = await fetch('/api/admin/va/task/approve-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId, html: html })
+      });
+      var data = await res.json();
+      if (!data.ok) { alert(data.message || 'Approval failed'); return; }
+      closeModal();
+      if (typeof loadVaDashboard === 'function') loadVaDashboard();
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+
+  async function uploadTaskDoc(taskId, input) {
+    var file = input.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = async function () {
+      try {
+        var res = await fetch('/api/admin/va/task/upload-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task_id: taskId, file_data: reader.result, file_name: file.name })
+        });
+        var data = await res.json();
+        if (!data.ok) { alert(data.message || 'Upload failed'); return; }
+        if (typeof loadVaDashboard === 'function') loadVaDashboard();
+      } catch (e) { alert('Error: ' + e.message); }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function previewTaskDoc(taskId) {
+    window.open('/api/admin/va/task/preview-document?task_id=' + encodeURIComponent(taskId), '_blank');
+  }
+
+  async function approveDocument(taskId) {
+    if (!confirm('Submit this document to the GP and mark task complete?')) return;
+    try {
+      var res = await fetch('/api/admin/va/task/approve-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId })
+      });
+      var data = await res.json();
+      if (!data.ok) { alert(data.message || 'Approval failed'); return; }
+      if (typeof loadVaDashboard === 'function') loadVaDashboard();
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+
+  async function markTaskWaiting(taskId) {
+    try {
+      await fetch('/api/admin/task?id=' + encodeURIComponent(taskId), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'waiting_on_practice' })
+      });
+    } catch (e) { /* best effort */ }
+  }
+
   async function saveCase(caseId){
     const fields={};
     document.querySelectorAll("[data-case-field]").forEach(el=>{
