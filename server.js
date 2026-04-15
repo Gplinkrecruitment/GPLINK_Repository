@@ -2477,9 +2477,6 @@ async function handleDoubleTickWebhook(req, res) {
     return;
   }
 
-  // Log raw payload so we can see what DoubleTick actually sends
-  console.log('[doubletick-webhook] Raw payload:', JSON.stringify(body).slice(0, 2000));
-
   // Validate and sanitize all fields; reject on missing required fields
   const payload = sanitizeDoubleTickPayload(body);
   if (!payload) {
@@ -2491,9 +2488,7 @@ async function handleDoubleTickWebhook(req, res) {
   const { messageBody, fromPhone, contactName, conversationUrl, messageId } = payload;
 
   // Use AI to determine if the message is a question or help request
-  console.log('[doubletick-webhook] Classifying message from', fromPhone, (contactName ? '(' + contactName + ')' : ''), ':', messageBody.slice(0, 200));
   const isHelpRequest = await classifyDoubleTickMessage(messageBody, fromPhone);
-  console.log('[doubletick-webhook] Classification result:', isHelpRequest ? 'HELP' : 'IGNORED');
   if (!isHelpRequest) {
     sendJson(res, 200, { ok: true, action: 'ignored' });
     return;
