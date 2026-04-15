@@ -16874,6 +16874,64 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Recovery password update (uses the Supabase recovery access_token directly) ──
+  if (pathname === '/api/auth/recovery-update-password' && req.method === 'POST') {
+    if (!(await enforceAuthRateLimit(req, res, 'reset-password'))) return;
+    if (!isSupabaseConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Supabase is not configured.' });
+      return;
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const accessToken = String(body.accessToken || '').trim();
+    const newPassword = String(body.password || '');
+    if (!accessToken) {
+      sendJson(res, 400, { ok: false, message: 'Missing recovery token.' });
+      return;
+    }
+    if (!isStrongPassword(newPassword)) {
+      sendJson(res, 400, { ok: false, message: 'Password must be at least 12 characters and include upper, lower, number, and symbol.' });
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: 'PUT',
+        signal: controller.signal,
+        headers: {
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ password: newPassword })
+      });
+      clearTimeout(timeout);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        sendJson(res, response.status === 401 ? 401 : 400, {
+          ok: false,
+          message: response.status === 401
+            ? 'Recovery link has expired. Please request a new one.'
+            : (data.msg || data.message || 'Unable to update password.')
+        });
+        return;
+      }
+      sendJson(res, 200, { ok: true, message: 'Password updated successfully.' });
+    } catch (err) {
+      sendJson(res, 502, { ok: false, message: 'Failed to reach authentication service.' });
+    }
+    return;
+  }
+
   if (pathname === '/api/auth/reset-password' && req.method === 'POST') {
     if (!(await enforceAuthRateLimit(req, res, 'reset-password'))) return;
     if (isSupabaseConfigured()) {

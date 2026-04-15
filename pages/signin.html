@@ -679,6 +679,7 @@
   <script>
     let supabaseClient = null;
     let supabaseInitPromise = null;
+    var _recoveryAccessToken = null; // Stored when recovery link is detected
 
     const authShellEl = document.getElementById("authShell");
     const signUpToggleBtnEl = document.getElementById("signUpToggleBtn");
@@ -1032,33 +1033,18 @@
       // ── Detect password recovery flow ──
       const isRecovery = hash.includes("type=recovery");
       if (isRecovery) {
-        try {
-          const client = await ensureSupabaseClient();
-          // Parse tokens directly from hash — getSession() races with auto-detect
-          const hashParams = new URLSearchParams(hash.substring(1));
-          const accessToken = hashParams.get("access_token");
-          const refreshToken = hashParams.get("refresh_token");
-          var sessionOk = false;
-          if (accessToken && refreshToken) {
-            var result = await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-            sessionOk = !result.error && result.data && result.data.session;
-          }
-          if (!sessionOk) {
-            // Fallback: check if auto-detect already processed it
-            var fallback = await client.auth.getSession();
-            sessionOk = !fallback.error && fallback.data && fallback.data.session;
-          }
-          if (!sessionOk) {
-            setStatus(signInStatusEl, "Recovery link is invalid or expired. Please request a new one.", "error");
-            return;
-          }
-          // Clean the URL but keep the recovery session active in the Supabase client
-          const cleanUrl = window.location.origin + window.location.pathname;
-          window.history.replaceState({}, "", cleanUrl);
-          showResetPasswordPanel();
-        } catch (err) {
-          setStatus(signInStatusEl, "Unable to process recovery link. Please try again.", "error");
+        // Parse access_token directly from hash — bypass Supabase JS client entirely
+        // to avoid race conditions with its auto-detection
+        var hashParams = new URLSearchParams(hash.substring(1));
+        var recoveryToken = hashParams.get("access_token");
+        if (!recoveryToken) {
+          setStatus(signInStatusEl, "Recovery link is invalid or expired. Please request a new one.", "error");
+          return;
         }
+        _recoveryAccessToken = recoveryToken;
+        var cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, "", cleanUrl);
+        showResetPasswordPanel();
         return;
       }
 
@@ -1184,15 +1170,21 @@
 
         resetPasswordSubmitBtnEl.disabled = true;
         try {
-          const client = await ensureSupabaseClient();
-          const { data, error } = await client.auth.updateUser({ password: newPassword });
-          if (error) {
-            setStatus(resetPasswordStatusEl, error.message || "Unable to update password. Please try again.", "error");
+          if (!_recoveryAccessToken) {
+            setStatus(resetPasswordStatusEl, "Recovery session expired. Please request a new reset link.", "error");
             return;
           }
-
-          // Sign out the recovery session so the user logs in fresh with new password
-          await client.auth.signOut().catch(function() {});
+          var response = await fetch("/api/auth/recovery-update-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accessToken: _recoveryAccessToken, password: newPassword })
+          });
+          var result = await response.json().catch(function() { return {}; });
+          if (!response.ok || !result.ok) {
+            setStatus(resetPasswordStatusEl, result.message || "Unable to update password. Please try again.", "error");
+            return;
+          }
+          _recoveryAccessToken = null;
 
           // Show success and redirect to sign-in
           resetPasswordContainerEl.classList.remove("active");
