@@ -1956,11 +1956,15 @@ async function handleDoubleTickWebhook(req, res) {
       }
     }
 
-    // Resolve GP by phone (try E.164 normalised and raw formats)
+    // Resolve GP by phone (try E.164, raw, and local AU formats)
     const normalizedPhone = normalizePhone(fromPhone);
+    // Convert +61… / 61… to local 0… format for matching profiles stored as 04xx
+    const localPhone = normalizedPhone.startsWith('+61')
+      ? '0' + normalizedPhone.slice(3)
+      : (fromPhone.startsWith('61') && fromPhone.length === 11 ? '0' + fromPhone.slice(2) : null);
     let gpProfile = null;
     if (isSupabaseDbConfigured()) {
-      for (const pv of [...new Set([normalizedPhone, fromPhone].filter(Boolean))]) {
+      for (const pv of [...new Set([normalizedPhone, fromPhone, localPhone].filter(Boolean))]) {
         for (const col of ['phone_number', 'phone']) {
           const r = await supabaseDbRequest(
             'user_profiles',
