@@ -16892,8 +16892,8 @@ Return ONLY valid JSON with no markdown formatting:
 
     const accessToken = String(body.accessToken || '').trim();
     const newPassword = String(body.password || '');
-    if (!accessToken) {
-      sendJson(res, 400, { ok: false, message: 'Missing recovery token.' });
+    if (!accessToken || accessToken.length > 4096 || accessToken.split('.').length !== 3) {
+      sendJson(res, 400, { ok: false, message: 'Invalid recovery token.' });
       return;
     }
     if (!isStrongPassword(newPassword)) {
