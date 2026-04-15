@@ -395,6 +395,33 @@
     .ticket-card-title{font-size:13px;margin:4px 0;font-weight:600}
     .ticket-card-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
     .ticket-card-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+    .support-wrap{padding:16px;overflow:auto;height:100%}
+    .support-filters{display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap}
+    .support-filter-group{display:flex;gap:2px;background:var(--bg);border-radius:var(--radius);padding:2px}
+    .support-filter-btn{padding:6px 12px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;border:none;background:none;border-radius:calc(var(--radius) - 2px);transition:all .15s}
+    .support-filter-btn.active{background:#fff;color:var(--blue);box-shadow:var(--shadow)}
+    .support-table{width:100%;border-collapse:collapse;font-size:12px}
+    .support-table th{text-align:left;padding:8px 10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-bottom:2px solid var(--line);position:sticky;top:0;background:#fff;z-index:1}
+    .support-table td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+    .support-table tr:hover{background:var(--bg)}
+    .support-table tr[data-support-id]{cursor:pointer}
+    .support-source-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.02em}
+    .support-source-badge.whatsapp{background:#dcfce7;color:#15803d}
+    .support-source-badge.manual{background:#dbeafe;color:#1d4ed8}
+    .support-priority-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+    .support-priority-dot.urgent{background:#ef4444}
+    .support-priority-dot.high{background:#f59e0b}
+    .support-priority-dot.normal{background:#6b7280}
+    .support-priority-dot.low{background:#d1d5db}
+    .support-expand{background:var(--bg);border-top:none}
+    .support-expand td{padding:12px 10px 16px}
+    .support-expand-body{font-size:12px;line-height:1.5;margin-bottom:10px;white-space:pre-wrap;max-height:200px;overflow:auto}
+    .support-expand-meta{font-size:11px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px}
+    .support-expand-actions{display:flex;gap:6px;flex-wrap:wrap}
+    .support-status-open{color:#15803d;font-weight:700}
+    .support-status-closed{color:var(--muted);font-weight:700}
+    .support-empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:13px}
+    .support-count{font-size:11px;color:var(--muted);margin-left:auto}
     .priority-pill{padding:2px 8px;border-radius:8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
     .priority-pill.urgent{background:#fee2e2;color:var(--red)}
     .priority-pill.high{background:#fef3c7;color:var(--amber)}
@@ -550,6 +577,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="interviews">Interviews</div>
     <div class="view-tab" data-view="applications">Applications</div>
+    <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="tools">Tools</div>
   </div>
   <div class="layout" id="mainLayout">
@@ -567,6 +595,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   <div class="today-wrap" id="inboxPanel" style="display:none"></div>
   <div class="interviews-wrap" id="interviewsPanel" style="display:none"></div>
   <div class="applications-wrap" id="applicationsPanel" style="display:none"></div>
+  <div class="support-wrap" id="supportPanel" style="display:none"></div>
   <div class="tools-wrap" id="toolsPanel" style="display:none">
     <div class="tools-subnav" id="toolsSubnav"></div>
     <div class="tools-sub-pane" id="toolsOps" style="display:none">
@@ -636,7 +665,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     selectedCaseId:null,view:"inbox",filter:"all",query:"",expanded:{},refreshTimer:null,
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     toolsSubView:"ops",gpsProfileTab:"tasks",
-    va:{dashboard:null,tickets:[],ticketsView:"open",selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null},
+    va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null},
     interviews:{list:[],loading:false},
     applications:{list:[],loading:false},
     search:{query:"",loading:false,clientResults:{gps:[],tasks:[],tickets:[]},serverResults:{documents:[],notes:[]},open:false,debounceTimer:null},
@@ -2208,6 +2237,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         await loadInterviews();
       }else if(view==="applications"){
         await loadAdminApplications();
+      }else if(view==="support"){
+        await loadSupportItems();
+        renderSupportPanel();
       }else if(view==="tools"){
         renderToolsPanel();
       }
@@ -2527,13 +2559,96 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch(err){console.error("[VA] loadVaTickets failed",err);}
   }
 
+  async function loadSupportItems(){
+    try{
+      const params=new URLSearchParams({source:S.va.supportSource,status:S.va.supportStatus});
+      const r=await fetch("/api/admin/va/support?"+params,{credentials:"same-origin"});
+      if(r.status===401){window.location.href="/pages/admin-signin.html";return;}
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){S.va.supportItems=d.items||[];}
+      else{S.va.supportItems=[];toast((d&&d.message)||"Failed to load support items","red");}
+    }catch(err){console.error("[VA] loadSupportItems failed",err);S.va.supportItems=[];}
+  }
+
+  function renderSupportPanel(){
+    const el=document.getElementById("supportPanel");if(!el)return;
+    const items=S.va.supportItems||[];
+    const src=S.va.supportSource||"all";
+    const st=S.va.supportStatus||"open";
+
+    function filterBtn(group,value,label){
+      const active=(group==="source"?src:st)===value?"active":"";
+      return '<button class="support-filter-btn '+active+'" data-support-filter-group="'+esc(group)+'" data-support-filter-value="'+esc(value)+'">'+esc(label)+'</button>';
+    }
+
+    let h='<div class="support-filters">';
+    h+='<div class="support-filter-group">'+filterBtn("source","all","All")+filterBtn("source","whatsapp","WhatsApp")+filterBtn("source","manual","Manual")+'</div>';
+    h+='<div class="support-filter-group">'+filterBtn("status","open","Open")+filterBtn("status","closed","Closed")+filterBtn("status","all","All")+'</div>';
+    h+='<div class="support-count">'+items.length+' item'+(items.length!==1?'s':'')+'</div>';
+    h+='</div>';
+
+    if(items.length===0){
+      h+='<div class="support-empty">No support items match the current filters.</div>';
+      el.innerHTML=h;return;
+    }
+
+    h+='<table class="support-table"><thead><tr>';
+    h+='<th>GP</th><th>Source</th><th>Title</th><th>Stage</th><th>Priority</th><th>Status</th><th>Date</th>';
+    h+='</tr></thead><tbody>';
+
+    for(const item of items){
+      const isExpanded=S.va.supportExpandedId===item.id;
+      const srcBadge=item.source==="whatsapp"
+        ?'<span class="support-source-badge whatsapp">WhatsApp</span>'
+        :'<span class="support-source-badge manual">Manual</span>';
+      const priDot='<span class="support-priority-dot '+esc(item.priority||"normal")+'"></span>'+esc(item.priority||"normal");
+      const statusCls=item.status==="closed"?"support-status-closed":"support-status-open";
+      const statusLabel=item.status==="closed"?"Closed":(item.status==="in_progress"?"In Progress":(item.status==="waiting_on_gp"?"Waiting on GP":"Open"));
+
+      h+='<tr data-support-id="'+esc(item.id)+'" data-support-kind="'+esc(item.kind)+'">';
+      h+='<td><strong>'+esc(item.gp_name||"Unknown")+'</strong></td>';
+      h+='<td>'+srcBadge+'</td>';
+      h+='<td>'+esc(item.title||"")+'</td>';
+      h+='<td>'+esc(item.stage||"—")+'</td>';
+      h+='<td>'+priDot+'</td>';
+      h+='<td><span class="'+statusCls+'">'+statusLabel+'</span></td>';
+      h+='<td>'+fmtR(item.created_at)+'</td>';
+      h+='</tr>';
+
+      if(isExpanded){
+        h+='<tr class="support-expand"><td colspan="7">';
+        h+='<div class="support-expand-body">'+esc(item.body||"No message body.")+'</div>';
+        h+='<div class="support-expand-meta">';
+        if(item.gp_email)h+='<span>Email: '+esc(item.gp_email)+'</span>';
+        if(item.gp_phone)h+='<span>Phone: '+esc(item.gp_phone)+'</span>';
+        if(item.category)h+='<span>Category: '+esc(item.category)+'</span>';
+        if(item.resolved_by)h+='<span>Resolved by: '+esc(item.resolved_by)+'</span>';
+        if(item.resolved_at)h+='<span>Resolved: '+fmtR(item.resolved_at)+'</span>';
+        h+='</div>';
+        h+='<div class="support-expand-actions">';
+        if(item.whatsapp_link)h+='<a class="btn wa" href="'+safeUrl(item.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>';
+        if(item.doubletick_url)h+='<a class="btn" href="'+safeUrl(item.doubletick_url)+'" target="_blank" rel="noopener">DoubleTick</a>';
+        if(item.status!=="closed"){
+          h+='<button class="btn primary sm" data-support-resolve="'+esc(item.id)+'" data-support-kind="'+esc(item.kind)+'">Resolve & Close</button>';
+        }else{
+          h+='<button class="btn sm" data-support-reopen="'+esc(item.id)+'" data-support-kind="'+esc(item.kind)+'">Reopen</button>';
+        }
+        h+='</div>';
+        h+='</td></tr>';
+      }
+    }
+
+    h+='</tbody></table>';
+    el.innerHTML=h;
+  }
+
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","interviewsPanel":"interviews","applicationsPanel":"applications","toolsPanel":"tools"};
+    const panels={"inboxPanel":"inbox","interviewsPanel":"interviews","applicationsPanel":"applications","supportPanel":"support","toolsPanel":"tools"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   function vaHidePanels(){
-    ["inboxPanel","interviewsPanel","applicationsPanel","toolsPanel"].forEach(function(id){
+    ["inboxPanel","interviewsPanel","applicationsPanel","supportPanel","toolsPanel"].forEach(function(id){
       var el=document.getElementById(id);if(el)el.style.display="none";
     });
     document.getElementById("mainLayout").style.display="grid";
@@ -2771,6 +2886,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch{toast("Network error","red");}
   }
 
+  async function supportAction(id,kind,action){
+    try{
+      let url,body;
+      if(kind==="ticket"){
+        url="/api/admin/va/ticket/"+encodeURIComponent(id);
+        body={status:action==="close"?"closed":"open"};
+      }else{
+        url="/api/admin/va/support/task/"+encodeURIComponent(id);
+        body={status:action==="close"?"completed":"open"};
+      }
+      const r=await fetch(url,{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){
+        toast(action==="close"?"Resolved":"Reopened");
+        await loadSupportItems();
+        renderSupportPanel();
+      }else{toast((d&&d.message)||"Failed","red");}
+    }catch{toast("Network error","red");}
+  }
+
   async function runWeeklyCheckinSweep(){
     try{
       const r=await fetch("/api/admin/va/weekly-checkin/sweep",{method:"POST",credentials:"same-origin"});
@@ -2816,6 +2951,52 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       await loadInterviews();
       const ivAppIdInput=document.getElementById("ivAppId");
       if(ivAppIdInput){ivAppIdInput.value=appId;ivAppIdInput.focus();}
+      return;
+    }
+  },true);
+
+  /* Delegated click handlers for Support panel */
+  document.addEventListener("click",async e=>{
+    // ── Support panel: filter buttons ───────────────────────────────────
+    const sfBtn=e.target.closest("[data-support-filter-group]");
+    if(sfBtn){
+      e.preventDefault();
+      const group=sfBtn.getAttribute("data-support-filter-group");
+      const value=sfBtn.getAttribute("data-support-filter-value");
+      if(group==="source")S.va.supportSource=value;
+      else if(group==="status")S.va.supportStatus=value;
+      S.va.supportExpandedId=null;
+      await loadSupportItems();
+      renderSupportPanel();
+      return;
+    }
+
+    // ── Support panel: row expand/collapse ──────────────────────────────
+    const sRow=e.target.closest("[data-support-id]");
+    if(sRow&&!e.target.closest("a,button")){
+      const id=sRow.getAttribute("data-support-id");
+      S.va.supportExpandedId=S.va.supportExpandedId===id?null:id;
+      renderSupportPanel();
+      return;
+    }
+
+    // ── Support panel: resolve & close ──────────────────────────────────
+    const sResolve=e.target.closest("[data-support-resolve]");
+    if(sResolve){
+      e.preventDefault();e.stopPropagation();
+      const id=sResolve.getAttribute("data-support-resolve");
+      const kind=sResolve.getAttribute("data-support-kind");
+      await supportAction(id,kind,"close");
+      return;
+    }
+
+    // ── Support panel: reopen ───────────────────────────────────────────
+    const sReopen=e.target.closest("[data-support-reopen]");
+    if(sReopen){
+      e.preventDefault();e.stopPropagation();
+      const id=sReopen.getAttribute("data-support-reopen");
+      const kind=sReopen.getAttribute("data-support-kind");
+      await supportAction(id,kind,"reopen");
       return;
     }
   },true);
