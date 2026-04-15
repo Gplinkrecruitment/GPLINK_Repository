@@ -325,6 +325,256 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
   return results;
 }
 
+// ── Gmail integration (Phase 1b) ──
+const MONITORED_VA_EMAILS = ['hazel@mygplink.com.au'];
+const GOOGLE_PUBSUB_TOPIC = String(process.env.GOOGLE_PUBSUB_TOPIC || '').trim();
+const GMAIL_WEBHOOK_SECRET = String(process.env.GMAIL_WEBHOOK_SECRET || '').trim();
+
+function isGmailConfigured() {
+  return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && MONITORED_VA_EMAILS.length > 0);
+}
+
+let _gmailClients = {};
+async function getGmailClient(userEmail) {
+  if (_gmailClients[userEmail]) return _gmailClients[userEmail];
+  if (!isGmailConfigured()) return null;
+  var { google } = require('googleapis');
+  var auth = new google.auth.JWT(
+    GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    null,
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'],
+    userEmail
+  );
+  _gmailClients[userEmail] = google.gmail({ version: 'v1', auth });
+  return _gmailClients[userEmail];
+}
+
+function parseGmailPubSubMessage(body) {
+  try {
+    if (!body || !body.message || !body.message.data) return null;
+    var decoded = JSON.parse(Buffer.from(body.message.data, 'base64').toString('utf-8'));
+    if (!decoded.emailAddress || !decoded.historyId) return null;
+    return { emailAddress: decoded.emailAddress, historyId: String(decoded.historyId) };
+  } catch (e) { return null; }
+}
+
+function extractEmailMeta(gmailMessage) {
+  var headers = gmailMessage.payload ? gmailMessage.payload.headers || [] : [];
+  var getHeader = function (name) { var h = headers.find(function (h) { return h.name.toLowerCase() === name.toLowerCase(); }); return h ? h.value : ''; };
+
+  var fromRaw = getHeader('From');
+  var sender = fromRaw;
+  var senderName = '';
+  var angleMatch = fromRaw.match(/<([^>]+)>/);
+  if (angleMatch) {
+    sender = angleMatch[1];
+    senderName = fromRaw.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
+  }
+
+  var parts = gmailMessage.payload ? gmailMessage.payload.parts || [] : [];
+  var bodyText = '';
+  var attachments = [];
+  var attachIdx = 0;
+
+  function walkParts(partsList) {
+    for (var i = 0; i < partsList.length; i++) {
+      var part = partsList[i];
+      if (part.mimeType === 'text/plain' && part.body && part.body.data && !bodyText) {
+        bodyText = Buffer.from(part.body.data, 'base64url').toString('utf-8');
+      }
+      if (part.filename && part.body && part.body.attachmentId) {
+        var isInline = (part.headers || []).some(function (h) { return h.name === 'Content-Disposition' && h.value.startsWith('inline'); });
+        var isSmallImage = (part.body.size || 0) < 10240 && part.mimeType && part.mimeType.startsWith('image/');
+        if (!(isInline && isSmallImage)) {
+          attachments.push({
+            index: attachIdx++,
+            filename: part.filename,
+            mimeType: part.mimeType,
+            attachmentId: part.body.attachmentId,
+            size: part.body.size || 0
+          });
+        }
+      }
+      if (part.parts) walkParts(part.parts);
+    }
+  }
+  walkParts(parts);
+
+  return {
+    messageId: gmailMessage.id,
+    sender: sender,
+    senderName: senderName,
+    subject: getHeader('Subject'),
+    to: getHeader('To'),
+    date: getHeader('Date'),
+    bodyText: bodyText.substring(0, 2000),
+    attachments: attachments
+  };
+}
+
+var GMAIL_DOCUMENT_EXTENSIONS = /\.(pdf|doc|docx|jpg|jpeg|png)$/i;
+var GMAIL_NOREPLY_PATTERNS = /^(noreply|no-reply|donotreply|do-not-reply|newsletter|marketing|mailer-daemon|postmaster)@/i;
+
+function preFilterEmail(emailMeta) {
+  if (emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@mygplink.com.au')) {
+    return { pass: false, reason: 'internal_sender' };
+  }
+  if (!emailMeta.attachments || emailMeta.attachments.length === 0) {
+    return { pass: false, reason: 'no_attachments' };
+  }
+  var hasDocAttachment = emailMeta.attachments.some(function (a) {
+    return GMAIL_DOCUMENT_EXTENSIONS.test(a.filename || '');
+  });
+  if (!hasDocAttachment) {
+    return { pass: false, reason: 'no_document_attachments' };
+  }
+  if (GMAIL_NOREPLY_PATTERNS.test(emailMeta.sender || '')) {
+    return { pass: false, reason: 'marketing' };
+  }
+  if (emailMeta.headers && emailMeta.headers['list-unsubscribe']) {
+    return { pass: false, reason: 'marketing' };
+  }
+  return { pass: true, reason: null };
+}
+
+function buildAIMatchPrompt(emailMeta, openTasks) {
+  var tasksSection = openTasks.length > 0
+    ? JSON.stringify(openTasks, null, 2)
+    : 'No open tasks currently waiting for documents.';
+
+  return 'You are a document-matching assistant for GP Link, a medical recruitment company that helps overseas GPs register in Australia.\n\n'
+    + 'An email has arrived with attachments. Match each attachment to the correct open task.\n\n'
+    + 'EMAIL:\n'
+    + '- From: ' + emailMeta.sender + ' (' + emailMeta.senderName + ')\n'
+    + '- To: ' + emailMeta.to + '\n'
+    + '- Subject: ' + emailMeta.subject + '\n'
+    + '- Date: ' + emailMeta.date + '\n'
+    + '- Body (first 2000 chars): ' + emailMeta.bodyText + '\n'
+    + '- Attachments: ' + JSON.stringify(emailMeta.attachments.map(function (a) { return { index: a.index, filename: a.filename, mime_type: a.mimeType, size_bytes: a.size }; })) + '\n\n'
+    + 'OPEN TASKS WAITING FOR DOCUMENTS:\n' + tasksSection + '\n\n'
+    + 'Return ONLY a JSON object (no markdown, no explanation):\n'
+    + '{\n  "matches": [\n    {\n      "attachment_index": 0,\n      "task_id": "xxx" or null,\n      "document_type": "offer_contract" or "supervisor_cv",\n      "confidence": 0.0-1.0,\n      "reasoning": "brief explanation"\n    }\n  ],\n  "is_relevant": true/false,\n  "summary": "one-line description of what this email is about"\n}\n\n'
+    + 'Rules:\n'
+    + '- Match based on sender domain vs practice email domain, GP names in subject/body/filename, document type clues\n'
+    + '- If sender domain matches a practice contact\'s domain, that\'s a strong signal even if the exact email differs\n'
+    + '- "offer", "contract", "agreement", "employment" in filename → likely offer_contract\n'
+    + '- "cv", "curriculum", "resume", "supervisor" in filename → likely supervisor_cv\n'
+    + '- If you cannot confidently match, set task_id to null\n'
+    + '- Confidence: 0.9+ exact match, 0.7-0.9 strong signals, 0.5-0.7 partial, <0.5 uncertain\n'
+    + '- If the email is completely unrelated to GP recruitment documents, set is_relevant to false';
+}
+
+function parseAIMatchResponse(raw) {
+  try {
+    var cleaned = raw.trim();
+    var codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) cleaned = codeBlockMatch[1].trim();
+    var parsed = JSON.parse(cleaned);
+    return {
+      matches: Array.isArray(parsed.matches) ? parsed.matches : [],
+      is_relevant: parsed.is_relevant === true,
+      summary: parsed.summary || ''
+    };
+  } catch (e) {
+    return { matches: [], is_relevant: false, summary: '' };
+  }
+}
+
+async function aiMatchEmail(emailMeta, openTasks) {
+  var budgetOk = checkAnthropicBudget();
+  if (!budgetOk) {
+    console.error('[Gmail AI] Daily Anthropic budget exceeded, skipping AI match');
+    return { matches: [], is_relevant: false, summary: 'Budget exceeded' };
+  }
+
+  var prompt = buildAIMatchPrompt(emailMeta, openTasks);
+  var controller = new AbortController();
+  var timeout = setTimeout(function () { controller.abort(); }, 30000);
+
+  try {
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    if (!resp.ok) {
+      console.error('[Gmail AI] Anthropic API error:', resp.status);
+      return { matches: [], is_relevant: false, summary: 'API error' };
+    }
+
+    var data = await resp.json();
+    var text = data.content && data.content[0] ? data.content[0].text : '';
+    return parseAIMatchResponse(text);
+  } catch (err) {
+    console.error('[Gmail AI] match error:', err.message);
+    return { matches: [], is_relevant: false, summary: 'Error: ' + err.message };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getOpenPracticePackTasks() {
+  var tasksRes = await supabaseDbRequest(
+    'registration_tasks',
+    'select=id,case_id,related_document_key,status,attachment_url,zoho_attachment_id&'
+    + 'task_type=eq.practice_pack_child&'
+    + 'related_document_key=in.(offer_contract,supervisor_cv)&'
+    + 'status=in.(open,in_progress,waiting,waiting_on_practice)&'
+    + 'order=created_at.asc'
+  );
+  if (!tasksRes.ok || !Array.isArray(tasksRes.data)) return [];
+
+  var results = [];
+  for (var t of tasksRes.data) {
+    if (t.attachment_url || t.zoho_attachment_id) continue;
+
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(t.case_id) + '&limit=1');
+    if (!caseRes.ok || !caseRes.data || !caseRes.data[0]) continue;
+    var userId = caseRes.data[0].user_id;
+
+    var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var profile = (profileRes.ok && profileRes.data && profileRes.data[0]) ? profileRes.data[0] : {};
+    var gpName = 'Dr ' + [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim();
+
+    var stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&key=eq.gp_career_state&limit=1');
+    var careerState = {};
+    if (stateRes.ok && stateRes.data && stateRes.data[0]) {
+      try { careerState = typeof stateRes.data[0].state === 'string' ? JSON.parse(stateRes.data[0].state) : stateRes.data[0].state; } catch (e) {}
+    }
+
+    var secured = careerState.career_secured ? careerState : null;
+    if (!secured && Array.isArray(careerState.applications)) {
+      var securedApp = careerState.applications.find(function (a) { return a && a.isPlacementSecured; });
+      if (securedApp) secured = { placement: securedApp };
+    }
+    var pc = (secured && secured.placement && secured.placement.practiceContact) || {};
+    var placement = (secured && secured.placement) || {};
+
+    results.push({
+      task_id: t.id,
+      document_type: t.related_document_key,
+      gp_name: gpName,
+      practice_name: placement.practiceName || '',
+      practice_contact_email: pc.email || '',
+      practice_contact_name: pc.name || '',
+      practice_location: placement.location || '',
+      task_status: t.status
+    });
+  }
+  return results;
+}
+
 function validateRuntimeConfig() {
   if (NODE_ENV !== 'production') return;
 
