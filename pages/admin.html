@@ -396,7 +396,8 @@
     .ticket-card-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
     .ticket-card-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
     .support-wrap{padding:16px;overflow:auto;height:100%}
-    .support-filters{display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap}
+    .support-filters{display:flex;gap:16px;margin-bottom:12px;align-items:center;flex-wrap:wrap}
+    .support-filter-label{font-size:11px;font-weight:700;color:var(--muted);margin-right:-8px}
     .support-filter-group{display:flex;gap:2px;background:var(--bg);border-radius:var(--radius);padding:2px}
     .support-filter-btn{padding:6px 12px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;border:none;background:none;border-radius:calc(var(--radius) - 2px);transition:all .15s}
     .support-filter-btn.active{background:#fff;color:var(--blue);box-shadow:var(--shadow)}
@@ -665,7 +666,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     selectedCaseId:null,view:"inbox",filter:"all",query:"",expanded:{},refreshTimer:null,
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     toolsSubView:"ops",gpsProfileTab:"tasks",
-    va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null},
+    va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[]},
     interviews:{list:[],loading:false},
     applications:{list:[],loading:false},
     search:{query:"",loading:false,clientResults:{gps:[],tasks:[],tickets:[]},serverResults:{documents:[],notes:[]},open:false,debounceTimer:null},
@@ -1080,7 +1081,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   async function loadAll(force){
     if(S.loading&&!force)return;
     S.loading=true;
-    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard()];
+    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard(),loadUnmatchedDocuments()];
     if(isSA())jobs.push(loadAgentStatus(force));
     await Promise.all(jobs);
     S.loading=false;
@@ -2647,6 +2648,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
     }catch(err){console.error("[VA] loadVaDashboard failed",err);}
   }
+  async function loadUnmatchedDocuments(){
+    try{
+      const r=await fetch("/api/admin/va/unmatched-documents",{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      S.va.unmatchedDocs=(d&&d.ok&&Array.isArray(d.documents))?d.documents:[];
+    }catch(err){console.error("[VA] loadUnmatchedDocuments failed",err);S.va.unmatchedDocs=[];}
+  }
   async function loadVaTickets(){
     try{
       const r=await fetch("/api/admin/va/tickets?status="+encodeURIComponent(S.va.ticketsView),{credentials:"same-origin"});
@@ -2678,8 +2686,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
 
     let h='<div class="support-filters">';
-    h+='<div class="support-filter-group">'+filterBtn("source","all","All")+filterBtn("source","whatsapp","WhatsApp")+filterBtn("source","manual","Manual")+'</div>';
-    h+='<div class="support-filter-group">'+filterBtn("status","open","Open")+filterBtn("status","closed","Closed")+filterBtn("status","all","All")+'</div>';
+    h+='<span class="support-filter-label">Source:</span><div class="support-filter-group">'+filterBtn("source","all","All")+filterBtn("source","whatsapp","WhatsApp")+filterBtn("source","manual","Manual")+'</div>';
+    h+='<span class="support-filter-label">Status:</span><div class="support-filter-group">'+filterBtn("status","open","Open")+filterBtn("status","closed","Closed")+filterBtn("status","all","All")+'</div>';
     h+='<div class="support-count">'+items.length+' item'+(items.length!==1?'s':'')+'</div>';
     h+='</div>';
 
@@ -3053,10 +3061,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   /* Delegated click handlers for Support panel */
   document.addEventListener("click",async e=>{
+    const sp=document.getElementById("supportPanel");
+    if(!sp||!sp.contains(e.target))return;
+
     // ── Support panel: filter buttons ───────────────────────────────────
     const sfBtn=e.target.closest("[data-support-filter-group]");
     if(sfBtn){
-      e.preventDefault();
+      e.preventDefault();e.stopImmediatePropagation();
       const group=sfBtn.getAttribute("data-support-filter-group");
       const value=sfBtn.getAttribute("data-support-filter-value");
       if(group==="source")S.va.supportSource=value;
@@ -3067,19 +3078,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return;
     }
 
-    // ── Support panel: row expand/collapse ──────────────────────────────
-    const sRow=e.target.closest("[data-support-id]");
-    if(sRow&&!e.target.closest("a,button")){
-      const id=sRow.getAttribute("data-support-id");
-      S.va.supportExpandedId=S.va.supportExpandedId===id?null:id;
-      renderSupportPanel();
-      return;
-    }
-
     // ── Support panel: resolve & close ──────────────────────────────────
     const sResolve=e.target.closest("[data-support-resolve]");
     if(sResolve){
-      e.preventDefault();e.stopPropagation();
+      e.preventDefault();e.stopImmediatePropagation();
       const id=sResolve.getAttribute("data-support-resolve");
       const kind=sResolve.getAttribute("data-support-kind");
       await supportAction(id,kind,"close");
@@ -3089,10 +3091,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // ── Support panel: reopen ───────────────────────────────────────────
     const sReopen=e.target.closest("[data-support-reopen]");
     if(sReopen){
-      e.preventDefault();e.stopPropagation();
+      e.preventDefault();e.stopImmediatePropagation();
       const id=sReopen.getAttribute("data-support-reopen");
       const kind=sReopen.getAttribute("data-support-kind");
       await supportAction(id,kind,"reopen");
+      return;
+    }
+
+    // ── Support panel: row expand/collapse ──────────────────────────────
+    const sRow=e.target.closest("tr[data-support-id]");
+    if(sRow&&!e.target.closest("a,button")){
+      e.stopImmediatePropagation();
+      const id=sRow.getAttribute("data-support-id");
+      S.va.supportExpandedId=S.va.supportExpandedId===id?null:id;
+      renderSupportPanel();
       return;
     }
   },true);
