@@ -19235,6 +19235,250 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Request Revision — create Gmail draft with document attached ──
+  if (pathname === '/api/admin/va/task/request-revision' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var body = await readJsonBody(req);
+    var taskId = String(body.task_id || '').trim();
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+
+    var taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !Array.isArray(taskRes.data) || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var task = taskRes.data[0];
+    if (!task.attachment_url) { sendJson(res, 400, { ok: false, message: 'Task has no attachment to send.' }); return; }
+
+    // Get case -> user_id
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    var userId = caseRes.ok && caseRes.data[0] ? caseRes.data[0].user_id : null;
+    if (!userId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    // Get practice contact email from career state
+    var stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var state = stateRes.ok && stateRes.data[0] ? stateRes.data[0].state : {};
+    var career = _parseStateVal(state.gp_career_state);
+    var apps = Array.isArray(career.applications) ? career.applications : [];
+    var secured = apps.find(function (a) { return a && a.isPlacementSecured === true; });
+    var placement = secured && secured.placement ? secured.placement : {};
+    var practiceEmail = placement.practiceContact ? placement.practiceContact.email : null;
+    if (!practiceEmail) { sendJson(res, 400, { ok: false, message: 'No practice contact email found.' }); return; }
+
+    // Extract attachment buffer
+    var fileBuffer = null;
+    var fileName = task.attachment_filename || 'document.pdf';
+    var mimeType = 'application/pdf';
+    try {
+      if (task.attachment_url.startsWith('data:')) {
+        var dataParts = task.attachment_url.split(',');
+        fileBuffer = Buffer.from(dataParts[1], 'base64');
+        mimeType = (dataParts[0].match(/data:([^;]+)/) || [])[1] || 'application/pdf';
+      } else {
+        var revController = new AbortController();
+        var revTimeout = setTimeout(function () { revController.abort(); }, 15000);
+        try {
+          var resp = await fetch(task.attachment_url, { signal: revController.signal });
+          if (resp.ok) fileBuffer = Buffer.from(await resp.arrayBuffer());
+        } finally {
+          clearTimeout(revTimeout);
+        }
+      }
+    } catch (fetchErr) {
+      console.error('[RequestRevision] fetch attachment error:', fetchErr.message);
+    }
+    if (!fileBuffer) { sendJson(res, 400, { ok: false, message: 'Could not retrieve attachment data.' }); return; }
+
+    // Get GP name
+    var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var gpFirst = profileRes.ok && profileRes.data[0] ? profileRes.data[0].first_name || '' : '';
+    var gpLast = profileRes.ok && profileRes.data[0] ? profileRes.data[0].last_name || '' : '';
+    var gpName = ('Dr ' + gpFirst + ' ' + gpLast).trim();
+
+    // Build subject
+    var docKey = task.related_document_key;
+    var docLabel = docKey === 'offer_contract' ? 'Offer/Contract' : docKey === 'supervisor_cv' ? 'Supervisor CV' : (docKey || 'Document');
+    var practiceName = placement.practiceName || 'the practice';
+    var emailSubject = 'Re: ' + docLabel + ' Required — ' + gpName + ' at ' + practiceName;
+
+    // Build RFC 2822 email with attachment
+    var vaEmail = MONITORED_VA_EMAILS[0];
+    var boundary = 'boundary_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    var rawEmail = 'From: ' + vaEmail + '\r\n'
+      + 'To: ' + practiceEmail + '\r\n'
+      + 'Subject: ' + emailSubject + '\r\n'
+      + 'MIME-Version: 1.0\r\n'
+      + 'Content-Type: multipart/mixed; boundary="' + boundary + '"\r\n'
+      + '\r\n'
+      + '--' + boundary + '\r\n'
+      + 'Content-Type: text/plain; charset="UTF-8"\r\n'
+      + '\r\n'
+      + '\r\n'
+      + '--' + boundary + '\r\n'
+      + 'Content-Type: ' + mimeType + '; name="' + fileName + '"\r\n'
+      + 'Content-Disposition: attachment; filename="' + fileName + '"\r\n'
+      + 'Content-Transfer-Encoding: base64\r\n'
+      + '\r\n'
+      + fileBuffer.toString('base64') + '\r\n'
+      + '--' + boundary + '--';
+
+    // Base64url encode for Gmail API
+    var rawBase64 = Buffer.from(rawEmail).toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    // Create Gmail draft
+    try {
+      var gmail = await getGmailClient(vaEmail);
+      if (!gmail) { sendJson(res, 503, { ok: false, message: 'Gmail not configured.' }); return; }
+      var draftRes = await gmail.users.drafts.create({
+        userId: vaEmail,
+        requestBody: { message: { raw: rawBase64 } }
+      });
+      var draftId = draftRes.data && draftRes.data.id ? draftRes.data.id : '';
+      var draftMessageId = draftRes.data && draftRes.data.message ? draftRes.data.message.id : '';
+      var draftUrl = 'https://mail.google.com/mail/#drafts/' + draftMessageId;
+
+      // Reset task: clear attachment fields, set status to waiting_on_practice
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+        method: 'PATCH',
+        body: {
+          attachment_url: null,
+          attachment_filename: null,
+          gmail_message_id: null,
+          gmail_attachment_id: null,
+          ai_match_confidence: null,
+          ai_match_reasoning: null,
+          status: 'waiting_on_practice'
+        }
+      });
+
+      await _logCaseEvent(task.case_id, taskId, 'revision_requested', 'Revision requested — draft created for ' + practiceEmail, 'Document: ' + fileName, adminCtx.email);
+      sendJson(res, 200, { ok: true, draft_url: draftUrl });
+    } catch (gmailErr) {
+      console.error('[RequestRevision] Gmail draft error:', gmailErr.message);
+      sendJson(res, 500, { ok: false, message: 'Failed to create Gmail draft.' });
+    }
+    return;
+  }
+
+  // ── Dismiss attachment on a task ──
+  if (pathname === '/api/admin/va/task/dismiss-attachment' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var body = await readJsonBody(req);
+    var taskId = String(body.task_id || '').trim();
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+
+    var taskRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,attachment_filename,related_document_key&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !Array.isArray(taskRes.data) || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var task = taskRes.data[0];
+
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH',
+      body: {
+        attachment_url: null,
+        attachment_filename: null,
+        gmail_message_id: null,
+        gmail_attachment_id: null,
+        ai_match_confidence: null,
+        ai_match_reasoning: null,
+        status: 'waiting_on_practice'
+      }
+    });
+
+    await _logCaseEvent(task.case_id, taskId, 'attachment_dismissed', 'Attachment dismissed by VA', 'File: ' + (task.attachment_filename || 'unknown'), adminCtx.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── List unmatched documents from Gmail processing ──
+  if (pathname === '/api/admin/va/unmatched-documents' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    var unmatchedRes = await supabaseDbRequest('processed_gmail_messages',
+      'select=*&result=eq.unmatched&attachment_data=not.is.null&order=processed_at.desc&limit=50');
+    var documents = unmatchedRes.ok && Array.isArray(unmatchedRes.data) ? unmatchedRes.data : [];
+    sendJson(res, 200, { ok: true, documents: documents });
+    return;
+  }
+
+  // ── Manually assign an unmatched document to a task ──
+  if (pathname === '/api/admin/va/assign-document' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var body = await readJsonBody(req);
+    var gmailMessageId = String(body.gmail_message_id || '').trim();
+    var taskId = String(body.task_id || '').trim();
+    var attachmentIndex = typeof body.attachment_index === 'number' ? body.attachment_index : 0;
+    if (!gmailMessageId || !taskId) { sendJson(res, 400, { ok: false, message: 'gmail_message_id and task_id required.' }); return; }
+
+    // Fetch the processed_gmail_messages record
+    var gmailRes = await supabaseDbRequest('processed_gmail_messages',
+      'select=*&gmail_message_id=eq.' + encodeURIComponent(gmailMessageId) + '&limit=1');
+    if (!gmailRes.ok || !Array.isArray(gmailRes.data) || !gmailRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Gmail message record not found.' }); return; }
+    var gmailRecord = gmailRes.data[0];
+
+    // Parse attachment_data — handle both JSONB array and data URL string formats
+    var attachmentUrl = null;
+    var attachmentFilename = 'document.pdf';
+    var rawData = gmailRecord.attachment_data;
+    if (typeof rawData === 'string') {
+      // Data URL string format (single attachment)
+      if (rawData.startsWith('data:')) {
+        attachmentUrl = rawData;
+        attachmentFilename = gmailRecord.attachment_filename || 'document.pdf';
+      } else {
+        // Try parsing as JSON string
+        try {
+          rawData = JSON.parse(rawData);
+        } catch (e) {
+          sendJson(res, 400, { ok: false, message: 'Cannot parse attachment_data.' }); return;
+        }
+      }
+    }
+    if (!attachmentUrl && Array.isArray(rawData)) {
+      var att = rawData[attachmentIndex];
+      if (!att) { sendJson(res, 400, { ok: false, message: 'Attachment at index ' + attachmentIndex + ' not found.' }); return; }
+      attachmentUrl = 'data:' + (att.mime_type || 'application/pdf') + ';base64,' + att.base64;
+      attachmentFilename = att.filename || 'document.pdf';
+    }
+    if (!attachmentUrl) { sendJson(res, 400, { ok: false, message: 'No attachment data available.' }); return; }
+
+    // Fetch the task to get case_id
+    var taskRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+    if (!taskRes.ok || !Array.isArray(taskRes.data) || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var task = taskRes.data[0];
+
+    // Update the task with attachment
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH',
+      body: {
+        attachment_url: attachmentUrl,
+        attachment_filename: attachmentFilename,
+        gmail_message_id: gmailMessageId,
+        status: 'in_progress',
+        ai_match_reasoning: 'Manually assigned by VA'
+      }
+    });
+
+    // Update processed_gmail_messages: mark as matched, clear attachment_data
+    await supabaseDbRequest('processed_gmail_messages', 'gmail_message_id=eq.' + encodeURIComponent(gmailMessageId), {
+      method: 'PATCH',
+      body: {
+        result: 'matched',
+        matched_task_id: taskId,
+        attachment_data: null
+      }
+    });
+
+    await _logCaseEvent(task.case_id, taskId, 'document_assigned', 'Document manually assigned from unmatched Gmail', 'From: ' + (gmailRecord.sender || 'unknown') + ' | File: ' + attachmentFilename, adminCtx.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   // ══════ User-facing nudge endpoints ══════
 
   // ── List my nudges (unread first) ──
