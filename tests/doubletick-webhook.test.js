@@ -85,7 +85,7 @@ function normalizePhone(phone) {
 // ---------------------------------------------------------------------------
 
 function classifyDoubleTickMessageKeywords(messageBody) {
-  const HELP_PATTERNS = [/\bhelp\b/i, /\bneed help\b/i, /\bassist\b/i, /\bsupport\b/i, /\bstuck\b/i, /\bproblem\b/i, /\bissue\b/i, /\bquestion\b/i];
+  const HELP_PATTERNS = [/\bhelp\b/i, /\bneed help\b/i, /\bassist\b/i, /\bsupport\b/i, /\bstuck\b/i, /\bproblem\b/i, /\bissue\b/i, /\bquestion\b/i, /\bshould\s+I\b/i, /\bcan\s+I\b/i, /\bdo\s+I\b/i, /\bhow\s+(do|can|to)\b/i, /\bwhat\s+(do|should|can)\b/i, /\bwhen\s+(do|should|can|will)\b/i, /\bwhere\s+(do|should|can)\b/i, /\?\s*$/];
   return HELP_PATTERNS.some((p) => p.test(messageBody));
 }
 
@@ -290,9 +290,27 @@ describe('classifyDoubleTickMessageKeywords', () => {
     expect(classifyDoubleTickMessageKeywords('contact support please')).toBe(true);
   });
 
+  it('matches question patterns (should I, can I, how do, etc.)', () => {
+    expect(classifyDoubleTickMessageKeywords('Should I send them an email')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('Can I upload this later')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('Do I need to fill out section G')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('How do I get started')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('How can I apply')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('How to submit my documents')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('What should I do next')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('When will I hear back')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('Where do I find the form')).toBe(true);
+  });
+
+  it('matches messages ending with a question mark', () => {
+    expect(classifyDoubleTickMessageKeywords('Is this the right document?')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('Has my application been received?')).toBe(true);
+  });
+
   it('is case-insensitive', () => {
     expect(classifyDoubleTickMessageKeywords('HELP ME PLEASE')).toBe(true);
     expect(classifyDoubleTickMessageKeywords('I Have A Question')).toBe(true);
+    expect(classifyDoubleTickMessageKeywords('SHOULD I CALL THEM')).toBe(true);
   });
 
   it('rejects messages without help keywords (these go to AI)', () => {

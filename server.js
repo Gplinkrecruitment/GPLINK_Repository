@@ -1764,8 +1764,8 @@ function recordDtPhoneSpend(phone, inputTokens, outputTokens) {
  * Rate-limited to $0.001/phone/day for AI classification calls.
  */
 async function classifyDoubleTickMessage(messageBody, fromPhone) {
-  // Fast keyword pre-check — obvious help requests skip the AI call
-  const HELP_PATTERNS = [/\bhelp\b/i, /\bneed help\b/i, /\bassist\b/i, /\bsupport\b/i, /\bstuck\b/i, /\bproblem\b/i, /\bissue\b/i, /\bquestion\b/i];
+  // Fast keyword pre-check — obvious help/question messages skip the AI call
+  const HELP_PATTERNS = [/\bhelp\b/i, /\bneed help\b/i, /\bassist\b/i, /\bsupport\b/i, /\bstuck\b/i, /\bproblem\b/i, /\bissue\b/i, /\bquestion\b/i, /\bshould\s+I\b/i, /\bcan\s+I\b/i, /\bdo\s+I\b/i, /\bhow\s+(do|can|to)\b/i, /\bwhat\s+(do|should|can)\b/i, /\bwhen\s+(do|should|can|will)\b/i, /\bwhere\s+(do|should|can)\b/i, /\?\s*$/];
   if (HELP_PATTERNS.some((p) => p.test(messageBody))) return true;
 
   // Skip AI if not configured, over global budget, or over per-phone budget
@@ -1789,7 +1789,7 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
         max_tokens: 4,
         messages: [{
           role: 'user',
-          content: 'You are a message classifier for a medical registration support service. Determine if the following WhatsApp message is a question, help request, complaint, or expression of confusion — even if it has no question mark. Reply with exactly YES or NO.\n\nMessage: ' + messageBody.slice(0, 500)
+          content: 'You are a message classifier for a GP (doctor) registration support service. GPs message us on WhatsApp when they need guidance. Determine if the following message is ANY of: a question, request for guidance, help request, complaint, expression of confusion, or asking what to do next. Be INCLUSIVE — when in doubt, say YES. Only say NO for purely social messages like "thanks", "ok", "goodbye", or messages that clearly need no response. Reply with exactly YES or NO.\n\nMessage: ' + messageBody.slice(0, 500)
         }]
       })
     });
