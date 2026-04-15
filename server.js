@@ -575,6 +575,312 @@ async function getOpenPracticePackTasks() {
   return results;
 }
 
+async function processGmailNotification(emailAddress, notifiedHistoryId) {
+  if (!MONITORED_VA_EMAILS.includes(emailAddress)) {
+    console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);
+    return;
+  }
+
+  var gmail = await getGmailClient(emailAddress);
+  if (!gmail) {
+    console.error('[Gmail] Could not get Gmail client for', emailAddress);
+    return;
+  }
+
+  // Fetch stored historyId from gmail_watch_state table
+  var stateRes = await supabaseDbRequest(
+    'gmail_watch_state',
+    'select=history_id&email_address=eq.' + encodeURIComponent(emailAddress) + '&limit=1'
+  );
+  var storedHistoryId = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0])
+    ? stateRes.data[0].history_id
+    : null;
+
+  // First run — store the current historyId and return
+  if (!storedHistoryId) {
+    console.log('[Gmail] First run for', emailAddress, '— storing historyId:', notifiedHistoryId);
+    await supabaseDbRequest('gmail_watch_state', '', {
+      method: 'POST',
+      body: { email_address: emailAddress, history_id: notifiedHistoryId, updated_at: new Date().toISOString() },
+      headers: { 'Prefer': 'resolution=merge-duplicates' }
+    });
+    return;
+  }
+
+  // Fetch history since stored historyId
+  var historyResponse;
+  try {
+    historyResponse = await gmail.users.history.list({
+      userId: emailAddress,
+      startHistoryId: storedHistoryId,
+      historyTypes: ['messageAdded'],
+      labelId: 'INBOX'
+    });
+  } catch (histErr) {
+    // historyId too old — reset
+    if (histErr.code === 404 || (histErr.response && histErr.response.status === 404)) {
+      console.warn('[Gmail] historyId too old for', emailAddress, '— resetting to', notifiedHistoryId);
+      await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(emailAddress), {
+        method: 'PATCH',
+        body: { history_id: notifiedHistoryId, updated_at: new Date().toISOString() }
+      });
+      return;
+    }
+    throw histErr;
+  }
+
+  var historyList = (historyResponse.data && historyResponse.data.history) || [];
+  var newHistoryId = (historyResponse.data && historyResponse.data.historyId)
+    ? String(historyResponse.data.historyId)
+    : notifiedHistoryId;
+
+  // Collect unique message IDs from history
+  var messageIds = [];
+  var seenIds = {};
+  for (var h = 0; h < historyList.length; h++) {
+    var messages = historyList[h].messagesAdded || [];
+    for (var m = 0; m < messages.length; m++) {
+      var msgId = messages[m].message && messages[m].message.id;
+      if (msgId && !seenIds[msgId]) {
+        seenIds[msgId] = true;
+        messageIds.push(msgId);
+      }
+    }
+  }
+
+  console.log('[Gmail] Found', messageIds.length, 'new messages for', emailAddress);
+
+  // Fetch open tasks once for all messages
+  var openTasks = await getOpenPracticePackTasks();
+
+  for (var i = 0; i < messageIds.length; i++) {
+    var currentMsgId = messageIds[i];
+    try {
+      // Dedup check against processed_gmail_messages
+      var dedupRes = await supabaseDbRequest(
+        'processed_gmail_messages',
+        'select=id&gmail_message_id=eq.' + encodeURIComponent(currentMsgId) + '&limit=1'
+      );
+      if (dedupRes.ok && Array.isArray(dedupRes.data) && dedupRes.data.length > 0) {
+        console.log('[Gmail] Skipping already-processed message:', currentMsgId);
+        continue;
+      }
+
+      // Fetch full message
+      var fullMsg = await gmail.users.messages.get({
+        userId: emailAddress,
+        id: currentMsgId,
+        format: 'full'
+      });
+
+      // Extract email metadata
+      var emailMeta = extractEmailMeta(fullMsg.data);
+
+      // Build lowercase headers map for pre-filter checks
+      var rawHeaders = (fullMsg.data.payload && fullMsg.data.payload.headers) || [];
+      var lowerHeaders = {};
+      for (var hi = 0; hi < rawHeaders.length; hi++) {
+        lowerHeaders[rawHeaders[hi].name.toLowerCase()] = rawHeaders[hi].value;
+      }
+      emailMeta.headers = lowerHeaders;
+
+      // Run pre-filter
+      var filterResult = preFilterEmail(emailMeta);
+      if (!filterResult.pass) {
+        console.log('[Gmail] Pre-filter rejected message', currentMsgId, ':', filterResult.reason);
+        await supabaseDbRequest('processed_gmail_messages', '', {
+          method: 'POST',
+          body: [{
+            gmail_message_id: currentMsgId,
+            email_address: emailAddress,
+            sender: emailMeta.sender,
+            subject: emailMeta.subject,
+            status: 'filtered',
+            filter_reason: filterResult.reason,
+            processed_at: new Date().toISOString()
+          }]
+        });
+        continue;
+      }
+
+      // Run AI matching
+      var aiResult = await aiMatchEmail(emailMeta, openTasks);
+
+      if (!aiResult.is_relevant) {
+        console.log('[Gmail] AI classified message', currentMsgId, 'as not relevant');
+        await supabaseDbRequest('processed_gmail_messages', '', {
+          method: 'POST',
+          body: [{
+            gmail_message_id: currentMsgId,
+            email_address: emailAddress,
+            sender: emailMeta.sender,
+            subject: emailMeta.subject,
+            status: 'filtered',
+            filter_reason: 'ai_not_relevant',
+            ai_summary: aiResult.summary || '',
+            processed_at: new Date().toISOString()
+          }]
+        });
+        continue;
+      }
+
+      // Process matches
+      var hasMatch = false;
+      var matches = aiResult.matches || [];
+
+      for (var mi = 0; mi < matches.length; mi++) {
+        var match = matches[mi];
+        if (!match.task_id || match.confidence < 0.4) continue;
+
+        // Find the matched attachment
+        var attachmentMeta = emailMeta.attachments.find(function (a) { return a.index === match.attachment_index; });
+        if (!attachmentMeta) continue;
+
+        hasMatch = true;
+
+        // Download attachment from Gmail
+        var attachmentData = null;
+        try {
+          var attRes = await gmail.users.messages.attachments.get({
+            userId: emailAddress,
+            messageId: currentMsgId,
+            id: attachmentMeta.attachmentId
+          });
+          if (attRes.data && attRes.data.data) {
+            attachmentData = Buffer.from(attRes.data.data, 'base64url');
+          }
+        } catch (attErr) {
+          console.error('[Gmail] Failed to download attachment:', attErr.message);
+          continue;
+        }
+
+        // Build data URL for task storage
+        var dataUrl = 'data:' + (attachmentMeta.mimeType || 'application/octet-stream') + ';base64,' + attachmentData.toString('base64');
+
+        // Update the task
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(match.task_id), {
+          method: 'PATCH',
+          body: {
+            attachment_url: dataUrl,
+            attachment_filename: attachmentMeta.filename,
+            gmail_message_id: currentMsgId,
+            gmail_attachment_id: attachmentMeta.attachmentId,
+            ai_match_confidence: match.confidence,
+            ai_match_reasoning: match.reasoning || '',
+            status: 'in_progress',
+            updated_at: new Date().toISOString()
+          }
+        });
+
+        // Look up task details for Drive upload and event logging
+        var taskLookup = await supabaseDbRequest(
+          'registration_tasks',
+          'select=case_id,related_document_key&id=eq.' + encodeURIComponent(match.task_id) + '&limit=1'
+        );
+        var taskInfo = (taskLookup.ok && Array.isArray(taskLookup.data) && taskLookup.data[0]) ? taskLookup.data[0] : null;
+
+        if (taskInfo && taskInfo.case_id) {
+          // Upload to Google Drive
+          try {
+            var folderId = await ensureGPDriveFolder(taskInfo.case_id, null, null);
+            if (folderId && attachmentData) {
+              await uploadToGoogleDrive(folderId, attachmentMeta.filename, attachmentData, attachmentMeta.mimeType);
+            }
+          } catch (driveErr) {
+            console.error('[Gmail] Drive upload error:', driveErr.message);
+          }
+
+          // Log case event
+          var docLabel = (taskInfo.related_document_key || match.document_type || 'document').replace(/_/g, ' ');
+          await _logCaseEvent(
+            taskInfo.case_id,
+            match.task_id,
+            'gmail_attachment',
+            'Document received via email: ' + docLabel,
+            'From: ' + emailMeta.sender + ' | File: ' + attachmentMeta.filename + ' | Confidence: ' + (match.confidence * 100).toFixed(0) + '%',
+            'system'
+          );
+        }
+
+        console.log('[Gmail] Matched attachment', attachmentMeta.filename, 'to task', match.task_id, 'with confidence', match.confidence);
+      }
+
+      // Store in processed_gmail_messages
+      var processedRecord = {
+        gmail_message_id: currentMsgId,
+        email_address: emailAddress,
+        sender: emailMeta.sender,
+        subject: emailMeta.subject,
+        status: hasMatch ? 'matched' : 'unmatched',
+        ai_summary: aiResult.summary || '',
+        ai_matches: JSON.stringify(matches),
+        processed_at: new Date().toISOString()
+      };
+
+      // For unmatched relevant emails, store attachment data for manual review
+      if (!hasMatch && emailMeta.attachments.length > 0) {
+        try {
+          var firstAtt = emailMeta.attachments[0];
+          var unmatchedAttRes = await gmail.users.messages.attachments.get({
+            userId: emailAddress,
+            messageId: currentMsgId,
+            id: firstAtt.attachmentId
+          });
+          if (unmatchedAttRes.data && unmatchedAttRes.data.data) {
+            var unmatchedBuffer = Buffer.from(unmatchedAttRes.data.data, 'base64url');
+            processedRecord.attachment_data = 'data:' + (firstAtt.mimeType || 'application/octet-stream') + ';base64,' + unmatchedBuffer.toString('base64');
+            processedRecord.attachment_filename = firstAtt.filename;
+          }
+        } catch (unmatchedErr) {
+          console.error('[Gmail] Failed to download unmatched attachment:', unmatchedErr.message);
+        }
+      }
+
+      await supabaseDbRequest('processed_gmail_messages', '', {
+        method: 'POST',
+        body: [processedRecord]
+      });
+
+    } catch (msgErr) {
+      console.error('[Gmail] Error processing message', currentMsgId, ':', msgErr.message);
+    }
+  }
+
+  // Update stored historyId
+  await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(emailAddress), {
+    method: 'PATCH',
+    body: { history_id: newHistoryId, updated_at: new Date().toISOString() }
+  });
+  console.log('[Gmail] Updated historyId for', emailAddress, 'to', newHistoryId);
+}
+
+async function setupGmailWatch(userEmail) {
+  if (!GOOGLE_PUBSUB_TOPIC) {
+    console.error('[Gmail] GOOGLE_PUBSUB_TOPIC not configured');
+    return null;
+  }
+  var gmail = await getGmailClient(userEmail);
+  if (!gmail) return null;
+  try {
+    var watchRes = await gmail.users.watch({
+      userId: userEmail,
+      requestBody: { topicName: GOOGLE_PUBSUB_TOPIC, labelIds: ['INBOX'] }
+    });
+    var expiry = watchRes.data.expiration ? new Date(parseInt(watchRes.data.expiration)) : null;
+    var historyId = String(watchRes.data.historyId);
+    await supabaseDbRequest('gmail_watch_state', '', {
+      method: 'POST',
+      body: { email_address: userEmail, history_id: historyId, watch_expiry: expiry ? expiry.toISOString() : null, updated_at: new Date().toISOString() },
+      headers: { 'Prefer': 'resolution=merge-duplicates' }
+    });
+    console.log('[Gmail] Watch registered for', userEmail, '- expires:', expiry, '- historyId:', historyId);
+    return { historyId: historyId, expiry: expiry };
+  } catch (err) {
+    console.error('[Gmail] setupWatch error for', userEmail, ':', err.message);
+    return null;
+  }
+}
+
 function validateRuntimeConfig() {
   if (NODE_ENV !== 'production') return;
 
@@ -12642,6 +12948,41 @@ async function handleApi(req, res, pathname) {
     return handleDoubleTickWebhook(req, res);
   }
 
+  // Gmail Pub/Sub webhook — external origin, must be before same-origin enforcement
+  if (req.method === 'POST' && pathname === '/api/webhooks/gmail') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"ok":true}');
+    // Process in background
+    try {
+      var gmailBody = await readJsonBody(req);
+      var pubsubData = parseGmailPubSubMessage(gmailBody);
+      if (pubsubData && pubsubData.emailAddress) {
+        processGmailNotification(pubsubData.emailAddress, pubsubData.historyId)
+          .catch(function (err) { console.error('[Gmail webhook] background processing error:', err.message); });
+      }
+    } catch (whErr) {
+      console.error('[Gmail webhook] parse error:', whErr.message);
+    }
+    return;
+  }
+
+  // Cron: renew Gmail watch (before same-origin — called by Vercel cron)
+  if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
+    var cronSecret = String(process.env.CRON_SECRET || '').trim();
+    var authHeader = req.headers['authorization'] || '';
+    if (cronSecret && authHeader !== 'Bearer ' + cronSecret) {
+      sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    var cronResults = [];
+    for (var vaEmail of MONITORED_VA_EMAILS) {
+      var watchResult = await setupGmailWatch(vaEmail);
+      cronResults.push({ email: vaEmail, success: !!watchResult, expiry: watchResult ? watchResult.expiry : null });
+    }
+    sendJson(res, 200, { ok: true, results: cronResults });
+    return;
+  }
+
   if (!enforceMutationOrigin(req, res)) return;
 
   if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
@@ -14511,6 +14852,19 @@ async function handleApi(req, res, pathname) {
       message: syncResult.message || '',
       connection: syncResult.connected || null
     });
+    return;
+  }
+
+  // Admin: initialize Gmail watch for monitored VA emails
+  if (req.method === 'POST' && pathname === '/api/admin/gmail/setup-watch') {
+    var adminGmailAuth = requireAdminSession(req, res);
+    if (!adminGmailAuth) return;
+    var gmailSetupResults = [];
+    for (var vaSetupEmail of MONITORED_VA_EMAILS) {
+      var setupWatchResult = await setupGmailWatch(vaSetupEmail);
+      gmailSetupResults.push({ email: vaSetupEmail, success: !!setupWatchResult, expiry: setupWatchResult ? setupWatchResult.expiry : null });
+    }
+    sendJson(res, 200, { ok: true, results: gmailSetupResults });
     return;
   }
 
@@ -18124,6 +18478,122 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── GET /api/admin/va/support ─────────────────────────────────────────────
+  // Merged view: support_tickets + whatsapp_help registration_tasks
+  if (pathname === '/api/admin/va/support' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    const sourceFilter = (url.searchParams.get('source') || 'all').toLowerCase();
+    const statusFilter = (url.searchParams.get('status') || 'open').toLowerCase();
+
+    const items = [];
+
+    // ── 1. Support tickets (source = "manual") ───────────────────────────
+    if (sourceFilter === 'all' || sourceFilter === 'manual') {
+      const stQuery = statusFilter === 'all'
+        ? 'select=*&order=created_at.desc&limit=500'
+        : statusFilter === 'closed'
+          ? 'select=*&status=eq.closed&order=resolved_at.desc.nullslast,updated_at.desc&limit=500'
+          : 'select=*&status=neq.closed&order=created_at.desc&limit=500';
+      const stRes = await supabaseDbRequest('support_tickets', stQuery);
+      const tickets = stRes.ok && Array.isArray(stRes.data) ? stRes.data : [];
+      for (const tk of tickets) {
+        items.push({
+          id: tk.id,
+          kind: 'ticket',
+          source: 'manual',
+          user_id: tk.user_id,
+          case_id: tk.case_id || null,
+          title: tk.title || 'Support request',
+          body: tk.body || '',
+          category: tk.category || null,
+          stage: tk.stage || '',
+          priority: tk.priority || 'normal',
+          status: tk.status || 'open',
+          doubletick_url: null,
+          resolved_at: tk.resolved_at || null,
+          resolved_by: tk.resolved_by || null,
+          created_at: tk.created_at,
+          updated_at: tk.updated_at
+        });
+      }
+    }
+
+    // ── 2. WhatsApp help tasks (source = "whatsapp") ─────────────────────
+    if (sourceFilter === 'all' || sourceFilter === 'whatsapp') {
+      const waStatusClause = statusFilter === 'all'
+        ? ''
+        : statusFilter === 'closed'
+          ? '&status=in.(completed,cancelled)'
+          : '&status=in.(open,in_progress,waiting)';
+      const waQuery = 'select=*&task_type=eq.whatsapp_help&source_trigger=eq.doubletick_webhook' + waStatusClause + '&order=created_at.desc&limit=500';
+      const waRes = await supabaseDbRequest('registration_tasks', waQuery);
+      const waTasks = waRes.ok && Array.isArray(waRes.data) ? waRes.data : [];
+      for (const t of waTasks) {
+        items.push({
+          id: t.id,
+          kind: 'task',
+          source: 'whatsapp',
+          user_id: null,
+          case_id: t.case_id || null,
+          title: t.title || 'WhatsApp enquiry',
+          body: t.description || '',
+          category: null,
+          stage: t.related_stage || '',
+          priority: t.priority || 'high',
+          status: t.status === 'completed' || t.status === 'cancelled' ? 'closed' : t.status || 'open',
+          doubletick_url: t.doubletick_conversation_url || null,
+          resolved_at: t.completed_at || null,
+          resolved_by: t.completed_by || null,
+          created_at: t.created_at,
+          updated_at: t.updated_at
+        });
+      }
+    }
+
+    // ── 3. Enrich with GP profile data ───────────────────────────────────
+    const caseIds = [...new Set(items.filter(i => i.case_id && !i.user_id).map(i => i.case_id))];
+    let caseUserMap = {};
+    if (caseIds.length > 0) {
+      const cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
+      if (cRes.ok && Array.isArray(cRes.data)) cRes.data.forEach(c => { caseUserMap[c.id] = c.user_id; });
+      for (const item of items) {
+        if (!item.user_id && item.case_id && caseUserMap[item.case_id]) {
+          item.user_id = caseUserMap[item.case_id];
+        }
+      }
+    }
+
+    const userIds = [...new Set(items.map(i => i.user_id).filter(Boolean))];
+    let profileMap = {};
+    if (userIds.length > 0) {
+      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,phone&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(p => { profileMap[p.user_id] = p; });
+    }
+
+    const enriched = items.map(item => {
+      const p = profileMap[item.user_id] || {};
+      return Object.assign({}, item, {
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_email: p.email || '',
+        gp_phone: p.phone_number || p.phone || '',
+        whatsapp_link: buildWhatsAppLink(item.stage, p.first_name || '')
+      });
+    });
+
+    enriched.sort((a, b) => {
+      const aOpen = a.status !== 'closed' ? 0 : 1;
+      const bOpen = b.status !== 'closed' ? 0 : 1;
+      if (aOpen !== bOpen) return aOpen - bOpen;
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+
+    sendJson(res, 200, { ok: true, items: enriched });
+    return;
+  }
+
   // ── List tickets (for VA Tickets tab) with status filter ──
   if (pathname === '/api/admin/va/tickets' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
@@ -18203,6 +18673,27 @@ Return ONLY valid JSON with no markdown formatting:
     }
     invalidateAdminDashboardCache();
     sendJson(res, 200, { ok: true, ticket: updated });
+    return;
+  }
+
+  // ── PUT /api/admin/va/support/task/:id — resolve a whatsapp_help task ──
+  const supportTaskMatch = pathname.match(/^\/api\/admin\/va\/support\/task\/([^/]+)$/);
+  if (supportTaskMatch && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const taskId = decodeURIComponent(supportTaskMatch[1] || '');
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const nextStatus = body && body.status === 'completed' ? 'completed' : body && body.status === 'open' ? 'open' : null;
+    if (!nextStatus) { sendJson(res, 400, { ok: false, message: 'status must be open or completed.' }); return; }
+    const patch = { status: nextStatus, updated_at: new Date().toISOString() };
+    if (nextStatus === 'completed') { patch.completed_at = new Date().toISOString(); patch.completed_by = adminCtx.email; }
+    else { patch.completed_at = null; patch.completed_by = null; }
+    const r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId) + '&task_type=eq.whatsapp_help', { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+    if (!updated) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, task: updated });
     return;
   }
 
