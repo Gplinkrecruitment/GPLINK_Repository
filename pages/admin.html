@@ -849,35 +849,91 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
 
     if (dk === 'offer_contract') {
-      var html = '<div class="doc-task-actions">';
-      if (task.zoho_attachment_id || task.attachment_url) {
+      var html = '';
+      if (task.gmail_message_id && task.attachment_url) {
+        var conf = typeof task.ai_confidence === 'number' ? task.ai_confidence : 0;
+        var confPct = Math.round(conf * 100);
+        var confHigh = conf >= 0.7;
+        var confBadgeBg = confHigh ? '#dcfce7' : '#fef9c3';
+        var confBadgeColor = confHigh ? '#166534' : '#854d0e';
+        var safeFname = (task.attachment_filename || 'Contract').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var safeReason = (task.ai_match_reasoning || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        html += '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:0.85rem;">';
+        html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
+        html += '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600;font-size:0.8rem;">Auto-received</span>';
+        html += '<span style="background:' + confBadgeBg + ';color:' + confBadgeColor + ';padding:2px 8px;border-radius:4px;font-size:0.8rem;">' + confPct + '% match</span>';
+        html += '<span style="color:#555;font-size:0.8rem;">' + safeFname + '</span>';
+        html += '</div>';
+        if (safeReason) {
+          html += '<details style="margin-top:6px;"><summary style="cursor:pointer;color:#166534;font-size:0.8rem;">Why this match?</summary>';
+          html += '<div style="margin-top:4px;color:#555;font-size:0.8rem;white-space:pre-wrap;">' + safeReason + '</div></details>';
+        }
+        html += '</div>';
+        html += '<div class="doc-task-actions">';
+        html += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review Document</button>';
+        html += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Approve &amp; Send to GP</button>';
+        html += '<button class="btn-action btn-mailto" onclick="requestRevision(\'' + task.id + '\')">Request Revision</button>';
+        html += '<button class="btn-action" onclick="dismissAttachment(\'' + task.id + '\')" style="color:#dc2626;">Dismiss</button>';
+        html += '</div>';
+      } else if (task.zoho_attachment_id || task.attachment_url) {
+        html += '<div class="doc-task-actions">';
         html += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review: ' + (task.attachment_filename || 'Contract').replace(/'/g, "\\'") + '</button>';
         html += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Submit to GP</button>';
+        html += '</div>';
       } else {
+        html += '<div class="doc-task-actions">';
         var mailto = buildMailtoLinkFE(pc.contactEmail || '',
           'Offer/Contract Required \u2014 ' + gpName + ' at ' + (pc.practiceName || 'the practice'),
           'Hi ' + (pc.contactName || '') + ',\\n\\nWe require the completed employment agreement between ' + (pc.practiceName || 'the practice') + ' and ' + gpName + ' for the ' + (pc.roleTitle || 'General Practitioner') + ' position.\\n\\nPlease reply with the signed document attached.\\n\\nKind regards,\\nGP Link Team');
         html += '<a class="btn-action btn-mailto" href="' + mailto + '" onclick="markTaskWaiting(\'' + task.id + '\')">Email Practice for Contract</a>';
+        html += '</div>';
       }
-      html += '<label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label>';
-      html += '</div>';
+      html += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
       if (task.status === 'waiting_on_practice') html += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
       return html;
     }
 
     if (dk === 'supervisor_cv') {
-      var html2 = '<div class="doc-task-actions">';
-      if (task.attachment_url) {
+      var html2 = '';
+      if (task.gmail_message_id && task.attachment_url) {
+        var conf2 = typeof task.ai_confidence === 'number' ? task.ai_confidence : 0;
+        var confPct2 = Math.round(conf2 * 100);
+        var confHigh2 = conf2 >= 0.7;
+        var confBadgeBg2 = confHigh2 ? '#dcfce7' : '#fef9c3';
+        var confBadgeColor2 = confHigh2 ? '#166534' : '#854d0e';
+        var safeFname2 = (task.attachment_filename || 'Supervisor CV').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var safeReason2 = (task.ai_match_reasoning || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        html2 += '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:0.85rem;">';
+        html2 += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
+        html2 += '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600;font-size:0.8rem;">Auto-received</span>';
+        html2 += '<span style="background:' + confBadgeBg2 + ';color:' + confBadgeColor2 + ';padding:2px 8px;border-radius:4px;font-size:0.8rem;">' + confPct2 + '% match</span>';
+        html2 += '<span style="color:#555;font-size:0.8rem;">' + safeFname2 + '</span>';
+        html2 += '</div>';
+        if (safeReason2) {
+          html2 += '<details style="margin-top:6px;"><summary style="cursor:pointer;color:#166534;font-size:0.8rem;">Why this match?</summary>';
+          html2 += '<div style="margin-top:4px;color:#555;font-size:0.8rem;white-space:pre-wrap;">' + safeReason2 + '</div></details>';
+        }
+        html2 += '</div>';
+        html2 += '<div class="doc-task-actions">';
+        html2 += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review Document</button>';
+        html2 += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Approve &amp; Send to GP</button>';
+        html2 += '<button class="btn-action btn-mailto" onclick="requestRevision(\'' + task.id + '\')">Request Revision</button>';
+        html2 += '<button class="btn-action" onclick="dismissAttachment(\'' + task.id + '\')" style="color:#dc2626;">Dismiss</button>';
+        html2 += '</div>';
+      } else if (task.attachment_url) {
+        html2 += '<div class="doc-task-actions">';
         html2 += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review: ' + (task.attachment_filename || 'Supervisor CV').replace(/'/g, "\\'") + '</button>';
         html2 += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Submit to GP</button>';
+        html2 += '</div>';
       } else {
+        html2 += '<div class="doc-task-actions">';
         var mailto2 = buildMailtoLinkFE(pc.contactEmail || '',
           'Supervisor CV Required \u2014 ' + gpName + ' at ' + (pc.practiceName || 'the practice'),
           'Hi ' + (pc.contactName || '') + ',\\n\\nWe require the supervising doctor\\\'s CV for ' + gpName + '\\\'s Specialist Registration application at ' + (pc.practiceName || 'the practice') + '.\\n\\nPlease reply with the supervisor\\\'s CV attached.\\n\\nKind regards,\\nGP Link Team');
         html2 += '<a class="btn-action btn-mailto" href="' + mailto2 + '" onclick="markTaskWaiting(\'' + task.id + '\')">Email Practice for Supervisor CV</a>';
+        html2 += '</div>';
       }
-      html2 += '<label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label>';
-      html2 += '</div>';
+      html2 += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
       if (task.status === 'waiting_on_practice') html2 += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
       return html2;
     }
@@ -2027,6 +2083,46 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         body: JSON.stringify({ status: 'waiting_on_practice' })
       });
     } catch (e) { /* best effort */ }
+  }
+
+  async function requestRevision(taskId) {
+    if (!confirm('Create a revision request draft in Gmail? The document will be attached for the practice to review.')) return;
+    try {
+      var res = await fetch('/api/admin/va/task/request-revision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId })
+      });
+      var data = await res.json();
+      if (data.ok && data.draft_url) {
+        window.open(data.draft_url, '_blank');
+        alert('Gmail draft created. Add your explanation and hit Send.');
+        if (typeof loadVaDashboard === 'function') loadVaDashboard();
+      } else {
+        alert('Error: ' + (data.error || data.message || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Error creating revision draft: ' + err.message);
+    }
+  }
+
+  async function dismissAttachment(taskId) {
+    if (!confirm('Dismiss this document? The task will go back to waiting on practice.')) return;
+    try {
+      var res = await fetch('/api/admin/va/task/dismiss-attachment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId })
+      });
+      var data = await res.json();
+      if (data.ok) {
+        if (typeof loadVaDashboard === 'function') loadVaDashboard();
+      } else {
+        alert('Error: ' + (data.error || data.message || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
   }
 
   async function saveCase(caseId){
