@@ -1034,9 +1034,21 @@
       if (isRecovery) {
         try {
           const client = await ensureSupabaseClient();
-          // Exchange the recovery token fragments for a session
-          const { data, error } = await client.auth.getSession();
-          if (error || !data || !data.session) {
+          // Parse tokens directly from hash — getSession() races with auto-detect
+          const hashParams = new URLSearchParams(hash.substring(1));
+          const accessToken = hashParams.get("access_token");
+          const refreshToken = hashParams.get("refresh_token");
+          var sessionOk = false;
+          if (accessToken && refreshToken) {
+            var result = await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+            sessionOk = !result.error && result.data && result.data.session;
+          }
+          if (!sessionOk) {
+            // Fallback: check if auto-detect already processed it
+            var fallback = await client.auth.getSession();
+            sessionOk = !fallback.error && fallback.data && fallback.data.session;
+          }
+          if (!sessionOk) {
             setStatus(signInStatusEl, "Recovery link is invalid or expired. Please request a new one.", "error");
             return;
           }
