@@ -341,19 +341,26 @@ async function getGmailClient(userEmail) {
   if (!isGmailConfigured()) return null;
   var { google } = require('googleapis');
   try {
-    if (!GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.length < 100) {
-      throw new Error('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY is empty or too short (length=' + (GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.length : 0) + ')');
+    var keyLen = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.length : 0;
+    var emailLen = GOOGLE_SERVICE_ACCOUNT_EMAIL ? GOOGLE_SERVICE_ACCOUNT_EMAIL.length : 0;
+    var hasBegin = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('BEGIN') >= 0;
+    var hasNewlines = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('\n') >= 0;
+    if (keyLen < 100 || emailLen < 10) {
+      throw new Error('service account env vars missing (emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasNewlines=' + hasNewlines + ')');
     }
-    var auth = new google.auth.JWT({
-      email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    var authClient = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+        private_key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+      },
       scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'],
-      subject: userEmail
+      clientOptions: { subject: userEmail }
     });
-    // Force authorization now so we surface token-exchange errors clearly
-    // (instead of the generic "missing credential" error from Gmail API later).
-    await auth.authorize();
-    _gmailClients[userEmail] = google.gmail({ version: 'v1', auth });
+    var jwtClient = await authClient.getClient();
+    if (jwtClient && typeof jwtClient.authorize === 'function') {
+      await jwtClient.authorize();
+    }
+    _gmailClients[userEmail] = google.gmail({ version: 'v1', auth: jwtClient });
     _gmailClientErrors[userEmail] = null;
     return _gmailClients[userEmail];
   } catch (err) {
@@ -361,8 +368,8 @@ async function getGmailClient(userEmail) {
     if (err && err.response && err.response.data) {
       detail = JSON.stringify(err.response.data);
     }
-    console.error('[Gmail] getGmailClient JWT authorize failed for', userEmail, ':', detail);
-    _gmailClientErrors[userEmail] = detail;
+    console.error('[Gmail] getGmailClient auth failed for', userEmail, ':', detail);
+    _gmailClientErrors[userEmail] = detail + ' [diag: emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasNewlines=' + hasNewlines + ']';
     return null;
   }
 }
