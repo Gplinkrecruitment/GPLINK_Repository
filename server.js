@@ -7696,6 +7696,29 @@ async function consumeZohoOauthState(state) {
   return existing.value;
 }
 
+function getZohoSignOauthStateKey(state) {
+  return `zoho_sign_oauth:${String(state || '').trim()}`;
+}
+
+async function createZohoSignOauthState(adminUserId, adminEmail) {
+  const state = crypto.randomBytes(24).toString('hex');
+  const expiresAt = Date.now() + (10 * 60 * 1000);
+  await setRuntimeKv(getZohoSignOauthStateKey(state), {
+    adminUserId: String(adminUserId || ''),
+    email: String(adminEmail || '').trim().toLowerCase(),
+    createdAt: new Date().toISOString()
+  }, expiresAt);
+  return state;
+}
+
+async function consumeZohoSignOauthState(state) {
+  const key = getZohoSignOauthStateKey(state);
+  const existing = await getRuntimeKv(key);
+  if (!existing || !existing.value || typeof existing.value !== 'object') return null;
+  await deleteRuntimeKv(key);
+  return existing.value;
+}
+
 async function zohoFormRequest(accountsServer, params) {
   const base = normalizeUrlBase(accountsServer, getZohoRecruitAccountsServer());
   const body = new URLSearchParams();
@@ -7976,6 +7999,17 @@ function zohoSignApiPostForm(path, formMap) {
   return zohoSignApiRequest('POST', path, { body: form.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
 }
 function zohoSignApiDelete(path) { return zohoSignApiRequest('DELETE', path); }
+
+async function fetchAndStoreZohoSignOrgInfo() {
+  const res = await zohoSignApiGet('account');
+  if (!res.ok || !res.data) return;
+  const org = (res.data.organization || res.data.account || {});
+  await upsertZohoSignConnection({
+    orgName: String(org.org_name || org.organization_name || ''),
+    orgId: String(org.org_id || org.organization_id || ''),
+    connectedEmail: String(org.owner_email || '')
+  });
+}
 
 async function exchangeZohoRecruitAuthorizationCode(code, accountsServer, redirectUri = '') {
   return zohoFormRequest(accountsServer, {
@@ -15265,6 +15299,116 @@ async function handleApi(req, res, pathname) {
       syncedRoleCount: syncResult.syncedRoleCount || 0,
       message: syncResult.message || '',
       connection: syncResult.connected || null
+    });
+    return;
+  }
+
+  // ── Zoho Sign OAuth endpoints ──────────────────────────────
+  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/auth-url') {
+    const admin = requireIntegrationAdminSession(req, res);
+    if (!admin) return;
+    if (!ZOHO_SIGN_CLIENT_ID || !ZOHO_SIGN_CLIENT_SECRET) {
+      sendJson(res, 503, { ok: false, message: 'ZOHO_SIGN_CLIENT_ID/SECRET not configured' });
+      return;
+    }
+    const adminUserId = getSessionSupabaseUserId(admin.session) || '';
+    const state = await createZohoSignOauthState(adminUserId, admin.email || '');
+    const authUrl = new URL(`${getZohoSignAccountsServer()}/oauth/v2/auth`);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('client_id', ZOHO_SIGN_CLIENT_ID);
+    authUrl.searchParams.set('scope', ZOHO_SIGN_SCOPES.join(','));
+    authUrl.searchParams.set('redirect_uri', getZohoSignOauthRedirectUri());
+    authUrl.searchParams.set('access_type', 'offline');
+    authUrl.searchParams.set('prompt', 'consent');
+    authUrl.searchParams.set('state', state);
+    sendJson(res, 200, { ok: true, authUrl: authUrl.toString(), state });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/callback') {
+    const qs = url.searchParams;
+    const state = qs.get('state') || '';
+    const code = qs.get('code') || '';
+    const errParam = qs.get('error') || '';
+    if (errParam) {
+      res.writeHead(302, { Location: '/admin.html?zoho-sign=error&reason=' + encodeURIComponent(errParam) });
+      res.end();
+      return;
+    }
+    const statePayload = await consumeZohoSignOauthState(state);
+    if (!statePayload) {
+      res.writeHead(302, { Location: '/admin.html?zoho-sign=error&reason=invalid_state' });
+      res.end();
+      return;
+    }
+    const adminUserId = String(statePayload.adminUserId || '');
+    const tokenRes = await zohoFormRequest(getZohoSignAccountsServer(), {
+      grant_type: 'authorization_code',
+      client_id: ZOHO_SIGN_CLIENT_ID,
+      client_secret: ZOHO_SIGN_CLIENT_SECRET,
+      redirect_uri: getZohoSignOauthRedirectUri(),
+      code
+    });
+    if (!tokenRes.ok || !tokenRes.data || !tokenRes.data.access_token) {
+      res.writeHead(302, { Location: '/admin.html?zoho-sign=error&reason=token_exchange_failed' });
+      res.end();
+      return;
+    }
+    const apiDomain = String(tokenRes.data.api_domain || getZohoSignApiBase()).replace(/\/$/, '');
+    const expiresAt = new Date(Date.now() + ((Number(tokenRes.data.expires_in) || 3600) - 300) * 1000).toISOString();
+
+    await upsertZohoSignConnection({
+      status: 'connected',
+      refreshToken: String(tokenRes.data.refresh_token || ''),
+      accessToken: String(tokenRes.data.access_token || ''),
+      tokenExpiresAt: expiresAt,
+      accountsServer: getZohoSignAccountsServer(),
+      apiDomain,
+      scopes: ZOHO_SIGN_SCOPES,
+      connectedByUserId: adminUserId,
+      tokenLastRefreshedAt: new Date().toISOString(),
+      templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID
+    });
+
+    // Fire-and-forget: webhook registration (added in Task 6) and org info.
+    // registerZohoSignWebhook does not exist yet — swallow ReferenceError.
+    try { if (typeof registerZohoSignWebhook === 'function') await registerZohoSignWebhook(); } catch (e) { console.error('[ZohoSign] webhook registration failed:', e.message); }
+    try { await fetchAndStoreZohoSignOrgInfo(); } catch (e) { console.error('[ZohoSign] org info fetch failed:', e.message); }
+
+    res.writeHead(302, { Location: '/admin.html?zoho-sign=connected' });
+    res.end();
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/admin/integrations/zoho-sign/disconnect') {
+    const admin = requireIntegrationAdminSession(req, res);
+    if (!admin) return;
+    await upsertZohoSignConnection({
+      status: 'disconnected',
+      refreshToken: '',
+      accessToken: '',
+      tokenExpiresAt: null,
+      webhookSecret: '',
+      webhookRegisteredAt: null
+    });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/status') {
+    const admin = requireIntegrationAdminSession(req, res);
+    if (!admin) return;
+    const c = await getZohoSignConnection();
+    if (!c) { sendJson(res, 200, { ok: true, connected: false }); return; }
+    sendJson(res, 200, {
+      ok: true,
+      connected: c.status === 'connected',
+      status: c.status,
+      connectedEmail: c.connectedEmail,
+      orgName: c.orgName,
+      tokenExpiresAt: c.tokenExpiresAt,
+      webhookRegistered: !!c.webhookSecret,
+      templateId: c.templateId
     });
     return;
   }
