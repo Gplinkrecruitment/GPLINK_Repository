@@ -2159,9 +2159,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var data = await res.json();
       if (data.ok && Array.isArray(data.results)) {
         var summary = data.results.map(function(r){
-          return r.email + ': ' + (r.success ? ('OK (expires ' + (r.expiry ? new Date(Number(r.expiry)).toLocaleString() : 'unknown') + ')') : 'FAILED');
-        }).join('\n');
-        alert('Gmail watch setup complete:\n\n' + summary);
+          if (r.success) {
+            return r.email + ': OK (expires ' + (r.expiry ? new Date(Number(r.expiry)).toLocaleString() : 'unknown') + ')';
+          }
+          return r.email + ': FAILED\n  ' + (r.error || 'unknown error — check Vercel logs');
+        }).join('\n\n');
+        alert('Gmail watch setup:\n\n' + summary);
       } else {
         alert('Error: ' + (data.error || data.message || 'Setup failed. Check Vercel logs.'));
       }

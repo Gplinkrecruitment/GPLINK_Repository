@@ -857,10 +857,14 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
 async function setupGmailWatch(userEmail) {
   if (!GOOGLE_PUBSUB_TOPIC) {
     console.error('[Gmail] GOOGLE_PUBSUB_TOPIC not configured');
-    return null;
+    return { ok: false, error: 'GOOGLE_PUBSUB_TOPIC env var is not set' };
+  }
+  if (!isGmailConfigured()) {
+    console.error('[Gmail] Service account not configured');
+    return { ok: false, error: 'GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY env vars are missing' };
   }
   var gmail = await getGmailClient(userEmail);
-  if (!gmail) return null;
+  if (!gmail) return { ok: false, error: 'Failed to create Gmail client (check service account credentials)' };
   try {
     var watchRes = await gmail.users.watch({
       userId: userEmail,
@@ -874,10 +878,14 @@ async function setupGmailWatch(userEmail) {
       headers: { 'Prefer': 'resolution=merge-duplicates' }
     });
     console.log('[Gmail] Watch registered for', userEmail, '- expires:', expiry, '- historyId:', historyId);
-    return { historyId: historyId, expiry: expiry };
+    return { ok: true, historyId: historyId, expiry: expiry };
   } catch (err) {
-    console.error('[Gmail] setupWatch error for', userEmail, ':', err.message);
-    return null;
+    var errorDetail = err.message || String(err);
+    if (err.response && err.response.data && err.response.data.error) {
+      errorDetail = err.response.data.error.message || JSON.stringify(err.response.data.error);
+    }
+    console.error('[Gmail] setupWatch error for', userEmail, ':', errorDetail);
+    return { ok: false, error: errorDetail };
   }
 }
 
@@ -12972,7 +12980,7 @@ async function handleApi(req, res, pathname) {
     var cronResults = [];
     for (var vaEmail of MONITORED_VA_EMAILS) {
       var watchResult = await setupGmailWatch(vaEmail);
-      cronResults.push({ email: vaEmail, success: !!watchResult, expiry: watchResult ? watchResult.expiry : null });
+      cronResults.push({ email: vaEmail, success: !!(watchResult && watchResult.ok), expiry: watchResult && watchResult.ok ? watchResult.expiry : null, error: watchResult && !watchResult.ok ? watchResult.error : null });
     }
     sendJson(res, 200, { ok: true, results: cronResults });
     return;
@@ -14857,7 +14865,12 @@ async function handleApi(req, res, pathname) {
     var gmailSetupResults = [];
     for (var vaSetupEmail of MONITORED_VA_EMAILS) {
       var setupWatchResult = await setupGmailWatch(vaSetupEmail);
-      gmailSetupResults.push({ email: vaSetupEmail, success: !!setupWatchResult, expiry: setupWatchResult ? setupWatchResult.expiry : null });
+      gmailSetupResults.push({
+        email: vaSetupEmail,
+        success: !!(setupWatchResult && setupWatchResult.ok),
+        expiry: setupWatchResult && setupWatchResult.ok ? setupWatchResult.expiry : null,
+        error: setupWatchResult && !setupWatchResult.ok ? setupWatchResult.error : null
+      });
     }
     sendJson(res, 200, { ok: true, results: gmailSetupResults });
     return;
