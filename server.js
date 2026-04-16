@@ -68,6 +68,17 @@ const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || '').trim()
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
+// ── Zoho Sign ─────────────────────────────────────────────
+const {
+  ZOHO_SIGN_SCOPES,
+  getZohoSignAccountsServer,
+  getZohoSignApiBase,
+  getZohoSignOauthRedirectUri
+} = require('./lib/zoho-sign.js');
+
+const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
+const ZOHO_SIGN_CLIENT_SECRET = String(process.env.ZOHO_SIGN_CLIENT_SECRET || '').trim();
+const ZOHO_SIGN_SPPA_TEMPLATE_ID = String(process.env.ZOHO_SIGN_SPPA_TEMPLATE_ID || '').trim();
 let _zohoRolesCache = null; // { roles: [], ts: 0 } — 5 min in-memory cache for live Zoho roles
 let _zohoRolesFetchPromise = null; // promise coalescing for concurrent requests
 const _authBootstrapWarmCache = new Map(); // email -> { expiresAt, value }
