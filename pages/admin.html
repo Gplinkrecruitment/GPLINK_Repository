@@ -2160,7 +2160,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if (data.ok && Array.isArray(data.results)) {
         var summary = data.results.map(function(r){
           if (r.success) {
-            return r.email + ': OK (expires ' + (r.expiry ? new Date(Number(r.expiry)).toLocaleString() : 'unknown') + ')';
+            var expiryDate = r.expiry ? new Date(r.expiry) : null;
+            var expiryStr = (expiryDate && !isNaN(expiryDate.getTime())) ? expiryDate.toLocaleString() : 'unknown';
+            return r.email + ': OK (expires ' + expiryStr + ')';
           }
           return r.email + ': FAILED\n  ' + (r.error || 'unknown error — check Vercel logs');
         }).join('\n\n');
