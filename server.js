@@ -15331,13 +15331,13 @@ async function handleApi(req, res, pathname) {
     const code = qs.get('code') || '';
     const errParam = qs.get('error') || '';
     if (errParam) {
-      res.writeHead(302, { Location: '/admin.html?zoho-sign=error&reason=' + encodeURIComponent(errParam) });
+      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=' + encodeURIComponent(errParam) });
       res.end();
       return;
     }
     const statePayload = await consumeZohoSignOauthState(state);
     if (!statePayload) {
-      res.writeHead(302, { Location: '/admin.html?zoho-sign=error&reason=invalid_state' });
+      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=invalid_state' });
       res.end();
       return;
     }
@@ -15350,7 +15350,7 @@ async function handleApi(req, res, pathname) {
       code
     });
     if (!tokenRes.ok || !tokenRes.data || !tokenRes.data.access_token) {
-      res.writeHead(302, { Location: '/admin.html?zoho-sign=error&reason=token_exchange_failed' });
+      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=token_exchange_failed' });
       res.end();
       return;
     }
@@ -15375,7 +15375,7 @@ async function handleApi(req, res, pathname) {
     try { if (typeof registerZohoSignWebhook === 'function') await registerZohoSignWebhook(); } catch (e) { console.error('[ZohoSign] webhook registration failed:', e.message); }
     try { await fetchAndStoreZohoSignOrgInfo(); } catch (e) { console.error('[ZohoSign] org info fetch failed:', e.message); }
 
-    res.writeHead(302, { Location: '/admin.html?zoho-sign=connected' });
+    res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=connected' });
     res.end();
     return;
   }
