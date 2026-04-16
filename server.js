@@ -7918,6 +7918,65 @@ async function getValidZohoSignAccessToken() {
   return { ok: true, connection: updated, accessToken: updated.accessToken };
 }
 
+async function zohoSignApiRequest(method, resourcePath, options = {}) {
+  const { queryParams = {}, body = null, headers: extraHeaders = {}, retryOn401 = true } = options;
+  const tokenRes = await getValidZohoSignAccessToken();
+  if (!tokenRes.ok || !tokenRes.accessToken) {
+    return { ok: false, status: 401, data: { message: 'Zoho Sign not connected or token refresh failed.' } };
+  }
+  const apiBase = (tokenRes.connection && tokenRes.connection.apiDomain) || getZohoSignApiBase();
+  // apiDomain from Zoho is the bare host (e.g. https://sign.zoho.com.au). Ensure /api/v1 path segment is present.
+  const base = /\/api\/v\d+$/.test(apiBase) ? apiBase : (apiBase.replace(/\/$/, '') + '/api/v1');
+  const url = new URL(`${base}/${String(resourcePath || '').replace(/^\/+/, '')}`);
+  Object.entries(queryParams).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === '') return;
+    url.searchParams.set(k, String(v));
+  });
+  const hdrs = Object.assign({
+    Authorization: `Zoho-oauthtoken ${tokenRes.accessToken}`,
+    Accept: 'application/json'
+  }, extraHeaders);
+  if (body && !hdrs['Content-Type'] && typeof body === 'string') hdrs['Content-Type'] = 'application/json';
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const resp = await fetch(url.toString(), {
+      method,
+      signal: controller.signal,
+      headers: hdrs,
+      body: body || undefined
+    });
+    if (resp.status === 401 && retryOn401) {
+      clearTimeout(timeout);
+      await refreshZohoSignAccessToken(tokenRes.connection);
+      return zohoSignApiRequest(method, resourcePath, Object.assign({}, options, { retryOn401: false }));
+    }
+    const contentType = resp.headers.get('content-type') || '';
+    if (contentType.includes('application/pdf') || contentType.includes('application/octet-stream')) {
+      const buf = Buffer.from(await resp.arrayBuffer());
+      return { ok: resp.ok, status: resp.status, data: buf, contentType };
+    }
+    const text = await resp.text();
+    let data = {};
+    if (text) { try { data = JSON.parse(text); } catch (e) { data = { raw: text }; } }
+    return { ok: resp.ok, status: resp.status, data };
+  } catch (err) {
+    return { ok: false, status: 502, data: { message: 'Zoho Sign request failed: ' + err.message } };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function zohoSignApiGet(path, queryParams) { return zohoSignApiRequest('GET', path, { queryParams }); }
+function zohoSignApiPostJson(path, body) { return zohoSignApiRequest('POST', path, { body: JSON.stringify(body || {}), headers: { 'Content-Type': 'application/json' } }); }
+function zohoSignApiPostForm(path, formMap) {
+  const form = new URLSearchParams();
+  Object.entries(formMap || {}).forEach(([k, v]) => form.set(k, typeof v === 'string' ? v : JSON.stringify(v)));
+  return zohoSignApiRequest('POST', path, { body: form.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+}
+function zohoSignApiDelete(path) { return zohoSignApiRequest('DELETE', path); }
+
 async function exchangeZohoRecruitAuthorizationCode(code, accountsServer, redirectUri = '') {
   return zohoFormRequest(accountsServer, {
     grant_type: 'authorization_code',
