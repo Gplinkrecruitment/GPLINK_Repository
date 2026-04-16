@@ -3293,6 +3293,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("caseList").innerHTML=`<div class="empty">${esc(err.message||"Cannot verify session.")}</div>`;
   });
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll();});
+
+  // Expose functions used by inline onclick handlers (IIFE escape)
+  window.setupGmailWatch = setupGmailWatch;
+  window.previewTaskDoc = previewTaskDoc;
+  window.approveDocument = approveDocument;
+  window.requestRevision = requestRevision;
+  window.dismissAttachment = dismissAttachment;
+  window.assignUnmatchedDoc = assignUnmatchedDoc;
+  window.markTaskWaiting = markTaskWaiting;
+  window.uploadTaskDoc = uploadTaskDoc;
+  if (typeof openPDEditor === 'function') window.openPDEditor = openPDEditor;
+  if (typeof approvePositionDescription === 'function') window.approvePositionDescription = approvePositionDescription;
+  if (typeof generatePositionDescription === 'function') window.generatePositionDescription = generatePositionDescription;
+  if (typeof closeModal === 'function') window.closeModal = closeModal;
 })();
 </script>
 </body>
