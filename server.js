@@ -341,13 +341,15 @@ async function getGmailClient(userEmail) {
   if (!isGmailConfigured()) return null;
   var { google } = require('googleapis');
   try {
-    var auth = new google.auth.JWT(
-      GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      null,
-      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-      ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'],
-      userEmail
-    );
+    if (!GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.length < 100) {
+      throw new Error('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY is empty or too short (length=' + (GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.length : 0) + ')');
+    }
+    var auth = new google.auth.JWT({
+      email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+      scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'],
+      subject: userEmail
+    });
     // Force authorization now so we surface token-exchange errors clearly
     // (instead of the generic "missing credential" error from Gmail API later).
     await auth.authorize();
