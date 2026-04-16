@@ -2148,6 +2148,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
   }
 
+  async function setupGmailWatch() {
+    if (!confirm('Initialize Gmail auto-parsing?\n\nThis registers each monitored VA inbox with Google to push new emails to our webhook. Only needs to be done once — renewal is automatic every 6 days via cron.')) return;
+    try {
+      var res = await fetch('/api/admin/gmail/setup-watch', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      var data = await res.json();
+      if (data.ok && Array.isArray(data.results)) {
+        var summary = data.results.map(function(r){
+          return r.email + ': ' + (r.success ? ('OK (expires ' + (r.expiry ? new Date(Number(r.expiry)).toLocaleString() : 'unknown') + ')') : 'FAILED');
+        }).join('\n');
+        alert('Gmail watch setup complete:\n\n' + summary);
+      } else {
+        alert('Error: ' + (data.error || data.message || 'Setup failed. Check Vercel logs.'));
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  }
+
   async function saveCase(caseId){
     const fields={};
     document.querySelectorAll("[data-case-field]").forEach(el=>{
@@ -2814,7 +2836,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const normalGroups=groupTasksByGP(normal,gpLookup);
     let h=`<div class="today-header">
       <div><h2>Inbox</h2><p>Everything live right now, sorted by what needs action first. Hover a card to see tasks.</p></div>
-      <div><button class="btn" data-va-refresh>Refresh</button></div>
+      <div style="display:flex;gap:6px"><button class="btn" onclick="setupGmailWatch()" title="Initialize Gmail auto-parsing (one-time)">Gmail Setup</button><button class="btn" data-va-refresh>Refresh</button></div>
     </div>`;
     // Unmatched incoming documents
     var unmatchedDocs = S.va.unmatchedDocs || [];
