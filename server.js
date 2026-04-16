@@ -7839,6 +7839,7 @@ async function upsertZohoSignConnection(patch = {}) {
   if (patch.orgName !== undefined) nextMeta.org_name = String(patch.orgName || '');
   if (patch.orgId !== undefined) nextMeta.org_id = String(patch.orgId || '');
   if (patch.templateId !== undefined) nextMeta.template_id = String(patch.templateId || '');
+  if (patch.lastRefreshError !== undefined) nextMeta.last_refresh_error = patch.lastRefreshError || null;
 
   const payload = {
     provider: 'zoho_sign',
@@ -7881,7 +7882,8 @@ async function refreshZohoSignAccessToken(connection) {
     refresh_token: c.refreshToken
   });
   if (!refreshed.ok || !refreshed.data || !refreshed.data.access_token) {
-    await upsertZohoSignConnection({ status: 'error' });
+    const errMsg = (refreshed.data && (refreshed.data.error || refreshed.data.message)) || ('HTTP ' + (refreshed.status || 'unknown'));
+    await upsertZohoSignConnection({ status: 'error', lastRefreshError: String(errMsg).slice(0, 500) });
     return refreshed;
   }
   const expiresInSec = Number(refreshed.data.expires_in || 3600);
@@ -7891,7 +7893,8 @@ async function refreshZohoSignAccessToken(connection) {
     tokenExpiresAt: expiresAt,
     apiDomain: String(refreshed.data.api_domain || c.apiDomain || getZohoSignApiBase()),
     tokenLastRefreshedAt: new Date().toISOString(),
-    status: 'connected'
+    status: 'connected',
+    lastRefreshError: null
   });
   return refreshed;
 }
@@ -7906,7 +7909,12 @@ async function getValidZohoSignAccessToken() {
   }
   const refreshed = await refreshZohoSignAccessToken(c);
   if (!refreshed.ok) return { ok: false, connection: c, accessToken: '' };
+  // Concurrent-refresh race: two callers with an expired token will both refresh.
+  // Task 4's API client retries once on 401, which makes this self-healing.
   const updated = await getZohoSignConnection();
+  if (!updated || !updated.accessToken) {
+    return { ok: false, connection: updated || c, accessToken: '' };
+  }
   return { ok: true, connection: updated, accessToken: updated.accessToken };
 }
 

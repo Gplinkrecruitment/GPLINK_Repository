@@ -58,4 +58,24 @@ describe('Zoho Sign — connection mapper', () => {
     expect(c.accessToken).toBe('');
     expect(c.webhookSecret).toBe('');
   });
+  it('returns null when row is null', () => {
+    expect(mapZohoSignConnectionRow(null)).toBeNull();
+  });
+  it('treats non-object metadata as empty', () => {
+    const c = mapZohoSignConnectionRow({ provider: 'zoho_sign', status: 'connected', metadata: 'not-an-object' });
+    expect(c.accessToken).toBe('');
+    expect(c.webhookSecret).toBe('');
+  });
+  it('returns empty array when scopes is not an array', () => {
+    const c = mapZohoSignConnectionRow({ provider: 'zoho_sign', status: 'connected', scopes: 'ZohoSign.documents.ALL', metadata: {} });
+    expect(c.scopes).toEqual([]);
+  });
+  it('exposes last_refresh_error from metadata', () => {
+    const c = mapZohoSignConnectionRow({
+      provider: 'zoho_sign',
+      status: 'error',
+      metadata: { last_refresh_error: 'invalid_grant' }
+    });
+    expect(c.lastRefreshError).toBe('invalid_grant');
+  });
 });
