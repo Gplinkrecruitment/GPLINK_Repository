@@ -204,7 +204,20 @@ let _domainApiAccessTokenCache = new Map();
 
 // ── Google Drive integration ──
 const GOOGLE_SERVICE_ACCOUNT_EMAIL = String(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim();
-const GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = String(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n').trim();
+function normalizeServiceAccountKey(raw) {
+  if (!raw) return '';
+  var s = String(raw);
+  // Strip surrounding single/double quotes that are sometimes pasted by accident
+  s = s.replace(/^\s*["']/, '').replace(/["']\s*$/, '');
+  // Convert literal \n escape sequences to real newlines
+  s = s.replace(/\\n/g, '\n');
+  // Strip carriage returns (Windows line endings break OpenSSL 3 PEM decoder)
+  s = s.replace(/\r/g, '');
+  // Strip zero-width / BOM characters that can sneak in from copy-paste
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  return s.trim();
+}
+const GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = normalizeServiceAccountKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
 const GOOGLE_DRIVE_ROOT_FOLDER_ID = String(process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '').trim();
 
 function isGoogleDriveConfigured() {
@@ -345,6 +358,9 @@ async function getGmailClient(userEmail) {
     var emailLen = GOOGLE_SERVICE_ACCOUNT_EMAIL ? GOOGLE_SERVICE_ACCOUNT_EMAIL.length : 0;
     var hasBegin = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('BEGIN') >= 0;
     var hasNewlines = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('\n') >= 0;
+    var hasEnd = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.indexOf('END PRIVATE KEY') >= 0;
+    var firstLine = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.split('\n')[0] : '';
+    var lastLine = GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.split('\n').slice(-1)[0] : '';
     if (keyLen < 100 || emailLen < 10) {
       throw new Error('service account env vars missing (emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasNewlines=' + hasNewlines + ')');
     }
@@ -369,7 +385,7 @@ async function getGmailClient(userEmail) {
       detail = JSON.stringify(err.response.data);
     }
     console.error('[Gmail] getGmailClient auth failed for', userEmail, ':', detail);
-    _gmailClientErrors[userEmail] = detail + ' [diag: emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasNewlines=' + hasNewlines + ']';
+    _gmailClientErrors[userEmail] = detail + ' [diag: emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasEnd=' + hasEnd + ' hasNewlines=' + hasNewlines + ' firstLine="' + firstLine + '" lastLine="' + lastLine + '"]';
     return null;
   }
 }
