@@ -335,19 +335,34 @@ function isGmailConfigured() {
 }
 
 let _gmailClients = {};
+let _gmailClientErrors = {};
 async function getGmailClient(userEmail) {
   if (_gmailClients[userEmail]) return _gmailClients[userEmail];
   if (!isGmailConfigured()) return null;
   var { google } = require('googleapis');
-  var auth = new google.auth.JWT(
-    GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    null,
-    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-    ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'],
-    userEmail
-  );
-  _gmailClients[userEmail] = google.gmail({ version: 'v1', auth });
-  return _gmailClients[userEmail];
+  try {
+    var auth = new google.auth.JWT(
+      GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      null,
+      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+      ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'],
+      userEmail
+    );
+    // Force authorization now so we surface token-exchange errors clearly
+    // (instead of the generic "missing credential" error from Gmail API later).
+    await auth.authorize();
+    _gmailClients[userEmail] = google.gmail({ version: 'v1', auth });
+    _gmailClientErrors[userEmail] = null;
+    return _gmailClients[userEmail];
+  } catch (err) {
+    var detail = err && err.message ? err.message : String(err);
+    if (err && err.response && err.response.data) {
+      detail = JSON.stringify(err.response.data);
+    }
+    console.error('[Gmail] getGmailClient JWT authorize failed for', userEmail, ':', detail);
+    _gmailClientErrors[userEmail] = detail;
+    return null;
+  }
 }
 
 function parseGmailPubSubMessage(body) {
@@ -864,7 +879,10 @@ async function setupGmailWatch(userEmail) {
     return { ok: false, error: 'GOOGLE_SERVICE_ACCOUNT_EMAIL or GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY env vars are missing' };
   }
   var gmail = await getGmailClient(userEmail);
-  if (!gmail) return { ok: false, error: 'Failed to create Gmail client (check service account credentials)' };
+  if (!gmail) {
+    var clientErr = _gmailClientErrors[userEmail] || 'unknown';
+    return { ok: false, error: 'Gmail client auth failed: ' + clientErr };
+  }
   try {
     var watchRes = await gmail.users.watch({
       userId: userEmail,
