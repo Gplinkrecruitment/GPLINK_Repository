@@ -74,7 +74,8 @@ const {
   getZohoSignAccountsServer,
   getZohoSignApiBase,
   getZohoSignOauthRedirectUri,
-  mapZohoSignConnectionRow
+  mapZohoSignConnectionRow,
+  buildCorrectionFieldData
 } = require('./lib/zoho-sign.js');
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
@@ -8009,6 +8010,123 @@ async function fetchAndStoreZohoSignOrgInfo() {
     orgId: String(org.org_id || org.organization_id || ''),
     connectedEmail: String(org.owner_email || '')
   });
+}
+
+// ── Zoho Sign envelope operations ─────────────────────────
+
+/**
+ * Create an envelope from a template and send to recipients.
+ * @param {object} opts
+ * @param {string} opts.templateId
+ * @param {Array<{email: string, name: string, role: string, signing_order: number}>} opts.recipients
+ * @param {Array<{field_label: string, field_value: string}>} [opts.prefillFields]
+ * @param {string} [opts.note]
+ * @returns {Promise<{ok: boolean, envelopeId?: string, data?: object, error?: string}>}
+ */
+async function createEnvelopeFromTemplate(opts) {
+  const tid = String(opts.templateId || '').trim();
+  if (!tid) return { ok: false, error: 'templateId required' };
+  const actions = (opts.recipients || []).map((r) => ({
+    action_type: 'SIGN',
+    recipient_email: String(r.email || ''),
+    recipient_name: String(r.name || ''),
+    role: String(r.role || ''),
+    signing_order: Number(r.signing_order || 1),
+    verify_recipient: false
+  }));
+  const payload = {
+    templates: {
+      field_data: {
+        field_text_data: {},
+        field_boolean_data: {},
+        field_date_data: {},
+        field_radio_data: {}
+      },
+      actions,
+      notes: String(opts.note || '')
+    }
+  };
+  (opts.prefillFields || []).forEach((f) => {
+    if (!f || !f.field_label) return;
+    payload.templates.field_data.field_text_data[f.field_label] = String(f.field_value || '');
+  });
+
+  const res = await zohoSignApiPostForm(`templates/${encodeURIComponent(tid)}/createdocument`, { data: payload });
+  if (!res.ok) return { ok: false, error: 'zoho_sign_create_failed', data: res.data };
+  const envelopeId = String(
+    (res.data && res.data.requests && res.data.requests.request_id) ||
+    (res.data && res.data.request_id) || ''
+  );
+  if (!envelopeId) return { ok: false, error: 'no_envelope_id_returned', data: res.data };
+  return { ok: true, envelopeId, data: res.data };
+}
+
+async function getEnvelope(envelopeId) {
+  return zohoSignApiGet(`requests/${encodeURIComponent(envelopeId)}`);
+}
+
+async function getEnvelopeFieldValues(envelopeId) {
+  const res = await zohoSignApiGet(`requests/${encodeURIComponent(envelopeId)}/fieldvalues`);
+  if (!res.ok) return { ok: false, fields: [] };
+  const fields = [];
+  const fd = (res.data && res.data.field_data) || {};
+  (fd.field_text_data || []).forEach((f) => fields.push({ field_label: f.field_label, field_value: f.field_value, section: f.section || '' }));
+  (fd.field_boolean_data || []).forEach((f) => fields.push({ field_label: f.field_label, field_value: String(!!f.field_value), section: f.section || '' }));
+  (fd.field_date_data || []).forEach((f) => fields.push({ field_label: f.field_label, field_value: f.field_value, section: f.section || '' }));
+  (fd.field_radio_data || []).forEach((f) => fields.push({ field_label: f.field_label, field_value: f.field_value, section: f.section || '' }));
+  return { ok: true, fields };
+}
+
+async function voidEnvelope(envelopeId, reason) {
+  const params = new URLSearchParams();
+  params.set('data', JSON.stringify({ reason: String(reason || 'Voided by GP Link') }));
+  return zohoSignApiRequest('POST', `requests/${encodeURIComponent(envelopeId)}/cancel`, {
+    body: params.toString(),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+}
+
+async function downloadSignedPdf(envelopeId) {
+  const res = await zohoSignApiRequest('GET', `requests/${encodeURIComponent(envelopeId)}/pdf`);
+  if (!res.ok) return { ok: false, data: null };
+  if (Buffer.isBuffer(res.data)) return { ok: true, buffer: res.data };
+  return { ok: false, data: res.data };
+}
+
+async function updateEnvelopeRecipient(envelopeId, actionId, newEmail, newName) {
+  return zohoSignApiPostForm(`requests/${encodeURIComponent(envelopeId)}/actions/${encodeURIComponent(actionId)}/update`, {
+    data: { actions: [{ action_id: actionId, recipient_email: newEmail, recipient_name: newName || undefined }] }
+  });
+}
+
+async function registerZohoSignWebhook() {
+  const secret = crypto.randomBytes(32).toString('hex');
+  const publicBase = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
+  const callbackUrl = `${publicBase}/api/webhooks/zoho-sign`;
+  const payload = {
+    notification: {
+      callback_url: callbackUrl,
+      event_type: [
+        'RequestSentToRecipient',
+        'RequestRecipientSigned',
+        'RequestCompleted',
+        'RequestDeclined',
+        'RequestVoided',
+        'RequestExpired',
+        'RequestRecipientEmailBounced',
+        'RequestViewed'
+      ],
+      authentication: { method: 'HMAC', secret }
+    }
+  };
+  const res = await zohoSignApiPostForm('notifications', { data: payload });
+  if (res.ok) {
+    await upsertZohoSignConnection({
+      webhookSecret: secret,
+      webhookRegisteredAt: new Date().toISOString()
+    });
+  }
+  return res;
 }
 
 async function exchangeZohoRecruitAuthorizationCode(code, accountsServer, redirectUri = '') {

@@ -3,7 +3,8 @@ import {
   getZohoSignAccountsServer,
   getZohoSignApiBase,
   getZohoSignOauthRedirectUri,
-  mapZohoSignConnectionRow
+  mapZohoSignConnectionRow,
+  buildCorrectionFieldData
 } from '../lib/zoho-sign.js';
 
 describe('Zoho Sign — URL helpers', () => {
@@ -77,5 +78,36 @@ describe('Zoho Sign — connection mapper', () => {
       metadata: { last_refresh_error: 'invalid_grant' }
     });
     expect(c.lastRefreshError).toBe('invalid_grant');
+  });
+});
+
+describe('Zoho Sign — correction prefill', () => {
+  it('keeps fields outside flagged sections, blanks fields inside flagged sections', () => {
+    const oldFields = [
+      { field_label: 'practice_name', field_value: 'Acme Clinic', section: 'practice_details' },
+      { field_label: 'start_date', field_value: '2026-05-01', section: 'commencement_terms' },
+      { field_label: 'candidate_name', field_value: 'Jane Smith', section: 'candidate_details' }
+    ];
+    const result = buildCorrectionFieldData(oldFields, ['commencement_terms']);
+    expect(result).toEqual([
+      { field_label: 'practice_name', field_value: 'Acme Clinic', section: 'practice_details' },
+      { field_label: 'start_date', field_value: '', section: 'commencement_terms' },
+      { field_label: 'candidate_name', field_value: 'Jane Smith', section: 'candidate_details' }
+    ]);
+  });
+  it('flags multiple sections', () => {
+    const oldFields = [
+      { field_label: 'a', field_value: 'x', section: 's1' },
+      { field_label: 'b', field_value: 'y', section: 's2' },
+      { field_label: 'c', field_value: 'z', section: 's3' }
+    ];
+    const r = buildCorrectionFieldData(oldFields, ['s1', 's3']);
+    expect(r[0].field_value).toBe('');
+    expect(r[1].field_value).toBe('y');
+    expect(r[2].field_value).toBe('');
+  });
+  it('returns empty array for empty input', () => {
+    expect(buildCorrectionFieldData([], ['any'])).toEqual([]);
+    expect(buildCorrectionFieldData(null, ['any'])).toEqual([]);
   });
 });
