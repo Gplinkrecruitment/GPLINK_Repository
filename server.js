@@ -73,7 +73,8 @@ const {
   ZOHO_SIGN_SCOPES,
   getZohoSignAccountsServer,
   getZohoSignApiBase,
-  getZohoSignOauthRedirectUri
+  getZohoSignOauthRedirectUri,
+  mapZohoSignConnectionRow
 } = require('./lib/zoho-sign.js');
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
@@ -7815,6 +7816,98 @@ async function upsertZohoRecruitConnection(patch = {}) {
   );
   if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
   return mapZohoConnectionRow(result.data[0]);
+}
+
+// ── Zoho Sign connection helpers ──────────────────────────
+async function getZohoSignConnection() {
+  const result = await supabaseDbRequest(
+    'integration_connections',
+    'select=*&provider=eq.zoho_sign&limit=1'
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return mapZohoSignConnectionRow(result.data[0]);
+}
+
+async function upsertZohoSignConnection(patch = {}) {
+  const existing = await getZohoSignConnection();
+  const existingMeta = (existing && existing.metadata) || {};
+  const nextMeta = Object.assign({}, existingMeta);
+  if (patch.accessToken !== undefined) nextMeta.access_token = String(patch.accessToken || '');
+  if (patch.tokenExpiresAt !== undefined) nextMeta.token_expires_at = patch.tokenExpiresAt || null;
+  if (patch.webhookSecret !== undefined) nextMeta.webhook_secret = String(patch.webhookSecret || '');
+  if (patch.webhookRegisteredAt !== undefined) nextMeta.webhook_registered_at = patch.webhookRegisteredAt || null;
+  if (patch.orgName !== undefined) nextMeta.org_name = String(patch.orgName || '');
+  if (patch.orgId !== undefined) nextMeta.org_id = String(patch.orgId || '');
+  if (patch.templateId !== undefined) nextMeta.template_id = String(patch.templateId || '');
+
+  const payload = {
+    provider: 'zoho_sign',
+    status: patch.status !== undefined ? String(patch.status) : ((existing && existing.status) || 'connected'),
+    accounts_server: patch.accountsServer !== undefined ? String(patch.accountsServer || '') : ((existing && existing.accountsServer) || getZohoSignAccountsServer()),
+    api_domain: patch.apiDomain !== undefined ? String(patch.apiDomain || '') : ((existing && existing.apiDomain) || getZohoSignApiBase()),
+    refresh_token: patch.refreshToken !== undefined ? String(patch.refreshToken || '') : ((existing && existing.refreshToken) || ''),
+    scopes: Array.isArray(patch.scopes) ? patch.scopes : ((existing && existing.scopes) || ZOHO_SIGN_SCOPES),
+    connected_by_user_id: patch.connectedByUserId !== undefined ? String(patch.connectedByUserId || '') : ((existing && existing.connectedByUserId) || ''),
+    connected_email: patch.connectedEmail !== undefined ? String(patch.connectedEmail || '').toLowerCase() : ((existing && existing.connectedEmail) || ''),
+    token_last_refreshed_at: patch.tokenLastRefreshedAt !== undefined ? patch.tokenLastRefreshedAt : ((existing && existing.tokenLastRefreshedAt) || null),
+    connected_at: patch.connectedAt !== undefined ? patch.connectedAt : (existing ? undefined : new Date().toISOString()),
+    metadata: nextMeta,
+    updated_at: new Date().toISOString()
+  };
+
+  const result = await supabaseDbRequest(
+    'integration_connections',
+    'on_conflict=provider',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [payload]
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return mapZohoSignConnectionRow(result.data[0]);
+}
+
+async function refreshZohoSignAccessToken(connection) {
+  const c = connection || await getZohoSignConnection();
+  if (!c || !c.refreshToken) {
+    return { ok: false, status: 400, data: { message: 'Zoho Sign not connected.' } };
+  }
+  const accountsServer = c.accountsServer || getZohoSignAccountsServer();
+  const refreshed = await zohoFormRequest(accountsServer, {
+    grant_type: 'refresh_token',
+    client_id: ZOHO_SIGN_CLIENT_ID,
+    client_secret: ZOHO_SIGN_CLIENT_SECRET,
+    refresh_token: c.refreshToken
+  });
+  if (!refreshed.ok || !refreshed.data || !refreshed.data.access_token) {
+    await upsertZohoSignConnection({ status: 'error' });
+    return refreshed;
+  }
+  const expiresInSec = Number(refreshed.data.expires_in || 3600);
+  const expiresAt = new Date(Date.now() + (expiresInSec - 300) * 1000).toISOString();
+  await upsertZohoSignConnection({
+    accessToken: refreshed.data.access_token,
+    tokenExpiresAt: expiresAt,
+    apiDomain: String(refreshed.data.api_domain || c.apiDomain || getZohoSignApiBase()),
+    tokenLastRefreshedAt: new Date().toISOString(),
+    status: 'connected'
+  });
+  return refreshed;
+}
+
+async function getValidZohoSignAccessToken() {
+  const c = await getZohoSignConnection();
+  if (!c || !c.refreshToken) return { ok: false, connection: null, accessToken: '' };
+  const now = Date.now();
+  const expMs = c.tokenExpiresAt ? Date.parse(c.tokenExpiresAt) : 0;
+  if (c.accessToken && expMs && expMs > now) {
+    return { ok: true, connection: c, accessToken: c.accessToken };
+  }
+  const refreshed = await refreshZohoSignAccessToken(c);
+  if (!refreshed.ok) return { ok: false, connection: c, accessToken: '' };
+  const updated = await getZohoSignConnection();
+  return { ok: true, connection: updated, accessToken: updated.accessToken };
 }
 
 async function exchangeZohoRecruitAuthorizationCode(code, accountsServer, redirectUri = '') {
