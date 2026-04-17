@@ -7,7 +7,8 @@ import {
   mapZohoSignConnectionRow,
   buildCorrectionFieldData,
   mapZohoSignEventToStatus,
-  validateZohoSignSignature
+  validateZohoSignSignature,
+  pickCorrectionRecipient
 } from '../lib/zoho-sign.js';
 
 describe('Zoho Sign — URL helpers', () => {
@@ -167,5 +168,26 @@ describe('Zoho Sign — HMAC signature validation', () => {
   });
   it('rejects when signature header is empty', () => {
     expect(validateZohoSignSignature(body, '', secret)).toBe(false);
+  });
+});
+
+describe('Zoho Sign — correction recipient selection', () => {
+  const contact = { email: 'pc@acme.com', name: 'Pat Contact' };
+  const candidate = { email: 'c@gp.com', name: 'Dr Jane' };
+
+  it('picks contact for practice side', () => {
+    const r = pickCorrectionRecipient('practice', contact, candidate);
+    expect(r.role).toBe('Practice Contact');
+    expect(r.email).toBe('pc@acme.com');
+    expect(r.signing_order).toBe(1);
+  });
+  it('picks candidate for candidate side', () => {
+    const r = pickCorrectionRecipient('candidate', contact, candidate);
+    expect(r.role).toBe('Candidate');
+    expect(r.email).toBe('c@gp.com');
+    expect(r.signing_order).toBe(1);
+  });
+  it('throws on unknown side', () => {
+    expect(() => pickCorrectionRecipient('neither', contact, candidate)).toThrow();
   });
 });
