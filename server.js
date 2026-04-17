@@ -561,6 +561,44 @@ async function getOpenPracticePackTasks() {
   return results;
 }
 
+/**
+ * Returns a compact list of placed GPs for AI email triage.
+ * Shape: { user_id, gp_name, practice_name, contact_emails: [string] }
+ */
+async function getPlacedGPsForTriage() {
+  var statesRes = await supabaseDbRequest('user_state',
+    'select=user_id,state&key=eq.gp_career_state');
+  if (!statesRes.ok || !Array.isArray(statesRes.data)) return [];
+  var placed = [];
+  for (var row of statesRes.data) {
+    var state = row.state;
+    if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = {}; } }
+    if (!state) continue;
+    var placement = null;
+    if (state.career_secured) placement = state.placement || state;
+    else if (Array.isArray(state.applications)) {
+      var app = state.applications.find(function (a) { return a && a.isPlacementSecured; });
+      if (app) placement = app;
+    }
+    if (!placement) continue;
+
+    var profRes = await supabaseDbRequest('user_profiles',
+      'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(row.user_id) + '&limit=1');
+    var prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+    var contactEmails = [];
+    if (placement.practiceContact && placement.practiceContact.email) contactEmails.push(placement.practiceContact.email);
+    if (prof.email) contactEmails.push(prof.email);
+
+    placed.push({
+      user_id: row.user_id,
+      gp_name: ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim(),
+      practice_name: placement.practiceName || placement.practice_name || '',
+      contact_emails: contactEmails
+    });
+  }
+  return placed;
+}
+
 async function processGmailNotification(emailAddress, notifiedHistoryId) {
   if (!MONITORED_VA_EMAILS.includes(emailAddress)) {
     console.log('[Gmail] Ignoring notification for non-monitored email:', emailAddress);

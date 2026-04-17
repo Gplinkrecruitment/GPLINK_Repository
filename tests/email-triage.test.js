@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { parseTriageResponse, buildTriagePrompt } from '../lib/email-triage.js';
 
 describe('Phase 1b AI matching — Sonnet + prompt cache', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -24,5 +25,51 @@ describe('Phase 1b AI matching — Sonnet + prompt cache', () => {
     expect(capturedBody[0].system).toBeDefined();
     const sysBlocks = Array.isArray(capturedBody[0].system) ? capturedBody[0].system : [capturedBody[0].system];
     expect(sysBlocks[0].cache_control).toEqual({ type: 'ephemeral' });
+  });
+});
+
+describe('Email triage — response parsing', () => {
+  it('parses a well-formed triage response', () => {
+    const text = JSON.stringify({
+      matched_gp_user_id: 'u-1',
+      confidence: 0.85,
+      category: 'signing_question',
+      urgency: 'high',
+      summary: 'Contact asking about SPPA clause 4.2',
+      needs_triage: false
+    });
+    const r = parseTriageResponse(text);
+    expect(r.matched_gp_user_id).toBe('u-1');
+    expect(r.confidence).toBe(0.85);
+    expect(r.category).toBe('signing_question');
+    expect(r.urgency).toBe('high');
+    expect(r.needs_triage).toBe(false);
+  });
+  it('normalizes unknown category to "other"', () => {
+    const text = JSON.stringify({ matched_gp_user_id: null, confidence: 0.2, category: 'banana', urgency: 'low', summary: 'x', needs_triage: true });
+    const r = parseTriageResponse(text);
+    expect(r.category).toBe('other');
+  });
+  it('marks needs_triage when confidence < 0.7', () => {
+    const text = JSON.stringify({ matched_gp_user_id: 'u-2', confidence: 0.5, category: 'schedule_query', urgency: 'normal', summary: 'x', needs_triage: false });
+    const r = parseTriageResponse(text);
+    expect(r.needs_triage).toBe(true);
+  });
+  it('handles malformed JSON gracefully', () => {
+    const r = parseTriageResponse('not-json');
+    expect(r.needs_triage).toBe(true);
+    expect(r.matched_gp_user_id).toBeNull();
+  });
+});
+
+describe('Email triage — prompt building', () => {
+  it('includes all placed GPs in user prompt', () => {
+    const p = buildTriagePrompt(
+      { sender: 's@x.com', subject: 'hi', body: 'body text', date: '2026-04-17' },
+      [{ user_id: 'u-1', gp_name: 'Dr A', practice_name: 'A Clinic', contact_emails: ['a@x.com'] }]
+    );
+    expect(p).toContain('Dr A');
+    expect(p).toContain('A Clinic');
+    expect(p).toContain('s@x.com');
   });
 });
