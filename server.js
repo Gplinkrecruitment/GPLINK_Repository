@@ -4814,6 +4814,20 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         }
       }
 
+      // Auto-send SPPA-00 if Zoho Sign is connected + practice contact email is present
+      try {
+        const sppaTasks = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child&status=in.(open,in_progress)&limit=1');
+        if (sppaTasks.ok && Array.isArray(sppaTasks.data)) {
+          for (const t of sppaTasks.data) {
+            const r = await sendSppa00Envelope(t.id);
+            if (!r.ok) console.log('[SPPA-00 auto-send] skipped:', r.error);
+          }
+        }
+      } catch (e) {
+        console.error('[SPPA-00 auto-send] error:', e.message);
+      }
+
       // Create Google Drive folder and auto-deliver Section G
       if (isGoogleDriveConfigured()) {
         const _gpProfileForDrive = await (async function () {
@@ -8231,6 +8245,90 @@ async function processZohoSignWebhookEvent(payload) {
       received_at: new Date().toISOString()
     }]
   });
+}
+
+/**
+ * Create + send the SPPA-00 envelope for a practice pack task.
+ * @returns {Promise<{ok: boolean, envelopeId?: string, error?: string}>}
+ */
+async function sendSppa00Envelope(taskId) {
+  if (!ZOHO_SIGN_SPPA_TEMPLATE_ID) {
+    return { ok: false, error: 'ZOHO_SIGN_SPPA_TEMPLATE_ID not configured' };
+  }
+  const conn = await getZohoSignConnection();
+  if (!conn || conn.status !== 'connected') {
+    return { ok: false, error: 'Zoho Sign not connected' };
+  }
+
+  const taskRes = await supabaseDbRequest('registration_tasks',
+    'select=id,case_id,related_document_key,zoho_sign_envelope_id&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+  if (!taskRes.ok || !taskRes.data || !taskRes.data[0]) return { ok: false, error: 'task not found' };
+  const task = taskRes.data[0];
+  if (task.related_document_key !== 'sppa_00') return { ok: false, error: 'task is not SPPA-00' };
+
+  const caseRes = await supabaseDbRequest('registration_cases',
+    'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+  if (!caseRes.ok || !caseRes.data || !caseRes.data[0]) return { ok: false, error: 'case not found' };
+  const userId = caseRes.data[0].user_id;
+
+  // Fetch user profile for candidate info
+  const profRes = await supabaseDbRequest('user_profiles',
+    'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  const prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+  const candidateName = ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
+  const candidateEmail = String(prof.email || '').trim();
+
+  // Fetch career state for practice contact
+  const stateRes = await supabaseDbRequest('user_state',
+    'select=state&user_id=eq.' + encodeURIComponent(userId) + '&key=eq.gp_career_state&limit=1');
+  let careerState = {};
+  if (stateRes.ok && stateRes.data && stateRes.data[0]) {
+    try { careerState = typeof stateRes.data[0].state === 'string' ? JSON.parse(stateRes.data[0].state) : stateRes.data[0].state; }
+    catch (e) {}
+  }
+  const secured = careerState.career_secured ? careerState : (Array.isArray(careerState.applications) ? careerState.applications.find(a => a && a.isPlacementSecured) : null);
+  const placement = (secured && secured.placement) || secured || {};
+  const pc = (placement.practiceContact) || {};
+  if (!pc.email) return { ok: false, error: 'practice contact email missing' };
+  if (!candidateEmail) return { ok: false, error: 'candidate email missing' };
+
+  // Role names must match the SPPA-00 template roles in Zoho Sign
+  const recipients = [
+    { email: pc.email, name: pc.name || 'Practice Contact', role: 'Practice Contact', signing_order: 1 },
+    { email: candidateEmail, name: candidateName, role: 'Candidate', signing_order: 2 }
+  ];
+
+  const result = await createEnvelopeFromTemplate({
+    templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID,
+    recipients,
+    note: 'Please sign the Supervisory Practice Placement Agreement for ' + candidateName
+  });
+  if (!result.ok) return { ok: false, error: result.error || 'create envelope failed' };
+
+  // Persist envelope record
+  await supabaseDbRequest('zoho_sign_envelopes', '', {
+    method: 'POST',
+    body: [{
+      envelope_id: result.envelopeId,
+      task_id: task.id,
+      user_id: userId,
+      case_id: task.case_id,
+      template_id: ZOHO_SIGN_SPPA_TEMPLATE_ID,
+      status: 'sent_to_contact',
+      recipient_contact: { email: pc.email, name: pc.name || '' },
+      recipient_candidate: { email: candidateEmail, name: candidateName },
+      sent_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }]
+  });
+
+  // Link envelope to task
+  await supabaseDbRequest('registration_tasks',
+    'id=eq.' + encodeURIComponent(task.id),
+    { method: 'PATCH', body: { zoho_sign_envelope_id: result.envelopeId, status: 'in_progress', updated_at: new Date().toISOString() } });
+
+  return { ok: true, envelopeId: result.envelopeId };
 }
 
 async function exchangeZohoRecruitAuthorizationCode(code, accountsServer, redirectUri = '') {
@@ -19607,6 +19705,16 @@ Return ONLY valid JSON with no markdown formatting:
       console.error('[VA SEARCH]', err);
       sendJson(res, 200, { ok: true, query: q, results: { documents: [], notes: [] }, partial: true });
     }
+    return;
+  }
+
+  // ── Manual send SPPA-00 via Zoho Sign ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/task/') && pathname.endsWith('/send-sppa')) {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const taskId = pathname.split('/')[5];
+    const result = await sendSppa00Envelope(taskId);
+    sendJson(res, result.ok ? 200 : 400, result);
     return;
   }
 
