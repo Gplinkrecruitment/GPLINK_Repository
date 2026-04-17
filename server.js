@@ -13600,6 +13600,21 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Cron: refresh Zoho Sign token (before same-origin — called by Vercel cron every 30 min)
+  if (req.method === 'GET' && pathname === '/api/cron/refresh-zoho-sign-token') {
+    var zseCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var zseCronAuth = req.headers['authorization'] || '';
+    if (!zseCronSecret || zseCronAuth !== 'Bearer ' + zseCronSecret) {
+      sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+    var c = await getZohoSignConnection();
+    if (!c || !c.refreshToken) { sendJson(res, 200, { ok: true, skipped: 'not_connected' }); return; }
+    var refreshed = await refreshZohoSignAccessToken(c);
+    sendJson(res, 200, { ok: refreshed.ok, status: refreshed.status });
+    return;
+  }
+
   if (!enforceMutationOrigin(req, res)) return;
 
   if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {

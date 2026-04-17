@@ -1,6 +1,9 @@
 {
   "version": 2,
-  "crons": [{ "path": "/api/cron/renew-gmail-watch", "schedule": "0 0 */6 * *" }],
+  "crons": [
+    { "path": "/api/cron/renew-gmail-watch", "schedule": "0 0 */6 * *" },
+    { "path": "/api/cron/refresh-zoho-sign-token", "schedule": "*/30 * * * *" }
+  ],
   "builds": [
     {
       "src": "server.js",
