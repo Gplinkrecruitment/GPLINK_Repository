@@ -494,48 +494,7 @@ function preFilterEmail(emailMeta) {
   return { pass: true, reason: null };
 }
 
-function buildAIMatchPrompt(emailMeta, openTasks) {
-  var tasksSection = openTasks.length > 0
-    ? JSON.stringify(openTasks, null, 2)
-    : 'No open tasks currently waiting for documents.';
-
-  return 'You are a document-matching assistant for GP Link, a medical recruitment company that helps overseas GPs register in Australia.\n\n'
-    + 'An email has arrived with attachments. Match each attachment to the correct open task.\n\n'
-    + 'EMAIL:\n'
-    + '- From: ' + emailMeta.sender + ' (' + emailMeta.senderName + ')\n'
-    + '- To: ' + emailMeta.to + '\n'
-    + '- Subject: ' + emailMeta.subject + '\n'
-    + '- Date: ' + emailMeta.date + '\n'
-    + '- Body (first 2000 chars): ' + emailMeta.bodyText + '\n'
-    + '- Attachments: ' + JSON.stringify(emailMeta.attachments.map(function (a) { return { index: a.index, filename: a.filename, mime_type: a.mimeType, size_bytes: a.size }; })) + '\n\n'
-    + 'OPEN TASKS WAITING FOR DOCUMENTS:\n' + tasksSection + '\n\n'
-    + 'Return ONLY a JSON object (no markdown, no explanation):\n'
-    + '{\n  "matches": [\n    {\n      "attachment_index": 0,\n      "task_id": "xxx" or null,\n      "document_type": "offer_contract" or "supervisor_cv",\n      "confidence": 0.0-1.0,\n      "reasoning": "brief explanation"\n    }\n  ],\n  "is_relevant": true/false,\n  "summary": "one-line description of what this email is about"\n}\n\n'
-    + 'Rules:\n'
-    + '- Match based on sender domain vs practice email domain, GP names in subject/body/filename, document type clues\n'
-    + '- If sender domain matches a practice contact\'s domain, that\'s a strong signal even if the exact email differs\n'
-    + '- "offer", "contract", "agreement", "employment" in filename → likely offer_contract\n'
-    + '- "cv", "curriculum", "resume", "supervisor" in filename → likely supervisor_cv\n'
-    + '- If you cannot confidently match, set task_id to null\n'
-    + '- Confidence: 0.9+ exact match, 0.7-0.9 strong signals, 0.5-0.7 partial, <0.5 uncertain\n'
-    + '- If the email is completely unrelated to GP recruitment documents, set is_relevant to false';
-}
-
-function parseAIMatchResponse(raw) {
-  try {
-    var cleaned = raw.trim();
-    var codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch) cleaned = codeBlockMatch[1].trim();
-    var parsed = JSON.parse(cleaned);
-    return {
-      matches: Array.isArray(parsed.matches) ? parsed.matches : [],
-      is_relevant: parsed.is_relevant === true,
-      summary: parsed.summary || ''
-    };
-  } catch (e) {
-    return { matches: [], is_relevant: false, summary: '' };
-  }
-}
+var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
   var budgetOk = checkAnthropicBudget();
@@ -543,41 +502,12 @@ async function aiMatchEmail(emailMeta, openTasks) {
     console.error('[Gmail AI] Daily Anthropic budget exceeded, skipping AI match');
     return { matches: [], is_relevant: false, summary: 'Budget exceeded' };
   }
-
-  var prompt = buildAIMatchPrompt(emailMeta, openTasks);
-  var controller = new AbortController();
-  var timeout = setTimeout(function () { controller.abort(); }, 30000);
-
-  try {
-    var resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-
-    if (!resp.ok) {
-      console.error('[Gmail AI] Anthropic API error:', resp.status);
-      return { matches: [], is_relevant: false, summary: 'API error' };
-    }
-
-    var data = await resp.json();
-    var text = data.content && data.content[0] ? data.content[0].text : '';
-    return parseAIMatchResponse(text);
-  } catch (err) {
-    console.error('[Gmail AI] match error:', err.message);
-    return { matches: [], is_relevant: false, summary: 'Error: ' + err.message };
-  } finally {
-    clearTimeout(timeout);
+  var result = await _aiMatchEmailImpl(emailMeta, openTasks);
+  if (result && result._usage) {
+    recordAnthropicSpend(result._usage.input_tokens || 0, result._usage.output_tokens || 0,
+      result._usage.cache_read_input_tokens || 0, result._usage.cache_creation_input_tokens || 0);
   }
+  return result;
 }
 
 async function getOpenPracticePackTasks() {
