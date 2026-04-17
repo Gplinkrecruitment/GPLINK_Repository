@@ -19197,6 +19197,34 @@ Return ONLY valid JSON with no markdown formatting:
       });
     });
 
+    // Augment SPPA-00 tasks with Zoho Sign envelope data
+    const sppaEnvelopeIds = enrichedTasks.filter(function (t) { return t.related_document_key === 'sppa_00' && t.zoho_sign_envelope_id; }).map(function (t) { return t.zoho_sign_envelope_id; });
+    if (sppaEnvelopeIds.length > 0) {
+      const envsRes = await supabaseDbRequest('zoho_sign_envelopes',
+        'select=envelope_id,status,sent_at,completed_at,decline_reason,recipient_contact,recipient_candidate&envelope_id=in.(' + sppaEnvelopeIds.map(function (id) { return '"' + id + '"'; }).join(',') + ')');
+      var envMap = {};
+      if (envsRes.ok && Array.isArray(envsRes.data)) {
+        envsRes.data.forEach(function (e) { envMap[e.envelope_id] = e; });
+      }
+      enrichedTasks.forEach(function (t) {
+        if (t.related_document_key === 'sppa_00' && t.zoho_sign_envelope_id) {
+          var e = envMap[t.zoho_sign_envelope_id];
+          if (e) {
+            t.zoho_sign = {
+              envelope_id: e.envelope_id,
+              status: e.status,
+              sent_at: e.sent_at,
+              completed_at: e.completed_at,
+              decline_reason: e.decline_reason,
+              recipient_contact: e.recipient_contact,
+              recipient_candidate: e.recipient_candidate,
+              days_since_sent: e.sent_at ? Math.floor((Date.now() - Date.parse(e.sent_at)) / 86400000) : null
+            };
+          }
+        }
+      });
+    }
+
     // Enriched open tickets
     const enrichedTickets = openTickets.map(function (tk) {
       const p = profileMap[tk.user_id] || {};
