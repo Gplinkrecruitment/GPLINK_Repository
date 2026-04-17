@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import crypto from 'crypto';
 import {
   getZohoSignAccountsServer,
   getZohoSignApiBase,
   getZohoSignOauthRedirectUri,
   mapZohoSignConnectionRow,
-  buildCorrectionFieldData
+  buildCorrectionFieldData,
+  mapZohoSignEventToStatus,
+  validateZohoSignSignature
 } from '../lib/zoho-sign.js';
 
 describe('Zoho Sign — URL helpers', () => {
@@ -109,5 +112,60 @@ describe('Zoho Sign — correction prefill', () => {
   it('returns empty array for empty input', () => {
     expect(buildCorrectionFieldData([], ['any'])).toEqual([]);
     expect(buildCorrectionFieldData(null, ['any'])).toEqual([]);
+  });
+});
+
+describe('Zoho Sign — event-to-status mapping', () => {
+  it('RequestSentToRecipient (1) -> sent_to_contact', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestSentToRecipient', recipient_index: 1 })).toBe('sent_to_contact');
+  });
+  it('RequestRecipientSigned (1) -> contact_signed', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestRecipientSigned', recipient_index: 1 })).toBe('contact_signed');
+  });
+  it('RequestSentToRecipient (2) -> sent_to_candidate', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestSentToRecipient', recipient_index: 2 })).toBe('sent_to_candidate');
+  });
+  it('RequestRecipientSigned (2) -> candidate_signed', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestRecipientSigned', recipient_index: 2 })).toBe('candidate_signed');
+  });
+  it('RequestCompleted -> awaiting_review', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestCompleted' })).toBe('awaiting_review');
+  });
+  it('RequestDeclined -> declined', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestDeclined' })).toBe('declined');
+  });
+  it('RequestVoided -> voided', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestVoided' })).toBe('voided');
+  });
+  it('RequestExpired -> expired', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestExpired' })).toBe('expired');
+  });
+  it('RequestRecipientEmailBounced -> recipient_delivery_failed', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestRecipientEmailBounced' })).toBe('recipient_delivery_failed');
+  });
+  it('RequestViewed -> null (no status change)', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'RequestViewed' })).toBeNull();
+  });
+  it('unknown event -> null', () => {
+    expect(mapZohoSignEventToStatus({ event_type: 'Whatever' })).toBeNull();
+  });
+});
+
+describe('Zoho Sign — HMAC signature validation', () => {
+  const secret = 'test-secret-123';
+  const body = '{"notification_id":"n-1","event_type":"RequestCompleted"}';
+  const valid = crypto.createHmac('sha256', secret).update(body, 'utf-8').digest('hex');
+
+  it('accepts a valid hex signature', () => {
+    expect(validateZohoSignSignature(body, valid, secret)).toBe(true);
+  });
+  it('rejects a mismatched signature', () => {
+    expect(validateZohoSignSignature(body, 'deadbeef', secret)).toBe(false);
+  });
+  it('rejects when secret is empty', () => {
+    expect(validateZohoSignSignature(body, valid, '')).toBe(false);
+  });
+  it('rejects when signature header is empty', () => {
+    expect(validateZohoSignSignature(body, '', secret)).toBe(false);
   });
 });

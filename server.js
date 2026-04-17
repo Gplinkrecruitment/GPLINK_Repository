@@ -75,7 +75,9 @@ const {
   getZohoSignApiBase,
   getZohoSignOauthRedirectUri,
   mapZohoSignConnectionRow,
-  buildCorrectionFieldData
+  buildCorrectionFieldData,
+  mapZohoSignEventToStatus,
+  validateZohoSignSignature
 } = require('./lib/zoho-sign.js');
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
@@ -8129,6 +8131,108 @@ async function registerZohoSignWebhook() {
   return res;
 }
 
+// ── Zoho Sign webhook endpoint ────────────────────────────
+async function handleZohoSignWebhook(req, res) {
+  let rawBody;
+  try { rawBody = (await readRawBody(req, 2 * 1024 * 1024)).toString('utf-8'); }
+  catch (e) { sendJson(res, 413, { ok: false, error: 'body too large' }); return; }
+
+  const connection = await getZohoSignConnection();
+  const secret = connection && connection.webhookSecret;
+  const sigHeader = String(req.headers['x-zs-webhook-signature'] || req.headers['x-zoho-sign-signature'] || '').trim();
+  if (!validateZohoSignSignature(rawBody, sigHeader, secret)) {
+    console.error('[ZohoSign webhook] signature validation failed');
+    sendJson(res, 401, { ok: false, error: 'invalid signature' });
+    return;
+  }
+
+  let payload = {};
+  try { payload = JSON.parse(rawBody); } catch (e) { sendJson(res, 400, { ok: false, error: 'invalid json' }); return; }
+
+  // Always 200 within 3 seconds. Process async.
+  sendJson(res, 200, { ok: true });
+  setImmediate(() => { processZohoSignWebhookEvent(payload).catch((e) => console.error('[ZohoSign webhook] processing error:', e.message)); });
+}
+
+async function processZohoSignWebhookEvent(payload) {
+  const notificationId = String(payload.notification_id || payload.request_id || '');
+  const eventType = String(payload.event_type || payload.operation_type || '');
+  const envelopeId = String(payload.request_id || (payload.requests && payload.requests.request_id) || '');
+  if (!notificationId || !envelopeId) {
+    console.error('[ZohoSign webhook] missing notification_id or envelope_id');
+    return;
+  }
+  // Idempotency
+  const existing = await supabaseDbRequest('processed_zoho_sign_events',
+    'select=notification_id&notification_id=eq.' + encodeURIComponent(notificationId) + '&limit=1');
+  if (existing.ok && existing.data && existing.data[0]) return; // already processed
+
+  // Determine recipient index
+  let recipientIndex = 0;
+  if (payload.actions && Array.isArray(payload.actions)) {
+    const signedIdx = payload.actions.findIndex((a) => a && (a.action_status === 'SIGNED' || a.action_status === 'IN_PROGRESS'));
+    recipientIndex = signedIdx >= 0 ? signedIdx + 1 : 0;
+  }
+  if (typeof payload.recipient_index === 'number') recipientIndex = payload.recipient_index;
+
+  const newStatus = mapZohoSignEventToStatus({ event_type: eventType, recipient_index: recipientIndex });
+
+  // Fetch existing envelope row (to detect voided_for_correction and retrieve case_id/task_id)
+  const envRes = await supabaseDbRequest('zoho_sign_envelopes',
+    'select=*&envelope_id=eq.' + encodeURIComponent(envelopeId) + '&limit=1');
+  const envRow = (envRes.ok && envRes.data && envRes.data[0]) ? envRes.data[0] : null;
+
+  const updates = { updated_at: new Date().toISOString() };
+  if (newStatus) {
+    // Don't overwrite voided_for_correction with plain voided
+    if (newStatus === 'voided' && envRow && envRow.status === 'voided_for_correction') {
+      // skip; correction flow already handled it
+    } else {
+      updates.status = newStatus;
+    }
+  }
+  if (eventType === 'RequestCompleted') updates.completed_at = new Date().toISOString();
+  if (eventType === 'RequestDeclined') updates.decline_reason = String(payload.action_comment || payload.reason || '');
+
+  if (envRow) {
+    await supabaseDbRequest('zoho_sign_envelopes',
+      'envelope_id=eq.' + encodeURIComponent(envelopeId),
+      { method: 'PATCH', body: updates });
+  }
+
+  // On completion, record a timeline entry so the VA review panel can pick it up via task listing.
+  // Uses task_timeline (from 20260403 migration), not case_events which does not exist.
+  if (eventType === 'RequestCompleted' && envRow && envRow.case_id) {
+    try {
+      await supabaseDbRequest('task_timeline', '', {
+        method: 'POST',
+        body: [{
+          task_id: envRow.task_id || null,
+          case_id: envRow.case_id,
+          event_type: 'system',
+          title: 'sppa_ready_for_review',
+          detail: 'SPPA-00 signed by both parties — ready for VA review',
+          actor: 'zoho_sign_webhook',
+          metadata: { envelope_id: envelopeId, source: 'zoho_sign' }
+        }]
+      });
+    } catch (tlErr) {
+      console.error('[ZohoSign webhook] task_timeline insert error:', tlErr.message);
+    }
+  }
+
+  // Record processing
+  await supabaseDbRequest('processed_zoho_sign_events', '', {
+    method: 'POST',
+    body: [{
+      notification_id: notificationId,
+      envelope_id: envelopeId,
+      event_type: eventType,
+      received_at: new Date().toISOString()
+    }]
+  });
+}
+
 async function exchangeZohoRecruitAuthorizationCode(code, accountsServer, redirectUri = '') {
   return zohoFormRequest(accountsServer, {
     grant_type: 'authorization_code',
@@ -13332,6 +13436,12 @@ async function handleApi(req, res, pathname) {
     } catch (whErr) {
       console.error('[Gmail webhook] parse error:', whErr.message);
     }
+    return;
+  }
+
+  // Zoho Sign webhook — external origin, must be before same-origin enforcement
+  if (req.method === 'POST' && pathname === '/api/webhooks/zoho-sign') {
+    await handleZohoSignWebhook(req, res);
     return;
   }
 
