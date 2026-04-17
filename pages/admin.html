@@ -551,6 +551,52 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .doc-task-badge.auto-delivered{background:#00b894}
     .doc-task-badge.waiting{background:#fdcb6e;color:#2d3436}
     .doc-task-badge.pending-setup{background:#b2bec3}
+
+    /* ══ Zoho Sign integration card + SPPA chips ══ */
+    .integration-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+    .integration-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+    .integration-header h3{font-size:15px;font-weight:800;margin:0}
+    .integration-body{font-size:13px;line-height:1.6}
+    .integration-body div{margin-bottom:2px}
+    .status-chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700}
+    .status-chip.connected{background:#dcfce7;color:#166534}
+    .status-chip.disconnected{background:#fee2e2;color:#991b1b}
+    .sppa-chip{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800}
+    .sppa-chip.sent{background:#fff7ed;color:#c2410c}
+    .sppa-chip.partially-signed{background:#eff6ff;color:#1d4ed8}
+    .sppa-chip.awaiting-review{background:#faf5ff;color:#7c3aed}
+    .sppa-chip.approved{background:#ecfdf5;color:#166534}
+    .sppa-chip.error{background:#fef2f2;color:#dc2626}
+    .sppa-days{font-size:10px;color:var(--muted);font-weight:600;margin-left:6px}
+    .sppa-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+    .sppa-actions .btn-action{padding:5px 12px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:none;color:#fff;transition:opacity .15s}
+    .sppa-actions .btn-action.review{background:#7c3aed}
+    .sppa-actions .btn-action.resend{background:#f59e0b;color:#1c1917}
+    .sppa-actions .btn-action.send{background:#2563eb}
+    .sppa-actions .btn-action.update-email{background:#0ea5e9}
+    .sppa-actions .btn-action.approve{background:#16a34a}
+    .sppa-actions .btn-action.correct{background:#f59e0b;color:#1c1917}
+
+    /* ══ SPPA Review panel + Correction modal ══ */
+    .sppa-review-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:120;display:none;place-items:center}
+    .sppa-review-overlay.open{display:grid}
+    .sppa-review-panel{background:#fff;border-radius:16px;max-width:900px;width:95vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+    .sppa-review-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
+    .sppa-review-header h3{font-size:16px;font-weight:800;margin:0}
+    .sppa-review-body{flex:1;overflow:hidden;display:flex;flex-direction:column}
+    .sppa-review-body iframe{flex:1;border:none;min-height:400px}
+    .sppa-review-footer{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line)}
+    .correction-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:130;display:none;place-items:center}
+    .correction-overlay.open{display:grid}
+    .correction-modal{background:#fff;border-radius:16px;padding:20px;max-width:520px;width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+    .correction-modal h3{font-size:16px;font-weight:800;margin:0 0 12px}
+    .correction-modal label.radio-label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:6px}
+    .correction-modal .section-checks{display:grid;gap:4px;margin:10px 0}
+    .correction-modal .section-checks label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;cursor:pointer}
+    .correction-modal .textarea{width:100%;min-height:60px;padding:10px;border-radius:10px;border:1px solid var(--line);font-size:13px;font-family:inherit;resize:vertical;margin:8px 0}
+    .correction-modal .textarea:focus{border-color:var(--blue);outline:none}
+    .correction-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+
     .pd-editor{min-height:300px;border:1px solid #dfe6e9;border-radius:8px;padding:16px;margin:12px 0;font-size:14px;line-height:1.6;outline:none;background:#fff;overflow-y:auto;max-height:60vh}
     .pd-editor h2{font-size:18px;margin:12px 0 6px}
     .pd-editor h3{font-size:15px;margin:10px 0 4px}
@@ -654,7 +700,76 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
     <div class="tools-sub-pane" id="toolsSweep" style="display:none"></div>
     <div class="tools-sub-pane" id="toolsAgent" style="display:none"></div>
+    <div class="tools-sub-pane" id="toolsIntegrations" style="display:none">
+      <h2 style="margin:0 0 6px">Integrations</h2>
+      <p style="color:var(--muted);margin:0 0 16px;font-size:13px">Manage third-party service connections.</p>
+      <div class="integration-card" id="zoho-sign-card">
+        <div class="integration-header">
+          <h3>Zoho Sign</h3>
+          <span id="zs-status-chip" class="status-chip disconnected">Disconnected</span>
+        </div>
+        <div class="integration-body">
+          <div id="zs-connected-info" style="display:none;">
+            <div><b>Organization:</b> <span id="zs-org-name">&mdash;</span></div>
+            <div><b>Connected email:</b> <span id="zs-connected-email">&mdash;</span></div>
+            <div><b>Token expires:</b> <span id="zs-token-exp">&mdash;</span></div>
+            <div><b>Webhook registered:</b> <span id="zs-webhook-status">&mdash;</span></div>
+            <div><b>SPPA-00 template:</b> <span id="zs-template-id">&mdash;</span></div>
+          </div>
+          <div id="zs-disconnected-info" style="display:none;">
+            <p>SPPA-00 sends are paused until Zoho Sign is connected.</p>
+          </div>
+          <div style="margin-top:12px;">
+            <button id="zs-connect-btn" class="btn primary" onclick="zohoSignConnect()">Connect Zoho Sign</button>
+            <button id="zs-disconnect-btn" class="btn" style="display:none;" onclick="zohoSignDisconnect()">Disconnect</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
+
+  <!-- SPPA Review Panel -->
+  <div class="sppa-review-overlay" id="sppaReviewOverlay">
+    <div class="sppa-review-panel">
+      <div class="sppa-review-header">
+        <h3>Review SPPA-00</h3>
+        <button class="btn sm" onclick="closeSppaReview()">&times; Close</button>
+      </div>
+      <div class="sppa-review-body">
+        <iframe id="sppaReviewIframe" src="about:blank"></iframe>
+      </div>
+      <div class="sppa-review-footer">
+        <button class="btn" onclick="openCorrectionModal()">Request Correction</button>
+        <button class="btn primary" id="sppaApproveBtn" onclick="approveSppa()">Approve &amp; Deliver</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SPPA Correction Modal -->
+  <div class="correction-overlay" id="correctionOverlay">
+    <div class="correction-modal">
+      <h3>Request Correction</h3>
+      <div style="margin-bottom:10px;font-size:13px;font-weight:600">Which side needs to correct?</div>
+      <label class="radio-label"><input type="radio" name="correctionSide" value="practice" checked /> Practice side</label>
+      <label class="radio-label"><input type="radio" name="correctionSide" value="candidate" /> Candidate side</label>
+      <div style="margin-top:12px;font-size:13px;font-weight:600">Sections to correct:</div>
+      <div class="section-checks">
+        <label><input type="checkbox" value="practice_details" /> Practice details</label>
+        <label><input type="checkbox" value="commencement_terms" /> Commencement terms</label>
+        <label><input type="checkbox" value="candidate_details" /> Candidate details</label>
+        <label><input type="checkbox" value="remuneration" /> Remuneration</label>
+        <label><input type="checkbox" value="leave_entitlements" /> Leave entitlements</label>
+        <label><input type="checkbox" value="termination_clause" /> Termination clause</label>
+        <label><input type="checkbox" value="other" /> Other</label>
+      </div>
+      <textarea class="textarea" id="correctionNote" placeholder="Describe what needs to be corrected..."></textarea>
+      <div class="correction-footer">
+        <button class="btn" onclick="closeCorrectionModal()">Cancel</button>
+        <button class="btn primary" id="sendCorrectionBtn" onclick="sendSppaCorrection()">Send Correction</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modalOverlay">
     <div class="modal">
       <h3 id="modalTitle"></h3>
@@ -828,8 +943,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpName = task.gp_name || 'the GP';
 
     if (dk === 'sppa_00') {
-      return '<div class="doc-task-actions"><button class="btn-action btn-disabled" disabled>Send SPPA-00</button></div>' +
-             '<div class="doc-task-status"><span class="doc-task-badge pending-setup">Pending Zoho Sign setup</span></div>';
+      return renderSppaTaskCard(task);
     }
 
     if (dk === 'section_g') {
@@ -2326,6 +2440,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.body.appendChild(t);
     setTimeout(()=>t.remove(),2800);
   }
+  var toast = showOpsToast;
 
 
   /* ══ Events ══ */
@@ -2435,7 +2550,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       if(e.target===document.getElementById("modalOverlay")||e.target.closest("[data-close-modal]"))closeModal();
     });
-    document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
+    document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(document.getElementById("correctionOverlay").classList.contains("open")){closeCorrectionModal();return;}if(document.getElementById("sppaReviewOverlay").classList.contains("open")){closeSppaReview();return;}closeModal();}});
+    document.getElementById("sppaReviewOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("sppaReviewOverlay"))closeSppaReview();});
+    document.getElementById("correctionOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("correctionOverlay"))closeCorrectionModal();});
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin.html";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
 
@@ -2913,16 +3030,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const el=document.getElementById("toolsPanel");if(!el)return;
     const subnav=document.getElementById("toolsSubnav");if(!subnav)return;
     const saOnly=typeof isSA==="function"&&isSA();
-    const items=[{key:"ops",label:"Ops Queue"},{key:"sweep",label:"Weekly Sweep"}];
+    const items=[{key:"ops",label:"Ops Queue"},{key:"sweep",label:"Weekly Sweep"},{key:"integrations",label:"Integrations"}];
     if(saOnly)items.push({key:"agent",label:"Agent"});
     if(S.toolsSubView==="agent"&&!saOnly)S.toolsSubView="ops";
     subnav.innerHTML=items.map(i=>`<button class="tools-subnav-btn ${S.toolsSubView===i.key?"active":""}" data-tools-sub="${esc(i.key)}">${esc(i.label)}</button>`).join("");
     document.getElementById("toolsOps").style.display=(S.toolsSubView==="ops"?"block":"none");
     document.getElementById("toolsSweep").style.display=(S.toolsSubView==="sweep"?"block":"none");
     document.getElementById("toolsAgent").style.display=(S.toolsSubView==="agent"?"block":"none");
+    document.getElementById("toolsIntegrations").style.display=(S.toolsSubView==="integrations"?"block":"none");
     if(S.toolsSubView==="ops"&&typeof loadOpsQueue==="function")loadOpsQueue();
     else if(S.toolsSubView==="sweep")renderToolsSweepPane();
     else if(S.toolsSubView==="agent")renderToolsAgentPane();
+    else if(S.toolsSubView==="integrations")loadZohoSignStatus();
   }
   function renderToolsSweepPane(){
     const el=document.getElementById("toolsSweep");if(!el)return;
@@ -2943,6 +3062,222 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(typeof refreshAgentStatus==="function")refreshAgentStatus(true);
     if(typeof renderAgentRunList==="function")renderAgentRunList();
     if(typeof renderAgentDetail==="function")renderAgentDetail();
+  }
+
+  /* ══ Task 11: Zoho Sign integration card ══ */
+  async function loadZohoSignStatus() {
+    try {
+      var r = await fetch('/api/admin/integrations/zoho-sign/status', { credentials: 'include' });
+      var data = await r.json();
+      var chip = document.getElementById('zs-status-chip');
+      var connectedBox = document.getElementById('zs-connected-info');
+      var disconnectedBox = document.getElementById('zs-disconnected-info');
+      var connectBtn = document.getElementById('zs-connect-btn');
+      var disconnectBtn = document.getElementById('zs-disconnect-btn');
+      if (!chip) return;
+      if (data && data.connected) {
+        chip.textContent = 'Connected';
+        chip.className = 'status-chip connected';
+        connectedBox.style.display = '';
+        disconnectedBox.style.display = 'none';
+        connectBtn.style.display = 'none';
+        disconnectBtn.style.display = '';
+        document.getElementById('zs-org-name').textContent = data.orgName || '\u2014';
+        document.getElementById('zs-connected-email').textContent = data.connectedEmail || '\u2014';
+        document.getElementById('zs-token-exp').textContent = data.tokenExpiresAt ? new Date(data.tokenExpiresAt).toLocaleString() : '\u2014';
+        document.getElementById('zs-webhook-status').textContent = data.webhookRegistered ? 'Yes' : 'No';
+        document.getElementById('zs-template-id').textContent = data.templateId || '\u2014 (set ZOHO_SIGN_SPPA_TEMPLATE_ID)';
+      } else {
+        chip.textContent = 'Disconnected';
+        chip.className = 'status-chip disconnected';
+        connectedBox.style.display = 'none';
+        disconnectedBox.style.display = '';
+        connectBtn.style.display = '';
+        disconnectBtn.style.display = 'none';
+      }
+    } catch (err) {
+      console.error('loadZohoSignStatus error:', err);
+    }
+  }
+
+  async function zohoSignConnect() {
+    try {
+      var r = await fetch('/api/admin/integrations/zoho-sign/auth-url', { credentials: 'include' });
+      var data = await r.json();
+      if (data && data.authUrl) window.location.href = data.authUrl;
+      else alert('Could not start Zoho Sign OAuth: ' + (data && data.message));
+    } catch (err) {
+      alert('Network error connecting to Zoho Sign');
+    }
+  }
+
+  async function zohoSignDisconnect() {
+    if (!confirm('Disconnect Zoho Sign? SPPA-00 sends will be paused.')) return;
+    await fetch('/api/admin/integrations/zoho-sign/disconnect', { method: 'POST', credentials: 'include' });
+    await loadZohoSignStatus();
+  }
+
+  /* ══ Task 12: SPPA-00 task card rendering ══ */
+  var _sppaReviewTaskId = null;
+
+  function sppaStatusChipHtml(status) {
+    if (!status) return '';
+    var map = {
+      'sent_to_contact': { cls: 'sent', label: 'Sent' },
+      'sent_to_candidate': { cls: 'sent', label: 'Sent' },
+      'contact_signed': { cls: 'partially-signed', label: 'Partially Signed' },
+      'candidate_signed': { cls: 'partially-signed', label: 'Partially Signed' },
+      'awaiting_review': { cls: 'awaiting-review', label: 'Awaiting Review' },
+      'approved': { cls: 'approved', label: 'Approved' },
+      'declined': { cls: 'error', label: 'Declined' },
+      'voided': { cls: 'error', label: 'Voided' },
+      'expired': { cls: 'error', label: 'Expired' },
+      'recipient_delivery_failed': { cls: 'error', label: 'Delivery Failed' }
+    };
+    var m = map[status];
+    if (!m) {
+      var titleCased = status.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+      return '<span class="sppa-chip error">' + esc(titleCased) + '</span>';
+    }
+    return '<span class="sppa-chip ' + m.cls + '">' + esc(m.label) + '</span>';
+  }
+
+  function renderSppaTaskCard(task) {
+    var zs = task.zoho_sign;
+    var html = '';
+
+    // No envelope sent yet
+    if (!zs || !zs.status) {
+      html += '<div class="doc-task-actions">';
+      html += '<button class="btn-action send" onclick="sendSppa(\'' + esc(task.id) + '\')">Send SPPA</button>';
+      html += '</div>';
+      html += '<div class="doc-task-status"><span class="doc-task-badge pending-setup">No envelope sent</span></div>';
+      return html;
+    }
+
+    // Status chip + days counter
+    html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">';
+    html += sppaStatusChipHtml(zs.status);
+    if (typeof zs.days_since_sent === 'number') {
+      html += '<span class="sppa-days">' + zs.days_since_sent + ' day' + (zs.days_since_sent === 1 ? '' : 's') + ' since sent</span>';
+    }
+    html += '</div>';
+
+    // Action buttons based on status
+    html += '<div class="sppa-actions">';
+    if (zs.status === 'awaiting_review') {
+      html += '<button class="btn-action review" onclick="openSppaReview(\'' + esc(task.id) + '\')">Review SPPA</button>';
+    } else if (zs.status === 'declined' || zs.status === 'voided' || zs.status === 'expired') {
+      html += '<button class="btn-action resend" onclick="resendSppa(\'' + esc(task.id) + '\')">Resend</button>';
+    } else if (zs.status === 'recipient_delivery_failed') {
+      html += '<button class="btn-action update-email" onclick="updateSppaRecipient(\'' + esc(task.id) + '\')">Update Email</button>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  async function sendSppa(taskId) {
+    if (!confirm('Send SPPA-00 envelope for this task?')) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/send-sppa', { method: 'POST', credentials: 'include' });
+      var d = await r.json().catch(function() { return {}; });
+      if (d && d.ok) { toast('SPPA envelope sent'); await loadAll(true); }
+      else { toast((d && d.message) || 'Failed to send SPPA', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
+  async function resendSppa(taskId) {
+    if (!confirm('Resend SPPA-00 envelope?')) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-resend', { method: 'POST', credentials: 'include' });
+      var d = await r.json().catch(function() { return {}; });
+      if (d && d.ok) { toast('SPPA resent'); await loadAll(true); }
+      else { toast((d && d.message) || 'Failed to resend', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
+  async function updateSppaRecipient(taskId) {
+    var email = prompt('Enter the corrected email address:');
+    if (!email) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-update-recipient', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email })
+      });
+      var d = await r.json().catch(function() { return {}; });
+      if (d && d.ok) { toast('Recipient updated & resent'); await loadAll(true); }
+      else { toast((d && d.message) || 'Failed to update recipient', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+  }
+
+  /* ══ Task 13: SPPA Review panel + Correction modal ══ */
+  function openSppaReview(taskId) {
+    _sppaReviewTaskId = taskId;
+    var iframe = document.getElementById('sppaReviewIframe');
+    iframe.src = '/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-pdf';
+    document.getElementById('sppaReviewOverlay').classList.add('open');
+  }
+
+  function closeSppaReview() {
+    _sppaReviewTaskId = null;
+    document.getElementById('sppaReviewOverlay').classList.remove('open');
+    document.getElementById('sppaReviewIframe').src = 'about:blank';
+  }
+
+  async function approveSppa() {
+    if (!_sppaReviewTaskId) return;
+    var btn = document.getElementById('sppaApproveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Approving\u2026';
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(_sppaReviewTaskId) + '/sppa-approve', {
+        method: 'POST', credentials: 'include'
+      });
+      var d = await r.json().catch(function() { return {}; });
+      if (d && d.ok) { toast('SPPA approved & delivered'); closeSppaReview(); await loadAll(true); }
+      else { toast((d && d.message) || 'Failed to approve', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+    btn.disabled = false;
+    btn.textContent = 'Approve & Deliver';
+  }
+
+  function openCorrectionModal() {
+    document.getElementById('correctionOverlay').classList.add('open');
+    // Reset form
+    var radios = document.querySelectorAll('#correctionOverlay input[name="correctionSide"]');
+    if (radios.length) radios[0].checked = true;
+    document.querySelectorAll('#correctionOverlay .section-checks input').forEach(function(cb) { cb.checked = false; });
+    document.getElementById('correctionNote').value = '';
+  }
+
+  function closeCorrectionModal() {
+    document.getElementById('correctionOverlay').classList.remove('open');
+  }
+
+  async function sendSppaCorrection() {
+    if (!_sppaReviewTaskId) return;
+    var sideEl = document.querySelector('#correctionOverlay input[name="correctionSide"]:checked');
+    var side = sideEl ? sideEl.value : 'practice';
+    var sections = [];
+    document.querySelectorAll('#correctionOverlay .section-checks input:checked').forEach(function(cb) { sections.push(cb.value); });
+    var note = (document.getElementById('correctionNote').value || '').trim();
+    if (!sections.length && !note) { alert('Select at least one section or add a note.'); return; }
+    var btn = document.getElementById('sendCorrectionBtn');
+    btn.disabled = true;
+    btn.textContent = 'Sending\u2026';
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(_sppaReviewTaskId) + '/sppa-request-correction', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ side: side, sections: sections, note: note })
+      });
+      var d = await r.json().catch(function() { return {}; });
+      if (d && d.ok) { toast('Correction request sent'); closeCorrectionModal(); closeSppaReview(); await loadAll(true); }
+      else { toast((d && d.message) || 'Failed to send correction', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
+    btn.disabled = false;
+    btn.textContent = 'Send Correction';
   }
 
   /* renderTodayPanel removed — replaced by renderInboxPanel */
@@ -3312,6 +3647,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   if (typeof approvePositionDescription === 'function') window.approvePositionDescription = approvePositionDescription;
   if (typeof generatePositionDescription === 'function') window.generatePositionDescription = generatePositionDescription;
   if (typeof closeModal === 'function') window.closeModal = closeModal;
+  // Phase 2 — Zoho Sign + SPPA
+  window.loadZohoSignStatus = loadZohoSignStatus;
+  window.zohoSignConnect = zohoSignConnect;
+  window.zohoSignDisconnect = zohoSignDisconnect;
+  window.sendSppa = sendSppa;
+  window.resendSppa = resendSppa;
+  window.updateSppaRecipient = updateSppaRecipient;
+  window.openSppaReview = openSppaReview;
+  window.closeSppaReview = closeSppaReview;
+  window.approveSppa = approveSppa;
+  window.openCorrectionModal = openCorrectionModal;
+  window.closeCorrectionModal = closeCorrectionModal;
+  window.sendSppaCorrection = sendSppaCorrection;
 })();
 </script>
 </body>
