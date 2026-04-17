@@ -783,7 +783,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     selectedCaseId:null,view:"inbox",filter:"all",query:"",expanded:{},refreshTimer:null,
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     toolsSubView:"ops",gpsProfileTab:"tasks",
-    va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[]},
+    va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
     interviews:{list:[],loading:false},
     applications:{list:[],loading:false},
     search:{query:"",loading:false,clientResults:{gps:[],tasks:[],tickets:[]},serverResults:{documents:[],notes:[]},open:false,debounceTimer:null},
@@ -1197,7 +1197,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   async function loadAll(force){
     if(S.loading&&!force)return;
     S.loading=true;
-    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard(),loadUnmatchedDocuments()];
+    const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard(),loadUnmatchedDocuments(),loadIncomingQuestions()];
     if(isSA())jobs.push(loadAgentStatus(force));
     await Promise.all(jobs);
     S.loading=false;
@@ -2821,6 +2821,43 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       S.va.unmatchedDocs=(d&&d.ok&&Array.isArray(d.documents))?d.documents:[];
     }catch(err){console.error("[VA] loadUnmatchedDocuments failed",err);S.va.unmatchedDocs=[];}
   }
+  async function loadIncomingQuestions(){
+    try{
+      var r=await fetch("/api/admin/va/incoming-questions",{credentials:"same-origin"});
+      var d=await r.json().catch(function(){return {};});
+      S.va.incomingQuestions=(d&&d.ok&&Array.isArray(d.todos))?d.todos:[];
+    }catch(err){console.error("[VA] loadIncomingQuestions failed",err);S.va.incomingQuestions=[];}
+  }
+  async function assignIncomingQuestion(id){
+    var userId=prompt("Enter user_id of the GP to assign this to:");
+    if(!userId)return;
+    try{
+      var r=await fetch("/api/admin/va/incoming-questions/"+encodeURIComponent(id)+"/assign",{
+        method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({user_id:userId})
+      });
+      var d=await r.json();
+      if(d.ok){await loadIncomingQuestions();if(S.view==="inbox")renderInboxPanel();}
+      else alert("Failed: "+(d.error||"unknown"));
+    }catch(err){alert("Error assigning question: "+err.message);}
+  }
+  async function resolveIncomingQuestion(id){
+    try{
+      var r=await fetch("/api/admin/va/incoming-questions/"+encodeURIComponent(id)+"/resolve",{method:"POST",credentials:"same-origin"});
+      var d=await r.json();
+      if(d.ok){await loadIncomingQuestions();if(S.view==="inbox")renderInboxPanel();}
+      else alert("Failed: "+(d.error||"unknown"));
+    }catch(err){alert("Error resolving question: "+err.message);}
+  }
+  function iqTimeAgo(iso){
+    if(!iso)return"";
+    var diff=Date.now()-Date.parse(iso);
+    var mins=Math.floor(diff/60000);
+    if(mins<60)return mins+"m ago";
+    if(mins<1440)return Math.floor(mins/60)+"h ago";
+    return Math.floor(mins/1440)+"d ago";
+  }
   async function loadVaTickets(){
     try{
       const r=await fetch("/api/admin/va/tickets?status="+encodeURIComponent(S.va.ticketsView),{credentials:"same-origin"});
@@ -2987,6 +3024,32 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       h += '</div>';
     }
+    // Incoming Questions (email triage to-dos)
+    var iqTodos = S.va.incomingQuestions || [];
+    if (iqTodos.length) {
+      h += '<div class="inbox-section-title">Incoming Questions <span class="count">' + iqTodos.length + '</span></div>';
+      h += '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:12px;margin-bottom:16px;">';
+      for (var qi = 0; qi < iqTodos.length; qi++) {
+        var q = iqTodos[qi];
+        var urgencyColor = q.ai_urgency === 'high' ? '#dc2626' : q.ai_urgency === 'normal' ? '#ea580c' : '#6b7280';
+        var confBadge = q.ai_confidence >= 0.7 ? 'high' : q.ai_confidence >= 0.4 ? 'med' : 'low';
+        var category = (q.ai_category || 'other').toUpperCase();
+        h += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:8px;">';
+        h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
+        h += '<span style="color:' + urgencyColor + ';font-weight:bold;font-size:11px;">[' + esc(category) + ']</span>';
+        h += '<span style="font-size:11px;color:#6b7280;">(' + esc(confBadge) + ')</span>';
+        h += '<span style="flex:1;">' + esc(q.ai_summary || '(no summary)') + '</span>';
+        h += '<span style="color:#6b7280;font-size:11px;">' + iqTimeAgo(q.created_at) + '</span>';
+        h += '</div>';
+        h += '<div style="margin-top:4px;font-size:12px;color:#6b7280;">From: ' + esc(q.sender_email || '') + ' \u2014 Subject: ' + esc(q.subject || '') + '</div>';
+        h += '<div style="margin-top:4px;display:flex;gap:4px;">';
+        if (q.needs_triage) h += '<button class="btn primary sm" onclick="assignIncomingQuestion(\'' + esc(q.id) + '\')">Assign to GP\u2026</button>';
+        h += '<button class="btn sm" onclick="resolveIncomingQuestion(\'' + esc(q.id) + '\')">Dismiss</button>';
+        h += '</div>';
+        h += '</div>';
+      }
+      h += '</div>';
+    }
     if(tickets.length){
       h+=`<div class="inbox-section-title">Support Tickets (FIFO) <span class="count red">${tickets.length}</span></div><div class="today-grid">${tickets.map(ticketCard).join("")}</div>`;
     }
@@ -3002,7 +3065,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(normalGroups.length){
       h+=`<div class="inbox-section-title">NORMAL <span class="count">${normal.length} tasks across ${normalGroups.length} GP${normalGroups.length===1?"":"s"}</span></div><div class="today-grid">${normalGroups.map(gpTaskCard).join("")}</div>`;
     }
-    if(!unmatchedDocs.length&&!tickets.length&&!urgent.length&&!overdue.length&&!blocked.length&&!normal.length){
+    if(!unmatchedDocs.length&&!iqTodos.length&&!tickets.length&&!urgent.length&&!overdue.length&&!blocked.length&&!normal.length){
       h+='<div class="empty" style="margin-top:20px">All clear — no pending tickets or tasks.</div>';
     }
     el.innerHTML=h;
@@ -3286,7 +3349,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
 
   async function refreshVaAll(){
-    await loadVaDashboard();
+    await Promise.all([loadVaDashboard(),loadIncomingQuestions()]);
     if(S.view==="inbox")renderInboxPanel();
     if(S.view==="cases"){renderCaseList();renderDetail();}
   }
@@ -3555,7 +3618,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(sweepRun){e.preventDefault();e.stopPropagation();runWeeklyCheckinSweep();return;}
 
     const refresh=e.target.closest("[data-va-refresh]");
-    if(refresh){e.preventDefault();e.stopPropagation();await loadVaDashboard();if(S.view==="inbox")renderInboxPanel();return;}
+    if(refresh){e.preventDefault();e.stopPropagation();await Promise.all([loadVaDashboard(),loadIncomingQuestions()]);if(S.view==="inbox")renderInboxPanel();return;}
 
     const closeT=e.target.closest("[data-close-ticket]");
     if(closeT){e.preventDefault();e.stopPropagation();await closeTicketAction(closeT.getAttribute("data-close-ticket"),"closed");return;}
@@ -3660,6 +3723,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.openCorrectionModal = openCorrectionModal;
   window.closeCorrectionModal = closeCorrectionModal;
   window.sendSppaCorrection = sendSppaCorrection;
+  // Phase 2 — Incoming Questions
+  window.loadIncomingQuestions = loadIncomingQuestions;
+  window.assignIncomingQuestion = assignIncomingQuestion;
+  window.resolveIncomingQuestion = resolveIncomingQuestion;
 })();
 </script>
 </body>
