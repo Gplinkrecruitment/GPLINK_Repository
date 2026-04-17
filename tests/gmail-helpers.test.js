@@ -73,22 +73,22 @@ function preFilterEmail(emailMeta) {
   if (emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@mygplink.com.au')) {
     return { pass: false, reason: 'internal_sender' };
   }
-  if (!emailMeta.attachments || emailMeta.attachments.length === 0) {
-    return { pass: false, reason: 'no_attachments' };
-  }
-  var hasDocAttachment = emailMeta.attachments.some(function (a) {
-    return GMAIL_DOCUMENT_EXTENSIONS.test(a.filename || '');
-  });
-  if (!hasDocAttachment) {
-    return { pass: false, reason: 'no_document_attachments' };
-  }
   if (GMAIL_NOREPLY_PATTERNS.test(emailMeta.sender || '')) {
     return { pass: false, reason: 'marketing' };
   }
   if (emailMeta.headers && emailMeta.headers['list-unsubscribe']) {
     return { pass: false, reason: 'marketing' };
   }
-  return { pass: true, reason: null };
+  if (!emailMeta.attachments || emailMeta.attachments.length === 0) {
+    return { pass: true, reason: null, track: 'triage' };
+  }
+  var hasDocAttachment = emailMeta.attachments.some(function (a) {
+    return GMAIL_DOCUMENT_EXTENSIONS.test(a.filename || '');
+  });
+  if (!hasDocAttachment) {
+    return { pass: true, reason: null, track: 'triage' };
+  }
+  return { pass: true, reason: null, track: 'attachments' };
 }
 
 // ── buildAIMatchPrompt (inline copy) ──
@@ -325,7 +325,7 @@ describe('preFilterEmail', function () {
 
   it('passes email with valid document attachment', function () {
     var result = preFilterEmail(makeEmail());
-    expect(result).toEqual({ pass: true, reason: null });
+    expect(result).toEqual({ pass: true, reason: null, track: 'attachments' });
   });
 
   it('rejects internal @mygplink.com.au senders', function () {
@@ -334,22 +334,25 @@ describe('preFilterEmail', function () {
     expect(result.reason).toBe('internal_sender');
   });
 
-  it('rejects emails with no attachments', function () {
+  it('routes emails with no attachments to triage track', function () {
     var result = preFilterEmail(makeEmail({ attachments: [] }));
-    expect(result.pass).toBe(false);
-    expect(result.reason).toBe('no_attachments');
+    expect(result.pass).toBe(true);
+    expect(result.reason).toBeNull();
+    expect(result.track).toBe('triage');
   });
 
-  it('rejects emails with undefined attachments', function () {
+  it('routes emails with undefined attachments to triage track', function () {
     var result = preFilterEmail({ sender: 'a@b.com' });
-    expect(result.pass).toBe(false);
-    expect(result.reason).toBe('no_attachments');
+    expect(result.pass).toBe(true);
+    expect(result.reason).toBeNull();
+    expect(result.track).toBe('triage');
   });
 
-  it('rejects emails with only non-document attachments', function () {
+  it('routes emails with only non-document attachments to triage track', function () {
     var result = preFilterEmail(makeEmail({ attachments: [{ filename: 'data.zip' }, { filename: 'music.mp3' }] }));
-    expect(result.pass).toBe(false);
-    expect(result.reason).toBe('no_document_attachments');
+    expect(result.pass).toBe(true);
+    expect(result.reason).toBeNull();
+    expect(result.track).toBe('triage');
   });
 
   it('accepts various document extensions', function () {

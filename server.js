@@ -476,25 +476,26 @@ function preFilterEmail(emailMeta) {
   if (emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@mygplink.com.au')) {
     return { pass: false, reason: 'internal_sender' };
   }
-  if (!emailMeta.attachments || emailMeta.attachments.length === 0) {
-    return { pass: false, reason: 'no_attachments' };
-  }
-  var hasDocAttachment = emailMeta.attachments.some(function (a) {
-    return GMAIL_DOCUMENT_EXTENSIONS.test(a.filename || '');
-  });
-  if (!hasDocAttachment) {
-    return { pass: false, reason: 'no_document_attachments' };
-  }
   if (GMAIL_NOREPLY_PATTERNS.test(emailMeta.sender || '')) {
     return { pass: false, reason: 'marketing' };
   }
   if (emailMeta.headers && emailMeta.headers['list-unsubscribe']) {
     return { pass: false, reason: 'marketing' };
   }
-  return { pass: true, reason: null };
+  if (!emailMeta.attachments || emailMeta.attachments.length === 0) {
+    return { pass: true, reason: null, track: 'triage' };
+  }
+  var hasDocAttachment = emailMeta.attachments.some(function (a) {
+    return GMAIL_DOCUMENT_EXTENSIONS.test(a.filename || '');
+  });
+  if (!hasDocAttachment) {
+    return { pass: true, reason: null, track: 'triage' };
+  }
+  return { pass: true, reason: null, track: 'attachments' };
 }
 
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
+var { triageEmailWithSonnet } = require('./lib/email-triage.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
   var budgetOk = checkAnthropicBudget();
@@ -727,6 +728,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         continue;
       }
 
+      // Route by track: attachments (existing AI matching) or triage (email classifier)
+      if (filterResult.track === 'attachments') {
       // Run AI matching
       var aiResult = await aiMatchEmail(emailMeta, openTasks);
 
@@ -864,6 +867,74 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         method: 'POST',
         body: [processedRecord]
       });
+
+      } else if (filterResult.track === 'triage') {
+        // Triage track: classify non-attachment emails with AI
+        var budgetOk = checkAnthropicBudget();
+        if (!budgetOk) {
+          console.error('[Gmail] Daily Anthropic budget exceeded, skipping triage for', currentMsgId);
+          await supabaseDbRequest('processed_gmail_messages', '', {
+            method: 'POST',
+            body: [{
+              gmail_message_id: currentMsgId,
+              email_address: emailAddress,
+              sender: emailMeta.sender,
+              subject: emailMeta.subject,
+              status: 'filtered',
+              filter_reason: 'budget_exceeded',
+              processed_at: new Date().toISOString()
+            }]
+          });
+          continue;
+        }
+
+        var placedGPs = await getPlacedGPsForTriage();
+        var triageResult = await triageEmailWithSonnet(emailMeta, placedGPs);
+
+        if (triageResult && triageResult._usage) {
+          recordAnthropicSpend(
+            triageResult._usage.input_tokens || 0,
+            triageResult._usage.output_tokens || 0,
+            triageResult._usage.cache_read_input_tokens || 0,
+            triageResult._usage.cache_creation_input_tokens || 0
+          );
+        }
+
+        // Insert into incoming_email_todos
+        await supabaseDbRequest('incoming_email_todos', '', {
+          method: 'POST',
+          body: [{
+            gmail_message_id: currentMsgId,
+            email_address: emailAddress,
+            sender: emailMeta.sender,
+            subject: emailMeta.subject,
+            body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
+            matched_user_id: triageResult.matched_gp_user_id || null,
+            confidence: triageResult.confidence || 0,
+            category: triageResult.category || 'other',
+            urgency: triageResult.urgency || 'low',
+            summary: triageResult.summary || '',
+            needs_triage: triageResult.needs_triage !== false,
+            created_at: new Date().toISOString()
+          }]
+        });
+
+        // Record in processed_gmail_messages
+        await supabaseDbRequest('processed_gmail_messages', '', {
+          method: 'POST',
+          body: [{
+            gmail_message_id: currentMsgId,
+            email_address: emailAddress,
+            sender: emailMeta.sender,
+            subject: emailMeta.subject,
+            status: 'triaged',
+            ai_summary: triageResult.summary || '',
+            processed_at: new Date().toISOString()
+          }]
+        });
+
+        console.log('[Gmail] Triaged message', currentMsgId, '- category:', triageResult.category, '- urgency:', triageResult.urgency, '- needs_triage:', triageResult.needs_triage);
+      }
 
     } catch (msgErr) {
       console.error('[Gmail] Error processing message', currentMsgId, ':', msgErr.message);
@@ -20424,6 +20495,44 @@ Return ONLY valid JSON with no markdown formatting:
     });
 
     await _logCaseEvent(task.case_id, taskId, 'document_assigned', 'Document manually assigned from unmatched Gmail', 'From: ' + (gmailRecord.sender || 'unknown') + ' | File: ' + attachmentFilename, adminCtx.email);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── List unresolved incoming questions ──
+  if (req.method === 'GET' && pathname === '/api/admin/va/incoming-questions') {
+    var admin = requireAdminSession(req, res);
+    if (!admin) return;
+    var rows = await supabaseDbRequest('incoming_email_todos',
+      'select=*&resolved_at=is.null&order=created_at.desc&limit=200');
+    sendJson(res, 200, { ok: rows.ok, todos: rows.ok ? rows.data : [] });
+    return;
+  }
+
+  // ── Manually assign a triage to-do to a GP ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/incoming-questions/') && pathname.endsWith('/assign')) {
+    var admin = requireAdminSession(req, res);
+    if (!admin) return;
+    var id = pathname.split('/')[5];
+    var body = await readJsonBody(req);
+    var userId = String((body && body.user_id) || '').trim();
+    if (!userId) { sendJson(res, 400, { error: 'user_id required' }); return; }
+    await supabaseDbRequest('incoming_email_todos',
+      'id=eq.' + encodeURIComponent(id),
+      { method: 'PATCH', body: { matched_user_id: userId, needs_triage: false } });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ── Mark incoming question resolved ──
+  if (req.method === 'POST' && pathname.startsWith('/api/admin/va/incoming-questions/') && pathname.endsWith('/resolve')) {
+    var admin = requireAdminSession(req, res);
+    if (!admin) return;
+    var id = pathname.split('/')[5];
+    var adminUserId = getSessionSupabaseUserId(admin.session);
+    await supabaseDbRequest('incoming_email_todos',
+      'id=eq.' + encodeURIComponent(id),
+      { method: 'PATCH', body: { resolved_at: new Date().toISOString(), resolved_by: adminUserId } });
     sendJson(res, 200, { ok: true });
     return;
   }
