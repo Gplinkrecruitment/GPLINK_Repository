@@ -15686,7 +15686,7 @@ async function handleApi(req, res, pathname) {
 
   // ── Zoho Sign OAuth endpoints ──────────────────────────────
   if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/auth-url') {
-    const admin = requireIntegrationAdminSession(req, res);
+    const admin = requireAdminSession(req, res);
     if (!admin) return;
     if (!ZOHO_SIGN_CLIENT_ID || !ZOHO_SIGN_CLIENT_SECRET) {
       sendJson(res, 503, { ok: false, message: 'ZOHO_SIGN_CLIENT_ID/SECRET not configured' });
@@ -15762,7 +15762,7 @@ async function handleApi(req, res, pathname) {
   }
 
   if (req.method === 'POST' && pathname === '/api/admin/integrations/zoho-sign/disconnect') {
-    const admin = requireIntegrationAdminSession(req, res);
+    const admin = requireAdminSession(req, res);
     if (!admin) return;
     await upsertZohoSignConnection({
       status: 'disconnected',
@@ -15777,7 +15777,7 @@ async function handleApi(req, res, pathname) {
   }
 
   if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/status') {
-    const admin = requireIntegrationAdminSession(req, res);
+    const admin = requireAdminSession(req, res);
     if (!admin) return;
     const c = await getZohoSignConnection();
     if (!c) { sendJson(res, 200, { ok: true, connected: false }); return; }
