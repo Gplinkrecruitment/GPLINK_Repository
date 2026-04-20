@@ -15686,8 +15686,9 @@ async function handleApi(req, res, pathname) {
 
   // ── Zoho Sign OAuth endpoints ──────────────────────────────
   if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/auth-url') {
+    console.log('[ZohoSign auth-url] host:', req.headers.host, 'hostScope:', getAdminHostScope(req), 'hasAdminCookie:', !!(getCookies(req)[ADMIN_COOKIE_NAME]));
     const admin = requireAdminSession(req, res);
-    if (!admin) return;
+    if (!admin) { console.log('[ZohoSign auth-url] requireAdminSession returned null'); return; }
     if (!ZOHO_SIGN_CLIENT_ID || !ZOHO_SIGN_CLIENT_SECRET) {
       sendJson(res, 503, { ok: false, message: 'ZOHO_SIGN_CLIENT_ID/SECRET not configured' });
       return;

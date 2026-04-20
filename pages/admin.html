@@ -3130,7 +3130,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   /* ══ Task 11: Zoho Sign integration card ══ */
   async function loadZohoSignStatus() {
     try {
-      var r = await fetch('/api/admin/integrations/zoho-sign/status', { credentials: 'include' });
+      var r = await fetch('/api/admin/integrations/zoho-sign/status?_t=' + Date.now(), { credentials: 'include' });
       var data = await r.json();
       var chip = document.getElementById('zs-status-chip');
       var connectedBox = document.getElementById('zs-connected-info');
@@ -3165,12 +3165,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   async function zohoSignConnect() {
     try {
-      var r = await fetch('/api/admin/integrations/zoho-sign/auth-url', { credentials: 'include' });
+      var r = await fetch('/api/admin/integrations/zoho-sign/auth-url?_t=' + Date.now(), { credentials: 'include' });
       var data = await r.json();
       if (data && data.authUrl) window.location.href = data.authUrl;
-      else alert('Could not start Zoho Sign OAuth: ' + (data && data.message));
+      else alert('Could not start Zoho Sign OAuth (HTTP ' + r.status + '): ' + JSON.stringify(data));
     } catch (err) {
-      alert('Network error connecting to Zoho Sign');
+      alert('Network error connecting to Zoho Sign: ' + err.message);
     }
   }
 
