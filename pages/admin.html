@@ -721,6 +721,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           </div>
           <div style="margin-top:12px;">
             <button id="zs-connect-btn" class="btn primary" onclick="zohoSignConnect()">Connect Zoho Sign</button>
+            <button id="zs-sync-btn" class="btn" style="display:none;" onclick="zohoSignSync()">Sync / Repair</button>
             <button id="zs-disconnect-btn" class="btn" style="display:none;" onclick="zohoSignDisconnect()">Disconnect</button>
           </div>
         </div>
@@ -3145,6 +3146,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         disconnectedBox.style.display = 'none';
         connectBtn.style.display = 'none';
         disconnectBtn.style.display = '';
+        var syncBtn = document.getElementById('zs-sync-btn');
+        if (syncBtn) syncBtn.style.display = '';
         document.getElementById('zs-org-name').textContent = data.orgName || '\u2014';
         document.getElementById('zs-connected-email').textContent = data.connectedEmail || '\u2014';
         document.getElementById('zs-token-exp').textContent = data.tokenExpiresAt ? new Date(data.tokenExpiresAt).toLocaleString() : '\u2014';
@@ -3157,6 +3160,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         disconnectedBox.style.display = '';
         connectBtn.style.display = '';
         disconnectBtn.style.display = 'none';
+        var syncBtn2 = document.getElementById('zs-sync-btn');
+        if (syncBtn2) syncBtn2.style.display = 'none';
       }
     } catch (err) {
       console.error('loadZohoSignStatus error:', err);
@@ -3171,6 +3176,23 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       else alert('Could not start Zoho Sign OAuth (HTTP ' + r.status + '): ' + JSON.stringify(data));
     } catch (err) {
       alert('Network error connecting to Zoho Sign: ' + err.message);
+    }
+  }
+
+  async function zohoSignSync() {
+    var btn = document.getElementById('zs-sync-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+    try {
+      var r = await fetch('/api/admin/integrations/zoho-sign/sync', { method: 'POST', credentials: 'include' });
+      var data = await r.json();
+      if (data && data.errors && data.errors.length > 0) {
+        alert('Sync completed with issues:\n' + data.errors.join('\n'));
+      }
+      await loadZohoSignStatus();
+    } catch (err) {
+      alert('Sync error: ' + err.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Sync / Repair'; }
     }
   }
 

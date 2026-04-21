@@ -15769,12 +15769,61 @@ async function handleApi(req, res, pathname) {
     if (!admin) return;
     const tokenRes = await getValidZohoSignAccessToken();
     if (!tokenRes.ok) { sendJson(res, 502, { ok: false, message: 'No valid token' }); return; }
-    const apiBase = (tokenRes.connection && tokenRes.connection.apiDomain) || getZohoSignApiBase();
-    const base = /\/api\/v\d+$/.test(apiBase) ? apiBase : (apiBase.replace(/\/$/, '') + '/api/v1');
-    const fullUrl = base + '/templates';
-    console.log('[ZohoSign templates] calling:', fullUrl);
     const result = await zohoSignApiGet('templates');
-    sendJson(res, result.ok ? 200 : 502, { url: fullUrl, ...result });
+    sendJson(res, result.ok ? 200 : 502, result);
+    return;
+  }
+
+  // ── Zoho Sign sync/repair — refresh token, org info, webhook ──
+  if (req.method === 'POST' && pathname === '/api/admin/integrations/zoho-sign/sync') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const c = await getZohoSignConnection();
+    if (!c || c.status !== 'connected') {
+      sendJson(res, 400, { ok: false, message: 'Zoho Sign is not connected' });
+      return;
+    }
+    const results = { tokenRefreshed: false, orgInfoFetched: false, webhookRegistered: false, errors: [] };
+
+    // 1. Refresh token
+    try {
+      const r = await refreshZohoSignAccessToken(c);
+      results.tokenRefreshed = !!r.ok;
+      if (!r.ok) results.errors.push('Token refresh failed: ' + (r.error || 'unknown'));
+    } catch (e) { results.errors.push('Token refresh error: ' + e.message); }
+
+    // 2. Fetch org info
+    try {
+      await fetchAndStoreZohoSignOrgInfo();
+      results.orgInfoFetched = true;
+    } catch (e) { results.errors.push('Org info error: ' + e.message); }
+
+    // 3. Register webhook if not already registered
+    try {
+      const updated = await getZohoSignConnection();
+      if (!updated || !updated.webhookSecret) {
+        const wr = await registerZohoSignWebhook();
+        results.webhookRegistered = !!wr.ok;
+        if (!wr.ok) results.errors.push('Webhook registration failed');
+      } else {
+        results.webhookRegistered = true;
+      }
+    } catch (e) { results.errors.push('Webhook error: ' + e.message); }
+
+    // Return updated status
+    const final = await getZohoSignConnection();
+    sendJson(res, 200, {
+      ok: results.errors.length === 0,
+      ...results,
+      status: final ? {
+        connected: final.status === 'connected',
+        orgName: final.orgName,
+        connectedEmail: final.connectedEmail,
+        tokenExpiresAt: final.tokenExpiresAt,
+        webhookRegistered: !!final.webhookSecret,
+        templateId: final.templateId
+      } : null
+    });
     return;
   }
 
