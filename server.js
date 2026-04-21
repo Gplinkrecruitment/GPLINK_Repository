@@ -8253,6 +8253,8 @@ async function processZohoSignWebhookEvent(payload) {
     await supabaseDbRequest('zoho_sign_envelopes',
       'envelope_id=eq.' + encodeURIComponent(envelopeId),
       { method: 'PATCH', body: updates });
+  } else {
+    console.error('[ZohoSign webhook] envelope not found in DB:', envelopeId, '— status update skipped for event:', eventType);
   }
 
   // On completion, record a timeline entry so the VA review panel can pick it up via task listing.
