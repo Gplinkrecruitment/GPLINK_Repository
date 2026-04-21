@@ -13617,6 +13617,60 @@ async function handleApi(req, res, pathname) {
 
   if (!enforceMutationOrigin(req, res)) return;
 
+  // Zoho Sign OAuth callback — redirect from Zoho lands on app domain, must be before admin host guard
+  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/callback') {
+    const qs = url.searchParams;
+    const state = qs.get('state') || '';
+    const code = qs.get('code') || '';
+    const errParam = qs.get('error') || '';
+    if (errParam) {
+      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=' + encodeURIComponent(errParam) });
+      res.end();
+      return;
+    }
+    const statePayload = await consumeZohoSignOauthState(state);
+    if (!statePayload) {
+      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=invalid_state' });
+      res.end();
+      return;
+    }
+    const adminUserId = String(statePayload.adminUserId || '');
+    const tokenRes = await zohoFormRequest(getZohoSignAccountsServer(), {
+      grant_type: 'authorization_code',
+      client_id: ZOHO_SIGN_CLIENT_ID,
+      client_secret: ZOHO_SIGN_CLIENT_SECRET,
+      redirect_uri: getZohoSignOauthRedirectUri(),
+      code
+    });
+    if (!tokenRes.ok || !tokenRes.data || !tokenRes.data.access_token) {
+      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=token_exchange_failed' });
+      res.end();
+      return;
+    }
+    const apiDomain = String(tokenRes.data.api_domain || getZohoSignApiBase()).replace(/\/$/, '');
+    const expiresAt = new Date(Date.now() + ((Number(tokenRes.data.expires_in) || 3600) - 300) * 1000).toISOString();
+
+    await upsertZohoSignConnection({
+      status: 'connected',
+      refreshToken: String(tokenRes.data.refresh_token || ''),
+      accessToken: String(tokenRes.data.access_token || ''),
+      tokenExpiresAt: expiresAt,
+      accountsServer: getZohoSignAccountsServer(),
+      apiDomain,
+      scopes: ZOHO_SIGN_SCOPES,
+      connectedByUserId: adminUserId,
+      tokenLastRefreshedAt: new Date().toISOString(),
+      templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID
+    });
+
+    try { if (typeof registerZohoSignWebhook === 'function') await registerZohoSignWebhook(); } catch (e) { console.error('[ZohoSign] webhook registration failed:', e.message); }
+    try { await fetchAndStoreZohoSignOrgInfo(); } catch (e) { console.error('[ZohoSign] org info fetch failed:', e.message); }
+
+    res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=connected' });
+    res.end();
+    return;
+  }
+
   if (pathname.startsWith('/api/admin/') && !isAllowedAdminHost(req)) {
     sendJson(res, 404, { ok: false, message: 'Not found' });
     return;
@@ -15704,61 +15758,6 @@ async function handleApi(req, res, pathname) {
     authUrl.searchParams.set('prompt', 'consent');
     authUrl.searchParams.set('state', state);
     sendJson(res, 200, { ok: true, authUrl: authUrl.toString(), state });
-    return;
-  }
-
-  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/callback') {
-    const qs = url.searchParams;
-    const state = qs.get('state') || '';
-    const code = qs.get('code') || '';
-    const errParam = qs.get('error') || '';
-    if (errParam) {
-      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=' + encodeURIComponent(errParam) });
-      res.end();
-      return;
-    }
-    const statePayload = await consumeZohoSignOauthState(state);
-    if (!statePayload) {
-      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=invalid_state' });
-      res.end();
-      return;
-    }
-    const adminUserId = String(statePayload.adminUserId || '');
-    const tokenRes = await zohoFormRequest(getZohoSignAccountsServer(), {
-      grant_type: 'authorization_code',
-      client_id: ZOHO_SIGN_CLIENT_ID,
-      client_secret: ZOHO_SIGN_CLIENT_SECRET,
-      redirect_uri: getZohoSignOauthRedirectUri(),
-      code
-    });
-    if (!tokenRes.ok || !tokenRes.data || !tokenRes.data.access_token) {
-      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=token_exchange_failed' });
-      res.end();
-      return;
-    }
-    const apiDomain = String(tokenRes.data.api_domain || getZohoSignApiBase()).replace(/\/$/, '');
-    const expiresAt = new Date(Date.now() + ((Number(tokenRes.data.expires_in) || 3600) - 300) * 1000).toISOString();
-
-    await upsertZohoSignConnection({
-      status: 'connected',
-      refreshToken: String(tokenRes.data.refresh_token || ''),
-      accessToken: String(tokenRes.data.access_token || ''),
-      tokenExpiresAt: expiresAt,
-      accountsServer: getZohoSignAccountsServer(),
-      apiDomain,
-      scopes: ZOHO_SIGN_SCOPES,
-      connectedByUserId: adminUserId,
-      tokenLastRefreshedAt: new Date().toISOString(),
-      templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID
-    });
-
-    // Fire-and-forget: webhook registration (added in Task 6) and org info.
-    // registerZohoSignWebhook does not exist yet — swallow ReferenceError.
-    try { if (typeof registerZohoSignWebhook === 'function') await registerZohoSignWebhook(); } catch (e) { console.error('[ZohoSign] webhook registration failed:', e.message); }
-    try { await fetchAndStoreZohoSignOrgInfo(); } catch (e) { console.error('[ZohoSign] org info fetch failed:', e.message); }
-
-    res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=connected' });
-    res.end();
     return;
   }
 
