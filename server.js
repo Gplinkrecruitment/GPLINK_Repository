@@ -8005,9 +8005,9 @@ async function zohoSignApiRequest(method, resourcePath, options = {}) {
   if (!tokenRes.ok || !tokenRes.accessToken) {
     return { ok: false, status: 401, data: { message: 'Zoho Sign not connected or token refresh failed.' } };
   }
-  const apiBase = (tokenRes.connection && tokenRes.connection.apiDomain) || getZohoSignApiBase();
-  // apiDomain from Zoho is the bare host (e.g. https://sign.zoho.com.au). Ensure /api/v1 path segment is present.
-  const base = /\/api\/v\d+$/.test(apiBase) ? apiBase : (apiBase.replace(/\/$/, '') + '/api/v1');
+  // Always use the Zoho Sign-specific API base (sign.zoho.com.au/api/v1).
+  // The OAuth api_domain field returns the generic zohoapis domain which doesn't work for Sign endpoints.
+  const base = getZohoSignApiBase();
   const url = new URL(`${base}/${String(resourcePath || '').replace(/^\/+/, '')}`);
   Object.entries(queryParams).forEach(([k, v]) => {
     if (v === undefined || v === null || v === '') return;
