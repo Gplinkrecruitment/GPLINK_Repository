@@ -15764,6 +15764,14 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/templates') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    const result = await zohoSignApiGet('templates', { page_context: JSON.stringify({ row_count: 50, start_index: 1 }) });
+    sendJson(res, result.ok ? 200 : 502, result);
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/api/admin/integrations/zoho-sign/disconnect') {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
