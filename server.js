@@ -7757,12 +7757,13 @@ function getZohoSignOauthStateKey(state) {
   return `zoho_sign_oauth:${String(state || '').trim()}`;
 }
 
-async function createZohoSignOauthState(adminUserId, adminEmail) {
+async function createZohoSignOauthState(adminUserId, adminEmail, returnOrigin) {
   const state = crypto.randomBytes(24).toString('hex');
   const expiresAt = Date.now() + (10 * 60 * 1000);
   await setRuntimeKv(getZohoSignOauthStateKey(state), {
     adminUserId: String(adminUserId || ''),
     email: String(adminEmail || '').trim().toLowerCase(),
+    returnOrigin: String(returnOrigin || ''),
     createdAt: new Date().toISOString()
   }, expiresAt);
   return state;
@@ -13635,6 +13636,7 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const adminUserId = String(statePayload.adminUserId || '');
+    const adminReturnBase = String(statePayload.returnOrigin || 'https://admin.mygplink.com.au').replace(/\/$/, '');
     const tokenRes = await zohoFormRequest(getZohoSignAccountsServer(), {
       grant_type: 'authorization_code',
       client_id: ZOHO_SIGN_CLIENT_ID,
@@ -13643,7 +13645,7 @@ async function handleApi(req, res, pathname) {
       code
     });
     if (!tokenRes.ok || !tokenRes.data || !tokenRes.data.access_token) {
-      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=token_exchange_failed' });
+      res.writeHead(302, { Location: adminReturnBase + '/pages/admin.html?zoho-sign=error&reason=token_exchange_failed' });
       res.end();
       return;
     }
@@ -13666,7 +13668,7 @@ async function handleApi(req, res, pathname) {
     try { if (typeof registerZohoSignWebhook === 'function') await registerZohoSignWebhook(); } catch (e) { console.error('[ZohoSign] webhook registration failed:', e.message); }
     try { await fetchAndStoreZohoSignOrgInfo(); } catch (e) { console.error('[ZohoSign] org info fetch failed:', e.message); }
 
-    res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=connected' });
+    res.writeHead(302, { Location: adminReturnBase + '/pages/admin.html?zoho-sign=connected' });
     res.end();
     return;
   }
@@ -15748,7 +15750,8 @@ async function handleApi(req, res, pathname) {
       return;
     }
     const adminUserId = getSessionSupabaseUserId(admin.session) || '';
-    const state = await createZohoSignOauthState(adminUserId, admin.email || '');
+    const adminOrigin = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host || 'admin.mygplink.com.au'}`;
+    const state = await createZohoSignOauthState(adminUserId, admin.email || '', adminOrigin);
     const authUrl = new URL(`${getZohoSignAccountsServer()}/oauth/v2/auth`);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('client_id', ZOHO_SIGN_CLIENT_ID);
