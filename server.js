@@ -15767,8 +15767,14 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'GET' && pathname === '/api/admin/integrations/zoho-sign/templates') {
     const admin = requireAdminSession(req, res);
     if (!admin) return;
-    const result = await zohoSignApiGet('templates', { page_context: JSON.stringify({ row_count: 50, start_index: 1 }) });
-    sendJson(res, result.ok ? 200 : 502, result);
+    const tokenRes = await getValidZohoSignAccessToken();
+    if (!tokenRes.ok) { sendJson(res, 502, { ok: false, message: 'No valid token' }); return; }
+    const apiBase = (tokenRes.connection && tokenRes.connection.apiDomain) || getZohoSignApiBase();
+    const base = /\/api\/v\d+$/.test(apiBase) ? apiBase : (apiBase.replace(/\/$/, '') + '/api/v1');
+    const fullUrl = base + '/templates';
+    console.log('[ZohoSign templates] calling:', fullUrl);
+    const result = await zohoSignApiGet('templates');
+    sendJson(res, result.ok ? 200 : 502, { url: fullUrl, ...result });
     return;
   }
 
