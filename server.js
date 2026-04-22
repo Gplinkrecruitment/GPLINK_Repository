@@ -8217,13 +8217,25 @@ function zohoSignApiPostForm(path, formMap) {
 function zohoSignApiDelete(path) { return zohoSignApiRequest('DELETE', path); }
 
 async function fetchAndStoreZohoSignOrgInfo() {
-  const res = await zohoSignApiGet('account');
-  if (!res.ok || !res.data) return;
-  const org = (res.data.organization || res.data.account || {});
+  // Zoho Sign API v1 uses /organizations (not /account) to return org info
+  const res = await zohoSignApiGet('organizations');
+  if (!res.ok || !res.data) {
+    const errDetail = res.data ? JSON.stringify(res.data).slice(0, 300) : ('HTTP ' + (res.status || 'unknown'));
+    throw new Error('Zoho Sign organizations endpoint failed: ' + errDetail);
+  }
+  // Response: { organizations: [ { organization_id, organization_name, owner_email, ... } ] }
+  const orgs = Array.isArray(res.data.organizations) ? res.data.organizations : [];
+  const org = orgs[0] || res.data.organization || res.data.account || {};
+  const orgName = String(org.org_name || org.organization_name || '');
+  const orgId = String(org.org_id || org.organization_id || '');
+  const ownerEmail = String(org.owner_email || '');
+  if (!orgName && !orgId && !ownerEmail) {
+    throw new Error('No organization data found in Zoho Sign response: ' + JSON.stringify(res.data).slice(0, 300));
+  }
   await upsertZohoSignConnection({
-    orgName: String(org.org_name || org.organization_name || ''),
-    orgId: String(org.org_id || org.organization_id || ''),
-    connectedEmail: String(org.owner_email || '')
+    orgName,
+    orgId,
+    connectedEmail: ownerEmail
   });
 }
 
@@ -8335,6 +8347,7 @@ async function registerZohoSignWebhook() {
     }
   };
   const res = await zohoSignApiPostForm('notifications', { data: payload });
+  console.log('[ZohoSign] webhook registration response:', res.status, JSON.stringify(res.data || {}).slice(0, 500));
   if (res.ok) {
     await upsertZohoSignConnection({
       webhookSecret: secret,
@@ -15957,8 +15970,13 @@ async function handleApi(req, res, pathname) {
     // 2. Fetch org info
     try {
       await fetchAndStoreZohoSignOrgInfo();
-      results.orgInfoFetched = true;
-    } catch (e) { results.errors.push('Org info error: ' + e.message); }
+      const afterOrg = await getZohoSignConnection();
+      results.orgInfoFetched = !!(afterOrg && afterOrg.orgName);
+      if (!results.orgInfoFetched) results.errors.push('Org info returned but no organization name found');
+    } catch (e) {
+      results.orgInfoFetched = false;
+      results.errors.push('Org info error: ' + e.message);
+    }
 
     // 3. Register webhook if not already registered
     try {
@@ -15966,11 +15984,24 @@ async function handleApi(req, res, pathname) {
       if (!updated || !updated.webhookSecret) {
         const wr = await registerZohoSignWebhook();
         results.webhookRegistered = !!wr.ok;
-        if (!wr.ok) results.errors.push('Webhook registration failed');
+        if (!wr.ok) {
+          const detail = wr.data ? JSON.stringify(wr.data).slice(0, 300) : ('HTTP ' + (wr.status || 'unknown'));
+          results.errors.push('Webhook registration failed: ' + detail);
+        }
       } else {
         results.webhookRegistered = true;
       }
     } catch (e) { results.errors.push('Webhook error: ' + e.message); }
+
+    // 4. Update template ID from env var if available and not already stored
+    if (ZOHO_SIGN_SPPA_TEMPLATE_ID) {
+      try {
+        const current = await getZohoSignConnection();
+        if (!current || current.templateId !== ZOHO_SIGN_SPPA_TEMPLATE_ID) {
+          await upsertZohoSignConnection({ templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID });
+        }
+      } catch (e) { results.errors.push('Template ID update error: ' + e.message); }
+    }
 
     // Return updated status
     const final = await getZohoSignConnection();
@@ -16017,7 +16048,7 @@ async function handleApi(req, res, pathname) {
       orgName: c.orgName,
       tokenExpiresAt: c.tokenExpiresAt,
       webhookRegistered: !!c.webhookSecret,
-      templateId: c.templateId
+      templateId: c.templateId || ZOHO_SIGN_SPPA_TEMPLATE_ID || ''
     });
     return;
   }
