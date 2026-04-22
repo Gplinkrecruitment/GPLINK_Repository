@@ -8084,6 +8084,23 @@ function mapZohoConnectionRow(row) {
   };
 }
 
+function sanitizeConnectionForResponse(connection) {
+  if (!connection) return null;
+  return {
+    status: connection.status,
+    accountsServer: connection.accountsServer,
+    apiDomain: connection.apiDomain,
+    scopes: connection.scopes,
+    connectedEmail: connection.connectedEmail,
+    tokenLastRefreshedAt: connection.tokenLastRefreshedAt,
+    lastSyncAt: connection.lastSyncAt,
+    lastSyncStatus: connection.lastSyncStatus,
+    lastSyncError: connection.lastSyncError,
+    connectedAt: connection.connectedAt,
+    updatedAt: connection.updatedAt
+  };
+}
+
 async function getZohoRecruitConnection() {
   const result = await supabaseDbRequest(
     'integration_connections',
@@ -16153,7 +16170,7 @@ async function handleApi(req, res, pathname) {
       cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
       cronPath: '/api/integrations/zoho-recruit/cron-sync',
       connected: !!(connection && connection.refreshToken),
-      connection,
+      connection: sanitizeConnectionForResponse(connection),
       roleCount: roles.length
     });
     return;
@@ -16371,7 +16388,7 @@ async function handleApi(req, res, pathname) {
       cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
       cronPath: '/api/integrations/zoho-recruit/cron-sync',
       connected: !!(connection && connection.refreshToken),
-      connection,
+      connection: sanitizeConnectionForResponse(connection),
       roleCount: roles.length
     });
     return;
