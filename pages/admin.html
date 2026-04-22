@@ -3179,26 +3179,34 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
   }
 
-  async function zohoSignSync() {
+  function zohoSignSync() {
+    console.log('[ZohoSign] sync button clicked');
     var btn = document.getElementById('zs-sync-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
-    try {
-      var r = await fetch('/api/admin/integrations/zoho-sign/sync', { method: 'POST', credentials: 'include' });
-      var data = await r.json();
-      if (!r.ok || (data && !data.ok)) {
-        var msg = (data && data.errors && data.errors.length > 0) ? data.errors.join('\n') : (data && data.message ? data.message : JSON.stringify(data));
-        alert('Sync failed (HTTP ' + r.status + '):\n' + msg);
-      } else if (data && data.errors && data.errors.length > 0) {
-        alert('Sync completed with issues:\n' + data.errors.join('\n'));
-      } else {
-        alert('Sync completed successfully!\nToken refreshed: ' + (data.tokenRefreshed ? 'Yes' : 'No') + '\nOrg info: ' + (data.orgInfoFetched ? 'Yes' : 'No') + '\nWebhook: ' + (data.webhookRegistered ? 'Yes' : 'No'));
-      }
-      await loadZohoSignStatus();
-    } catch (err) {
-      alert('Sync error: ' + err.message);
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Sync / Repair'; }
-    }
+    if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
+    fetch('/api/admin/integrations/zoho-sign/sync', { method: 'POST', credentials: 'include' })
+      .then(function(r) {
+        console.log('[ZohoSign] sync response status:', r.status);
+        return r.json().then(function(data) { return { status: r.status, ok: r.ok, data: data }; });
+      })
+      .then(function(res) {
+        console.log('[ZohoSign] sync data:', res.data);
+        if (!res.ok || (res.data && !res.data.ok)) {
+          var msg = (res.data && res.data.errors && res.data.errors.length > 0) ? res.data.errors.join('\n') : (res.data && res.data.message ? res.data.message : JSON.stringify(res.data));
+          alert('Sync failed (HTTP ' + res.status + '):\n' + msg);
+        } else if (res.data && res.data.errors && res.data.errors.length > 0) {
+          alert('Sync completed with issues:\n' + res.data.errors.join('\n'));
+        } else {
+          alert('Sync completed!\nToken: ' + (res.data.tokenRefreshed ? 'Yes' : 'No') + '\nOrg: ' + (res.data.orgInfoFetched ? 'Yes' : 'No') + '\nWebhook: ' + (res.data.webhookRegistered ? 'Yes' : 'No'));
+        }
+        loadZohoSignStatus();
+      })
+      .catch(function(err) {
+        console.error('[ZohoSign] sync error:', err);
+        alert('Sync error: ' + err.message);
+      })
+      .finally(function() {
+        if (btn) { btn.disabled = false; btn.textContent = 'Sync / Repair'; }
+      });
   }
 
   async function zohoSignDisconnect() {
