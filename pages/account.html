@@ -534,6 +534,63 @@
 
     .upload-card:hover { border-color: #c7d2fe; }
 
+    .upload-card.career-doc {
+      background:
+        radial-gradient(circle at top right, rgba(96, 165, 250, 0.16), transparent 40%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      border-color: #d8e5fb;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    }
+
+    .upload-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .upload-card-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #eff6ff, #dbeafe);
+      color: #2563eb;
+      border: 1px solid rgba(59, 130, 246, 0.14);
+      box-shadow: 0 10px 24px -20px rgba(37, 99, 235, 0.7);
+    }
+
+    .upload-card-icon svg {
+      width: 19px;
+      height: 19px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .upload-chip {
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      background: #e0ecff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      white-space: nowrap;
+    }
+
+    .upload-chip.soft {
+      background: #eef2ff;
+      color: #4338ca;
+      border-color: #c7d2fe;
+    }
+
     .upload-title {
       font-size: 13px;
       font-weight: 800;
@@ -545,6 +602,14 @@
       color: var(--muted);
       font-weight: 500;
       line-height: 1.4;
+    }
+
+    .upload-accepts {
+      font-size: 11px;
+      color: #4f6b95;
+      font-weight: 700;
+      line-height: 1.4;
+      letter-spacing: .01em;
     }
 
     .upload-file {
@@ -623,12 +688,24 @@
       margin-top: 14px;
       border: 1px solid #e8edf5;
       border-radius: 10px;
-      background: #f8fafc;
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
       padding: 10px 12px;
       font-size: 12px;
       color: var(--muted);
       font-weight: 500;
       line-height: 1.45;
+    }
+
+    .career-panel-note {
+      margin: 0 0 14px;
+      border-radius: 12px;
+      border: 1px solid #dce9fb;
+      background: linear-gradient(135deg, rgba(239, 246, 255, 0.95), rgba(248, 250, 252, 0.96));
+      color: #35527a;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.5;
+      padding: 12px 14px;
     }
 
     /* ─── BUTTONS ─── */
@@ -1161,7 +1238,7 @@
       <button class="account-tab is-active" data-tab="home" role="tab" type="button">Home</button>
       <button class="account-tab" data-tab="personal" role="tab" type="button">Personal</button>
       <button class="account-tab" data-tab="security" role="tab" type="button">Security</button>
-      <button class="account-tab" data-tab="documents" role="tab" type="button">Documents</button>
+      <button class="account-tab" data-tab="documents" role="tab" type="button">Career</button>
     </nav>
 
     <!-- Tab Panels -->
@@ -1190,8 +1267,8 @@
             <div class="home-action-icon green">
               <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
             </div>
-            <span class="home-action-title">Documents</span>
-            <span class="home-action-desc">Upload ID and CV for verification.</span>
+            <span class="home-action-title">Career</span>
+            <span class="home-action-desc">Keep your latest CV and cover letter ready for faster employer submissions.</span>
           </button>
 
           <a class="home-action-card" href="my-documents.html" style="text-decoration:none;color:inherit;">
@@ -1212,7 +1289,7 @@
 
           <div class="home-suggestion">
             <h3>Complete your account check-up</h3>
-            <p>Review personal details, security settings and documents to keep your account current and speed up employer applications.</p>
+            <p>Review personal details, security settings and your career documents to keep your account current and speed up employer applications.</p>
             <button type="button" class="btn primary" data-tab-target="personal" style="width:fit-content;">Begin check-up</button>
           </div>
         </div>
@@ -1392,44 +1469,59 @@
         </div>
       </div>
 
-      <!-- DOCUMENTS -->
+      <!-- CAREER -->
       <div class="tab-panel" id="panel-documents" role="tabpanel">
         <section class="section-card">
           <div class="section-header">
             <div class="section-header-left">
-              <h3 class="section-title">Identity & Supporting Documents</h3>
-              <p class="section-subtitle">Upload ID and CV files for verification.</p>
+              <h3 class="section-title">Career Documents</h3>
+              <p class="section-subtitle">Keep the files GP Link can use for introductions and employer applications up to date.</p>
             </div>
             <div class="section-icon green">
               <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
             </div>
           </div>
+          <p class="career-panel-note">Upload the latest versions you want GP Link to use when we present you to practices. Replacing a file here updates your ready-to-share career pack.</p>
           <div class="uploads">
-            <article class="upload-card" data-upload-card="idCopy">
-              <h3 class="upload-title">Copy of ID</h3>
-              <p class="upload-copy">Required -- Used for identity checks and registration preparation.</p>
-              <p class="upload-file is-hidden" id="idCopyFileName"></p>
-              <div class="upload-meta">
-                <span class="upload-status is-hidden" id="idCopyStatus"></span>
-                <span class="upload-updated" id="idCopyUpdated"></span>
+            <article class="upload-card career-doc" data-upload-card="cv">
+              <div class="upload-card-head">
+                <div class="upload-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"></path><path d="M14 2v5h5"></path><path d="M9 13h6"></path><path d="M9 17h6"></path></svg>
+                </div>
+                <span class="upload-chip">Employer ready</span>
               </div>
-              <input id="idCopyInput" type="file" accept="image/*,.pdf" hidden />
-              <button class="upload-action" id="idCopyAction" type="button">Upload document</button>
-            </article>
-
-            <article class="upload-card" data-upload-card="cv">
-              <h3 class="upload-title">Up-to-date CV</h3>
-              <p class="upload-copy">Required -- used for employer applications.</p>
+              <h3 class="upload-title">Most Current CV</h3>
+              <p class="upload-copy">Use the version you want GP Link to send when you apply or when a practice asks for your latest CV.</p>
+              <p class="upload-accepts">Accepted formats: PDF, DOC, DOCX</p>
               <p class="upload-file is-hidden" id="cvFileName"></p>
               <div class="upload-meta">
                 <span class="upload-status is-hidden" id="cvStatus"></span>
                 <span class="upload-updated" id="cvUpdated"></span>
               </div>
-              <input id="cvInput" type="file" accept=".pdf,.doc,.docx" hidden />
+              <input id="cvInput" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
               <button class="upload-action" id="cvAction" type="button">Upload document</button>
             </article>
+
+            <article class="upload-card career-doc" data-upload-card="coverLetter">
+              <div class="upload-card-head">
+                <div class="upload-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 6h16v12H4z"></path><path d="m4 7 8 6 8-6"></path><path d="M8 4h8"></path></svg>
+                </div>
+                <span class="upload-chip soft">Career intro</span>
+              </div>
+              <h3 class="upload-title">Cover Letter</h3>
+              <p class="upload-copy">Keep a polished cover letter ready so GP Link can move quickly when a tailored introduction is needed.</p>
+              <p class="upload-accepts">Accepted formats: PDF, DOC, DOCX</p>
+              <p class="upload-file is-hidden" id="coverLetterFileName"></p>
+              <div class="upload-meta">
+                <span class="upload-status is-hidden" id="coverLetterStatus"></span>
+                <span class="upload-updated" id="coverLetterUpdated"></span>
+              </div>
+              <input id="coverLetterInput" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+              <button class="upload-action" id="coverLetterAction" type="button">Upload document</button>
+            </article>
           </div>
-          <p class="privacy-line">Your documents are stored securely and only shared with your consent for registration or employer purposes.</p>
+          <p class="privacy-line">These files are stored securely and only used for your GP Link career submissions and employer introductions.</p>
         </section>
 
         <section class="section-card">
@@ -1525,24 +1617,30 @@
         status: null,
         updated: null
       },
-      idCopy: {
-        input: document.getElementById("idCopyInput"),
-        action: document.getElementById("idCopyAction"),
-        fileName: document.getElementById("idCopyFileName"),
-        status: document.getElementById("idCopyStatus"),
-        updated: document.getElementById("idCopyUpdated")
-      },
       cv: {
         input: document.getElementById("cvInput"),
         action: document.getElementById("cvAction"),
         fileName: document.getElementById("cvFileName"),
         status: document.getElementById("cvStatus"),
         updated: document.getElementById("cvUpdated")
+      },
+      coverLetter: {
+        input: document.getElementById("coverLetterInput"),
+        action: document.getElementById("coverLetterAction"),
+        fileName: document.getElementById("coverLetterFileName"),
+        status: document.getElementById("coverLetterStatus"),
+        updated: document.getElementById("coverLetterUpdated")
       }
     };
 
     const CAREER_STATE_KEY = "gp_career_state";
     const PROFILE_CACHE_KEY = "gp_profile_cache";
+    const CAREER_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+    const CAREER_DOCUMENT_MIME_TYPES = {
+      "application/pdf": true,
+      "application/msword": true,
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": true
+    };
 
     function readCachedProfileFromSession() {
       try {
@@ -1722,7 +1820,7 @@
         cityOfChoice: "", preferredStartDate: "",
         movingParty: "", childrenMovingCount: "",
         hasPassword: false,
-        files: { profilePhoto: null, idCopy: null, cv: null },
+        files: { profilePhoto: null, cv: null, coverLetter: null },
         updatedAt: null
       },
       lastSavedSnapshot: null,
@@ -1810,6 +1908,47 @@
       };
     }
 
+    function normalizeCareerDocumentMeta(meta) {
+      if (!meta || typeof meta !== "object" || !meta.fileName) return null;
+      return {
+        name: typeof meta.fileName === "string" ? meta.fileName : "",
+        status: typeof meta.status === "string" ? meta.status : "uploaded",
+        updatedAt: typeof meta.updatedAt === "string" ? meta.updatedAt : null,
+        url: ""
+      };
+    }
+
+    function getCareerDocumentMimeType(file) {
+      var direct = file && typeof file.type === "string" ? file.type.trim().toLowerCase() : "";
+      if (direct) return direct;
+      var name = String(file && file.name ? file.name : "").trim().toLowerCase();
+      if (name.endsWith(".pdf")) return "application/pdf";
+      if (name.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      if (name.endsWith(".doc")) return "application/msword";
+      return "";
+    }
+
+    function validateCareerDocumentFile(file) {
+      if (!file) throw new Error("No file selected.");
+      var mimeType = getCareerDocumentMimeType(file);
+      if (!CAREER_DOCUMENT_MIME_TYPES[mimeType]) {
+        throw new Error("Please upload a PDF, DOC, or DOCX file.");
+      }
+      if (Number(file.size || 0) > CAREER_DOCUMENT_MAX_BYTES) {
+        throw new Error("File too large. Maximum 10 MB.");
+      }
+      return mimeType;
+    }
+
+    function applyCareerDocuments(documents) {
+      var source = documents && typeof documents === "object" ? documents : {};
+      ["cv", "coverLetter"].forEach(function(type) {
+        state.profile.files[type] = normalizeCareerDocumentMeta(source[type]);
+        setUploadCard(type, state.profile.files[type]);
+      });
+      renderSummary();
+    }
+
     function loadCareerState() {
       var parsed = parseStorage(CAREER_STATE_KEY);
       return parsed && typeof parsed === "object" ? parsed : { savedJobs: [] };
@@ -1878,8 +2017,8 @@
         hasPassword: !!p.hasPassword,
         files: {
           profilePhoto: normalizeFile(files.profilePhoto, p.profilePhotoName, p.profilePhotoDataUrl),
-          idCopy: normalizeFile(files.idCopy, p.idCopyName, p.idCopyDataUrl),
-          cv: normalizeFile(files.cv, p.cvFileName, "")
+          cv: normalizeFile(files.cv, p.cvFileName, ""),
+          coverLetter: normalizeFile(files.coverLetter, p.coverLetterFileName, "")
         },
         updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : (typeof p.lastUpdated === "string" ? p.lastUpdated : null)
       };
@@ -1953,8 +2092,8 @@
         fieldEls.phone.value.trim(),
         state.profile.specialistCountry,
         fieldEls.registrationNumber.value.trim(),
-        state.profile.files.idCopy && state.profile.files.idCopy.name,
-        state.profile.files.cv && state.profile.files.cv.name
+        state.profile.files.cv && state.profile.files.cv.name,
+        state.profile.files.coverLetter && state.profile.files.coverLetter.name
       ];
       checks.forEach(function(v) { if (v) completed += 1; });
       return Math.round((completed / checks.length) * 100);
@@ -2007,8 +2146,8 @@
       passwordStateTextEl.textContent = state.profile.hasPassword ? "Secure login enabled" : "Password last updated: --";
 
       setUploadCard("profilePhoto", state.profile.files.profilePhoto);
-      setUploadCard("idCopy", state.profile.files.idCopy);
       setUploadCard("cv", state.profile.files.cv);
+      setUploadCard("coverLetter", state.profile.files.coverLetter);
 
       state.lastSavedSnapshot = formSnapshot();
       renderSummary();
@@ -2039,6 +2178,13 @@
       return profile;
     }
 
+    async function loadCareerDocumentsFromBackend() {
+      var response = await fetch("/api/account/career-documents", { credentials: "same-origin" });
+      if (!response.ok) throw new Error("career_documents_load_failed");
+      var data = await response.json();
+      return data && data.documents && typeof data.documents === "object" ? data.documents : {};
+    }
+
     async function saveProfileToBackend(payload) {
       var response = await fetch("/api/profile", {
         method: "PUT",
@@ -2053,6 +2199,37 @@
       return profile;
     }
 
+    async function uploadCareerDocumentToBackend(type, file, hadExisting) {
+      var mimeType = validateCareerDocumentFile(file);
+      var fileDataUrl = await readFileAsDataUrl(file);
+      var response = await fetch("/api/account/career-documents", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          type: type,
+          fileName: file.name,
+          mimeType: mimeType,
+          fileSize: file.size || 0,
+          fileDataUrl: fileDataUrl
+        })
+      });
+      var data = await response.json().catch(function() { return null; });
+      if (!response.ok || !data || !data.ok) {
+        throw new Error(data && data.message ? data.message : "career_document_upload_failed");
+      }
+      var savedMeta = normalizeCareerDocumentMeta(data.document) || {
+        name: file.name,
+        status: hadExisting ? "replaced" : "uploaded",
+        updatedAt: new Date().toISOString(),
+        url: ""
+      };
+      state.profile.files[type] = savedMeta;
+      setUploadCard(type, savedMeta);
+      renderSummary();
+      setSaveState("Saved " + formatTimestamp(savedMeta.updatedAt || new Date().toISOString()), "saved");
+    }
+
     async function uploadFileToBackend(type, file, hadExisting) {
       var nextMeta = {
         name: file.name,
@@ -2060,15 +2237,15 @@
         updatedAt: new Date().toISOString(),
         url: ""
       };
-      if ((type === "profilePhoto" || type === "idCopy") && file.type.startsWith("image/")) {
+      if (type === "profilePhoto" && file.type.startsWith("image/")) {
         nextMeta.url = await readFileAsDataUrl(file);
       }
       state.profile.files[type] = nextMeta;
       var payload = collectSavePayload();
       payload.profilePhotoName = state.profile.files.profilePhoto && state.profile.files.profilePhoto.name ? state.profile.files.profilePhoto.name : "";
       payload.profilePhotoDataUrl = state.profile.files.profilePhoto && state.profile.files.profilePhoto.url ? state.profile.files.profilePhoto.url : "";
-      payload.idCopyName = state.profile.files.idCopy && state.profile.files.idCopy.name ? state.profile.files.idCopy.name : "";
-      payload.idCopyDataUrl = state.profile.files.idCopy && state.profile.files.idCopy.url ? state.profile.files.idCopy.url : "";
+      payload.idCopyName = "";
+      payload.idCopyDataUrl = "";
       payload.cvFileName = state.profile.files.cv && state.profile.files.cv.name ? state.profile.files.cv.name : "";
       var saved = await saveProfileToBackend(payload);
       state.profile.updatedAt = saved.updatedAt || nextMeta.updatedAt;
@@ -2205,6 +2382,10 @@
       try {
         var latest = await loadProfileFromBackend();
         applyProfileToForm(latest);
+        try {
+          var latestCareerDocuments = await loadCareerDocumentsFromBackend();
+          applyCareerDocuments(latestCareerDocuments);
+        } catch (err) {}
       } catch (err) {
         setSaveState("Couldn't load. Check connection.", "error");
       }
@@ -2262,9 +2443,13 @@
         setSaveState("Saving...", "saving");
         try {
           var hadExisting = !!(state.profile.files[type] && state.profile.files[type].name);
-          await uploadFileToBackend(type, file, hadExisting);
+          if (type === "profilePhoto") {
+            await uploadFileToBackend(type, file, hadExisting);
+          } else {
+            await uploadCareerDocumentToBackend(type, file, hadExisting);
+          }
         } catch (err) {
-          setSaveState("Couldn't save. Check connection.", "error");
+          setSaveState(err && err.message ? err.message : "Couldn't save. Check connection.", "error");
         } finally {
           ui.action.disabled = false;
           ui.input.value = "";
@@ -2287,6 +2472,10 @@
           setSaveState("Couldn't load profile. Check connection.", "error");
         }
       }
+      try {
+        var careerDocuments = await loadCareerDocumentsFromBackend();
+        applyCareerDocuments(careerDocuments);
+      } catch (err) {}
       renderSavedJobs();
       positionSlider(false);
       activeNavItem = navMenuEl ? (document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null) : null;

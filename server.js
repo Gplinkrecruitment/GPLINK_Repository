@@ -1122,6 +1122,20 @@ const ONBOARDING_DOCUMENT_KEYS = new Set([
   'onboarding_specialist_qualification',
   'onboarding_primary_med_degree'
 ]);
+const ACCOUNT_CAREER_DOCUMENT_COUNTRY = 'AU';
+const ACCOUNT_CAREER_DOCUMENT_MAX_FILE_BYTES = 10 * 1024 * 1024;
+const ACCOUNT_CAREER_DOCUMENT_ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+]);
+const ACCOUNT_CAREER_DOCUMENT_TYPES = Object.freeze({
+  cv: { key: 'cv_signed_dated', label: 'Most current CV' },
+  coverLetter: { key: 'career_cover_letter', label: 'Cover letter' }
+});
+const ACCOUNT_CAREER_DOCUMENT_KEYS = new Set(
+  Object.values(ACCOUNT_CAREER_DOCUMENT_TYPES).map((entry) => entry.key)
+);
 
 function normalizeDocumentCountry(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -1213,6 +1227,54 @@ function buildOnboardingDocumentStoragePath(userId, country, key) {
     sanitizeStoragePathSegment(key, 120),
     'current'
   ].join('/');
+}
+
+function buildAccountCareerDocumentStoragePath(userId, key) {
+  return [
+    'users',
+    sanitizeStoragePathSegment(userId, 80),
+    'account-career-documents',
+    sanitizeStoragePathSegment(ACCOUNT_CAREER_DOCUMENT_COUNTRY, 20).toLowerCase(),
+    sanitizeStoragePathSegment(key, 120),
+    'current'
+  ].join('/');
+}
+
+function getAccountCareerDocumentType(value) {
+  const normalized = String(value || '').trim();
+  return Object.prototype.hasOwnProperty.call(ACCOUNT_CAREER_DOCUMENT_TYPES, normalized)
+    ? normalized
+    : '';
+}
+
+function sanitizeAccountCareerDocumentPayload(body) {
+  const input = body && typeof body === 'object' ? body : {};
+  const type = getAccountCareerDocumentType(input.type);
+  const config = type ? ACCOUNT_CAREER_DOCUMENT_TYPES[type] : null;
+  const fileName = sanitizeUserString(input.fileName, 240);
+  const mimeType = sanitizeUserString(input.mimeType, 160).toLowerCase();
+  const fileSize = Math.max(0, Math.min(Number(input.fileSize || 0), ACCOUNT_CAREER_DOCUMENT_MAX_FILE_BYTES));
+  const fileDataUrl = typeof input.fileDataUrl === 'string' ? input.fileDataUrl.trim() : '';
+  if (!config || !fileName || !mimeType || !fileDataUrl) return null;
+  if (!ACCOUNT_CAREER_DOCUMENT_ALLOWED_MIME_TYPES.has(mimeType)) return null;
+  if (!fileDataUrl.startsWith('data:') || !/;base64,/i.test(fileDataUrl)) return null;
+  const parsed = parseDataUrlPayload(fileDataUrl);
+  const parsedMimeType = parsed && typeof parsed.mimeType === 'string'
+    ? parsed.mimeType.toLowerCase()
+    : '';
+  if (!parsed) return null;
+  if (parsedMimeType && parsedMimeType !== mimeType && parsedMimeType !== 'application/octet-stream') return null;
+  if (!parsed.buffer || parsed.buffer.length === 0 || parsed.buffer.length > ACCOUNT_CAREER_DOCUMENT_MAX_FILE_BYTES) return null;
+  return {
+    type,
+    key: config.key,
+    label: config.label,
+    fileName,
+    mimeType,
+    fileSize: parsed.buffer.length,
+    fileDataUrl,
+    updatedAt: new Date().toISOString()
+  };
 }
 
 async function supabaseStorageUploadObject(bucket, objectPath, dataUrl, mimeType) {
@@ -1472,6 +1534,102 @@ async function saveOnboardingDocumentForUser(userId, _email, payload) {
   if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
   const row = result.data[0];
   return mapPreparedDocumentRow(row, buildOnboardingDocumentDownloadUrl(payload.country, payload.key));
+}
+
+function mapAccountCareerDocumentRow(type, row) {
+  const config = ACCOUNT_CAREER_DOCUMENT_TYPES[type];
+  const mapped = mapPreparedDocumentRow(row);
+  if (!config) return null;
+  if (!mapped || !mapped.fileName) {
+    return {
+      type,
+      key: config.key,
+      label: config.label,
+      fileName: '',
+      mimeType: '',
+      fileSize: 0,
+      updatedAt: null,
+      status: 'pending'
+    };
+  }
+  return {
+    type,
+    key: config.key,
+    label: config.label,
+    fileName: mapped.fileName || '',
+    mimeType: mapped.mimeType || '',
+    fileSize: Math.max(0, Number(mapped.fileSize || 0)),
+    updatedAt: mapped.updatedAt || null,
+    status: typeof row.status === 'string' && row.status ? row.status : 'uploaded'
+  };
+}
+
+async function listAccountCareerDocumentRows(userId) {
+  if (!userId || !isSupabaseDbConfigured()) return [];
+  const result = await supabaseDbRequest(
+    'user_documents',
+    `select=*&user_id=eq.${encodeURIComponent(userId)}&country_code=eq.${encodeURIComponent(ACCOUNT_CAREER_DOCUMENT_COUNTRY)}`
+  );
+  if (!result.ok || !Array.isArray(result.data)) return [];
+  return result.data.filter((row) => row && ACCOUNT_CAREER_DOCUMENT_KEYS.has(String(row.document_key || '')));
+}
+
+async function getAccountCareerDocumentsForUser(userId) {
+  const documents = {};
+  if (!isSupabaseDbConfigured() || !userId) {
+    Object.keys(ACCOUNT_CAREER_DOCUMENT_TYPES).forEach((type) => {
+      documents[type] = mapAccountCareerDocumentRow(type, null);
+    });
+    return documents;
+  }
+
+  const rows = await listAccountCareerDocumentRows(userId);
+  const rowByKey = {};
+  rows.forEach((row) => {
+    if (row && row.document_key) rowByKey[row.document_key] = row;
+  });
+
+  Object.keys(ACCOUNT_CAREER_DOCUMENT_TYPES).forEach((type) => {
+    const config = ACCOUNT_CAREER_DOCUMENT_TYPES[type];
+    documents[type] = mapAccountCareerDocumentRow(type, rowByKey[config.key] || null);
+  });
+  return documents;
+}
+
+async function saveAccountCareerDocumentForUser(userId, payload) {
+  if (!payload || !userId || !isSupabaseDbConfigured()) return null;
+  const storagePath = buildAccountCareerDocumentStoragePath(userId, payload.key);
+  const uploaded = await supabaseStorageUploadObject(
+    SUPABASE_DOCUMENT_BUCKET,
+    storagePath,
+    payload.fileDataUrl,
+    payload.mimeType
+  );
+  if (!uploaded) return null;
+
+  const result = await supabaseDbRequest(
+    'user_documents',
+    'on_conflict=user_id,document_key,country_code',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: [{
+        user_id: userId,
+        country_code: ACCOUNT_CAREER_DOCUMENT_COUNTRY,
+        document_key: payload.key,
+        status: 'uploaded',
+        file_name: payload.fileName,
+        file_url: storagePath,
+        storage_bucket: SUPABASE_DOCUMENT_BUCKET,
+        storage_path: storagePath,
+        mime_type: payload.mimeType,
+        file_size: payload.fileSize,
+        updated_at: payload.updatedAt
+      }]
+    }
+  );
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  return mapAccountCareerDocumentRow(payload.type, result.data[0]);
 }
 
 function now() {
@@ -13296,6 +13454,7 @@ function upsertLocalUserFromSupabaseUser(supaUser) {
       idCopyName: '',
       idCopyDataUrl: '',
       cvFileName: '',
+      coverLetterFileName: '',
       updatedAt
     };
   }
@@ -14241,6 +14400,7 @@ async function handleApi(req, res, pathname) {
         idCopyName: '',
         idCopyDataUrl: '',
         cvFileName: '',
+        coverLetterFileName: '',
         updatedAt: new Date().toISOString()
       };
     }
@@ -18042,6 +18202,131 @@ Return ONLY valid JSON with no markdown formatting:
 
     saveDbState();
     sendJson(res, 200, { ok: true, profile: dbState.userProfiles[email] });
+    return;
+  }
+
+  if (pathname === '/api/account/career-documents' && req.method === 'GET') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Career document storage requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    if (isSupabaseDbConfigured()) {
+      const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+      if (!userId) {
+        sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for career documents.' });
+        return;
+      }
+      const documents = await getAccountCareerDocumentsForUser(userId);
+      sendJson(res, 200, { ok: true, documents });
+      return;
+    }
+
+    const stored = dbState.userProfiles[email] && typeof dbState.userProfiles[email] === 'object'
+      ? dbState.userProfiles[email]
+      : {};
+    sendJson(res, 200, {
+      ok: true,
+      documents: {
+        cv: mapAccountCareerDocumentRow('cv', {
+          file_name: stored.cvFileName || '',
+          mime_type: stored.cvMimeType || '',
+          file_size: stored.cvFileSize || 0,
+          updated_at: stored.cvUpdatedAt || stored.updatedAt || null,
+          status: stored.cvFileName ? 'uploaded' : 'pending'
+        }),
+        coverLetter: mapAccountCareerDocumentRow('coverLetter', {
+          file_name: stored.coverLetterFileName || '',
+          mime_type: stored.coverLetterMimeType || '',
+          file_size: stored.coverLetterFileSize || 0,
+          updated_at: stored.coverLetterUpdatedAt || stored.updatedAt || null,
+          status: stored.coverLetterFileName ? 'uploaded' : 'pending'
+        })
+      }
+    });
+    return;
+  }
+
+  if (pathname === '/api/account/career-documents' && req.method === 'PUT') {
+    if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Career document storage requires Supabase database configuration.' });
+      return;
+    }
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const email = getSessionEmail(session);
+    if (!email) {
+      sendJson(res, 400, { ok: false, message: 'Session missing email.' });
+      return;
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const payload = sanitizeAccountCareerDocumentPayload(body);
+    if (!payload) {
+      sendJson(res, 400, { ok: false, message: 'Invalid career document payload.' });
+      return;
+    }
+
+    if (isSupabaseDbConfigured()) {
+      const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+      if (!userId) {
+        sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for career document upload.' });
+        return;
+      }
+
+      const saved = await saveAccountCareerDocumentForUser(userId, payload);
+      if (!saved) {
+        sendJson(res, 502, { ok: false, message: 'Failed to save career document.' });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, document: saved });
+      return;
+    }
+
+    if (!dbState.userProfiles[email] || typeof dbState.userProfiles[email] !== 'object') {
+      dbState.userProfiles[email] = {};
+    }
+    if (payload.type === 'cv') {
+      dbState.userProfiles[email].cvFileName = payload.fileName;
+      dbState.userProfiles[email].cvMimeType = payload.mimeType;
+      dbState.userProfiles[email].cvFileSize = payload.fileSize;
+      dbState.userProfiles[email].cvUpdatedAt = payload.updatedAt;
+    } else if (payload.type === 'coverLetter') {
+      dbState.userProfiles[email].coverLetterFileName = payload.fileName;
+      dbState.userProfiles[email].coverLetterMimeType = payload.mimeType;
+      dbState.userProfiles[email].coverLetterFileSize = payload.fileSize;
+      dbState.userProfiles[email].coverLetterUpdatedAt = payload.updatedAt;
+    }
+    dbState.userProfiles[email].updatedAt = payload.updatedAt;
+    saveDbState();
+
+    sendJson(res, 200, {
+      ok: true,
+      document: mapAccountCareerDocumentRow(payload.type, {
+        file_name: payload.fileName,
+        mime_type: payload.mimeType,
+        file_size: payload.fileSize,
+        updated_at: payload.updatedAt,
+        status: 'uploaded'
+      })
+    });
     return;
   }
 
