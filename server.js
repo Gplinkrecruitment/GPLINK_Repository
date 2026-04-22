@@ -8447,7 +8447,10 @@ async function registerZohoSignWebhook() {
   const secret = crypto.randomBytes(32).toString('hex');
   const publicBase = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
   const callbackUrl = `${publicBase}/api/webhooks/zoho-sign`;
-  const payload = {
+  const tried = [];
+
+  // Zoho Sign webhook/callback payload
+  const notifPayload = {
     notification: {
       callback_url: callbackUrl,
       event_type: [
@@ -8463,21 +8466,42 @@ async function registerZohoSignWebhook() {
       authentication: { method: 'HMAC', secret }
     }
   };
-  // Try JSON POST first (Zoho Sign v1 notifications may prefer JSON over form-encoded)
-  let res = await zohoSignApiPostJson('notifications', payload);
-  console.log('[ZohoSign] webhook registration (JSON):', res.status, JSON.stringify(res.data || {}).slice(0, 500));
-  if (!res.ok) {
-    // Fallback to form-encoded with data param
-    res = await zohoSignApiPostForm('notifications', { data: payload });
-    console.log('[ZohoSign] webhook registration (form):', res.status, JSON.stringify(res.data || {}).slice(0, 500));
+
+  // Variant payloads — some Zoho Sign versions use different formats
+  const callbackPayload = {
+    callbackurl: callbackUrl,
+    event_types: 'RequestSentToRecipient,RequestRecipientSigned,RequestCompleted,RequestDeclined,RequestVoided,RequestExpired,RequestRecipientEmailBounced,RequestViewed'
+  };
+
+  // Try multiple endpoint + format combinations
+  const attempts = [
+    { endpoint: 'notifications', method: 'json', payload: notifPayload },
+    { endpoint: 'notifications', method: 'form', payload: notifPayload },
+    { endpoint: 'webhooks', method: 'json', payload: notifPayload },
+    { endpoint: 'callbacks', method: 'json', payload: { callback_url: callbackUrl, event_type: notifPayload.notification.event_type } },
+    { endpoint: 'settings/notifications', method: 'json', payload: notifPayload },
+    { endpoint: 'callbackurl', method: 'form', payload: callbackPayload }
+  ];
+
+  for (const attempt of attempts) {
+    let res;
+    if (attempt.method === 'json') {
+      res = await zohoSignApiPostJson(attempt.endpoint, attempt.payload);
+    } else {
+      res = await zohoSignApiPostForm(attempt.endpoint, attempt.method === 'form' && attempt.payload.callbackurl ? attempt.payload : { data: attempt.payload });
+    }
+    tried.push({ endpoint: attempt.endpoint, method: attempt.method, status: res.status, ok: res.ok, data: JSON.stringify(res.data || {}).slice(0, 200) });
+    console.log('[ZohoSign] webhook attempt:', attempt.endpoint, attempt.method, res.status, JSON.stringify(res.data || {}).slice(0, 300));
+    if (res.ok) {
+      await upsertZohoSignConnection({
+        webhookSecret: secret,
+        webhookRegisteredAt: new Date().toISOString()
+      });
+      return { ok: true, tried };
+    }
   }
-  if (res.ok) {
-    await upsertZohoSignConnection({
-      webhookSecret: secret,
-      webhookRegisteredAt: new Date().toISOString()
-    });
-  }
-  return res;
+
+  return { ok: false, tried, data: { message: 'All webhook registration endpoints failed', attempts: tried } };
 }
 
 // ── Zoho Sign webhook endpoint ────────────────────────────
@@ -16644,9 +16668,9 @@ async function handleApi(req, res, pathname) {
       if (!updated || !updated.webhookSecret) {
         const wr = await registerZohoSignWebhook();
         results.webhookRegistered = !!wr.ok;
+        if (wr.tried) results.diagnostics.push(...wr.tried.map(t => ({ ...t, type: 'webhook' })));
         if (!wr.ok) {
-          const detail = wr.data ? JSON.stringify(wr.data).slice(0, 300) : ('HTTP ' + (wr.status || 'unknown'));
-          results.errors.push('Webhook failed: ' + detail);
+          results.errors.push('Webhook: all endpoints failed (see diagnostics)');
         }
       } else {
         results.webhookRegistered = true;
