@@ -58,8 +58,9 @@ const ZOHO_RECRUIT_CLIENT_ID = String(process.env.ZOHO_RECRUIT_CLIENT_ID || '').
 const ZOHO_RECRUIT_CLIENT_SECRET = String(process.env.ZOHO_RECRUIT_CLIENT_SECRET || '').trim();
 const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SERVER || 'https://accounts.zoho.com').trim() || 'https://accounts.zoho.com';
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
+const ZOHO_RECRUIT_SUBMIT_TO_CLIENT_TEMPLATE_ID = String(process.env.ZOHO_RECRUIT_SUBMIT_TO_CLIENT_TEMPLATE_ID || '').trim();
 const REQUIRED_ZOHO_RECRUIT_SCOPES = Object.freeze([
-  'ZohoRecruit.modules.READ'
+  'ZohoRecruit.modules.all'
 ]);
 const OPTIONAL_ZOHO_RECRUIT_SCOPES = Object.freeze([
   'ZohoRecruit.search.READ'
@@ -1130,12 +1131,57 @@ const ACCOUNT_CAREER_DOCUMENT_ALLOWED_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 ]);
 const ACCOUNT_CAREER_DOCUMENT_TYPES = Object.freeze({
-  cv: { key: 'cv_signed_dated', label: 'Most current CV' },
-  coverLetter: { key: 'career_cover_letter', label: 'Cover letter' }
+  cv: { key: 'cv_signed_dated', label: 'Most current CV', zohoCategory: 'Resume', fallbackFileName: 'resume.pdf' },
+  coverLetter: { key: 'career_cover_letter', label: 'Cover letter', zohoCategory: 'Cover Letter', fallbackFileName: 'cover-letter.pdf' }
 });
 const ACCOUNT_CAREER_DOCUMENT_KEYS = new Set(
   Object.values(ACCOUNT_CAREER_DOCUMENT_TYPES).map((entry) => entry.key)
 );
+
+function getAccountCareerDocumentType(value) {
+  const normalized = String(value || '').trim();
+  return Object.prototype.hasOwnProperty.call(ACCOUNT_CAREER_DOCUMENT_TYPES, normalized)
+    ? normalized
+    : '';
+}
+
+function getAccountCareerDocumentTypeByKey(key) {
+  const normalizedKey = String(key || '').trim();
+  return Object.keys(ACCOUNT_CAREER_DOCUMENT_TYPES).find((type) => {
+    return ACCOUNT_CAREER_DOCUMENT_TYPES[type].key === normalizedKey;
+  }) || '';
+}
+
+function getAccountCareerDocumentTypeByZohoCategory(category) {
+  const normalizedCategory = String(category || '').trim().toLowerCase();
+  return Object.keys(ACCOUNT_CAREER_DOCUMENT_TYPES).find((type) => {
+    return String(ACCOUNT_CAREER_DOCUMENT_TYPES[type].zohoCategory || '').trim().toLowerCase() === normalizedCategory;
+  }) || '';
+}
+
+function inferAccountCareerDocumentMimeType(fileName, mimeType) {
+  const rawMime = String(mimeType || '').trim().toLowerCase();
+  if (ACCOUNT_CAREER_DOCUMENT_ALLOWED_MIME_TYPES.has(rawMime)) return rawMime;
+  const normalizedName = String(fileName || '').trim().toLowerCase();
+  if (normalizedName.endsWith('.pdf')) return 'application/pdf';
+  if (normalizedName.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (normalizedName.endsWith('.doc')) return 'application/msword';
+  return rawMime || 'application/octet-stream';
+}
+
+function buildAccountCareerDocumentLocalSignature(row) {
+  if (!row || typeof row !== 'object') return '';
+  return [
+    String(row.file_name || '').trim(),
+    String(row.updated_at || '').trim(),
+    String(row.mime_type || '').trim(),
+    String(row.file_size || '').trim()
+  ].join('|');
+}
+
+function getZohoCandidateCareerDocumentSyncKey(userId, type) {
+  return `zoho_candidate_attachment_sync:${String(userId || '').trim()}:${String(type || '').trim()}`;
+}
 
 function normalizeDocumentCountry(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -1240,19 +1286,12 @@ function buildAccountCareerDocumentStoragePath(userId, key) {
   ].join('/');
 }
 
-function getAccountCareerDocumentType(value) {
-  const normalized = String(value || '').trim();
-  return Object.prototype.hasOwnProperty.call(ACCOUNT_CAREER_DOCUMENT_TYPES, normalized)
-    ? normalized
-    : '';
-}
-
 function sanitizeAccountCareerDocumentPayload(body) {
   const input = body && typeof body === 'object' ? body : {};
   const type = getAccountCareerDocumentType(input.type);
   const config = type ? ACCOUNT_CAREER_DOCUMENT_TYPES[type] : null;
   const fileName = sanitizeUserString(input.fileName, 240);
-  const mimeType = sanitizeUserString(input.mimeType, 160).toLowerCase();
+  const mimeType = inferAccountCareerDocumentMimeType(input.fileName, sanitizeUserString(input.mimeType, 160));
   const fileSize = Math.max(0, Math.min(Number(input.fileSize || 0), ACCOUNT_CAREER_DOCUMENT_MAX_FILE_BYTES));
   const fileDataUrl = typeof input.fileDataUrl === 'string' ? input.fileDataUrl.trim() : '';
   if (!config || !fileName || !mimeType || !fileDataUrl) return null;
@@ -6354,6 +6393,22 @@ function normalizeCareerApplicationStatusKey(value) {
     .replace(/^_+|_+$/g, '');
 }
 
+function normalizeCareerPracticeSubmissionStatus(value) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || 'pending_va_submission';
+}
+
+function isCareerInterviewStatus(value) {
+  const normalized = normalizeCareerApplicationStatusKey(value);
+  return normalized === 'interview'
+    || normalized === 'interview_scheduled'
+    || normalized === 'interview_confirmed';
+}
+
 const SECURED_CAREER_APPLICATION_STATUS_KEYS = new Set([
   'hired',
   'secured',
@@ -7751,12 +7806,16 @@ function normalizeZohoRecruitScope(scope) {
   const canonicalKey = compact.toLowerCase().replace(/^zohorecruit\./, 'zohorecruit.');
 
   if (canonicalKey === 'zohorecruit.modules.read') return 'ZohoRecruit.modules.READ';
-  if (canonicalKey === 'zohorecruit.modules.all') return 'ZohoRecruit.modules.READ';
+  if (canonicalKey === 'zohorecruit.modules.all') return 'ZohoRecruit.modules.all';
   if (canonicalKey === 'zohorecruit.search.read') return 'ZohoRecruit.search.READ';
-  if (canonicalKey.startsWith('zohorecruit.modules.') && canonicalKey !== 'zohorecruit.modules.all') {
-    // Collapse stale or broader module scopes into the documented read-only group
-    // scope so the integration cannot request write/delete access.
-    return 'ZohoRecruit.modules.READ';
+  if (canonicalKey === 'zohorecruit.modules.attachments.all') return 'ZohoRecruit.modules.attachments.all';
+  if (canonicalKey === 'zohorecruit.modules.attachments.read') return 'ZohoRecruit.modules.attachments.READ';
+  if (canonicalKey === 'zohorecruit.modules.attachments.delete') return 'ZohoRecruit.modules.attachments.DELETE';
+  const moduleScopeMatch = canonicalKey.match(/^zohorecruit\.modules\.([a-z_]+)\.(all|read|create|update|delete)$/);
+  if (moduleScopeMatch) {
+    const moduleName = moduleScopeMatch[1];
+    const operation = moduleScopeMatch[2].toUpperCase();
+    return `ZohoRecruit.modules.${moduleName}.${operation}`;
   }
 
   return '';
@@ -7828,7 +7887,11 @@ function getZohoRecruitScopeStatus(connection) {
   const grantedScopes = parseZohoRecruitScopes(connection && connection.scopes);
   const missingScopes = requestedScopes.filter((scope) => !doesZohoRecruitScopeGrant(scope, grantedScopes));
   const missingRequiredScopes = REQUIRED_ZOHO_RECRUIT_SCOPES.filter((scope) => !doesZohoRecruitScopeGrant(scope, grantedScopes));
-  const overbroadGrantedScopes = grantedScopes.filter((scope) => isZohoRecruitWriteScope(scope));
+  const requestedKeys = new Set(requestedScopes.map((scope) => String(scope || '').toLowerCase()));
+  const overbroadGrantedScopes = grantedScopes.filter((scope) => {
+    const key = String(scope || '').toLowerCase();
+    return isZohoRecruitWriteScope(scope) && !requestedKeys.has(key);
+  });
   return {
     requestedScopes,
     grantedScopes,
@@ -8217,26 +8280,66 @@ function zohoSignApiPostForm(path, formMap) {
 function zohoSignApiDelete(path) { return zohoSignApiRequest('DELETE', path); }
 
 async function fetchAndStoreZohoSignOrgInfo() {
-  // Zoho Sign API v1 uses /organizations (not /account) to return org info
-  const res = await zohoSignApiGet('organizations');
-  if (!res.ok || !res.data) {
-    const errDetail = res.data ? JSON.stringify(res.data).slice(0, 300) : ('HTTP ' + (res.status || 'unknown'));
-    throw new Error('Zoho Sign organizations endpoint failed: ' + errDetail);
+  let orgName = '', orgId = '', ownerEmail = '';
+  const tried = [];
+
+  // Strategy 1: GET /organizations (standard Zoho endpoint)
+  const res1 = await zohoSignApiGet('organizations');
+  tried.push({ endpoint: 'organizations', status: res1.status, ok: res1.ok, data: JSON.stringify(res1.data || {}).slice(0, 200) });
+  if (res1.ok && res1.data) {
+    const orgs = Array.isArray(res1.data.organizations) ? res1.data.organizations : [];
+    const org = orgs[0] || res1.data.organization || {};
+    orgName = String(org.org_name || org.organization_name || orgName);
+    orgId = String(org.org_id || org.organization_id || orgId);
+    ownerEmail = String(org.owner_email || ownerEmail);
   }
-  // Response: { organizations: [ { organization_id, organization_name, owner_email, ... } ] }
-  const orgs = Array.isArray(res.data.organizations) ? res.data.organizations : [];
-  const org = orgs[0] || res.data.organization || res.data.account || {};
-  const orgName = String(org.org_name || org.organization_name || '');
-  const orgId = String(org.org_id || org.organization_id || '');
-  const ownerEmail = String(org.owner_email || '');
+
+  // Strategy 2: GET /account (Zoho Sign-specific)
+  if (!orgName && !ownerEmail) {
+    const res2 = await zohoSignApiGet('account');
+    tried.push({ endpoint: 'account', status: res2.status, ok: res2.ok, data: JSON.stringify(res2.data || {}).slice(0, 200) });
+    if (res2.ok && res2.data) {
+      const acct = res2.data.account || res2.data.organization || res2.data;
+      orgName = String(acct.org_name || acct.organization_name || acct.company_name || orgName);
+      orgId = String(acct.org_id || acct.organization_id || orgId);
+      ownerEmail = String(acct.owner_email || acct.email || ownerEmail);
+    }
+  }
+
+  // Strategy 3: Zoho accounts user info (works with any Zoho OAuth token)
+  if (!ownerEmail) {
+    try {
+      const c = await getZohoSignConnection();
+      const token = c && c.accessToken;
+      const accountsBase = (c && c.accountsServer) || getZohoSignAccountsServer();
+      if (token) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10000);
+        const resp = await fetch(`${accountsBase}/oauth/user/info`, {
+          headers: { Authorization: `Zoho-oauthtoken ${token}` },
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        if (resp.ok) {
+          const info = await resp.json();
+          tried.push({ endpoint: 'accounts/user/info', status: resp.status, ok: true, data: JSON.stringify(info).slice(0, 200) });
+          ownerEmail = String(info.Email || info.email || ownerEmail);
+          if (!orgName) orgName = String(info.Display_Name || info.display_name || info.First_Name || orgName);
+        } else {
+          tried.push({ endpoint: 'accounts/user/info', status: resp.status, ok: false });
+        }
+      }
+    } catch (e) {
+      tried.push({ endpoint: 'accounts/user/info', error: e.message });
+    }
+  }
+
+  console.log('[ZohoSign] org info fetch attempts:', JSON.stringify(tried));
+
   if (!orgName && !orgId && !ownerEmail) {
-    throw new Error('No organization data found in Zoho Sign response: ' + JSON.stringify(res.data).slice(0, 300));
+    throw new Error('Could not fetch org info from any endpoint. Tried: ' + JSON.stringify(tried));
   }
-  await upsertZohoSignConnection({
-    orgName,
-    orgId,
-    connectedEmail: ownerEmail
-  });
+  await upsertZohoSignConnection({ orgName, orgId, connectedEmail: ownerEmail });
 }
 
 // ── Zoho Sign envelope operations ─────────────────────────
@@ -9408,6 +9511,69 @@ async function createZohoRecruitApplication(zohoCandidateId, zohoJobId) {
     lastError = result;
   }
   return { ok: false, message: 'Failed to create Zoho Recruit application.', detail: lastError };
+}
+
+function pickZohoRecruitClientContact(records) {
+  const items = Array.isArray(records) ? records.slice().sort(sortZohoRecordsByRecent) : [];
+  if (!items.length) return null;
+  return items.find((record) => getZohoField(record, ['Email', 'Secondary_Email'])) || items[0] || null;
+}
+
+async function createZohoRecruitSubmission(zoho, payload) {
+  if (!zoho) return { ok: false, message: 'Zoho Recruit is not connected.' };
+  if (!ZOHO_RECRUIT_SUBMIT_TO_CLIENT_TEMPLATE_ID) {
+    return { ok: false, message: 'ZOHO_RECRUIT_SUBMIT_TO_CLIENT_TEMPLATE_ID is not configured.' };
+  }
+
+  const candidateId = String(payload && payload.candidateId || '').trim();
+  const applicationId = String(payload && payload.applicationId || '').trim();
+  const jobOpeningId = String(payload && payload.jobOpeningId || '').trim();
+  const clientId = String(payload && payload.clientId || '').trim();
+  const contactId = String(payload && payload.contactId || '').trim();
+  const contactName = String(payload && payload.contactName || '').trim();
+  const fromAddress = String(payload && payload.fromAddress || '').trim();
+  const subject = String(payload && payload.subject || '').trim();
+  const description = String(payload && payload.description || '').trim();
+
+  if (!candidateId || !jobOpeningId || !clientId || !contactId) {
+    return { ok: false, message: 'Submission requires candidate, job opening, client, and contact details.' };
+  }
+
+  const submissionData = {
+    data: [{
+      Candidate_Name: candidateId,
+      Job_Opening_Name: jobOpeningId,
+      Client_Name: clientId,
+      Application_Name: applicationId || undefined,
+      Submitted_To: [{
+        id: contactId,
+        name: contactName || 'Client contact'
+      }],
+      $medium: 'Email',
+      $mail_content: {
+        from_address: fromAddress || undefined,
+        reply_to_address: fromAddress || undefined,
+        subject: subject || undefined,
+        description: description || undefined,
+        template_id: ZOHO_RECRUIT_SUBMIT_TO_CLIENT_TEMPLATE_ID
+      }
+    }]
+  };
+
+  const paths = ['Submissions', 'submissions'];
+  let lastError = null;
+  for (const path of paths) {
+    const result = await zohoRecruitApiPost(zoho.apiDomain, path, zoho.accessToken, submissionData);
+    if (result.ok && result.data && Array.isArray(result.data.data) && result.data.data[0]) {
+      const row = result.data.data[0];
+      const details = row.details && typeof row.details === 'object' ? row.details : {};
+      const submissionId = String(details.id || '').trim();
+      return { ok: true, data: row, submissionId };
+    }
+    lastError = result;
+  }
+
+  return { ok: false, message: 'Failed to create Zoho Recruit submission.', detail: lastError };
 }
 
 async function getRuntimeKv(key) {
@@ -14748,7 +14914,7 @@ async function handleApi(req, res, pathname) {
     }
 
     // Get user profile for Zoho candidate ID
-    const profileResult = await supabaseDbRequest('user_profiles', `select=zoho_candidate_id&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+    const profileResult = await supabaseDbRequest('user_profiles', `select=zoho_candidate_id,first_name,last_name&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
     const profile = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0] ? profileResult.data[0] : {};
     const zohoCandidateId = String(profile.zoho_candidate_id || '').trim();
 
@@ -14805,10 +14971,46 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    const savedApplication = insertResult.data && insertResult.data[0] ? insertResult.data[0] : appRow;
+
+    try {
+      const regCase = await _ensureRegCase(userId);
+      if (regCase) {
+        const gpDisplayName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || email;
+        const practiceLabel = String(roleRow.practice_name || 'practice').trim();
+        const roleLabel = String(roleRow.title || 'role').trim();
+        const task = await _createRegTask(regCase.id, {
+          task_type: 'manual',
+          title: `Submit ${gpDisplayName} to practice`,
+          description: `${gpDisplayName} applied for ${roleLabel} at ${practiceLabel}. Submit to the practice via Zoho Recruit review form. Application ID: ${savedApplication.id}`,
+          priority: 'high',
+          source_trigger: 'career_application',
+          related_stage: 'career',
+          _actor: 'system'
+        });
+        if (task) {
+          await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(savedApplication.id)}`, {
+            method: 'PATCH',
+            headers: { Prefer: 'return=minimal' },
+            body: {
+              submission_task_id: task.id,
+              practice_submission_status: 'pending_va_submission',
+              updated_at: new Date().toISOString()
+            }
+          });
+          savedApplication.submission_task_id = task.id;
+          savedApplication.practice_submission_status = 'pending_va_submission';
+        }
+        await _logCaseEvent(regCase.id, task ? task.id : null, 'system', 'Career application received', `${gpDisplayName} applied for ${roleLabel} at ${practiceLabel}`, 'system');
+      }
+    } catch (taskErr) {
+      console.error('[career apply] failed to create VA follow-up task:', taskErr && taskErr.message);
+    }
+
     sendJson(res, 200, {
       ok: true,
       message: 'Application submitted successfully.',
-      application: insertResult.data && insertResult.data[0] ? insertResult.data[0] : appRow
+      application: savedApplication
     });
 
     // Push career notification (non-blocking)
