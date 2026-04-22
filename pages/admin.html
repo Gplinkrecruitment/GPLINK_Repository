@@ -721,7 +721,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           </div>
           <div style="margin-top:12px;">
             <button id="zs-connect-btn" class="btn primary" onclick="zohoSignConnect()">Connect Zoho Sign</button>
-            <button id="zs-sync-btn" class="btn" style="display:none;" onclick="alert('sync clicked v2');zohoSignSync()">Sync / Repair</button>
+            <button id="zs-sync-btn" class="btn" style="display:none;" onclick="zohoSignSync()">Sync / Repair</button>
+            <span id="zs-sync-status" style="margin-left:8px;font-size:12px;color:var(--muted,#888);"></span>
             <button id="zs-disconnect-btn" class="btn" style="display:none;" onclick="zohoSignDisconnect()">Disconnect</button>
           </div>
         </div>
@@ -3180,29 +3181,32 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function zohoSignSync() {
-    console.log('[ZohoSign] sync button clicked');
     var btn = document.getElementById('zs-sync-btn');
+    var st = document.getElementById('zs-sync-status');
     if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
+    if (st) st.textContent = 'Sending request...';
+    var timer = setTimeout(function() { if (st) st.textContent = 'Still waiting (server may be slow)...'; }, 5000);
     fetch('/api/admin/integrations/zoho-sign/sync', { method: 'POST', credentials: 'include' })
       .then(function(r) {
-        console.log('[ZohoSign] sync response status:', r.status);
-        return r.json().then(function(data) { return { status: r.status, ok: r.ok, data: data }; });
+        clearTimeout(timer);
+        if (st) st.textContent = 'Got response: HTTP ' + r.status + ', parsing...';
+        return r.text();
       })
-      .then(function(res) {
-        console.log('[ZohoSign] sync data:', res.data);
-        if (!res.ok || (res.data && !res.data.ok)) {
-          var msg = (res.data && res.data.errors && res.data.errors.length > 0) ? res.data.errors.join('\n') : (res.data && res.data.message ? res.data.message : JSON.stringify(res.data));
-          alert('Sync failed (HTTP ' + res.status + '):\n' + msg);
-        } else if (res.data && res.data.errors && res.data.errors.length > 0) {
-          alert('Sync completed with issues:\n' + res.data.errors.join('\n'));
+      .then(function(text) {
+        if (st) st.textContent = 'Response: ' + text.substring(0, 200);
+        try { var data = JSON.parse(text); } catch(e) { alert('Non-JSON response:\n' + text.substring(0, 500)); return; }
+        if (!data.ok) {
+          var msg = (data.errors && data.errors.length > 0) ? data.errors.join('\n') : (data.message || JSON.stringify(data));
+          alert('Sync issues:\n' + msg);
         } else {
-          alert('Sync completed!\nToken: ' + (res.data.tokenRefreshed ? 'Yes' : 'No') + '\nOrg: ' + (res.data.orgInfoFetched ? 'Yes' : 'No') + '\nWebhook: ' + (res.data.webhookRegistered ? 'Yes' : 'No'));
+          alert('Sync OK!\nToken: ' + (data.tokenRefreshed ? 'Yes' : 'No') + '\nOrg: ' + (data.orgInfoFetched ? 'Yes' : 'No') + '\nWebhook: ' + (data.webhookRegistered ? 'Yes' : 'No'));
         }
         loadZohoSignStatus();
       })
       .catch(function(err) {
-        console.error('[ZohoSign] sync error:', err);
-        alert('Sync error: ' + err.message);
+        clearTimeout(timer);
+        if (st) st.textContent = 'Error: ' + err.message;
+        alert('Sync network error: ' + err.message);
       })
       .finally(function() {
         if (btn) { btn.disabled = false; btn.textContent = 'Sync / Repair'; }
