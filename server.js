@@ -8463,8 +8463,14 @@ async function registerZohoSignWebhook() {
       authentication: { method: 'HMAC', secret }
     }
   };
-  const res = await zohoSignApiPostForm('notifications', { data: payload });
-  console.log('[ZohoSign] webhook registration response:', res.status, JSON.stringify(res.data || {}).slice(0, 500));
+  // Try JSON POST first (Zoho Sign v1 notifications may prefer JSON over form-encoded)
+  let res = await zohoSignApiPostJson('notifications', payload);
+  console.log('[ZohoSign] webhook registration (JSON):', res.status, JSON.stringify(res.data || {}).slice(0, 500));
+  if (!res.ok) {
+    // Fallback to form-encoded with data param
+    res = await zohoSignApiPostForm('notifications', { data: payload });
+    console.log('[ZohoSign] webhook registration (form):', res.status, JSON.stringify(res.data || {}).slice(0, 500));
+  }
   if (res.ok) {
     await upsertZohoSignConnection({
       webhookSecret: secret,
@@ -14389,6 +14395,25 @@ async function handleApi(req, res, pathname) {
     const apiDomain = String(tokenRes.data.api_domain || getZohoSignApiBase()).replace(/\/$/, '');
     const expiresAt = new Date(Date.now() + ((Number(tokenRes.data.expires_in) || 3600) - 300) * 1000).toISOString();
 
+    // Fetch connected user's email from Zoho accounts server (most reliable source)
+    let connectedEmail = '';
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 10000);
+      const uiResp = await fetch(`${getZohoSignAccountsServer()}/oauth/user/info`, {
+        headers: { Authorization: `Zoho-oauthtoken ${tokenRes.data.access_token}` },
+        signal: ctrl.signal
+      });
+      clearTimeout(t);
+      if (uiResp.ok) {
+        const ui = await uiResp.json();
+        console.log('[ZohoSign] accounts user info:', JSON.stringify(ui).slice(0, 300));
+        connectedEmail = String(ui.Email || ui.email || '').trim().toLowerCase();
+      } else {
+        console.error('[ZohoSign] accounts user info failed:', uiResp.status);
+      }
+    } catch (e) { console.error('[ZohoSign] accounts user info error:', e.message); }
+
     await upsertZohoSignConnection({
       status: 'connected',
       refreshToken: String(tokenRes.data.refresh_token || ''),
@@ -14398,6 +14423,7 @@ async function handleApi(req, res, pathname) {
       apiDomain,
       scopes: ZOHO_SIGN_SCOPES,
       connectedByUserId: adminUserId,
+      connectedEmail,
       tokenLastRefreshedAt: new Date().toISOString(),
       templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID
     });
