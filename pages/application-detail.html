@@ -472,7 +472,7 @@
 
       <!-- Actions -->
       <div class="action-bar">
-        <a class="btn-primary" id="viewRoleBtn" href="career.html">View Full Role</a>
+        <a class="btn-primary" id="viewRoleBtn" href="career.html">View Practice</a>
         <button class="btn-withdraw" id="withdrawBtn" type="button" hidden>Withdraw Application</button>
       </div>
     </div>
@@ -651,7 +651,7 @@
 
         // Action links
         if (app.roleId) {
-          document.getElementById("viewRoleBtn").href = "job.html?id=" + encodeURIComponent(app.roleId);
+          document.getElementById("viewRoleBtn").href = "career.html";
         }
 
         // Join interview button — validate URL scheme before opening

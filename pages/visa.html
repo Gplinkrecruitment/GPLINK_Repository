@@ -820,8 +820,8 @@
         </div>
         <h2>No Visa Case Yet</h2>
         <p>Your visa case begins once you've secured a placement through one of our career opportunities. Apply for a position, and once it's confirmed, your GP Link agent will start the visa sponsorship process here.</p>
-        <a class="empty-case-cta" id="browseJobsBtn" href="/pages/career.html#browse">
-          Browse Job Postings
+        <a class="empty-case-cta" id="browseJobsBtn" href="/pages/career.html">
+          View My Practice
           <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </a>
       </div>
@@ -1811,7 +1811,7 @@
     document.getElementById("browseJobsBtn").addEventListener("click", function (e) {
       if (document.documentElement.classList.contains("gp-shell-embedded")) {
         e.preventDefault();
-        window.parent.postMessage({ type: "gp-shell-route", href: "/pages/career.html#browse", title: "Career" }, "*");
+        window.parent.postMessage({ type: "gp-shell-route", href: "/pages/career.html", title: "My Practice" }, "*");
       }
     });
 

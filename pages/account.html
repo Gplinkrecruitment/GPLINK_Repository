@@ -1267,8 +1267,8 @@
             <div class="home-action-icon green">
               <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
             </div>
-            <span class="home-action-title">Career</span>
-            <span class="home-action-desc">Keep your latest CV and cover letter ready for faster employer submissions.</span>
+            <span class="home-action-title">Documents</span>
+            <span class="home-action-desc">Keep your latest CV and cover letter ready for your practice.</span>
           </button>
 
           <a class="home-action-card" href="my-documents.html" style="text-decoration:none;color:inherit;">
@@ -1283,8 +1283,8 @@
             <div class="home-action-icon blue">
               <svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
             </div>
-            <span class="home-action-title">Career</span>
-            <span class="home-action-desc">Browse roles, review applications and check your placement status.</span>
+            <span class="home-action-title">My Practice</span>
+            <span class="home-action-desc">View your secured placement and practice details.</span>
           </a>
 
           <div class="home-suggestion">
@@ -1298,7 +1298,7 @@
           <div class="section-header">
             <div class="section-header-left">
               <h3 class="section-title">Saved Jobs</h3>
-              <p class="section-subtitle">Roles you bookmarked from Career will appear here.</p>
+              <p class="section-subtitle">Bookmarked roles will appear here.</p>
             </div>
             <div class="section-icon blue">
               <svg viewBox="0 0 24 24"><path d="M8 6h8"></path><path d="M6 8h12v11H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg>
@@ -1969,9 +1969,9 @@
       if (!savedJobs.length) {
         savedJobsListEl.innerHTML = '' +
           '<div class="saved-job-empty">' +
-            '<h4>No saved jobs yet</h4>' +
-            '<p>Save roles from the Career page and they will appear here for quick access.</p>' +
-            '<div><a class="btn primary" href="career.html#browse" style="text-decoration:none;display:inline-flex;">Open Career</a></div>' +
+            '<h4>No saved jobs</h4>' +
+            '<p>View your placed practice on the My Practice page.</p>' +
+            '<div><a class="btn primary" href="career.html" style="text-decoration:none;display:inline-flex;">My Practice</a></div>' +
           '</div>';
         return;
       }
@@ -1993,7 +1993,7 @@
               '</div>' +
             '</div>' +
             '<div class="saved-job-actions">' +
-              '<a class="btn" href="career.html?role=' + encodeURIComponent(job.id) + '#browse" style="text-decoration:none;display:inline-flex;">View in Career</a>' +
+              '<a class="btn" href="career.html" style="text-decoration:none;display:inline-flex;">View Practice</a>' +
               '<button class="btn" type="button" data-remove-saved-job="' + escapeHtml(job.id) + '">Remove</button>' +
             '</div>' +
           '</article>';

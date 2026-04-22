@@ -409,10 +409,10 @@
 
     return [
       buildRegistrationRow("career", {
-        title: "1. Secure Your Placement",
-        sub: "Find and secure a practice position through GP Link.",
-        mobileDetail: "Browse roles, apply, and secure a placement at a practice.",
-        mobileStatus: snap.careerSecured ? "Placement secured" : "Searching",
+        title: "1. Your Practice",
+        sub: "View your secured practice placement.",
+        mobileDetail: "Your placed practice details and contact information.",
+        mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
         done: snap.careerSecured,
         href: "/pages/career.html"
       }),
