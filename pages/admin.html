@@ -485,6 +485,7 @@
     .app-admin-card-email{font-size:11px;color:var(--muted)}
     .app-admin-card-role{font-size:13px;font-weight:600;margin-top:2px}
     .app-admin-card-meta{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+    .app-admin-card-submission{font-size:11px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:2px}
     .app-admin-card-actions{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
     .app-status-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
     .app-status-pill.applied,.app-status-pill.review{background:#eff6ff;color:#1d4ed8}
@@ -492,6 +493,11 @@
     .app-status-pill.offer{background:#fffbeb;color:#b45309}
     .app-status-pill.secured{background:#ecfdf5;color:#166534}
     .app-status-pill.withdrawn{background:#fef2f2;color:#dc2626}
+    .app-submission-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.02em}
+    .app-submission-pill.pending{background:#fef3c7;color:#92400e}
+    .app-submission-pill.submitted{background:#dbeafe;color:#1d4ed8}
+    .app-submission-pill.ready{background:#dcfce7;color:#166534}
+    .app-submission-pill.rejected{background:#fee2e2;color:#991b1b}
 /* ── VA dashboard consolidation (2026-04-11) ── */
 .top-search{flex:1 1 auto;max-width:500px;position:relative;margin:0 12px}
 .top-search input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.15);color:#fff;font-size:14px}
@@ -2724,6 +2730,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch{showOpsToast("Network error","red");}
   }
 
+  async function submitApplicationToPractice(appId){
+    if(!appId)return;
+    if(!confirm("Submit this candidate to the practice via Zoho Recruit?"))return;
+    try{
+      const r=await fetch("/api/admin/career/application/submit-to-practice",{
+        method:"POST",
+        credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({applicationId:appId})
+      });
+      const d=await r.json().catch(()=>({}));
+      if(d&&d.ok){showOpsToast("Candidate submitted to practice");await loadAdminApplications();}
+      else{showOpsToast((d&&d.message)||"Failed to submit candidate","red");}
+    }catch{showOpsToast("Network error","red");}
+  }
+
   async function updateInterviewStatus(id,status){
     try{
       const r=await fetch("/api/admin/career/interview",{method:"PATCH",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,status:status})});
@@ -2773,7 +2795,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       cardsHtml='<div class="applications-grid">';
       apps.forEach(a=>{
         const status=(a.status||"applied").toLowerCase();
+        const submissionStatus=(a.practice_submission_status||"pending_va_submission").toLowerCase();
+        const submissionLabel=a.practice_submission_label||"Awaiting VA submission";
+        const submissionCls=submissionStatus==="submitted_to_practice"?"submitted":(submissionStatus==="client_approved"||submissionStatus==="interview_ready"?"ready":(submissionStatus==="client_rejected"?"rejected":"pending"));
         const pillCls=status==="review"?"review":status==="interview"?"interview":status==="offer"?"offer":status==="secured"?"secured":status==="withdrawn"?"withdrawn":"applied";
+        const submitBtn=a.can_submit_to_practice
+          ? '<button class="btn sm primary" data-app-submit="'+esc(a.id)+'">Submit to Practice</button>'
+          : '<button class="btn sm" disabled title="'+esc(a.submit_disabled_reason||"Already submitted to practice")+'">Submit to Practice</button>';
         cardsHtml+='<div class="app-admin-card">'+
           '<div class="app-admin-card-top">'+
             '<div><div class="app-admin-card-gp">'+esc(a.gp_name||"Unknown GP")+'</div>'+
@@ -2786,8 +2814,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             (a.role_location?'<span>'+esc(a.role_location)+'</span>':'')+
             '<span>Applied '+esc(fmtR(a.applied_at||a.created_at))+'</span>'+
           '</div>'+
+          '<div class="app-admin-card-submission">'+
+            '<span class="app-submission-pill '+esc(submissionCls)+'">'+esc(submissionLabel)+'</span>'+
+            (a.submitted_to_practice_at?'<span>Sent '+esc(fmtR(a.submitted_to_practice_at))+'</span>':'')+
+            (a.practice_contact_email?'<span>'+esc(a.practice_contact_email)+'</span>':'')+
+          '</div>'+
           '<div class="app-admin-card-actions">'+
-            '<button class="btn sm primary" data-app-schedule="'+esc(a.id)+'">Schedule Interview</button>'+
+            submitBtn+
+            '<button class="btn sm" data-app-schedule="'+esc(a.id)+'">Schedule Interview</button>'+
           '</div>'+
         '</div>';
       });
@@ -3195,12 +3229,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       .then(function(text) {
         if (st) st.textContent = 'Response: ' + text.substring(0, 200);
         try { var data = JSON.parse(text); } catch(e) { alert('Non-JSON response:\n' + text.substring(0, 500)); return; }
-        if (!data.ok) {
-          var msg = (data.errors && data.errors.length > 0) ? data.errors.join('\n') : (data.message || JSON.stringify(data));
-          alert('Sync issues:\n' + msg);
-        } else {
-          alert('Sync OK!\nToken: ' + (data.tokenRefreshed ? 'Yes' : 'No') + '\nOrg: ' + (data.orgInfoFetched ? 'Yes' : 'No') + '\nWebhook: ' + (data.webhookRegistered ? 'Yes' : 'No'));
+        var summary = 'Token: ' + (data.tokenRefreshed ? 'OK' : 'FAIL') +
+          '\nOrg: ' + (data.orgInfoFetched ? 'OK' : 'FAIL') +
+          '\nEmail: ' + (data.emailFetched ? 'OK' : 'FAIL') +
+          '\nWebhook: ' + (data.webhookRegistered ? 'OK' : 'FAIL');
+        if (data.errors && data.errors.length > 0) {
+          summary += '\n\n--- Errors ---\n' + data.errors.join('\n\n');
         }
+        if (data.diagnostics && data.diagnostics.length > 0) {
+          summary += '\n\n--- Diagnostics ---\n' + JSON.stringify(data.diagnostics, null, 2);
+        }
+        alert(data.ok ? 'Sync OK!\n' + summary : 'Sync issues:\n' + summary);
         loadZohoSignStatus();
       })
       .catch(function(err) {
@@ -3578,6 +3617,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(!appPanel||!appPanel.contains(e.target))return;
     const appRefresh=e.target.closest("[data-app-refresh]");
     if(appRefresh){e.preventDefault();e.stopPropagation();await loadAdminApplications();return;}
+    const appSubmit=e.target.closest("[data-app-submit]");
+    if(appSubmit){e.preventDefault();e.stopPropagation();await submitApplicationToPractice(appSubmit.getAttribute("data-app-submit"));return;}
     const appSchedule=e.target.closest("[data-app-schedule]");
     if(appSchedule){
       e.preventDefault();e.stopPropagation();

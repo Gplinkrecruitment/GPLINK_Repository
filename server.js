@@ -16581,7 +16581,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 400, { ok: false, message: 'Zoho Sign is not connected' });
       return;
     }
-    const results = { tokenRefreshed: false, orgInfoFetched: false, webhookRegistered: false, errors: [] };
+    const results = { tokenRefreshed: false, orgInfoFetched: false, webhookRegistered: false, emailFetched: false, errors: [], diagnostics: [] };
 
     // 1. Refresh token
     try {
@@ -16601,6 +16601,43 @@ async function handleApi(req, res, pathname) {
       results.errors.push('Org info error: ' + e.message);
     }
 
+    // 2b. Fetch connected email if still missing
+    try {
+      const afterOrg = await getZohoSignConnection();
+      if (!afterOrg || !afterOrg.connectedEmail) {
+        const token = afterOrg && afterOrg.accessToken;
+        const acctBase = (afterOrg && afterOrg.accountsServer) || getZohoSignAccountsServer();
+        if (token) {
+          // Try Zoho accounts user info
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 10000);
+          const uiResp = await fetch(`${acctBase}/oauth/user/info`, {
+            headers: { Authorization: `Zoho-oauthtoken ${token}` },
+            signal: ctrl.signal
+          });
+          clearTimeout(t);
+          const uiText = await uiResp.text();
+          results.diagnostics.push({ endpoint: 'accounts/oauth/user/info', status: uiResp.status, body: uiText.slice(0, 300) });
+          if (uiResp.ok) {
+            try {
+              const ui = JSON.parse(uiText);
+              const email = String(ui.Email || ui.email || ui.LOGIN_ID || ui.login_id || '').trim().toLowerCase();
+              if (email) {
+                await upsertZohoSignConnection({ connectedEmail: email });
+                results.emailFetched = true;
+              } else {
+                results.errors.push('User info returned but no email field found. Keys: ' + Object.keys(ui).join(', '));
+              }
+            } catch (e) { results.errors.push('User info parse error: ' + e.message); }
+          } else {
+            results.errors.push('User info HTTP ' + uiResp.status + ': ' + uiText.slice(0, 200));
+          }
+        }
+      } else {
+        results.emailFetched = true;
+      }
+    } catch (e) { results.errors.push('Email fetch error: ' + e.message); }
+
     // 3. Register webhook if not already registered
     try {
       const updated = await getZohoSignConnection();
@@ -16609,7 +16646,7 @@ async function handleApi(req, res, pathname) {
         results.webhookRegistered = !!wr.ok;
         if (!wr.ok) {
           const detail = wr.data ? JSON.stringify(wr.data).slice(0, 300) : ('HTTP ' + (wr.status || 'unknown'));
-          results.errors.push('Webhook registration failed: ' + detail);
+          results.errors.push('Webhook failed: ' + detail);
         }
       } else {
         results.webhookRegistered = true;
