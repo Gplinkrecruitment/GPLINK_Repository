@@ -3185,8 +3185,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try {
       var r = await fetch('/api/admin/integrations/zoho-sign/sync', { method: 'POST', credentials: 'include' });
       var data = await r.json();
-      if (data && data.errors && data.errors.length > 0) {
+      if (!r.ok || (data && !data.ok)) {
+        var msg = (data && data.errors && data.errors.length > 0) ? data.errors.join('\n') : (data && data.message ? data.message : JSON.stringify(data));
+        alert('Sync failed (HTTP ' + r.status + '):\n' + msg);
+      } else if (data && data.errors && data.errors.length > 0) {
         alert('Sync completed with issues:\n' + data.errors.join('\n'));
+      } else {
+        alert('Sync completed successfully!\nToken refreshed: ' + (data.tokenRefreshed ? 'Yes' : 'No') + '\nOrg info: ' + (data.orgInfoFetched ? 'Yes' : 'No') + '\nWebhook: ' + (data.webhookRegistered ? 'Yes' : 'No'));
       }
       await loadZohoSignStatus();
     } catch (err) {
