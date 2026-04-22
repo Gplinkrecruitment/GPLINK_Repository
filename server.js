@@ -8387,7 +8387,9 @@ async function createEnvelopeFromTemplate(opts) {
         field_radio_data: {}
       },
       actions,
-      notes: String(opts.note || '')
+      notes: String(opts.note || ''),
+      // Per-document callback URL so Zoho Sign sends events for this envelope
+      callback_url: getZohoSignWebhookCallbackUrl()
     }
   };
   (opts.prefillFields || []).forEach((f) => {
@@ -8443,65 +8445,23 @@ async function updateEnvelopeRecipient(envelopeId, actionId, newEmail, newName) 
   });
 }
 
-async function registerZohoSignWebhook() {
-  const secret = crypto.randomBytes(32).toString('hex');
+function getZohoSignWebhookCallbackUrl() {
   const publicBase = String(process.env.PUBLIC_BASE_URL || 'https://www.mygplink.com.au').trim().replace(/\/$/, '');
-  const callbackUrl = `${publicBase}/api/webhooks/zoho-sign`;
-  const tried = [];
+  return `${publicBase}/api/webhooks/zoho-sign`;
+}
 
-  // Zoho Sign webhook/callback payload
-  const notifPayload = {
-    notification: {
-      callback_url: callbackUrl,
-      event_type: [
-        'RequestSentToRecipient',
-        'RequestRecipientSigned',
-        'RequestCompleted',
-        'RequestDeclined',
-        'RequestVoided',
-        'RequestExpired',
-        'RequestRecipientEmailBounced',
-        'RequestViewed'
-      ],
-      authentication: { method: 'HMAC', secret }
-    }
-  };
-
-  // Variant payloads — some Zoho Sign versions use different formats
-  const callbackPayload = {
-    callbackurl: callbackUrl,
-    event_types: 'RequestSentToRecipient,RequestRecipientSigned,RequestCompleted,RequestDeclined,RequestVoided,RequestExpired,RequestRecipientEmailBounced,RequestViewed'
-  };
-
-  // Try multiple endpoint + format combinations
-  const attempts = [
-    { endpoint: 'notifications', method: 'json', payload: notifPayload },
-    { endpoint: 'notifications', method: 'form', payload: notifPayload },
-    { endpoint: 'webhooks', method: 'json', payload: notifPayload },
-    { endpoint: 'callbacks', method: 'json', payload: { callback_url: callbackUrl, event_type: notifPayload.notification.event_type } },
-    { endpoint: 'settings/notifications', method: 'json', payload: notifPayload },
-    { endpoint: 'callbackurl', method: 'form', payload: callbackPayload }
-  ];
-
-  for (const attempt of attempts) {
-    let res;
-    if (attempt.method === 'json') {
-      res = await zohoSignApiPostJson(attempt.endpoint, attempt.payload);
-    } else {
-      res = await zohoSignApiPostForm(attempt.endpoint, attempt.method === 'form' && attempt.payload.callbackurl ? attempt.payload : { data: attempt.payload });
-    }
-    tried.push({ endpoint: attempt.endpoint, method: attempt.method, status: res.status, ok: res.ok, data: JSON.stringify(res.data || {}).slice(0, 200) });
-    console.log('[ZohoSign] webhook attempt:', attempt.endpoint, attempt.method, res.status, JSON.stringify(res.data || {}).slice(0, 300));
-    if (res.ok) {
-      await upsertZohoSignConnection({
-        webhookSecret: secret,
-        webhookRegisteredAt: new Date().toISOString()
-      });
-      return { ok: true, tried };
-    }
-  }
-
-  return { ok: false, tried, data: { message: 'All webhook registration endpoints failed', attempts: tried } };
+async function ensureZohoSignWebhookSecret() {
+  // Zoho Sign does not support API-based webhook registration.
+  // Webhooks must be configured manually in Zoho Sign Settings → Developer Space.
+  // We generate and store a secret so the admin can copy it to the Zoho Sign config.
+  const c = await getZohoSignConnection();
+  if (c && c.webhookSecret) return { ok: true, secret: c.webhookSecret, alreadyStored: true };
+  const secret = crypto.randomBytes(32).toString('hex');
+  await upsertZohoSignConnection({
+    webhookSecret: secret,
+    webhookRegisteredAt: new Date().toISOString()
+  });
+  return { ok: true, secret, alreadyStored: false };
 }
 
 // ── Zoho Sign webhook endpoint ────────────────────────────
@@ -14452,7 +14412,7 @@ async function handleApi(req, res, pathname) {
       templateId: ZOHO_SIGN_SPPA_TEMPLATE_ID
     });
 
-    try { if (typeof registerZohoSignWebhook === 'function') await registerZohoSignWebhook(); } catch (e) { console.error('[ZohoSign] webhook registration failed:', e.message); }
+    try { await ensureZohoSignWebhookSecret(); } catch (e) { console.error('[ZohoSign] webhook secret generation failed:', e.message); }
     try { await fetchAndStoreZohoSignOrgInfo(); } catch (e) { console.error('[ZohoSign] org info fetch failed:', e.message); }
 
     res.writeHead(302, { Location: adminReturnBase + '/pages/admin.html?zoho-sign=connected' });
@@ -16662,20 +16622,11 @@ async function handleApi(req, res, pathname) {
       }
     } catch (e) { results.errors.push('Email fetch error: ' + e.message); }
 
-    // 3. Register webhook if not already registered
+    // 3. Ensure webhook secret exists (webhook must be configured manually in Zoho Sign)
     try {
-      const updated = await getZohoSignConnection();
-      if (!updated || !updated.webhookSecret) {
-        const wr = await registerZohoSignWebhook();
-        results.webhookRegistered = !!wr.ok;
-        if (wr.tried) results.diagnostics.push(...wr.tried.map(t => ({ ...t, type: 'webhook' })));
-        if (!wr.ok) {
-          results.errors.push('Webhook: all endpoints failed (see diagnostics)');
-        }
-      } else {
-        results.webhookRegistered = true;
-      }
-    } catch (e) { results.errors.push('Webhook error: ' + e.message); }
+      const wr = await ensureZohoSignWebhookSecret();
+      results.webhookRegistered = !!wr.ok;
+    } catch (e) { results.errors.push('Webhook secret error: ' + e.message); }
 
     // 4. Update template ID from env var if available and not already stored
     if (ZOHO_SIGN_SPPA_TEMPLATE_ID) {
@@ -16732,6 +16683,7 @@ async function handleApi(req, res, pathname) {
       orgName: c.orgName,
       tokenExpiresAt: c.tokenExpiresAt,
       webhookRegistered: !!c.webhookSecret,
+      webhookCallbackUrl: getZohoSignWebhookCallbackUrl(),
       templateId: c.templateId || ZOHO_SIGN_SPPA_TEMPLATE_ID || ''
     });
     return;
