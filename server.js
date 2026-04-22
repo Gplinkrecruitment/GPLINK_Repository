@@ -1613,6 +1613,20 @@ async function listAccountCareerDocumentRows(userId) {
   return result.data.filter((row) => row && ACCOUNT_CAREER_DOCUMENT_KEYS.has(String(row.document_key || '')));
 }
 
+function getAccountCareerDocumentRowFromRows(rows, type) {
+  const config = ACCOUNT_CAREER_DOCUMENT_TYPES[type];
+  const list = Array.isArray(rows) ? rows : [];
+  if (!config) return null;
+  const matches = list.filter((row) => row && String(row.document_key || '') === config.key);
+  if (!matches.length) return null;
+  matches.sort((left, right) => {
+    const leftTs = Date.parse(String(left && left.updated_at || '')) || 0;
+    const rightTs = Date.parse(String(right && right.updated_at || '')) || 0;
+    return rightTs - leftTs;
+  });
+  return matches[0];
+}
+
 async function getAccountCareerDocumentsForUser(userId) {
   const documents = {};
   if (!isSupabaseDbConfigured() || !userId) {
@@ -8761,12 +8775,18 @@ async function zohoRecruitApiPost(apiDomain, resourcePath, accessToken, bodyData
   }
 }
 
-async function zohoRecruitApiUploadAttachment(apiDomain, moduleName, recordId, accessToken, fileName, fileBuffer, mimeType) {
+async function zohoRecruitApiUploadAttachment(apiDomain, moduleName, recordId, accessToken, fileName, fileBuffer, mimeType, options = {}) {
   const base = normalizeUrlBase(apiDomain, '');
   if (!base) {
     return { ok: false, status: 400, data: { message: 'Zoho Recruit API domain is missing.' } };
   }
-  const url = `${base}/recruit/v2/${moduleName}/${recordId}/Attachments`;
+  const params = new URLSearchParams();
+  const category = String(options && options.attachmentsCategory ? options.attachmentsCategory : '').trim();
+  const categoryId = String(options && options.attachmentsCategoryId ? options.attachmentsCategoryId : '').trim();
+  if (category) params.set('attachments_category', category);
+  if (categoryId) params.set('attachments_category_id', categoryId);
+  const query = params.toString();
+  const url = `${base}/recruit/v2/${moduleName}/${recordId}/Attachments${query ? `?${query}` : ''}`;
   const boundary = '----ZohoFormBoundary' + Date.now().toString(36);
   const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`;
   const footer = `\r\n--${boundary}--\r\n`;
@@ -8791,6 +8811,35 @@ async function zohoRecruitApiUploadAttachment(apiDomain, moduleName, recordId, a
     return { ok: response.ok, status: response.status, data };
   } catch (err) {
     return { ok: false, status: 502, data: { message: 'Failed to upload attachment to Zoho Recruit.' } };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function zohoRecruitApiDeleteAttachment(apiDomain, moduleName, recordId, accessToken, attachmentId) {
+  const base = normalizeUrlBase(apiDomain, '');
+  if (!base) {
+    return { ok: false, status: 400, data: { message: 'Zoho Recruit API domain is missing.' } };
+  }
+  const url = `${base}/recruit/v2/${moduleName}/${recordId}/Attachments/${attachmentId}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(url, {
+      method: 'DELETE',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Zoho-oauthtoken ${String(accessToken || '').trim()}`
+      }
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try { data = JSON.parse(text); } catch (err) { data = { raw: text }; }
+    }
+    return { ok: response.ok, status: response.status, data };
+  } catch (err) {
+    return { ok: false, status: 502, data: { message: 'Failed to delete attachment from Zoho Recruit.' } };
   } finally {
     clearTimeout(timeout);
   }
@@ -9465,28 +9514,80 @@ async function createZohoRecruitCandidate(userId, email, userProfile, onboarding
   return { ok: false, message: 'Failed to create Zoho Recruit candidate.', detail: lastError };
 }
 
-async function uploadDocumentsToZohoCandidate(userId, zohoCanidateId) {
-  const zoho = await getZohoRecruitAccessTokenAndDomain();
-  if (!zoho || !zohoCanidateId) return;
-
-  // Get all user documents from DB
-  const docsResult = await supabaseDbRequest(
-    'user_documents',
-    `select=document_key,country_code,file_name,file_url&user_id=eq.${encodeURIComponent(userId)}&status=eq.uploaded`
+async function searchZohoRecruitCandidatesByEmail(zoho, email) {
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!zoho || !normalized) return [];
+  const result = await fetchZohoRecruitRecordsWithVariants(
+    zoho.connection,
+    zoho.accessToken,
+    zoho.apiDomain,
+    ['Candidates/search', 'candidates/search'],
+    {
+      email: normalized,
+      page: 1,
+      per_page: 50
+    }
   );
-  if (!docsResult.ok || !Array.isArray(docsResult.data)) return;
+  if (Array.isArray(result.records) && result.records.length > 0) return result.records;
+  const fallback = await fetchZohoRecruitRecordsWithVariants(
+    zoho.connection,
+    zoho.accessToken,
+    zoho.apiDomain,
+    ['Candidates/search', 'candidates/search'],
+    {
+      criteria: `(Email:equals:${normalized})`,
+      page: 1,
+      per_page: 50
+    }
+  );
+  return Array.isArray(fallback.records) ? fallback.records : [];
+}
 
-  for (const doc of docsResult.data) {
-    const storagePath = doc.file_url;
-    if (!storagePath) continue;
-    const downloaded = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath);
-    if (!downloaded) continue;
-    const fileName = doc.file_name || `${doc.document_key || 'document'}.pdf`;
-    await zohoRecruitApiUploadAttachment(
-      zoho.apiDomain, 'Candidates', zohoCanidateId, zoho.accessToken,
-      fileName, downloaded.buffer, downloaded.mimeType
-    );
+function getZohoCandidateId(record) {
+  return sanitizeZohoText(record && record.id);
+}
+
+async function ensureZohoRecruitCandidateIdForUser(userId, email, userProfile = null, onboardingState = null) {
+  if (!userId || !email || !isSupabaseDbConfigured() || !isZohoRecruitConfigured()) {
+    return { ok: false, message: 'Zoho Recruit candidate sync unavailable.' };
   }
+
+  const profile = userProfile && typeof userProfile === 'object'
+    ? userProfile
+    : await getSupabaseUserProfile(email, userId);
+  const existingId = String(profile && profile.zoho_candidate_id ? profile.zoho_candidate_id : '').trim();
+  if (existingId) return { ok: true, zohoId: existingId, created: false };
+
+  const zoho = await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho) return { ok: false, message: 'Zoho Recruit is not connected.' };
+  const scopeStatus = getZohoRecruitScopeStatus(zoho.connection);
+  if (scopeStatus.missingRequiredScopes.length > 0) {
+    return { ok: false, message: 'Zoho Recruit must be reconnected with candidate sync permissions.' };
+  }
+
+  const matches = await searchZohoRecruitCandidatesByEmail(zoho, email);
+  const matchedId = matches.map(getZohoCandidateId).find(Boolean);
+  if (matchedId) {
+    await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: { zoho_candidate_id: matchedId, updated_at: new Date().toISOString() }
+    });
+    return { ok: true, zohoId: matchedId, created: false };
+  }
+
+  const createResult = await createZohoRecruitCandidate(userId, email, profile || {}, onboardingState || {});
+  if (createResult.ok && createResult.zohoId) {
+    return { ok: true, zohoId: createResult.zohoId, created: true };
+  }
+  return createResult;
+}
+
+async function uploadDocumentsToZohoCandidate(userId, zohoCanidateId) {
+  if (!userId || !zohoCanidateId || !isSupabaseDbConfigured()) return;
+  await Promise.all(Object.keys(ACCOUNT_CAREER_DOCUMENT_TYPES).map(async function(type) {
+    await syncSingleAccountCareerDocumentToZoho(userId, zohoCanidateId, type);
+  }));
 }
 
 async function createZohoRecruitApplication(zohoCandidateId, zohoJobId) {
@@ -9936,18 +10037,19 @@ async function fetchZohoRecruitClientContacts(zoho, clientId) {
   return Array.isArray(result.records) ? result.records : [];
 }
 
-async function listZohoRecruitApplicationAttachments(zoho, applicationId) {
-  const value = String(applicationId || '').trim();
-  if (!zoho || !value) return [];
+async function listZohoRecruitRecordAttachments(zoho, moduleName, recordId) {
+  const moduleValue = String(moduleName || '').trim();
+  const recordValue = String(recordId || '').trim();
+  if (!zoho || !moduleValue || !recordValue) return [];
   const result = await fetchZohoRecruitRecordsWithVariants(
     zoho.connection,
     zoho.accessToken,
     zoho.apiDomain,
     [
-      `Applications/${value}/Attachments`,
-      `Applications/${value}/attachments`,
-      `applications/${value}/Attachments`,
-      `applications/${value}/attachments`
+      `${moduleValue}/${recordValue}/Attachments`,
+      `${moduleValue}/${recordValue}/attachments`,
+      `${moduleValue.toLowerCase()}/${recordValue}/Attachments`,
+      `${moduleValue.toLowerCase()}/${recordValue}/attachments`
     ],
     {
       page: 1,
@@ -9957,21 +10059,68 @@ async function listZohoRecruitApplicationAttachments(zoho, applicationId) {
   return Array.isArray(result.records) ? result.records : [];
 }
 
-async function downloadZohoRecruitApplicationAttachment(zoho, applicationId, attachmentId) {
-  const appId = String(applicationId || '').trim();
+async function listZohoRecruitApplicationAttachments(zoho, applicationId) {
+  return listZohoRecruitRecordAttachments(zoho, 'Applications', applicationId);
+}
+
+async function listZohoRecruitCandidateAttachments(zoho, candidateId) {
+  return listZohoRecruitRecordAttachments(zoho, 'Candidates', candidateId);
+}
+
+async function downloadZohoRecruitRecordAttachment(zoho, moduleName, recordId, attachmentId) {
+  const moduleValue = String(moduleName || '').trim();
+  const recordValue = String(recordId || '').trim();
   const fileId = String(attachmentId || '').trim();
-  if (!zoho || !appId || !fileId) return null;
+  if (!zoho || !moduleValue || !recordValue || !fileId) return null;
   return downloadZohoRecruitBinaryWithVariants(
     zoho.connection,
     zoho.accessToken,
     zoho.apiDomain,
     [
-      `Applications/${appId}/Attachments/${fileId}`,
-      `Applications/${appId}/attachments/${fileId}`,
-      `applications/${appId}/Attachments/${fileId}`,
-      `applications/${appId}/attachments/${fileId}`
+      `${moduleValue}/${recordValue}/Attachments/${fileId}`,
+      `${moduleValue}/${recordValue}/attachments/${fileId}`,
+      `${moduleValue.toLowerCase()}/${recordValue}/Attachments/${fileId}`,
+      `${moduleValue.toLowerCase()}/${recordValue}/attachments/${fileId}`
     ]
   );
+}
+
+async function downloadZohoRecruitApplicationAttachment(zoho, applicationId, attachmentId) {
+  return downloadZohoRecruitRecordAttachment(zoho, 'Applications', applicationId, attachmentId);
+}
+
+async function downloadZohoRecruitCandidateAttachment(zoho, candidateId, attachmentId) {
+  return downloadZohoRecruitRecordAttachment(zoho, 'Candidates', candidateId, attachmentId);
+}
+
+async function deleteZohoRecruitRecordAttachment(zoho, moduleName, recordId, attachmentId) {
+  const moduleVariants = [];
+  const moduleValue = String(moduleName || '').trim();
+  const recordValue = String(recordId || '').trim();
+  const fileId = String(attachmentId || '').trim();
+  if (!zoho || !moduleValue || !recordValue || !fileId) {
+    return { ok: false, status: 400, data: { message: 'Attachment delete requires module, record, and attachment IDs.' } };
+  }
+  moduleVariants.push(moduleValue);
+  if (moduleValue.toLowerCase() !== moduleValue) moduleVariants.push(moduleValue.toLowerCase());
+  let lastFailure = { ok: false, status: 502, data: { message: 'Failed to delete Zoho Recruit attachment.' } };
+  for (const moduleVariant of moduleVariants) {
+    const result = await zohoRecruitApiDeleteAttachment(
+      zoho.apiDomain,
+      moduleVariant,
+      recordValue,
+      zoho.accessToken,
+      fileId
+    );
+    if (result.ok) return result;
+    lastFailure = result;
+    if (!shouldTryNextZohoRecruitVariant(result)) return result;
+  }
+  return lastFailure;
+}
+
+async function deleteZohoRecruitCandidateAttachment(zoho, candidateId, attachmentId) {
+  return deleteZohoRecruitRecordAttachment(zoho, 'Candidates', candidateId, attachmentId);
 }
 
 function sortZohoRecordsByRecent(left, right) {
@@ -10027,6 +10176,254 @@ function selectZohoContractAttachmentCandidates(records, maxCandidates = 4) {
     return sortZohoRecordsByRecent(left, right);
   });
   return list.filter((record) => scoreZohoContractAttachment(record) > 0).slice(0, Math.max(1, maxCandidates));
+}
+
+function selectZohoCandidateCareerAttachment(records, type) {
+  const list = Array.isArray(records) ? records.slice() : [];
+  const normalizedType = getAccountCareerDocumentType(type);
+  if (!normalizedType) return null;
+  const matches = list.filter((record) => {
+    return getAccountCareerDocumentTypeByZohoCategory(getZohoAttachmentCategory(record)) === normalizedType;
+  });
+  if (!matches.length) return null;
+  matches.sort(sortZohoRecordsByRecent);
+  return matches[0];
+}
+
+function getIsoTimestampValue(value) {
+  return Date.parse(String(value || '').trim()) || 0;
+}
+
+async function syncSingleAccountCareerDocumentToZoho(userId, zohoCandidateId, type, options = {}) {
+  const normalizedType = getAccountCareerDocumentType(type);
+  const config = normalizedType ? ACCOUNT_CAREER_DOCUMENT_TYPES[normalizedType] : null;
+  if (!config || !userId || !zohoCandidateId || !isSupabaseDbConfigured()) {
+    return { ok: false, message: 'Career document sync prerequisites are missing.' };
+  }
+
+  const zoho = options.zoho || await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho) return { ok: false, message: 'Zoho Recruit is not connected.' };
+  const scopeStatus = getZohoRecruitScopeStatus(zoho.connection);
+  if (scopeStatus.missingRequiredScopes.length > 0) {
+    return { ok: false, message: 'Zoho Recruit must be reconnected with attachment sync permissions.' };
+  }
+
+  const localRow = options.localRow || getAccountCareerDocumentRowFromRows(options.localRows, normalizedType) || (await listAccountCareerDocumentRows(userId)).find((row) => {
+    return row && String(row.document_key || '') === config.key;
+  });
+  if (!localRow) {
+    return { ok: true, skipped: true, reason: 'no_local_document' };
+  }
+  const storagePath = String(localRow.storage_path || localRow.file_url || '').trim();
+  if (!storagePath) {
+    return { ok: false, message: `${config.label} is missing a storage path.` };
+  }
+
+  const downloaded = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath);
+  if (!downloaded || !downloaded.buffer || downloaded.buffer.length === 0) {
+    return { ok: false, message: `Failed to download ${config.label} from storage.` };
+  }
+
+  const localSignature = buildAccountCareerDocumentLocalSignature(localRow);
+  const currentAttachments = Array.isArray(options.remoteAttachments)
+    ? options.remoteAttachments.slice()
+    : await listZohoRecruitCandidateAttachments(zoho, zohoCandidateId);
+  const matchingAttachments = currentAttachments.filter((record) => {
+    return getAccountCareerDocumentTypeByZohoCategory(getZohoAttachmentCategory(record)) === normalizedType;
+  });
+
+  for (const existing of matchingAttachments) {
+    const attachmentId = getZohoAttachmentId(existing);
+    if (!attachmentId) continue;
+    const deleted = await deleteZohoRecruitCandidateAttachment(zoho, zohoCandidateId, attachmentId);
+    if (!deleted.ok) {
+      return {
+        ok: false,
+        message: getZohoErrorMessage(deleted.data, `Failed to replace existing Zoho ${config.zohoCategory} attachment.`)
+      };
+    }
+  }
+
+  const fileName = String(localRow.file_name || config.fallbackFileName || 'document.pdf').trim();
+  const mimeType = inferAccountCareerDocumentMimeType(fileName, downloaded.mimeType || localRow.mime_type || '');
+  const uploaded = await zohoRecruitApiUploadAttachment(
+    zoho.apiDomain,
+    'Candidates',
+    zohoCandidateId,
+    zoho.accessToken,
+    fileName,
+    downloaded.buffer,
+    mimeType,
+    { attachmentsCategory: config.zohoCategory }
+  );
+  if (!uploaded.ok) {
+    return {
+      ok: false,
+      message: getZohoErrorMessage(uploaded.data, `Failed to upload ${config.label} to Zoho Recruit.`)
+    };
+  }
+
+  const refreshedAttachments = await listZohoRecruitCandidateAttachments(zoho, zohoCandidateId);
+  const syncedAttachment = selectZohoCandidateCareerAttachment(refreshedAttachments, normalizedType);
+  const remoteSignature = buildZohoAttachmentSignature(syncedAttachment || {
+    id: uploaded && uploaded.data && uploaded.data.data && uploaded.data.data[0] && uploaded.data.data[0].details
+      ? uploaded.data.data[0].details.id
+      : '',
+    File_Name: fileName,
+    Attachment_Category: config.zohoCategory,
+    Modified_Time: new Date().toISOString()
+  });
+  await setRuntimeKv(getZohoCandidateCareerDocumentSyncKey(userId, normalizedType), {
+    zohoCandidateId: String(zohoCandidateId || ''),
+    type: normalizedType,
+    category: config.zohoCategory,
+    localSignature,
+    remoteSignature,
+    syncedAt: new Date().toISOString(),
+    source: 'local'
+  });
+
+  return {
+    ok: true,
+    type: normalizedType,
+    localSignature,
+    remoteSignature,
+    attachmentId: syncedAttachment ? getZohoAttachmentId(syncedAttachment) : ''
+  };
+}
+
+async function reconcileAccountCareerDocumentsWithZoho(userId, email) {
+  if (!userId || !email || !isSupabaseDbConfigured() || !isZohoRecruitConfigured()) {
+    return { ok: false, skipped: true, message: 'Career document sync unavailable.' };
+  }
+
+  const zoho = await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho) return { ok: false, skipped: true, message: 'Zoho Recruit is not connected.' };
+  const scopeStatus = getZohoRecruitScopeStatus(zoho.connection);
+  if (scopeStatus.missingRequiredScopes.length > 0) {
+    return { ok: false, skipped: true, message: 'Zoho Recruit must be reconnected with attachment sync permissions.' };
+  }
+
+  const profile = await getSupabaseUserProfile(email, userId);
+  const localRows = await listAccountCareerDocumentRows(userId);
+  const hasLocalCareerDocs = Object.keys(ACCOUNT_CAREER_DOCUMENT_TYPES).some((type) => {
+    return !!getAccountCareerDocumentRowFromRows(localRows, type);
+  });
+
+  let zohoCandidateId = String(profile && profile.zoho_candidate_id ? profile.zoho_candidate_id : '').trim();
+  if (!zohoCandidateId) {
+    const matchedId = (await searchZohoRecruitCandidatesByEmail(zoho, email)).map(getZohoCandidateId).find(Boolean);
+    if (matchedId) {
+      zohoCandidateId = matchedId;
+      await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: { zoho_candidate_id: matchedId, updated_at: new Date().toISOString() }
+      });
+    }
+  }
+  if (!zohoCandidateId && hasLocalCareerDocs) {
+    const ensured = await ensureZohoRecruitCandidateIdForUser(userId, email, profile || {}, {});
+    if (!ensured.ok || !ensured.zohoId) {
+      return { ok: false, skipped: true, message: ensured.message || 'Failed to resolve Zoho Recruit candidate.' };
+    }
+    zohoCandidateId = ensured.zohoId;
+  }
+  if (!zohoCandidateId) {
+    return { ok: true, skipped: true, message: 'No Zoho Recruit candidate linked.' };
+  }
+
+  const remoteAttachments = await listZohoRecruitCandidateAttachments(zoho, zohoCandidateId);
+  const actions = [];
+
+  for (const type of Object.keys(ACCOUNT_CAREER_DOCUMENT_TYPES)) {
+    const config = ACCOUNT_CAREER_DOCUMENT_TYPES[type];
+    const syncKey = getZohoCandidateCareerDocumentSyncKey(userId, type);
+    const syncState = await getRuntimeKv(syncKey);
+    const syncValue = syncState && syncState.value && typeof syncState.value === 'object' ? syncState.value : {};
+    const localRow = getAccountCareerDocumentRowFromRows(localRows, type);
+    const localSignature = buildAccountCareerDocumentLocalSignature(localRow);
+    const remoteAttachment = selectZohoCandidateCareerAttachment(remoteAttachments, type);
+    const remoteSignature = buildZohoAttachmentSignature(remoteAttachment);
+    const priorLocalSignature = String(syncValue.localSignature || '').trim();
+    const priorRemoteSignature = String(syncValue.remoteSignature || '').trim();
+    const hasSyncBaseline = !!(priorLocalSignature || priorRemoteSignature);
+    const localChanged = !!localRow && localSignature !== priorLocalSignature;
+    const remoteChanged = !!remoteAttachment && remoteSignature !== priorRemoteSignature;
+    let preferredDirection = '';
+
+    if (remoteAttachment && !localRow) {
+      preferredDirection = 'zoho_to_local';
+    } else if (localRow && !remoteAttachment) {
+      preferredDirection = 'local_to_zoho';
+    } else if (remoteAttachment && localRow) {
+      const localUpdatedAt = getIsoTimestampValue(localRow.updated_at);
+      const remoteUpdatedAt = getIsoTimestampValue(getZohoAttachmentUpdatedAt(remoteAttachment));
+      const newerDirection = remoteUpdatedAt > localUpdatedAt ? 'zoho_to_local' : 'local_to_zoho';
+      if (!hasSyncBaseline) {
+        preferredDirection = newerDirection;
+      } else if (remoteChanged && localChanged) {
+        preferredDirection = newerDirection;
+      } else if (remoteChanged) {
+        preferredDirection = 'zoho_to_local';
+      } else if (localChanged) {
+        preferredDirection = 'local_to_zoho';
+      }
+    }
+
+    if (preferredDirection === 'zoho_to_local') {
+      const attachmentId = getZohoAttachmentId(remoteAttachment);
+      const downloaded = attachmentId
+        ? await downloadZohoRecruitCandidateAttachment(zoho, zohoCandidateId, attachmentId)
+        : null;
+      if (downloaded && downloaded.buffer && downloaded.buffer.length > 0) {
+        const fileName = getZohoAttachmentFileName(remoteAttachment) || config.fallbackFileName || 'document.pdf';
+        const mimeType = inferAccountCareerDocumentMimeType(fileName, downloaded.mimeType || '');
+        if (ACCOUNT_CAREER_DOCUMENT_ALLOWED_MIME_TYPES.has(mimeType)) {
+          const payload = {
+            type,
+            key: config.key,
+            label: config.label,
+            fileName,
+            mimeType,
+            fileSize: downloaded.buffer.length,
+            fileDataUrl: `data:${mimeType};base64,${downloaded.buffer.toString('base64')}`,
+            updatedAt: getZohoAttachmentUpdatedAt(remoteAttachment) || new Date().toISOString()
+          };
+          const saved = await saveAccountCareerDocumentForUser(userId, payload);
+          if (saved) {
+            await setRuntimeKv(syncKey, {
+              zohoCandidateId: String(zohoCandidateId || ''),
+              type,
+              category: config.zohoCategory,
+              localSignature: [payload.fileName, payload.updatedAt, payload.mimeType, payload.fileSize].join('|'),
+              remoteSignature,
+              syncedAt: new Date().toISOString(),
+              source: 'zoho'
+            });
+            actions.push({ type, direction: 'zoho_to_local' });
+            continue;
+          }
+        }
+      }
+      actions.push({ type, direction: 'zoho_to_local_failed' });
+      continue;
+    }
+
+    if (preferredDirection === 'local_to_zoho') {
+      const pushed = await syncSingleAccountCareerDocumentToZoho(userId, zohoCandidateId, type, {
+        zoho,
+        localRow,
+        localRows,
+        remoteAttachments
+      });
+      if (pushed.ok && !pushed.skipped) {
+        actions.push({ type, direction: 'local_to_zoho' });
+      }
+    }
+  }
+
+  return { ok: true, zohoCandidateId, actions };
 }
 
 function decodeXmlEntities(value) {
@@ -14895,6 +15292,8 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    await reconcileAccountCareerDocumentsWithZoho(userId, email).catch(() => null);
+
     // Check onboarding is complete
     const stateResult = await getSupabaseUserStateByEmail(email);
     const userState = stateResult && stateResult.state && typeof stateResult.state === 'object' ? stateResult.state : {};
@@ -14916,7 +15315,7 @@ async function handleApi(req, res, pathname) {
     // Get user profile for Zoho candidate ID
     const profileResult = await supabaseDbRequest('user_profiles', `select=zoho_candidate_id,first_name,last_name&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
     const profile = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0] ? profileResult.data[0] : {};
-    const zohoCandidateId = String(profile.zoho_candidate_id || '').trim();
+    let zohoCandidateId = String(profile.zoho_candidate_id || '').trim();
 
     // Resolve the career role to get the Zoho job opening ID
     const parsedRoleId = parseCareerRolePublicId(roleId);
@@ -14928,6 +15327,14 @@ async function handleApi(req, res, pathname) {
     if (!roleRow) {
       sendJson(res, 404, { ok: false, message: 'Role not found.' });
       return;
+    }
+
+    if (!zohoCandidateId && parsedRoleId.provider === 'zoho_recruit' && isZohoRecruitConfigured()) {
+      const ensuredCandidate = await ensureZohoRecruitCandidateIdForUser(userId, email, profile, userState);
+      if (ensuredCandidate && ensuredCandidate.ok && ensuredCandidate.zohoId) {
+        zohoCandidateId = String(ensuredCandidate.zohoId || '').trim();
+        profile.zoho_candidate_id = zohoCandidateId;
+      }
     }
 
     // Check for duplicate application
@@ -15556,61 +15963,47 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    const fileName = String(body && body.fileName || '').trim().slice(0, 255);
-    const fileDataUrl = String(body && body.fileDataUrl || '');
-    const mimeType = String(body && body.mimeType || 'application/pdf').trim();
-
-    if (!fileDataUrl || !fileDataUrl.startsWith('data:')) {
-      sendJson(res, 400, { ok: false, message: 'Missing or invalid file data.' });
-      return;
-    }
-
-    if (mimeType !== 'application/pdf') {
+    const payload = sanitizeAccountCareerDocumentPayload({
+      type: 'cv',
+      fileName: body && body.fileName,
+      mimeType: body && body.mimeType,
+      fileSize: body && body.fileSize,
+      fileDataUrl: body && body.fileDataUrl
+    });
+    if (!payload || payload.mimeType !== 'application/pdf') {
       sendJson(res, 400, { ok: false, message: 'Only PDF files are accepted.' });
       return;
     }
 
-    // Check approximate file size (base64 is ~33% larger than binary)
-    const base64Part = fileDataUrl.split(',')[1] || '';
-    const approxBytes = Math.ceil(base64Part.length * 0.75);
-    if (approxBytes > 10 * 1024 * 1024) {
-      sendJson(res, 400, { ok: false, message: 'File too large. Maximum 10 MB.' });
-      return;
-    }
-
-    const selectedCountry = 'AU';
-    const docKey = 'cv_signed_dated';
-    const storagePath = buildPreparedDocumentStoragePath(userId, selectedCountry, docKey);
-    const uploaded = await supabaseStorageUploadObject(SUPABASE_DOCUMENT_BUCKET, storagePath, fileDataUrl, mimeType);
-    if (!uploaded) {
-      sendJson(res, 502, { ok: false, message: 'Failed to upload file.' });
-      return;
-    }
-
-    const result = await supabaseDbRequest(
-      'user_documents',
-      'on_conflict=user_id,document_key,country_code',
-      {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-        body: [{
-          user_id: userId,
-          country_code: selectedCountry,
-          document_key: docKey,
-          status: 'uploaded',
-          file_name: fileName || 'cv.pdf',
-          file_url: storagePath,
-          updated_at: new Date().toISOString()
-        }]
-      }
-    );
-
-    if (!result.ok) {
+    const saved = await saveAccountCareerDocumentForUser(userId, payload);
+    if (!saved) {
       sendJson(res, 502, { ok: false, message: 'Failed to save document record.' });
       return;
     }
 
-    sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.' });
+    const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
+    if (!candidate.ok || !candidate.zohoId) {
+      sendJson(res, 502, {
+        ok: false,
+        savedLocally: true,
+        document: saved,
+        message: candidate.message || 'CV saved in GP Link, but could not resolve the Zoho Recruit candidate.'
+      });
+      return;
+    }
+
+    const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, 'cv');
+    if (!synced.ok) {
+      sendJson(res, 502, {
+        ok: false,
+        savedLocally: true,
+        document: saved,
+        message: synced.message || 'CV saved in GP Link, but failed to sync to Zoho Recruit.'
+      });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.', document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
     return;
   }
 
@@ -16609,13 +17002,9 @@ async function handleApi(req, res, pathname) {
         try {
           const profile = await supabaseDbRequest('user_profiles', `select=*&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
           const userProfile = profile.ok && Array.isArray(profile.data) && profile.data[0] ? profile.data[0] : {};
-          // Only create if not already created
-          if (!userProfile.zoho_candidate_id) {
-            const candidateResult = await createZohoRecruitCandidate(userId, email, userProfile, body);
-            if (candidateResult.ok && candidateResult.zohoId) {
-              // Upload documents as attachments
-              await uploadDocumentsToZohoCandidate(userId, candidateResult.zohoId);
-            }
+          const candidateResult = await ensureZohoRecruitCandidateIdForUser(userId, email, userProfile, body);
+          if (candidateResult.ok && candidateResult.zohoId) {
+            await uploadDocumentsToZohoCandidate(userId, candidateResult.zohoId);
           }
         } catch (err) {
           // Zoho candidate creation is best-effort
@@ -18458,6 +18847,7 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for career documents.' });
         return;
       }
+      await reconcileAccountCareerDocumentsWithZoho(userId, email).catch(() => null);
       const documents = await getAccountCareerDocumentsForUser(userId);
       sendJson(res, 200, { ok: true, documents });
       return;
@@ -18528,8 +18918,29 @@ Return ONLY valid JSON with no markdown formatting:
         sendJson(res, 502, { ok: false, message: 'Failed to save career document.' });
         return;
       }
+      const candidate = await ensureZohoRecruitCandidateIdForUser(userId, email);
+      if (!candidate.ok || !candidate.zohoId) {
+        sendJson(res, 502, {
+          ok: false,
+          savedLocally: true,
+          document: saved,
+          message: candidate.message || 'Saved in GP Link, but could not resolve the Zoho Recruit candidate.'
+        });
+        return;
+      }
 
-      sendJson(res, 200, { ok: true, document: saved });
+      const synced = await syncSingleAccountCareerDocumentToZoho(userId, candidate.zohoId, payload.type);
+      if (!synced.ok) {
+        sendJson(res, 502, {
+          ok: false,
+          savedLocally: true,
+          document: saved,
+          message: synced.message || 'Saved in GP Link, but failed to sync to Zoho Recruit.'
+        });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
       return;
     }
 

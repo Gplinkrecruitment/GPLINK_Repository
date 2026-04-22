@@ -2216,6 +2216,14 @@
       });
       var data = await response.json().catch(function() { return null; });
       if (!response.ok || !data || !data.ok) {
+        if (data && data.savedLocally && data.document) {
+          var localMeta = normalizeCareerDocumentMeta(data.document);
+          if (localMeta) {
+            state.profile.files[type] = localMeta;
+            setUploadCard(type, localMeta);
+            renderSummary();
+          }
+        }
         throw new Error(data && data.message ? data.message : "career_document_upload_failed");
       }
       var savedMeta = normalizeCareerDocumentMeta(data.document) || {
