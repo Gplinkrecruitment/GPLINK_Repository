@@ -177,7 +177,7 @@ describe('Zoho Sign — correction recipient selection', () => {
 
   it('picks contact for practice side', () => {
     const r = pickCorrectionRecipient('practice', contact, candidate);
-    expect(r.role).toBe('Practice Contact');
+    expect(r.role).toBe('Medical Practice Contact');
     expect(r.email).toBe('pc@acme.com');
     expect(r.signing_order).toBe(1);
   });

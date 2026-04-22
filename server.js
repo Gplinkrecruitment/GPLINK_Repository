@@ -8623,9 +8623,9 @@ async function sendSppa00Envelope(taskId) {
   if (!pc.email) return { ok: false, error: 'practice contact email missing' };
   if (!candidateEmail) return { ok: false, error: 'candidate email missing' };
 
-  // Role names must match the SPPA-00 template roles in Zoho Sign
+  // Role names must match the SPPA-00 template roles in Zoho Sign exactly
   const recipients = [
-    { email: pc.email, name: pc.name || 'Practice Contact', role: 'Practice Contact', signing_order: 1 },
+    { email: pc.email, name: pc.name || 'Medical Practice Contact', role: 'Medical Practice Contact', signing_order: 1 },
     { email: candidateEmail, name: candidateName, role: 'Candidate', signing_order: 2 }
   ];
 
@@ -15414,6 +15414,8 @@ async function handleApi(req, res, pathname) {
       console.error('[career apply] failed to create VA follow-up task:', taskErr && taskErr.message);
     }
 
+    invalidateAdminDashboardCache();
+
     sendJson(res, 200, {
       ok: true,
       message: 'Application submitted successfully.',
@@ -16651,6 +16653,10 @@ async function handleApi(req, res, pathname) {
   // ── Admin applications list ──────────────────────────────────
 
   if (pathname === '/api/admin/career/applications' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' });
+      return;
+    }
     if (!requireAdminSession(req, res)) return;
     try {
       const result = await supabaseDbRequest(
@@ -16662,6 +16668,29 @@ async function handleApi(req, res, pathname) {
       // Enrich with user email and role info
       const enriched = [];
       for (const app of applications.slice(0, 100)) {
+        const submissionStatus = normalizeCareerPracticeSubmissionStatus(app.practice_submission_status);
+        app.practice_submission_status = submissionStatus;
+        app.practice_submission_label = ({
+          pending_va_submission: 'Awaiting VA submission',
+          submitted_to_practice: 'Submitted to practice',
+          client_reviewed: 'Client reviewed',
+          client_approved: 'Client approved',
+          client_rejected: 'Client rejected',
+          interview_ready: 'Ready for interview'
+        })[submissionStatus] || 'Awaiting VA submission';
+        app.can_submit_to_practice = !!app.zoho_application_id
+          && !!app.zoho_candidate_id
+          && !!app.provider_role_id
+          && submissionStatus === 'pending_va_submission';
+        app.submit_disabled_reason = app.can_submit_to_practice
+          ? ''
+          : (!app.zoho_application_id
+            ? 'Zoho application is not available yet. Refresh after candidate sync finishes.'
+            : (!app.zoho_candidate_id
+              ? 'Zoho candidate is missing for this application.'
+              : (!app.provider_role_id
+                ? 'The linked job opening is missing for this application.'
+                : 'This application has already been submitted to the practice.')));
         try {
           const profileResult = await supabaseDbRequest('user_profiles', `select=email,first_name,last_name&user_id=eq.${encodeURIComponent(app.user_id)}&limit=1`);
           if (profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0]) {
@@ -16685,9 +16714,185 @@ async function handleApi(req, res, pathname) {
       }
 
       sendJson(res, 200, { ok: true, applications: enriched });
-    } catch {
+    } catch (err) {
+      console.error('[admin career applications] list error:', err && err.message);
       sendJson(res, 500, { ok: false, message: 'Failed to fetch applications.' });
     }
+    return;
+  }
+
+  if (pathname === '/api/admin/career/application/submit-to-practice' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' });
+      return;
+    }
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+
+    let body;
+    try { body = await readJsonBody(req); } catch {
+      sendJson(res, 400, { ok: false, message: 'Invalid request body.' });
+      return;
+    }
+
+    const applicationId = String(body && body.applicationId || '').trim();
+    if (!applicationId) {
+      sendJson(res, 400, { ok: false, message: 'applicationId is required.' });
+      return;
+    }
+
+    const appResult = await supabaseDbRequest('gp_applications', `select=*&id=eq.${encodeURIComponent(applicationId)}&limit=1`);
+    const appRow = appResult.ok && Array.isArray(appResult.data) && appResult.data[0] ? appResult.data[0] : null;
+    if (!appRow) {
+      sendJson(res, 404, { ok: false, message: 'Application not found.' });
+      return;
+    }
+
+    const submissionStatus = normalizeCareerPracticeSubmissionStatus(appRow.practice_submission_status);
+    if (submissionStatus !== 'pending_va_submission') {
+      sendJson(res, 409, { ok: false, message: 'This application is no longer waiting for VA submission.' });
+      return;
+    }
+    if (appRow.zoho_submission_id) {
+      sendJson(res, 409, { ok: false, message: 'This application has already been submitted to the practice.' });
+      return;
+    }
+    if (!appRow.zoho_application_id) {
+      sendJson(res, 400, { ok: false, message: 'Zoho Recruit application is missing for this GP application.' });
+      return;
+    }
+    if (!appRow.zoho_candidate_id) {
+      sendJson(res, 400, { ok: false, message: 'Zoho Recruit candidate is missing for this GP application.' });
+      return;
+    }
+    if (!appRow.provider_role_id) {
+      sendJson(res, 400, { ok: false, message: 'Provider role ID is missing for this GP application.' });
+      return;
+    }
+
+    const zoho = await getZohoRecruitAccessTokenAndDomain();
+    if (!zoho) {
+      sendJson(res, 503, { ok: false, message: 'Zoho Recruit is not connected.' });
+      return;
+    }
+
+    const [profileResult, roleResult, liveApplication, jobOpeningRecord] = await Promise.all([
+      supabaseDbRequest('user_profiles', `select=email,first_name,last_name&user_id=eq.${encodeURIComponent(appRow.user_id)}&limit=1`),
+      appRow.career_role_id
+        ? supabaseDbRequest('career_roles', `select=title,practice_name,location_city,location_state&id=eq.${encodeURIComponent(appRow.career_role_id)}&limit=1`)
+        : Promise.resolve({ ok: true, data: [] }),
+      fetchZohoRecruitApplicationRecord(zoho, appRow.zoho_application_id),
+      fetchZohoRecruitJobOpeningRecord(zoho, appRow.provider_role_id)
+    ]);
+
+    const profile = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0] ? profileResult.data[0] : {};
+    const roleRow = roleResult.ok && Array.isArray(roleResult.data) && roleResult.data[0] ? roleResult.data[0] : {};
+    const gpDisplayName = ((profile.first_name || '') + ' ' + (profile.last_name || '')).trim() || profile.email || 'GP candidate';
+    const practiceLabel = roleRow.practice_name || getZohoApplicationPracticeName(liveApplication) || getZohoField(jobOpeningRecord, ['Posting_Title', 'Job_Opening_Name', 'Title']) || 'the practice';
+    const roleLabel = roleRow.title || getZohoField(jobOpeningRecord, ['Role_Title', 'Job_Title', 'Title']) || 'General Practitioner';
+    const clientId = getZohoApplicationClientId(liveApplication) || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
+
+    if (!clientId) {
+      sendJson(res, 400, { ok: false, message: 'No Zoho client is linked to this job opening.' });
+      return;
+    }
+
+    const clientContacts = await fetchZohoRecruitClientContacts(zoho, clientId);
+    const contact = pickZohoRecruitClientContact(clientContacts);
+    const contactId = contact && contact.id ? String(contact.id).trim() : '';
+    const contactName = buildZohoDisplayName(contact) || getZohoField(contact, ['Contact_Name', 'Name']) || '';
+    const contactEmail = getZohoField(contact, ['Email', 'Secondary_Email']);
+
+    if (!contactId) {
+      sendJson(res, 400, { ok: false, message: 'No client contact was found for this practice in Zoho Recruit.' });
+      return;
+    }
+
+    const submitResult = await createZohoRecruitSubmission(zoho, {
+      candidateId: appRow.zoho_candidate_id,
+      applicationId: appRow.zoho_application_id,
+      jobOpeningId: appRow.provider_role_id,
+      clientId: clientId,
+      contactId: contactId,
+      contactName: contactName,
+      fromAddress: zoho.connection && zoho.connection.connectedEmail ? zoho.connection.connectedEmail : '',
+      subject: `Candidate submission — ${gpDisplayName} for ${roleLabel}`,
+      description: `Please review ${gpDisplayName} for the ${roleLabel} role at ${practiceLabel}.`
+    });
+
+    if (!submitResult.ok) {
+      const message = getZohoErrorMessage(
+        submitResult.detail && submitResult.detail.data,
+        submitResult.message || 'Failed to submit the candidate to the practice.'
+      );
+      sendJson(res, submitResult.detail && submitResult.detail.status ? submitResult.detail.status : 502, { ok: false, message: message });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextStatus = isCareerInterviewStatus(appRow.status) ? appRow.status : 'review';
+    const patch = {
+      status: nextStatus,
+      practice_submission_status: 'submitted_to_practice',
+      zoho_submission_id: submitResult.submissionId || null,
+      zoho_client_id: clientId,
+      zoho_contact_id: contactId,
+      practice_contact_name: contactName || null,
+      practice_contact_email: contactEmail || null,
+      submitted_to_practice_at: nowIso,
+      submitted_to_practice_by: admin.email || '',
+      updated_at: nowIso
+    };
+
+    const patchResult = await supabaseDbRequest('gp_applications', `id=eq.${encodeURIComponent(applicationId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: patch
+    });
+    if (!patchResult.ok) {
+      console.error('[admin career applications] submit-to-practice local patch failed:', patchResult.status, patchResult.data);
+      sendJson(res, 502, {
+        ok: false,
+        message: 'Candidate was submitted in Zoho Recruit, but GP Link could not save the update locally. Refresh before retrying.'
+      });
+      return;
+    }
+    const updatedApp = patchResult.ok && Array.isArray(patchResult.data) && patchResult.data[0]
+      ? patchResult.data[0]
+      : Object.assign({}, appRow, patch);
+
+    try {
+      const regCase = await _ensureRegCase(appRow.user_id);
+      if (regCase && appRow.submission_task_id) {
+        await _completeRegTask(appRow.submission_task_id, regCase.id, admin.email || 'system');
+      }
+      if (regCase) {
+        await _logCaseEvent(
+          regCase.id,
+          appRow.submission_task_id || null,
+          'system',
+          'Candidate submitted to practice',
+          `${gpDisplayName} was submitted to ${contactName || 'the client'} for ${roleLabel}.`,
+          admin.email || 'system'
+        );
+      }
+    } catch (taskErr) {
+      console.error('[admin career applications] submit-to-practice task update error:', taskErr && taskErr.message);
+    }
+
+    pushCareerNotificationToUser(appRow.user_id, {
+      type: 'info',
+      title: 'Profile Submitted to Practice',
+      body: `Your profile has been submitted to ${practiceLabel} for review.`
+    }).catch(() => {});
+    sendPushNotification(appRow.user_id, {
+      title: 'Profile Submitted to Practice',
+      body: `Your profile has been submitted to ${practiceLabel} for review.`,
+      data: { type: 'career', action: 'submitted_to_practice', url: '/pages/career.html#applications' }
+    }).catch(() => {});
+
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true, application: updatedApp });
     return;
   }
 
