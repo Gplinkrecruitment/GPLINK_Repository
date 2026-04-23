@@ -2554,34 +2554,45 @@
     }
 
     const placementGateEl = document.getElementById("placementGate");
+    const dashWrapEl = document.querySelector(".dash-wrap");
+    let gateIsActive = false;
+
+    // Direct DOM access to parent shell (same-origin iframe)
+    function getParentNav() {
+      try {
+        if (window.parent === window || !window.parent.document) return null;
+        return {
+          mobileNav: window.parent.document.querySelector(".mobile-nav"),
+          desktopHost: window.parent.document.getElementById("appShellDesktop")
+        };
+      } catch (e) { return null; }
+    }
 
     function showPlacementGate() {
+      if (gateIsActive) return;
+      gateIsActive = true;
       if (placementGateEl) placementGateEl.classList.add("show");
-      // Hide shell chrome (nav bars) in parent app-shell
-      if (window.parent !== window) {
-        window.parent.postMessage({ type: "gp-shell-hide-chrome" }, window.location.origin);
+      // Hide content behind the gate
+      if (dashWrapEl) dashWrapEl.style.display = "none";
+      // Hide parent shell nav (direct DOM — no postMessage timing issues)
+      var parent = getParentNav();
+      if (parent) {
+        if (parent.mobileNav) parent.mobileNav.style.display = "none";
+        if (parent.desktopHost) parent.desktopHost.style.display = "none";
       }
-      // Also hide local nav elements (when not inside iframe)
-      var localTopbar = document.querySelector(".desktop-topbar");
-      var localMobileNav = document.querySelector(".mobile-nav");
-      var localHeader = document.querySelector(".app-header");
-      if (localTopbar) localTopbar.style.display = "none";
-      if (localMobileNav) localMobileNav.style.display = "none";
-      if (localHeader) localHeader.style.display = "none";
     }
 
     function hidePlacementGate() {
+      if (!gateIsActive) return;
+      gateIsActive = false;
       if (placementGateEl) placementGateEl.classList.remove("show");
-      // Restore shell chrome in parent app-shell
-      if (window.parent !== window) {
-        window.parent.postMessage({ type: "gp-shell-show-chrome" }, window.location.origin);
+      if (dashWrapEl) dashWrapEl.style.display = "";
+      // Restore parent shell nav
+      var parent = getParentNav();
+      if (parent) {
+        if (parent.mobileNav) parent.mobileNav.style.display = "";
+        if (parent.desktopHost) parent.desktopHost.style.display = "";
       }
-      var localTopbar = document.querySelector(".desktop-topbar");
-      var localMobileNav = document.querySelector(".mobile-nav");
-      var localHeader = document.querySelector(".app-header");
-      if (localTopbar) localTopbar.style.display = "";
-      if (localMobileNav) localMobileNav.style.display = "";
-      if (localHeader) localHeader.style.display = "";
     }
 
     // Wire up Browse Jobs button for app-shell navigation
@@ -2590,16 +2601,31 @@
       gateJobsBtn.addEventListener("click", function (e) {
         if (window.parent !== window) {
           e.preventDefault();
+          // Restore nav before navigating away
+          hidePlacementGate();
           window.parent.postMessage({ type: "gp-shell-route", href: "/pages/career.html", title: "My Practice" }, window.location.origin);
         }
       });
     }
 
+    // Restore nav if user navigates away from this page (e.g. back button in shell)
+    window.addEventListener("pagehide", function () {
+      if (gateIsActive) {
+        var parent = getParentNav();
+        if (parent) {
+          if (parent.mobileNav) parent.mobileNav.style.display = "";
+          if (parent.desktopHost) parent.desktopHost.style.display = "";
+        }
+      }
+    });
+
+    // Always initialize AHPRA progress so renderPage doesn't crash
+    const initialProgress = loadProgress();
+
     if (!redirectToAllowedStage()) {
       if (!hasCareerSecured()) {
         showPlacementGate();
       } else {
-        const initialProgress = loadProgress();
         const routeTab = pickTabFromRoute(initialProgress);
         currentTabKey = routeTab || activeTabStage(initialProgress);
         if (!routeTab) syncRouteForStage(initialProgress.stage, true);
@@ -2607,14 +2633,14 @@
       }
 
       window.addEventListener("popstate", () => {
+        const progress = loadProgress();
         if (!hasCareerSecured()) { showPlacementGate(); return; }
         hidePlacementGate();
-        const progress = loadProgress();
         const tabFromRoute = pickTabFromRoute(progress);
         currentTabKey = tabFromRoute || activeTabStage(progress);
         renderPage(progress);
       });
-      // Re-render after state-sync hydrates the current user's data
+
       window.addEventListener("gp-state-hydrated", function () {
         if (redirectToAllowedStage()) return;
         if (!hasCareerSecured()) { showPlacementGate(); return; }

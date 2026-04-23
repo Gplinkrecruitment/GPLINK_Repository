@@ -1198,18 +1198,6 @@
     if (event.origin !== window.location.origin) return;
     if (!event.data || !event.data.type) return;
 
-    // Allow child pages to hide/show the shell chrome (nav bars)
-    if (event.data.type === "gp-shell-hide-chrome") {
-      if (mobileNavEl) mobileNavEl.style.display = "none";
-      if (desktopHostEl) desktopHostEl.style.display = "none";
-      return;
-    }
-    if (event.data.type === "gp-shell-show-chrome") {
-      if (mobileNavEl) mobileNavEl.style.display = "";
-      if (desktopHostEl) desktopHostEl.style.display = "";
-      return;
-    }
-
     if (event.data.type !== "gp-shell-route") return;
     if (!activeWindow || event.source !== activeWindow) return;
     routeUrl = toRouteUrl(event.data.href);
