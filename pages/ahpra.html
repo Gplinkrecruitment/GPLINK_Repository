@@ -700,6 +700,59 @@
     }
     .toast.show { opacity: 1; transform: translateY(0); }
 
+    /* ---- PLACEMENT GATE ---- */
+    .placement-gate { display: none; }
+    .placement-gate.show { display: block; }
+    .placement-gate-card {
+      background: #fff; border-radius: var(--radius);
+      border: 1px solid #e8edf5; overflow: hidden;
+      box-shadow: var(--shadow2);
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .placement-gate-card::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
+    }
+    .placement-gate-hero {
+      display: flex; align-items: center; justify-content: center;
+      padding: 32px 24px 16px;
+      background: linear-gradient(180deg, #eff6ff 0%, #fff 100%);
+    }
+    .placement-gate-hero img {
+      width: 200px; height: auto;
+      filter: drop-shadow(0 8px 20px rgba(37, 99, 235, 0.15));
+    }
+    .placement-gate-body {
+      padding: 8px 24px 28px;
+    }
+    .placement-gate-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.03em; margin-bottom: 10px;
+      background: #fef3c7; color: #92400e; border: 1px solid #fde68a;
+    }
+    .placement-gate-badge svg {
+      width: 12px; height: 12px; stroke: currentColor;
+      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .placement-gate-title {
+      font-size: 22px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.3;
+      margin-bottom: 8px; color: var(--text);
+    }
+    .placement-gate-text {
+      font-size: 14px; color: #475569;
+      font-weight: 500; line-height: 1.65;
+      margin-bottom: 20px;
+    }
+    .placement-gate-text strong { color: var(--text); font-weight: 700; }
+    .placement-gate-actions {
+      display: flex; gap: 10px; flex-wrap: wrap;
+    }
+    .placement-gate-actions .btn-action { min-width: 160px; justify-content: center; }
+
     /* ---- RESPONSIVE ---- */
     @media (min-width: 768px) {
       .app-header { display: none; }
@@ -727,8 +780,18 @@
         border-radius: 16px;
       }
     }
+    @media (max-width: 767px) {
+      .placement-gate-hero { padding: 24px 16px 8px; }
+      .placement-gate-hero img { width: 160px; }
+      .placement-gate-body { padding: 8px 18px 22px; }
+      .placement-gate-title { font-size: 19px; }
+      .placement-gate-text { font-size: 13px; }
+      .placement-gate-actions { flex-direction: column; }
+      .placement-gate-actions .btn-action { width: 100%; }
+    }
     @media (max-width: 480px) {
       .step-content-title { font-size: 18px; }
+      .placement-gate-title { font-size: 17px; }
     }
   </style>
 </head>
@@ -754,6 +817,42 @@
         </a>
       </div>
     </header>
+
+    <!-- PLACEMENT GATE (shown when GP hasn't secured a role) -->
+    <section class="placement-gate" id="placementGate" aria-label="Placement required">
+      <div class="placement-gate-card">
+        <div class="placement-gate-hero">
+          <img src="/media/images/ahpra-gate-illustration.png" alt="Doctor searching for a practice placement in Australia" width="200" height="200" />
+        </div>
+        <div class="placement-gate-body">
+          <div class="placement-gate-badge">
+            <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+            Placement Required
+          </div>
+          <h2 class="placement-gate-title">Secure Your Placement First</h2>
+          <p class="placement-gate-text">
+            Before you can begin AHPRA registration, you need a confirmed practice placement in Australia.
+            <strong>We've already done the groundwork for you.</strong> Using the information you've provided
+            and a combination of machine learning, we've curated job opportunities tailored specifically to
+            your qualifications, experience, and preferences.
+          </p>
+          <p class="placement-gate-text">
+            Browse your matched roles below, or if your circumstances have changed and you'd like to
+            update your preferences or discuss your options, book a consultation with our team.
+          </p>
+          <div class="placement-gate-actions">
+            <a class="btn-action primary" id="gateJobsBtn" href="/pages/career.html">
+              <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+              Browse Jobs
+            </a>
+            <a class="btn-action secondary" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Book a Consultation
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- HORIZONTAL STEP TABS -->
     <nav class="step-tabs" id="stepTabs" aria-label="Step navigation">
@@ -2368,15 +2467,61 @@
       return true;
     }
 
-    if (!redirectToAllowedStage()) {
-      const initialProgress = loadProgress();
+    // ─── PLACEMENT GATE ─────────────────────────────────────────
+    function hasCareerSecured() {
+      try {
+        const raw = localStorage.getItem("gp_career_state");
+        const careerState = raw ? JSON.parse(raw) : null;
+        const applications = careerState && Array.isArray(careerState.applications) ? careerState.applications : [];
+        for (let i = 0; i < applications.length; i++) {
+          const app = applications[i];
+          if (!app || typeof app !== "object") continue;
+          if (app.isPlacementSecured === true) return true;
+          const status = String(app.rawStatus || app.status || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+          if (status === "secured" || status === "placement_secured" || status === "practice_secured") return true;
+        }
+      } catch (e) {}
+      return false;
+    }
 
-      const routeTab = pickTabFromRoute(initialProgress);
-      currentTabKey = routeTab || activeTabStage(initialProgress);
-      if (!routeTab) syncRouteForStage(initialProgress.stage, true);
-      renderPage(initialProgress);
+    const placementGateEl = document.getElementById("placementGate");
+    const ahpraMainEls = [stepTabsEl, document.getElementById("tutorialCard"), document.getElementById("stepContent"), document.querySelector(".help-card")];
+
+    function showPlacementGate() {
+      if (placementGateEl) placementGateEl.classList.add("show");
+      ahpraMainEls.forEach(function (el) { if (el) el.style.display = "none"; });
+    }
+
+    function hidePlacementGate() {
+      if (placementGateEl) placementGateEl.classList.remove("show");
+      ahpraMainEls.forEach(function (el) { if (el) el.style.display = ""; });
+    }
+
+    // Wire up Browse Jobs button for app-shell navigation
+    const gateJobsBtn = document.getElementById("gateJobsBtn");
+    if (gateJobsBtn) {
+      gateJobsBtn.addEventListener("click", function (e) {
+        if (window.parent !== window) {
+          e.preventDefault();
+          window.parent.postMessage({ type: "gp-shell-route", href: "/pages/career.html", title: "My Practice" }, window.location.origin);
+        }
+      });
+    }
+
+    if (!redirectToAllowedStage()) {
+      if (!hasCareerSecured()) {
+        showPlacementGate();
+      } else {
+        const initialProgress = loadProgress();
+        const routeTab = pickTabFromRoute(initialProgress);
+        currentTabKey = routeTab || activeTabStage(initialProgress);
+        if (!routeTab) syncRouteForStage(initialProgress.stage, true);
+        renderPage(initialProgress);
+      }
 
       window.addEventListener("popstate", () => {
+        if (!hasCareerSecured()) { showPlacementGate(); return; }
+        hidePlacementGate();
         const progress = loadProgress();
         const tabFromRoute = pickTabFromRoute(progress);
         currentTabKey = tabFromRoute || activeTabStage(progress);
@@ -2385,6 +2530,8 @@
       // Re-render after state-sync hydrates the current user's data
       window.addEventListener("gp-state-hydrated", function () {
         if (redirectToAllowedStage()) return;
+        if (!hasCareerSecured()) { showPlacementGate(); return; }
+        hidePlacementGate();
         const progress = loadProgress();
         currentTabKey = activeTabStage(progress);
         renderPage(progress);
