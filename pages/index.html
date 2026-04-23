@@ -1374,12 +1374,13 @@
       const regSubsDone = [snap.epicDone, snap.amcDone, snap.ahpraDone];
       const regAllDone = regSubsDone.every(Boolean);
       const regCompletedCount = regSubsDone.filter(Boolean).length;
-      const ahpraUnlocked = snap.careerSecured && snap.amcDone;
+      // AHPRA is always navigable — gate page inside ahpra.html handles placement-required messaging
+      const ahpraSubText = snap.ahpraDone ? "Completed" : !snap.careerSecured ? "Secure a placement to continue" : "Specialist registration";
 
       const regSubs = [
         { key: "myintealth", title: "MyIntealth Account", sub: snap.epicDone ? "Completed" : snap.epicCurrentLabel, detail: "Create your MyIntealth account and complete EPIC verification.", done: snap.epicDone, locked: false, href: "myinthealth.html" },
         { key: "amc", title: "AMC Portfolio", sub: snap.amcDone ? "Completed" : snap.amcCurrentLabel, detail: "Create your AMC candidate portfolio and upload credentials.", done: snap.amcDone, locked: !bypassAll && !snap.epicDone, href: "amc.html" },
-        { key: "ahpra", title: "AHPRA Registration", sub: snap.ahpraDone ? "Completed" : !snap.careerSecured ? "Secure a placement to unlock" : "Specialist registration", detail: "Prepare and submit your specialist registration application with AHPRA. Requires a secured placement.", done: snap.ahpraDone, locked: !bypassAll && !ahpraUnlocked, href: "ahpra.html" }
+        { key: "ahpra", title: "AHPRA Registration", sub: ahpraSubText, detail: "Prepare and submit your specialist registration application with AHPRA.", done: snap.ahpraDone, locked: false, href: "ahpra.html" }
       ];
 
       // Visa step hidden from v1 — see docs/deferred-visa-application.md
@@ -1491,12 +1492,11 @@
       const snap = getProgressSnapshot();
       const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
       // Visa row intentionally removed for v1 — see docs/deferred-visa-application.md
-      const ahpraUnlocked = snap.careerSecured && snap.amcDone;
-      const ahpraHint = !snap.careerSecured
-        ? "Secure a placement to unlock"
-        : !snap.amcDone
-          ? "Unlocked after AMC is complete"
-          : snap.ahpraDone ? "Completed" : "In progress";
+      // AHPRA always navigable — gate page inside ahpra.html handles placement-required messaging
+      var ahpraStatusHint = snap.ahpraDone ? "Completed"
+        : !snap.careerSecured ? "Secure a placement to continue"
+        : !snap.amcDone ? "Complete AMC first"
+        : "In progress";
       return [
         buildRegistrationRow("career", {
           title: "1. Your Practice",
@@ -1527,8 +1527,8 @@
           title: "4. AHPRA Registration",
           sub: "Prepare and submit your specialist registration application.",
           mobileDetail: "Specialist registration application is prepared and submitted correctly.",
-          mobileStatus: ahpraHint,
-          locked: !bypassAll && !ahpraUnlocked,
+          mobileStatus: ahpraStatusHint,
+          locked: false,
           done: snap.ahpraDone,
           href: "ahpra.html"
         }),

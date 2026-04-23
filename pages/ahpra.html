@@ -2447,21 +2447,10 @@
     }
 
     function redirectToAllowedStage() {
-      const epic = parseStorage(EPIC_KEY);
-      const amc = parseStorage(AMC_KEY);
+      // No longer redirects for missing EPIC/AMC — the placement gate handles messaging.
+      // Only redirect away if AHPRA is fully completed and no return override is set.
       const ahpra = parseStorage(STORAGE_KEY);
-      const ahpraStarted = hasMeaningfulAhpraProgress(ahpra);
-      const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true) || ahpraStarted;
-      const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true) || amcDone;
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
-      if (!epicDone) {
-        window.location.replace("/pages/myinthealth.html");
-        return true;
-      }
-      if (!amcDone) {
-        window.location.replace("/pages/amc.html");
-        return true;
-      }
       if (!ahpraDone || isRegistrationReturnAllowed("ahpra")) return false;
       window.location.replace("/pages/index.html");
       return true;

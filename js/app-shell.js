@@ -400,12 +400,12 @@
     // journey for the v1 release. Backend + pages/visa.html remain in place so
     // the feature can be re-enabled later. See docs/deferred-visa-application.md
     // for restoration steps.
-    var ahpraUnlocked = snap.careerSecured && snap.amcDone;
-    var ahpraLockedHint = !snap.careerSecured
-      ? "Secure a placement to unlock"
-      : !snap.amcDone
-        ? "Unlocked after AMC is complete"
-        : snap.ahpraDone ? "Completed" : "In progress";
+    // AHPRA is always navigable — the gate page inside ahpra.html handles
+    // the placement-required messaging when career is not yet secured.
+    var ahpraStatusHint = snap.ahpraDone ? "Completed"
+      : !snap.careerSecured ? "Secure a placement to continue"
+      : !snap.amcDone ? "Complete AMC first"
+      : "In progress";
 
     return [
       buildRegistrationRow("career", {
@@ -437,8 +437,8 @@
         title: "4. AHPRA Registration",
         sub: "Prepare and submit your specialist registration application.",
         mobileDetail: "Specialist registration application is prepared and submitted correctly.",
-        mobileStatus: ahpraLockedHint,
-        locked: !bypassLocks && !ahpraUnlocked,
+        mobileStatus: ahpraStatusHint,
+        locked: false,
         done: snap.ahpraDone,
         href: "/pages/ahpra.html"
       }),
