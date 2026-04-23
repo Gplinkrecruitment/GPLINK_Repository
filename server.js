@@ -81,6 +81,15 @@ const {
   validateZohoSignSignature,
   pickCorrectionRecipient
 } = require('./lib/zoho-sign.js');
+const { validateFileUpload } = require('./lib/file-sanitise.js');
+const {
+  classifyConfidenceAction,
+  buildRejectionMessage,
+  isVisuallyClassifiable,
+  isDocxMime,
+  isDocMime,
+  buildClassificationPrompt
+} = require('./lib/document-pipeline.js');
 
 const ZOHO_SIGN_CLIENT_ID = String(process.env.ZOHO_SIGN_CLIENT_ID || '').trim();
 const ZOHO_SIGN_CLIENT_SECRET = String(process.env.ZOHO_SIGN_CLIENT_SECRET || '').trim();
@@ -13614,15 +13623,6 @@ async function pushDocumentNotificationToUser(userId, notification) {
 }
 
 // ── Document Upload Pipeline ──────────────────────────────
-const { validateFileUpload } = require('./lib/file-sanitise.js');
-const {
-  classifyConfidenceAction,
-  buildRejectionMessage,
-  isVisuallyClassifiable,
-  isDocxMime,
-  isDocMime,
-  buildClassificationPrompt
-} = require('./lib/document-pipeline.js');
 
 function getDocumentLabelForKey(key) {
   var normalizedKey = String(key || '').trim();
@@ -13645,7 +13645,7 @@ function getDocumentLabelForKey(key) {
   return labels[normalizedKey] || '';
 }
 
-async function extractDocxText(buffer) {
+async function extractDocxTextWithMammoth(buffer) {
   try {
     var mammoth = require('mammoth');
     var result = await mammoth.extractRawText({ buffer: buffer });
@@ -13672,7 +13672,7 @@ async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLab
       { type: 'text', text: 'The user is trying to upload a document for: ' + String(expectedLabel || expectedKey || 'Unknown') + '\n\nClassify this document. Return ONLY valid JSON: {"matches": true/false, "confidence": 0-100, "identifiedAs": "what it actually is", "reason": "brief explanation"}' }
     ];
   } else if (isDocxMime(mime)) {
-    var text = await extractDocxText(buffer);
+    var text = await extractDocxTextWithMammoth(buffer);
     if (!text.trim()) {
       return { confidence: 50, identifiedAs: 'empty or unreadable document', reason: 'Could not extract text from DOCX' };
     }
