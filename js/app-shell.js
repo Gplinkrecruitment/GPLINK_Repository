@@ -833,6 +833,8 @@
     ].join("");
   }
 
+  var chromeHidden = false;
+
   function navigateTo(input, options) {
     var routeUrl = resolveRouteUrlForNavigation(input);
     var opts = options || {};
@@ -843,6 +845,13 @@
     if (!routeUrl) {
       if (typeof input === "string" && input) window.location.href = input;
       return;
+    }
+
+    // Restore chrome if a child page hid it
+    if (chromeHidden) {
+      chromeHidden = false;
+      if (mobileNavEl) mobileNavEl.style.display = "";
+      if (desktopHostEl) desktopHostEl.style.display = "";
     }
 
     setDesktopRegistrationOpen(false);
@@ -1197,6 +1206,20 @@
     var route = "";
     if (event.origin !== window.location.origin) return;
     if (!event.data || !event.data.type) return;
+
+    // Child pages can hide/show the shell chrome (nav bars)
+    if (event.data.type === "gp-shell-hide-chrome") {
+      chromeHidden = true;
+      if (mobileNavEl) mobileNavEl.style.display = "none";
+      if (desktopHostEl) desktopHostEl.style.display = "none";
+      return;
+    }
+    if (event.data.type === "gp-shell-show-chrome") {
+      chromeHidden = false;
+      if (mobileNavEl) mobileNavEl.style.display = "";
+      if (desktopHostEl) desktopHostEl.style.display = "";
+      return;
+    }
 
     if (event.data.type !== "gp-shell-route") return;
     if (!activeWindow || event.source !== activeWindow) return;
