@@ -16341,6 +16341,11 @@ async function handleApi(req, res, pathname) {
     }
 
     sendJson(res, 200, { ok: true, message: 'CV uploaded successfully.', document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
+
+    // Background: run document pipeline
+    processDocumentUpload(userId, 'cv_signed_dated', 'CV (Signed and dated)', 'AU', 'application/pdf').catch(function (err) {
+      console.error('[DocumentPipeline] background error:', err.message);
+    });
     return;
   }
 
@@ -19510,6 +19515,14 @@ Return ONLY valid JSON with no markdown formatting:
       }
 
       sendJson(res, 200, { ok: true, document: saved, zohoSync: { ok: true, candidateId: candidate.zohoId } });
+
+      // Background: run document pipeline
+      var careerDocMeta = ACCOUNT_CAREER_DOCUMENT_TYPES[payload.type];
+      if (careerDocMeta) {
+        processDocumentUpload(userId, careerDocMeta.key, careerDocMeta.label, 'AU', payload.mimeType).catch(function (err) {
+          console.error('[DocumentPipeline] background error:', err.message);
+        });
+      }
       return;
     }
 
@@ -19774,11 +19787,17 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
-    sendJson(res, 200, {
-      ok: true,
-      document: {
-        ...saved
-      }
+    // Set status to processing
+    await supabaseDbRequest('user_documents',
+      'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(payload.key) + '&country_code=eq.' + encodeURIComponent(payload.country),
+      { method: 'PATCH', body: { status: 'processing', updated_at: new Date().toISOString() } });
+
+    sendJson(res, 200, { ok: true, document: { ...saved, status: 'processing' } });
+
+    // Background: run document pipeline
+    var docLabel = getDocumentLabelForKey(payload.key) || payload.key;
+    processDocumentUpload(userId, payload.key, docLabel, payload.country, payload.mimeType).catch(function (err) {
+      console.error('[DocumentPipeline] background error:', err.message);
     });
     return;
   }
@@ -19827,6 +19846,12 @@ Return ONLY valid JSON with no markdown formatting:
       document: {
         ...saved
       }
+    });
+
+    // Background: run document pipeline
+    var onboardDocLabel = getDocumentLabelForKey(payload.key) || payload.key;
+    processDocumentUpload(userId, payload.key, onboardDocLabel, payload.country, payload.mimeType).catch(function (err) {
+      console.error('[DocumentPipeline] background error:', err.message);
     });
     return;
   }
