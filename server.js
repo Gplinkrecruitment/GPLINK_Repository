@@ -298,6 +298,20 @@ async function uploadToGoogleDrive(folderId, fileName, buffer, mimeType) {
   }
 }
 
+async function deleteGoogleDriveFile(fileId) {
+  if (!fileId) return false;
+  const drive = await getGoogleDriveClient();
+  if (!drive) return false;
+  try {
+    await drive.files.delete({ fileId: fileId });
+    return true;
+  } catch (err) {
+    if (err.code === 404) return true; // already deleted
+    console.error('[GoogleDrive] delete error:', err.message);
+    return false;
+  }
+}
+
 async function ensureGPDriveFolder(caseId, gpFirstName, gpLastName) {
   if (!isGoogleDriveConfigured()) return null;
   const caseRes = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
