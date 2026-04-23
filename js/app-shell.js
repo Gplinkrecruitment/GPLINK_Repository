@@ -847,8 +847,9 @@
       return;
     }
 
-    // Restore chrome if a child page hid it
-    if (chromeHidden) {
+    // Restore chrome if a child page hid it — but only when navigating
+    // away from the page that hid it (currentRoute is already set)
+    if (chromeHidden && currentRoute && route !== currentRoute) {
       chromeHidden = false;
       if (mobileNavEl) mobileNavEl.style.display = "";
       if (desktopHostEl) desktopHostEl.style.display = "";

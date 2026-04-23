@@ -845,7 +845,7 @@
 
     /* ── Mobile ── */
     @media (max-width: 767px) {
-      .gate-doctor { width: 91vw; max-width: 476px; top: 20%; }
+      .gate-doctor { width: 91vw; max-width: 476px; }
       .gate-title { font-size: 22px; }
       .gate-text { font-size: 14px; }
     }
@@ -2590,10 +2590,17 @@
       } catch (e) {}
     }
 
+    var dashWrapEl = document.querySelector(".dash-wrap");
+    var mobileRegSheetBg = document.getElementById("mobileRegBackdrop");
+    var mobileRegSheetEl = document.getElementById("mobileRegSheet");
+
     function showPlacementGate() {
       if (placementGateEl) placementGateEl.classList.add("show");
+      // Hide all page content behind the gate
+      if (dashWrapEl) dashWrapEl.style.display = "none";
+      if (mobileRegSheetBg) mobileRegSheetBg.style.display = "none";
+      if (mobileRegSheetEl) mobileRegSheetEl.style.display = "none";
       shellMessage("gp-shell-hide-chrome");
-      // Retry in case shell listener wasn't ready on first load
       setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 200);
       setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 600);
       setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 1200);
@@ -2601,6 +2608,9 @@
 
     function hidePlacementGate() {
       if (placementGateEl) placementGateEl.classList.remove("show");
+      if (dashWrapEl) dashWrapEl.style.display = "";
+      if (mobileRegSheetBg) mobileRegSheetBg.style.display = "";
+      if (mobileRegSheetEl) mobileRegSheetEl.style.display = "";
       shellMessage("gp-shell-show-chrome");
     }
 
