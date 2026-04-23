@@ -728,78 +728,60 @@
     .gate-blob-2 { width: 220px; height: 220px; background: #a5b4fc; top: -40px; right: -60px; }
     .gate-blob-3 { width: 180px; height: 180px; background: #fbbf24; top: 60px; left: 40%; opacity: 0.25; }
 
-    /* ── Single centered column layout ── */
-    .gate-scroll {
-      position: relative; z-index: 1;
-      flex: 1;
+    /* ── Mobile: absolute doctor at top-right (the "perfect" version) ── */
+    .gate-doctor {
+      position: absolute; z-index: 1;
+      top: 0; right: 0;
+      width: 70vw; max-width: 520px;
+      height: auto; pointer-events: none;
+      object-fit: contain; object-position: right top;
+    }
+
+    /* ── Desktop: centred illustration (hidden on mobile) ── */
+    .gate-illustration { display: none; }
+
+    /* ── Content ── */
+    .gate-content {
+      position: relative; z-index: 2;
       display: flex; flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      height: 100%;
+      padding: 0 24px;
+      max-width: 480px;
+      margin: 0 auto; width: 100%;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       scrollbar-width: none;
-      padding: 0 24px;
     }
-    .gate-scroll::-webkit-scrollbar { display: none; }
+    .gate-content::-webkit-scrollbar { display: none; }
 
-    /* ── Illustration — centred on desktop, absolute right on mobile ── */
-    .gate-illustration {
-      flex-shrink: 0;
-      display: flex; align-items: center; justify-content: center;
-      width: 100%;
-      padding: 20px 0 12px;
-    }
-    .gate-illustration img {
-      width: 70vw;
-      max-width: 340px;
-      height: auto;
-      filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.08));
-    }
-    /* Mobile: doctor pops in from the right edge */
-    @media (max-width: 767px) {
-      .gate-illustration {
-        position: absolute;
-        top: 0; right: 0;
-        width: auto; padding: 0;
-        justify-content: flex-end;
-        pointer-events: none;
-        z-index: 0;
-      }
-      .gate-illustration img {
-        width: 65vw;
-        max-width: 300px;
-        margin-right: -10px;
-      }
-    }
+    .gate-spacer { flex: 1; min-height: 24px; }
 
-    /* ── Text block ── */
-    .gate-text-block {
-      width: 100%;
-      max-width: 500px;
-      text-align: center;
-      padding: 4px 0 0;
-    }
     .gate-title {
       font-size: 24px; font-weight: 800;
       line-height: 1.2; letter-spacing: -0.02em;
       color: #0f172a;
-      margin: 0 0 10px;
+      margin-bottom: 14px; text-align: center;
     }
     .gate-text {
       font-size: 15px; color: #64748b;
       line-height: 1.6; font-weight: 500;
-      margin: 0;
+      margin-bottom: 16px; text-align: center;
+    }
+    .gate-text-light {
+      font-size: 13px; color: #94a3b8;
+      line-height: 1.5; font-weight: 500;
+      margin-top: 4px; margin-bottom: 0;
+      text-align: center;
     }
 
-    /* ── Buttons + footer ── */
+    /* ── Bottom controls ── */
     .gate-controls {
-      flex-shrink: 0;
-      width: 100%;
-      max-width: 420px;
-      padding: 20px 24px calc(env(safe-area-inset-bottom, 8px) + 16px);
-      margin: 0 auto;
+      position: relative; z-index: 2;
+      padding: 8px 24px calc(env(safe-area-inset-bottom, 8px) + 16px);
       display: flex; flex-direction: column;
-      align-items: center; gap: 10px;
+      align-items: center; gap: 12px;
+      max-width: 480px;
+      margin: 0 auto; width: 100%;
     }
     .gate-btn {
       border: none; border-radius: 999px;
@@ -861,29 +843,36 @@
     }
     .gate-hint a:hover { text-decoration: underline; }
 
-    /* ── Responsive ── */
+    /* ── Mobile ── */
     @media (max-width: 767px) {
-      .gate-scroll { justify-content: flex-start; padding-top: 42vw; }
-      .gate-text-block { position: relative; z-index: 2; }
-      .gate-controls { position: relative; z-index: 2; }
-    }
-    @media (max-width: 380px) {
-      .gate-illustration img { width: 70vw; }
-      .gate-title { font-size: 20px; }
+      .gate-doctor { width: 65vw; max-width: 340px; }
+      .gate-title { font-size: 22px; }
       .gate-text { font-size: 14px; }
     }
+    /* ── Desktop: hide absolute doctor, show centred illustration ── */
     @media (min-width: 768px) {
+      .gate-doctor { display: none; }
+      .gate-illustration {
+        display: flex; align-items: center; justify-content: center;
+        width: 100%; flex-shrink: 0;
+        padding: 28px 0 16px;
+      }
       .gate-illustration img {
-        width: 50vw; max-width: 420px;
+        width: 50vw; max-width: 420px; height: auto;
+        filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.08));
         -webkit-mask-image: radial-gradient(ellipse 85% 80% at 50% 45%, black 50%, transparent 100%);
         mask-image: radial-gradient(ellipse 85% 80% at 50% 45%, black 50%, transparent 100%);
       }
-      .gate-illustration { padding: 28px 0 16px; }
+      .gate-content {
+        padding: 0 32px;
+        max-width: 560px;
+        align-items: center;
+        justify-content: center;
+      }
+      .gate-spacer { display: none; }
       .gate-title { font-size: 30px; margin-bottom: 12px; }
       .gate-text { font-size: 16px; }
-      .gate-text-block { max-width: 560px; }
       .gate-controls { max-width: 460px; }
-      .gate-scroll { padding: 0 40px; }
     }
 
     /* ---- RESPONSIVE ---- */
@@ -949,15 +938,19 @@
         <div class="gate-blob gate-blob-3"></div>
       </div>
 
-      <div class="gate-scroll">
+      <!-- Mobile: absolute top-right doctor -->
+      <img class="gate-doctor" src="/media/images/ahpra-gate-illustration.png" alt="" aria-hidden="true" />
+
+      <div class="gate-content">
+        <!-- Desktop: centred illustration with fade -->
         <div class="gate-illustration">
           <img src="/media/images/ahpra-gate-illustration.png" alt="Doctor searching for a practice placement in Australia" />
         </div>
-
-        <div class="gate-text-block">
-          <h2 class="gate-title">Secure Your Placement First</h2>
-          <p class="gate-text">Before you can begin AHPRA registration, you need a confirmed practice placement in Australia.</p>
-        </div>
+        <div class="gate-spacer"></div>
+        <h2 class="gate-title">Secure Your Placement First</h2>
+        <p class="gate-text">
+          Before you can begin AHPRA registration, you need a confirmed practice placement in Australia.
+        </p>
       </div>
 
       <div class="gate-controls">
