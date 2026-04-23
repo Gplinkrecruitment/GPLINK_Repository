@@ -637,6 +637,11 @@
     .pill.review { background: #fffbeb; color: #92400e; border-color: #fde68a; }
     .pill.pending { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
     .pill.rejected { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+    .pill.processing { animation: docPulse 1.5s ease-in-out infinite; }
+    @keyframes docPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
 
 
 
@@ -1893,6 +1898,10 @@
       return state;
     }
 
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
     function statusClass(status) {
       if (status === "accepted" || status === "approved" || status === "certified") return "done";
       if (status === "rejected") return "rejected";
@@ -1900,6 +1909,7 @@
       if (status === "uploaded") return "review";
       if (status === "requested") return "review";
       if (status === "scanning") return "review";
+      if (status === "processing") return "review processing";
       if (status === "action_required" || status === "cert_attention") return "rejected";
       return "pending";
     }
@@ -1913,6 +1923,7 @@
       if (status === "uploaded") return "Uploaded";
       if (status === "requested") return "Requested";
       if (status === "scanning") return "Scanning...";
+      if (status === "processing") return "Processing";
       if (status === "action_required") return "Action required";
       if (status === "cert_attention") return "Needs attention";
       return "Pending";
@@ -2053,9 +2064,13 @@
         } else {
           uploadHtml = '<label class="upload-btn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<input type="file" data-prepared-doc="' + doc.key + '" accept="' + AI_SCAN_ACCEPT + '" /></label>';
         }
+        var rejectionHtml = "";
+        if (itemState.status === "rejected" && itemState.rejection_reason) {
+          rejectionHtml = '<p style="color:#b45309;font-size:13px;margin:6px 0 0;font-weight:500;">' + escapeHtml(itemState.rejection_reason) + '</p>';
+        }
         var card = document.createElement("div");
         card.className = "doc-card";
-        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + certBadge + '<div class="doc-card-actions">' + uploadHtml + '</div>';
+        card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.title + '</span><span class="pill ' + sClass + '">' + sLabel + '</span></div>' + helpLink + certBadge + rejectionHtml + '<div class="doc-card-actions">' + uploadHtml + '</div>';
         youGrid.appendChild(card);
       });
 
