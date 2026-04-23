@@ -742,7 +742,7 @@
     }
     .gate-scroll::-webkit-scrollbar { display: none; }
 
-    /* ── Illustration — centred, Australia map horizontally in the middle ── */
+    /* ── Illustration — centred on desktop, absolute right on mobile ── */
     .gate-illustration {
       flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
@@ -754,6 +754,22 @@
       max-width: 340px;
       height: auto;
       filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.08));
+    }
+    /* Mobile: doctor pops in from the right edge */
+    @media (max-width: 767px) {
+      .gate-illustration {
+        position: absolute;
+        top: 0; right: 0;
+        width: auto; padding: 0;
+        justify-content: flex-end;
+        pointer-events: none;
+        z-index: 0;
+      }
+      .gate-illustration img {
+        width: 65vw;
+        max-width: 300px;
+        margin-right: -10px;
+      }
     }
 
     /* ── Text block ── */
@@ -846,8 +862,13 @@
     .gate-hint a:hover { text-decoration: underline; }
 
     /* ── Responsive ── */
+    @media (max-width: 767px) {
+      .gate-scroll { justify-content: flex-start; padding-top: 42vw; }
+      .gate-text-block { position: relative; z-index: 2; }
+      .gate-controls { position: relative; z-index: 2; }
+    }
     @media (max-width: 380px) {
-      .gate-illustration img { width: 75vw; }
+      .gate-illustration img { width: 70vw; }
       .gate-title { font-size: 20px; }
       .gate-text { font-size: 14px; }
     }
@@ -2579,8 +2600,10 @@
     function showPlacementGate() {
       if (placementGateEl) placementGateEl.classList.add("show");
       shellMessage("gp-shell-hide-chrome");
-      // Retry once after a short delay in case shell listener wasn't ready
-      setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 300);
+      // Retry in case shell listener wasn't ready on first load
+      setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 200);
+      setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 600);
+      setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 1200);
     }
 
     function hidePlacementGate() {
