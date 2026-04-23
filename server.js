@@ -1087,7 +1087,8 @@ const USER_STATE_KEYS = [
   'gp_account_profile',
   'gp_career_state',
   'gp_onboarding_complete',
-  'gp_onboarding'
+  'gp_onboarding',
+  'gp_registration_return_overrides'
 ];
 
 const EPIC_STAGE_META = [
@@ -17031,6 +17032,26 @@ async function handleApi(req, res, pathname) {
       webhookCallbackUrl: getZohoSignWebhookCallbackUrl(),
       templateId: c.templateId || ZOHO_SIGN_SPPA_TEMPLATE_ID || ''
     });
+    return;
+  }
+
+  // ── Admin: allow user to re-access completed registration steps ──
+  if (req.method === 'POST' && pathname === '/api/admin/registration-return-overrides') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+    let body;
+    try { body = JSON.parse(await readRawBody(req)); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid JSON' }); return; }
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!email) { sendJson(res, 400, { ok: false, message: 'email required' }); return; }
+    const steps = body.steps || { career: true, myinthealth: true, amc: true, ahpra: true, pbs: true, commencement: true };
+    const userId = await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 404, { ok: false, message: 'User not found: ' + email }); return; }
+    const remote = await getSupabaseUserStateByEmail(email);
+    const currentState = (remote && remote.state) || {};
+    currentState.gp_registration_return_overrides = JSON.stringify(steps);
+    currentState.updatedAt = new Date().toISOString();
+    await upsertSupabaseUserState(userId, currentState, currentState.updatedAt);
+    sendJson(res, 200, { ok: true, email, steps });
     return;
   }
 
