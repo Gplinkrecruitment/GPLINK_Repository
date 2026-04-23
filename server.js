@@ -16316,6 +16316,17 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    // Validate file security
+    if (payload.fileDataUrl) {
+      var fileBuffer = Buffer.from(String(payload.fileDataUrl).replace(/^data:[^;]+;base64,/, ''), 'base64');
+      var fileCheck = validateFileUpload(fileBuffer, payload.mimeType, payload.fileName);
+      if (!fileCheck.valid) {
+        sendJson(res, 400, { ok: false, message: fileCheck.errors[0] || 'File validation failed.' });
+        return;
+      }
+      payload.fileName = fileCheck.sanitisedFileName;
+    }
+
     const saved = await saveAccountCareerDocumentForUser(userId, payload);
     if (!saved) {
       sendJson(res, 502, { ok: false, message: 'Failed to save document record.' });
@@ -19484,6 +19495,17 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // Validate file security
+    if (payload.fileDataUrl) {
+      var fileBuffer = Buffer.from(String(payload.fileDataUrl).replace(/^data:[^;]+;base64,/, ''), 'base64');
+      var fileCheck = validateFileUpload(fileBuffer, payload.mimeType, payload.fileName);
+      if (!fileCheck.valid) {
+        sendJson(res, 400, { ok: false, message: fileCheck.errors[0] || 'File validation failed.' });
+        return;
+      }
+      payload.fileName = fileCheck.sanitisedFileName;
+    }
+
     if (isSupabaseDbConfigured()) {
       const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
       if (!userId) {
@@ -19779,6 +19801,17 @@ Return ONLY valid JSON with no markdown formatting:
       return;
     }
 
+    // Validate file security
+    if (payload.fileDataUrl) {
+      var fileBuffer = Buffer.from(String(payload.fileDataUrl).replace(/^data:[^;]+;base64,/, ''), 'base64');
+      var fileCheck = validateFileUpload(fileBuffer, payload.mimeType, payload.fileName);
+      if (!fileCheck.valid) {
+        sendJson(res, 400, { ok: false, message: fileCheck.errors[0] || 'File validation failed.' });
+        return;
+      }
+      payload.fileName = fileCheck.sanitisedFileName;
+    }
+
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (isSupabaseDbConfigured() && !userId) {
       sendJson(res, 409, { ok: false, message: 'Cannot resolve database user id for document save.' });
@@ -19831,6 +19864,17 @@ Return ONLY valid JSON with no markdown formatting:
     if (!payload) {
       sendJson(res, 400, { ok: false, message: 'Invalid onboarding document payload.' });
       return;
+    }
+
+    // Validate file security
+    if (payload.fileDataUrl) {
+      var fileBuffer = Buffer.from(String(payload.fileDataUrl).replace(/^data:[^;]+;base64,/, ''), 'base64');
+      var fileCheck = validateFileUpload(fileBuffer, payload.mimeType, payload.fileName);
+      if (!fileCheck.valid) {
+        sendJson(res, 400, { ok: false, message: fileCheck.errors[0] || 'File validation failed.' });
+        return;
+      }
+      payload.fileName = fileCheck.sanitisedFileName;
     }
 
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
