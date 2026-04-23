@@ -1423,7 +1423,11 @@ function mapPreparedDocumentRow(row, signedUrl = '') {
       ? row.storage_path
       : (typeof row.file_url === 'string' ? row.file_url : ''),
     downloadUrl: signedUrl,
-    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
+    rejection_reason: row.rejection_reason || '',
+    ai_classification_confidence: row.ai_classification_confidence != null ? row.ai_classification_confidence : null,
+    ai_classification_result: row.ai_classification_result || '',
+    google_drive_file_id: row.google_drive_file_id || ''
   };
 }
 
