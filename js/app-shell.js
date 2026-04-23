@@ -1201,12 +1201,12 @@
     // Allow child pages to hide/show the shell chrome (nav bars)
     if (event.data.type === "gp-shell-hide-chrome") {
       if (mobileNavEl) mobileNavEl.style.display = "none";
-      if (desktopNavEl) desktopNavEl.closest(".desktop-topbar") && (desktopNavEl.closest(".desktop-topbar").style.display = "none");
+      if (desktopHostEl) desktopHostEl.style.display = "none";
       return;
     }
     if (event.data.type === "gp-shell-show-chrome") {
       if (mobileNavEl) mobileNavEl.style.display = "";
-      if (desktopNavEl) desktopNavEl.closest(".desktop-topbar") && (desktopNavEl.closest(".desktop-topbar").style.display = "");
+      if (desktopHostEl) desktopHostEl.style.display = "";
       return;
     }
 
