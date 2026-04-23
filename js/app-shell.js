@@ -1293,6 +1293,10 @@
     });
   }
 
+  // Register message listener immediately so child iframes can hide
+  // chrome even before init() runs (e.g. on first page load).
+  window.addEventListener("message", handleMessage);
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init, { once: true });
   } else {
