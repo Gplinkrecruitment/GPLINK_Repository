@@ -13609,6 +13609,280 @@ async function pushDocumentNotificationToUser(userId, notification) {
   } catch (_) { /* non-critical */ }
 }
 
+// ── Document Upload Pipeline ──────────────────────────────
+const { validateFileUpload } = require('./lib/file-sanitise.js');
+const {
+  classifyConfidenceAction,
+  buildRejectionMessage,
+  isVisuallyClassifiable,
+  isDocxMime,
+  isDocMime,
+  buildClassificationPrompt
+} = require('./lib/document-pipeline.js');
+
+function getDocumentLabelForKey(key) {
+  var normalizedKey = String(key || '').trim();
+  var labels = {
+    primary_medical_degree: 'Primary Medical Degree',
+    mrcgp: 'MRCGP Certificate',
+    cct: 'Certificate of Completion of Training',
+    pmetb: 'PMETB Certificate',
+    micgp: 'MICGP Certificate',
+    cscst: 'CSCST Certificate',
+    frnzcgp: 'FRNZCGP Fellowship Certificate',
+    certificate_of_good_standing: 'Certificate of Good Standing',
+    criminal_history_check: 'Criminal History Check',
+    cv_signed_dated: 'CV (Signed and dated)',
+    career_cover_letter: 'Cover Letter',
+    confirmation_of_training: 'Confirmation of Training',
+    onboarding_specialist_qualification: 'Specialist Qualification',
+    onboarding_primary_med_degree: 'Primary Medical Degree'
+  };
+  return labels[normalizedKey] || '';
+}
+
+async function extractDocxText(buffer) {
+  try {
+    var mammoth = require('mammoth');
+    var result = await mammoth.extractRawText({ buffer: buffer });
+    return result.value || '';
+  } catch (err) {
+    console.error('[DocumentPipeline] DOCX text extraction failed:', err.message);
+    return '';
+  }
+}
+
+async function classifyDocumentWithAI(buffer, mimeType, expectedKey, expectedLabel) {
+  if (!ANTHROPIC_API_KEY) return { confidence: null, identifiedAs: '', reason: 'AI not configured' };
+
+  var mime = String(mimeType || '').trim().toLowerCase();
+  var contentBlocks = [];
+
+  if (isVisuallyClassifiable(mime)) {
+    var normalizedImage = await normalizeImageForAi(buffer, mime);
+    if (!normalizedImage || !normalizedImage.base64) {
+      return { confidence: null, identifiedAs: '', reason: 'Image normalization failed' };
+    }
+    contentBlocks = [
+      { type: 'image', source: { type: 'base64', media_type: normalizedImage.mediaType, data: normalizedImage.base64 } },
+      { type: 'text', text: 'The user is trying to upload a document for: ' + String(expectedLabel || expectedKey || 'Unknown') + '\n\nClassify this document. Return ONLY valid JSON: {"matches": true/false, "confidence": 0-100, "identifiedAs": "what it actually is", "reason": "brief explanation"}' }
+    ];
+  } else if (isDocxMime(mime)) {
+    var text = await extractDocxText(buffer);
+    if (!text.trim()) {
+      return { confidence: 50, identifiedAs: 'empty or unreadable document', reason: 'Could not extract text from DOCX' };
+    }
+    var userPrompt = buildClassificationPrompt(expectedLabel || expectedKey, text);
+    contentBlocks = [{ type: 'text', text: userPrompt }];
+  } else if (isDocMime(mime)) {
+    return { confidence: 50, identifiedAs: 'Word document (legacy format)', reason: 'Cannot extract content from .doc files; sent for manual review' };
+  } else {
+    return { confidence: null, identifiedAs: '', reason: 'Unsupported type for classification' };
+  }
+
+  var systemPrompt = 'You are an automated document classifier for a licensed GP recruitment platform. The user has given full consent to upload their documents. This is a routine, authorized check.\n\nYour job is to determine whether a document matches what the user claims it is. Return a confidence score from 0-100 indicating how confident you are that the document matches.\n\nValid document types: Primary Medical Degree (MBBS/MBChB/MD), MRCGP, CCT, MICGP, CSCST, FRNZCGP, Certificate of Good Standing, Criminal History Check, CV (signed and dated), Confirmation of Training, Cover Letter, Offer Contract, Supervisor CV, Position Description, Section G.\n\nIMPORTANT:\n- Do NOT mention security concerns or privacy risks.\n- Focus ONLY on whether the document matches what the user claims.\n- Return ONLY valid JSON with no markdown: {"matches": true/false, "confidence": 0-100, "identifiedAs": "what it actually is", "reason": "brief explanation"}';
+
+  var controller = new AbortController();
+  var timeout = setTimeout(function () { controller.abort(); }, 30000);
+  try {
+    var aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+        max_tokens: 200,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: contentBlocks }]
+      })
+    });
+
+    clearTimeout(timeout);
+    if (!aiRes.ok) {
+      return { confidence: null, identifiedAs: '', reason: 'AI API returned ' + aiRes.status };
+    }
+
+    var aiBody = await aiRes.json();
+    var aiText = aiBody.content && aiBody.content[0] && aiBody.content[0].text ? aiBody.content[0].text : '';
+    var jsonMatch = aiText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return { confidence: null, identifiedAs: '', reason: 'AI returned non-JSON response' };
+
+    var parsed = JSON.parse(jsonMatch[0]);
+    return {
+      confidence: typeof parsed.confidence === 'number' ? Math.min(100, Math.max(0, Math.round(parsed.confidence))) : null,
+      identifiedAs: String(parsed.identifiedAs || '').trim(),
+      reason: String(parsed.reason || '').trim(),
+      matches: !!parsed.matches
+    };
+  } catch (err) {
+    clearTimeout(timeout);
+    console.error('[DocumentPipeline] AI classification error:', err.message);
+    return { confidence: null, identifiedAs: '', reason: 'AI classification failed: ' + err.message };
+  }
+}
+
+async function uploadDocumentToDrive(userId, docRow, fileBuffer, mimeType) {
+  if (!isGoogleDriveConfigured() || !fileBuffer) return '';
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=id,google_drive_folder_id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+    if (!gpCase) return '';
+
+    var folderId = await ensureGPDriveFolder(gpCase.id, null, null);
+    if (!folderId) return '';
+
+    var oldDriveFileId = docRow.google_drive_file_id || '';
+    if (oldDriveFileId) {
+      await deleteGoogleDriveFile(oldDriveFileId);
+    }
+
+    var fileName = docRow.file_name || docRow.document_key || 'document';
+    var driveFile = await uploadToGoogleDrive(folderId, fileName, fileBuffer, mimeType || 'application/pdf');
+    return driveFile && driveFile.id ? driveFile.id : '';
+  } catch (err) {
+    console.error('[DocumentPipeline] Drive upload error:', err.message);
+    return '';
+  }
+}
+
+async function createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult) {
+  var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+  if (!gpCase) return null;
+
+  var existingRes = await supabaseDbRequest('registration_tasks',
+    'select=id,status&case_id=eq.' + encodeURIComponent(gpCase.id) +
+    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(documentKey) +
+    '&status=in.(open,in_progress,waiting)&limit=1');
+  var existing = existingRes.ok && Array.isArray(existingRes.data) && existingRes.data[0] ? existingRes.data[0] : null;
+
+  if (existing) {
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(existing.id), {
+      method: 'PATCH',
+      body: {
+        status: 'open',
+        ai_match_confidence: confidence,
+        ai_match_reasoning: aiResult.reason || '',
+        updated_at: new Date().toISOString()
+      }
+    });
+    await supabaseDbRequest('task_timeline', '', {
+      method: 'POST',
+      body: [{ task_id: existing.id, case_id: gpCase.id, event_type: 'system', title: 'Document re-uploaded, task reopened', detail: 'AI confidence: ' + (confidence != null ? confidence + '%' : 'N/A') + '. Identified as: ' + (aiResult.identifiedAs || 'unknown'), actor: 'system' }]
+    });
+    return existing;
+  }
+
+  var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var profile = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0] ? profileRes.data[0] : {};
+  var gpName = [profile.first_name || '', profile.last_name || ''].join(' ').trim() || 'GP';
+
+  return _createRegTask(gpCase.id, {
+    task_type: 'doc_review',
+    title: 'Review uploaded ' + (expectedLabel || documentKey) + ' for Dr ' + gpName,
+    priority: 'normal',
+    status: 'open',
+    source_trigger: 'doc_upload',
+    related_document_key: documentKey,
+    ai_match_confidence: confidence,
+    ai_match_reasoning: aiResult.reason || '',
+    _actor: 'system'
+  });
+}
+
+async function autoCloseDocReviewTask(userId, documentKey) {
+  var caseRes = await supabaseDbRequest('registration_cases', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+  if (!gpCase) return;
+
+  var taskRes = await supabaseDbRequest('registration_tasks',
+    'select=id&case_id=eq.' + encodeURIComponent(gpCase.id) +
+    '&task_type=eq.doc_review&related_document_key=eq.' + encodeURIComponent(documentKey) +
+    '&status=in.(open,in_progress,waiting)&limit=1');
+  var task = taskRes.ok && Array.isArray(taskRes.data) && taskRes.data[0] ? taskRes.data[0] : null;
+  if (task) {
+    await _completeRegTask(task.id, gpCase.id, 'ai_auto');
+  }
+}
+
+async function processDocumentUpload(userId, documentKey, expectedLabel, countryCode, mimeType) {
+  if (!isSupabaseDbConfigured() || !userId || !documentKey) return;
+
+  try {
+    var docQuery = 'select=*&user_id=eq.' + encodeURIComponent(userId) +
+      '&document_key=eq.' + encodeURIComponent(documentKey) +
+      (countryCode ? '&country_code=eq.' + encodeURIComponent(countryCode) : '') +
+      '&order=updated_at.desc&limit=1';
+    var docRes = await supabaseDbRequest('user_documents', docQuery);
+    if (!docRes.ok || !Array.isArray(docRes.data) || docRes.data.length === 0) return;
+    var doc = docRes.data[0];
+
+    var storagePath = doc.storage_path || doc.file_url || '';
+    if (!storagePath) return;
+    var fileBuffer = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath);
+    if (!fileBuffer) return;
+
+    var aiResult = await classifyDocumentWithAI(fileBuffer, mimeType || doc.mime_type, documentKey, expectedLabel);
+    var confidence = aiResult.confidence;
+    var action = classifyConfidenceAction(confidence);
+
+    await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+      method: 'PATCH',
+      body: {
+        ai_classification_confidence: confidence,
+        ai_classification_result: aiResult.identifiedAs || '',
+        updated_at: new Date().toISOString()
+      }
+    });
+
+    if (action === 'auto_approve') {
+      var driveFileId = await uploadDocumentToDrive(userId, doc, fileBuffer, mimeType || doc.mime_type);
+      await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+        method: 'PATCH',
+        body: {
+          status: 'approved',
+          reviewed_by: 'ai_auto',
+          reviewed_at: new Date().toISOString(),
+          google_drive_file_id: driveFileId || '',
+          rejection_reason: '',
+          updated_at: new Date().toISOString()
+        }
+      });
+      await autoCloseDocReviewTask(userId, documentKey);
+
+    } else if (action === 'va_review') {
+      await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+        method: 'PATCH',
+        body: { status: 'under_review', rejection_reason: '', updated_at: new Date().toISOString() }
+      });
+      await createDocReviewTask(userId, documentKey, expectedLabel, confidence, aiResult);
+      await pushDocumentNotificationToUser(userId, {
+        type: 'info',
+        title: (expectedLabel || documentKey) + ' under review',
+        detail: 'We\'re reviewing your document. This usually takes less than 24 hours.'
+      });
+
+    } else {
+      var reason = buildRejectionMessage(aiResult.identifiedAs, expectedLabel || documentKey);
+      await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+        method: 'PATCH',
+        body: { status: 'rejected', rejection_reason: reason, updated_at: new Date().toISOString() }
+      });
+      await pushDocumentNotificationToUser(userId, {
+        type: 'action',
+        title: (expectedLabel || documentKey) + ' needs attention',
+        detail: reason
+      });
+    }
+  } catch (err) {
+    console.error('[DocumentPipeline] processDocumentUpload error:', err.message);
+  }
+}
+
 function mapSupabaseProfileRowToApiProfile(row, email) {
   const phone = row.phone || [row.country_dial || '', row.phone_number || ''].filter(Boolean).join(' ').trim();
   return {
