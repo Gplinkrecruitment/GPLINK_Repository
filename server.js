@@ -13589,6 +13589,26 @@ async function pushCareerNotificationToUser(userId, notification) {
   } catch {}
 }
 
+async function pushDocumentNotificationToUser(userId, notification) {
+  if (!isSupabaseDbConfigured() || !userId) return;
+  try {
+    const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+      ? stateResult.data[0].state
+      : {};
+    const updates = Array.isArray(currentState.gp_link_updates) ? currentState.gp_link_updates : [];
+    updates.unshift({
+      type: notification.type || 'info',
+      title: notification.title || 'Document update',
+      detail: notification.detail || '',
+      ts: new Date().toISOString()
+    });
+    if (updates.length > 50) updates.length = 50;
+    const nextState = { ...currentState, gp_link_updates: updates };
+    await upsertSupabaseUserState(userId, nextState, new Date().toISOString());
+  } catch (_) { /* non-critical */ }
+}
+
 function mapSupabaseProfileRowToApiProfile(row, email) {
   const phone = row.phone || [row.country_dial || '', row.phone_number || ''].filter(Boolean).join(' ').trim();
   return {
