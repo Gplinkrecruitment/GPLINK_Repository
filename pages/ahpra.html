@@ -824,17 +824,17 @@
     }
     .gate-hint a:hover { text-decoration: underline; }
 
-    /* ── Mobile: doctor behind content, centered layout ── */
+    /* ── Mobile: doctor at bottom-right, content above ── */
     @media (max-width: 767px) {
       .gate-doctor {
-        height: 55vh; max-height: 420px;
-        right: -20px; opacity: 0.18;
+        height: auto; width: 65vw;
+        max-width: 320px; max-height: none;
+        right: -10px; bottom: 0;
       }
       .gate-content {
-        padding: 32px 24px;
+        padding: 48px 24px 0;
         max-width: 100%;
         justify-content: flex-start;
-        padding-top: 15vh;
       }
       .gate-title { font-size: 22px; }
       .gate-text { font-size: 14px; }
@@ -2551,22 +2551,34 @@
     }
 
     const placementGateEl = document.getElementById("placementGate");
-    const desktopTopbar = document.querySelector(".desktop-topbar");
-    const mobileNavBar = document.querySelector(".mobile-nav");
-    const mobileHeader = document.querySelector(".app-header");
 
     function showPlacementGate() {
       if (placementGateEl) placementGateEl.classList.add("show");
-      if (desktopTopbar) desktopTopbar.style.display = "none";
-      if (mobileNavBar) mobileNavBar.style.display = "none";
-      if (mobileHeader) mobileHeader.style.display = "none";
+      // Hide shell chrome (nav bars) in parent app-shell
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: "gp-shell-hide-chrome" }, window.location.origin);
+      }
+      // Also hide local nav elements (when not inside iframe)
+      var localTopbar = document.querySelector(".desktop-topbar");
+      var localMobileNav = document.querySelector(".mobile-nav");
+      var localHeader = document.querySelector(".app-header");
+      if (localTopbar) localTopbar.style.display = "none";
+      if (localMobileNav) localMobileNav.style.display = "none";
+      if (localHeader) localHeader.style.display = "none";
     }
 
     function hidePlacementGate() {
       if (placementGateEl) placementGateEl.classList.remove("show");
-      if (desktopTopbar) desktopTopbar.style.display = "";
-      if (mobileNavBar) mobileNavBar.style.display = "";
-      if (mobileHeader) mobileHeader.style.display = "";
+      // Restore shell chrome in parent app-shell
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: "gp-shell-show-chrome" }, window.location.origin);
+      }
+      var localTopbar = document.querySelector(".desktop-topbar");
+      var localMobileNav = document.querySelector(".mobile-nav");
+      var localHeader = document.querySelector(".app-header");
+      if (localTopbar) localTopbar.style.display = "";
+      if (localMobileNav) localMobileNav.style.display = "";
+      if (localHeader) localHeader.style.display = "";
     }
 
     // Wire up Browse Jobs button for app-shell navigation
