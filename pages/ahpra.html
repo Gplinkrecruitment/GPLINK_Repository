@@ -700,58 +700,148 @@
     }
     .toast.show { opacity: 1; transform: translateY(0); }
 
-    /* ---- PLACEMENT GATE ---- */
+    /* ---- PLACEMENT GATE (full-screen onboarding style) ---- */
     .placement-gate { display: none; }
-    .placement-gate.show { display: block; }
-    .placement-gate-card {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; overflow: hidden;
-      box-shadow: var(--shadow2);
-      margin-bottom: 16px;
-      position: relative;
+    .placement-gate.show { display: flex; }
+    .placement-gate {
+      position: fixed; inset: 0; z-index: 60;
+      flex-direction: column;
+      background: #f8fafc;
+      overflow: hidden;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
     }
-    .placement-gate-card::before {
-      content: ""; position: absolute; top: 0; left: 0; right: 0;
-      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
+    /* Animated background blobs (matches onboarding) */
+    .gate-blobs {
+      position: absolute; inset: 0;
+      pointer-events: none; z-index: 0; overflow: hidden;
     }
-    .placement-gate-hero {
-      display: flex; align-items: center; justify-content: center;
-      padding: 32px 24px 16px;
-      background: linear-gradient(180deg, #eff6ff 0%, #fff 100%);
+    .gate-blob {
+      position: absolute; border-radius: 50%;
+      filter: blur(70px); opacity: 0.35;
     }
-    .placement-gate-hero img {
-      width: 200px; height: auto;
-      filter: drop-shadow(0 8px 20px rgba(37, 99, 235, 0.15));
+    .gate-blob-1 { width: 280px; height: 280px; background: #93c5fd; top: -80px; left: -60px; }
+    .gate-blob-2 { width: 240px; height: 240px; background: #a5b4fc; top: -20px; right: -80px; }
+    .gate-blob-3 { width: 200px; height: 200px; background: #fbbf24; top: 40%; left: 30%; opacity: 0.2; }
+    /* Doctor illustration — large, from the right side */
+    .gate-doctor {
+      position: absolute; z-index: 1;
+      right: -40px; bottom: 0;
+      width: 340px; height: auto;
+      pointer-events: none;
+      opacity: 0.18;
     }
-    .placement-gate-body {
-      padding: 8px 24px 28px;
+    /* Content area */
+    .gate-content {
+      position: relative; z-index: 2;
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 40px 24px;
+      max-width: 480px; margin: 0 auto; width: 100%;
     }
-    .placement-gate-badge {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 4px 10px; border-radius: 999px;
-      font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.03em; margin-bottom: 10px;
-      background: #fef3c7; color: #92400e; border: 1px solid #fde68a;
+    .gate-card {
+      background: #fff;
+      border-radius: 20px;
+      padding: 32px 28px 28px;
+      box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+      width: 100%;
+      text-align: center;
     }
-    .placement-gate-badge svg {
-      width: 12px; height: 12px; stroke: currentColor;
-      fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
+    .gate-icon {
+      width: 56px; height: 56px; border-radius: 16px;
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-bottom: 18px;
     }
-    .placement-gate-title {
-      font-size: 22px; font-weight: 800;
-      letter-spacing: -0.02em; line-height: 1.3;
-      margin-bottom: 8px; color: var(--text);
+    .gate-icon svg {
+      width: 28px; height: 28px; stroke: #2563eb;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-    .placement-gate-text {
-      font-size: 14px; color: #475569;
+    .gate-title {
+      font-size: 26px; font-weight: 800;
+      letter-spacing: -0.03em; line-height: 1.2;
+      margin-bottom: 12px; color: #0f172a;
+    }
+    .gate-text {
+      font-size: 15px; color: #64748b;
       font-weight: 500; line-height: 1.65;
-      margin-bottom: 20px;
+      margin-bottom: 8px;
     }
-    .placement-gate-text strong { color: var(--text); font-weight: 700; }
-    .placement-gate-actions {
-      display: flex; gap: 10px; flex-wrap: wrap;
+    .gate-text:last-of-type { margin-bottom: 28px; }
+    .gate-text strong { color: #0f172a; font-weight: 700; }
+    /* Buttons */
+    .gate-actions { display: flex; flex-direction: column; gap: 12px; }
+    .gate-btn {
+      border: none; border-radius: 999px;
+      font-family: inherit; font-size: 15px; font-weight: 700;
+      padding: 16px 36px; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+      text-decoration: none; text-align: center;
     }
-    .placement-gate-actions .btn-action { min-width: 160px; justify-content: center; }
+    .gate-btn svg {
+      width: 18px; height: 18px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .gate-btn-primary {
+      background: #2563eb; color: #fff;
+      box-shadow: 0 8px 24px -8px rgba(37, 99, 235, 0.4);
+      position: relative; overflow: visible;
+    }
+    .gate-btn-primary:hover {
+      background: #1d4ed8;
+      box-shadow: 0 12px 28px -8px rgba(37, 99, 235, 0.5);
+      transform: translateY(-1px);
+    }
+    /* Pulse animation on primary button */
+    .gate-btn-primary::before,
+    .gate-btn-primary::after {
+      content: ""; position: absolute;
+      inset: -3px; border-radius: 999px;
+      background: rgba(37, 99, 235, 0.35);
+      z-index: -1;
+      animation: gate-pulse 2s ease-in-out infinite;
+    }
+    .gate-btn-primary::after {
+      inset: -6px;
+      background: rgba(37, 99, 235, 0.15);
+      animation-delay: 0.4s;
+    }
+    @keyframes gate-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.08); opacity: 0.3; }
+    }
+    .gate-btn-secondary {
+      background: transparent; color: #334155;
+      border: 1.5px solid #e2e8f0;
+    }
+    .gate-btn-secondary:hover {
+      background: rgba(15, 23, 42, 0.04);
+      border-color: #cbd5e1;
+      transform: translateY(-1px);
+    }
+    /* Footer link */
+    .gate-footer {
+      margin-top: 20px;
+      font-size: 13px; color: #94a3b8; font-weight: 500;
+    }
+    .gate-footer a {
+      color: #2563eb; font-weight: 600; text-decoration: none;
+    }
+    .gate-footer a:hover { text-decoration: underline; }
+    /* Responsive */
+    @media (min-width: 768px) {
+      .gate-doctor { width: 420px; right: -30px; opacity: 0.22; }
+      .gate-card { padding: 40px 36px 36px; }
+      .gate-title { font-size: 30px; }
+    }
+    @media (max-width: 480px) {
+      .gate-content { padding: 24px 16px; }
+      .gate-card { padding: 24px 20px 22px; border-radius: 16px; }
+      .gate-title { font-size: 22px; }
+      .gate-text { font-size: 14px; }
+      .gate-doctor { width: 240px; right: -50px; opacity: 0.12; }
+    }
 
     /* ---- RESPONSIVE ---- */
     @media (min-width: 768px) {
@@ -780,18 +870,8 @@
         border-radius: 16px;
       }
     }
-    @media (max-width: 767px) {
-      .placement-gate-hero { padding: 24px 16px 8px; }
-      .placement-gate-hero img { width: 160px; }
-      .placement-gate-body { padding: 8px 18px 22px; }
-      .placement-gate-title { font-size: 19px; }
-      .placement-gate-text { font-size: 13px; }
-      .placement-gate-actions { flex-direction: column; }
-      .placement-gate-actions .btn-action { width: 100%; }
-    }
     @media (max-width: 480px) {
       .step-content-title { font-size: 18px; }
-      .placement-gate-title { font-size: 17px; }
     }
   </style>
 </head>
@@ -818,38 +898,39 @@
       </div>
     </header>
 
-    <!-- PLACEMENT GATE (shown when GP hasn't secured a role) -->
+    <!-- PLACEMENT GATE (full-screen, shown when GP hasn't secured a role) -->
     <section class="placement-gate" id="placementGate" aria-label="Placement required">
-      <div class="placement-gate-card">
-        <div class="placement-gate-hero">
-          <img src="/media/images/ahpra-gate-illustration.png" alt="Doctor searching for a practice placement in Australia" width="200" height="200" />
-        </div>
-        <div class="placement-gate-body">
-          <div class="placement-gate-badge">
-            <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
-            Placement Required
+      <div class="gate-blobs">
+        <div class="gate-blob gate-blob-1"></div>
+        <div class="gate-blob gate-blob-2"></div>
+        <div class="gate-blob gate-blob-3"></div>
+      </div>
+      <img class="gate-doctor" src="/media/images/ahpra-gate-illustration.png" alt="" aria-hidden="true" />
+      <div class="gate-content">
+        <div class="gate-card">
+          <div class="gate-icon">
+            <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
           </div>
-          <h2 class="placement-gate-title">Secure Your Placement First</h2>
-          <p class="placement-gate-text">
+          <h2 class="gate-title">Secure Your Placement First</h2>
+          <p class="gate-text">
             Before you can begin AHPRA registration, you need a confirmed practice placement in Australia.
+          </p>
+          <p class="gate-text">
             <strong>We've already done the groundwork for you.</strong> Using the information you've provided
             and a combination of machine learning, we've curated job opportunities tailored specifically to
             your qualifications, experience, and preferences.
           </p>
-          <p class="placement-gate-text">
-            Browse your matched roles below, or if your circumstances have changed and you'd like to
-            update your preferences or discuss your options, book a consultation with our team.
-          </p>
-          <div class="placement-gate-actions">
-            <a class="btn-action primary" id="gateJobsBtn" href="/pages/career.html">
+          <div class="gate-actions">
+            <a class="gate-btn gate-btn-primary" id="gateJobsBtn" href="/pages/career.html">
               <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
               Browse Jobs
             </a>
-            <a class="btn-action secondary" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener noreferrer">
+            <a class="gate-btn gate-btn-secondary" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener noreferrer">
               <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
               Book a Consultation
             </a>
           </div>
+          <p class="gate-footer">Need help? <a href="/pages/messages.html">Contact Support</a></p>
         </div>
       </div>
     </section>
@@ -2474,16 +2555,13 @@
     }
 
     const placementGateEl = document.getElementById("placementGate");
-    const ahpraMainEls = [stepTabsEl, document.getElementById("tutorialCard"), document.getElementById("stepContent"), document.querySelector(".help-card")];
 
     function showPlacementGate() {
       if (placementGateEl) placementGateEl.classList.add("show");
-      ahpraMainEls.forEach(function (el) { if (el) el.style.display = "none"; });
     }
 
     function hidePlacementGate() {
       if (placementGateEl) placementGateEl.classList.remove("show");
-      ahpraMainEls.forEach(function (el) { if (el) el.style.display = ""; });
     }
 
     // Wire up Browse Jobs button for app-shell navigation
