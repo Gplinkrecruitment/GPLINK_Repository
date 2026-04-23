@@ -2590,16 +2590,18 @@
       } catch (e) {}
     }
 
-    var dashWrapEl = document.querySelector(".dash-wrap");
-    var mobileRegSheetBg = document.getElementById("mobileRegBackdrop");
-    var mobileRegSheetEl = document.getElementById("mobileRegSheet");
-
     function showPlacementGate() {
       if (placementGateEl) placementGateEl.classList.add("show");
-      // Hide all page content behind the gate
-      if (dashWrapEl) dashWrapEl.style.display = "none";
-      if (mobileRegSheetBg) mobileRegSheetBg.style.display = "none";
-      if (mobileRegSheetEl) mobileRegSheetEl.style.display = "none";
+      // Hide sibling elements inside dash-wrap (but NOT the gate itself)
+      var siblings = placementGateEl.parentElement ? placementGateEl.parentElement.children : [];
+      for (var i = 0; i < siblings.length; i++) {
+        if (siblings[i] !== placementGateEl) siblings[i].style.display = "none";
+      }
+      // Hide mobile reg sheet (lives outside dash-wrap)
+      var regBg = document.getElementById("mobileRegBackdrop");
+      var regSheet = document.getElementById("mobileRegSheet");
+      if (regBg) regBg.style.display = "none";
+      if (regSheet) regSheet.style.display = "none";
       shellMessage("gp-shell-hide-chrome");
       setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 200);
       setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 600);
@@ -2608,9 +2610,14 @@
 
     function hidePlacementGate() {
       if (placementGateEl) placementGateEl.classList.remove("show");
-      if (dashWrapEl) dashWrapEl.style.display = "";
-      if (mobileRegSheetBg) mobileRegSheetBg.style.display = "";
-      if (mobileRegSheetEl) mobileRegSheetEl.style.display = "";
+      var siblings = placementGateEl.parentElement ? placementGateEl.parentElement.children : [];
+      for (var i = 0; i < siblings.length; i++) {
+        if (siblings[i] !== placementGateEl) siblings[i].style.display = "";
+      }
+      var regBg = document.getElementById("mobileRegBackdrop");
+      var regSheet = document.getElementById("mobileRegSheet");
+      if (regBg) regBg.style.display = "";
+      if (regSheet) regSheet.style.display = "";
       shellMessage("gp-shell-show-chrome");
     }
 
