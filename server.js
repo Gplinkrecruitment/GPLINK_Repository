@@ -21654,6 +21654,115 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // VA: approve a doc_review task — marks document as approved, uploads to Drive
+  if (pathname === '/api/admin/va/doc-review/approve' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var body = await readJsonBody(req);
+    var taskId = String(body.task_id || '').trim();
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+
+    var taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&task_type=eq.doc_review&limit=1');
+    if (!taskRes.ok || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var task = taskRes.data[0];
+
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    var userId = caseRes.ok && caseRes.data[0] ? caseRes.data[0].user_id : null;
+    if (!userId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    var docKey = task.related_document_key;
+    var docRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&order=updated_at.desc&limit=1');
+    var doc = docRes.ok && Array.isArray(docRes.data) && docRes.data[0] ? docRes.data[0] : null;
+
+    var driveFileId = '';
+    if (doc && (doc.storage_path || doc.file_url)) {
+      var fileBuffer = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, doc.storage_path || doc.file_url || '');
+      if (fileBuffer) {
+        driveFileId = await uploadDocumentToDrive(userId, doc, fileBuffer, doc.mime_type);
+      }
+    }
+
+    if (doc) {
+      await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+        method: 'PATCH',
+        body: {
+          status: 'approved',
+          reviewed_by: adminCtx.email,
+          reviewed_at: new Date().toISOString(),
+          google_drive_file_id: driveFileId || '',
+          rejection_reason: '',
+          updated_at: new Date().toISOString()
+        }
+      });
+    }
+
+    await _completeRegTask(taskId, task.case_id, adminCtx.email);
+
+    var docLabel = getDocumentLabelForKey(docKey) || docKey;
+    await pushDocumentNotificationToUser(userId, {
+      type: 'success',
+      title: docLabel + ' verified',
+      detail: 'Your document has been reviewed and verified. You can download it from My Documents.'
+    });
+
+    sendJson(res, 200, { ok: true, message: 'Document approved.' });
+    return;
+  }
+
+  // VA: reject a doc_review task — marks document as rejected with reason
+  if (pathname === '/api/admin/va/doc-review/reject' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var body = await readJsonBody(req);
+    var taskId = String(body.task_id || '').trim();
+    var reason = String(body.reason || '').trim();
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'task_id required.' }); return; }
+    if (!reason) { sendJson(res, 400, { ok: false, message: 'reason required.' }); return; }
+
+    var taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&task_type=eq.doc_review&limit=1');
+    if (!taskRes.ok || !taskRes.data[0]) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    var task = taskRes.data[0];
+
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+    var userId = caseRes.ok && caseRes.data[0] ? caseRes.data[0].user_id : null;
+    if (!userId) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+    var docKey = task.related_document_key;
+    await supabaseDbRequest('user_documents',
+      'user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey),
+      {
+        method: 'PATCH',
+        body: {
+          status: 'rejected',
+          rejection_reason: reason,
+          reviewed_by: adminCtx.email,
+          reviewed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      });
+
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+      method: 'PATCH',
+      body: { status: 'waiting', updated_at: new Date().toISOString() }
+    });
+    await supabaseDbRequest('task_timeline', '', {
+      method: 'POST',
+      body: [{ task_id: taskId, case_id: task.case_id, event_type: 'status_change', title: 'Document rejected — waiting on GP', detail: reason, actor: adminCtx.email }]
+    });
+
+    var docLabel = getDocumentLabelForKey(docKey) || docKey;
+    await pushDocumentNotificationToUser(userId, {
+      type: 'action',
+      title: docLabel + ' needs attention',
+      detail: reason + ' Please re-upload from My Documents.'
+    });
+
+    sendJson(res, 200, { ok: true, message: 'Document rejected.' });
+    return;
+  }
+
   // ── Approve / Submit document to GP MyDocuments + Drive ──
   if (pathname === '/api/admin/va/task/approve-document' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
