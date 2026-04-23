@@ -852,7 +852,11 @@
       .gate-text { font-size: 14px; }
     }
     @media (min-width: 768px) {
-      .gate-illustration img { width: 50vw; max-width: 420px; }
+      .gate-illustration img {
+        width: 50vw; max-width: 420px;
+        -webkit-mask-image: radial-gradient(ellipse 85% 80% at 50% 45%, black 50%, transparent 100%);
+        mask-image: radial-gradient(ellipse 85% 80% at 50% 45%, black 50%, transparent 100%);
+      }
       .gate-illustration { padding: 28px 0 16px; }
       .gate-title { font-size: 30px; margin-bottom: 12px; }
       .gate-text { font-size: 16px; }
