@@ -9,12 +9,14 @@
     style.id = STYLE_ID;
     style.textContent = `
       .registration-stepper {
-        --rs-purple: #7c3aed;
-        --rs-purple-soft: #ede9fe;
-        --rs-line: #d9deea;
-        --rs-muted: #9aa6b6;
-        --rs-text: #0f172a;
-        --rs-subtext: #667085;
+        --rs-accent: #1a56db;
+        --rs-accent-soft: rgba(26, 86, 219, 0.12);
+        --rs-success: #0d7c5f;
+        --rs-line: #e4e7ee;
+        --rs-muted: #7c849b;
+        --rs-text: #0c1222;
+        --rs-subtext: #7c849b;
+        font-family: "DM Sans", -apple-system, sans-serif;
         position: relative;
         width: 100%;
       }
@@ -39,12 +41,12 @@
 
       .registration-stepper-viewport-wrap::before {
         left: 0;
-        background: linear-gradient(90deg, rgba(244,247,251,.98), rgba(244,247,251,0));
+        background: linear-gradient(90deg, rgba(242,244,248,.98), rgba(242,244,248,0));
       }
 
       .registration-stepper-viewport-wrap::after {
         right: 0;
-        background: linear-gradient(270deg, rgba(244,247,251,.98), rgba(244,247,251,0));
+        background: linear-gradient(270deg, rgba(242,244,248,.98), rgba(242,244,248,0));
       }
 
       .registration-stepper-viewport-wrap.has-left-fade::before { opacity: 1; }
@@ -85,7 +87,7 @@
         width: var(--rs-fill-width, 0px);
         height: 100%;
         border-radius: inherit;
-        background: linear-gradient(90deg, #8b5cf6, #6d28d9);
+        background: var(--rs-success);
         transition: width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
@@ -140,13 +142,13 @@
       }
 
       .registration-stepper-step.is-current-step .registration-stepper-step-inner {
-        border-color: rgba(124, 58, 237, 0.28);
-        background: rgba(250, 247, 255, 0.88);
-        box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.08), 0 4px 16px -8px rgba(124, 58, 237, 0.2);
+        border-color: rgba(26, 86, 219, 0.28);
+        background: rgba(242, 244, 248, 0.88);
+        box-shadow: 0 0 0 2px rgba(26, 86, 219, 0.08), 0 4px 16px -8px rgba(26, 86, 219, 0.2);
       }
 
       .registration-stepper-step:focus-visible {
-        box-shadow: 0 0 0 2px rgba(76, 29, 149, 0.3);
+        box-shadow: 0 0 0 2px rgba(26, 86, 219, 0.3);
         border-radius: 14px;
       }
 
@@ -157,9 +159,9 @@
         width: clamp(28px, 2.5vw, 32px);
         height: clamp(28px, 2.5vw, 32px);
         border-radius: 999px;
-        border: 1px solid #b9a8ff;
-        background: #f4f0ff;
-        color: #5b21b6;
+        border: 1px solid rgba(26, 86, 219, 0.3);
+        background: var(--rs-accent-soft);
+        color: var(--rs-accent);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -168,32 +170,35 @@
       }
 
       .registration-stepper-step.is-completed .registration-stepper-circle {
-        background: var(--rs-purple);
-        border-color: var(--rs-purple);
+        background: var(--rs-success);
+        border-color: var(--rs-success);
         color: #fff;
       }
 
       .registration-stepper-step.is-current-step .registration-stepper-circle {
+        background: var(--rs-accent);
+        border-color: var(--rs-accent);
+        color: #fff;
         transform: scale(1.08);
-        box-shadow: 0 0 0 5px rgba(124, 58, 237, 0.16), 0 8px 16px -10px rgba(76, 29, 149, 0.65);
+        box-shadow: 0 0 0 5px rgba(26, 86, 219, 0.16), 0 8px 16px -10px rgba(26, 86, 219, 0.65);
       }
 
       .registration-stepper-step.is-locked .registration-stepper-circle {
-        background: #fff;
-        border-color: #d0d7e3;
-        color: #9aa6b6;
+        background: rgba(255,255,255,0.08);
+        border-color: #e4e7ee;
+        color: var(--rs-muted);
       }
 
       .registration-stepper-step.is-waiting .registration-stepper-circle {
         background: #fff;
-        border-color: #cbd5e1;
-        color: #64748b;
+        border-color: #e4e7ee;
+        color: var(--rs-muted);
       }
 
       .registration-stepper-step.is-action_required .registration-stepper-circle {
         background: #fff7ed;
-        border-color: #fdba74;
-        color: #b45309;
+        border-color: #e5a630;
+        color: #8a6316;
       }
 
       /* Step body */
@@ -233,9 +238,9 @@
         padding: 2px 7px;
         font-size: 10px;
         font-weight: 700;
-        background: rgba(124, 58, 237, 0.1);
-        color: #7c3aed;
-        border: 1px solid rgba(124, 58, 237, 0.2);
+        background: var(--rs-accent-soft);
+        color: var(--rs-accent);
+        border: 1px solid rgba(26, 86, 219, 0.2);
         white-space: nowrap;
         line-height: 1.4;
         flex-shrink: 0;
@@ -296,8 +301,8 @@
         z-index: 10;
         min-width: 180px;
         max-width: 270px;
-        background: #0f172a;
-        color: #e2e8f0;
+        background: #0c1222;
+        color: #e4e7ee;
         border-radius: 10px;
         padding: 8px 10px;
         font-size: 11px;
@@ -305,7 +310,7 @@
         opacity: 0;
         pointer-events: none;
         transition: opacity .18s ease, transform .18s ease;
-        box-shadow: 0 14px 28px -20px rgba(2, 6, 23, 0.9);
+        box-shadow: 0 14px 28px -20px rgba(12, 18, 34, 0.9);
         white-space: normal;
       }
 
@@ -329,7 +334,7 @@
         position: absolute;
         inset: 0;
         border-radius: 14px;
-        background: rgba(124, 58, 237, 0.14);
+        background: rgba(26, 86, 219, 0.14);
         transform: scale(.75);
         opacity: 0;
         pointer-events: none;
@@ -448,7 +453,7 @@
     const toast = document.createElement("div");
     toast.id = "gp-stepper-toast";
     toast.textContent = message;
-    toast.style.cssText = "position:fixed;left:50%;bottom:22px;transform:translateX(-50%);padding:10px 14px;border-radius:10px;background:rgba(15,23,42,.94);color:#fff;font-size:12px;font-weight:700;z-index:10000;box-shadow:0 14px 30px -20px rgba(2,6,23,.9);";
+    toast.style.cssText = "position:fixed;left:50%;bottom:22px;transform:translateX(-50%);padding:10px 14px;border-radius:10px;background:rgba(12,18,34,.94);color:#fff;font-size:12px;font-weight:700;z-index:10000;box-shadow:0 14px 30px -20px rgba(12,18,34,.9);font-family:'DM Sans',-apple-system,sans-serif;";
     document.body.appendChild(toast);
     setTimeout(() => {
       toast.style.opacity = "0";
@@ -478,7 +483,11 @@
     if (targetIndex === -1) {
       targetIndex = Math.max(0, steps.reduce((acc, step, idx) => (step.classList.contains("is-completed") ? idx : acc), 0));
     }
-    const targetCenter = centers[Math.min(targetIndex, centers.length - 1)];
+
+    // Fill stops at the LEFT edge of the current step's circle (does not enter it)
+    const targetCircle = circles[Math.min(targetIndex, circles.length - 1)];
+    const targetCircleBox = targetCircle.getBoundingClientRect();
+    const targetLeft = targetCircleBox.left - trackBox.left;
 
     // Compute vertical center of first circle for accurate line placement
     const firstCircleBox = circles[0].getBoundingClientRect();
@@ -486,7 +495,7 @@
 
     track.style.setProperty("--rs-line-start", `${first}px`);
     track.style.setProperty("--rs-line-width", `${Math.max(0, last - first)}px`);
-    track.style.setProperty("--rs-fill-width", `${Math.max(0, targetCenter - first)}px`);
+    track.style.setProperty("--rs-fill-width", `${Math.max(0, targetLeft - first)}px`);
     track.style.setProperty("--rs-line-top", `${circleTop}px`);
   }
 
