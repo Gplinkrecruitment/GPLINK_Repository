@@ -3,264 +3,242 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#142b63" />
+  <meta name="theme-color" content="#0c1222" />
   <title>Registration Pathway - GP Link</title>
-  <script src="/js/nav-shell-bridge.js?v=20260326d"></script>
-  <script src="/js/auth-guard.js?v=20260311f" defer></script>
-  <script src="/js/state-sync.js?v=20260406a" defer></script>
-  <script src="/js/updates-sync.js?v=20260309c" defer></script>
+  <script src="/js/nav-shell-bridge.js?v=20260424b"></script>
+  <script src="/js/auth-guard.js?v=20260424b" defer></script>
+  <script src="/js/state-sync.js?v=20260424b" defer></script>
+  <script src="/js/updates-sync.js?v=20260424b" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&amp;display=swap" rel="stylesheet" />
   <style>
     :root {
-      --text: #ffffff;
-      --muted: rgba(255, 255, 255, 0.86);
-      --button: #ffffff;
-      --button-hover: #f4f7ff;
-      --button-text: #17316d;
-      --screen-gap: 24px;
+      --ink: #0c1222;
+      --ink-soft: #3d4663;
+      --ink-muted: #7c849b;
+      --surface: #f2f4f8;
+      --surface-raised: #ffffff;
+      --border: #e4e7ee;
+      --border-light: #eef0f4;
+      --accent: #1a56db;
+      --accent-glow: rgba(26, 86, 219, 0.12);
+      --success: #0d7c5f;
+      --warn-border: #e5a630;
+      --warn-text: #8a6316;
+      --hero-from: #0c1222;
+      --hero-to: #162036;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+      --sp-5: 20px; --sp-6: 24px; --sp-7: 28px; --sp-8: 32px;
+      --sp-10: 40px; --sp-12: 48px;
+      --font-heading: "Source Serif 4", Georgia, serif;
+      --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --radius: 12px;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    h1, h2, h3, h4, p { overflow-wrap: anywhere; }
 
-    html,
     body {
-      min-height: 100%;
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text);
-      background: url("/media/images/gp%20link%20reg%20app%20bg.png") center top / cover no-repeat;
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: var(--surface);
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
     }
 
-    body {
-      min-height: 100dvh;
-      margin: 0;
-      padding: 0;
+    /* ---- COMPACT DARK HEADER ---- */
+    .hero-compact {
+      background: linear-gradient(170deg, var(--hero-from), var(--hero-to));
+      border-radius: 0 0 20px 20px;
+      overflow: hidden;
+      position: relative;
+    }
+    .hero-compact::before {
+      content: "";
+      position: absolute; inset: 0;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      background-size: 200px;
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    .hero-compact-pad {
+      position: relative;
+      z-index: 1;
+      padding: var(--sp-5) var(--sp-7) var(--sp-5);
     }
 
-    .intro-shell {
-      min-height: 100dvh;
-      width: 100%;
+    /* ---- HEADER ROW ---- */
+    .hero-header {
+      display: flex; align-items: center;
+      justify-content: space-between;
+    }
+    .hero-left { display: flex; align-items: center; gap: var(--sp-3); }
+    .hero-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(140deg, #3366cc, #5588dd);
+      display: grid; place-items: center;
+      color: #fff; font-weight: 700; font-size: 14px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px -2px rgba(51, 102, 204, 0.4);
+    }
+    .hero-name {
+      font-family: var(--font-body);
+      font-size: 15px; font-weight: 700; color: #fff;
+    }
+    .hero-sub-text {
+      font-family: var(--font-body);
+      font-size: 12px; color: rgba(255,255,255,0.35);
+      margin-top: 1px;
+    }
+    .hero-icons { display: flex; gap: var(--sp-2); }
+    .hero-icon-btn {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      display: grid; place-items: center;
+      cursor: pointer; position: relative;
+      transition: all .15s ease;
+      color: rgba(255,255,255,0.5);
+    }
+    .hero-icon-btn:hover { background: rgba(255,255,255,0.1); }
+    .hero-icon-btn svg {
+      width: 18px; height: 18px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .header-badge {
+      position: absolute; top: -4px; right: -4px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #dc2626; color: #fff;
+      font-size: 9px; font-weight: 800;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 2px solid var(--hero-from);
+    }
+
+    /* ---- CENTERED CONTENT ---- */
+    .reg-intro-content {
+      background: var(--surface);
+      min-height: calc(100dvh - 120px);
       display: grid;
       place-items: center;
-      padding: 0 18px 34px;
+      padding: 0 20px 40px;
     }
-
-    .intro-card {
-      width: min(100%, 420px);
-      min-height: min(620px, calc(100dvh - 34px));
-      display: grid;
-      align-content: center;
-      justify-items: center;
-      gap: 28px;
-      padding: 52px 34px 34px;
-      border-radius: 32px;
-      background: transparent;
-      border: 0;
-      box-shadow: none;
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-    }
-
-    .intro-body {
-      display: grid;
-      align-content: center;
-      justify-items: center;
-      gap: 22px;
-      width: 100%;
-    }
-
-    .eyebrow {
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.72);
+    .reg-intro-inner {
       text-align: center;
+      max-width: 400px;
     }
-
-    .copy {
-      text-align: center;
-      display: grid;
-      gap: 16px;
-      justify-items: center;
-    }
-
-    .copy h1 {
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: clamp(3rem, 10vw, 4.4rem);
-      line-height: 0.84;
-      letter-spacing: -0.04em;
-      max-width: 7ch;
-      margin: 0 auto;
+    .reg-intro-title {
+      font-family: var(--font-heading);
+      font-size: clamp(2rem, 8vw, 3rem);
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      margin-bottom: var(--sp-4);
       text-wrap: balance;
     }
-
-    .lead {
-      max-width: 16ch;
-      font-size: 1.24rem;
-      line-height: 1.28;
-      font-weight: 800;
-      color: var(--muted);
-      text-wrap: balance;
-    }
-
-    .actions {
-      width: min(100%, 300px);
+    .reg-intro-lead {
+      font-size: 1.1rem;
+      color: var(--ink-muted);
+      line-height: 1.4;
+      max-width: 280px;
       margin: 0 auto;
-      display: grid;
-      gap: 12px;
     }
-
     .start-btn {
-      width: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 28px;
+      border-radius: 10px;
+      background: var(--ink);
+      color: #fff;
+      font-family: var(--font-body);
+      font-size: 15px;
+      font-weight: 600;
       border: 0;
-      border-radius: 16px;
-      padding: 17px 18px;
-      font: inherit;
-      font-size: 1.05rem;
-      font-weight: 800;
-      color: var(--button-text);
-      background: linear-gradient(180deg, #ffffff 0%, var(--button-hover) 100%);
-      box-shadow:
-        0 0 0 0 rgba(255, 255, 255, 0.52),
-        0 18px 30px -18px rgba(9, 20, 46, 0.58);
       cursor: pointer;
-      transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, opacity 0.18s ease;
-      animation: scanPulse 1.9s ease-out infinite;
-      will-change: transform, box-shadow;
+      width: 100%;
+      max-width: 300px;
+      box-shadow: 0 1px 3px rgba(12,18,34,0.2);
+      transition: all .15s ease;
     }
-
     .start-btn:hover {
-      animation-play-state: paused;
+      background: #1a2540;
       transform: translateY(-1px);
-      background: linear-gradient(180deg, #ffffff 0%, #eef3ff 100%);
-      box-shadow:
-        0 0 0 10px rgba(255, 255, 255, 0.16),
-        0 20px 32px -18px rgba(9, 20, 46, 0.62);
+      box-shadow: 0 4px 12px rgba(12,18,34,0.2);
     }
-
     .start-btn:active {
-      animation: none;
       transform: translateY(0) scale(0.99);
     }
-
     .start-btn:disabled {
-      animation: none;
-      cursor: wait;
-      opacity: 0.82;
+      opacity: 0.4;
+      cursor: not-allowed;
       transform: none;
     }
-
-    @keyframes scanPulse {
-      0% {
-        transform: scale(1);
-        box-shadow:
-          0 0 0 0 rgba(255, 255, 255, 0.52),
-          0 18px 30px -18px rgba(9, 20, 46, 0.58);
-      }
-      65% {
-        transform: scale(1.04);
-        box-shadow:
-          0 0 0 14px rgba(255, 255, 255, 0),
-          0 20px 32px -18px rgba(9, 20, 46, 0.62);
-      }
-      100% {
-        transform: scale(1);
-        box-shadow:
-          0 0 0 0 rgba(255, 255, 255, 0),
-          0 18px 30px -18px rgba(9, 20, 46, 0.58);
-      }
-    }
-
-    .action-note {
-      margin: 0 auto;
-      text-align: center;
-      font-size: 0.82rem;
+    .reg-intro-note {
+      font-size: 13px;
+      color: var(--ink-muted);
+      margin-top: var(--sp-4);
       line-height: 1.45;
-      font-weight: 700;
-      color: rgba(255, 255, 255, 0.72);
-      max-width: 28ch;
     }
 
-    @media (max-width: 480px) {
-      body {
-        display: block;
-        padding: 0;
+    /* ---- RESPONSIVE ---- */
+    @media (max-width: 860px) {
+      .hero-compact {
+        position: sticky; top: 0; z-index: 100;
+        border-radius: 0 0 16px 16px;
       }
-
-      .intro-shell {
-        width: 100%;
-        min-height: calc(100dvh - var(--gp-shell-bottom-clearance, 0px));
-        padding: 0;
+      .hero-compact-pad {
+        padding: var(--sp-4) var(--sp-5) var(--sp-4);
       }
-
-      .intro-card {
-        min-height: calc(100dvh - var(--gp-shell-bottom-clearance, 0px));
-        align-content: stretch;
-        justify-items: stretch;
-        gap: 24px;
-        padding:
-          max(34px, calc(env(safe-area-inset-top, 0px) + 28px))
-          22px
-          calc(24px + env(safe-area-inset-bottom, 0px));
-        border-radius: 0;
-        border: 0;
-        box-shadow: none;
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
-        background: transparent;
+      .hero-avatar { width: 34px; height: 34px; font-size: 12px; }
+      .hero-name { font-size: 14px; }
+      .hero-sub-text { font-size: 11px; }
+      .hero-icon-btn {
+        min-width: 44px; min-height: 44px;
+        border-radius: 8px; font-size: 12px;
       }
-
-      .intro-body {
-        align-content: center;
-        align-self: center;
-        justify-items: center;
-        min-height: 100%;
+      .reg-intro-content {
+        min-height: calc(100dvh - 90px);
+        padding-bottom: calc(40px + var(--gp-shell-bottom-clearance, 0px));
       }
-
-      .actions {
-        width: min(100%, 320px);
-      }
-
-      .copy h1 {
-        font-size: clamp(2.55rem, 12vw, 3.3rem);
-      }
-
-      .lead {
-        font-size: 1.08rem;
-      }
-    }
-
-    @media (min-width: 481px) {
-      .intro-shell {
-        padding-top: 0;
+      .reg-intro-title {
+        font-size: clamp(1.8rem, 7vw, 2.4rem);
       }
     }
   </style>
 </head>
 <body>
-  <main class="intro-shell">
-    <section class="intro-card" aria-labelledby="registrationIntroHeading">
-      <div class="intro-body">
-        <p class="eyebrow">Registration Pathway</p>
-
-        <header class="copy">
-          <h1 id="registrationIntroHeading">Specialist Pathway</h1>
-          <p class="lead">Step by step guidance, tailored just for you.</p>
-        </header>
+  <div class="hero-compact">
+    <div class="hero-compact-pad">
+      <div class="hero-header">
+        <div class="hero-left">
+          <div class="hero-avatar" id="headerAvatar">GP</div>
+          <div>
+            <div class="hero-name" id="heroName">Welcome</div>
+            <div class="hero-sub-text">Registration pathway</div>
+          </div>
+        </div>
+        <div class="hero-icons">
+          <button class="hero-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
+            <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+            <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          </button>
+        </div>
       </div>
+    </div>
+  </div>
 
-      <div class="actions">
-        <button class="start-btn" id="startRegistrationBtn" type="button">Get Started</button>
-        <p class="action-note">We're here every step of the way.</p>
+  <div class="reg-intro-content">
+    <div class="reg-intro-inner">
+      <h1 class="reg-intro-title">Your Registration Pathway</h1>
+      <p class="reg-intro-lead">Complete each step to begin practising in Australia</p>
+      <div style="margin-top: 32px;">
+        <button class="start-btn" id="startRegistrationBtn" type="button">Begin Registration &rarr;</button>
       </div>
-    </section>
-  </main>
+      <p class="reg-intro-note">Already started? Your progress is saved automatically.</p>
+    </div>
+  </div>
 
   <script>
     (function () {
@@ -304,6 +282,18 @@
           markSeenAndContinue();
         });
       }
+
+      /* Populate avatar initials from session if available */
+      try {
+        var session = JSON.parse(localStorage.getItem("gp_session") || "{}");
+        if (session.first_name) {
+          var initials = (session.first_name || "").charAt(0) + (session.last_name || "").charAt(0);
+          var avatarEl = document.getElementById("headerAvatar");
+          var nameEl = document.getElementById("heroName");
+          if (avatarEl && initials) avatarEl.textContent = initials.toUpperCase();
+          if (nameEl && session.first_name) nameEl.textContent = session.first_name;
+        }
+      } catch (e) {}
     })();
   </script>
 </body>
