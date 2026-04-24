@@ -3,31 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Commencement - GP Link</title>
-  <script src="/js/nav-shell-bridge.js?v=20260329a"></script>
-  <script src="/js/auth-guard.js?v=20260311f" defer></script>
-  <script src="/js/state-sync.js?v=20260406a" defer></script>
-  <script src="/js/updates-sync.js?v=20260309c" defer></script>
-  <script src="/js/qualification-camera.js?v=20260310a" defer></script>
-  <script src="/js/qualification-scan.js?v=20260331c" defer></script>
-  <script src="/js/account-dropdown.js?v=20260329a" defer></script>
+  <script src="/js/nav-shell-bridge.js?v=20260424b"></script>
+  <script src="/js/auth-guard.js?v=20260424b" defer></script>
+  <script src="/js/state-sync.js?v=20260424b" defer></script>
+  <script src="/js/updates-sync.js?v=20260424b" defer></script>
+  <script src="/js/qualification-camera.js?v=20260424b" defer></script>
+  <script src="/js/qualification-scan.js?v=20260424b" defer></script>
+  <script src="/js/account-dropdown.js?v=20260424b" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&amp;display=swap" rel="stylesheet" />
   <style>
     :root {
-      --text: #0f172a;
-      --muted: #64748b;
-      --blue: #2563eb;
-      --blue2: #1d4ed8;
-      --green: #10b981;
-      --green2: #16a34a;
-      --orange: #f59e0b;
-      --orange2: #f97316;
-      --red: #dc2626;
-      --card: rgba(255, 255, 255, 0.92);
-      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
-      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
-      --radius: 20px;
+      --ink: #0c1222;
+      --ink-soft: #3d4663;
+      --ink-muted: #7c849b;
+      --surface: #f2f4f8;
+      --surface-raised: #ffffff;
+      --border: #e4e7ee;
+      --border-light: #eef0f4;
+      --accent: #1a56db;
+      --accent-glow: rgba(26, 86, 219, 0.12);
+      --success: #0d7c5f;
+      --warn-border: #e5a630;
+      --warn-text: #8a6316;
+      --hero-from: #0c1222;
+      --hero-to: #162036;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+      --sp-5: 20px; --sp-6: 24px; --sp-7: 28px; --sp-8: 32px;
+      --sp-10: 40px; --sp-12: 48px;
+      --font-heading: "Source Serif 4", Georgia, serif;
+      --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --radius: 12px;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -35,183 +42,222 @@
     h1, h2, h3, h4, p { overflow-wrap: anywhere; }
 
     body {
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text);
-      background: #f0f4fa;
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: var(--surface);
       min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
     }
 
     .dash-wrap {
       max-width: 960px;
       margin: 0 auto;
-      padding: 0 16px 120px;
+      padding: 0;
     }
 
-    /* ---- HEADER ---- */
-    .app-header {
+    /* ---- COMPACT DARK HEADER ---- */
+    .hero-compact {
+      background: linear-gradient(170deg, var(--hero-from), var(--hero-to));
+      border-radius: 0 0 20px 20px;
+      overflow: hidden;
+      position: relative;
+    }
+    .hero-compact::before {
+      content: "";
+      position: absolute; inset: 0;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      background-size: 200px;
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    .hero-compact-pad {
+      position: relative;
+      z-index: 1;
+      padding: var(--sp-5) var(--sp-7) var(--sp-5);
+    }
+
+    /* ---- HEADER ROW ---- */
+    .hero-header {
       display: flex; align-items: center;
-      justify-content: space-between; padding: 18px 0 14px;
+      justify-content: space-between;
     }
-    .header-greeting { display: flex; align-items: center; gap: 12px; }
-    .header-avatar {
-      width: 48px; height: 48px; border-radius: 50%;
-      background: linear-gradient(135deg, #2563eb, #7c3aed);
+    .hero-left { display: flex; align-items: center; gap: var(--sp-3); }
+    .hero-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(140deg, #3366cc, #5588dd);
       display: grid; place-items: center;
-      color: #fff; font-weight: 800; font-size: 18px;
-      flex-shrink: 0; border: 2px solid #fff;
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+      color: #fff; font-weight: 700; font-size: 14px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px -2px rgba(51, 102, 204, 0.4);
     }
-    .header-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
-    .header-text p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 1px; }
-    .header-actions { display: flex; gap: 8px; align-items: center; }
-    .header-icon-btn {
-      width: 42px; height: 42px; border-radius: 14px;
-      border: 1px solid #e2e8f0; background: #fff;
-      display: grid; place-items: center; cursor: pointer;
-      position: relative; transition: all .15s ease; color: #475569;
+    .hero-name {
+      font-family: var(--font-body);
+      font-size: 15px; font-weight: 700; color: #fff;
     }
-    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
-    .header-icon-btn svg {
-      width: 20px; height: 20px; stroke: currentColor;
+    .hero-sub-text {
+      font-family: var(--font-body);
+      font-size: 12px; color: rgba(255,255,255,0.35);
+      margin-top: 1px;
+    }
+    .hero-icons { display: flex; gap: var(--sp-2); }
+    .hero-icon-btn {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      display: grid; place-items: center;
+      cursor: pointer; position: relative;
+      transition: all .15s ease;
+      color: rgba(255,255,255,0.5);
+      text-decoration: none;
+    }
+    .hero-icon-btn:hover { background: rgba(255,255,255,0.1); }
+    .hero-icon-btn svg {
+      width: 18px; height: 18px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
     .header-badge {
       position: absolute; top: -4px; right: -4px;
-      width: 18px; height: 18px; border-radius: 50%;
+      width: 16px; height: 16px; border-radius: 50%;
       background: #dc2626; color: #fff;
-      font-size: 10px; font-weight: 800;
+      font-size: 9px; font-weight: 800;
       display: inline-flex; align-items: center; justify-content: center;
-      border: 2px solid #f0f4fa;
+      border: 2px solid var(--hero-from);
     }
 
-    /* ---- PAGE HERO ---- */
-    .page-hero {
-      padding: 8px 0 16px;
-    }
-    .page-hero h1 {
-      font-size: 24px; font-weight: 800;
-      letter-spacing: -0.02em; line-height: 1.2;
-    }
-    .page-hero p {
-      font-size: 14px; color: var(--muted);
-      font-weight: 500; margin-top: 4px; line-height: 1.5;
+    /* ---- CONTENT SURFACE ---- */
+    .reg-content {
+      padding: var(--sp-6) var(--sp-7) var(--sp-10);
     }
 
-    /* ---- CARD ---- */
-    .card {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5; padding: 20px;
-      margin-bottom: 16px; position: relative; overflow: hidden;
-    }
-    .card::before {
-      content: ""; position: absolute; top: 0; left: 0; right: 0;
-      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
-    }
-    .card.pre-arrival::before { background: linear-gradient(90deg, #f59e0b, #f97316); }
-    .card.first-day::before { background: linear-gradient(90deg, #16a34a, #22c55e); }
-    .card-label {
-      font-size: 10px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
-    }
-    .card-title {
-      font-size: 18px; font-weight: 800;
-      letter-spacing: -0.01em; line-height: 1.3; margin-bottom: 4px;
-    }
-    .card-sub {
-      font-size: 13px; color: #475569;
-      font-weight: 500; line-height: 1.5; margin-bottom: 14px;
-    }
-
-    /* ---- COUNTDOWN HERO ---- */
-    .countdown-card {
-      text-align: center; padding: 28px 20px;
+    /* ---- COUNTDOWN CARD (action-card variant) ---- */
+    .action-card {
+      background: var(--surface-raised);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: var(--sp-6) var(--sp-5);
+      margin-bottom: var(--sp-6);
+      text-align: center;
     }
     .countdown-value {
-      font-size: 48px; font-weight: 900;
-      letter-spacing: -0.03em; color: var(--blue);
+      font-family: var(--font-heading);
+      font-size: 48px; font-weight: 700;
+      letter-spacing: -0.03em; color: var(--accent);
       line-height: 1;
     }
     .countdown-label {
-      font-size: 14px; font-weight: 600; color: var(--muted);
-      margin-top: 4px;
+      font-size: 14px; font-weight: 500; color: var(--ink-muted);
+      margin-top: var(--sp-1);
     }
     .countdown-date {
       display: inline-flex; align-items: center; gap: 6px;
-      margin-top: 10px; padding: 5px 12px; border-radius: 999px;
-      background: #eff6ff; color: #1d4ed8;
-      font-size: 12px; font-weight: 700;
+      margin-top: var(--sp-3); padding: 5px 12px; border-radius: 999px;
+      background: var(--accent-glow); color: var(--accent);
+      font-size: 12px; font-weight: 600;
+    }
+
+    /* ---- PROGRESS ROW ---- */
+    .progress-row {
+      display: flex; align-items: center; gap: var(--sp-3);
+      margin-bottom: var(--sp-6);
+    }
+    .progress-track {
+      flex: 1; height: 6px; border-radius: 999px;
+      background: var(--border-light); overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), var(--success));
+      transition: width .4s ease;
+    }
+    .progress-text {
+      font-size: 12px; font-weight: 600; color: var(--ink-muted);
+      white-space: nowrap;
+    }
+
+    /* ---- SECTION TITLE ---- */
+    .sec-title {
+      font-family: var(--font-heading);
+      font-size: 20px; font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+      margin-bottom: var(--sp-1);
+    }
+    .sec-desc {
+      font-size: 13px; color: var(--ink-muted);
+      line-height: 1.5; margin-bottom: var(--sp-4);
     }
 
     /* ---- CHECKLIST ---- */
-    .checklist { display: grid; gap: 6px; }
+    .checklist { display: grid; gap: 0; margin-bottom: var(--sp-7); }
     .check-item {
-      display: flex; align-items: center; gap: 12px;
-      padding: 14px 16px; border: 1px solid #e8edf5;
-      border-radius: 14px; background: #fafbfd;
+      display: flex; align-items: center; gap: var(--sp-3);
+      padding: var(--sp-3) 0;
+      border-bottom: 1px solid var(--border-light);
       cursor: pointer; transition: all .15s ease;
       user-select: none; -webkit-user-select: none;
     }
-    .check-item:hover { background: #f8fafc; border-color: #cbd5e1; }
-    .check-item.checked { background: #f0fdf4; border-color: #bbf7d0; }
+    .check-item:last-child { border-bottom: 0; }
+    .check-item:hover { background: rgba(26, 86, 219, 0.03); }
+    .check-item.checked { }
     .check-box {
-      width: 24px; height: 24px; border-radius: 8px;
-      border: 2px solid #cbd5e1; display: grid; place-items: center;
+      width: 22px; height: 22px; border-radius: 6px;
+      border: 2px solid var(--border);
+      display: grid; place-items: center;
       flex-shrink: 0; transition: all .15s ease;
       color: transparent;
     }
     .check-box svg {
-      width: 14px; height: 14px; stroke: currentColor;
+      width: 13px; height: 13px; stroke: currentColor;
       fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
     }
     .check-item.checked .check-box {
-      background: var(--green); border-color: var(--green); color: #fff;
+      background: var(--success); border-color: var(--success); color: #fff;
     }
-    .check-copy { flex: 1; }
-    .check-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .check-copy { flex: 1; min-width: 0; }
+    .check-title {
+      font-size: 14px; font-weight: 600; color: var(--ink);
+      line-height: 1.3;
+    }
     .check-due {
-      font-size: 11px; font-weight: 500; color: var(--muted); margin-top: 1px;
+      font-size: 12px; font-weight: 500; color: var(--ink-muted); margin-top: 1px;
     }
-    .check-item.checked .check-title { color: #166534; text-decoration: line-through; text-decoration-color: #86efac; }
-
-    /* ---- PROGRESS ---- */
-    .progress-row {
-      display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
-    }
-    .progress-track {
-      flex: 1; height: 8px; border-radius: 999px;
-      background: #e8edf5; overflow: hidden;
-    }
-    .progress-fill {
-      height: 100%; border-radius: 999px;
-      background: linear-gradient(90deg, var(--blue), var(--green));
-      transition: width .4s ease;
-    }
-    .progress-text {
-      font-size: 12px; font-weight: 700; color: var(--muted);
-      white-space: nowrap;
+    .check-item.checked .check-title {
+      color: var(--success); text-decoration: line-through;
+      text-decoration-color: rgba(13, 124, 95, 0.3);
     }
 
     /* ---- TIMELINE ---- */
     .timeline { display: grid; gap: 0; padding-left: 20px; position: relative; }
     .timeline::before {
       content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px;
-      width: 2px; background: #e2e8f0;
+      width: 2px; background: var(--border);
     }
     .timeline-item {
-      position: relative; padding: 0 0 20px 20px;
+      position: relative; padding: 0 0 var(--sp-5) var(--sp-5);
     }
     .timeline-item:last-child { padding-bottom: 0; }
     .timeline-dot {
       position: absolute; left: -20px; top: 4px;
       width: 14px; height: 14px; border-radius: 50%;
-      background: #e8edf5; border: 2px solid #fff;
-      box-shadow: 0 0 0 2px #e2e8f0;
+      background: var(--border-light); border: 2px solid var(--surface);
+      box-shadow: 0 0 0 2px var(--border);
     }
-    .timeline-item.upcoming .timeline-dot { background: var(--orange); box-shadow: 0 0 0 2px var(--orange); }
-    .timeline-item.done .timeline-dot { background: var(--green); box-shadow: 0 0 0 2px var(--green); }
-    .timeline-date { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
-    .timeline-text { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; }
-    .timeline-detail { font-size: 12px; color: #475569; font-weight: 500; margin-top: 2px; }
+    .timeline-item.upcoming .timeline-dot {
+      background: var(--warn-border); box-shadow: 0 0 0 2px var(--warn-border);
+    }
+    .timeline-item.done .timeline-dot {
+      background: var(--success); box-shadow: 0 0 0 2px var(--success);
+    }
+    .timeline-date {
+      font-size: 11px; color: var(--ink-muted); font-weight: 600; margin-bottom: 2px;
+    }
+    .timeline-text {
+      font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.4;
+    }
+    .timeline-detail {
+      font-size: 12px; color: var(--ink-soft); font-weight: 500; margin-top: 2px;
+    }
 
     /* ---- LOADING ---- */
     .loading-bars {
@@ -220,7 +266,7 @@
     }
     .loading-bar {
       height: 14px; border-radius: 8px;
-      background: linear-gradient(90deg, #e8edf5 25%, #f1f5f9 50%, #e8edf5 75%);
+      background: linear-gradient(90deg, var(--border-light) 25%, var(--surface) 50%, var(--border-light) 75%);
       background-size: 200% 100%;
       animation: shimmer 1.5s ease-in-out infinite;
     }
@@ -232,66 +278,126 @@
       100% { background-position: -200% 0; }
     }
 
-    /* ---- RESPONSIVE ---- */
-    @media (min-width: 768px) {
-      .app-header { display: none; }
+    /* ---- BUTTONS ---- */
+    .btn-row {
+      display: flex; justify-content: space-between;
+      align-items: center; gap: var(--sp-3);
+      margin-top: var(--sp-5);
     }
-    @media (max-width: 767px) {
-      .app-header { display: flex; }
-      .page-hero h1 { font-size: 20px; }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 12px 24px; border-radius: 10px;
+      background: var(--ink); color: #fff;
+      font-family: var(--font-body);
+      font-size: 13px; font-weight: 600;
+      border: 0; cursor: pointer;
+      box-shadow: 0 1px 3px rgba(12, 18, 34, 0.2);
+      transition: all .15s ease;
+    }
+    .btn-primary:hover {
+      background: #1a2540;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(12, 18, 34, 0.2);
+    }
+    .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    .btn-primary svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 12px 20px; border-radius: 10px;
+      background: transparent; color: var(--ink-muted);
+      font-family: var(--font-body);
+      font-size: 13px; font-weight: 500;
+      border: 0; cursor: pointer;
+      transition: color .15s ease;
+    }
+    .btn-ghost:hover { color: var(--ink); }
+    .btn-ghost svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ---- RESPONSIVE ---- */
+    @media (max-width: 860px) {
+      .hero-compact {
+        position: sticky; top: 0; z-index: 100;
+        border-radius: 0 0 16px 16px;
+      }
+      .hero-compact-pad {
+        padding: var(--sp-4) var(--sp-5) var(--sp-4);
+      }
+      .hero-avatar { width: 34px; height: 34px; font-size: 12px; }
+      .hero-name { font-size: 14px; }
+      .hero-sub-text { font-size: 11px; }
+      .hero-icon-btn {
+        min-width: 44px; min-height: 44px;
+        border-radius: 8px;
+      }
+      .reg-content {
+        padding: var(--sp-5) var(--sp-4) 100px;
+      }
       .countdown-value { font-size: 36px; }
+      .sec-title { font-size: 18px; }
+      .check-title { font-size: 13px; }
+      .check-due { font-size: 11px; }
+      .btn-row {
+        flex-direction: column-reverse;
+      }
+      .btn-row .btn-primary,
+      .btn-row .btn-ghost { width: 100%; justify-content: center; }
     }
   </style>
 </head>
 <body>
 
   <div class="dash-wrap">
-    <!-- MOBILE HEADER -->
-    <header class="app-header">
-      <div class="header-greeting">
-        <div class="header-avatar">GP</div>
-        <div class="header-text">
-          <h1>Commencement</h1>
-          <p>Pre-arrival checklist</p>
+    <!-- COMPACT DARK HEADER -->
+    <section class="hero-compact">
+      <div class="hero-compact-pad">
+        <div class="hero-header">
+          <div class="hero-left">
+            <div class="hero-avatar">GP</div>
+            <div>
+              <div class="hero-name">Commencement</div>
+              <div class="hero-sub-text">Pre-arrival checklist</div>
+            </div>
+          </div>
+          <div class="hero-icons">
+            <button class="hero-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
+              <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+              <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </button>
+            <a class="hero-icon-btn" href="/pages/account.html" aria-label="Account">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            </a>
+          </div>
         </div>
       </div>
-      <div class="header-actions">
-        <button class="header-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
-          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
-          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        </button>
-        <a class="header-icon-btn" href="/pages/account.html" aria-label="Account">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-        </a>
+    </section>
+
+    <!-- LIGHT CONTENT SURFACE -->
+    <div class="reg-content">
+
+      <!-- COUNTDOWN -->
+      <div class="action-card">
+        <div class="countdown-value" id="countdownValue">--</div>
+        <div class="countdown-label" id="countdownLabel">days until your start</div>
+        <span class="countdown-date" id="countdownDate">Start date loading...</span>
       </div>
-    </header>
 
-    <!-- PAGE HERO -->
-    <div class="page-hero">
-      <h1>Commencement</h1>
-      <p>Your pre-arrival and first-day checklist. Complete each item before your practice start date to ensure a smooth transition.</p>
-    </div>
-
-    <!-- COUNTDOWN -->
-    <div class="card countdown-card">
-      <div class="countdown-value" id="countdownValue">--</div>
-      <div class="countdown-label" id="countdownLabel">days until your start</div>
-      <span class="countdown-date" id="countdownDate">Start date loading...</span>
-    </div>
-
-    <!-- PROGRESS -->
-    <div class="progress-row">
-      <div class="progress-track">
-        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      <!-- PROGRESS -->
+      <div class="progress-row">
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill" style="width:0%"></div>
+        </div>
+        <span class="progress-text" id="progressText">0 of 7 complete</span>
       </div>
-      <span class="progress-text" id="progressText">0 of 7 complete</span>
-    </div>
 
-    <!-- PRE-ARRIVAL CHECKLIST -->
-    <div class="card pre-arrival">
-      <span class="card-label">Pre-arrival</span>
-      <h2 class="card-title">Before You Arrive</h2>
-      <p class="card-sub">Tasks to complete before travelling to your practice location.</p>
+      <!-- PRE-ARRIVAL CHECKLIST -->
+      <h3 class="sec-title">Pre-Arrival Checklist</h3>
+      <p class="sec-desc">Tasks to complete before travelling to your practice location.</p>
       <div class="checklist" id="preArrivalChecklist">
         <div class="check-item" data-key="travel_booked">
           <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -329,13 +435,10 @@
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- FIRST-DAY CHECKLIST -->
-    <div class="card first-day">
-      <span class="card-label">First day</span>
-      <h2 class="card-title">First Day Preparation</h2>
-      <p class="card-sub">Final tasks for your orientation and first day at the practice.</p>
+      <!-- FIRST-DAY CHECKLIST -->
+      <h3 class="sec-title">First Day Checklist</h3>
+      <p class="sec-desc">Final tasks for your orientation and first day at the practice.</p>
       <div class="checklist" id="firstDayChecklist">
         <div class="check-item" data-key="orientation_scheduled">
           <div class="check-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -352,13 +455,10 @@
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- TIMELINE -->
-    <div class="card">
-      <span class="card-label">Timeline</span>
-      <h2 class="card-title">Key Dates</h2>
-      <p class="card-sub">Important dates relative to your practice start date.</p>
+      <!-- TIMELINE -->
+      <h3 class="sec-title">Key Dates</h3>
+      <p class="sec-desc">Important dates relative to your practice start date.</p>
       <div class="timeline" id="commencementTimeline">
         <div class="loading-bars">
           <span class="loading-bar"></span>
@@ -466,7 +566,7 @@
     function renderTimeline(startDateIso) {
       var container = document.getElementById("commencementTimeline");
       if (!startDateIso) {
-        container.innerHTML = '<p style="font-size:13px;color:#64748b;font-weight:500;">Timeline will appear once your start date is confirmed.</p>';
+        container.innerHTML = '<p style="font-size:13px;color:var(--ink-muted);font-weight:500;">Timeline will appear once your start date is confirmed.</p>';
         return;
       }
 
@@ -535,7 +635,7 @@
         })
         .catch(function () {
           var container = document.getElementById("commencementTimeline");
-          container.innerHTML = '<p style="font-size:13px;color:#64748b;font-weight:500;">Timeline will appear once your commencement details are confirmed. Check back soon.</p>';
+          container.innerHTML = '<p style="font-size:13px;color:var(--ink-muted);font-weight:500;">Timeline will appear once your commencement details are confirmed. Check back soon.</p>';
           updateCountdown(null);
         });
     }
