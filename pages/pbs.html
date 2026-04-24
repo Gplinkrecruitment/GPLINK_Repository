@@ -3,31 +3,39 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>PBS & Medicare - GP Link</title>
-  <script src="/js/nav-shell-bridge.js?v=20260401a"></script>
-  <script src="/js/auth-guard.js?v=20260401a" defer></script>
-  <script src="/js/state-sync.js?v=20260406a" defer></script>
-  <script src="/js/updates-sync.js?v=20260401a" defer></script>
-  <script src="/js/qualification-camera.js?v=20260401a" defer></script>
-  <script src="/js/qualification-scan.js?v=20260401a" defer></script>
-  <script src="/js/account-dropdown.js?v=20260401a" defer></script>
+  <script src="/js/nav-shell-bridge.js?v=20260424b"></script>
+  <script src="/js/auth-guard.js?v=20260424b" defer></script>
+  <script src="/js/state-sync.js?v=20260424b" defer></script>
+  <script src="/js/updates-sync.js?v=20260424b" defer></script>
+  <script src="/js/qualification-camera.js?v=20260424b" defer></script>
+  <script src="/js/qualification-scan.js?v=20260424b" defer></script>
+  <script src="/js/account-dropdown.js?v=20260424b" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&amp;display=swap" rel="stylesheet" />
   <style>
     :root {
-      --text: #0f172a;
-      --muted: #64748b;
-      --blue: #2563eb;
-      --blue2: #1d4ed8;
-      --green: #10b981;
-      --green2: #16a34a;
-      --orange: #f59e0b;
-      --orange2: #f97316;
+      --ink: #0c1222;
+      --ink-soft: #3d4663;
+      --ink-muted: #7c849b;
+      --surface: #f2f4f8;
+      --surface-raised: #ffffff;
+      --border: #e4e7ee;
+      --border-light: #eef0f4;
+      --accent: #1a56db;
+      --accent-glow: rgba(26, 86, 219, 0.12);
+      --success: #0d7c5f;
+      --warn-border: #e5a630;
+      --warn-text: #8a6316;
+      --hero-from: #0c1222;
+      --hero-to: #162036;
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+      --sp-5: 20px; --sp-6: 24px; --sp-7: 28px; --sp-8: 32px;
+      --sp-10: 40px; --sp-12: 48px;
+      --font-heading: "Source Serif 4", Georgia, serif;
+      --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --radius: 12px;
       --red: #dc2626;
-      --card: rgba(255, 255, 255, 0.92);
-      --shadow: 0 18px 45px -28px rgba(2, 6, 23, 0.55);
-      --shadow2: 0 8px 24px -16px rgba(2, 6, 23, 0.18);
-      --radius: 20px;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -35,221 +43,297 @@
     h1, h2, h3, h4, p { overflow-wrap: anywhere; }
 
     body {
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text);
-      background: #f0f4fa;
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: var(--surface);
       min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
     }
 
     .dash-wrap {
       max-width: 960px;
       margin: 0 auto;
-      padding: 0 16px 120px;
+      padding: 0;
     }
 
-    /* ---- HEADER ---- */
-    .app-header {
+    /* ---- COMPACT DARK HEADER ---- */
+    .hero-compact {
+      background: linear-gradient(170deg, var(--hero-from), var(--hero-to));
+      border-radius: 0 0 20px 20px;
+      overflow: hidden;
+      position: relative;
+    }
+    .hero-compact::before {
+      content: "";
+      position: absolute; inset: 0;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      background-size: 200px;
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    .hero-compact-pad {
+      position: relative;
+      z-index: 1;
+      padding: var(--sp-5) var(--sp-7) var(--sp-4);
+    }
+
+    /* ---- HEADER ROW ---- */
+    .hero-header {
       display: flex; align-items: center;
-      justify-content: space-between; padding: 18px 0 14px;
+      justify-content: space-between;
+      margin-bottom: var(--sp-4);
     }
-    .header-greeting { display: flex; align-items: center; gap: 12px; }
-    .header-avatar {
-      width: 48px; height: 48px; border-radius: 50%;
-      background: linear-gradient(135deg, #2563eb, #7c3aed);
+    .hero-left { display: flex; align-items: center; gap: var(--sp-3); }
+    .hero-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(140deg, #3366cc, #5588dd);
       display: grid; place-items: center;
-      color: #fff; font-weight: 800; font-size: 18px;
-      flex-shrink: 0; border: 2px solid #fff;
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.4);
+      color: #fff; font-weight: 700; font-size: 14px;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px -2px rgba(51, 102, 204, 0.4);
     }
-    .header-text h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
-    .header-text p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 1px; }
-    .header-actions { display: flex; gap: 8px; align-items: center; }
-    .header-icon-btn {
-      width: 42px; height: 42px; border-radius: 14px;
-      border: 1px solid #e2e8f0; background: #fff;
-      display: grid; place-items: center; cursor: pointer;
-      position: relative; transition: all .15s ease; color: #475569;
+    .hero-name {
+      font-family: var(--font-body);
+      font-size: 15px; font-weight: 700; color: #fff;
     }
-    .header-icon-btn:hover { background: #f1f5f9; border-color: #cbd5e1; }
-    .header-icon-btn svg {
-      width: 20px; height: 20px; stroke: currentColor;
+    .hero-sub-text {
+      font-family: var(--font-body);
+      font-size: 12px; color: rgba(255,255,255,0.35);
+      margin-top: 1px;
+    }
+    .hero-icons { display: flex; gap: var(--sp-2); }
+    .hero-icon-btn {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      display: grid; place-items: center;
+      cursor: pointer; position: relative;
+      transition: all .15s ease;
+      color: rgba(255,255,255,0.5);
+    }
+    .hero-icon-btn:hover { background: rgba(255,255,255,0.1); }
+    .hero-icon-btn svg {
+      width: 18px; height: 18px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
     .header-badge {
       position: absolute; top: -4px; right: -4px;
-      width: 18px; height: 18px; border-radius: 50%;
+      width: 16px; height: 16px; border-radius: 50%;
       background: #dc2626; color: #fff;
-      font-size: 10px; font-weight: 800;
+      font-size: 9px; font-weight: 800;
       display: inline-flex; align-items: center; justify-content: center;
-      border: 2px solid #f0f4fa;
+      border: 2px solid var(--hero-from);
     }
 
-    /* ---- PAGE HERO ---- */
-    .page-hero { padding: 8px 0 18px; }
-    .page-hero h1 {
-      font-size: 24px; font-weight: 800;
-      letter-spacing: -0.02em; line-height: 1.2;
-    }
-    .page-hero p {
-      font-size: 14px; color: var(--muted);
-      font-weight: 500; margin-top: 4px; line-height: 1.5;
+    /* ---- STEP EYEBROW ---- */
+    .step-eyebrow {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.3);
+      margin-bottom: var(--sp-3);
     }
 
-    /* ---- SETUP STEPPER ---- */
-    .pbs-stepper {
-      display: flex; align-items: flex-start;
-      gap: 0; margin-bottom: 24px;
-      padding: 0 4px;
+    /* ---- PROGRESS CONNECTOR + TABS ---- */
+    .tabs-track { position: relative; }
+    .tabs-progress-fill {
+      position: absolute;
+      top: 50%; left: 0;
+      height: 2px;
+      background: var(--success);
+      transform: translateY(-50%);
+      transition: width 0.4s ease;
+      z-index: 0;
+      border-radius: 1px;
     }
-    .pbs-step {
-      flex: 1; display: flex; flex-direction: column;
-      align-items: center; position: relative; z-index: 2;
+    .tabs {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      gap: 3px;
+      overflow-x: auto;
+      -ms-overflow-style: none; scrollbar-width: none;
     }
-    .pbs-step-dot {
-      width: 32px; height: 32px; border-radius: 50%;
+    .tabs::-webkit-scrollbar { display: none; }
+
+    .tab {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border-radius: 8px;
+      font-size: 12px; font-weight: 500;
+      color: rgba(255,255,255,0.35);
+      white-space: nowrap; flex-shrink: 0;
+      border: 1px solid transparent;
+      cursor: pointer; background: transparent;
+      font-family: var(--font-body);
+      transition: all .2s ease;
+    }
+    .tab:hover { color: rgba(255,255,255,0.55); }
+    .tab.active {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.1);
+      color: #fff; font-weight: 600;
+    }
+    .tab.done { color: rgba(255,255,255,0.5); }
+
+    .tab-n {
+      width: 20px; height: 20px; border-radius: 50%;
       display: grid; place-items: center;
-      background: #e8edf5; color: #94a3b8;
-      font-size: 11px; font-weight: 700;
-      border: 2px solid #e2e8f0;
-      transition: all .25s ease;
-      position: relative; z-index: 2;
+      font-size: 10px; font-weight: 600;
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.4);
+      flex-shrink: 0; transition: all .2s;
     }
-    .pbs-step-dot svg {
-      width: 14px; height: 14px; stroke: currentColor;
+    .tab-n svg {
+      width: 11px; height: 11px; stroke: currentColor;
       fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
     }
-    .pbs-step.active .pbs-step-dot {
-      background: var(--blue); color: #fff;
-      border-color: var(--blue);
-      box-shadow: 0 4px 12px -4px rgba(37, 99, 235, 0.5);
+    .tab.active .tab-n {
+      background: var(--accent); color: #fff;
+      box-shadow: 0 1px 6px -1px rgba(26, 86, 219, 0.5);
     }
-    .pbs-step.done .pbs-step-dot {
-      background: var(--green); color: #fff;
-      border-color: var(--green);
-    }
-    .pbs-step-label {
-      margin-top: 6px; font-size: 10px; font-weight: 600;
-      color: #94a3b8; text-align: center; line-height: 1.3;
-    }
-    .pbs-step.active .pbs-step-label { color: var(--blue); font-weight: 700; }
-    .pbs-step.done .pbs-step-label { color: var(--green); }
-    .pbs-step-connector {
-      position: absolute; top: 16px;
-      left: calc(50% + 16px); right: calc(-50% + 16px);
-      height: 2px; background: #e2e8f0; z-index: 1;
-    }
-    .pbs-step.done .pbs-step-connector { background: var(--green); }
-    .pbs-step.active .pbs-step-connector { background: linear-gradient(90deg, var(--blue), #e2e8f0); }
-    .pbs-step:last-child .pbs-step-connector { display: none; }
+    .tab.done .tab-n { background: var(--success); color: #fff; }
 
-    /* ---- CASE SUMMARY ---- */
-    .case-summary {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5;
-      padding: 22px 20px 20px;
-      margin-bottom: 14px;
-      position: relative; overflow: hidden;
+    /* ---- CONTENT SURFACE ---- */
+    .reg-content {
+      padding: var(--sp-6) var(--sp-7) var(--sp-10);
     }
-    .case-summary::before {
-      content: ""; position: absolute; top: 0; left: 0; right: 0;
-      height: 3px; background: linear-gradient(90deg, #2563eb, #7c3aed);
+
+    /* ---- STEP TITLE (on light surface) ---- */
+    .step-title {
+      font-family: var(--font-heading);
+      font-size: 28px; font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: var(--sp-2);
     }
-    .case-summary-top {
-      display: flex; align-items: flex-start;
-      justify-content: space-between; gap: 12px;
-      margin-bottom: 6px;
+    .step-desc {
+      font-size: 14px; color: var(--ink-muted);
+      line-height: 1.55; margin-bottom: var(--sp-6);
+      max-width: 520px;
     }
-    .case-title {
-      font-size: 20px; font-weight: 800;
-      letter-spacing: -0.02em; line-height: 1.2;
+
+    /* ---- SECTION TITLES ---- */
+    .sec-title {
+      font-family: var(--font-heading);
+      font-size: 20px; font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+      margin-bottom: var(--sp-4);
     }
-    .case-sub {
-      font-size: 13px; color: #475569; font-weight: 500;
-      margin-top: 2px; line-height: 1.4;
+    .sec-label {
+      font-family: var(--font-body);
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--ink-muted);
+      margin-bottom: var(--sp-3);
+      margin-top: var(--sp-7);
     }
-    .status-badge {
+    .sec-label:first-child { margin-top: 0; }
+
+    /* ---- WARNING ---- */
+    .warn {
+      border-left: 2px solid var(--warn-border);
+      padding: var(--sp-3) 0 var(--sp-3) var(--sp-4);
+      margin-bottom: var(--sp-5);
+    }
+    .warn.hidden { display: none; }
+    .warn-title { font-size: 13px; font-weight: 600; color: var(--warn-text); margin-bottom: 2px; }
+    .warn-text { font-size: 12px; color: var(--warn-text); line-height: 1.45; opacity: 0.8; }
+
+    /* ---- INFO ROWS ---- */
+    .info-rows { margin-bottom: var(--sp-7); }
+    .info-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: var(--sp-4) 0;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .info-row:first-child { padding-top: 0; }
+    .info-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .info-label { font-size: 14px; font-weight: 400; color: var(--ink-muted); }
+    .info-val { font-size: 14px; font-weight: 600; color: var(--ink); text-align: right; max-width: 60%; }
+    .info-val.number {
+      font-size: 15px; font-weight: 700; letter-spacing: 0.02em;
+      color: var(--accent);
+    }
+
+    /* ---- STATUS INLINE ---- */
+    .status-text {
+      font-size: 12px; font-weight: 600;
       display: inline-flex; align-items: center; gap: 5px;
-      padding: 4px 10px; border-radius: 999px;
-      font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.03em; white-space: nowrap; flex-shrink: 0;
-      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
     }
-    .status-badge.not-started { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
-    .status-badge.in-progress { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
-    .status-badge.submitted { background: #fef3c7; color: #92400e; border-color: #fde68a; }
-    .status-badge.approved { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
-    .status-badge.refused { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
-    .status-badge-dot {
-      width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+    .status-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      flex-shrink: 0;
     }
-    .case-meta {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 0; margin-top: 16px;
-      border-top: 1px solid #f1f5f9;
-      padding-top: 14px;
-    }
-    .case-meta-item { padding: 6px 0; }
-    .case-meta-label {
-      font-size: 10px; font-weight: 600; color: #94a3b8;
-      text-transform: uppercase; letter-spacing: 0.04em;
-    }
-    .case-meta-value {
-      font-size: 13px; font-weight: 600; color: var(--text);
-      margin-top: 2px; line-height: 1.3;
+    .status-text.not-started { color: var(--ink-muted); }
+    .status-text.not-started .status-dot { background: var(--ink-muted); }
+    .status-text.in-progress { color: var(--accent); }
+    .status-text.in-progress .status-dot { background: var(--accent); }
+    .status-text.submitted { color: var(--warn-text); }
+    .status-text.submitted .status-dot { background: var(--warn-border); }
+    .status-text.approved { color: var(--success); }
+    .status-text.approved .status-dot { background: var(--success); }
+    .status-text.refused { color: var(--red); }
+    .status-text.refused .status-dot { background: var(--red); }
+
+    /* ---- ACTION CARD ---- */
+    .action-card {
+      background: var(--surface-raised);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 20px;
+      margin-bottom: var(--sp-5);
     }
 
-    /* ---- CURRENT ACTION ---- */
+    /* ---- CURRENT ACTION BLOCK ---- */
     .action-block {
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5;
-      padding: 20px;
-      margin-bottom: 14px;
-      position: relative;
+      border-left: 2px solid var(--accent);
+      padding: var(--sp-3) 0 var(--sp-3) var(--sp-4);
+      margin-bottom: var(--sp-6);
     }
-    .action-block.has-action {
-      border-color: #bfdbfe;
-      background: linear-gradient(180deg, #f8faff 0%, #fff 100%);
-    }
-    .action-block.no-action {
-      border-color: #d1fae5;
-      background: linear-gradient(180deg, #f0fdf8 0%, #fff 100%);
-    }
+    .action-block.no-action { border-left-color: var(--success); }
     .action-indicator {
-      display: flex; align-items: center; gap: 8px;
-      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: var(--sp-2);
     }
     .action-indicator-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: var(--blue); flex-shrink: 0;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent); flex-shrink: 0;
       animation: pulse-dot 2s ease-in-out infinite;
     }
     .action-block.no-action .action-indicator-dot {
-      background: var(--green); animation: none;
+      background: var(--success); animation: none;
     }
     @keyframes pulse-dot {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.5; transform: scale(0.8); }
     }
     .action-indicator-label {
-      font-size: 10px; font-weight: 700; color: var(--blue);
+      font-size: 10px; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--accent);
     }
-    .action-block.no-action .action-indicator-label { color: var(--green); }
+    .action-block.no-action .action-indicator-label { color: var(--success); }
     .action-title {
-      font-size: 17px; font-weight: 800;
+      font-family: var(--font-heading);
+      font-size: 17px; font-weight: 600;
       letter-spacing: -0.01em; line-height: 1.3;
-      margin-bottom: 4px;
+      margin-bottom: var(--sp-1);
     }
     .action-desc {
-      font-size: 13px; color: #475569;
+      font-size: 13px; color: var(--ink-soft);
       font-weight: 500; line-height: 1.55;
-      margin-bottom: 12px;
+      margin-bottom: var(--sp-3);
     }
     .action-owner-row {
-      display: flex; align-items: center; gap: 16px;
+      display: flex; align-items: center; gap: var(--sp-4);
       flex-wrap: wrap;
-      font-size: 12px; color: var(--muted); font-weight: 500;
-      margin-bottom: 14px;
+      font-size: 12px; color: var(--ink-muted); font-weight: 500;
+      margin-bottom: var(--sp-3);
     }
     .action-owner-row span { display: flex; align-items: center; gap: 4px; }
     .action-owner-row svg {
@@ -257,353 +341,356 @@
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
       flex-shrink: 0;
     }
-    .action-cta {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 10px 20px; border-radius: 12px;
-      background: var(--blue); color: #fff;
-      font-size: 13px; font-weight: 700;
-      border: none; cursor: pointer;
-      transition: all .15s ease;
-      font-family: inherit;
-    }
-    .action-cta:hover { background: var(--blue2); }
-    .action-cta svg {
-      width: 16px; height: 16px; stroke: currentColor;
-      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    }
 
     /* ---- PRACTICE ROW ---- */
     .practice-row {
-      display: flex; align-items: center; gap: 12px;
-      padding: 14px 16px;
-      background: #fff; border: 1px solid #e8edf5;
-      border-radius: 14px; margin-bottom: 14px;
+      display: flex; align-items: center; gap: var(--sp-3);
+      padding: var(--sp-4) 0;
+      border-bottom: 1px solid var(--border-light);
     }
     .practice-icon {
-      width: 38px; height: 38px; border-radius: 10px;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), #3b82f6);
       display: grid; place-items: center;
       color: #fff; flex-shrink: 0;
     }
     .practice-icon svg {
-      width: 18px; height: 18px; stroke: currentColor;
+      width: 17px; height: 17px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
     .practice-info { flex: 1; min-width: 0; }
-    .practice-name { font-size: 13px; font-weight: 700; }
-    .practice-detail { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .practice-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+    .practice-detail { font-size: 12px; color: var(--ink-muted); font-weight: 500; margin-top: 1px; }
 
-    /* ---- SECTION ---- */
-    .section-label {
-      font-size: 11px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em;
-      margin: 22px 0 10px; padding-left: 2px;
-    }
-    .section-label:first-of-type { margin-top: 18px; }
-
-    /* ---- STEP SECTION ---- */
-    .step-section {
-      margin-bottom: 20px;
-    }
-    .step-section-header {
-      display: flex; align-items: center; gap: 10px;
-      margin-bottom: 12px;
-    }
-    .step-section-title {
-      font-size: 16px; font-weight: 800;
-      letter-spacing: -0.01em; line-height: 1.2;
-      flex: 1;
-    }
-    .step-section-note {
-      font-size: 13px; color: var(--muted); font-weight: 500;
-      line-height: 1.5; padding: 10px 14px;
-      background: #f8fafc; border: 1px solid #e8edf5;
-      border-radius: 10px; margin-bottom: 12px;
-    }
-    .step-meta {
-      display: grid; grid-template-columns: 1fr 1fr;
-      gap: 8px; margin-bottom: 14px;
-    }
-    .step-meta-item {
-      background: #f8fafc; border-radius: 10px;
-      border: 1px solid #e8edf5; padding: 12px;
-    }
-    .step-meta-label {
-      font-size: 10px; font-weight: 700; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px;
-    }
-    .step-meta-value {
-      font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3;
-    }
-    .step-meta-value.number {
-      font-size: 15px; font-weight: 800; letter-spacing: 0.02em;
-      color: var(--blue);
-    }
-
-    /* ---- DOCUMENTS ---- */
+    /* ---- DOCUMENTS (in action-card) ---- */
     .doc-list {
-      background: #fff; border: 1px solid #e8edf5;
-      border-radius: 16px; overflow: hidden;
+      border-radius: 0;
+      overflow: hidden;
     }
     .doc-row {
       display: flex; align-items: center; gap: 10px;
-      padding: 12px 16px;
-      border-bottom: 1px solid #f1f5f9;
+      padding: var(--sp-3) 0;
+      border-bottom: 1px solid var(--border-light);
       transition: background .1s;
     }
     .doc-row:last-child { border-bottom: none; }
     .doc-icon {
-      width: 30px; height: 30px; border-radius: 8px;
+      width: 28px; height: 28px; border-radius: 8px;
       display: grid; place-items: center; flex-shrink: 0;
-      background: #f1f5f9; color: #64748b;
+      background: var(--surface); color: var(--ink-muted);
     }
     .doc-icon svg {
-      width: 15px; height: 15px; stroke: currentColor;
+      width: 14px; height: 14px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
-    .doc-icon.uploaded { background: #eff6ff; color: var(--blue); }
-    .doc-icon.approved { background: #ecfdf5; color: var(--green); }
-    .doc-icon.rejected { background: #fef2f2; color: var(--red); }
-    .doc-icon.under_review { background: #fef3c7; color: #92400e; }
-    .doc-icon.missing { background: #fff7ed; color: var(--orange2); }
+    .doc-icon.uploaded { background: var(--accent-glow); color: var(--accent); }
+    .doc-icon.approved { background: rgba(13, 124, 95, 0.1); color: var(--success); }
+    .doc-icon.rejected { background: rgba(220, 38, 38, 0.08); color: var(--red); }
+    .doc-icon.under_review { background: rgba(229, 166, 48, 0.1); color: var(--warn-text); }
+    .doc-icon.missing { background: rgba(249, 115, 22, 0.08); color: #c2410c; }
     .doc-info { flex: 1; min-width: 0; }
-    .doc-name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+    .doc-name { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--ink); }
     .doc-file-name {
-      font-size: 11px; color: var(--muted); font-weight: 500;
+      font-size: 11px; color: var(--ink-muted); font-weight: 500;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       margin-top: 1px;
     }
     .doc-rejection { font-size: 11px; color: var(--red); font-weight: 500; margin-top: 2px; }
-    .doc-request-note { font-size: 11px; color: #92400e; font-weight: 500; margin-top: 2px; line-height: 1.4; }
+    .doc-request-note { font-size: 11px; color: var(--warn-text); font-weight: 500; margin-top: 2px; line-height: 1.4; }
     .doc-status {
-      font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.03em; flex-shrink: 0;
-      padding: 3px 8px; border-radius: 6px;
+      font-size: 11px; font-weight: 600; flex-shrink: 0;
+      display: inline-flex; align-items: center; gap: 4px;
     }
-    .doc-status.missing { background: #f1f5f9; color: #64748b; }
-    .doc-status.uploaded { background: #eff6ff; color: #1d4ed8; }
-    .doc-status.under_review { background: #fef3c7; color: #92400e; }
-    .doc-status.approved { background: #ecfdf5; color: #166534; }
-    .doc-status.rejected { background: #fef2f2; color: #991b1b; }
+    .doc-status .doc-status-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+    }
+    .doc-status.missing { color: var(--ink-muted); }
+    .doc-status.missing .doc-status-dot { background: var(--ink-muted); }
+    .doc-status.uploaded { color: var(--accent); }
+    .doc-status.uploaded .doc-status-dot { background: var(--accent); }
+    .doc-status.under_review { color: var(--warn-text); }
+    .doc-status.under_review .doc-status-dot { background: var(--warn-border); }
+    .doc-status.approved { color: var(--success); }
+    .doc-status.approved .doc-status-dot { background: var(--success); }
+    .doc-status.rejected { color: var(--red); }
+    .doc-status.rejected .doc-status-dot { background: var(--red); }
     .doc-upload-row {
       display: flex; align-items: center; gap: 10px;
-      padding: 10px 16px; cursor: pointer;
-      color: var(--blue); transition: background .1s;
+      padding: var(--sp-3) 0; cursor: pointer;
+      color: var(--accent); transition: opacity .1s;
     }
-    .doc-upload-row:hover { background: #f8fafc; }
+    .doc-upload-row:hover { opacity: 0.7; }
     .doc-upload-row svg {
-      width: 16px; height: 16px; stroke: currentColor;
+      width: 15px; height: 15px; stroke: currentColor;
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
     .doc-upload-text { font-size: 13px; font-weight: 600; }
     .doc-empty {
-      padding: 20px 16px; text-align: center;
-      font-size: 13px; color: var(--muted); font-weight: 500;
+      padding: var(--sp-3) 0; text-align: center;
+      font-size: 13px; color: var(--ink-muted); font-weight: 500;
     }
     .doc-row.doc-requested { cursor: pointer; }
-    .doc-row.doc-requested:hover { background: #f8fafc; }
+    .doc-row.doc-requested:hover { opacity: 0.7; }
     .doc-requested-badge {
-      display: inline-flex; align-items: center; gap: 3px;
-      font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.03em; flex-shrink: 0;
-      padding: 3px 8px; border-radius: 6px;
-      background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 600; flex-shrink: 0;
+      color: #c2410c;
     }
-
-    /* ---- UPLOAD MODAL ---- */
-    .upload-modal-bg {
-      position: fixed; inset: 0; z-index: 9999;
-      background: rgba(2, 6, 23, 0.45);
-      display: flex; align-items: flex-end; justify-content: center;
-      opacity: 0; pointer-events: none;
-      transition: opacity .2s ease;
-    }
-    .upload-modal-bg.open { opacity: 1; pointer-events: auto; }
-    .upload-modal {
-      background: #fff; border-radius: 20px 20px 0 0;
-      width: 100%; max-width: 540px;
-      padding: 24px 20px 32px;
-      transform: translateY(100%);
-      transition: transform .25s cubic-bezier(.22,.9,.18,1.05);
-    }
-    .upload-modal-bg.open .upload-modal { transform: translateY(0); }
-    .upload-modal h3 {
-      font-size: 17px; font-weight: 800; letter-spacing: -0.01em;
-      margin-bottom: 6px;
-    }
-    .upload-modal p {
-      font-size: 13px; color: var(--muted); font-weight: 500;
-      margin-bottom: 16px; line-height: 1.5;
-    }
-    .upload-type-select {
-      width: 100%; padding: 10px 12px; border-radius: 10px;
-      border: 1px solid #e2e8f0; font-size: 13px; font-weight: 500;
-      font-family: inherit; color: var(--text);
-      background: #f8fafc; margin-bottom: 12px;
-      -webkit-appearance: none; appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: right 12px center;
-    }
-    .upload-drop-zone {
-      border: 2px dashed #cbd5e1; border-radius: 14px;
-      padding: 28px 20px; text-align: center;
-      cursor: pointer; transition: all .15s ease;
-      margin-bottom: 14px;
-    }
-    .upload-drop-zone:hover { border-color: var(--blue); background: #f8fafc; }
-    .upload-drop-zone svg {
-      width: 28px; height: 28px; stroke: var(--blue);
-      fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
-      margin-bottom: 6px;
-    }
-    .upload-drop-text { font-size: 13px; font-weight: 600; color: #334155; }
-    .upload-drop-hint { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
-    .upload-modal-actions {
-      display: flex; gap: 8px; margin-top: 4px;
-    }
-    .upload-cancel-btn {
-      flex: 1; padding: 10px; border-radius: 10px;
-      border: 1px solid #e2e8f0; background: #fff;
-      font-size: 13px; font-weight: 600; color: var(--text);
-      cursor: pointer; font-family: inherit;
-      transition: background .1s;
-    }
-    .upload-cancel-btn:hover { background: #f8fafc; }
 
     /* ---- NOTES ---- */
     .notes-list { display: grid; gap: 0; }
     .note-item {
-      padding: 14px 0; border-bottom: 1px solid #f1f5f9;
+      padding: var(--sp-4) 0; border-bottom: 1px solid var(--border-light);
     }
     .note-item:last-child { border-bottom: none; }
     .note-head {
       display: flex; align-items: center; gap: 6px;
-      margin-bottom: 4px;
+      margin-bottom: var(--sp-1);
     }
-    .note-author { font-size: 12px; font-weight: 700; color: var(--blue); }
-    .note-date { font-size: 11px; color: var(--muted); font-weight: 500; }
-    .note-dot { width: 3px; height: 3px; border-radius: 50%; background: #cbd5e1; }
+    .note-author { font-size: 12px; font-weight: 700; color: var(--accent); }
+    .note-date { font-size: 11px; color: var(--ink-muted); font-weight: 500; }
+    .note-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--border); }
     .note-text {
-      font-size: 13px; color: #334155;
+      font-size: 13px; color: var(--ink-soft);
       font-weight: 500; line-height: 1.55;
     }
     .empty-state {
-      font-size: 13px; color: var(--muted); font-weight: 500;
-      padding: 8px 0; line-height: 1.5;
+      font-size: 13px; color: var(--ink-muted); font-weight: 500;
+      padding: var(--sp-2) 0; line-height: 1.5;
     }
 
     /* ---- TIMELINE ---- */
     .timeline { display: grid; gap: 0; padding-left: 20px; position: relative; }
     .timeline::before {
       content: ""; position: absolute; left: 7px; top: 6px; bottom: 6px;
-      width: 2px; background: #e8edf5;
+      width: 2px; background: var(--border-light);
     }
-    .timeline-item { position: relative; padding: 0 0 16px 20px; }
+    .timeline-item { position: relative; padding: 0 0 var(--sp-4) var(--sp-5); }
     .timeline-item:last-child { padding-bottom: 0; }
     .timeline-dot {
       position: absolute; left: -20px; top: 3px;
       width: 12px; height: 12px; border-radius: 50%;
-      background: #e8edf5; border: 2px solid #fff;
-      box-shadow: 0 0 0 2px #e2e8f0;
+      background: var(--border-light); border: 2px solid var(--surface);
+      box-shadow: 0 0 0 2px var(--border);
     }
-    .timeline-item:first-child .timeline-dot { background: var(--blue); box-shadow: 0 0 0 2px var(--blue); }
-    .timeline-item.done .timeline-dot { background: var(--green); box-shadow: 0 0 0 2px var(--green); }
-    .timeline-date { font-size: 11px; color: var(--muted); font-weight: 600; }
-    .timeline-text { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
-    .timeline-detail { font-size: 12px; color: #475569; font-weight: 500; margin-top: 1px; }
+    .timeline-item:first-child .timeline-dot { background: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+    .timeline-item.done .timeline-dot { background: var(--success); box-shadow: 0 0 0 2px var(--success); }
+    .timeline-date { font-size: 11px; color: var(--ink-muted); font-weight: 600; }
+    .timeline-text { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.3; }
+    .timeline-detail { font-size: 12px; color: var(--ink-soft); font-weight: 500; margin-top: 1px; }
+
+    /* ---- BUTTONS ---- */
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 12px 24px; border-radius: 10px;
+      background: var(--ink); color: #fff;
+      font-family: var(--font-body);
+      font-size: 13px; font-weight: 600;
+      border: 0; cursor: pointer;
+      box-shadow: 0 1px 3px rgba(12, 18, 34, 0.2);
+      transition: all .15s ease;
+    }
+    .btn-primary:hover {
+      background: #1a2540;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(12, 18, 34, 0.2);
+    }
+    .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    .btn-primary svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 12px 20px; border-radius: 10px;
+      background: transparent; color: var(--ink-muted);
+      font-family: var(--font-body);
+      font-size: 13px; font-weight: 500;
+      border: 0; cursor: pointer;
+      transition: color .15s ease;
+    }
+    .btn-ghost:hover { color: var(--ink); }
+    .btn-ghost svg {
+      width: 16px; height: 16px; stroke: currentColor;
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+
+    /* ---- UPLOAD MODAL ---- */
+    .upload-modal-bg {
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(12, 18, 34, 0.45);
+      display: flex; align-items: flex-end; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity .2s ease;
+    }
+    .upload-modal-bg.open { opacity: 1; pointer-events: auto; }
+    .upload-modal {
+      background: var(--surface-raised); border-radius: 20px 20px 0 0;
+      width: 100%; max-width: 540px;
+      padding: var(--sp-6) var(--sp-5) var(--sp-8);
+      transform: translateY(100%);
+      transition: transform .25s cubic-bezier(.22,.9,.18,1.05);
+    }
+    .upload-modal-bg.open .upload-modal { transform: translateY(0); }
+    .upload-modal h3 {
+      font-family: var(--font-heading);
+      font-size: 17px; font-weight: 600; letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+    .upload-modal p {
+      font-size: 13px; color: var(--ink-muted); font-weight: 500;
+      margin-bottom: var(--sp-4); line-height: 1.5;
+    }
+    .upload-type-select {
+      width: 100%; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid var(--border); font-size: 13px; font-weight: 500;
+      font-family: var(--font-body); color: var(--ink);
+      background: var(--surface); margin-bottom: var(--sp-3);
+      -webkit-appearance: none; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237c849b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+    }
+    .upload-drop-zone {
+      border: 2px dashed var(--border); border-radius: 14px;
+      padding: var(--sp-7) var(--sp-5); text-align: center;
+      cursor: pointer; transition: all .15s ease;
+      margin-bottom: var(--sp-4);
+    }
+    .upload-drop-zone:hover { border-color: var(--accent); background: rgba(26, 86, 219, 0.04); }
+    .upload-drop-zone svg {
+      width: 28px; height: 28px; stroke: var(--accent);
+      fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+      margin-bottom: 6px;
+    }
+    .upload-drop-text { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+    .upload-drop-hint { font-size: 11px; color: var(--ink-muted); font-weight: 500; margin-top: 2px; }
+    .upload-modal-actions {
+      display: flex; gap: 8px; margin-top: var(--sp-1);
+    }
+    .upload-cancel-btn {
+      flex: 1; padding: 10px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--surface-raised);
+      font-size: 13px; font-weight: 600; color: var(--ink);
+      cursor: pointer; font-family: var(--font-body);
+      transition: background .1s;
+    }
+    .upload-cancel-btn:hover { background: var(--surface); }
 
     /* ---- LOADING ---- */
-    .loading-state { padding: 32px 0; text-align: center; }
-    .loading-state p { font-size: 13px; color: var(--muted); font-weight: 500; margin-top: 8px; }
+    .loading-state { padding: var(--sp-8) 0; text-align: center; }
+    .loading-state p { font-size: 13px; color: var(--ink-muted); font-weight: 500; margin-top: var(--sp-2); }
     .loading-spinner {
-      width: 28px; height: 28px; border: 3px solid #e8edf5;
-      border-top-color: var(--blue); border-radius: 50%;
+      width: 28px; height: 28px; border: 3px solid var(--border-light);
+      border-top-color: var(--accent); border-radius: 50%;
       animation: spin .7s linear infinite; margin: 0 auto;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ---- EMPTY CASE ---- */
     .empty-case {
-      text-align: center; padding: 48px 20px;
-      background: #fff; border-radius: var(--radius);
-      border: 1px solid #e8edf5;
+      text-align: center; padding: var(--sp-12) var(--sp-5);
     }
     .empty-case-icon {
-      width: 56px; height: 56px; border-radius: 16px;
-      background: #f1f5f9; display: grid; place-items: center;
-      margin: 0 auto 14px; color: #94a3b8;
+      width: 52px; height: 52px; border-radius: 14px;
+      background: var(--surface); display: grid; place-items: center;
+      margin: 0 auto var(--sp-4); color: var(--ink-muted);
     }
     .empty-case-icon svg {
-      width: 26px; height: 26px; stroke: currentColor;
+      width: 24px; height: 24px; stroke: currentColor;
       fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
     }
     .empty-case h2 {
-      font-size: 18px; font-weight: 800;
-      letter-spacing: -0.01em; margin-bottom: 6px;
+      font-family: var(--font-heading);
+      font-size: 20px; font-weight: 600;
+      letter-spacing: -0.01em; margin-bottom: var(--sp-2);
     }
     .empty-case p {
-      font-size: 13px; color: var(--muted);
+      font-size: 13px; color: var(--ink-muted);
       font-weight: 500; line-height: 1.55;
       max-width: 380px; margin: 0 auto;
     }
-    .empty-case p + p { margin-top: 10px; }
+    .empty-case p + p { margin-top: var(--sp-3); }
 
     /* ---- RESPONSIVE ---- */
-    @media (min-width: 768px) {
-      .app-header { display: none; }
+    @media (min-width: 861px) {
       .upload-modal { border-radius: 20px; margin-bottom: 10vh; }
     }
-    @media (max-width: 767px) {
-      .app-header { display: flex; }
-      .page-hero h1 { font-size: 20px; }
-      .case-title { font-size: 18px; }
-      .action-title { font-size: 16px; }
-      .case-meta { grid-template-columns: 1fr 1fr; }
-      .step-meta { grid-template-columns: 1fr; }
+    @media (max-width: 860px) {
+      .hero-compact {
+        position: sticky; top: 0; z-index: 100;
+        border-radius: 0 0 16px 16px;
+      }
+      .hero-compact-pad {
+        padding: var(--sp-4) var(--sp-5) var(--sp-3);
+      }
+      .hero-avatar { width: 34px; height: 34px; font-size: 12px; }
+      .hero-name { font-size: 14px; }
+      .hero-sub-text { font-size: 11px; }
+      .hero-icon-btn {
+        min-width: 44px; min-height: 44px;
+        border-radius: 8px;
+      }
+      .step-eyebrow { font-size: 10px; margin-bottom: var(--sp-2); }
+      .tab { padding: 7px 10px; font-size: 11px; gap: 5px; }
+      .tab-n { width: 18px; height: 18px; font-size: 9px; }
+      .tab-n svg { width: 10px; height: 10px; }
+      .reg-content {
+        padding: var(--sp-5) var(--sp-4) 100px;
+      }
+      .step-title { font-size: 23px; }
+      .step-desc { font-size: 13px; margin-bottom: var(--sp-5); }
+      .sec-title { font-size: 18px; }
+      .info-row { padding: var(--sp-3) 0; }
+      .info-label { font-size: 13px; }
+      .info-val { font-size: 13px; }
     }
   </style>
 </head>
 <body>
 
   <div class="dash-wrap">
-    <!-- MOBILE HEADER -->
-    <header class="app-header">
-      <div class="header-greeting">
-        <div class="header-avatar" id="headerAvatar">GP</div>
-        <div class="header-text">
-          <h1>PBS & Medicare</h1>
-          <p>Provider number setup</p>
+    <!-- COMPACT DARK HEADER -->
+    <section class="hero-compact">
+      <div class="hero-compact-pad">
+        <div class="hero-header">
+          <div class="hero-left">
+            <div class="hero-avatar" id="headerAvatar">GP</div>
+            <div>
+              <div class="hero-name">PBS & Medicare</div>
+              <div class="hero-sub-text">Provider number setup</div>
+            </div>
+          </div>
+          <div class="hero-icons">
+            <button class="hero-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
+              <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
+              <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </button>
+            <a class="hero-icon-btn" href="/pages/account.html" aria-label="Account">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
+            </a>
+          </div>
+        </div>
+        <div class="step-eyebrow" id="stepEyebrow">Step 1 of 2</div>
+        <div class="tabs-track">
+          <div class="tabs-progress-fill" id="tabsProgressFill" style="width:0px"></div>
+          <nav class="tabs" id="pbsTabs" aria-label="Step navigation">
+            <button type="button" class="tab active" data-stage="medicare"><span class="tab-n">1</span>Medicare</button>
+            <button type="button" class="tab" data-stage="pbs"><span class="tab-n">2</span>PBS</button>
+          </nav>
         </div>
       </div>
-      <div class="header-actions">
-        <button class="header-icon-btn" type="button" aria-label="Notifications" data-alert-trigger>
-          <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
-          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        </button>
-        <a class="header-icon-btn" href="/pages/account.html" aria-label="Account">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-        </a>
-      </div>
-    </header>
-
-    <!-- PAGE HERO -->
-    <div class="page-hero">
-      <h1>PBS & Medicare</h1>
-      <p>Set up your provider and prescriber numbers so you can bill Medicare and prescribe PBS medicines.</p>
-    </div>
+    </section>
 
     <!-- LOADING STATE -->
-    <div id="loadingState" class="loading-state">
-      <div class="loading-spinner"></div>
-      <p>Loading your PBS & Medicare status...</p>
+    <div class="reg-content" id="loadingState">
+      <div class="loading-state">
+        <div class="loading-spinner"></div>
+        <p>Loading your PBS & Medicare status...</p>
+      </div>
     </div>
 
     <!-- EMPTY STATE -->
-    <div id="emptyState" hidden>
-      <div class="pbs-stepper" id="emptyPbsStepper">
-        <div class="pbs-step"><div class="pbs-step-dot">1</div><span class="pbs-step-label">Medicare Provider</span><div class="pbs-step-connector"></div></div>
-        <div class="pbs-step"><div class="pbs-step-dot">2</div><span class="pbs-step-label">PBS Prescriber</span></div>
-      </div>
+    <div class="reg-content" id="emptyState" hidden>
       <div class="empty-case">
         <div class="empty-case-icon">
           <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
@@ -615,32 +702,26 @@
     </div>
 
     <!-- CASE CONTENT -->
-    <div id="caseContent" hidden>
+    <div class="reg-content" id="caseContent" hidden>
 
-      <!-- STEPPER -->
-      <div class="pbs-stepper" id="pbsStepper">
-        <div class="pbs-step" data-stage="medicare"><div class="pbs-step-dot">1</div><span class="pbs-step-label">Medicare Provider</span><div class="pbs-step-connector"></div></div>
-        <div class="pbs-step" data-stage="pbs"><div class="pbs-step-dot">2</div><span class="pbs-step-label">PBS Prescriber</span></div>
-      </div>
+      <!-- CASE SUMMARY (flat info rows) -->
+      <h2 class="step-title" id="caseTitle">PBS & Medicare</h2>
+      <p class="step-desc" id="caseSub">Setup not yet started</p>
 
-      <!-- CASE SUMMARY -->
-      <div class="case-summary" id="caseSummary">
-        <div class="case-summary-top">
-          <div>
-            <h2 class="case-title" id="caseTitle">PBS & Medicare</h2>
-            <div class="case-sub" id="caseSub"></div>
-          </div>
-          <span class="status-badge" id="caseBadge"><span class="status-badge-dot"></span> --</span>
+      <div class="info-rows" id="caseSummaryRows">
+        <div class="info-row">
+          <span class="info-label">Overall status</span>
+          <span class="info-val" id="caseStatusVal">
+            <span class="status-text not-started" id="caseBadge"><span class="status-dot"></span> Not Started</span>
+          </span>
         </div>
-        <div class="case-meta" id="caseMeta">
-          <div class="case-meta-item">
-            <div class="case-meta-label">Managed by</div>
-            <div class="case-meta-value" id="caseResponsible">GP Link Team</div>
-          </div>
-          <div class="case-meta-item">
-            <div class="case-meta-label">Last updated</div>
-            <div class="case-meta-value" id="caseUpdated">--</div>
-          </div>
+        <div class="info-row">
+          <span class="info-label">Managed by</span>
+          <span class="info-val" id="caseResponsible">GP Link Team</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Last updated</span>
+          <span class="info-val" id="caseUpdated">--</span>
         </div>
       </div>
 
@@ -656,72 +737,82 @@
           <span id="actionOwner"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg> --</span>
           <span id="actionDue" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> --</span>
         </div>
-        <button class="action-cta" id="actionCta" hidden>
+        <button class="btn-primary" id="actionCta" hidden>
           <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <span id="actionCtaText">Upload Document</span>
         </button>
       </div>
 
       <!-- STEP 1: MEDICARE -->
-      <div class="step-section" id="medicareSection">
-        <div class="step-section-header">
-          <h3 class="step-section-title">Step 1 — Medicare Provider Number</h3>
-          <span class="status-badge not-started" id="medicareStepBadge"><span class="status-badge-dot"></span> Not Started</span>
-        </div>
-        <div class="step-meta" id="medicareMeta">
-          <div class="step-meta-item">
-            <div class="step-meta-label">Reference</div>
-            <div class="step-meta-value" id="medicareRef">--</div>
+      <div id="medicareSection">
+        <h3 class="sec-title">Medicare Provider Number</h3>
+        <div class="info-rows" id="medicareMeta">
+          <div class="info-row">
+            <span class="info-label">Status</span>
+            <span class="info-val" id="medicareStepBadge">
+              <span class="status-text not-started"><span class="status-dot"></span> Not Started</span>
+            </span>
           </div>
-          <div class="step-meta-item">
-            <div class="step-meta-label">Application date</div>
-            <div class="step-meta-value" id="medicareAppDate">--</div>
+          <div class="info-row">
+            <span class="info-label">Reference</span>
+            <span class="info-val" id="medicareRef">--</span>
           </div>
-          <div class="step-meta-item" id="medicareProviderWrap" hidden>
-            <div class="step-meta-label">Provider number</div>
-            <div class="step-meta-value number" id="medicareProviderNum">--</div>
+          <div class="info-row">
+            <span class="info-label">Application date</span>
+            <span class="info-val" id="medicareAppDate">--</span>
+          </div>
+          <div class="info-row" id="medicareProviderWrap" hidden>
+            <span class="info-label">Provider number</span>
+            <span class="info-val number" id="medicareProviderNum">--</span>
           </div>
         </div>
         <div id="medicarePracticeRow"></div>
-        <div class="doc-list" id="medicareDocList">
-          <div class="doc-empty">No documents yet for this step.</div>
+        <div class="action-card">
+          <div class="doc-list" id="medicareDocList">
+            <div class="doc-empty">No documents yet for this step.</div>
+          </div>
         </div>
       </div>
 
       <!-- STEP 2: PBS -->
-      <div class="step-section" id="pbsSection">
-        <div class="step-section-header">
-          <h3 class="step-section-title">Step 2 — PBS Prescriber Number</h3>
-          <span class="status-badge not-started" id="pbsStepBadge"><span class="status-badge-dot"></span> Not Started</span>
-        </div>
+      <div id="pbsSection">
+        <h3 class="sec-title">PBS Prescriber Number</h3>
         <div id="pbsDownstreamNote"></div>
-        <div class="step-meta" id="pbsMeta">
-          <div class="step-meta-item">
-            <div class="step-meta-label">Reference</div>
-            <div class="step-meta-value" id="pbsRef">--</div>
+        <div class="info-rows" id="pbsMeta">
+          <div class="info-row">
+            <span class="info-label">Status</span>
+            <span class="info-val" id="pbsStepBadge">
+              <span class="status-text not-started"><span class="status-dot"></span> Not Started</span>
+            </span>
           </div>
-          <div class="step-meta-item">
-            <div class="step-meta-label">Application date</div>
-            <div class="step-meta-value" id="pbsAppDate">--</div>
+          <div class="info-row">
+            <span class="info-label">Reference</span>
+            <span class="info-val" id="pbsRef">--</span>
           </div>
-          <div class="step-meta-item" id="pbsPrescriberWrap" hidden>
-            <div class="step-meta-label">Prescriber number</div>
-            <div class="step-meta-value number" id="pbsPrescriberNum">--</div>
+          <div class="info-row">
+            <span class="info-label">Application date</span>
+            <span class="info-val" id="pbsAppDate">--</span>
+          </div>
+          <div class="info-row" id="pbsPrescriberWrap" hidden>
+            <span class="info-label">Prescriber number</span>
+            <span class="info-val number" id="pbsPrescriberNum">--</span>
           </div>
         </div>
-        <div class="doc-list" id="pbsDocList">
-          <div class="doc-empty">No documents yet for this step.</div>
+        <div class="action-card">
+          <div class="doc-list" id="pbsDocList">
+            <div class="doc-empty">No documents yet for this step.</div>
+          </div>
         </div>
       </div>
 
       <!-- UPDATES -->
-      <div class="section-label">Updates</div>
+      <div class="sec-label">Updates</div>
       <div id="updatesContainer">
         <p class="empty-state">No updates yet. Your agent will post notes here as things progress.</p>
       </div>
 
       <!-- HISTORY -->
-      <div class="section-label">History</div>
+      <div class="sec-label">History</div>
       <div class="timeline" id="timelineContainer">
         <p class="empty-state" style="padding-left:0;">No history recorded yet.</p>
       </div>
@@ -759,7 +850,7 @@
       <input type="file" id="uploadFileInput" hidden accept=".pdf,.jpg,.jpeg,.png" />
       <div class="upload-modal-actions">
         <button class="upload-cancel-btn" id="uploadCancelBtn">Cancel</button>
-        <button class="action-cta" id="uploadSubmitBtn" disabled style="flex:1;justify-content:center;">Upload</button>
+        <button class="btn-primary" id="uploadSubmitBtn" disabled style="flex:1;justify-content:center;">Upload</button>
       </div>
     </div>
   </div>
@@ -828,41 +919,70 @@
       return app && app.status && app.status !== "not_started";
     }
 
-    // ── Stepper ──
+    // ── Progress fill ──
+    function updateProgressFill() {
+      var tabsEl = document.getElementById('pbsTabs');
+      var fill = document.getElementById('tabsProgressFill');
+      var active = tabsEl && tabsEl.querySelector('.tab.active');
+      if (!active || !tabsEl || !fill) { if (fill) fill.style.width = '0px'; return; }
+      fill.style.width = active.offsetLeft + 'px';
+    }
+    window.addEventListener('resize', updateProgressFill);
+
+    // ── Stepper (tabs) ──
     function updateStepper() {
-      var steps = document.querySelectorAll("#pbsStepper .pbs-step");
+      var tabs = document.querySelectorAll("#pbsTabs .tab");
       var medicareDone = isComplete(currentMedicare);
       var medicareActive = hasStarted(currentMedicare) && !medicareDone;
       var pbsDone = isComplete(currentPbs);
       var pbsActive = hasStarted(currentPbs) && !pbsDone;
 
-      steps.forEach(function (step) {
-        step.classList.remove("active", "done");
-        var dot = step.querySelector(".pbs-step-dot");
-        var stage = step.getAttribute("data-stage");
+      tabs.forEach(function (tab) {
+        tab.classList.remove("active", "done");
+        var numEl = tab.querySelector(".tab-n");
+        var stage = tab.getAttribute("data-stage");
 
         if (stage === "medicare") {
           if (medicareDone) {
-            step.classList.add("done");
-            dot.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>';
+            tab.classList.add("done");
+            numEl.innerHTML = '<svg viewBox="0 0 16 16"><path d="M13 4.5L6.5 11 3 7.5"/></svg>';
           } else if (medicareActive) {
-            step.classList.add("active");
-            dot.textContent = "1";
+            tab.classList.add("active");
+            numEl.textContent = "1";
           } else {
-            dot.textContent = "1";
+            numEl.textContent = "1";
           }
         } else if (stage === "pbs") {
           if (pbsDone) {
-            step.classList.add("done");
-            dot.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>';
+            tab.classList.add("done");
+            numEl.innerHTML = '<svg viewBox="0 0 16 16"><path d="M13 4.5L6.5 11 3 7.5"/></svg>';
           } else if (pbsActive) {
-            step.classList.add("active");
-            dot.textContent = "2";
+            tab.classList.add("active");
+            numEl.textContent = "2";
           } else {
-            dot.textContent = "2";
+            numEl.textContent = "2";
           }
         }
       });
+
+      // If nothing is active, default medicare to active
+      var anyActive = document.querySelector("#pbsTabs .tab.active");
+      if (!anyActive) {
+        var firstTab = document.querySelector('#pbsTabs .tab[data-stage="medicare"]');
+        if (firstTab) firstTab.classList.add("active");
+      }
+
+      // Update eyebrow
+      var activeTab = document.querySelector("#pbsTabs .tab.active");
+      if (activeTab) {
+        var stage = activeTab.getAttribute("data-stage");
+        var stepNum = stage === "pbs" ? 2 : 1;
+        var eyebrow = document.getElementById("stepEyebrow");
+        if (eyebrow) eyebrow.textContent = "Step " + stepNum + " of 2";
+      }
+
+      // Update progress fill
+      requestAnimationFrame(updateProgressFill);
     }
 
     // ── Overall readiness ──
@@ -892,8 +1012,8 @@
       var overall = computeOverallStatus();
       var info = getStatusInfo(overall);
       var badgeEl = document.getElementById("caseBadge");
-      badgeEl.innerHTML = '<span class="status-badge-dot"></span> ' + escapeHtml(info.text);
-      badgeEl.className = "status-badge " + info.cls;
+      badgeEl.innerHTML = '<span class="status-dot"></span> ' + escapeHtml(info.text);
+      badgeEl.className = "status-text " + info.cls;
 
       document.getElementById("caseResponsible").textContent = "GP Link Team";
 
@@ -927,7 +1047,7 @@
       if (activeApp) {
         var isGpAction = (activeApp.current_action_owner || "").toLowerCase() === "gp" ||
                          (activeApp.current_action_owner || "").toLowerCase() === "you";
-        block.className = "action-block " + (isGpAction ? "has-action" : "");
+        block.className = "action-block" + (isGpAction ? "" : "");
         label.textContent = isGpAction ? "Action required" : "Current step";
         title.textContent = activeApp.current_action_title;
         desc.textContent = activeApp.current_action_description || "";
@@ -948,7 +1068,7 @@
       } else {
         var overall = computeOverallStatus();
         var isAllDone = overall === "approved";
-        block.className = "action-block " + (isAllDone ? "no-action" : "no-action");
+        block.className = "action-block no-action";
         label.textContent = "No action needed";
         if (isAllDone) {
           title.textContent = "All set";
@@ -963,13 +1083,12 @@
       }
     }
 
-    // ── Render step badge ──
+    // ── Render step badge (inline status text) ──
     function renderStepBadge(badgeId, app) {
       var el = document.getElementById(badgeId);
       if (!el) return;
       var info = getStatusInfo(app ? app.status : "not_started");
-      el.innerHTML = '<span class="status-badge-dot"></span> ' + escapeHtml(info.text);
-      el.className = "status-badge " + info.cls;
+      el.innerHTML = '<span class="status-text ' + info.cls + '"><span class="status-dot"></span> ' + escapeHtml(info.text) + '</span>';
     }
 
     // ── Render Medicare section ──
@@ -1016,7 +1135,7 @@
       // Downstream note
       var noteContainer = document.getElementById("pbsDownstreamNote");
       if (!isComplete(currentMedicare) && !hasStarted(currentPbs)) {
-        noteContainer.innerHTML = '<div class="step-section-note">PBS setup typically begins after your Medicare provider number is confirmed.</div>';
+        noteContainer.innerHTML = '<div class="warn"><div class="warn-title">Waiting on Medicare</div><div class="warn-text">PBS setup typically begins after your Medicare provider number is confirmed.</div></div>';
       } else {
         noteContainer.innerHTML = "";
       }
@@ -1077,7 +1196,7 @@
         var rowDataAttr = isMissing ? ' data-requested-type="' + escapeHtml(doc.document_type || "") + '" data-requested-app="' + escapeHtml(appType) + '"' : '';
         var statusHtml = isMissing
           ? '<span class="doc-requested-badge"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Requested</span>'
-          : '<span class="doc-status ' + status + '">' + escapeHtml(statusLabel) + '</span>';
+          : '<span class="doc-status ' + status + '"><span class="doc-status-dot"></span>' + escapeHtml(statusLabel) + '</span>';
         return '<div class="' + rowCls + '"' + rowDataAttr + '>' +
           '<div class="doc-icon ' + iconCls + '">' + svgIcon + '</div>' +
           '<div class="doc-info"><div class="doc-name">' + escapeHtml(prettifyDocType(doc.document_type)) + '</div>' + fileName + requestNote + rejection + '</div>' +
