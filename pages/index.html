@@ -221,34 +221,6 @@
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
-    /* ─── STAT PILLS ─── */
-    .stat-pills {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 10px;
-    }
-
-    .stat-pill {
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 14px;
-      padding: 14px 10px;
-      text-align: center;
-    }
-
-    .stat-pill-value {
-      font-size: 22px; font-weight: 800; line-height: 1;
-      color: #fff;
-    }
-    .stat-pill-value.blue { color: #60a5fa; }
-    .stat-pill-value.amber { color: #f59e0b; }
-
-    .stat-pill-label {
-      font-size: 10px; color: rgba(255,255,255,0.4);
-      font-weight: 600; margin-top: 4px;
-      text-transform: uppercase; letter-spacing: 0.3px;
-    }
-
     /* ─── DREAM PRACTICE BANNER ─── */
     .dream-banner {
       background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%);
@@ -792,21 +764,6 @@
         </a>
       </div>
 
-      <!-- Stat pills -->
-      <div class="stat-pills">
-        <div class="stat-pill">
-          <div class="stat-pill-value" id="stat-steps-done">0</div>
-          <div class="stat-pill-label">Steps done</div>
-        </div>
-        <div class="stat-pill">
-          <div class="stat-pill-value blue" id="stat-roles-open">0</div>
-          <div class="stat-pill-label">Roles open</div>
-        </div>
-        <div class="stat-pill">
-          <div class="stat-pill-value amber" id="stat-actions">0</div>
-          <div class="stat-pill-label">Action needed</div>
-        </div>
-      </div>
     </div>
   </section>
 
@@ -1323,17 +1280,7 @@
       };
     }
 
-    function getCareerStats() {
-      const career = parseStorage(CAREER_STATE_KEY);
-      const applicationCount = Array.isArray(career && career.applications) ? career.applications.filter(Boolean).length : 0;
-      const roles = Array.isArray(career && career.roles) ? career.roles.filter(Boolean).length : 0;
-      return { applicationCount, roles };
-    }
-
-    function updateActionCount(count) {
-      const el = document.getElementById("stat-actions");
-      if (el) el.textContent = String(count || 0);
-    }
+    function updateActionCount(count) {}
 
     function updateHeroStats(snap) {
       // Progress
@@ -1349,14 +1296,6 @@
       if (actionEl) actionEl.href = snap.currentRoute;
       if (titleEl) titleEl.textContent = snap.currentTitle;
       if (subEl) subEl.textContent = snap.currentSub;
-
-      // Stat pills
-      const stepsEl = document.getElementById("stat-steps-done");
-      const rolesEl = document.getElementById("stat-roles-open");
-      if (stepsEl) stepsEl.textContent = String(snap.completedSteps);
-
-      const careerStats = getCareerStats();
-      if (rolesEl) rolesEl.textContent = String(careerStats.roles || 0);
 
       // Dream banner subtitle
       const bannerSub = document.getElementById("dreamBannerSub");
