@@ -17055,6 +17055,119 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Medical Centres (grouped from career_roles) ──
+  if (pathname === '/api/admin/medical-centres' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' });
+      return;
+    }
+    if (!requireAdminSession(req, res)) return;
+    try {
+      const result = await supabaseDbRequest(
+        'career_roles',
+        'select=id,title,practice_name,location_city,location_state,location_label,location_country,billing_model,employment_type,practice_type,summary,is_active,source_payload&is_active=eq.true&order=practice_name.asc'
+      );
+      const roles = result.ok && Array.isArray(result.data) ? result.data : [];
+      const centreMap = {};
+      for (const r of roles) {
+        const key = (r.practice_name || 'Unknown Practice').trim();
+        if (!centreMap[key]) {
+          const sp = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
+          const zoho = sp.zoho && typeof sp.zoho === 'object' ? sp.zoho : {};
+          centreMap[key] = {
+            id: encodeURIComponent(key),
+            practice_name: key,
+            client_name: String(zoho.Client_Name || zoho.Account_Name || key).replace(/^[\d_]+$/, key),
+            location: r.location_label || ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '')),
+            work_type: r.employment_type || '',
+            benefit_1: String(zoho.Benefit_1 || zoho.Benefit1 || ''),
+            benefit_2: String(zoho.Benefit_2 || zoho.Benefit2 || ''),
+            benefit_3: String(zoho.Benefit_3 || zoho.Benefit3 || ''),
+            address: ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '') + (r.location_country ? ', ' + r.location_country : '')).replace(/^,\s*/, ''),
+            billing_type: r.billing_model || '',
+            open_positions: 0,
+            job_openings: []
+          };
+        }
+        centreMap[key].open_positions += 1;
+        centreMap[key].job_openings.push({
+          id: String(r.id),
+          title: r.title || 'General Practitioner',
+          status: r.is_active ? 'open' : 'closed',
+          description: r.summary || ''
+        });
+        if (!centreMap[key].benefit_1) {
+          const sp2 = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
+          const z2 = sp2.zoho && typeof sp2.zoho === 'object' ? sp2.zoho : {};
+          centreMap[key].benefit_1 = String(z2.Benefit_1 || z2.Benefit1 || '');
+          centreMap[key].benefit_2 = String(z2.Benefit_2 || z2.Benefit2 || '');
+          centreMap[key].benefit_3 = String(z2.Benefit_3 || z2.Benefit3 || '');
+        }
+      }
+      const centres = Object.values(centreMap).sort((a, b) => b.open_positions - a.open_positions);
+      sendJson(res, 200, { ok: true, centres });
+    } catch (err) {
+      console.error('[admin medical-centres] list error:', err && err.message);
+      sendJson(res, 500, { ok: false, message: 'Failed to fetch medical centres.' });
+    }
+    return;
+  }
+
+  if (pathname.startsWith('/api/admin/medical-centres/') && pathname.endsWith('/applications') && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Supabase database configuration is required.' });
+      return;
+    }
+    if (!requireAdminSession(req, res)) return;
+    try {
+      const centreId = decodeURIComponent(pathname.split('/api/admin/medical-centres/')[1].replace('/applications', ''));
+      const rolesResult = await supabaseDbRequest(
+        'career_roles',
+        'select=id,title&practice_name=eq.' + encodeURIComponent(centreId)
+      );
+      const roleRows = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
+      if (!roleRows.length) {
+        sendJson(res, 200, { ok: true, applications: [] });
+        return;
+      }
+      const roleIds = roleRows.map(r => r.id);
+      const roleTitleMap = {};
+      for (const r of roleRows) roleTitleMap[String(r.id)] = r.title || 'General Practitioner';
+
+      const appsResult = await supabaseDbRequest(
+        'gp_applications',
+        'select=id,user_id,career_role_id,status,applied_at&career_role_id=in.(' + roleIds.join(',') + ')&order=applied_at.desc&limit=200'
+      );
+      const apps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
+
+      const enriched = [];
+      for (const app of apps.slice(0, 100)) {
+        let gpName = '';
+        const userId = app.user_id || '';
+        try {
+          const profileResult = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+          if (profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0]) {
+            const p = profileResult.data[0];
+            gpName = ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || p.email || '';
+          }
+        } catch {}
+        enriched.push({
+          application_id: app.id,
+          user_id: userId,
+          gp_name: gpName,
+          job_title: roleTitleMap[String(app.career_role_id)] || 'General Practitioner',
+          status: app.status || 'applied',
+          applied_at: app.applied_at || ''
+        });
+      }
+      sendJson(res, 200, { ok: true, applications: enriched });
+    } catch (err) {
+      console.error('[admin medical-centres] applications error:', err && err.message);
+      sendJson(res, 500, { ok: false, message: 'Failed to fetch applications.' });
+    }
+    return;
+  }
+
   // ── Admin applications list ──────────────────────────────────
 
   if (pathname === '/api/admin/career/applications' && req.method === 'GET') {
