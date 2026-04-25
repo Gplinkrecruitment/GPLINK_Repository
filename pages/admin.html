@@ -748,7 +748,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
     selectedCaseId:null,view:"inbox",filter:"all",query:"",expanded:{},refreshTimer:null,
-    mc:{centres:[],loading:false,selectedCentre:null,subView:"overview"},
+    mc:{centres:[],loading:false,selectedCentre:null,subView:"overview",listView:"open"},
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     toolsSubView:"ops",gpsProfileTab:"tasks",
     va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
@@ -1176,12 +1176,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
   }
   async function syncCases(){try{await fetch("/api/admin/cases/sync",{method:"POST",credentials:"same-origin"});await loadAll(true);}catch{}}
-  async function loadMedicalCentres(){
+  async function loadMedicalCentres(status){
     if(S.mc.loading)return;
+    if(status)S.mc.listView=status;
+    S.mc.selectedCentre=null;
     S.mc.loading=true;
     renderMedicalCentresPanel();
     try{
-      const r=await fetch("/api/admin/medical-centres",{credentials:"same-origin"});
+      var url="/api/admin/medical-centres";
+      if(S.mc.listView==="filled")url+="?status=filled";
+      const r=await fetch(url,{credentials:"same-origin"});
       const d=await r.json().catch(()=>({}));
       if(d.ok&&Array.isArray(d.centres))S.mc.centres=d.centres;
     }catch{}
@@ -1198,9 +1202,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderMedicalCentresPanel(){
     const el=document.getElementById("medicalCentresPanel");if(!el)return;
     if(S.mc.selectedCentre){renderMedicalCentreDetail();return;}
-    if(S.mc.loading){el.innerHTML='<div class="empty" style="padding:40px">Loading medical centres\u2026</div>';return;}
-    if(!S.mc.centres.length){el.innerHTML='<div class="empty" style="padding:40px">No medical centres with open positions found.</div>';return;}
-    var h='<div style="padding:16px"><h2 style="margin:0 0 12px;font-size:18px">Medical Centres</h2><div class="mc-grid">';
+    var isFilled=S.mc.listView==="filled";
+    var subnavHtml='<div style="padding:16px 16px 0"><h2 style="margin:0 0 12px;font-size:18px">Medical Centres</h2>'
+      +'<div class="mc-subnav" style="padding:0;margin-bottom:12px">'
+      +'<button class="mc-subnav-btn '+(!isFilled?"active":"")+'" data-mc-list="open">Open</button>'
+      +'<button class="mc-subnav-btn '+(isFilled?"active":"")+'" data-mc-list="filled">Filled</button>'
+      +'</div></div>';
+    if(S.mc.loading){el.innerHTML=subnavHtml+'<div class="empty" style="padding:40px">Loading medical centres\u2026</div>';return;}
+    if(!S.mc.centres.length){el.innerHTML=subnavHtml+'<div class="empty" style="padding:40px">No '+(isFilled?'filled':'open')+' positions found.</div>';return;}
+    var h=subnavHtml+'<div style="padding:0 16px 16px"><div class="mc-grid">';
     for(var i=0;i<S.mc.centres.length;i++){
       var c=S.mc.centres[i];
       h+='<div class="mc-card mc-card-multi" data-mc-id="'+esc(c.id)+'">'
@@ -1208,8 +1218,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         +(c.contact_name?'<div class="mc-card-row"><span class="mc-label">Contact</span> '+esc(c.contact_name)+'</div>':'')
         +(c.contact_email?'<div class="mc-card-row"><span class="mc-label">Email</span> <a href="mailto:'+esc(c.contact_email)+'" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.contact_email)+'</a></div>':'')
         +(c.contact_phone?'<div class="mc-card-row"><span class="mc-label">Phone</span> <a href="tel:'+esc(c.contact_phone)+'" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.contact_phone)+'</a></div>':'')
-        +'<div class="mc-card-row" style="margin-top:8px;color:var(--muted)">'+c.open_positions+' open position'+(c.open_positions!==1?'s':'')+'</div>'
-        +'<button class="mc-explore-btn" data-mc-id="'+esc(c.id)+'"><span class="mc-explore-dot"></span>View Openings</button>'
+        +'<div class="mc-card-row" style="margin-top:8px;color:var(--muted)">'+c.open_positions+(isFilled?' filled':' open')+' position'+(c.open_positions!==1?'s':'')+'</div>'
+        +'<button class="mc-explore-btn" data-mc-id="'+esc(c.id)+'"><span class="mc-explore-dot"></span>View '+(isFilled?'Filled':'Openings')+'</button>'
         +'</div>';
     }
     h+='</div></div>';
@@ -1250,14 +1260,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(jo.benefit_1)joBenefits.push(esc(jo.benefit_1));
           if(jo.benefit_2)joBenefits.push(esc(jo.benefit_2));
           if(jo.benefit_3)joBenefits.push(esc(jo.benefit_3));
+          var hiredHtml='';
+          if(jo.hired_gps&&jo.hired_gps.length){
+            hiredHtml='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line,#e5e7eb)"><div class="mc-label" style="margin-bottom:4px">Hired GPs</div>';
+            for(var g=0;g<jo.hired_gps.length;g++){
+              var gp=jo.hired_gps[g];
+              hiredHtml+='<div style="font-size:12px;margin-top:2px"><a class="gp-link" data-mc-gp-id="'+esc(gp.user_id)+'">'+esc(gp.gp_name)+'</a> <span class="mc-status-pill placement_secured">'+esc((gp.status||'').replace(/_/g,' '))+'</span></div>';
+            }
+            hiredHtml+='</div>';
+          }
           h+='<div class="mc-card">'
-            +'<div class="mc-card-header"><div class="mc-card-name">'+(jo.website?'<a href="'+esc(jo.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(jo.title)+'</a>':esc(jo.title))+'</div><span class="mc-status-pill '+(jo.status==='open'?'applied':'')+'">'+esc(jo.status)+'</span></div>'
+            +'<div class="mc-card-header"><div class="mc-card-name">'+(jo.website?'<a href="'+esc(jo.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(jo.title)+'</a>':esc(jo.title))+'</div><span class="mc-status-pill '+(jo.status==='open'?'applied':'placement_secured')+'">'+esc(jo.status)+'</span></div>'
+            +(jo.contact_name?'<div class="mc-card-row"><span class="mc-label">Contact</span> '+esc(jo.contact_name)+'</div>':'')
+            +(jo.contact_email?'<div class="mc-card-row"><span class="mc-label">Email</span> <a href="mailto:'+esc(jo.contact_email)+'" class="mc-practice-link">'+esc(jo.contact_email)+'</a></div>':'')
+            +(jo.contact_phone?'<div class="mc-card-row"><span class="mc-label">Phone</span> <a href="tel:'+esc(jo.contact_phone)+'" class="mc-practice-link">'+esc(jo.contact_phone)+'</a></div>':'')
             +(jo.location?'<div class="mc-card-row"><span class="mc-label">Location</span> '+esc(jo.location)+'</div>':'')
             +(jo.address?'<div class="mc-card-row"><span class="mc-label">Address</span> '+esc(jo.address)+'</div>':'')
             +(jo.work_type?'<div class="mc-card-row"><span class="mc-label">Work Type</span> '+esc(jo.work_type)+'</div>':'')
             +(jo.billing_type?'<div class="mc-card-row"><span class="mc-label">Billing</span> '+esc(jo.billing_type)+'</div>':'')
             +(joBenefits.length?'<div class="mc-card-row"><span class="mc-label">Benefits</span> '+joBenefits.join(' &middot; ')+'</div>':'')
             +(jo.description?'<div class="mc-card-row" style="margin-top:6px;color:var(--text);line-height:1.4">'+esc(jo.description).substring(0,200)+(jo.description.length>200?'\u2026':'')+'</div>':'')
+            +hiredHtml
             +'</div>';
         }
         h+='</div>';
@@ -2592,6 +2615,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="cases";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
     document.getElementById("medicalCentresPanel").addEventListener("click",async function(e){
+      var listBtn=e.target.closest("[data-mc-list]");
+      if(listBtn){
+        var lv=listBtn.getAttribute("data-mc-list");
+        if(lv!==S.mc.listView)loadMedicalCentres(lv);
+        return;
+      }
       var card=e.target.closest("[data-mc-id]");
       if(card){
         var id=card.getAttribute("data-mc-id");

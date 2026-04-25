@@ -17063,9 +17063,11 @@ async function handleApi(req, res, pathname) {
     }
     if (!requireAdminSession(req, res)) return;
     try {
+      const statusParam = parsedUrl.query && parsedUrl.query.status;
+      const showFilled = statusParam === 'filled';
       const result = await supabaseDbRequest(
         'career_roles',
-        'select=id,title,practice_name,location_city,location_state,location_label,location_country,billing_model,employment_type,practice_type,summary,is_active,source_payload&is_active=eq.true&order=practice_name.asc'
+        'select=id,title,practice_name,location_city,location_state,location_label,location_country,billing_model,employment_type,practice_type,summary,is_active,source_payload&is_active=eq.' + (showFilled ? 'false' : 'true') + '&order=practice_name.asc'
       );
       const roles = result.ok && Array.isArray(result.data) ? result.data : [];
       const centreMap = {};
@@ -17103,10 +17105,13 @@ async function handleApi(req, res, pathname) {
         const joSp = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
         const joZoho = joSp.zoho && typeof joSp.zoho === 'object' ? joSp.zoho : {};
         const joGpLink = joSp.gpLink && typeof joSp.gpLink === 'object' ? joSp.gpLink : {};
+        const joContactName = sanitizeZohoText(joZoho.Contact_Name || joZoho.contact_name || '') || buildZohoDisplayName(joZoho);
+        const joContactEmail = getZohoField(joZoho, ['Email', 'Contact_Email', 'Secondary_Email', 'Account_Email']);
+        const joContactPhone = choosePreferredZohoPhone(joZoho) || getZohoField(joZoho, ['Contact_Phone', 'Account_Phone']);
         centreMap[key].job_openings.push({
           id: String(r.id),
           title: r.title || 'General Practitioner',
-          status: r.is_active ? 'open' : 'closed',
+          status: r.is_active ? 'open' : 'filled',
           description: r.summary || '',
           location: r.location_label || ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '')),
           address: ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '') + (r.location_country ? ', ' + r.location_country : '')).replace(/^,\s*/, ''),
@@ -17115,7 +17120,11 @@ async function handleApi(req, res, pathname) {
           benefit_1: sanitizeZohoText(joZoho.Benefit_1 || joZoho.Benefit1 || ''),
           benefit_2: sanitizeZohoText(joZoho.Benefit_2 || joZoho.Benefit2 || ''),
           benefit_3: sanitizeZohoText(joZoho.Benefit_3 || joZoho.Benefit3 || ''),
-          website: joGpLink.websiteUrl || sanitizeHttpUrl(getZohoField(joZoho, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || ''
+          website: joGpLink.websiteUrl || sanitizeHttpUrl(getZohoField(joZoho, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || '',
+          contact_name: joContactName,
+          contact_email: joContactEmail,
+          contact_phone: joContactPhone,
+          hired_gps: []
         });
         if (!centreMap[key].benefit_1) {
           const sp2 = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
@@ -17137,7 +17146,44 @@ async function handleApi(req, res, pathname) {
         }
       }
       const centres = Object.values(centreMap).sort((a, b) => b.open_positions - a.open_positions);
-      sendJson(res, 200, { ok: true, centres });
+      // For filled positions, enrich with hired GP info
+      if (showFilled) {
+        const allRoleIds = [];
+        for (const c of centres) for (const jo of c.job_openings) allRoleIds.push(jo.id);
+        if (allRoleIds.length) {
+          const appsResult = await supabaseDbRequest(
+            'gp_applications',
+            'select=id,user_id,career_role_id,status,applied_at&career_role_id=in.(' + allRoleIds.join(',') + ')&order=applied_at.desc&limit=500'
+          );
+          const apps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
+          const appsByRole = {};
+          for (const a of apps) {
+            const rid = String(a.career_role_id);
+            if (!appsByRole[rid]) appsByRole[rid] = [];
+            appsByRole[rid].push(a);
+          }
+          const userIds = [...new Set(apps.map(a => a.user_id).filter(Boolean))];
+          const profileMap = {};
+          for (const uid of userIds.slice(0, 200)) {
+            try {
+              const pr = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(uid) + '&limit=1');
+              if (pr.ok && Array.isArray(pr.data) && pr.data[0]) {
+                const p = pr.data[0];
+                profileMap[uid] = ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || p.email || '';
+              }
+            } catch {}
+          }
+          for (const c of centres) {
+            for (const jo of c.job_openings) {
+              const roleApps = appsByRole[jo.id] || [];
+              jo.hired_gps = roleApps
+                .filter(a => /placement_secured|offered|offer/i.test(a.status || ''))
+                .map(a => ({ user_id: a.user_id, gp_name: profileMap[a.user_id] || 'Unknown', status: a.status }));
+            }
+          }
+        }
+      }
+      sendJson(res, 200, { ok: true, centres, status: showFilled ? 'filled' : 'open' });
     } catch (err) {
       console.error('[admin medical-centres] list error:', err && err.message);
       sendJson(res, 500, { ok: false, message: 'Failed to fetch medical centres.' });
