@@ -17063,8 +17063,7 @@ async function handleApi(req, res, pathname) {
     }
     if (!requireAdminSession(req, res)) return;
     try {
-      const statusParam = parsedUrl.query && parsedUrl.query.status;
-      const showFilled = statusParam === 'filled';
+      const showFilled = url.searchParams.get('status') === 'filled';
       const result = await supabaseDbRequest(
         'career_roles',
         'select=id,title,practice_name,location_city,location_state,location_label,location_country,billing_model,employment_type,practice_type,summary,is_active,source_payload&is_active=eq.' + (showFilled ? 'false' : 'true') + '&order=practice_name.asc'
