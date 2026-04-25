@@ -621,6 +621,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .mc-card-name{font-weight:700;font-size:14px;color:var(--text)}
 .mc-practice-link{color:var(--blue,#2563eb);text-decoration:none}
 .mc-practice-link:hover{text-decoration:underline}
+.mc-card-multi{display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:center;min-height:140px}
+.mc-card-multi .mc-card-header{justify-content:center}
+.mc-card-multi .mc-card-name{font-size:16px}
+.mc-explore-btn{margin-top:12px;padding:8px 20px;border:none;border-radius:6px;background:var(--blue,#2563eb);color:#fff;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:background .15s}
+.mc-explore-btn:hover{background:#1d4ed8}
+.mc-explore-dot{width:8px;height:8px;border-radius:50%;background:#fff;animation:mc-pulse 1.5s ease-in-out infinite}
+@keyframes mc-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
     .mc-card-row{font-size:12px;color:var(--muted,#6b7280);margin-top:3px}
     .mc-label{font-weight:600;color:var(--text);margin-right:4px}
     .mc-detail-header{padding:16px;border-bottom:1px solid var(--line,#e5e7eb)}
@@ -1196,19 +1203,32 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var h='<div style="padding:16px"><h2 style="margin:0 0 12px;font-size:18px">Medical Centres</h2><div class="mc-grid">';
     for(var i=0;i<S.mc.centres.length;i++){
       var c=S.mc.centres[i];
-      var benefits=[];
-      if(c.benefit_1)benefits.push(esc(c.benefit_1));
-      if(c.benefit_2)benefits.push(esc(c.benefit_2));
-      if(c.benefit_3)benefits.push(esc(c.benefit_3));
-      h+='<div class="mc-card" data-mc-id="'+esc(c.id)+'">'
-        +'<div class="mc-card-header"><div class="mc-card-name">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</div><span class="task-badge open">'+c.open_positions+' open</span></div>'
-        +(c.client_name&&c.client_name!==c.practice_name?'<div class="mc-card-row"><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
-        +(c.location?'<div class="mc-card-row"><span class="mc-label">Location</span> '+esc(c.location)+'</div>':'')
-        +(c.address?'<div class="mc-card-row"><span class="mc-label">Address</span> '+esc(c.address)+'</div>':'')
-        +(c.work_type?'<div class="mc-card-row"><span class="mc-label">Work Type</span> '+esc(c.work_type)+'</div>':'')
-        +(c.billing_type?'<div class="mc-card-row"><span class="mc-label">Billing</span> '+esc(c.billing_type)+'</div>':'')
-        +(benefits.length?'<div class="mc-card-row"><span class="mc-label">Benefits</span> '+benefits.join(' &middot; ')+'</div>':'')
-        +'</div>';
+      if(c.open_positions>1){
+        // Multi-opening client: minimal card with pulsating explore button
+        h+='<div class="mc-card mc-card-multi" data-mc-id="'+esc(c.id)+'">'
+          +'<div class="mc-card-header"><div class="mc-card-name">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</div></div>'
+          +'<div class="mc-card-row" style="margin-top:8px;color:var(--muted)">'+c.open_positions+' medical centres with open positions</div>'
+          +'<button class="mc-explore-btn" data-mc-id="'+esc(c.id)+'"><span class="mc-explore-dot"></span>View Centres</button>'
+          +'</div>';
+      }else{
+        // Single opening: full card with all details
+        var jo=c.job_openings[0]||{};
+        var benefits=[];
+        if(jo.benefit_1)benefits.push(esc(jo.benefit_1));
+        if(jo.benefit_2)benefits.push(esc(jo.benefit_2));
+        if(jo.benefit_3)benefits.push(esc(jo.benefit_3));
+        if(!benefits.length){if(c.benefit_1)benefits.push(esc(c.benefit_1));if(c.benefit_2)benefits.push(esc(c.benefit_2));if(c.benefit_3)benefits.push(esc(c.benefit_3));}
+        var siteUrl=jo.website||c.website;
+        h+='<div class="mc-card" data-mc-id="'+esc(c.id)+'">'
+          +'<div class="mc-card-header"><div class="mc-card-name">'+(siteUrl?'<a href="'+esc(siteUrl)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(jo.title||c.practice_name)+'</a>':esc(jo.title||c.practice_name))+'</div><span class="task-badge open">1 open</span></div>'
+          +(c.client_name&&c.client_name!==c.practice_name?'<div class="mc-card-row"><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
+          +(jo.location||c.location?'<div class="mc-card-row"><span class="mc-label">Location</span> '+esc(jo.location||c.location)+'</div>':'')
+          +(jo.address||c.address?'<div class="mc-card-row"><span class="mc-label">Address</span> '+esc(jo.address||c.address)+'</div>':'')
+          +(jo.work_type||c.work_type?'<div class="mc-card-row"><span class="mc-label">Work Type</span> '+esc(jo.work_type||c.work_type)+'</div>':'')
+          +(jo.billing_type||c.billing_type?'<div class="mc-card-row"><span class="mc-label">Billing</span> '+esc(jo.billing_type||c.billing_type)+'</div>':'')
+          +(benefits.length?'<div class="mc-card-row"><span class="mc-label">Benefits</span> '+benefits.join(' &middot; ')+'</div>':'')
+          +'</div>';
+      }
     }
     h+='</div></div>';
     el.innerHTML=h;
@@ -1241,14 +1261,24 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!c.job_openings||!c.job_openings.length){
         h+='<div class="empty">No job openings found.</div>';
       }else{
+        h+='<div class="mc-grid">';
         for(var j=0;j<c.job_openings.length;j++){
           var jo=c.job_openings[j];
-          h+='<div style="padding:10px 0;border-bottom:1px solid var(--line,#e5e7eb)">'
-            +'<div style="font-weight:600;font-size:14px">'+esc(jo.title)+'</div>'
-            +'<div style="font-size:12px;color:var(--muted);margin-top:2px">Status: <span class="mc-status-pill">'+esc(jo.status)+'</span></div>'
-            +(jo.description?'<div style="font-size:13px;color:var(--text);margin-top:6px;line-height:1.5">'+esc(jo.description).substring(0,300)+(jo.description.length>300?'\u2026':'')+'</div>':'')
+          var joBenefits=[];
+          if(jo.benefit_1)joBenefits.push(esc(jo.benefit_1));
+          if(jo.benefit_2)joBenefits.push(esc(jo.benefit_2));
+          if(jo.benefit_3)joBenefits.push(esc(jo.benefit_3));
+          h+='<div class="mc-card">'
+            +'<div class="mc-card-header"><div class="mc-card-name">'+(jo.website?'<a href="'+esc(jo.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(jo.title)+'</a>':esc(jo.title))+'</div><span class="mc-status-pill '+(jo.status==='open'?'applied':'')+'">'+esc(jo.status)+'</span></div>'
+            +(jo.location?'<div class="mc-card-row"><span class="mc-label">Location</span> '+esc(jo.location)+'</div>':'')
+            +(jo.address?'<div class="mc-card-row"><span class="mc-label">Address</span> '+esc(jo.address)+'</div>':'')
+            +(jo.work_type?'<div class="mc-card-row"><span class="mc-label">Work Type</span> '+esc(jo.work_type)+'</div>':'')
+            +(jo.billing_type?'<div class="mc-card-row"><span class="mc-label">Billing</span> '+esc(jo.billing_type)+'</div>':'')
+            +(joBenefits.length?'<div class="mc-card-row"><span class="mc-label">Benefits</span> '+joBenefits.join(' &middot; ')+'</div>':'')
+            +(jo.description?'<div class="mc-card-row" style="margin-top:6px;color:var(--text);line-height:1.4">'+esc(jo.description).substring(0,200)+(jo.description.length>200?'\u2026':'')+'</div>':'')
             +'</div>';
         }
+        h+='</div>';
       }
       h+='</div>';
     }else if(S.mc.subView==="applications"){

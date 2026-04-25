@@ -17094,11 +17094,22 @@ async function handleApi(req, res, pathname) {
           };
         }
         centreMap[key].open_positions += 1;
+        const joSp = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
+        const joZoho = joSp.zoho && typeof joSp.zoho === 'object' ? joSp.zoho : {};
+        const joGpLink = joSp.gpLink && typeof joSp.gpLink === 'object' ? joSp.gpLink : {};
         centreMap[key].job_openings.push({
           id: String(r.id),
           title: r.title || 'General Practitioner',
           status: r.is_active ? 'open' : 'closed',
-          description: r.summary || ''
+          description: r.summary || '',
+          location: r.location_label || ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '')),
+          address: ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '') + (r.location_country ? ', ' + r.location_country : '')).replace(/^,\s*/, ''),
+          work_type: r.employment_type || '',
+          billing_type: r.billing_model || '',
+          benefit_1: sanitizeZohoText(joZoho.Benefit_1 || joZoho.Benefit1 || ''),
+          benefit_2: sanitizeZohoText(joZoho.Benefit_2 || joZoho.Benefit2 || ''),
+          benefit_3: sanitizeZohoText(joZoho.Benefit_3 || joZoho.Benefit3 || ''),
+          website: joGpLink.websiteUrl || sanitizeHttpUrl(getZohoField(joZoho, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || ''
         });
         if (!centreMap[key].benefit_1) {
           const sp2 = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
