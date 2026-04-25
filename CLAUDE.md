@@ -86,6 +86,14 @@ The Visa application step is deferred for the v1 release. The server logic, `pag
 - Supabase (PostgreSQL) in production, migrations in `supabase/migrations/`
 - Local JSON file at `data/app-db.json` for development
 
+## Token Efficiency
+
+- **Never read entire files for exploration.** Use targeted reads with offset/limit. Read only the lines you need.
+- **Start from the known pattern, trace outward.** If a concept exists in one file (e.g. `BYPASS_LOCK_EMAILS`), grep for that exact symbol to find all other locations — don't do broad exploratory searches.
+- **One grep, not five overlapping ones.** Combine related patterns into a single search instead of running separate passes for `locked`, `prerequisite`, `bypass`, etc.
+- **Skip rendering/styling files.** `registration-stepper.js` is CSS/rendering. `auth-guard.js` is access control. Know which files matter for the task before reading them.
+- **Don't read files you won't change.** If a grep result already answers the question (e.g. confirming a bypass exists), don't then read 30 lines of surrounding context unless you need to edit it.
+
 ## Conventions
 
 - Cache busters on script tags: `?v=YYYYMMDD[letter]` (e.g., `?v=20260329a`)
