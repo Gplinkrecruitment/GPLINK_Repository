@@ -1264,11 +1264,11 @@
 
       let currentRoute = "myinthealth.html";
       let currentTitle = "MyIntealth Account";
-      let currentSub = "Create your account to get started";
-      if (epicDone && !amcDone) { currentRoute = "amc.html"; currentTitle = "Complete AMC verification"; currentSub = "Upload your exam results to continue"; }
-      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career.html"; currentTitle = "View your practice placement"; currentSub = "Check your secured placement details"; }
-      else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra.html"; currentTitle = "Complete AHPRA registration"; currentSub = "Submit your specialist registration application"; }
-      else if (epicDone && amcDone && careerSecured && ahpraDone) { currentRoute = "pbs.html"; currentTitle = "Apply for PBS & Medicare"; currentSub = "Provider and prescriber numbers"; }
+      let currentSub = epicCurrentLabel;
+      if (epicDone && !amcDone) { currentRoute = "amc.html"; currentTitle = "AMC Portfolio"; currentSub = amcCurrentLabel; }
+      else if (epicDone && amcDone && !careerSecured) { currentRoute = "career.html"; currentTitle = "Your Practice"; currentSub = "View your secured practice placement"; }
+      else if (epicDone && amcDone && careerSecured && !ahpraDone) { currentRoute = "ahpra.html"; currentTitle = "AHPRA Registration"; currentSub = "Prepare and submit your specialist registration application"; }
+      else if (epicDone && amcDone && careerSecured && ahpraDone) { currentRoute = "pbs.html"; currentTitle = "PBS & Medicare"; currentSub = "Apply for Medicare provider and PBS prescriber numbers"; }
 
       return {
         epicDone, epicCurrentLabel,
