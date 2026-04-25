@@ -542,7 +542,7 @@
     overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:20px;";
 
     var card = document.createElement("div");
-    card.style.cssText = "background:#1e1e2e;border-radius:16px;padding:28px 24px;max-width:380px;width:100%;text-align:center;font-family:'Inter',sans-serif;";
+    card.style.cssText = "background:#1e1e2e;border-radius:16px;padding:28px 24px;max-width:380px;width:100%;text-align:center;font-family:'DM Sans',sans-serif;";
 
     card.innerHTML =
       '<div style="width:56px;height:56px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">' +

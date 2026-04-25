@@ -30,14 +30,14 @@
       "@keyframes qcamScan{0%{top:12%}50%{top:65%}100%{top:12%}}" +
       /* Bottom info area */
       ".qcam-bottom{background:rgba(0,0,0,0.85);padding:16px 20px calc(env(safe-area-inset-bottom,12px) + 16px);text-align:center;}" +
-      ".qcam-hint{font-size:12px;color:#94a3b8;margin-bottom:4px;font-family:'Inter',sans-serif;}" +
-      ".qcam-doc-label{font-size:16px;font-weight:700;color:#fff;margin-bottom:4px;font-family:'Inter',sans-serif;}" +
-      ".qcam-sub{font-size:12px;color:#64748b;margin-bottom:14px;font-family:'Inter',sans-serif;}" +
+      ".qcam-hint{font-size:12px;color:#94a3b8;margin-bottom:4px;font-family:'DM Sans',sans-serif;}" +
+      ".qcam-doc-label{font-size:16px;font-weight:700;color:#fff;margin-bottom:4px;font-family:'DM Sans',sans-serif;}" +
+      ".qcam-sub{font-size:12px;color:#64748b;margin-bottom:14px;font-family:'DM Sans',sans-serif;}" +
       ".qcam-capture{width:64px;height:64px;border-radius:50%;border:4px solid #fff;background:transparent;cursor:pointer;margin:0 auto;display:block;position:relative;}" +
       ".qcam-capture::after{content:'';position:absolute;inset:4px;border-radius:50%;background:#fff;transition:transform 0.15s;}" +
       ".qcam-capture:active::after{transform:scale(0.85);}" +
       /* Close button */
-      ".qcam-close{position:absolute;top:16px;right:16px;z-index:10;width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,0.5);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:'Inter',sans-serif;}" +
+      ".qcam-close{position:absolute;top:16px;right:16px;z-index:10;width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,0.5);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;}" +
       /* Glow animation on brackets */
       ".qcam-bracket{animation:qcamGlow 2s ease-in-out infinite alternate;}" +
       "@keyframes qcamGlow{0%{border-color:#00e5ff;filter:drop-shadow(0 0 4px #00e5ff)}100%{border-color:#00bcd4;filter:drop-shadow(0 0 8px #00e5ff)}}";
