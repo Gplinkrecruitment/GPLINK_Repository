@@ -17077,6 +17077,9 @@ async function handleApi(req, res, pathname) {
           const gpLink = sp.gpLink && typeof sp.gpLink === 'object' ? sp.gpLink : {};
           const rawClient = zoho.Client_Name || zoho.Account_Name || '';
           const clientName = (rawClient && typeof rawClient === 'object' ? (rawClient.name || rawClient.display_value || '') : String(rawClient || '')).trim() || key;
+          const contactName = sanitizeZohoText(zoho.Contact_Name || zoho.contact_name || '') || buildZohoDisplayName(zoho);
+          const contactEmail = getZohoField(zoho, ['Email', 'Contact_Email', 'Secondary_Email', 'Account_Email']);
+          const contactPhone = choosePreferredZohoPhone(zoho) || getZohoField(zoho, ['Contact_Phone', 'Account_Phone']);
           centreMap[key] = {
             id: encodeURIComponent(key),
             practice_name: key,
@@ -17089,6 +17092,9 @@ async function handleApi(req, res, pathname) {
             address: ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '') + (r.location_country ? ', ' + r.location_country : '')).replace(/^,\s*/, ''),
             billing_type: r.billing_model || '',
             website: gpLink.websiteUrl || sanitizeHttpUrl(getZohoField(zoho, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || '',
+            contact_name: contactName,
+            contact_email: contactEmail,
+            contact_phone: contactPhone,
             open_positions: 0,
             job_openings: []
           };
@@ -17118,11 +17124,16 @@ async function handleApi(req, res, pathname) {
           centreMap[key].benefit_2 = sanitizeZohoText(z2.Benefit_2 || z2.Benefit2 || '');
           centreMap[key].benefit_3 = sanitizeZohoText(z2.Benefit_3 || z2.Benefit3 || '');
         }
-        if (!centreMap[key].website) {
+        if (!centreMap[key].website || !centreMap[key].contact_name) {
           const sp2 = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
           const gl2 = sp2.gpLink && typeof sp2.gpLink === 'object' ? sp2.gpLink : {};
           const z2 = sp2.zoho && typeof sp2.zoho === 'object' ? sp2.zoho : {};
-          centreMap[key].website = gl2.websiteUrl || sanitizeHttpUrl(getZohoField(z2, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || '';
+          if (!centreMap[key].website) centreMap[key].website = gl2.websiteUrl || sanitizeHttpUrl(getZohoField(z2, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || '';
+          if (!centreMap[key].contact_name) {
+            centreMap[key].contact_name = sanitizeZohoText(z2.Contact_Name || z2.contact_name || '') || buildZohoDisplayName(z2);
+            centreMap[key].contact_email = getZohoField(z2, ['Email', 'Contact_Email', 'Secondary_Email', 'Account_Email']);
+            centreMap[key].contact_phone = choosePreferredZohoPhone(z2) || getZohoField(z2, ['Contact_Phone', 'Account_Phone']);
+          }
         }
       }
       const centres = Object.values(centreMap).sort((a, b) => b.open_positions - a.open_positions);

@@ -1203,32 +1203,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var h='<div style="padding:16px"><h2 style="margin:0 0 12px;font-size:18px">Medical Centres</h2><div class="mc-grid">';
     for(var i=0;i<S.mc.centres.length;i++){
       var c=S.mc.centres[i];
-      if(c.open_positions>1){
-        // Multi-opening client: minimal card with pulsating explore button
-        h+='<div class="mc-card mc-card-multi" data-mc-id="'+esc(c.id)+'">'
-          +'<div class="mc-card-header"><div class="mc-card-name">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</div></div>'
-          +'<div class="mc-card-row" style="margin-top:8px;color:var(--muted)">'+c.open_positions+' medical centres with open positions</div>'
-          +'<button class="mc-explore-btn" data-mc-id="'+esc(c.id)+'"><span class="mc-explore-dot"></span>View Centres</button>'
-          +'</div>';
-      }else{
-        // Single opening: full card with all details
-        var jo=c.job_openings[0]||{};
-        var benefits=[];
-        if(jo.benefit_1)benefits.push(esc(jo.benefit_1));
-        if(jo.benefit_2)benefits.push(esc(jo.benefit_2));
-        if(jo.benefit_3)benefits.push(esc(jo.benefit_3));
-        if(!benefits.length){if(c.benefit_1)benefits.push(esc(c.benefit_1));if(c.benefit_2)benefits.push(esc(c.benefit_2));if(c.benefit_3)benefits.push(esc(c.benefit_3));}
-        var siteUrl=jo.website||c.website;
-        h+='<div class="mc-card" data-mc-id="'+esc(c.id)+'">'
-          +'<div class="mc-card-header"><div class="mc-card-name">'+(siteUrl?'<a href="'+esc(siteUrl)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(jo.title||c.practice_name)+'</a>':esc(jo.title||c.practice_name))+'</div><span class="task-badge open">1 open</span></div>'
-          +(c.client_name&&c.client_name!==c.practice_name?'<div class="mc-card-row"><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
-          +(jo.location||c.location?'<div class="mc-card-row"><span class="mc-label">Location</span> '+esc(jo.location||c.location)+'</div>':'')
-          +(jo.address||c.address?'<div class="mc-card-row"><span class="mc-label">Address</span> '+esc(jo.address||c.address)+'</div>':'')
-          +(jo.work_type||c.work_type?'<div class="mc-card-row"><span class="mc-label">Work Type</span> '+esc(jo.work_type||c.work_type)+'</div>':'')
-          +(jo.billing_type||c.billing_type?'<div class="mc-card-row"><span class="mc-label">Billing</span> '+esc(jo.billing_type||c.billing_type)+'</div>':'')
-          +(benefits.length?'<div class="mc-card-row"><span class="mc-label">Benefits</span> '+benefits.join(' &middot; ')+'</div>':'')
-          +'</div>';
-      }
+      h+='<div class="mc-card mc-card-multi" data-mc-id="'+esc(c.id)+'">'
+        +'<div class="mc-card-header"><div class="mc-card-name">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</div></div>'
+        +(c.contact_name?'<div class="mc-card-row"><span class="mc-label">Contact</span> '+esc(c.contact_name)+'</div>':'')
+        +(c.contact_email?'<div class="mc-card-row"><span class="mc-label">Email</span> <a href="mailto:'+esc(c.contact_email)+'" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.contact_email)+'</a></div>':'')
+        +(c.contact_phone?'<div class="mc-card-row"><span class="mc-label">Phone</span> <a href="tel:'+esc(c.contact_phone)+'" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.contact_phone)+'</a></div>':'')
+        +'<div class="mc-card-row" style="margin-top:8px;color:var(--muted)">'+c.open_positions+' open position'+(c.open_positions!==1?'s':'')+'</div>'
+        +'<button class="mc-explore-btn" data-mc-id="'+esc(c.id)+'"><span class="mc-explore-dot"></span>View Openings</button>'
+        +'</div>';
     }
     h+='</div></div>';
     el.innerHTML=h;
