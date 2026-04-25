@@ -69,6 +69,7 @@ const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || '').trim()
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
 const ZOHO_RECRUIT_SYNC_CRON_SECRET = String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || process.env.CRON_SECRET || '').trim();
+const ZOHO_RECRUIT_WEBHOOK_SECRET = String(process.env.ZOHO_RECRUIT_WEBHOOK_SECRET || '').trim();
 // ── Zoho Sign ─────────────────────────────────────────────
 const {
   ZOHO_SIGN_SCOPES,
@@ -9007,6 +9008,134 @@ async function upsertCareerRoleBatch(rows) {
   return result.ok;
 }
 
+// ── Zoho Recruit Webhook Handler ──
+async function handleZohoRecruitWebhook(req, res) {
+  // 1. Verify webhook secret
+  if (!ZOHO_RECRUIT_WEBHOOK_SECRET) {
+    console.warn('[ZohoRecruit webhook] ZOHO_RECRUIT_WEBHOOK_SECRET not configured');
+    sendJson(res, 503, { ok: false, error: 'Webhook not configured' });
+    return;
+  }
+  let rawBody;
+  try {
+    rawBody = (await readRawBody(req, 2 * 1024 * 1024)).toString('utf-8');
+  } catch (e) {
+    sendJson(res, 413, { ok: false, error: 'Body too large' });
+    return;
+  }
+
+  // Validate: check query param secret, custom header, or HMAC signature
+  const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const querySecret = reqUrl.searchParams.get('secret') || '';
+  const headerSecret = String(req.headers['x-zoho-recruit-webhook-secret'] || req.headers['x-webhook-secret'] || '').trim();
+  const hmacSig = String(req.headers['x-zoho-recruit-signature'] || '').trim();
+
+  let authenticated = false;
+  // Method 1: Query param or header secret (timing-safe)
+  if (querySecret && timingSafeEqualStrings(querySecret, ZOHO_RECRUIT_WEBHOOK_SECRET)) authenticated = true;
+  if (!authenticated && headerSecret && timingSafeEqualStrings(headerSecret, ZOHO_RECRUIT_WEBHOOK_SECRET)) authenticated = true;
+  // Method 2: HMAC-SHA256 signature
+  if (!authenticated && hmacSig) {
+    try {
+      const expected = crypto.createHmac('sha256', ZOHO_RECRUIT_WEBHOOK_SECRET).update(rawBody, 'utf-8').digest('hex');
+      const a = Buffer.from(expected);
+      const b = Buffer.from(hmacSig);
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) authenticated = true;
+    } catch {}
+  }
+
+  if (!authenticated) {
+    console.warn('[ZohoRecruit webhook] auth failed');
+    sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+    return;
+  }
+
+  // 2. Parse payload
+  let payload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    // Zoho Recruit may send form-encoded data
+    try {
+      const params = new URLSearchParams(rawBody);
+      const jsonData = params.get('data') || params.get('payload') || params.get('json');
+      if (jsonData) payload = JSON.parse(jsonData);
+      else {
+        payload = {};
+        for (const [k, v] of params) {
+          try { payload[k] = JSON.parse(v); } catch { payload[k] = v; }
+        }
+      }
+    } catch {
+      sendJson(res, 400, { ok: false, error: 'Invalid payload' });
+      return;
+    }
+  }
+
+  // 3. Return 200 immediately, process async
+  sendJson(res, 200, { ok: true, received: true });
+  setImmediate(() => {
+    processZohoRecruitWebhookPayload(payload).catch((e) => {
+      console.error('[ZohoRecruit webhook] processing error:', e && e.message);
+    });
+  });
+}
+
+async function processZohoRecruitWebhookPayload(payload) {
+  if (!isSupabaseDbConfigured()) {
+    console.warn('[ZohoRecruit webhook] Supabase not configured, skipping');
+    return;
+  }
+
+  const syncedAt = new Date().toISOString();
+
+  // Zoho Recruit webhooks can send data in various shapes:
+  // 1. Direct record: { id: "...", Posting_Title: "...", ... }
+  // 2. Wrapped: { data: { ... }, module: "JobOpenings" }
+  // 3. Array: { data: [ { ... } ] }
+  // 4. Notification: { notification_type: "...", data: { ... } }
+  let records = [];
+
+  if (payload.data && Array.isArray(payload.data)) {
+    records = payload.data;
+  } else if (payload.data && typeof payload.data === 'object' && payload.data.id) {
+    records = [payload.data];
+  } else if (payload.id || payload.Job_Opening_ID || payload.Posting_Title) {
+    records = [payload];
+  } else if (Array.isArray(payload)) {
+    records = payload;
+  } else {
+    // Try to find the record in nested structure
+    for (const key of ['JobOpenings', 'Job_Openings', 'jobOpenings', 'record', 'records']) {
+      if (payload[key]) {
+        const val = payload[key];
+        records = Array.isArray(val) ? val : [val];
+        break;
+      }
+    }
+  }
+
+  if (!records.length) {
+    console.log('[ZohoRecruit webhook] No records found in payload, keys:', Object.keys(payload).join(', '));
+    return;
+  }
+
+  const rows = [];
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+    const built = buildCareerRoleRecordFromZoho(record, syncedAt);
+    if (built) rows.push(built);
+  }
+
+  if (!rows.length) {
+    console.log('[ZohoRecruit webhook] No valid records after mapping');
+    return;
+  }
+
+  const ok = await upsertCareerRoleBatch(rows);
+  console.log('[ZohoRecruit webhook] Upserted', rows.length, 'record(s), success:', ok);
+}
+
 async function markCareerRolesInactive(provider, inactiveIds) {
   const ids = Array.isArray(inactiveIds) ? inactiveIds.filter(Boolean) : [];
   if (ids.length === 0) return true;
@@ -14641,6 +14770,12 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Zoho Recruit webhook — external origin, must be before same-origin enforcement
+  if (req.method === 'POST' && pathname === '/api/webhooks/zoho-recruit') {
+    await handleZohoRecruitWebhook(req, res);
+    return;
+  }
+
   // Cron: renew Gmail watch (before same-origin — called by Vercel cron)
   if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
     var cronSecret = String(process.env.CRON_SECRET || '').trim();
@@ -16716,6 +16851,9 @@ async function handleApi(req, res, pathname) {
       needsReconnect: scopeStatus.needsReconnect,
       cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
       cronPath: '/api/integrations/zoho-recruit/cron-sync',
+      webhookConfigured: !!ZOHO_RECRUIT_WEBHOOK_SECRET,
+      webhookPath: '/api/webhooks/zoho-recruit',
+      webhookUrl: ZOHO_RECRUIT_WEBHOOK_SECRET ? ('https://' + (req.headers.host || 'app.mygplink.com.au') + '/api/webhooks/zoho-recruit?secret=' + encodeURIComponent(ZOHO_RECRUIT_WEBHOOK_SECRET)) : '',
       connected: !!(connection && connection.refreshToken),
       connection: sanitizeConnectionForResponse(connection),
       roleCount: roles.length
