@@ -9009,6 +9009,7 @@ async function upsertCareerRoleBatch(rows) {
 }
 
 // ── Zoho Recruit Webhook Handler ──
+let _lastZohoRecruitWebhookPayload = null;
 async function handleZohoRecruitWebhook(req, res) {
   // 1. Verify webhook secret
   if (!ZOHO_RECRUIT_WEBHOOK_SECRET) {
@@ -9083,6 +9084,14 @@ async function handleZohoRecruitWebhook(req, res) {
       }
     }
   }
+
+  // Store for diagnostic endpoint
+  _lastZohoRecruitWebhookPayload = {
+    receivedAt: new Date().toISOString(),
+    contentType: req.headers['content-type'] || '',
+    rawBodyPreview: rawBody.slice(0, 2000),
+    parsed: payload
+  };
 
   // 3. Return 200 immediately, process async
   sendJson(res, 200, { ok: true, received: true });
@@ -14800,6 +14809,12 @@ async function handleApi(req, res, pathname) {
   // Zoho Recruit webhook — external origin, must be before same-origin enforcement
   if (req.method === 'POST' && pathname === '/api/webhooks/zoho-recruit') {
     await handleZohoRecruitWebhook(req, res);
+    return;
+  }
+  // Diagnostic: view last webhook payload (admin only, temporary)
+  if (req.method === 'GET' && pathname === '/api/admin/webhooks/zoho-recruit/last-payload') {
+    if (!requireAdminSession(req, res)) return;
+    sendJson(res, 200, { ok: true, payload: _lastZohoRecruitWebhookPayload });
     return;
   }
 
