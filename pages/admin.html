@@ -613,6 +613,30 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .pd-editor ul{margin:4px 0 4px 20px}
     .pd-editor li{margin:2px 0}
     .pd-meta{font-size:12px;color:#636e72;margin-bottom:8px}
+    .mc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+    .mc-card{padding:14px 16px;border-radius:var(--radius,8px);border:1px solid var(--line,#e5e7eb);cursor:pointer;transition:all .12s;background:#fff}
+    .mc-card:hover{border-color:#bfdbfe;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+    .mc-card-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+    .mc-card-name{font-weight:700;font-size:14px;color:var(--text)}
+    .mc-card-row{font-size:12px;color:var(--muted,#6b7280);margin-top:3px}
+    .mc-label{font-weight:600;color:var(--text);margin-right:4px}
+    .mc-detail-header{padding:16px;border-bottom:1px solid var(--line,#e5e7eb)}
+    .mc-detail-back{border:none;background:none;font-size:13px;font-weight:600;color:var(--blue,#2563eb);cursor:pointer;padding:0;margin-bottom:8px}
+    .mc-detail-back:hover{text-decoration:underline}
+    .mc-subnav{display:flex;gap:0;border-bottom:1px solid var(--line,#e5e7eb);padding:0 16px}
+    .mc-subnav-btn{padding:8px 16px;border:none;background:none;font-size:13px;font-weight:600;color:var(--muted,#6b7280);cursor:pointer;border-bottom:2px solid transparent}
+    .mc-subnav-btn.active{color:var(--blue,#2563eb);border-bottom-color:var(--blue,#2563eb)}
+    .mc-subnav-btn:hover{color:var(--text)}
+    .mc-apps-table{width:100%;border-collapse:collapse;font-size:13px}
+    .mc-apps-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--muted,#6b7280);border-bottom:1px solid var(--line,#e5e7eb);font-size:11px;text-transform:uppercase}
+    .mc-apps-table td{padding:8px 12px;border-bottom:1px solid var(--line,#e5e7eb)}
+    .mc-apps-table .gp-link{color:var(--blue,#2563eb);text-decoration:none;font-weight:600;cursor:pointer}
+    .mc-apps-table .gp-link:hover{text-decoration:underline}
+    .mc-status-pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#f3f4f6;color:#374151}
+    .mc-status-pill.applied{background:#dbeafe;color:#1d4ed8}
+    .mc-status-pill.interview_scheduled{background:#fef3c7;color:#92400e}
+    .mc-status-pill.offer,.mc-status-pill.offered{background:#d1fae5;color:#065f46}
+    .mc-status-pill.placement_secured{background:#c7d2fe;color:#3730a3}
   </style>
 </head>
 <body>
@@ -714,6 +738,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
     selectedCaseId:null,view:"inbox",filter:"all",query:"",expanded:{},refreshTimer:null,
+    mc:{centres:[],loading:false,selectedCentre:null,subView:"overview"},
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     toolsSubView:"ops",gpsProfileTab:"tasks",
     va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
@@ -1141,6 +1166,116 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
   }
   async function syncCases(){try{await fetch("/api/admin/cases/sync",{method:"POST",credentials:"same-origin"});await loadAll(true);}catch{}}
+  async function loadMedicalCentres(){
+    if(S.mc.loading)return;
+    S.mc.loading=true;
+    renderMedicalCentresPanel();
+    try{
+      const r=await fetch("/api/admin/medical-centres",{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      if(d.ok&&Array.isArray(d.centres))S.mc.centres=d.centres;
+    }catch{}
+    S.mc.loading=false;
+    renderMedicalCentresPanel();
+  }
+  async function loadMedicalCentreApplications(centreId){
+    try{
+      const r=await fetch("/api/admin/medical-centres/"+encodeURIComponent(centreId)+"/applications",{credentials:"same-origin"});
+      const d=await r.json().catch(()=>({}));
+      return d.ok&&Array.isArray(d.applications)?d.applications:[];
+    }catch{return[];}
+  }
+  function renderMedicalCentresPanel(){
+    const el=document.getElementById("medicalCentresPanel");if(!el)return;
+    if(S.mc.selectedCentre){renderMedicalCentreDetail();return;}
+    if(S.mc.loading){el.innerHTML='<div class="empty" style="padding:40px">Loading medical centres\u2026</div>';return;}
+    if(!S.mc.centres.length){el.innerHTML='<div class="empty" style="padding:40px">No medical centres with open positions found.</div>';return;}
+    var h='<div style="padding:16px"><h2 style="margin:0 0 12px;font-size:18px">Medical Centres</h2><div class="mc-grid">';
+    for(var i=0;i<S.mc.centres.length;i++){
+      var c=S.mc.centres[i];
+      var benefits=[];
+      if(c.benefit_1)benefits.push(esc(c.benefit_1));
+      if(c.benefit_2)benefits.push(esc(c.benefit_2));
+      if(c.benefit_3)benefits.push(esc(c.benefit_3));
+      h+='<div class="mc-card" data-mc-id="'+esc(c.id)+'">'
+        +'<div class="mc-card-header"><div class="mc-card-name">'+esc(c.practice_name)+'</div><span class="task-badge open">'+c.open_positions+' open</span></div>'
+        +(c.client_name&&c.client_name!==c.practice_name?'<div class="mc-card-row"><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
+        +(c.location?'<div class="mc-card-row"><span class="mc-label">Location</span> '+esc(c.location)+'</div>':'')
+        +(c.address?'<div class="mc-card-row"><span class="mc-label">Address</span> '+esc(c.address)+'</div>':'')
+        +(c.work_type?'<div class="mc-card-row"><span class="mc-label">Work Type</span> '+esc(c.work_type)+'</div>':'')
+        +(c.billing_type?'<div class="mc-card-row"><span class="mc-label">Billing</span> '+esc(c.billing_type)+'</div>':'')
+        +(benefits.length?'<div class="mc-card-row"><span class="mc-label">Benefits</span> '+benefits.join(' &middot; ')+'</div>':'')
+        +'</div>';
+    }
+    h+='</div></div>';
+    el.innerHTML=h;
+  }
+  async function renderMedicalCentreDetail(){
+    const el=document.getElementById("medicalCentresPanel");if(!el)return;
+    const c=S.mc.selectedCentre;if(!c){renderMedicalCentresPanel();return;}
+    const benefits=[];
+    if(c.benefit_1)benefits.push(esc(c.benefit_1));
+    if(c.benefit_2)benefits.push(esc(c.benefit_2));
+    if(c.benefit_3)benefits.push(esc(c.benefit_3));
+    var h='<div class="mc-detail-header">'
+      +'<button class="mc-detail-back" data-mc-back>&larr; Back to Medical Centres</button>'
+      +'<h2 style="margin:0 0 8px;font-size:18px">'+esc(c.practice_name)+'</h2>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:13px;max-width:600px">'
+      +(c.client_name&&c.client_name!==c.practice_name?'<div><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
+      +(c.location?'<div><span class="mc-label">Location</span> '+esc(c.location)+'</div>':'')
+      +(c.address?'<div><span class="mc-label">Address</span> '+esc(c.address)+'</div>':'')
+      +(c.work_type?'<div><span class="mc-label">Work Type</span> '+esc(c.work_type)+'</div>':'')
+      +(c.billing_type?'<div><span class="mc-label">Billing</span> '+esc(c.billing_type)+'</div>':'')
+      +(benefits.length?'<div style="grid-column:1/-1"><span class="mc-label">Benefits</span> '+benefits.join(' &middot; ')+'</div>':'')
+      +'<div><span class="mc-label">Open Positions</span> '+c.open_positions+'</div>'
+      +'</div></div>';
+    h+='<div class="mc-subnav">'
+      +'<button class="mc-subnav-btn '+(S.mc.subView==="overview"?"active":"")+'" data-mc-sub="overview">Overview</button>'
+      +'<button class="mc-subnav-btn '+(S.mc.subView==="applications"?"active":"")+'" data-mc-sub="applications">Applications</button>'
+      +'</div>';
+    if(S.mc.subView==="overview"){
+      h+='<div style="padding:16px">';
+      if(!c.job_openings||!c.job_openings.length){
+        h+='<div class="empty">No job openings found.</div>';
+      }else{
+        for(var j=0;j<c.job_openings.length;j++){
+          var jo=c.job_openings[j];
+          h+='<div style="padding:10px 0;border-bottom:1px solid var(--line,#e5e7eb)">'
+            +'<div style="font-weight:600;font-size:14px">'+esc(jo.title)+'</div>'
+            +'<div style="font-size:12px;color:var(--muted);margin-top:2px">Status: <span class="mc-status-pill">'+esc(jo.status)+'</span></div>'
+            +(jo.description?'<div style="font-size:13px;color:var(--text);margin-top:6px;line-height:1.5">'+esc(jo.description).substring(0,300)+(jo.description.length>300?'\u2026':'')+'</div>':'')
+            +'</div>';
+        }
+      }
+      h+='</div>';
+    }else if(S.mc.subView==="applications"){
+      h+='<div style="padding:16px" id="mcAppsContent"><div class="empty">Loading applications\u2026</div></div>';
+    }
+    el.innerHTML=h;
+    if(S.mc.subView==="applications"){
+      var apps=await loadMedicalCentreApplications(c.id);
+      var appsEl=document.getElementById("mcAppsContent");
+      if(!appsEl)return;
+      if(!apps.length){
+        appsEl.innerHTML='<div class="empty">No applications for this medical centre yet.</div>';
+        return;
+      }
+      var ah='<table class="mc-apps-table"><thead><tr><th>GP Name</th><th>Job Opening</th><th>Status</th><th>Date Applied</th></tr></thead><tbody>';
+      for(var k=0;k<apps.length;k++){
+        var a=apps[k];
+        var dateStr=a.applied_at?new Date(a.applied_at).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}):'\u2014';
+        var statusClass=esc((a.status||'').replace(/\s+/g,'_'));
+        ah+='<tr>'
+          +'<td><a class="gp-link" data-mc-gp-id="'+esc(a.user_id)+'">'+esc(a.gp_name||'Unknown')+'</a></td>'
+          +'<td>'+esc(a.job_title)+'</td>'
+          +'<td><span class="mc-status-pill '+statusClass+'">'+esc((a.status||'applied').replace(/_/g,' '))+'</span></td>'
+          +'<td>'+dateStr+'</td>'
+          +'</tr>';
+      }
+      ah+='</tbody></table>';
+      appsEl.innerHTML=ah;
+    }
+  }
 
   /* ══ Data Helpers ══ */
   const gps=()=>S.dashboard&&Array.isArray(S.dashboard.candidates)?S.dashboard.candidates:[];
@@ -2441,6 +2576,35 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const wq=e.target.closest("[data-wq-case]");
       if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="cases";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
+    document.getElementById("medicalCentresPanel").addEventListener("click",async function(e){
+      var card=e.target.closest("[data-mc-id]");
+      if(card){
+        var id=card.getAttribute("data-mc-id");
+        S.mc.selectedCentre=S.mc.centres.find(function(c){return c.id===id;})||null;
+        S.mc.subView="overview";
+        renderMedicalCentresPanel();
+        return;
+      }
+      var back=e.target.closest("[data-mc-back]");
+      if(back){
+        S.mc.selectedCentre=null;
+        renderMedicalCentresPanel();
+        return;
+      }
+      var subBtn=e.target.closest("[data-mc-sub]");
+      if(subBtn){
+        S.mc.subView=subBtn.getAttribute("data-mc-sub");
+        renderMedicalCentreDetail();
+        return;
+      }
+      var gpLink=e.target.closest("[data-mc-gp-id]");
+      if(gpLink){
+        e.preventDefault();
+        var userId=gpLink.getAttribute("data-mc-gp-id");
+        window.open("/pages/admin.html?gp="+encodeURIComponent(userId),"_blank");
+        return;
+      }
+    });
     document.getElementById("detailContent").addEventListener("click",e=>{
       const agStart=e.target.closest("[data-agent-start]");if(agStart){startAgentRun();return;}
       const agRefresh=e.target.closest("[data-agent-refresh]");if(agRefresh){refreshAgentStatus(true);return;}
@@ -3702,6 +3866,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   bind();
   loadSession().then(ok=>{
     if(!ok)return;
+    var urlParams=new URLSearchParams(window.location.search);
+    var gpParam=urlParams.get("gp");
+    if(gpParam){S.selectedCaseId=gpParam;S.view="gps";document.querySelectorAll(".view-tab").forEach(function(t){t.classList.toggle("active",t.getAttribute("data-view")==="gps");});vaShowPanel("gps");}
     if(isSA()){
       const agentTab=document.getElementById("agentTab");
       if(agentTab)agentTab.style.display="";
