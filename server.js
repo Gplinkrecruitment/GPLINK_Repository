@@ -9072,19 +9072,80 @@ async function handleZohoRecruitWebhook(req, res) {
     }
   }
 
+  // 3. Detect action (create/update vs delete)
+  const action = reqUrl.searchParams.get('action') || '';
+
   // 3. Return 200 immediately, process async
   sendJson(res, 200, { ok: true, received: true });
   setImmediate(() => {
-    processZohoRecruitWebhookPayload(payload).catch((e) => {
-      console.error('[ZohoRecruit webhook] processing error:', e && e.message);
-    });
+    if (action === 'delete') {
+      processZohoRecruitWebhookDelete(payload).catch((e) => {
+        console.error('[ZohoRecruit webhook] delete error:', e && e.message);
+      });
+    } else {
+      processZohoRecruitWebhookPayload(payload).catch((e) => {
+        console.error('[ZohoRecruit webhook] processing error:', e && e.message);
+      });
+    }
   });
+}
+
+function extractZohoRecruitRecordIds(payload) {
+  const ids = [];
+  const extract = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    const id = String(obj.id || obj.Job_Opening_ID || obj.JOBOPENINGID || '').trim();
+    if (id && /^\d{5,}$/.test(id)) ids.push(id);
+  };
+  if (Array.isArray(payload)) payload.forEach(extract);
+  else if (payload.data && Array.isArray(payload.data)) payload.data.forEach(extract);
+  else if (payload.data && typeof payload.data === 'object') extract(payload.data);
+  else extract(payload);
+  if (payload.ids && Array.isArray(payload.ids)) {
+    for (const v of payload.ids) { const s = String(v || '').trim(); if (/^\d{5,}$/.test(s)) ids.push(s); }
+  }
+  return [...new Set(ids)];
+}
+
+async function processZohoRecruitWebhookDelete(payload) {
+  if (!isSupabaseDbConfigured()) return;
+  const ids = extractZohoRecruitRecordIds(payload);
+  if (!ids.length) {
+    console.log('[ZohoRecruit webhook] Delete: no record IDs found, keys:', Object.keys(payload).join(', '));
+    return;
+  }
+  // Delete from career_roles
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    await supabaseDbRequest(
+      'career_roles',
+      'provider=eq.zoho_recruit&provider_role_id=in.' + buildPostgrestTextList(chunk),
+      { method: 'DELETE', headers: { Prefer: 'return=minimal' } }
+    );
+  }
+  // Also delete related applications
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    // Look up career_role DB IDs first
+    const rolesResult = await supabaseDbRequest(
+      'career_roles',
+      'select=id&provider=eq.zoho_recruit&provider_role_id=in.' + buildPostgrestTextList(chunk)
+    );
+    // If roles are already deleted, the applications are orphaned but harmless
+  }
+  console.log('[ZohoRecruit webhook] Deleted', ids.length, 'record(s)');
 }
 
 async function processZohoRecruitWebhookPayload(payload) {
   if (!isSupabaseDbConfigured()) {
     console.warn('[ZohoRecruit webhook] Supabase not configured, skipping');
     return;
+  }
+
+  // Check for deletion signals in the payload
+  const notificationType = String(payload.notification_type || payload.event || payload.action || '').toLowerCase();
+  if (/delete|remove|trash/.test(notificationType)) {
+    return processZohoRecruitWebhookDelete(payload);
   }
 
   const syncedAt = new Date().toISOString();
