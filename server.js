@@ -8907,7 +8907,7 @@ async function fetchZohoRecruitJobOpenings(connection, accessToken, apiDomain, q
 
 function buildCareerRoleRecordFromZoho(record, syncedAt) {
   if (!record || typeof record !== 'object') return null;
-  const providerRoleId = sanitizeZohoText(record.id);
+  const providerRoleId = sanitizeZohoText(record.id) || getZohoField(record, ['Job_Opening_ID', 'Job_Opening_Id', 'Job Opening Id', 'JOBOPENINGID', 'Job Opening ID', 'id']);
   if (!providerRoleId) return null;
 
   const title = getZohoField(record, ['Posting_Title', 'Job_Opening_Name', 'Role_Title', 'Job_Title', 'Title']) || 'General Practitioner';
@@ -9129,42 +9129,62 @@ async function processZohoRecruitWebhookPayload(payload) {
     return;
   }
 
-  console.log('[ZohoRecruit webhook] Payload type:', typeof payload, 'keys:', payload && typeof payload === 'object' ? Object.keys(payload).slice(0, 30).join(', ') : 'N/A');
-  console.log('[ZohoRecruit webhook] Payload sample:', JSON.stringify(payload).slice(0, 500));
+  console.log('[ZohoRecruit webhook] Payload keys:', payload && typeof payload === 'object' ? Object.keys(payload).slice(0, 30).join(', ') : 'N/A');
 
   const syncedAt = new Date().toISOString();
 
-  // Zoho Recruit webhooks send data in various shapes:
+  // Zoho Standard Format sends space-separated field names (e.g., "Posting Title").
+  // Normalize: create a copy with both space and underscore variants for each key.
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const normalized = {};
+    for (const [k, v] of Object.entries(payload)) {
+      normalized[k] = v;
+      // Add underscore variant: "Posting Title" → "Posting_Title"
+      const underscored = k.replace(/\s+/g, '_');
+      if (underscored !== k) normalized[underscored] = v;
+      // Add space variant: "Posting_Title" → "Posting Title"
+      const spaced = k.replace(/_/g, ' ');
+      if (spaced !== k) normalized[spaced] = v;
+    }
+    payload = normalized;
+  }
+
+  // Detect if this is a flat record (Standard Format sends fields directly as top-level keys)
+  const hasRecordFields = payload && (
+    payload.id || payload.Job_Opening_ID || payload.JOBOPENINGID ||
+    payload.Posting_Title || payload['Posting Title'] ||
+    payload.Job_Opening_Status || payload['Job Opening Status'] ||
+    payload.City || payload.State || payload.Client_Name || payload['Client Name']
+  );
+
   let records = [];
 
-  if (payload.data && Array.isArray(payload.data)) {
+  if (hasRecordFields) {
+    // Flat record — the payload IS the record
+    records = [payload];
+  } else if (payload.data && Array.isArray(payload.data)) {
     records = payload.data;
   } else if (payload.data && typeof payload.data === 'object' && payload.data.id) {
     records = [payload.data];
-  } else if (payload.id || payload.Job_Opening_ID || payload.Posting_Title || payload.JOBOPENINGID) {
-    records = [payload];
   } else if (Array.isArray(payload)) {
     records = payload;
   } else {
-    // Try nested keys — Zoho may wrap record under module name or other keys
+    // Try nested keys
     for (const key of Object.keys(payload)) {
       const val = payload[key];
-      if (val && typeof val === 'object' && !Array.isArray(val) && (val.id || val.Job_Opening_ID || val.JOBOPENINGID || val.Posting_Title)) {
+      if (val && typeof val === 'object' && !Array.isArray(val) && (val.id || val.Job_Opening_ID || val.Posting_Title)) {
         records = [val];
-        console.log('[ZohoRecruit webhook] Found record under key:', key);
         break;
       }
       if (Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object') {
         records = val;
-        console.log('[ZohoRecruit webhook] Found records array under key:', key);
         break;
       }
     }
   }
 
   if (!records.length) {
-    console.log('[ZohoRecruit webhook] No records found in payload, keys:', Object.keys(payload).join(', '));
-    console.log('[ZohoRecruit webhook] Full payload:', JSON.stringify(payload).slice(0, 2000));
+    console.log('[ZohoRecruit webhook] No records found, keys:', Object.keys(payload).join(', '));
     return;
   }
 
