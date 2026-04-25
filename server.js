@@ -9093,6 +9093,27 @@ async function handleZohoRecruitWebhook(req, res) {
     parsed: payload
   };
 
+  // Persist to Supabase for cross-instance diagnostic retrieval
+  if (isSupabaseDbConfigured()) {
+    try {
+      await supabaseDbRequest('integration_connections', 'on_conflict=provider', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: [{
+          provider: 'zoho_recruit_webhook_debug',
+          status: 'debug',
+          metadata: {
+            receivedAt: new Date().toISOString(),
+            contentType: req.headers['content-type'] || '',
+            rawBodyPreview: rawBody.slice(0, 3000),
+            parsedKeys: payload ? Object.keys(payload).slice(0, 50) : [],
+            parsedSample: JSON.stringify(payload).slice(0, 3000)
+          }
+        }]
+      });
+    } catch {}
+  }
+
   // 3. Return 200 immediately, process async
   sendJson(res, 200, { ok: true, received: true });
   setImmediate(() => {
@@ -14818,7 +14839,15 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 401, { ok: false });
       return;
     }
-    sendJson(res, 200, { ok: true, payload: _lastZohoRecruitWebhookPayload });
+    // Read from Supabase (persists across serverless instances)
+    let stored = null;
+    if (isSupabaseDbConfigured()) {
+      try {
+        const r = await supabaseDbRequest('integration_connections', 'select=metadata&provider=eq.zoho_recruit_webhook_debug&limit=1');
+        if (r.ok && Array.isArray(r.data) && r.data[0]) stored = r.data[0].metadata;
+      } catch {}
+    }
+    sendJson(res, 200, { ok: true, payload: stored || _lastZohoRecruitWebhookPayload });
     return;
   }
 
