@@ -909,6 +909,12 @@
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
+    const BYPASS_LOCK_EMAILS = { "hello@mygplink.com.au": true };
+    function getPageUserEmail() {
+      try { var c = localStorage.getItem("gp_session_profile_cache"); if (c) { var p = JSON.parse(c); if (p && p.email) return String(p.email).trim().toLowerCase(); } } catch (e) {}
+      try { return String(sessionStorage.getItem("gp_session_profile_cache") ? JSON.parse(sessionStorage.getItem("gp_session_profile_cache")).email : "").trim().toLowerCase(); } catch (e) {}
+      return String(localStorage.getItem("gp_state_owner") || "").trim().toLowerCase();
+    }
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const AMC_URL = "https://www.amc.org.au";
@@ -1819,6 +1825,7 @@
     }
 
     function redirectToAllowedStage() {
+      if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
       const epic = parseStorage(EPIC_KEY);
       const amc = parseStorage(AMC_KEY);
       const ahpra = parseStorage(AHPRA_KEY);

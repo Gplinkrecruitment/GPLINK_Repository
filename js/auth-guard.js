@@ -8,6 +8,7 @@
   const SESSION_PROFILE_CACHE_KEY = "gp_session_profile_cache";
   const PROFILE_CACHE_KEY = "gp_profile_cache";
   const ACCOUNT_STATUS_CACHE_KEY = "gp_account_status_cache";
+  const FULL_ACCESS_EMAILS = { "hello@mygplink.com.au": true };
 
   function safeSessionGet(key) {
     try {
@@ -123,7 +124,15 @@
     }
   });
 
+  function getBypassEmail() {
+    try { var sp = readCachedSessionProfile(); if (sp && sp.email) return String(sp.email).trim().toLowerCase(); } catch (e) {}
+    if (window.gpSessionProfile && window.gpSessionProfile.email) return String(window.gpSessionProfile.email).trim().toLowerCase();
+    try { var owner = localStorage.getItem("gp_state_owner"); if (owner) return String(owner).trim().toLowerCase(); } catch (e) {}
+    return "";
+  }
+
   function enforceRestrictedUI() {
+    if (FULL_ACCESS_EMAILS[getBypassEmail()]) return;
     document.addEventListener("DOMContentLoaded", injectRestrictionUI);
     if (document.readyState !== "loading") injectRestrictionUI();
   }

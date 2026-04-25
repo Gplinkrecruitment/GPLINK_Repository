@@ -965,6 +965,12 @@
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
+    const BYPASS_LOCK_EMAILS = { "hello@mygplink.com.au": true };
+    function getPageUserEmail() {
+      try { var c = localStorage.getItem("gp_session_profile_cache"); if (c) { var p = JSON.parse(c); if (p && p.email) return String(p.email).trim().toLowerCase(); } } catch (e) {}
+      try { return String(sessionStorage.getItem("gp_session_profile_cache") ? JSON.parse(sessionStorage.getItem("gp_session_profile_cache")).email : "").trim().toLowerCase(); } catch (e) {}
+      return String(localStorage.getItem("gp_state_owner") || "").trim().toLowerCase();
+    }
     const SAVE_BATCH_SIZE = 3;
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const MYINTEALTH_URL = "https://applicant.myintealth.app/s/";
@@ -1742,6 +1748,7 @@
       const epicDone = !!(epic && epic.completed && epic.completed.verification_issued === true);
       const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      const bypassAll = !!BYPASS_LOCK_EMAILS[getPageUserEmail()];
       return [
         buildRegistrationRow("myinthealth", {
           title: "1. MyIntealth Account",
@@ -1752,14 +1759,14 @@
         buildRegistrationRow("amc", {
           title: "2. AMC Portfolio",
           sub: "Create AMC candidate portfolio and upload credentials.",
-          locked: !epicDone,
+          locked: !bypassAll && !epicDone,
           done: amcDone,
           href: "amc.html"
         }),
         buildRegistrationRow("ahpra", {
           title: "3. AHPRA Registration",
           sub: "Specialist registration submission.",
-          locked: !amcDone,
+          locked: !bypassAll && !amcDone,
           done: ahpraDone,
           href: "ahpra.html"
         })
@@ -1986,6 +1993,7 @@
     }
 
     function redirectToAllowedStage() {
+      if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
       const epic = parseStorage(STORAGE_KEY);
       const amc = parseStorage(AMC_KEY);
       const ahpra = parseStorage(AHPRA_KEY);
