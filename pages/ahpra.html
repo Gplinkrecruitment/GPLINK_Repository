@@ -862,7 +862,7 @@
     /* -- Bottom controls -- */
     .gate-controls {
       position: relative; z-index: 2;
-      padding: 8px 24px calc(env(safe-area-inset-bottom, 8px) + 16px);
+      padding: 8px 24px calc(env(safe-area-inset-bottom, 8px) + 80px);
       display: flex; flex-direction: column;
       align-items: center; gap: 12px;
       max-width: 480px;
@@ -2633,43 +2633,13 @@
 
     const placementGateEl = document.getElementById("placementGate");
 
-    function shellMessage(type) {
-      try {
-        if (window.parent && window.parent !== window) {
-          window.parent.postMessage({ type: type }, window.location.origin);
-        }
-      } catch (e) {}
-    }
 
     function showPlacementGate() {
       if (placementGateEl) placementGateEl.classList.add("show");
-      // Hide sibling elements inside dash-wrap (but NOT the gate itself)
-      var siblings = placementGateEl.parentElement ? placementGateEl.parentElement.children : [];
-      for (var i = 0; i < siblings.length; i++) {
-        if (siblings[i] !== placementGateEl) siblings[i].style.display = "none";
-      }
-      // Hide mobile reg sheet (lives outside dash-wrap)
-      var regBg = document.getElementById("mobileRegBackdrop");
-      var regSheet = document.getElementById("mobileRegSheet");
-      if (regBg) regBg.style.display = "none";
-      if (regSheet) regSheet.style.display = "none";
-      shellMessage("gp-shell-hide-chrome");
-      setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 200);
-      setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 600);
-      setTimeout(function () { shellMessage("gp-shell-hide-chrome"); }, 1200);
     }
 
     function hidePlacementGate() {
       if (placementGateEl) placementGateEl.classList.remove("show");
-      var siblings = placementGateEl.parentElement ? placementGateEl.parentElement.children : [];
-      for (var i = 0; i < siblings.length; i++) {
-        if (siblings[i] !== placementGateEl) siblings[i].style.display = "";
-      }
-      var regBg = document.getElementById("mobileRegBackdrop");
-      var regSheet = document.getElementById("mobileRegSheet");
-      if (regBg) regBg.style.display = "";
-      if (regSheet) regSheet.style.display = "";
-      shellMessage("gp-shell-show-chrome");
     }
 
     // Browse Jobs navigates via app-shell
