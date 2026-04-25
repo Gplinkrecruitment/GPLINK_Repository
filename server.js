@@ -9050,25 +9050,37 @@ async function handleZohoRecruitWebhook(req, res) {
     return;
   }
 
-  // 2. Parse payload
+  // 2. Parse payload — Zoho Recruit sends various formats
+  console.log('[ZohoRecruit webhook] Raw body (first 500 chars):', rawBody.slice(0, 500));
+  console.log('[ZohoRecruit webhook] Content-Type:', req.headers['content-type'] || 'none');
   let payload;
   try {
     payload = JSON.parse(rawBody);
   } catch {
-    // Zoho Recruit may send form-encoded data
+    // Zoho Recruit sends form-encoded data with ${JobOpenings} entity params
     try {
       const params = new URLSearchParams(rawBody);
       const jsonData = params.get('data') || params.get('payload') || params.get('json');
-      if (jsonData) payload = JSON.parse(jsonData);
-      else {
+      if (jsonData) {
+        payload = JSON.parse(jsonData);
+      } else {
+        // Build payload from all form params — each param could be a field
         payload = {};
         for (const [k, v] of params) {
           try { payload[k] = JSON.parse(v); } catch { payload[k] = v; }
         }
       }
     } catch {
-      sendJson(res, 400, { ok: false, error: 'Invalid payload' });
-      return;
+      // Last resort: try to extract any JSON object from the raw body
+      const jsonMatch = rawBody.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try { payload = JSON.parse(jsonMatch[0]); } catch {}
+      }
+      if (!payload) {
+        console.error('[ZohoRecruit webhook] Cannot parse body:', rawBody.slice(0, 1000));
+        sendJson(res, 400, { ok: false, error: 'Invalid payload' });
+        return;
+      }
     }
   }
 
@@ -9087,35 +9099,34 @@ async function processZohoRecruitWebhookPayload(payload) {
     return;
   }
 
-  // Check for deletion signals in the payload
-  const notificationType = String(payload.notification_type || payload.event || payload.action || '').toLowerCase();
-  if (/delete|remove|trash/.test(notificationType)) {
-    return processZohoRecruitWebhookDelete(payload);
-  }
+  console.log('[ZohoRecruit webhook] Payload type:', typeof payload, 'keys:', payload && typeof payload === 'object' ? Object.keys(payload).slice(0, 30).join(', ') : 'N/A');
+  console.log('[ZohoRecruit webhook] Payload sample:', JSON.stringify(payload).slice(0, 500));
 
   const syncedAt = new Date().toISOString();
 
-  // Zoho Recruit webhooks can send data in various shapes:
-  // 1. Direct record: { id: "...", Posting_Title: "...", ... }
-  // 2. Wrapped: { data: { ... }, module: "JobOpenings" }
-  // 3. Array: { data: [ { ... } ] }
-  // 4. Notification: { notification_type: "...", data: { ... } }
+  // Zoho Recruit webhooks send data in various shapes:
   let records = [];
 
   if (payload.data && Array.isArray(payload.data)) {
     records = payload.data;
   } else if (payload.data && typeof payload.data === 'object' && payload.data.id) {
     records = [payload.data];
-  } else if (payload.id || payload.Job_Opening_ID || payload.Posting_Title) {
+  } else if (payload.id || payload.Job_Opening_ID || payload.Posting_Title || payload.JOBOPENINGID) {
     records = [payload];
   } else if (Array.isArray(payload)) {
     records = payload;
   } else {
-    // Try to find the record in nested structure
-    for (const key of ['JobOpenings', 'Job_Openings', 'jobOpenings', 'record', 'records']) {
-      if (payload[key]) {
-        const val = payload[key];
-        records = Array.isArray(val) ? val : [val];
+    // Try nested keys — Zoho may wrap record under module name or other keys
+    for (const key of Object.keys(payload)) {
+      const val = payload[key];
+      if (val && typeof val === 'object' && !Array.isArray(val) && (val.id || val.Job_Opening_ID || val.JOBOPENINGID || val.Posting_Title)) {
+        records = [val];
+        console.log('[ZohoRecruit webhook] Found record under key:', key);
+        break;
+      }
+      if (Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object') {
+        records = val;
+        console.log('[ZohoRecruit webhook] Found records array under key:', key);
         break;
       }
     }
@@ -9123,6 +9134,7 @@ async function processZohoRecruitWebhookPayload(payload) {
 
   if (!records.length) {
     console.log('[ZohoRecruit webhook] No records found in payload, keys:', Object.keys(payload).join(', '));
+    console.log('[ZohoRecruit webhook] Full payload:', JSON.stringify(payload).slice(0, 2000));
     return;
   }
 
