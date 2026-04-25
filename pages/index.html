@@ -996,6 +996,7 @@
     }
 
     function isRegistrationReturnAllowed(stepKey) {
+      if (BYPASS_LOCK_EMAILS[getCurrentUserEmail()]) return true;
       return getRegistrationReturnOverrides()[stepKey] === true;
     }
 
@@ -1014,7 +1015,7 @@
         current: !locked && !done,
         returnable,
         href: !locked && (!done || returnable) ? config.href : "#",
-        cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+        cta: locked ? "Locked" : (returnable && BYPASS_LOCK_EMAILS[getCurrentUserEmail()]) ? "Continue" : returnable ? "Return" : done ? "Done" : "Continue"
       };
     }
 
@@ -1337,20 +1338,21 @@
 
       listEl.innerHTML = "";
       steps.forEach((step, idx) => {
+        const effectiveStepDone = step.done && !bypassAll;
         const isActive = idx === currentIdx && !step.done;
-        const stateClass = step.done ? "done" : step.locked ? "locked" : isActive ? "active" : "";
-        const isOpen = isActive;
+        const stateClass = effectiveStepDone ? "done" : step.locked ? "locked" : isActive ? "active" : "";
+        const isOpen = isActive || (bypassAll && idx === currentIdx);
 
         const el = document.createElement("div");
         el.className = `journey-step ${stateClass} ${isOpen ? "open" : ""}`.trim();
 
-        const pillClass = step.done ? "done" : step.locked ? "locked" : "current";
-        const pillText = step.done ? "Done" : step.locked ? "Locked" : isActive ? "Current" : "Ready";
+        const pillClass = effectiveStepDone ? "done" : step.locked ? "locked" : "current";
+        const pillText = effectiveStepDone ? "Done" : step.locked ? "Locked" : isActive ? "Current" : "Ready";
 
         let bodyHtml = "";
         if (step.subs) {
           bodyHtml = '<div class="journey-subs">' + step.subs.map((sub) => {
-            const subState = sub.done ? "done" : sub.locked ? "locked" : "active";
+            const subState = (sub.done && !bypassAll) ? "done" : sub.locked ? "locked" : "active";
             return `
               <div class="journey-sub-item ${subState}">
                 <span class="journey-sub-dot ${subState}"></span>
@@ -1358,7 +1360,7 @@
                   <div class="journey-sub-title">${sub.title}</div>
                   <div class="journey-sub-detail">${sub.sub}</div>
                 </div>
-                ${sub.done
+                ${(sub.done && !bypassAll)
                   ? '<span class="journey-pill done" style="font-size:10px;padding:3px 10px;">Done</span>'
                   : sub.locked
                     ? '<span class="journey-pill locked" style="font-size:10px;padding:3px 10px;">Locked</span>'
@@ -1369,7 +1371,7 @@
           }).join("") + '</div>';
         } else {
           bodyHtml = `<p>${step.detail}</p>`;
-          if (step.done) {
+          if (step.done && !bypassAll) {
             bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
           } else if (!step.locked) {
             bodyHtml += `<a class="journey-body-cta" href="${step.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
@@ -1378,7 +1380,7 @@
 
         el.innerHTML = `
           <button class="journey-head" type="button" aria-expanded="${isOpen}">
-            <span class="journey-num">${step.done ? checkSvg : step.num}</span>
+            <span class="journey-num">${effectiveStepDone ? checkSvg : step.num}</span>
             <div class="journey-info">
               <div class="journey-title">${step.title}</div>
               <div class="journey-subtitle">${step.sub}</div>
@@ -1497,16 +1499,17 @@
       if (regTableEl) regTableEl.innerHTML = "";
       if (mobileRegTable) mobileRegTable.innerHTML = "";
       rows.forEach((row) => {
-        const statusClass = row.done ? "done" : row.locked ? "locked" : "";
+        const effectiveDone = row.done && !row.returnable;
+        const statusClass = effectiveDone ? "done" : row.locked ? "locked" : "";
         const actionDisabled = row.locked || (row.done && !row.returnable);
         const rowEl = document.createElement("div");
-        rowEl.className = `reg-row ${row.done ? "done" : ""}`.trim();
+        rowEl.className = `reg-row ${effectiveDone ? "done" : ""}`.trim();
         rowEl.innerHTML = `
           <div>
             <div class="reg-name">${row.title}</div>
             <div class="reg-sub">${row.sub}</div>
           </div>
-          <span class="reg-pill ${statusClass}">${row.status}</span>
+          <span class="reg-pill ${statusClass}">${row.returnable ? "Ready" : row.status}</span>
         `;
         const actionEl = actionDisabled ? document.createElement("button") : document.createElement("a");
         actionEl.className = `reg-btn ${statusClass}`.trim();
@@ -1537,7 +1540,7 @@
         const bodyId = `mobileStepBody${idx}`;
         const pillMarkup = row.locked
           ? `<span class="mobile-step-pill locked">Locked</span>`
-          : row.status === "Done"
+          : (row.status === "Done" && !row.returnable)
             ? `<span class="mobile-step-pill done">Done</span>`
             : `<span class="mobile-step-pill current">Continue</span>`;
         cardEl.innerHTML = `
@@ -1556,7 +1559,7 @@
         const headBtn = cardEl.querySelector(".mobile-step-head");
         const bodyEl = cardEl.querySelector(".mobile-step-body");
         const actionEl2 = actionDisabled ? document.createElement("button") : document.createElement("a");
-        actionEl2.className = `reg-btn ${row.done ? "done" : row.locked ? "locked" : ""}`.trim();
+        actionEl2.className = `reg-btn ${(row.done && !row.returnable) ? "done" : row.locked ? "locked" : ""}`.trim();
         actionEl2.textContent = row.cta;
         if (actionDisabled) {
           actionEl2.type = "button";
