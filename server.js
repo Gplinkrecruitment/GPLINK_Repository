@@ -14811,9 +14811,13 @@ async function handleApi(req, res, pathname) {
     await handleZohoRecruitWebhook(req, res);
     return;
   }
-  // Diagnostic: view last webhook payload (admin only, temporary)
-  if (req.method === 'GET' && pathname === '/api/admin/webhooks/zoho-recruit/last-payload') {
-    if (!requireAdminSession(req, res)) return;
+  // Diagnostic: view last webhook payload (temporary, uses webhook secret for auth)
+  if (req.method === 'GET' && pathname === '/api/webhooks/zoho-recruit/last-payload') {
+    const diagSecret = new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams.get('secret') || '';
+    if (!ZOHO_RECRUIT_WEBHOOK_SECRET || !diagSecret || !timingSafeEqualStrings(diagSecret, ZOHO_RECRUIT_WEBHOOK_SECRET)) {
+      sendJson(res, 401, { ok: false });
+      return;
+    }
     sendJson(res, 200, { ok: true, payload: _lastZohoRecruitWebhookPayload });
     return;
   }
