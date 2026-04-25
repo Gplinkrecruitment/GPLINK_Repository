@@ -17074,17 +17074,21 @@ async function handleApi(req, res, pathname) {
         if (!centreMap[key]) {
           const sp = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
           const zoho = sp.zoho && typeof sp.zoho === 'object' ? sp.zoho : {};
+          const gpLink = sp.gpLink && typeof sp.gpLink === 'object' ? sp.gpLink : {};
+          const rawClient = zoho.Client_Name || zoho.Account_Name || '';
+          const clientName = (rawClient && typeof rawClient === 'object' ? (rawClient.name || rawClient.display_value || '') : String(rawClient || '')).trim() || key;
           centreMap[key] = {
             id: encodeURIComponent(key),
             practice_name: key,
-            client_name: String(zoho.Client_Name || zoho.Account_Name || key).replace(/^[\d_]+$/, key),
+            client_name: /^[\d_]+$/.test(clientName) ? key : clientName,
             location: r.location_label || ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '')),
             work_type: r.employment_type || '',
-            benefit_1: String(zoho.Benefit_1 || zoho.Benefit1 || ''),
-            benefit_2: String(zoho.Benefit_2 || zoho.Benefit2 || ''),
-            benefit_3: String(zoho.Benefit_3 || zoho.Benefit3 || ''),
+            benefit_1: sanitizeZohoText(zoho.Benefit_1 || zoho.Benefit1 || ''),
+            benefit_2: sanitizeZohoText(zoho.Benefit_2 || zoho.Benefit2 || ''),
+            benefit_3: sanitizeZohoText(zoho.Benefit_3 || zoho.Benefit3 || ''),
             address: ((r.location_city || '') + (r.location_state ? ', ' + r.location_state : '') + (r.location_country ? ', ' + r.location_country : '')).replace(/^,\s*/, ''),
             billing_type: r.billing_model || '',
+            website: gpLink.websiteUrl || sanitizeHttpUrl(getZohoField(zoho, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || '',
             open_positions: 0,
             job_openings: []
           };
@@ -17099,9 +17103,15 @@ async function handleApi(req, res, pathname) {
         if (!centreMap[key].benefit_1) {
           const sp2 = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
           const z2 = sp2.zoho && typeof sp2.zoho === 'object' ? sp2.zoho : {};
-          centreMap[key].benefit_1 = String(z2.Benefit_1 || z2.Benefit1 || '');
-          centreMap[key].benefit_2 = String(z2.Benefit_2 || z2.Benefit2 || '');
-          centreMap[key].benefit_3 = String(z2.Benefit_3 || z2.Benefit3 || '');
+          centreMap[key].benefit_1 = sanitizeZohoText(z2.Benefit_1 || z2.Benefit1 || '');
+          centreMap[key].benefit_2 = sanitizeZohoText(z2.Benefit_2 || z2.Benefit2 || '');
+          centreMap[key].benefit_3 = sanitizeZohoText(z2.Benefit_3 || z2.Benefit3 || '');
+        }
+        if (!centreMap[key].website) {
+          const sp2 = r.source_payload && typeof r.source_payload === 'object' ? r.source_payload : {};
+          const gl2 = sp2.gpLink && typeof sp2.gpLink === 'object' ? sp2.gpLink : {};
+          const z2 = sp2.zoho && typeof sp2.zoho === 'object' ? sp2.zoho : {};
+          centreMap[key].website = gl2.websiteUrl || sanitizeHttpUrl(getZohoField(z2, ['Practice_Website', 'Practice_Website_URL', 'Company_Website', 'Website', 'Client_Website'])) || '';
         }
       }
       const centres = Object.values(centreMap).sort((a, b) => b.open_positions - a.open_positions);

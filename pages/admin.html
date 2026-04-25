@@ -614,10 +614,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .pd-editor li{margin:2px 0}
     .pd-meta{font-size:12px;color:#636e72;margin-bottom:8px}
     .mc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
-    .mc-card{padding:14px 16px;border-radius:var(--radius,8px);border:1px solid var(--line,#e5e7eb);cursor:pointer;transition:all .12s;background:#fff}
+    .medical-centres-wrap{overflow-y:auto;max-height:calc(100vh - 110px)}
+.mc-card{padding:14px 16px;border-radius:var(--radius,8px);border:1px solid var(--line,#e5e7eb);cursor:pointer;transition:all .12s;background:#fff}
     .mc-card:hover{border-color:#bfdbfe;box-shadow:0 2px 8px rgba(0,0,0,.06)}
     .mc-card-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
     .mc-card-name{font-weight:700;font-size:14px;color:var(--text)}
+.mc-practice-link{color:var(--blue,#2563eb);text-decoration:none}
+.mc-practice-link:hover{text-decoration:underline}
     .mc-card-row{font-size:12px;color:var(--muted,#6b7280);margin-top:3px}
     .mc-label{font-weight:600;color:var(--text);margin-right:4px}
     .mc-detail-header{padding:16px;border-bottom:1px solid var(--line,#e5e7eb)}
@@ -1198,7 +1201,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(c.benefit_2)benefits.push(esc(c.benefit_2));
       if(c.benefit_3)benefits.push(esc(c.benefit_3));
       h+='<div class="mc-card" data-mc-id="'+esc(c.id)+'">'
-        +'<div class="mc-card-header"><div class="mc-card-name">'+esc(c.practice_name)+'</div><span class="task-badge open">'+c.open_positions+' open</span></div>'
+        +'<div class="mc-card-header"><div class="mc-card-name">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link" onclick="event.stopPropagation()">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</div><span class="task-badge open">'+c.open_positions+' open</span></div>'
         +(c.client_name&&c.client_name!==c.practice_name?'<div class="mc-card-row"><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
         +(c.location?'<div class="mc-card-row"><span class="mc-label">Location</span> '+esc(c.location)+'</div>':'')
         +(c.address?'<div class="mc-card-row"><span class="mc-label">Address</span> '+esc(c.address)+'</div>':'')
@@ -1219,7 +1222,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(c.benefit_3)benefits.push(esc(c.benefit_3));
     var h='<div class="mc-detail-header">'
       +'<button class="mc-detail-back" data-mc-back>&larr; Back to Medical Centres</button>'
-      +'<h2 style="margin:0 0 8px;font-size:18px">'+esc(c.practice_name)+'</h2>'
+      +'<h2 style="margin:0 0 8px;font-size:18px">'+(c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener" class="mc-practice-link">'+esc(c.practice_name)+'</a>':esc(c.practice_name))+'</h2>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:13px;max-width:600px">'
       +(c.client_name&&c.client_name!==c.practice_name?'<div><span class="mc-label">Client</span> '+esc(c.client_name)+'</div>':'')
       +(c.location?'<div><span class="mc-label">Location</span> '+esc(c.location)+'</div>':'')
