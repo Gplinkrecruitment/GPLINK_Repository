@@ -335,7 +335,8 @@
   function buildRegistrationRow(stepKey, config) {
     var locked = !!config.locked;
     var done = !!config.done;
-    var returnable = done && isRegistrationReturnAllowed(stepKey);
+    // Completed steps are always returnable — users should be able to revisit any step
+    var returnable = done;
     return {
       stepKey: stepKey,
       title: config.title,
@@ -347,8 +348,8 @@
       done: done,
       current: !locked && !done,
       returnable: returnable,
-      href: !locked && (!done || returnable) ? config.href : "#",
-      cta: locked ? "Locked" : returnable ? "Return" : done ? "Done" : "Continue"
+      href: !locked ? config.href : "#",
+      cta: locked ? "Locked" : done ? "Return" : "Continue"
     };
   }
 
