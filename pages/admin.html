@@ -19,6 +19,10 @@
     .chip b{font-weight:900;font-size:12px}
     .chip.urgent{background:rgba(239,68,68,.35);border-color:rgba(239,68,68,.5)}
     .top-right{display:flex;align-items:center;gap:10px}
+    .sa-tools-wrap{display:inline-block}
+    .sa-tools-dropdown{position:absolute;top:100%;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:200px;z-index:100;padding:4px 0}
+    .sa-tools-item{display:block;width:100%;text-align:left;padding:8px 14px;border:none;background:none;font-size:13px;font-weight:500;color:var(--text);cursor:pointer}
+    .sa-tools-item:hover{background:var(--bg-hover,#f3f4f6)}
     .top-meta{font-size:11px;opacity:.8}
     .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:10px;font-size:12px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--text);cursor:pointer;font-family:inherit;transition:all .12s}
     .btn:hover{background:#f8fafc;border-color:#cbd5e1}
@@ -623,6 +627,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       </div>
     <div class="top-right">
       <span class="top-meta" id="topMeta"></span>
+      <div class="sa-tools-wrap" id="saToolsWrap" style="display:none;position:relative">
+        <button class="btn ghost" id="saToolsBtn" title="Super Admin Tools">&#9881;</button>
+        <div class="sa-tools-dropdown" id="saToolsDropdown" style="display:none">
+          <button class="sa-tools-item" data-sa-tool="gmail-watch">Setup Gmail Watch</button>
+          <button class="sa-tools-item" data-sa-tool="zoho-recruit-sync">Sync Zoho Recruit</button>
+          <button class="sa-tools-item" data-sa-tool="zoho-sign">Zoho Sign Status</button>
+          <button class="sa-tools-item" data-sa-tool="ops-queue">Ops Queue</button>
+          <button class="sa-tools-item" data-sa-tool="weekly-sweep">Weekly Sweep</button>
+        </div>
+      </div>
       <button class="btn ghost" id="syncBtn" title="Sync cases">Sync</button>
       <button class="btn ghost" id="logoutBtn">Logout</button>
     </div>
@@ -1066,6 +1080,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     S.hostLabel=d.hostLabel||"Admin";return true;}catch{return false;}
   }
   function isSA(){return S.viewer&&(S.viewer.role==="super_admin"||S.viewer.adminRole==="super_admin");}
+  function toggleSaTools(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display=dd.style.display==="none"?"block":"none";}
 
   /* ══ Data Loading ══ */
   async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin.html";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
@@ -2507,6 +2522,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(e.target.id==="agentCollabSelect"){S.agent.collaborationMode=e.target.value||"paired";refreshAgentStatus(false);return;}
       if(e.target.id==="agentComplexitySelect"){S.agent.complexity=e.target.value||"auto";refreshAgentStatus(false);return;}
     });
+    document.getElementById("saToolsBtn").addEventListener("click",function(e){e.stopPropagation();toggleSaTools();});
+    document.addEventListener("click",function(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display="none";});
+    document.getElementById("saToolsDropdown").addEventListener("click",async function(e){
+      var btn=e.target.closest("[data-sa-tool]");if(!btn)return;
+      var tool=btn.getAttribute("data-sa-tool");
+      document.getElementById("saToolsDropdown").style.display="none";
+      if(tool==="gmail-watch"&&typeof setupGmailWatch==="function")setupGmailWatch();
+      else if(tool==="zoho-recruit-sync"){try{await fetch("/api/admin/integrations/zoho-recruit/sync",{method:"POST",credentials:"same-origin"});alert("Zoho Recruit sync started.");}catch{alert("Sync failed.");}}
+      else if(tool==="zoho-sign"&&typeof loadZohoSignStatus==="function"){loadZohoSignStatus();alert("Zoho Sign status refreshed.");}
+      else if(tool==="ops-queue"&&typeof loadOpsQueue==="function")loadOpsQueue();
+      else if(tool==="weekly-sweep"){try{await fetch("/api/admin/va/sweep",{method:"POST",credentials:"same-origin"});alert("Sweep triggered.");}catch{alert("Sweep failed.");}}
+    });
   }
 
   /* ══════════════════════════════════════════════
@@ -3678,6 +3705,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(isSA()){
       const agentTab=document.getElementById("agentTab");
       if(agentTab)agentTab.style.display="";
+      var saWrap=document.getElementById("saToolsWrap");
+      if(saWrap)saWrap.style.display="";
     }
     loadAll();
     S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll();},15000);
