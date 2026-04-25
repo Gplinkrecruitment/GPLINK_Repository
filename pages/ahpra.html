@@ -233,13 +233,14 @@
       font-size: 10px; transition: transform .2s ease;
       margin-left: 2px; color: var(--accent); opacity: 0.6;
     }
-    .tut-toggle.open .tut-caret { transform: rotate(180deg); }
+    .tut-caret { transform: rotate(180deg); }
+    .tut-toggle.collapsed .tut-caret { transform: rotate(0deg); }
     .tut-video-wrap {
-      max-height: 0; overflow: hidden;
+      max-height: 500px; overflow: hidden;
       transition: max-height .35s ease, margin .2s ease;
-      margin-bottom: 0;
+      margin-bottom: var(--sp-6);
     }
-    .tut-video-wrap.open { max-height: 500px; margin-bottom: var(--sp-6); }
+    .tut-video-wrap.collapsed { max-height: 0; margin-bottom: 0; }
     .tut-video {
       width: 100%; border-radius: 12px;
       background: #000;
@@ -322,26 +323,6 @@
       border: 2px solid rgba(12, 18, 34, 0.55);
       animation: ctaPulseRing 1.5s ease-out infinite;
       pointer-events: none;
-    }
-
-    /* ---- PROGRESS BAR (in content) ---- */
-    .step-progress-row {
-      display: flex; align-items: center; gap: 12px;
-      margin-bottom: var(--sp-5);
-    }
-    .step-progress-track {
-      flex: 1; height: 6px; border-radius: 999px;
-      background: var(--border-light); overflow: hidden;
-    }
-    .step-progress-fill-bar {
-      height: 100%; border-radius: 999px;
-      background: linear-gradient(90deg, var(--accent), #3b82f6);
-      transition: width .5s ease;
-    }
-    .step-progress-fill-bar.complete { background: linear-gradient(90deg, var(--success), #22c55e); }
-    .step-progress-text {
-      font-size: 12px; font-weight: 600; color: var(--ink-muted);
-      white-space: nowrap;
     }
 
     /* ---- BUTTONS ---- */
@@ -978,6 +959,14 @@
       .desktop-topbar { display: block; }
       .mobile-nav { display: none; }
       .hero-compact-mobile-only { display: none; }
+      .hero-compact { border-radius: 0 0 20px 20px; }
+      .hero-compact-pad { padding: var(--sp-6) var(--sp-8) var(--sp-4); }
+      .reg-content { max-width: 960px; margin: 0 auto; padding: var(--sp-7) var(--sp-8) var(--sp-10); }
+      .btn-row { flex-direction: row; }
+      .btn-row .btn-primary,
+      .btn-row .btn-ghost,
+      .btn-row .btn-complete { width: auto; }
+      .info-row { padding: var(--sp-4) 0; }
     }
     @media (max-width: 860px) {
       .desktop-topbar { display: none; }
@@ -1108,14 +1097,6 @@
       <div class="warn hidden" id="stepWarning">
         <div class="warn-title" id="stepWarningTitle">Attention needed</div>
         <div class="warn-text" id="stepWarningText">-</div>
-      </div>
-
-      <!-- Progress bar -->
-      <div class="step-progress-row">
-        <div class="step-progress-track">
-          <div class="step-progress-fill-bar" id="stepProgressFill" style="width:2%"></div>
-        </div>
-        <span class="step-progress-text" id="stepProgressText">0 of 4 complete</span>
       </div>
 
       <!-- Info rows -->
@@ -2110,14 +2091,6 @@
       document.getElementById("stepTitle").textContent = meta.full;
       document.getElementById("stepSub").textContent = meta.short;
 
-      // Progress bar
-      const doneCount = TAB_STAGES.filter(k => progress.completed[k]).length;
-      const pct = Math.round((doneCount / TAB_STAGES.length) * 100);
-      const fill = document.getElementById("stepProgressFill");
-      fill.style.width = `${Math.max(2, pct)}%`;
-      fill.classList.toggle("complete", doneCount === TAB_STAGES.length);
-      document.getElementById("stepProgressText").textContent = `${doneCount} of ${TAB_STAGES.length} complete`;
-
       // Warning
       const warning = document.getElementById("stepWarning");
       if (isAction) {
@@ -2143,14 +2116,6 @@
         <div class="info-row">
           <span class="info-label">Estimated Time</span>
           <span class="info-val">${meta.time}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">GP Link Support</span>
-          <span class="info-val">${meta.support}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">What Happens Next</span>
-          <span class="info-val">${meta.next}</span>
         </div>
       `;
 
@@ -2256,9 +2221,9 @@
     document.addEventListener('click', function(e) {
       var toggle = e.target.closest('.tut-toggle');
       if (!toggle) return;
-      toggle.classList.toggle('open');
+      toggle.classList.toggle('collapsed');
       var wrap = toggle.nextElementSibling;
-      if (wrap && wrap.classList.contains('tut-video-wrap')) wrap.classList.toggle('open');
+      if (wrap && wrap.classList.contains('tut-video-wrap')) wrap.classList.toggle('collapsed');
     });
 
     // ─── MAIN RENDER ────────────────────────────────────────────
