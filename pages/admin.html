@@ -647,6 +647,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .mc-status-pill.interview_scheduled{background:#fef3c7;color:#92400e}
     .mc-status-pill.offer,.mc-status-pill.offered{background:#d1fae5;color:#065f46}
     .mc-status-pill.placement_secured{background:#c7d2fe;color:#3730a3}
+.mc-list-filter{padding:6px 10px;border:1px solid var(--line,#e5e7eb);border-radius:6px;font-size:12px;font-weight:500;background:#fff;color:var(--text);cursor:pointer}
+.mc-list-filter:focus{outline:none;border-color:var(--blue,#2563eb)}
   </style>
 </head>
 <body>
@@ -748,7 +750,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
     selectedCaseId:null,view:"inbox",filter:"all",query:"",expanded:{},refreshTimer:null,
-    mc:{centres:[],loading:false,selectedCentre:null,subView:"overview",listView:"open"},
+    mc:{centres:[],allData:[],loading:false,selectedCentre:null,subView:"overview",listView:"open",listFilters:{status:"all",billing:"",location:""}},
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     toolsSubView:"ops",gpsProfileTab:"tasks",
     va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
@@ -1183,11 +1185,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     S.mc.loading=true;
     renderMedicalCentresPanel();
     try{
-      var url="/api/admin/medical-centres";
-      if(S.mc.listView==="filled")url+="?status=filled";
-      const r=await fetch(url,{credentials:"same-origin"});
-      const d=await r.json().catch(()=>({}));
-      if(d.ok&&Array.isArray(d.centres))S.mc.centres=d.centres;
+      var apiUrl="/api/admin/medical-centres";
+      if(S.mc.listView==="filled")apiUrl+="?status=filled";
+      else if(S.mc.listView==="list")apiUrl+="?status=all";
+      var r=await fetch(apiUrl,{credentials:"same-origin"});
+      var d=await r.json().catch(()=>({}));
+      if(d.ok&&Array.isArray(d.centres)){
+        S.mc.centres=d.centres;
+        if(S.mc.listView==="list")S.mc.allData=d.centres;
+      }
     }catch{}
     S.mc.loading=false;
     renderMedicalCentresPanel();
@@ -1202,12 +1208,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderMedicalCentresPanel(){
     const el=document.getElementById("medicalCentresPanel");if(!el)return;
     if(S.mc.selectedCentre){renderMedicalCentreDetail();return;}
-    var isFilled=S.mc.listView==="filled";
+    var lv=S.mc.listView;
     var subnavHtml='<div style="padding:16px 16px 0"><h2 style="margin:0 0 12px;font-size:18px">Medical Centres</h2>'
       +'<div class="mc-subnav" style="padding:0;margin-bottom:12px">'
-      +'<button class="mc-subnav-btn '+(!isFilled?"active":"")+'" data-mc-list="open">Open</button>'
-      +'<button class="mc-subnav-btn '+(isFilled?"active":"")+'" data-mc-list="filled">Filled</button>'
+      +'<button class="mc-subnav-btn '+(lv==="open"?"active":"")+'" data-mc-list="open">Open</button>'
+      +'<button class="mc-subnav-btn '+(lv==="filled"?"active":"")+'" data-mc-list="filled">Filled</button>'
+      +'<button class="mc-subnav-btn '+(lv==="list"?"active":"")+'" data-mc-list="list">List</button>'
       +'</div></div>';
+    if(lv==="list"){renderMedicalCentresList(el,subnavHtml);return;}
+    var isFilled=lv==="filled";
     if(S.mc.loading){el.innerHTML=subnavHtml+'<div class="empty" style="padding:40px">Loading medical centres\u2026</div>';return;}
     if(!S.mc.centres.length){el.innerHTML=subnavHtml+'<div class="empty" style="padding:40px">No '+(isFilled?'filled':'open')+' positions found.</div>';return;}
     var h=subnavHtml+'<div style="padding:0 16px 16px"><div class="mc-grid">';
@@ -1223,6 +1232,85 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         +'</div>';
     }
     h+='</div></div>';
+    el.innerHTML=h;
+  }
+  var MC_MAJOR_CITIES={"sydney":["parramatta","penrith","blacktown","campbelltown","liverpool","bankstown","hurstville","hornsby","chatswood","manly","bondi","cronulla","sutherland","ryde","burwood","strathfield","auburn","fairfield","cabramatta","castle hill","baulkham hills","epping","macquarie park","mascot","randwick","maroubra","coogee","newtown","marrickville","canterbury","lakemba","kogarah","rockdale","miranda","caringbah","dee why","brookvale","mona vale","wahroonga","turramurra","gordon","pymble","lindfield","killara","artarmon","lane cove","gladesville","drummoyne","five dock","concord","homebush","rhodes","olympic park","zetland","waterloo","redfern","surry hills","darlinghurst","potts point","woolloomooloo","chippendale","ultimo","glebe","balmain","rozelle","leichhardt","petersham","ashfield","croydon","enfield","strathfield south","greenacre","punchbowl","wiley park","belmore","campsie","kingsgrove","beverly hills","narwee","padstow","revesby","panania","milperra","condell park","bass hill","yagoona","birrong","regents park","granville","merrylands","guildford","smithfield","wetherill park","cecil hills","prestons","hoxton park","narellan","oran park","gregory hills","leppington","edmondson park","casula","moorebank","wattle grove","holsworthy","engadine","heathcote","waterfall"],
+  "melbourne":["geelong","ballarat","bendigo","frankston","dandenong","werribee","melton","sunbury","craigieburn","epping","south morang","mill park","thomastown","preston","northcote","brunswick","coburg","essendon","moonee ponds","footscray","sunshine","st albans","deer park","caroline springs","point cook","tarneit","hoppers crossing","altona","williamstown","port melbourne","south melbourne","albert park","st kilda","brighton","sandringham","mentone","cheltenham","moorabbin","bentleigh","glen eira","caulfield","malvern","toorak","hawthorn","camberwell","box hill","doncaster","templestowe","eltham","greensborough","heidelberg","ivanhoe","kew","richmond","abbotsford","collingwood","fitzroy","carlton","parkville","north melbourne","west melbourne","southbank","docklands","cranbourne","pakenham","berwick","narre warren","officer","clyde","hallam","keysborough","springvale","noble park","mulgrave","glen waverley","mount waverley","burwood","ashwood","chadstone","oakleigh","clayton","monash","rowville","ferntree gully","boronia","bayswater","ringwood","croydon","lilydale","mooroolbark","chirnside park"],
+  "brisbane":["ipswich","logan","redland","caboolture","moreton bay","springfield","redcliffe","strathpine","chermside","nundah","toowong","indooroopilly","kenmore","chapel hill","the gap","ashgrove","bardon","paddington","milton","south brisbane","woolloongabba","coorparoo","greenslopes","mount gravatt","sunnybank","eight mile plains","carindale","wynnum","manly","cleveland","victoria point","north lakes","mango hill","burpengary","morayfield","narangba","petrie","brendale","albany creek","bridgeman downs","ferny hills","mitchelton","everton park","stafford","kedron","wavell heights","banyo","nudgee","hendra","ascot","hamilton","bulimba","morningside","balmoral","hawthorne","cannon hill","murarrie","tingalpa"],
+  "perth":["fremantle","rockingham","mandurah","joondalup","wanneroo","armadale","midland","ellenbrook","cockburn","canning","stirling","bayswater","belmont","victoria park","south perth","como","applecross","melville","palmyra","east fremantle","claremont","nedlands","subiaco","leederville","mt lawley","maylands","morley","bayswater","bassendean","midvale","helena valley","kalamunda","mundaring","high wycombe","forrestfield","kelmscott","gosnells","thornlie","cannington","bentley","riverton","willetton","bull creek","murdoch","kardinya","bibra lake","success","atwell","point cook","harrisdale","piara waters","southern river","canning vale","scarborough","innaloo","osborne park","balcatta","yokine","dianella","mirrabooka","nollamara","westminster","girrawheen","warwick","greenwood","kingsley","woodvale","padbury","hillarys","sorrento","kallaroo"],
+  "adelaide":["salisbury","elizabeth","gawler","mount barker","victor harbor","murray bridge","glenelg","port adelaide","modbury","tea tree gully","golden grove","paradise","campbelltown","norwood","unley","mitcham","blackwood","marion","morphett vale","reynella","mclaren vale","christies beach","noarlunga","seaford","aldinga","hallett cove","brighton","glenelg","henley beach","west beach","fulham","lockleys","thebarton","torrensville","mile end","prospect","walkerville","north adelaide","medindie","gilberton","kent town","rose park","dulwich","toorak gardens","burnside","glen osmond","beaumont","magill","rostrevor","athelstone","dernancourt","holden hill","modbury","wynn vale","para hills","ingle farm","pooraka","mawson lakes","parafield","green fields"],
+  "gold coast":["surfers paradise","broadbeach","burleigh heads","coolangatta","southport","nerang","robina","varsity lakes","coomera","pimpama","ormeau","helensvale","oxenford","pacific pines","mudgeeraba","palm beach","currumbin","tugun","tweed heads","banora point"],
+  "newcastle":["maitland","cessnock","lake macquarie","charlestown","belmont","swansea","toronto","morisset","raymond terrace","nelson bay","singleton"],
+  "wollongong":["shellharbour","kiama","nowra","dapto","figtree","corrimal","bulli","thirroul","helensburgh","fairy meadow"],
+  "canberra":["queanbeyan","tuggeranong","belconnen","gungahlin","woden","weston creek","molonglo"],
+  "hobart":["glenorchy","clarence","kingston","bridgewater","brighton","new norfolk","sorell"],
+  "darwin":["palmerston","casuarina","alice springs"],
+  "cairns":["port douglas","smithfield","mareeba","atherton","innisfail"],
+  "townsville":["thuringowa","aitkenvale","kirwan","mundingburra"]};
+  function mcNearestMajorCity(city,state){
+    if(!city&&!state)return'';
+    var c=(city||'').toLowerCase().trim();
+    var s=(state||'').toLowerCase().trim();
+    for(var major in MC_MAJOR_CITIES){if(c===major)return major.charAt(0).toUpperCase()+major.slice(1);if(MC_MAJOR_CITIES[major].indexOf(c)>=0)return major.charAt(0).toUpperCase()+major.slice(1);}
+    if(/nsw|new south wales/.test(s))return'Sydney';if(/vic|victoria/.test(s))return'Melbourne';if(/qld|queensland/.test(s))return'Brisbane';if(/wa|western australia/.test(s))return'Perth';if(/sa|south australia/.test(s))return'Adelaide';if(/tas|tasmania/.test(s))return'Hobart';if(/nt|northern territory/.test(s))return'Darwin';if(/act/.test(s))return'Canberra';
+    return city||state||'';
+  }
+  function mcDaysOpen(publishedAt){
+    if(!publishedAt)return null;
+    var diff=Date.now()-new Date(publishedAt).getTime();
+    return Math.max(0,Math.floor(diff/86400000));
+  }
+  function renderMedicalCentresList(el,subnavHtml){
+    if(S.mc.loading){el.innerHTML=subnavHtml+'<div class="empty" style="padding:40px">Loading\u2026</div>';return;}
+    var allJobs=[];
+    var centres=S.mc.allData.length?S.mc.allData:S.mc.centres;
+    for(var i=0;i<centres.length;i++){
+      var c=centres[i];
+      for(var j=0;j<c.job_openings.length;j++){
+        var jo=c.job_openings[j];
+        allJobs.push({practice:c.practice_name,client:c.client_name,website:c.website||jo.website,status:jo.status,title:jo.title,location:jo.location,city:mcNearestMajorCity(jo.location?jo.location.split(',')[0].trim():'',jo.location&&jo.location.split(',')[1]?jo.location.split(',')[1].trim():''),billing:jo.billing_type||c.billing_type,days:mcDaysOpen(jo.published_at),contact_name:jo.contact_name||c.contact_name,contact_email:jo.contact_email||c.contact_email,contact_phone:jo.contact_phone||c.contact_phone,id:c.id});
+      }
+    }
+    // Collect unique values for filters
+    var billings={},cities={};
+    for(var k=0;k<allJobs.length;k++){if(allJobs[k].billing)billings[allJobs[k].billing]=1;if(allJobs[k].city)cities[allJobs[k].city]=1;}
+    var f=S.mc.listFilters;
+    // Apply filters
+    var filtered=allJobs.filter(function(j){
+      if(f.status==='open'&&j.status!=='open')return false;
+      if(f.status==='filled'&&j.status!=='filled')return false;
+      if(f.billing&&j.billing!==f.billing)return false;
+      if(f.location&&j.city!==f.location)return false;
+      return true;
+    });
+    var h=subnavHtml+'<div style="padding:0 16px 16px">'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+      +'<select class="mc-list-filter" data-mc-filter="status"><option value="all"'+(f.status==='all'?' selected':'')+'>All Status</option><option value="open"'+(f.status==='open'?' selected':'')+'>Open</option><option value="filled"'+(f.status==='filled'?' selected':'')+'>Filled</option></select>'
+      +'<select class="mc-list-filter" data-mc-filter="billing"><option value="">All Billing</option>';
+    for(var b in billings)h+='<option value="'+esc(b)+'"'+(f.billing===b?' selected':'')+'>'+esc(b)+'</option>';
+    h+='</select><select class="mc-list-filter" data-mc-filter="location"><option value="">All Locations</option>';
+    var sortedCities=Object.keys(cities).sort();
+    for(var ci=0;ci<sortedCities.length;ci++)h+='<option value="'+esc(sortedCities[ci])+'"'+(f.location===sortedCities[ci]?' selected':'')+'>'+esc(sortedCities[ci])+'</option>';
+    h+='</select><span style="font-size:12px;color:var(--muted);align-self:center">'+filtered.length+' of '+allJobs.length+' positions</span></div>';
+    if(!filtered.length){h+='<div class="empty">No positions match filters.</div>';el.innerHTML=h+'</div>';return;}
+    h+='<table class="mc-apps-table"><thead><tr><th>Practice</th><th>Position</th><th>Status</th><th>Location</th><th>Nearest City</th><th>Billing</th><th>Days Open</th><th>Contact</th></tr></thead><tbody>';
+    filtered.sort(function(a,b){return(b.days||0)-(a.days||0);});
+    for(var m=0;m<filtered.length;m++){
+      var row=filtered[m];
+      var daysLabel=row.days!==null?(row.days+'d'):'—';
+      var daysClass=row.days!==null&&row.days>90?'overdue':(row.days!==null&&row.days>30?'urgent':'');
+      h+='<tr>'
+        +'<td>'+(row.website?'<a href="'+esc(row.website)+'" target="_blank" class="mc-practice-link">'+esc(row.practice)+'</a>':esc(row.practice))+'</td>'
+        +'<td>'+esc(row.title)+'</td>'
+        +'<td><span class="mc-status-pill '+(row.status==='open'?'applied':'placement_secured')+'">'+esc(row.status)+'</span></td>'
+        +'<td>'+esc(row.location)+'</td>'
+        +'<td>'+esc(row.city)+'</td>'
+        +'<td>'+esc(row.billing)+'</td>'
+        +'<td><span class="task-badge '+daysClass+'">'+daysLabel+'</span></td>'
+        +'<td>'+(row.contact_name?esc(row.contact_name):'')+(row.contact_email?'<br><a href="mailto:'+esc(row.contact_email)+'" class="mc-practice-link" style="font-size:11px">'+esc(row.contact_email)+'</a>':'')+(row.contact_phone?'<br><a href="tel:'+esc(row.contact_phone)+'" class="mc-practice-link" style="font-size:11px">'+esc(row.contact_phone)+'</a>':'')+'</td>'
+        +'</tr>';
+    }
+    h+='</tbody></table></div>';
     el.innerHTML=h;
   }
   async function renderMedicalCentreDetail(){
@@ -2617,8 +2705,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("medicalCentresPanel").addEventListener("click",async function(e){
       var listBtn=e.target.closest("[data-mc-list]");
       if(listBtn){
-        var lv=listBtn.getAttribute("data-mc-list");
-        if(lv!==S.mc.listView)loadMedicalCentres(lv);
+        var lv2=listBtn.getAttribute("data-mc-list");
+        if(lv2!==S.mc.listView)loadMedicalCentres(lv2);
         return;
       }
       var card=e.target.closest("[data-mc-id]");
@@ -2647,6 +2735,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var userId=gpLink.getAttribute("data-mc-gp-id");
         window.open("/pages/admin.html?gp="+encodeURIComponent(userId),"_blank");
         return;
+      }
+    });
+    document.getElementById("medicalCentresPanel").addEventListener("change",function(e){
+      var filterEl=e.target.closest("[data-mc-filter]");
+      if(filterEl){
+        S.mc.listFilters[filterEl.getAttribute("data-mc-filter")]=filterEl.value;
+        renderMedicalCentresPanel();
       }
     });
     document.getElementById("detailContent").addEventListener("click",e=>{

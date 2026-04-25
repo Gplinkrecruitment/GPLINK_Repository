@@ -17063,10 +17063,12 @@ async function handleApi(req, res, pathname) {
     }
     if (!requireAdminSession(req, res)) return;
     try {
-      const showFilled = url.searchParams.get('status') === 'filled';
+      const statusFilter = url.searchParams.get('status') || 'open';
+      const showFilled = statusFilter === 'filled';
+      const showAll = statusFilter === 'all';
       const result = await supabaseDbRequest(
         'career_roles',
-        'select=id,title,practice_name,location_city,location_state,location_label,location_country,billing_model,employment_type,practice_type,summary,is_active,source_payload&is_active=eq.' + (showFilled ? 'false' : 'true') + '&order=practice_name.asc'
+        'select=id,title,practice_name,location_city,location_state,location_label,location_country,billing_model,employment_type,practice_type,summary,is_active,published_at,source_payload' + (showAll ? '' : '&is_active=eq.' + (showFilled ? 'false' : 'true')) + '&order=practice_name.asc'
       );
       const roles = result.ok && Array.isArray(result.data) ? result.data : [];
       const centreMap = {};
@@ -17123,6 +17125,7 @@ async function handleApi(req, res, pathname) {
           contact_name: joContactName,
           contact_email: joContactEmail,
           contact_phone: joContactPhone,
+          published_at: r.published_at || '',
           hired_gps: []
         });
         if (!centreMap[key].benefit_1) {
@@ -17182,7 +17185,7 @@ async function handleApi(req, res, pathname) {
           }
         }
       }
-      sendJson(res, 200, { ok: true, centres, status: showFilled ? 'filled' : 'open' });
+      sendJson(res, 200, { ok: true, centres, status: statusFilter });
     } catch (err) {
       console.error('[admin medical-centres] list error:', err && err.message);
       sendJson(res, 500, { ok: false, message: 'Failed to fetch medical centres.' });
