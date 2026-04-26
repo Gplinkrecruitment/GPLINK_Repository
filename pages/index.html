@@ -713,7 +713,7 @@
 
     /* ─── RESPONSIVE ─── */
     @media (min-width: 768px) {
-      .dash-wrap { max-width: none; padding-bottom: 40px; }
+      .dash-wrap { max-width: 960px; margin: 0 auto; padding-bottom: 40px; }
       .hero-name { font-size: 20px; }
     }
   </style>
@@ -1324,12 +1324,14 @@
       ];
 
       // Visa step hidden from v1 — see docs/deferred-visa-application.md
-      const steps = [
-        { num: 1, key: "career", title: "Your Practice", sub: snap.careerSecured ? "Practice secured" : "View your placement", detail: "View your secured practice placement details, contact information, and area lifestyle information.", done: snap.careerSecured, locked: false, href: "career.html" },
-        { num: 2, key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
-        { num: 3, key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" },
-        { num: 4, key: "commencement", title: "Commencement", sub: snap.commencementDone ? "Ready to start" : "Pre-arrival checklist", detail: "Complete your pre-arrival checklist: travel, accommodation, medical indemnity, bank account, TFN, and practice orientation.", done: snap.commencementDone, locked: !bypassAll && !snap.pbsDone, href: "commencement.html" }
+      // Your Practice step hidden once placement is secured
+      const allSteps = [
+        !snap.careerSecured ? { key: "career", title: "Your Practice", sub: "View your placement", detail: "View your secured practice placement details, contact information, and area lifestyle information.", done: false, locked: false, href: "career.html" } : null,
+        { key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
+        { key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" },
+        { key: "commencement", title: "Commencement", sub: snap.commencementDone ? "Ready to start" : "Pre-arrival checklist", detail: "Complete your pre-arrival checklist: travel, accommodation, medical indemnity, bank account, TFN, and practice orientation.", done: snap.commencementDone, locked: !bypassAll && !snap.pbsDone, href: "commencement.html" }
       ];
+      const steps = allSteps.filter(Boolean).map((s, i) => ({ ...s, num: i + 1 }));
 
       let currentIdx = steps.findIndex(s => !s.done && !s.locked);
       if (currentIdx === -1) currentIdx = steps.length - 1;
