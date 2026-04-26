@@ -9009,200 +9009,35 @@ async function upsertCareerRoleBatch(rows) {
 }
 
 // ── Zoho Recruit Webhook Handler ──
-let _lastZohoRecruitWebhookPayload = null;
 async function handleZohoRecruitWebhook(req, res) {
-  // 1. Verify webhook secret
   if (!ZOHO_RECRUIT_WEBHOOK_SECRET) {
-    console.warn('[ZohoRecruit webhook] ZOHO_RECRUIT_WEBHOOK_SECRET not configured');
     sendJson(res, 503, { ok: false, error: 'Webhook not configured' });
     return;
   }
-  let rawBody;
-  try {
-    rawBody = (await readRawBody(req, 2 * 1024 * 1024)).toString('utf-8');
-  } catch (e) {
-    sendJson(res, 413, { ok: false, error: 'Body too large' });
-    return;
-  }
 
-  // Validate: check query param secret, custom header, or HMAC signature
+  // Authenticate via query param secret
   const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const querySecret = reqUrl.searchParams.get('secret') || '';
-  const headerSecret = String(req.headers['x-zoho-recruit-webhook-secret'] || req.headers['x-webhook-secret'] || '').trim();
-  const hmacSig = String(req.headers['x-zoho-recruit-signature'] || '').trim();
-
-  let authenticated = false;
-  // Method 1: Query param or header secret (timing-safe)
-  if (querySecret && timingSafeEqualStrings(querySecret, ZOHO_RECRUIT_WEBHOOK_SECRET)) authenticated = true;
-  if (!authenticated && headerSecret && timingSafeEqualStrings(headerSecret, ZOHO_RECRUIT_WEBHOOK_SECRET)) authenticated = true;
-  // Method 2: HMAC-SHA256 signature
-  if (!authenticated && hmacSig) {
-    try {
-      const expected = crypto.createHmac('sha256', ZOHO_RECRUIT_WEBHOOK_SECRET).update(rawBody, 'utf-8').digest('hex');
-      const a = Buffer.from(expected);
-      const b = Buffer.from(hmacSig);
-      if (a.length === b.length && crypto.timingSafeEqual(a, b)) authenticated = true;
-    } catch {}
-  }
-
-  if (!authenticated) {
-    console.warn('[ZohoRecruit webhook] auth failed');
+  if (!querySecret || !timingSafeEqualStrings(querySecret, ZOHO_RECRUIT_WEBHOOK_SECRET)) {
     sendJson(res, 401, { ok: false, error: 'Unauthorized' });
     return;
   }
 
-  // 2. Parse payload — Zoho Recruit sends various formats
-  console.log('[ZohoRecruit webhook] Raw body (first 500 chars):', rawBody.slice(0, 500));
-  console.log('[ZohoRecruit webhook] Content-Type:', req.headers['content-type'] || 'none');
-  let payload;
-  try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    // Zoho Recruit sends form-encoded data with ${JobOpenings} entity params
-    try {
-      const params = new URLSearchParams(rawBody);
-      const jsonData = params.get('data') || params.get('payload') || params.get('json');
-      if (jsonData) {
-        payload = JSON.parse(jsonData);
-      } else {
-        // Build payload from all form params — each param could be a field
-        payload = {};
-        for (const [k, v] of params) {
-          try { payload[k] = JSON.parse(v); } catch { payload[k] = v; }
-        }
-      }
-    } catch {
-      // Last resort: try to extract any JSON object from the raw body
-      const jsonMatch = rawBody.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try { payload = JSON.parse(jsonMatch[0]); } catch {}
-      }
-      if (!payload) {
-        console.error('[ZohoRecruit webhook] Cannot parse body:', rawBody.slice(0, 1000));
-        sendJson(res, 400, { ok: false, error: 'Invalid payload' });
-        return;
-      }
-    }
-  }
+  // Drain the request body (required for proper HTTP handling)
+  try { await readRawBody(req, 2 * 1024 * 1024); } catch {}
 
-  // Store for diagnostic endpoint
-  _lastZohoRecruitWebhookPayload = {
-    receivedAt: new Date().toISOString(),
-    contentType: req.headers['content-type'] || '',
-    rawBodyPreview: rawBody.slice(0, 2000),
-    parsed: payload
-  };
-
-  // Persist to Supabase for cross-instance diagnostic retrieval
-  if (isSupabaseDbConfigured()) {
-    try {
-      await supabaseDbRequest('integration_connections', 'on_conflict=provider', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: [{
-          provider: 'zoho_recruit_webhook_debug',
-          status: 'debug',
-          metadata: {
-            receivedAt: new Date().toISOString(),
-            contentType: req.headers['content-type'] || '',
-            rawBodyPreview: rawBody.slice(0, 3000),
-            parsedKeys: payload ? Object.keys(payload).slice(0, 50) : [],
-            parsedSample: JSON.stringify(payload).slice(0, 3000)
-          }
-        }]
-      });
-    } catch {}
-  }
-
-  // 3. Return 200 immediately, process async
+  // Return 200 immediately, trigger full re-sync async via Zoho API
   sendJson(res, 200, { ok: true, received: true });
   setImmediate(() => {
-    processZohoRecruitWebhookPayload(payload).catch((e) => {
-      console.error('[ZohoRecruit webhook] processing error:', e && e.message);
+    console.log('[ZohoRecruit webhook] Change detected, triggering re-sync');
+    syncZohoRecruitRoles().then((result) => {
+      console.log('[ZohoRecruit webhook] Re-sync complete:', result.ok ? 'success' : 'failed', '—', result.syncedRoleCount || 0, 'roles');
+    }).catch((e) => {
+      console.error('[ZohoRecruit webhook] Re-sync error:', e && e.message);
     });
   });
 }
 
-async function processZohoRecruitWebhookPayload(payload) {
-  if (!isSupabaseDbConfigured()) {
-    console.warn('[ZohoRecruit webhook] Supabase not configured, skipping');
-    return;
-  }
-
-  console.log('[ZohoRecruit webhook] Payload keys:', payload && typeof payload === 'object' ? Object.keys(payload).slice(0, 30).join(', ') : 'N/A');
-
-  const syncedAt = new Date().toISOString();
-
-  // Zoho Standard Format sends space-separated field names (e.g., "Posting Title").
-  // Normalize: create a copy with both space and underscore variants for each key.
-  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-    const normalized = {};
-    for (const [k, v] of Object.entries(payload)) {
-      normalized[k] = v;
-      // Add underscore variant: "Posting Title" → "Posting_Title"
-      const underscored = k.replace(/\s+/g, '_');
-      if (underscored !== k) normalized[underscored] = v;
-      // Add space variant: "Posting_Title" → "Posting Title"
-      const spaced = k.replace(/_/g, ' ');
-      if (spaced !== k) normalized[spaced] = v;
-    }
-    payload = normalized;
-  }
-
-  // Detect if this is a flat record (Standard Format sends fields directly as top-level keys)
-  const hasRecordFields = payload && (
-    payload.id || payload.Job_Opening_ID || payload.JOBOPENINGID ||
-    payload.Posting_Title || payload['Posting Title'] ||
-    payload.Job_Opening_Status || payload['Job Opening Status'] ||
-    payload.City || payload.State || payload.Client_Name || payload['Client Name']
-  );
-
-  let records = [];
-
-  if (hasRecordFields) {
-    // Flat record — the payload IS the record
-    records = [payload];
-  } else if (payload.data && Array.isArray(payload.data)) {
-    records = payload.data;
-  } else if (payload.data && typeof payload.data === 'object' && payload.data.id) {
-    records = [payload.data];
-  } else if (Array.isArray(payload)) {
-    records = payload;
-  } else {
-    // Try nested keys
-    for (const key of Object.keys(payload)) {
-      const val = payload[key];
-      if (val && typeof val === 'object' && !Array.isArray(val) && (val.id || val.Job_Opening_ID || val.Posting_Title)) {
-        records = [val];
-        break;
-      }
-      if (Array.isArray(val) && val.length > 0 && val[0] && typeof val[0] === 'object') {
-        records = val;
-        break;
-      }
-    }
-  }
-
-  if (!records.length) {
-    console.log('[ZohoRecruit webhook] No records found, keys:', Object.keys(payload).join(', '));
-    return;
-  }
-
-  const rows = [];
-  for (const record of records) {
-    if (!record || typeof record !== 'object') continue;
-    const built = buildCareerRoleRecordFromZoho(record, syncedAt);
-    if (built) rows.push(built);
-  }
-
-  if (!rows.length) {
-    console.log('[ZohoRecruit webhook] No valid records after mapping');
-    return;
-  }
-
-  const ok = await upsertCareerRoleBatch(rows);
-  console.log('[ZohoRecruit webhook] Upserted', rows.length, 'record(s), success:', ok);
-}
 
 async function markCareerRolesInactive(provider, inactiveIds) {
   const ids = Array.isArray(inactiveIds) ? inactiveIds.filter(Boolean) : [];
@@ -14850,24 +14685,6 @@ async function handleApi(req, res, pathname) {
   // Zoho Recruit webhook — external origin, must be before same-origin enforcement
   if (req.method === 'POST' && pathname === '/api/webhooks/zoho-recruit') {
     await handleZohoRecruitWebhook(req, res);
-    return;
-  }
-  // Diagnostic: view last webhook payload (temporary, uses webhook secret for auth)
-  if (req.method === 'GET' && pathname === '/api/webhooks/zoho-recruit/last-payload') {
-    const diagSecret = new URL(req.url, `http://${req.headers.host || 'localhost'}`).searchParams.get('secret') || '';
-    if (!ZOHO_RECRUIT_WEBHOOK_SECRET || !diagSecret || !timingSafeEqualStrings(diagSecret, ZOHO_RECRUIT_WEBHOOK_SECRET)) {
-      sendJson(res, 401, { ok: false });
-      return;
-    }
-    // Read from Supabase (persists across serverless instances)
-    let stored = null;
-    if (isSupabaseDbConfigured()) {
-      try {
-        const r = await supabaseDbRequest('integration_connections', 'select=metadata&provider=eq.zoho_recruit_webhook_debug&limit=1');
-        if (r.ok && Array.isArray(r.data) && r.data[0]) stored = r.data[0].metadata;
-      } catch {}
-    }
-    sendJson(res, 200, { ok: true, payload: stored || _lastZohoRecruitWebhookPayload });
     return;
   }
 
