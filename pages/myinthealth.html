@@ -236,14 +236,14 @@
     .tut-caret { transform: rotate(180deg); }
     .tut-toggle.collapsed .tut-caret { transform: rotate(0deg); }
     .tut-video-wrap {
-      max-height: 500px; overflow: hidden;
+      max-height: 800px; overflow: hidden;
       transition: max-height .35s ease, margin .2s ease;
       margin-bottom: var(--sp-6);
     }
     .tut-video-wrap.collapsed { max-height: 0; margin-bottom: 0; }
     .tut-video {
       width: 100%; border-radius: 12px;
-      background: #000;
+      background: #000; display: block;
     }
 
     /* ---- WARNING ---- */
@@ -277,6 +277,11 @@
       font-size: 13px; color: var(--ink-muted);
     }
     .action-card-time svg { opacity: 0.5; }
+    .action-card-meta {
+      display: flex; align-items: center; gap: 16px;
+      margin-bottom: 16px;
+    }
+    .action-card .btn-primary { margin-top: 0; }
 
     /* ---- INFO ROWS ---- */
     .info-rows { margin-bottom: var(--sp-7); }
@@ -947,7 +952,7 @@
         <span class="tut-caret">&#9662;</span>
       </button>
       <div class="tut-video-wrap" id="tutorialCard">
-        <video class="tut-video" id="tutorialVideo" controls playsinline preload="metadata">
+        <video class="tut-video" id="tutorialVideo" controls playsinline preload="metadata" controlsList="nodownload">
           <source id="tutorialSource" src="/media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
           Your browser does not support the video tag.
         </video>
@@ -1598,13 +1603,23 @@
 
       const actionRowClass = key === "upload_qualifications" ? ' info-row-action' : '';
 
+      let actionBtnHtml = '';
+      if (effectiveKey === "verification_issued") {
+        actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
+      } else if (isCurrent) {
+        actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
+      }
+
       document.getElementById("stepInfoGrid").innerHTML = `
         <div class="action-card">
           <div class="action-card-body">
             <div class="action-card-label">Your Action</div>
             <div class="action-card-text">${doNow}</div>
-            <div class="action-card-time"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${meta.time}</div>
-            ${downloadBtnHtml}
+            <div class="action-card-meta">
+              <div class="action-card-time"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${meta.time}</div>
+              ${downloadBtnHtml}
+            </div>
+            ${actionBtnHtml}
           </div>
         </div>
       `;
@@ -1619,12 +1634,6 @@
       const tabIdx = TAB_STAGES.indexOf(key);
       const hasPrev = tabIdx > 0;
 
-      if (effectiveKey === "verification_issued") {
-        html += `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-      } else if (isCurrent) {
-        html += `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
-      }
-
       const markDisabled = !isCurrent || isDone;
       const markLabel = isDone ? "Completed" : "Mark Complete";
       if (effectiveKey !== "verification_issued") {
@@ -1637,7 +1646,7 @@
       }
       navHtml += `</div>`;
       }
-      actionsEl.innerHTML = html;
+      actionsEl.innerHTML = '';
       navActionsEl.innerHTML = navHtml;
 
       const downloadBtn = document.getElementById("downloadMyDocumentsBtn");
