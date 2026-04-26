@@ -9026,16 +9026,16 @@ async function handleZohoRecruitWebhook(req, res) {
   // Drain the request body (required for proper HTTP handling)
   try { await readRawBody(req, 2 * 1024 * 1024); } catch {}
 
-  // Return 200 immediately, trigger full re-sync async via Zoho API
-  sendJson(res, 200, { ok: true, received: true });
-  setImmediate(() => {
-    console.log('[ZohoRecruit webhook] Change detected, triggering re-sync');
-    syncZohoRecruitRoles().then((result) => {
-      console.log('[ZohoRecruit webhook] Re-sync complete:', result.ok ? 'success' : 'failed', '—', result.syncedRoleCount || 0, 'roles');
-    }).catch((e) => {
-      console.error('[ZohoRecruit webhook] Re-sync error:', e && e.message);
-    });
-  });
+  // Run sync BEFORE responding (Vercel kills the function after response is sent)
+  console.log('[ZohoRecruit webhook] Change detected, triggering re-sync');
+  try {
+    const result = await syncZohoRecruitRoles();
+    console.log('[ZohoRecruit webhook] Re-sync complete:', result.ok ? 'success' : 'failed', '—', result.syncedRoleCount || 0, 'roles');
+    sendJson(res, 200, { ok: true, synced: true, roles: result.syncedRoleCount || 0 });
+  } catch (e) {
+    console.error('[ZohoRecruit webhook] Re-sync error:', e && e.message);
+    sendJson(res, 200, { ok: true, received: true, syncError: true });
+  }
 }
 
 
