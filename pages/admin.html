@@ -681,6 +681,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab active" data-view="inbox">Inbox</div>
     <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="medicalcentres">Medical Centres</div>
+    <div class="view-tab sa-only-tab" data-view="interviews" style="display:none">Interviews</div>
+    <div class="view-tab sa-only-tab" data-view="applications" style="display:none">Applications</div>
+    <div class="view-tab sa-only-tab" data-view="support" style="display:none">Support</div>
+    <div class="view-tab sa-only-tab" data-view="tools" style="display:none">Tools</div>
   </div>
   <div class="layout" id="mainLayout">
     <div class="list-panel">
@@ -696,6 +700,94 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   </div>
   <div class="today-wrap" id="inboxPanel" style="display:none"></div>
   <div class="medical-centres-wrap" id="medicalCentresPanel" style="display:none"></div>
+  <div class="interviews-wrap" id="interviewsPanel" style="display:none"></div>
+  <div class="applications-wrap" id="applicationsPanel" style="display:none"></div>
+  <div class="support-wrap" id="supportPanel" style="display:none"></div>
+  <div class="tools-wrap" id="toolsPanel" style="display:none">
+    <div class="tools-subnav" id="toolsSubnav"></div>
+    <div class="tools-sub-pane" id="toolsOps" style="display:none">
+      <div class="ops-stats" id="opsStats"></div>
+      <div class="ops-filters" id="opsFilters">
+        <select id="opsDomain">
+          <option value="">All Domains</option>
+          <option value="registration">Registration</option>
+          <option value="visa">Visa</option>
+          <option value="questionnaire">Questionnaire</option>
+          <option value="sponsor">Sponsor</option>
+          <option value="document">Document</option>
+          <option value="system">System</option>
+        </select>
+        <select id="opsStatus">
+          <option value="open">Open</option>
+          <option value="in_progress">In Progress</option>
+          <option value="waiting_on_gp">Waiting on GP</option>
+          <option value="waiting_on_practice">Waiting on Practice</option>
+          <option value="waiting_on_external">Waiting on External</option>
+          <option value="blocked">Blocked</option>
+          <option value="all_active">All Active</option>
+          <option value="completed">Completed</option>
+        </select>
+        <select id="opsPriority">
+          <option value="">All Priorities</option>
+          <option value="urgent">Urgent</option>
+          <option value="high">High</option>
+          <option value="normal">Normal</option>
+          <option value="low">Low</option>
+        </select>
+        <label class="ops-cb"><input type="checkbox" id="opsOverdue" /> Overdue only</label>
+        <button class="btn sm" id="opsSlaBtn">Run SLA Check</button>
+        <button class="btn sm primary" id="opsRefreshBtn">Refresh</button>
+      </div>
+      <div class="ops-table-wrap">
+        <table class="ops-table">
+          <thead>
+            <tr>
+              <th>GP Name</th>
+              <th>Title</th>
+              <th>Domain</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Due Date</th>
+              <th class="hide-mobile">Stage</th>
+              <th class="hide-mobile">Created</th>
+            </tr>
+          </thead>
+          <tbody id="opsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="tools-sub-pane" id="toolsSweep" style="display:none"></div>
+    <div class="tools-sub-pane" id="toolsAgent" style="display:none"></div>
+    <div class="tools-sub-pane" id="toolsIntegrations" style="display:none">
+      <h2 style="margin:0 0 6px">Integrations</h2>
+      <p style="color:var(--muted);margin:0 0 16px;font-size:13px">Manage third-party service connections.</p>
+      <div class="integration-card" id="zoho-sign-card">
+        <div class="integration-header">
+          <h3>Zoho Sign</h3>
+          <span id="zs-status-chip" class="status-chip disconnected">Disconnected</span>
+        </div>
+        <div class="integration-body">
+          <div id="zs-connected-info" style="display:none;">
+            <div><b>Organization:</b> <span id="zs-org-name">&mdash;</span></div>
+            <div><b>Connected email:</b> <span id="zs-connected-email">&mdash;</span></div>
+            <div><b>Token expires:</b> <span id="zs-token-exp">&mdash;</span></div>
+            <div><b>Webhook:</b> <span id="zs-webhook-status">&mdash;</span></div>
+            <div style="display:none;font-size:12px;color:var(--muted,#666);margin:4px 0 4px 16px;"><b>Callback URL:</b> <code id="zs-webhook-url" style="user-select:all;cursor:pointer;"></code></div>
+            <div><b>SPPA-00 template:</b> <span id="zs-template-id">&mdash;</span></div>
+          </div>
+          <div id="zs-disconnected-info" style="display:none;">
+            <p>SPPA-00 sends are paused until Zoho Sign is connected.</p>
+          </div>
+          <div style="margin-top:12px;">
+            <button id="zs-connect-btn" class="btn primary" onclick="zohoSignConnect()">Connect Zoho Sign</button>
+            <button id="zs-sync-btn" class="btn" style="display:none;" onclick="zohoSignSync()">Sync / Repair</button>
+            <span id="zs-sync-status" style="margin-left:8px;font-size:12px;color:var(--muted,#888);"></span>
+            <button id="zs-disconnect-btn" class="btn" style="display:none;" onclick="zohoSignDisconnect()">Disconnect</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- SPPA Review Panel -->
   <div class="sppa-review-overlay" id="sppaReviewOverlay">
@@ -2691,6 +2783,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderCaseList();renderDetail();
       }else if(view==="medicalcentres"){
         await loadMedicalCentres();
+      }else if(view==="interviews"){
+        await loadInterviews();
+      }else if(view==="applications"){
+        await loadAdminApplications();
+      }else if(view==="support"){
+        await loadSupportItems();
+        renderSupportPanel();
+      }else if(view==="tools"){
+        renderToolsPanel();
       }
     });
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
@@ -2788,7 +2889,35 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin.html";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
 
-    /* Ops Queue bindings (elements removed with vaulted Tools tab — guarded) */
+    /* Ops Queue bindings */
+    document.getElementById("opsDomain").addEventListener("change",()=>loadOpsQueue());
+    document.getElementById("opsStatus").addEventListener("change",()=>loadOpsQueue());
+    document.getElementById("opsPriority").addEventListener("change",()=>loadOpsQueue());
+    document.getElementById("opsOverdue").addEventListener("change",()=>loadOpsQueue());
+    document.getElementById("opsSlaBtn").addEventListener("click",runSlaCheck);
+    document.getElementById("opsRefreshBtn").addEventListener("click",()=>loadOpsQueue());
+    document.getElementById("opsTableBody").addEventListener("click",e=>{
+      const row=e.target.closest("tr.ops-row");
+      const saveBtn=e.target.closest("[data-ops-save]");
+      const noteBtn=e.target.closest("[data-ops-add-note]");
+      const caseBtn=e.target.closest("[data-ops-view-case]");
+      if(saveBtn){saveOpsTask(saveBtn.getAttribute("data-ops-save"));return;}
+      if(noteBtn){addOpsNote(noteBtn.getAttribute("data-ops-add-note"));return;}
+      if(caseBtn){
+        const cid=caseBtn.getAttribute("data-ops-view-case");
+        S.selectedCaseId=cid;S.view="gps";S.expanded={};
+        document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="gps"));
+        vaShowPanel("gps");renderCaseList();renderDetail();
+        document.getElementById("mainLayout").classList.add("detail-open");
+        return;
+      }
+      if(row){
+        const tid=row.getAttribute("data-ops-task-id");
+        S.opsExpandedId=S.opsExpandedId===tid?null:tid;
+        renderOpsTable();
+        return;
+      }
+    });
     document.getElementById("detailContent").addEventListener("input",e=>{
       if(e.target&&e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";}
     });
@@ -3198,11 +3327,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres"};
+    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","interviewsPanel":"interviews","applicationsPanel":"applications","supportPanel":"support","toolsPanel":"tools"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   function vaHidePanels(){
-    ["inboxPanel","medicalCentresPanel"].forEach(function(id){
+    ["inboxPanel","medicalCentresPanel","interviewsPanel","applicationsPanel","supportPanel","toolsPanel"].forEach(function(id){
       var el=document.getElementById(id);if(el)el.style.display="none";
     });
     document.getElementById("mainLayout").style.display="grid";
@@ -3985,6 +4114,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpParam=urlParams.get("gp");
     if(gpParam){S.selectedCaseId=gpParam;S.view="gps";document.querySelectorAll(".view-tab").forEach(function(t){t.classList.toggle("active",t.getAttribute("data-view")==="gps");});vaShowPanel("gps");}
     if(isSA()){
+      document.querySelectorAll(".sa-only-tab").forEach(function(t){t.style.display="";});
       const agentTab=document.getElementById("agentTab");
       if(agentTab)agentTab.style.display="";
       var saWrap=document.getElementById("saToolsWrap");
