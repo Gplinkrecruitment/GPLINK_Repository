@@ -216,6 +216,14 @@
       max-width: 520px;
     }
 
+    /* ---- STICKY STEP HEADER ---- */
+    .step-header-bar {
+      display: none;
+    }
+    .mobile-step-title, .mobile-step-desc {
+      display: block;
+    }
+
     /* ---- TUTORIAL (collapsible) ---- */
     .tut-toggle {
       display: inline-flex; align-items: center; gap: var(--sp-2);
@@ -794,12 +802,41 @@
       .hero-compact-mobile-only { display: none; }
       .hero-compact { display: none; }
       .dash-wrap { max-width: none; }
-      .reg-content { margin-left: 260px; padding: 32px 40px 40px; }
-      .btn-row { flex-direction: row; }
-      .btn-row .btn-primary,
-      .btn-row .btn-ghost,
-      .btn-row .btn-complete { width: auto; }
+      .reg-content { margin-left: 260px; padding: 24px 40px 40px; }
+      .mobile-step-title, .mobile-step-desc { display: none; }
+      .btn-row { display: none; }
       .info-row { padding: var(--sp-4) 0; }
+
+      /* ─── STICKY STEP HEADER ─── */
+      .step-header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 110;
+        margin-left: 260px;
+        background: rgba(255,255,255,0.92);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(0,0,0,0.06);
+        padding: 16px 40px;
+      }
+      .step-header-text { flex: 1; min-width: 0; }
+      .step-header-bar .step-title {
+        font-family: var(--font-heading);
+        font-size: 22px; font-weight: 600;
+        color: var(--ink); letter-spacing: -0.02em;
+        line-height: 1.15; margin-bottom: 2px;
+      }
+      .step-header-bar .step-desc {
+        font-size: 13px; color: var(--ink-muted);
+        line-height: 1.4; margin: 0; max-width: none;
+      }
+      .step-header-actions {
+        display: flex; align-items: center; gap: 10px;
+        flex-shrink: 0;
+      }
 
       /* ─── DESKTOP SIDEBAR ─── */
       .desktop-sidebar {
@@ -940,10 +977,19 @@
       </div>
     </section>
 
+    <!-- STICKY STEP HEADER (desktop) -->
+    <div class="step-header-bar" id="stepHeaderBar">
+      <div class="step-header-text">
+        <h2 class="step-title" id="stepTitle">Create Your Account</h2>
+        <p class="step-desc" id="stepSub">Set up your MyIntealth account and verify your identity.</p>
+      </div>
+      <div class="step-header-actions" id="stepHeaderActions"></div>
+    </div>
+
     <!-- LIGHT CONTENT SURFACE -->
     <div class="reg-content">
-      <h2 class="step-title" id="stepTitle">Create Your Account</h2>
-      <p class="step-desc" id="stepSub">Set up your MyIntealth account and verify your identity.</p>
+      <h2 class="step-title mobile-step-title" id="stepTitleMobile">Create Your Account</h2>
+      <p class="step-desc mobile-step-desc" id="stepSubMobile">Set up your MyIntealth account and verify your identity.</p>
 
       <!-- Tutorial toggle -->
       <button class="tut-toggle" id="tutorialToggle" type="button">
@@ -1583,6 +1629,10 @@
       // Title & sub
       document.getElementById("stepTitle").textContent = meta.full;
       document.getElementById("stepSub").textContent = meta.short;
+      var mTitle = document.getElementById("stepTitleMobile");
+      var mSub = document.getElementById("stepSubMobile");
+      if (mTitle) mTitle.textContent = meta.full;
+      if (mSub) mSub.textContent = meta.short;
 
       // Warning
       const warning = document.getElementById("stepWarning");
@@ -1649,6 +1699,19 @@
       actionsEl.innerHTML = '';
       navActionsEl.innerHTML = navHtml;
 
+      // Desktop sticky header actions
+      var headerActions = document.getElementById('stepHeaderActions');
+      if (headerActions) {
+        var hdrHtml = '';
+        if (effectiveKey !== "verification_issued") {
+          if (hasPrev) {
+            hdrHtml += `<button class="btn-ghost" id="headerPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
+          }
+          hdrHtml += `<button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="headerMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+        }
+        headerActions.innerHTML = hdrHtml;
+      }
+
       const downloadBtn = document.getElementById("downloadMyDocumentsBtn");
       if (downloadBtn) {
         downloadBtn.addEventListener("click", () => handleDownloadMyDocuments(downloadBtn, progress));
@@ -1685,6 +1748,18 @@
       const prevBtn = document.getElementById("actionPrevBtn");
       if (prevBtn) {
         prevBtn.addEventListener("click", () => {
+          rewindToPreviousStep(progress, key);
+        });
+      }
+
+      // Wire desktop header buttons
+      const headerMarkBtn = document.getElementById("headerMarkBtn");
+      if (headerMarkBtn && !headerMarkBtn.disabled) {
+        headerMarkBtn.addEventListener("click", () => markStageComplete(progress, key));
+      }
+      const headerPrevBtn = document.getElementById("headerPrevBtn");
+      if (headerPrevBtn) {
+        headerPrevBtn.addEventListener("click", () => {
           rewindToPreviousStep(progress, key);
         });
       }
