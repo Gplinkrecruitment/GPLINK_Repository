@@ -959,17 +959,84 @@
       .desktop-topbar { display: block; }
       .mobile-nav { display: none; }
       .hero-compact-mobile-only { display: none; }
-      .hero-compact { border-radius: 0 0 20px 20px; }
-      .hero-compact-pad { padding: var(--sp-6) var(--sp-8) var(--sp-4); }
-      .reg-content { max-width: 960px; margin: 0 auto; padding: var(--sp-7) var(--sp-8) var(--sp-10); }
+      .hero-compact { display: none; }
+      .dash-wrap { max-width: none; }
+      .reg-content { margin-left: 260px; padding: 32px 40px 40px; }
       .btn-row { flex-direction: row; }
       .btn-row .btn-primary,
       .btn-row .btn-ghost,
       .btn-row .btn-complete { width: auto; }
       .info-row { padding: var(--sp-4) 0; }
+
+      /* ─── DESKTOP SIDEBAR ─── */
+      .desktop-sidebar {
+        position: fixed;
+        top: 0; left: 0; bottom: 0;
+        width: 260px;
+        background: linear-gradient(180deg, #0c1222 0%, #111827 100%);
+        padding: 100px 20px 24px;
+        color: #fff;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+      }
+      .desktop-sidebar .sb-title { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+      .desktop-sidebar .sb-sub { font-size: 10px; color: rgba(255,255,255,0.3); margin-bottom: 24px; }
+      .desktop-sidebar .sb-step {
+        display: flex; align-items: flex-start; gap: 12px;
+        padding: 10px 12px; border-radius: 10px; margin-bottom: 0;
+        cursor: pointer; transition: background 0.15s;
+      }
+      .desktop-sidebar .sb-step:hover { background: rgba(255,255,255,0.04); }
+      .desktop-sidebar .sb-step.active { background: rgba(255,255,255,0.06); }
+      .desktop-sidebar .sb-step.locked { opacity: 0.4; cursor: not-allowed; }
+      .desktop-sidebar .sb-num {
+        width: 26px; height: 26px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+      }
+      .desktop-sidebar .sb-num.done { background: #0d7c5f; color: #fff; }
+      .desktop-sidebar .sb-num.current { background: #2563eb; color: #fff; }
+      .desktop-sidebar .sb-num.pending { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.3); }
+      .desktop-sidebar .sb-step-title { font-size: 12px; color: rgba(255,255,255,0.5); }
+      .desktop-sidebar .sb-step.active .sb-step-title { color: #fff; font-weight: 600; }
+      .desktop-sidebar .sb-step-status { font-size: 9px; color: rgba(255,255,255,0.25); margin-top: 1px; }
+      .desktop-sidebar .sb-step.active .sb-step-status { color: rgba(255,255,255,0.4); }
+      .desktop-sidebar .sb-connector {
+        width: 2px; height: 12px; margin-left: 32px;
+        background: rgba(255,255,255,0.08);
+      }
+      .desktop-sidebar .sb-connector.done { background: #0d7c5f; }
+      .desktop-sidebar .sb-progress {
+        margin-top: auto; padding-top: 20px;
+        border-top: 1px solid rgba(255,255,255,0.06);
+      }
+      .desktop-sidebar .sb-progress-label {
+        font-size: 9px; color: rgba(255,255,255,0.25);
+        text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
+      }
+      .desktop-sidebar .sb-progress-bar {
+        height: 4px; background: rgba(255,255,255,0.06);
+        border-radius: 2px; overflow: hidden;
+      }
+      .desktop-sidebar .sb-progress-fill {
+        height: 100%; background: linear-gradient(90deg, #0d7c5f, #10b981);
+        border-radius: 2px; transition: width 0.3s;
+      }
+      .desktop-sidebar .sb-progress-text {
+        font-size: 9px; color: rgba(255,255,255,0.3); margin-top: 6px;
+      }
+      .desktop-sidebar .sb-help {
+        margin-top: 16px; font-size: 10px; color: rgba(255,255,255,0.3);
+        display: flex; align-items: center; gap: 6px;
+        text-decoration: none;
+      }
+      .desktop-sidebar .sb-help:hover { color: rgba(255,255,255,0.5); }
     }
     @media (max-width: 860px) {
       .desktop-topbar { display: none; }
+      .desktop-sidebar { display: none; }
       .mobile-nav { display: grid; }
       .hero-compact {
         position: sticky; top: 0; z-index: 100;
@@ -1016,6 +1083,8 @@
   </style>
 </head>
 <body>
+
+  <aside class="desktop-sidebar" id="desktopSidebar"></aside>
 
   <div class="dash-wrap">
     <!-- PLACEMENT GATE (full-screen, shown when GP hasn't secured a role) -->
@@ -2232,11 +2301,67 @@
       if (wrap && wrap.classList.contains('tut-video-wrap')) wrap.classList.toggle('collapsed');
     });
 
+    // ─── DESKTOP SIDEBAR ────────────────────────────────────────
+    function renderDesktopSidebar(progress) {
+      var sb = document.getElementById('desktopSidebar');
+      if (!sb || window.matchMedia("(max-width: 860px)").matches) return;
+
+      var activeIdx = TAB_STAGES.indexOf(currentTabKey);
+      if (activeIdx === -1) activeIdx = 0;
+      var doneCount = 0;
+      TAB_STAGES.forEach(function(key) { if (stageStatus(progress, key) === "done") doneCount++; });
+      var pct = Math.round(((activeIdx > doneCount ? activeIdx : doneCount) / TAB_STAGES.length) * 100);
+
+      var html = '<div class="sb-title">AHPRA Registration</div>';
+      html += '<div class="sb-sub">AHPRA Registration Process</div>';
+
+      TAB_STAGES.forEach(function(key, idx) {
+        var status = stageStatus(progress, key);
+        var isDone = status === "done";
+        var isActive = currentTabKey === key;
+        var isLocked = status === "locked";
+        var cls = isActive ? "sb-step active" : isLocked ? "sb-step locked" : "sb-step";
+        var numCls = isDone ? "sb-num done" : isActive ? "sb-num current" : "sb-num pending";
+        var numContent = isDone ? "&#10003;" : (idx + 1);
+        var statusText = isDone ? "Completed" : isActive ? "In progress" : isLocked ? "Locked" : "Pending";
+        var meta = stageMeta[key];
+        var label = meta ? meta.label : TAB_LABELS[key];
+
+        if (idx > 0) {
+          var connCls = stageStatus(progress, TAB_STAGES[idx - 1]) === "done" ? "sb-connector done" : "sb-connector";
+          html += '<div class="' + connCls + '"></div>';
+        }
+
+        html += '<div class="' + cls + '" data-stage="' + key + '">';
+        html += '<div class="' + numCls + '">' + numContent + '</div>';
+        html += '<div><div class="sb-step-title">' + label + '</div>';
+        html += '<div class="sb-step-status">' + statusText + '</div></div>';
+        html += '</div>';
+      });
+
+      html += '<div class="sb-progress">';
+      html += '<div class="sb-progress-label">Overall Progress</div>';
+      html += '<div class="sb-progress-bar"><div class="sb-progress-fill" style="width:' + pct + '%"></div></div>';
+      html += '<div class="sb-progress-text">Step ' + (activeIdx + 1) + ' of ' + TAB_STAGES.length + ' &middot; ' + pct + '% complete</div>';
+      html += '</div>';
+      html += '<a class="sb-help" href="support.html"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> Need help? Contact support</a>';
+
+      sb.innerHTML = html;
+
+      sb.querySelectorAll('.sb-step:not(.locked)').forEach(function(el) {
+        el.addEventListener('click', function() {
+          var stage = el.getAttribute('data-stage');
+          if (stage) resetProgressToStage(progress, stage);
+        });
+      });
+    }
+
     // ─── MAIN RENDER ────────────────────────────────────────────
     function renderPage(progress) {
       renderStepTabs(progress);
       renderTutorial(progress);
       renderStepContent(progress);
+      renderDesktopSidebar(progress);
     }
 
     // ─── REGISTRATION DROPDOWN ──────────────────────────────────

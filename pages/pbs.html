@@ -613,9 +613,39 @@
 
     /* ---- RESPONSIVE ---- */
     @media (min-width: 861px) {
+      .hero-compact { display: none; }
+      .dash-wrap { max-width: none; }
+      .reg-content { margin-left: 260px; padding: 32px 40px 40px; }
       .upload-modal { border-radius: 20px; margin-bottom: 10vh; }
+
+      /* ─── DESKTOP SIDEBAR ─── */
+      .desktop-sidebar { position:fixed; top:0; left:0; bottom:0; width:260px; background:linear-gradient(180deg,#0c1222 0%,#111827 100%); padding:100px 20px 24px; color:#fff; z-index:100; display:flex; flex-direction:column; overflow-y:auto; }
+      .desktop-sidebar .sb-title { font-size:15px; font-weight:700; margin-bottom:2px; }
+      .desktop-sidebar .sb-sub { font-size:10px; color:rgba(255,255,255,0.3); margin-bottom:24px; }
+      .desktop-sidebar .sb-step { display:flex; align-items:flex-start; gap:12px; padding:10px 12px; border-radius:10px; cursor:pointer; transition:background 0.15s; }
+      .desktop-sidebar .sb-step:hover { background:rgba(255,255,255,0.04); }
+      .desktop-sidebar .sb-step.active { background:rgba(255,255,255,0.06); }
+      .desktop-sidebar .sb-step.locked { opacity:0.4; cursor:not-allowed; }
+      .desktop-sidebar .sb-num { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; flex-shrink:0; margin-top:1px; }
+      .desktop-sidebar .sb-num.done { background:#0d7c5f; color:#fff; }
+      .desktop-sidebar .sb-num.current { background:#2563eb; color:#fff; }
+      .desktop-sidebar .sb-num.pending { background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.3); }
+      .desktop-sidebar .sb-step-title { font-size:12px; color:rgba(255,255,255,0.5); }
+      .desktop-sidebar .sb-step.active .sb-step-title { color:#fff; font-weight:600; }
+      .desktop-sidebar .sb-step-status { font-size:9px; color:rgba(255,255,255,0.25); margin-top:1px; }
+      .desktop-sidebar .sb-step.active .sb-step-status { color:rgba(255,255,255,0.4); }
+      .desktop-sidebar .sb-connector { width:2px; height:12px; margin-left:32px; background:rgba(255,255,255,0.08); }
+      .desktop-sidebar .sb-connector.done { background:#0d7c5f; }
+      .desktop-sidebar .sb-progress { margin-top:auto; padding-top:20px; border-top:1px solid rgba(255,255,255,0.06); }
+      .desktop-sidebar .sb-progress-label { font-size:9px; color:rgba(255,255,255,0.25); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }
+      .desktop-sidebar .sb-progress-bar { height:4px; background:rgba(255,255,255,0.06); border-radius:2px; overflow:hidden; }
+      .desktop-sidebar .sb-progress-fill { height:100%; background:linear-gradient(90deg,#0d7c5f,#10b981); border-radius:2px; transition:width 0.3s; }
+      .desktop-sidebar .sb-progress-text { font-size:9px; color:rgba(255,255,255,0.3); margin-top:6px; }
+      .desktop-sidebar .sb-help { margin-top:16px; font-size:10px; color:rgba(255,255,255,0.3); display:flex; align-items:center; gap:6px; text-decoration:none; }
+      .desktop-sidebar .sb-help:hover { color:rgba(255,255,255,0.5); }
     }
     @media (max-width: 860px) {
+      .desktop-sidebar { display: none; }
       .hero-compact {
         position: sticky; top: 0; z-index: 100;
         border-radius: 0 0 16px 16px;
@@ -647,6 +677,8 @@
   </style>
 </head>
 <body>
+
+  <aside class="desktop-sidebar" id="desktopSidebar"></aside>
 
   <div class="dash-wrap">
     <!-- COMPACT DARK HEADER -->
@@ -1390,12 +1422,65 @@
           renderPbsSection();
           renderUpdates(data.updates || []);
           renderTimeline(data.timelineEvents || []);
+          renderDesktopSidebar();
         })
         .catch(function () {
           document.getElementById("loadingState").hidden = true;
           document.getElementById("emptyState").hidden = false;
           document.getElementById("caseContent").hidden = true;
         });
+    }
+
+    // ─── DESKTOP SIDEBAR ─────────────────────────────────────────
+    function renderDesktopSidebar() {
+      var sb = document.getElementById('desktopSidebar');
+      if (!sb || window.matchMedia("(max-width: 860px)").matches) return;
+
+      var steps = [
+        { key: "medicare", label: "Medicare Provider Number", app: currentMedicare },
+        { key: "pbs", label: "PBS Prescriber Number", app: currentPbs }
+      ];
+
+      var doneCount = 0;
+      steps.forEach(function(s) { if (isComplete(s.app)) doneCount++; });
+      var activeIdx = 0;
+      for (var i = 0; i < steps.length; i++) {
+        if (!isComplete(steps[i].app)) { activeIdx = i; break; }
+        if (i === steps.length - 1) activeIdx = i;
+      }
+      var pct = Math.round((doneCount / steps.length) * 100);
+
+      var html = '<div class="sb-title">PBS &amp; Medicare</div>';
+      html += '<div class="sb-sub">Provider &amp; Prescriber Numbers</div>';
+
+      steps.forEach(function(s, idx) {
+        var isDone = isComplete(s.app);
+        var isActive = !isDone && idx === activeIdx;
+        var cls = isActive ? "sb-step active" : "sb-step";
+        var numCls = isDone ? "sb-num done" : isActive ? "sb-num current" : "sb-num pending";
+        var numContent = isDone ? "&#10003;" : (idx + 1);
+        var statusText = isDone ? "Completed" : isActive ? "In progress" : hasStarted(s.app) ? "In progress" : "Pending";
+
+        if (idx > 0) {
+          var connCls = isComplete(steps[idx - 1].app) ? "sb-connector done" : "sb-connector";
+          html += '<div class="' + connCls + '"></div>';
+        }
+
+        html += '<div class="' + cls + '" data-stage="' + s.key + '">';
+        html += '<div class="' + numCls + '">' + numContent + '</div>';
+        html += '<div><div class="sb-step-title">' + s.label + '</div>';
+        html += '<div class="sb-step-status">' + statusText + '</div></div>';
+        html += '</div>';
+      });
+
+      html += '<div class="sb-progress">';
+      html += '<div class="sb-progress-label">Overall Progress</div>';
+      html += '<div class="sb-progress-bar"><div class="sb-progress-fill" style="width:' + pct + '%"></div></div>';
+      html += '<div class="sb-progress-text">Step ' + (activeIdx + 1) + ' of ' + steps.length + ' &middot; ' + pct + '% complete</div>';
+      html += '</div>';
+      html += '<a class="sb-help" href="support.html"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> Need help? Contact support</a>';
+
+      sb.innerHTML = html;
     }
 
     loadPbsStatus();
