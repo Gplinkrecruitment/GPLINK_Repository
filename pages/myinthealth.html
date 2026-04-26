@@ -486,27 +486,23 @@
     }
 
     /* ---- HELP CARD ---- */
-    /* ---- STUCK HELP SECTION ---- */
-    .stuck-section {
-      text-align: center;
-      padding: 24px 16px 8px;
-      margin-bottom: var(--sp-4);
+    /* ---- STUCK HELP INLINE ---- */
+    .stuck-line {
+      display: block; text-align: right;
+      font-size: 12px; color: var(--ink-muted); line-height: 1.6;
+      margin-top: 4px;
     }
-    .stuck-section .stuck-line {
+    .stuck-link {
       display: inline;
-      font-size: 13px; color: var(--ink-muted); line-height: 1.6;
-    }
-    .stuck-section .stuck-link {
-      display: inline;
-      font-size: 13px; font-weight: 600;
+      font-size: 12px; font-weight: 600;
       color: var(--ink-muted);
-      background: none; border: none;
+      background: none; border: none; padding: 0;
       cursor: pointer; font-family: var(--font-body);
       text-decoration: underline;
       text-underline-offset: 2px;
       transition: color .15s;
     }
-    .stuck-section .stuck-link:hover {
+    .stuck-link:hover {
       color: var(--ink);
     }
     .btn-modern {
@@ -1004,14 +1000,7 @@
       <div class="btn-row" id="stepNavActions"></div>
     </div>
 
-    <!-- STUCK HELP SECTION -->
     <div class="reg-content" style="padding-top:0;">
-      <div class="stuck-section">
-        <span class="stuck-line">Stuck on this step?</span>
-        <button class="stuck-link" id="stuckHelpBtn" type="button">Submit a ticket</button>
-        <span class="stuck-line">&mdash; we respond within 1 hour.</span>
-      </div>
-
       <div class="footer-links">
         <div><a href="/pages/privacy.html">Privacy Policy</a> &middot; <a href="/pages/terms.html">Terms of Service</a></div>
         <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
@@ -1654,6 +1643,7 @@
       navHtml += `<div class="mark-complete-wrap"><button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
       if (!isDone && isCurrent) {
         navHtml += `<span class="mark-complete-hint">Once you've finished this step, click here to move on</span>`;
+        navHtml += `<span class="stuck-line">Stuck on this step? <button class="stuck-link" id="stuckHelpBtn" type="button">Submit a ticket</button> &mdash; we respond within 1 hour.</span>`;
       }
       navHtml += `</div>`;
       }
@@ -2121,14 +2111,11 @@
       });
     });
 
-    // Stuck help button — navigate to messages.html new ticket form with category prefilled
-    var stuckHelpBtn = document.getElementById("stuckHelpBtn");
-    if (stuckHelpBtn) {
-      stuckHelpBtn.addEventListener("click", function() {
-        var context = getCurrentSupportContext();
-        window.location.href = "/pages/messages.html?category=" + encodeURIComponent(context.category) + "#new-ticket";
-      });
-    }
+    // Stuck help button — opens support modal with category prefilled
+    document.addEventListener("click", function(e) {
+      var btn = e.target.closest("#stuckHelpBtn");
+      if (btn) openSupportCaseModal(btn);
+    });
 
     supportModalEl.addEventListener("click", e => { if (e.target === supportModalEl) closeModal(supportModalEl); });
     supportModalEl.addEventListener("keydown", e => {
