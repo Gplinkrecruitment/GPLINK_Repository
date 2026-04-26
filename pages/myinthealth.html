@@ -488,9 +488,9 @@
     /* ---- HELP CARD ---- */
     /* ---- STUCK HELP INLINE ---- */
     .stuck-line {
-      display: block; text-align: right;
+      display: block; text-align: center;
       font-size: 12px; color: var(--ink-muted); line-height: 1.6;
-      margin-top: 4px;
+      margin-top: 16px;
     }
     .stuck-link {
       display: inline;
@@ -998,6 +998,7 @@
 
       <!-- Nav buttons -->
       <div class="btn-row" id="stepNavActions"></div>
+      <div id="stuckRow"></div>
     </div>
 
     <div class="reg-content" style="padding-top:0;">
@@ -1643,12 +1644,21 @@
       navHtml += `<div class="mark-complete-wrap"><button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
       if (!isDone && isCurrent) {
         navHtml += `<span class="mark-complete-hint">Once you've finished this step, click here to move on</span>`;
-        navHtml += `<span class="stuck-line">Stuck on this step? <button class="stuck-link" id="stuckHelpBtn" type="button">Submit a ticket</button> &mdash; we respond within 1 hour.</span>`;
       }
       navHtml += `</div>`;
       }
       actionsEl.innerHTML = '';
       navActionsEl.innerHTML = navHtml;
+
+      // Stuck help row (visible on both desktop and mobile)
+      var stuckRow = document.getElementById('stuckRow');
+      if (stuckRow) {
+        if (!isDone && isCurrent) {
+          stuckRow.innerHTML = '<div class="stuck-line">Stuck on this step? <button class="stuck-link" id="stuckHelpBtn" type="button">Submit a ticket</button> &mdash; we respond within 1 hour.</div>';
+        } else {
+          stuckRow.innerHTML = '';
+        }
+      }
 
       // Desktop sticky header actions
       var headerActions = document.getElementById('stepHeaderActions');
