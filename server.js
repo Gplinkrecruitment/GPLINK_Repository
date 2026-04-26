@@ -9023,19 +9023,17 @@ async function handleZohoRecruitWebhook(req, res) {
     return;
   }
 
-  // Drain the request body (required for proper HTTP handling)
+  // Drain the request body
   try { await readRawBody(req, 2 * 1024 * 1024); } catch {}
 
-  // Run sync BEFORE responding (Vercel kills the function after response is sent)
+  // Run sync before responding so Vercel doesn't kill the function
   console.log('[ZohoRecruit webhook] Change detected, triggering re-sync');
-  try {
-    const result = await syncZohoRecruitRoles();
-    console.log('[ZohoRecruit webhook] Re-sync complete:', result.ok ? 'success' : 'failed', '—', result.syncedRoleCount || 0, 'roles');
-    sendJson(res, 200, { ok: true, synced: true, roles: result.syncedRoleCount || 0 });
-  } catch (e) {
+  const result = await syncZohoRecruitRoles().catch((e) => {
     console.error('[ZohoRecruit webhook] Re-sync error:', e && e.message);
-    sendJson(res, 200, { ok: true, received: true, syncError: true });
-  }
+    return { ok: false, syncedRoleCount: 0 };
+  });
+  console.log('[ZohoRecruit webhook] Re-sync done:', result.ok ? 'success' : 'failed', result.syncedRoleCount || 0, 'roles');
+  sendJson(res, 200, { ok: true, synced: result.ok, roles: result.syncedRoleCount || 0 });
 }
 
 
@@ -14685,30 +14683,6 @@ async function handleApi(req, res, pathname) {
   // Zoho Recruit webhook — external origin, must be before same-origin enforcement
   if (req.method === 'POST' && pathname === '/api/webhooks/zoho-recruit') {
     await handleZohoRecruitWebhook(req, res);
-    return;
-  }
-  // Temporary debug: inspect a career_role's raw data
-  if (req.method === 'GET' && pathname === '/api/webhooks/zoho-recruit/debug-role') {
-    const dUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const ds = dUrl.searchParams.get('secret') || '';
-    if (!ZOHO_RECRUIT_WEBHOOK_SECRET || !ds || !timingSafeEqualStrings(ds, ZOHO_RECRUIT_WEBHOOK_SECRET)) {
-      sendJson(res, 401, { ok: false }); return;
-    }
-    const q = dUrl.searchParams.get('q') || '';
-    const filter = q ? '&title=ilike.' + encodeURIComponent('*' + q + '*') : '';
-    const r = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,employment_type,source_payload&limit=5' + filter);
-    const rows = r.ok && Array.isArray(r.data) ? r.data.map(row => {
-      const sp = row.source_payload && typeof row.source_payload === 'object' ? row.source_payload : {};
-      const zoho = sp.zoho && typeof sp.zoho === 'object' ? sp.zoho : {};
-      return {
-        id: row.id, title: row.title, practice_name: row.practice_name,
-        employment_type_in_db: row.employment_type,
-        zoho_Employment_Type: zoho.Employment_Type, zoho_Work_Type: zoho.Work_Type,
-        zoho_Job_Type: zoho.Job_Type, zoho_Type: zoho.Type, zoho_Role_Type: zoho.Role_Type,
-        all_zoho_keys: Object.keys(zoho).sort().join(', ')
-      };
-    }) : [];
-    sendJson(res, 200, { ok: true, roles: rows });
     return;
   }
 
