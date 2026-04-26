@@ -2702,7 +2702,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const wq=e.target.closest("[data-wq-case]");
       if(wq){S.selectedCaseId=wq.getAttribute("data-wq-case");S.expanded={};S.view="cases";document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));renderCaseList();renderDetail();document.getElementById("mainLayout").classList.add("detail-open");return;}
     });
-    document.getElementById("medicalCentresPanel").addEventListener("click",async function(e){
+    var _mcPanel=document.getElementById("medicalCentresPanel");
+    if(_mcPanel)_mcPanel.addEventListener("click",async function(e){
       var listBtn=e.target.closest("[data-mc-list]");
       if(listBtn){
         var lv2=listBtn.getAttribute("data-mc-list");
@@ -2737,7 +2738,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return;
       }
     });
-    document.getElementById("medicalCentresPanel").addEventListener("change",function(e){
+    var _mcPanel2=document.getElementById("medicalCentresPanel");
+    if(_mcPanel2)_mcPanel2.addEventListener("change",function(e){
       var filterEl=e.target.closest("[data-mc-filter]");
       if(filterEl){
         S.mc.listFilters[filterEl.getAttribute("data-mc-filter")]=filterEl.value;
@@ -2825,9 +2827,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(e.target.id==="agentCollabSelect"){S.agent.collaborationMode=e.target.value||"paired";refreshAgentStatus(false);return;}
       if(e.target.id==="agentComplexitySelect"){S.agent.complexity=e.target.value||"auto";refreshAgentStatus(false);return;}
     });
-    document.getElementById("saToolsBtn").addEventListener("click",function(e){e.stopPropagation();toggleSaTools();});
+    var _saBtn=document.getElementById("saToolsBtn");
+    if(_saBtn)_saBtn.addEventListener("click",function(e){e.stopPropagation();toggleSaTools();});
     document.addEventListener("click",function(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display="none";});
-    document.getElementById("saToolsDropdown").addEventListener("click",async function(e){
+    var _saDd=document.getElementById("saToolsDropdown");
+    if(_saDd)_saDd.addEventListener("click",async function(e){
       var btn=e.target.closest("[data-sa-tool]");if(!btn)return;
       var tool=btn.getAttribute("data-sa-tool");
       document.getElementById("saToolsDropdown").style.display="none";
