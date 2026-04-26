@@ -14694,8 +14694,9 @@ async function handleApi(req, res, pathname) {
     if (!ZOHO_RECRUIT_WEBHOOK_SECRET || !ds || !timingSafeEqualStrings(ds, ZOHO_RECRUIT_WEBHOOK_SECRET)) {
       sendJson(res, 401, { ok: false }); return;
     }
-    const q = dUrl.searchParams.get('q') || 'Western Plains';
-    const r = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,employment_type,source_payload&practice_name=ilike.*' + encodeURIComponent(q) + '*&limit=3');
+    const q = dUrl.searchParams.get('q') || '';
+    const filter = q ? '&title=ilike.' + encodeURIComponent('*' + q + '*') : '';
+    const r = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,employment_type,source_payload&limit=5' + filter);
     const rows = r.ok && Array.isArray(r.data) ? r.data.map(row => {
       const sp = row.source_payload && typeof row.source_payload === 'object' ? row.source_payload : {};
       const zoho = sp.zoho && typeof sp.zoho === 'object' ? sp.zoho : {};
