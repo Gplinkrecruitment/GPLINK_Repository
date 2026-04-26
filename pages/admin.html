@@ -2788,35 +2788,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin.html";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
 
-    /* Ops Queue bindings */
-    document.getElementById("opsDomain").addEventListener("change",()=>loadOpsQueue());
-    document.getElementById("opsStatus").addEventListener("change",()=>loadOpsQueue());
-    document.getElementById("opsPriority").addEventListener("change",()=>loadOpsQueue());
-    document.getElementById("opsOverdue").addEventListener("change",()=>loadOpsQueue());
-    document.getElementById("opsSlaBtn").addEventListener("click",runSlaCheck);
-    document.getElementById("opsRefreshBtn").addEventListener("click",()=>loadOpsQueue());
-    document.getElementById("opsTableBody").addEventListener("click",e=>{
-      const row=e.target.closest("tr.ops-row");
-      const saveBtn=e.target.closest("[data-ops-save]");
-      const noteBtn=e.target.closest("[data-ops-add-note]");
-      const caseBtn=e.target.closest("[data-ops-view-case]");
-      if(saveBtn){saveOpsTask(saveBtn.getAttribute("data-ops-save"));return;}
-      if(noteBtn){addOpsNote(noteBtn.getAttribute("data-ops-add-note"));return;}
-      if(caseBtn){
-        const cid=caseBtn.getAttribute("data-ops-view-case");
-        S.selectedCaseId=cid;S.view="cases";S.expanded={};
-        document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="cases"));
-        /*REMOVED switchFromOps()*/renderCaseList();renderDetail();
-        document.getElementById("mainLayout").classList.add("detail-open");
-        return;
-      }
-      if(row){
-        const tid=row.getAttribute("data-ops-task-id");
-        S.opsExpandedId=S.opsExpandedId===tid?null:tid;
-        renderOpsTable();
-        return;
-      }
-    });
+    /* Ops Queue bindings (elements removed with vaulted Tools tab — guarded) */
     document.getElementById("detailContent").addEventListener("input",e=>{
       if(e.target&&e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";}
     });
