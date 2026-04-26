@@ -154,10 +154,15 @@
   var isIframe = window.self !== window.top;
 
   if (isEmbedded || isIframe) {
+    // Apply embedded class immediately to prevent nav flash
+    setEmbeddedClass();
+    injectEmbeddedStyles();
     installEmbeddedBridge();
     return;
   }
 
+  // Hide page content immediately during redirect to prevent nav flash
+  document.documentElement.style.visibility = "hidden";
   var shellUrl = new URL(APP_SHELL_PATH, currentUrl.origin);
   shellUrl.searchParams.set("route", cleanRoute(currentUrl));
   window.location.replace(shellUrl.toString());

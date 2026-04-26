@@ -319,11 +319,85 @@
       fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     }
 
+    /* ---- STEP TITLE (for header + mobile) ---- */
+    .step-title {
+      font-family: var(--font-heading);
+      font-size: 28px; font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: var(--sp-2);
+    }
+    .step-desc {
+      font-size: 14px; color: var(--ink-muted);
+      line-height: 1.55; margin-bottom: var(--sp-6);
+      max-width: 520px;
+    }
+
+    /* ---- STICKY STEP HEADER ---- */
+    .step-header-bar {
+      display: none;
+    }
+    .mobile-step-title, .mobile-step-desc {
+      display: block;
+    }
+
+    /* ---- STUCK HELP INLINE ---- */
+    .stuck-line {
+      display: block; text-align: center;
+      font-size: 12px; color: var(--ink-muted); line-height: 1.6;
+      margin-top: 16px;
+    }
+    .stuck-link {
+      display: inline;
+      font-size: 12px; font-weight: 600;
+      color: var(--ink-muted);
+      background: none; border: none; padding: 0;
+      cursor: pointer; font-family: var(--font-body);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      transition: color .15s;
+    }
+    .stuck-link:hover {
+      color: var(--ink);
+    }
+
     /* ---- RESPONSIVE ---- */
     @media (min-width: 861px) {
       .hero-compact { display: none; }
       .dash-wrap { max-width: none; }
       .reg-content { margin-left: 260px; padding: 32px 40px 40px; }
+      .mobile-step-title, .mobile-step-desc { display: none; }
+
+      /* ─── STICKY STEP HEADER ─── */
+      .step-header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 110;
+        margin-left: 260px;
+        background: rgba(255,255,255,0.92);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid rgba(0,0,0,0.06);
+        padding: 16px 40px;
+      }
+      .step-header-text { flex: 1; min-width: 0; }
+      .step-header-bar .step-title {
+        font-size: 22px; font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.15; margin-bottom: 2px;
+      }
+      .step-header-bar .step-desc {
+        font-size: 13px; color: var(--ink-muted);
+        line-height: 1.4; margin: 0; max-width: none;
+      }
+      .step-header-actions {
+        display: flex; align-items: center; gap: 10px;
+        flex-shrink: 0;
+      }
 
       /* ─── DESKTOP SIDEBAR ─── */
       .desktop-sidebar { position:fixed; top:0; left:0; bottom:0; width:260px; background:linear-gradient(180deg,#0c1222 0%,#111827 100%); padding:100px 20px 24px; color:#fff; z-index:100; display:flex; flex-direction:column; overflow-y:auto; }
@@ -371,6 +445,8 @@
         padding: var(--sp-5) var(--sp-4) 100px;
       }
       .countdown-value { font-size: 36px; }
+      .step-title { font-size: 23px; }
+      .step-desc { font-size: 13px; margin-bottom: var(--sp-5); }
       .sec-title { font-size: 18px; }
       .check-title { font-size: 13px; }
       .check-due { font-size: 11px; }
@@ -411,8 +487,20 @@
       </div>
     </section>
 
+    <!-- STICKY STEP HEADER (desktop) -->
+    <div class="step-header-bar" id="stepHeaderBar">
+      <div class="step-header-text">
+        <h2 class="step-title" id="stepTitle">Commencement</h2>
+        <p class="step-desc" id="stepSub">Pre-arrival checklist</p>
+      </div>
+      <div class="step-header-actions" id="stepHeaderActions"></div>
+    </div>
+
     <!-- LIGHT CONTENT SURFACE -->
     <div class="reg-content">
+
+      <h2 class="step-title mobile-step-title">Commencement</h2>
+      <p class="step-desc mobile-step-desc">Complete your pre-arrival and first day tasks before starting at your practice.</p>
 
       <!-- COUNTDOWN -->
       <div class="action-card">
@@ -500,6 +588,8 @@
           <span class="loading-bar"></span>
         </div>
       </div>
+
+      <div id="stuckRow"></div>
     </div>
   </div>
 
@@ -563,6 +653,22 @@
       });
       updateProgress();
       renderDesktopSidebar();
+      renderStuckRow();
+      updateDesktopHeaderSub();
+    }
+
+    function updateDesktopHeaderSub() {
+      var stepSub = document.getElementById("stepSub");
+      if (!stepSub) return;
+      var state = getCheckedState();
+      var count = 0;
+      ALL_KEYS.forEach(function (key) { if (state[key]) count++; });
+      var total = ALL_KEYS.length;
+      if (count >= total) {
+        stepSub.textContent = "All tasks complete";
+      } else {
+        stepSub.textContent = count + " of " + total + " tasks complete";
+      }
     }
 
     function setupChecklist() {
@@ -737,6 +843,28 @@
 
       sb.innerHTML = html;
     }
+
+    // ── Stuck help row ──
+    function renderStuckRow() {
+      var stuckRow = document.getElementById('stuckRow');
+      if (!stuckRow) return;
+      var state = getCheckedState();
+      var count = 0;
+      ALL_KEYS.forEach(function (key) { if (state[key]) count++; });
+      if (count < ALL_KEYS.length) {
+        stuckRow.innerHTML = '<div class="stuck-line">Stuck on this step? <button class="stuck-link" id="stuckHelpBtn" type="button">Submit a ticket</button> &mdash; we respond within 1 hour.</div>';
+      } else {
+        stuckRow.innerHTML = '';
+      }
+    }
+
+    // ── Stuck help button — navigate to messages ──
+    document.addEventListener("click", function(e) {
+      var btn = e.target.closest("#stuckHelpBtn");
+      if (btn) {
+        window.location.href = "/pages/messages.html?category=Other#new-ticket";
+      }
+    });
 
     setupChecklist();
     syncCheckItems();
