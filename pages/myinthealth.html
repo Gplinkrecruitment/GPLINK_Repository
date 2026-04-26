@@ -403,6 +403,12 @@
       border-top: 7px solid var(--accent);
       transform: translateY(1px);
     }
+    .mark-complete-wrap {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+    }
+    .mark-complete-hint {
+      font-size: 12px; color: var(--ink-muted); font-style: italic;
+    }
     .btn-ghost {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 12px 20px; border-radius: 10px;
@@ -1625,7 +1631,11 @@
         navHtml += hasPrev
           ? `<button class="btn-ghost" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
           : `<span aria-hidden="true"></span>`;
-      navHtml += `<button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      navHtml += `<div class="mark-complete-wrap"><button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+      if (!isDone && isCurrent) {
+        navHtml += `<span class="mark-complete-hint">Once you've finished this step, click here to move on</span>`;
+      }
+      navHtml += `</div>`;
       }
       actionsEl.innerHTML = html;
       navActionsEl.innerHTML = navHtml;
