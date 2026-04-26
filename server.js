@@ -8924,7 +8924,7 @@ function buildCareerRoleRecordFromZoho(record, syncedAt) {
   const summary = sanitizeZohoSummary(
     getZohoField(record, ['Job_Description', 'Description', 'Job_Summary', 'Summary', 'About_the_Role', 'Notes'])
   ) || `${title} opportunity in ${locationLabel || country}.`;
-  const employmentType = getZohoField(record, ['Employment_Type', 'Role_Type', 'Job_Type', 'Type']);
+  const employmentType = getZohoField(record, ['Employment_Type', 'Work_Type', 'Role_Type', 'Job_Type', 'Type']);
   const practiceType = getZohoField(record, ['Practice_Type', 'Organisation_Type', 'Clinic_Type', 'Client_Type']);
   const supportText = getZohoField(record, ['Support', 'Supervision', 'Relocation_Support', 'Onboarding_Support']);
   const statusText = getZohoField(record, ['Job_Opening_Status', 'Status', 'Open_Closed']);
