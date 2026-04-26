@@ -486,43 +486,40 @@
     }
 
     /* ---- HELP CARD ---- */
-    .help-card {
-      background: var(--surface-raised); border-radius: var(--radius);
-      border: 1px solid var(--border); padding: 18px;
+    /* ---- STUCK HELP SECTION ---- */
+    .stuck-section {
+      display: flex; align-items: center; gap: 14px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
       margin-bottom: var(--sp-4);
-      display: flex; align-items: flex-start;
-      justify-content: space-between; gap: 16px; flex-wrap: wrap;
     }
-    .help-card .txt {
-      font-size: 13px; font-weight: 500; color: var(--ink-soft);
-      line-height: 1.5; max-width: 600px;
+    .stuck-icon {
+      color: var(--ink-muted); flex-shrink: 0; opacity: 0.5;
     }
-    .help-card .txt strong {
-      display: block; font-weight: 700; font-size: 15px;
-      color: var(--ink); margin-bottom: 4px;
+    .stuck-text { flex: 1; min-width: 0; }
+    .stuck-title {
+      display: block; font-size: 14px; font-weight: 600;
+      color: var(--ink); line-height: 1.3;
     }
-    .help-card .trust-grid {
-      width: 100%;
-      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    .stuck-sub {
+      display: block; font-size: 12px; color: var(--ink-muted);
+      line-height: 1.4; margin-top: 1px;
     }
-    .help-card .trust-col {
-      border: 1px solid var(--border); border-radius: var(--radius);
-      background: var(--surface); padding: 14px;
+    .stuck-btn {
+      flex-shrink: 0;
+      padding: 8px 18px; border-radius: 8px;
+      background: transparent; color: var(--ink-muted);
+      font-family: var(--font-body);
+      font-size: 13px; font-weight: 500;
+      border: 1px solid var(--border);
+      cursor: pointer; transition: all .15s ease;
     }
-    .help-card .trust-col h4 {
-      font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 8px;
+    .stuck-btn:hover {
+      background: #f8fafc; color: var(--ink);
+      border-color: #cbd5e1;
     }
-    .help-card .trust-col ul { list-style: none; display: grid; gap: 6px; }
-    .help-card .trust-col li {
-      font-size: 12px; font-weight: 500; color: var(--ink-soft);
-      display: flex; align-items: flex-start; gap: 8px; line-height: 1.4;
-    }
-    .help-card .trust-col li::before {
-      content: "";
-      width: 6px; height: 6px; border-radius: 50%;
-      background: var(--accent); flex-shrink: 0; margin-top: 5px;
-    }
-    .help-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .btn-modern {
       display: inline-flex; align-items: center; gap: 8px;
       padding: 10px 16px; border-radius: 10px;
@@ -941,8 +938,6 @@
       .btn-row .btn-primary,
       .btn-row .btn-ghost,
       .btn-row .btn-complete { width: 100%; justify-content: center; }
-      .desktop-only-section { display: none; }
-      .help-card .trust-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -1020,35 +1015,17 @@
       <div class="btn-row" id="stepNavActions"></div>
     </div>
 
-    <!-- HELP CARD -->
+    <!-- STUCK HELP SECTION -->
     <div class="reg-content" style="padding-top:0;">
-      <div class="help-card desktop-only-section">
-        <div class="txt">
-          <strong>We're Here For You!</strong>
-          Our dedicated support team understands the complexities of GP registration. We respond during business hours (Mon-Fri, 9am-5pm AEST). We aim to respond within 1 hour.
+      <div class="stuck-section" id="stuckSection">
+        <div class="stuck-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         </div>
-        <div class="trust-grid">
-          <div class="trust-col">
-            <h4>You do:</h4>
-            <ul>
-              <li>Upload required documents</li>
-              <li>Complete key forms</li>
-              <li>Confirm details when requested</li>
-            </ul>
-          </div>
-          <div class="trust-col">
-            <h4>We do:</h4>
-            <ul>
-              <li>Guide each step in order</li>
-              <li>Check progress and timelines</li>
-              <li>Flag issues and coordinate support</li>
-            </ul>
-          </div>
+        <div class="stuck-text">
+          <span class="stuck-title">Stuck on this step?</span>
+          <span class="stuck-sub">Our team responds within 1 hour during business hours.</span>
         </div>
-        <div class="help-actions">
-          <a class="btn-modern btn-primary" href="/pages/messages.html">Contact Support <span>&#8594;</span></a>
-          <a class="btn-modern btn-outline" href="/pages/support-cases.html">View Support Cases <span>&#8594;</span></a>
-        </div>
+        <button class="stuck-btn" id="stuckHelpBtn" type="button">Get Help</button>
       </div>
 
       <div class="footer-links">
@@ -2159,6 +2136,14 @@
         if (modal) closeModal(modal);
       });
     });
+
+    // Stuck help button
+    var stuckHelpBtn = document.getElementById("stuckHelpBtn");
+    if (stuckHelpBtn) {
+      stuckHelpBtn.addEventListener("click", function() {
+        openSupportCaseModal(stuckHelpBtn);
+      });
+    }
 
     supportModalEl.addEventListener("click", e => { if (e.target === supportModalEl) closeModal(supportModalEl); });
     supportModalEl.addEventListener("keydown", e => {
