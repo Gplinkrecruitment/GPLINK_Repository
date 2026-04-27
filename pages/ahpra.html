@@ -498,6 +498,82 @@
     }
     .action-card .btn-primary { margin-top: 0; }
 
+    /* ---- QUALIFICATION GUIDANCE PANEL ---- */
+    .qual-guidance {
+      background: var(--surface-raised);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 20px;
+      margin-bottom: var(--sp-5);
+    }
+    .qual-guidance-title {
+      font-size: 14px; font-weight: 700; color: var(--ink);
+      margin-bottom: 4px;
+    }
+    .qual-guidance-subtitle {
+      font-size: 12px; color: var(--ink-muted); line-height: 1.5;
+      margin-bottom: 14px;
+    }
+    .qual-doc-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 10px 0;
+      border-top: 1px solid var(--border-light);
+    }
+    .qual-doc-row:last-child { border-bottom: none; }
+    .qual-doc-info {
+      display: flex; align-items: center; gap: 10px;
+      min-width: 0; flex: 1;
+    }
+    .qual-doc-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: grid; place-items: center; flex-shrink: 0;
+      background: var(--accent-glow); color: var(--accent);
+    }
+    .qual-doc-icon svg { width: 16px; height: 16px; }
+    .qual-doc-label {
+      font-size: 13px; font-weight: 600; color: var(--ink);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .btn-download-qual {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      background: var(--accent); color: #fff;
+      border: none; cursor: pointer;
+      transition: background .15s ease;
+      flex-shrink: 0; white-space: nowrap;
+    }
+    .btn-download-qual:hover { background: #1444aa; }
+    .btn-download-qual svg { width: 14px; height: 14px; }
+    .btn-download-qual:disabled {
+      background: var(--border); color: var(--ink-muted); cursor: default;
+    }
+
+    .qual-divider {
+      height: 1px; background: var(--border-light);
+      margin: 14px 0;
+    }
+
+    .docs-action-row {
+      display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn-docs-action {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border-radius: 10px;
+      font-size: 13px; font-weight: 600;
+      border: 1px solid var(--border); cursor: pointer;
+      transition: all .15s ease; font-family: var(--font-body);
+      background: var(--surface-raised); color: var(--ink-soft);
+    }
+    .btn-docs-action:hover { background: var(--surface); border-color: var(--ink-muted); }
+    .btn-docs-action svg { width: 14px; height: 14px; opacity: .6; }
+    .btn-docs-action.primary {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .btn-docs-action.primary:hover { background: #1444aa; }
+    .btn-docs-action.primary svg { opacity: 1; }
+
     /* ---- HELP CARD ---- */
     .help-card {
       background: var(--surface-raised); border-radius: var(--radius);
@@ -1032,7 +1108,7 @@
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
         border-bottom: 1px solid rgba(0,0,0,0.06);
-        padding: 16px 40px;
+        padding: 8px 40px;
       }
       .step-header-text { flex: 1; min-width: 0; }
       .step-header-bar .step-title {
@@ -1056,7 +1132,7 @@
         top: 0; left: 0; bottom: 0;
         width: 260px;
         background: linear-gradient(180deg, #0c1222 0%, #111827 100%);
-        padding: 100px 20px 24px;
+        padding: 24px 20px 24px;
         color: #fff;
         z-index: 100;
         display: flex;
@@ -1378,12 +1454,64 @@
     const SAVE_BATCH_META_SUFFIX = "__save_batch_meta";
     const AHPRA_URL = "https://www.ahpra.gov.au/Registration/Online-services.aspx";
 
-    const GP_REQUIRED_DOCS = [
-      { key: "primary_medical_degree", name: "Certified copy of Primary Medical Degree (MBBS/MBChB)" },
-      { key: "mrcgp_certified", name: "Certified copy of MRCGP (issued from Aug 2007 onward)" },
-      { key: "cct_certified", name: "Certified copy of CCT (General Practice)" },
-      { key: "cv_signed_dated", name: "CV (Signed + dated)" }
-    ];
+    // Country-specific GP required docs for the upload_qualifications step
+    const GP_REQUIRED_DOCS_BY_COUNTRY = {
+      uk: [
+        { key: "primary_medical_degree", name: "Certified copy of Primary Medical Degree (MBBS/MBChB)" },
+        { key: "mrcgp_certified", name: "Certified copy of MRCGP (issued from Aug 2007 onward)" },
+        { key: "cct_certified", name: "Certified copy of CCT (General Practice)" },
+        { key: "cv_signed_dated", name: "CV (Signed + dated)" }
+      ],
+      ie: [
+        { key: "primary_medical_degree", name: "Certified copy of Primary Medical Degree" },
+        { key: "micgp_certified", name: "Certified copy of MICGP" },
+        { key: "cscst_certified", name: "Certified copy of CSCST" },
+        { key: "icgp_confirmation_letter", name: "Certified copy of ICGP Confirmation Letter" },
+        { key: "cv_signed_dated", name: "CV (Signed + dated)" }
+      ],
+      nz: [
+        { key: "primary_medical_degree", name: "Certified copy of Primary Medical Degree" },
+        { key: "frnzcgp_certified", name: "Certified copy of FRNZCGP" },
+        { key: "rnzcgp_confirmation_letter", name: "Certified copy of RNZCGP Confirmation Letter" },
+        { key: "cv_signed_dated", name: "CV (Signed + dated)" }
+      ]
+    };
+
+    // Country-specific onboarding qualification labels (what was collected during onboarding)
+    const ONBOARDING_QUAL_DOCS = {
+      uk: [
+        { key: "onboarding_specialist_qualification", label: "MRCGP Certificate", storageKey: "mrcgp_cert" },
+        { key: "onboarding_primary_med_degree", label: "Primary Medical Degree", storageKey: "primary_med_degree" }
+      ],
+      ie: [
+        { key: "onboarding_specialist_qualification", label: "MICGP Certificate", storageKey: "micgp_cert" },
+        { key: "onboarding_primary_med_degree", label: "Primary Medical Degree", storageKey: "primary_med_degree" }
+      ],
+      nz: [
+        { key: "onboarding_specialist_qualification", label: "FRNZCGP Certificate", storageKey: "frnzcgp_cert" },
+        { key: "onboarding_primary_med_degree", label: "Primary Medical Degree", storageKey: "primary_med_degree" }
+      ]
+    };
+
+    function getPageCountry() {
+      var raw = "";
+      try { raw = localStorage.getItem("gp_selected_country") || ""; } catch (e) { raw = ""; }
+      if (!raw) return "uk";
+      var val = raw;
+      try { val = JSON.parse(raw); } catch (e) { /* use raw */ }
+      if (typeof val !== "string") return "uk";
+      var lower = val.toLowerCase().trim();
+      if (lower === "uk" || lower === "gb" || lower === "united kingdom") return "uk";
+      if (lower === "ie" || lower === "ireland") return "ie";
+      if (lower === "nz" || lower === "new zealand") return "nz";
+      return "uk";
+    }
+
+    function getGpRequiredDocs() {
+      return GP_REQUIRED_DOCS_BY_COUNTRY[getPageCountry()] || GP_REQUIRED_DOCS_BY_COUNTRY.uk;
+    }
+
+    const GP_REQUIRED_DOCS = getGpRequiredDocs();
     const GPLINK_REQUIRED_DOCS = [
       { key: "sppa_00", name: "Supervised Practice Plan - SPPA-00" },
       { key: "section_g", name: "Supervised Practice Plan - Section G" },
@@ -2256,6 +2384,12 @@
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 
+      // Build qualification guidance panel for the application step
+      var qualGuidanceHtml = '';
+      if (effectiveKey === 'account_establishment') {
+        qualGuidanceHtml = buildQualGuidanceHtml();
+      }
+
       document.getElementById("stepInfoGrid").innerHTML = `
         <div class="action-card">
           <div class="action-card-body">
@@ -2267,7 +2401,14 @@
             ${actionBtnHtml}
           </div>
         </div>
+        ${qualGuidanceHtml}
       `;
+
+      // Wire qualification download buttons if present
+      if (effectiveKey === 'account_establishment') {
+        wireQualDownloadButtons();
+        wireDocsActionButtons();
+      }
 
       // Actions
       const actionsEl = document.getElementById("stepActions");

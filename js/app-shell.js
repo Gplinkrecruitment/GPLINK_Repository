@@ -697,7 +697,7 @@
 
     var topbarEl = desktopHostEl && desktopHostEl.querySelector(".topbar");
     if (topbarEl && isVisible(desktopHostEl)) {
-      topOffset = Math.ceil(topbarEl.getBoundingClientRect().bottom + 2);
+      topOffset = Math.ceil(topbarEl.getBoundingClientRect().bottom);
     }
 
     frameTop = resolvedPath === REGISTRATION_INTRO_ROUTE ? 0 : topOffset;
