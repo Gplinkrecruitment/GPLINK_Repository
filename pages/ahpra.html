@@ -2282,6 +2282,109 @@
     }
     window.addEventListener('resize', updateProgressFill);
 
+    // ── Qualification guidance panel (for account_establishment step) ──
+    function buildQualGuidanceHtml() {
+      var country = getPageCountry();
+      var qualDocs = ONBOARDING_QUAL_DOCS[country] || ONBOARDING_QUAL_DOCS.uk;
+
+      var countryLabel = country === 'ie' ? 'Irish' : country === 'nz' ? 'New Zealand' : 'UK';
+      var specialistLabel = country === 'ie' ? 'MICGP' : country === 'nz' ? 'FRNZCGP' : 'MRCGP';
+
+      var docIconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+      var downloadSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+
+      var qualRowsHtml = qualDocs.map(function(doc) {
+        return '<div class="qual-doc-row">' +
+          '<div class="qual-doc-info">' +
+            '<div class="qual-doc-icon">' + docIconSvg + '</div>' +
+            '<span class="qual-doc-label">' + doc.label + '</span>' +
+          '</div>' +
+          '<button type="button" class="btn-download-qual" data-qual-download="' + doc.key + '">' + downloadSvg + ' Download</button>' +
+        '</div>';
+      }).join('');
+
+      var folderSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+      var alertSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+
+      return '<div class="qual-guidance">' +
+        '<div class="qual-guidance-title">Qualifications you need to have ready</div>' +
+        '<div class="qual-guidance-subtitle">As a ' + countryLabel + ' GP, you will need your <strong>Primary Medical Degree</strong> and your <strong>' + specialistLabel + '</strong> specialist qualification. We collected and verified these during onboarding &mdash; download them below to have them ready.</div>' +
+        qualRowsHtml +
+        '<div class="qual-divider"></div>' +
+        '<div class="qual-guidance-title">Supporting documents</div>' +
+        '<div class="qual-guidance-subtitle">You will also need to submit all documents in your My Documents section. Download your document pack or check what\'s still needed.</div>' +
+        '<div class="docs-action-row">' +
+          '<button type="button" class="btn-docs-action primary" id="qualDocsDownloadBtn">' + folderSvg + ' Download Documents</button>' +
+          '<button type="button" class="btn-docs-action" id="qualDocsMissingBtn">' + alertSvg + ' Check Missing Documents</button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function wireQualDownloadButtons() {
+      var btns = document.querySelectorAll('[data-qual-download]');
+      btns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var key = btn.getAttribute('data-qual-download');
+          if (!key) return;
+          var country = getPageCountry();
+          var countryCode = country === 'ie' ? 'IE' : country === 'nz' ? 'NZ' : 'GB';
+          var downloadUrl = '/api/onboarding-documents/download?country=' + encodeURIComponent(countryCode) + '&key=' + encodeURIComponent(key);
+          btn.disabled = true;
+          btn.textContent = 'Downloading…';
+          fetch(downloadUrl, { credentials: 'same-origin' })
+            .then(function(resp) {
+              if (!resp.ok) throw new Error('Not available');
+              return resp.blob();
+            })
+            .then(function(blob) {
+              var a = document.createElement('a');
+              var url = URL.createObjectURL(blob);
+              a.href = url;
+              var qualDocs = ONBOARDING_QUAL_DOCS[country] || ONBOARDING_QUAL_DOCS.uk;
+              var doc = qualDocs.find(function(d) { return d.key === key; });
+              a.download = doc ? doc.label.replace(/[^a-zA-Z0-9 ]/g, '') + '.pdf' : 'document.pdf';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+              btn.disabled = false;
+              btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download';
+            })
+            .catch(function() {
+              btn.disabled = false;
+              btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download';
+              showToast('Document not available — it may not have been uploaded during onboarding');
+            });
+        });
+      });
+    }
+
+    function wireDocsActionButtons() {
+      var downloadBtn = document.getElementById('qualDocsDownloadBtn');
+      var missingBtn = document.getElementById('qualDocsMissingBtn');
+
+      if (downloadBtn) {
+        downloadBtn.addEventListener('click', function() {
+          var snapshot = getDocSnapshot();
+          renderDownloadPackModal(snapshot);
+          if (downloadPackModalEl) openModal(downloadPackModalEl, downloadBtn);
+        });
+      }
+
+      if (missingBtn) {
+        missingBtn.addEventListener('click', function() {
+          var snapshot = getDocSnapshot();
+          var gpMissing = getGpMissing(snapshot);
+          if (gpMissing.length) {
+            openMissingDocsModal(gpMissing, missingBtn);
+          } else {
+            openMissingDocsModal([], missingBtn);
+            showToast('All your documents are uploaded');
+          }
+        });
+      }
+    }
+
     function renderStepTabs(progress) {
       // Remove old tab buttons
       tabElements.forEach(el => el.remove());
