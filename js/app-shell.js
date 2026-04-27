@@ -696,7 +696,7 @@
     var resolvedPath = getResolvedRoutePath(currentRoute || window.location.pathname);
 
     if (desktopHostEl && isVisible(desktopHostEl)) {
-      topOffset = Math.ceil(desktopHostEl.getBoundingClientRect().bottom + 8);
+      topOffset = Math.ceil(desktopHostEl.getBoundingClientRect().bottom);
     }
 
     frameTop = resolvedPath === REGISTRATION_INTRO_ROUTE ? 0 : topOffset;

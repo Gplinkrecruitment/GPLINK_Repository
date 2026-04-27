@@ -2869,6 +2869,7 @@
 
     // ─── PLACEMENT GATE ─────────────────────────────────────────
     function hasCareerSecured() {
+      if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return true;
       try {
         const raw = localStorage.getItem("gp_career_state");
         const careerState = raw ? JSON.parse(raw) : null;
