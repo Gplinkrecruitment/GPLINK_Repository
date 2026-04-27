@@ -695,8 +695,9 @@
     var navClearance = 0;
     var resolvedPath = getResolvedRoutePath(currentRoute || window.location.pathname);
 
-    if (desktopHostEl && isVisible(desktopHostEl)) {
-      topOffset = Math.ceil(desktopHostEl.getBoundingClientRect().bottom);
+    var topbarEl = desktopHostEl && desktopHostEl.querySelector(".topbar");
+    if (topbarEl && isVisible(desktopHostEl)) {
+      topOffset = Math.ceil(topbarEl.getBoundingClientRect().bottom + 2);
     }
 
     frameTop = resolvedPath === REGISTRATION_INTRO_ROUTE ? 0 : topOffset;
