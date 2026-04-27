@@ -574,6 +574,28 @@
     .btn-docs-action.primary:hover { background: #1444aa; }
     .btn-docs-action.primary svg { opacity: 1; }
 
+    /* ---- INSTITUTION PENDING ROWS ---- */
+    .inst-pending-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0;
+      border-top: 1px solid var(--border-light);
+    }
+    .inst-pending-row:first-of-type { border-top: none; }
+    .inst-pending-icon {
+      flex-shrink: 0; color: var(--warn-text); opacity: .7;
+    }
+    .inst-pending-label {
+      font-size: 13px; font-weight: 600; color: var(--ink);
+      flex: 1; min-width: 0;
+    }
+    .inst-pending-badge {
+      flex-shrink: 0;
+      font-size: 11px; font-weight: 600;
+      padding: 3px 8px; border-radius: 6px;
+      background: #fff7ed; color: var(--warn-text);
+      border: 1px solid rgba(229, 166, 48, 0.25);
+    }
+
     /* ---- HELP CARD ---- */
     .help-card {
       background: var(--surface-raised); border-radius: var(--radius);
@@ -2282,6 +2304,34 @@
     }
     window.addEventListener('resize', updateProgressFill);
 
+    // ── Institution docs that must be sent directly to AHPRA (country-specific) ──
+    const INSTITUTION_DOCS = {
+      uk: [
+        { key: "certificate_good_standing", title: "Certificate of Good Standing" },
+        { key: "confirmation_training", title: "Confirmation of Training" },
+        { key: "criminal_history", title: "Criminal History Check" }
+      ],
+      ie: [
+        { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status" },
+        { key: "criminal_history", title: "Criminal History Check" }
+      ],
+      nz: [
+        { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status" },
+        { key: "criminal_history", title: "Criminal History Check" }
+      ]
+    };
+
+    function getPendingInstitutionDocs() {
+      var country = getPageCountry();
+      var instDocs = INSTITUTION_DOCS[country] || INSTITUTION_DOCS.uk;
+      var docState = readJsonStorage(DOC_KEY, { docs: {} }) || { docs: {} };
+      var docs = docState.docs || {};
+      return instDocs.filter(function(item) {
+        var s = docs[item.key];
+        return !s || s.status === 'pending';
+      });
+    }
+
     // ── Qualification guidance panel (for account_establishment step) ──
     function buildQualGuidanceHtml() {
       var country = getPageCountry();
@@ -2289,27 +2339,56 @@
 
       var countryLabel = country === 'ie' ? 'Irish' : country === 'nz' ? 'New Zealand' : 'UK';
       var specialistLabel = country === 'ie' ? 'MICGP' : country === 'nz' ? 'FRNZCGP' : 'MRCGP';
+      var qualLabels = qualDocs.map(function(d) { return d.label; }).join(' + ');
 
-      var docIconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
       var downloadSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-
-      var qualRowsHtml = qualDocs.map(function(doc) {
-        return '<div class="qual-doc-row">' +
-          '<div class="qual-doc-info">' +
-            '<div class="qual-doc-icon">' + docIconSvg + '</div>' +
-            '<span class="qual-doc-label">' + doc.label + '</span>' +
-          '</div>' +
-          '<button type="button" class="btn-download-qual" data-qual-download="' + doc.key + '">' + downloadSvg + ' Download</button>' +
-        '</div>';
-      }).join('');
-
+      var docIconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
       var folderSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
       var alertSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+      var checkSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+      var clockSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+
+      // Single combined download row for qualifications
+      var qualRowHtml = '<div class="qual-doc-row">' +
+        '<div class="qual-doc-info">' +
+          '<div class="qual-doc-icon">' + docIconSvg + '</div>' +
+          '<span class="qual-doc-label">' + qualLabels + '</span>' +
+        '</div>' +
+        '<button type="button" class="btn-download-qual" id="qualDownloadAllBtn">' + downloadSvg + ' Download</button>' +
+      '</div>';
+
+      // Check for pending institution docs (Direct to AHPRA)
+      var pendingInst = getPendingInstitutionDocs();
+      var instHtml = '';
+      if (pendingInst.length > 0) {
+        var instRowsHtml = pendingInst.map(function(item) {
+          return '<div class="inst-pending-row">' +
+            '<div class="inst-pending-icon">' + clockSvg + '</div>' +
+            '<span class="inst-pending-label">' + item.title + '</span>' +
+            '<span class="inst-pending-badge">Not yet requested</span>' +
+          '</div>';
+        }).join('');
+
+        instHtml = '<div class="qual-divider"></div>' +
+          '<div class="qual-guidance-title" style="color:var(--warn-text);">' + alertSvg + ' Documents to send directly to AHPRA</div>' +
+          '<div class="qual-guidance-subtitle">These documents must be requested from the issuing authority and sent directly to AHPRA. Go to <strong>My Documents</strong> to mark them as requested.</div>' +
+          instRowsHtml +
+          '<div style="margin-top:10px;">' +
+            '<button type="button" class="btn-docs-action" id="goToMyDocsBtn">' + folderSvg + ' Go to My Documents</button>' +
+          '</div>';
+      } else {
+        instHtml = '<div class="qual-divider"></div>' +
+          '<div style="display:flex; align-items:center; gap:8px; padding:8px 0;">' +
+            '<span style="color:var(--success);">' + checkSvg + '</span>' +
+            '<span style="font-size:13px; font-weight:600; color:var(--success);">All direct-to-AHPRA documents have been requested</span>' +
+          '</div>';
+      }
 
       return '<div class="qual-guidance">' +
         '<div class="qual-guidance-title">Qualifications you need to have ready</div>' +
         '<div class="qual-guidance-subtitle">As a ' + countryLabel + ' GP, you will need your <strong>Primary Medical Degree</strong> and your <strong>' + specialistLabel + '</strong> specialist qualification. We collected and verified these during onboarding &mdash; download them below to have them ready.</div>' +
-        qualRowsHtml +
+        qualRowHtml +
+        instHtml +
         '<div class="qual-divider"></div>' +
         '<div class="qual-guidance-title">Supporting documents</div>' +
         '<div class="qual-guidance-subtitle">You will also need to submit all documents in your My Documents section. Download your document pack or check what\'s still needed.</div>' +
@@ -2321,16 +2400,20 @@
     }
 
     function wireQualDownloadButtons() {
-      var btns = document.querySelectorAll('[data-qual-download]');
-      btns.forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          var key = btn.getAttribute('data-qual-download');
-          if (!key) return;
-          var country = getPageCountry();
-          var countryCode = country === 'ie' ? 'IE' : country === 'nz' ? 'NZ' : 'GB';
-          var downloadUrl = '/api/onboarding-documents/download?country=' + encodeURIComponent(countryCode) + '&key=' + encodeURIComponent(key);
-          btn.disabled = true;
-          btn.textContent = 'Downloading…';
+      var btn = document.getElementById('qualDownloadAllBtn');
+      if (!btn) return;
+      btn.addEventListener('click', function() {
+        var country = getPageCountry();
+        var countryCode = country === 'ie' ? 'IE' : country === 'nz' ? 'NZ' : 'GB';
+        var qualDocs = ONBOARDING_QUAL_DOCS[country] || ONBOARDING_QUAL_DOCS.uk;
+        btn.disabled = true;
+        btn.textContent = 'Downloading…';
+        var completed = 0;
+        var failed = 0;
+        var total = qualDocs.length;
+
+        qualDocs.forEach(function(doc) {
+          var downloadUrl = '/api/onboarding-documents/download?country=' + encodeURIComponent(countryCode) + '&key=' + encodeURIComponent(doc.key);
           fetch(downloadUrl, { credentials: 'same-origin' })
             .then(function(resp) {
               if (!resp.ok) throw new Error('Not available');
@@ -2340,20 +2423,27 @@
               var a = document.createElement('a');
               var url = URL.createObjectURL(blob);
               a.href = url;
-              var qualDocs = ONBOARDING_QUAL_DOCS[country] || ONBOARDING_QUAL_DOCS.uk;
-              var doc = qualDocs.find(function(d) { return d.key === key; });
-              a.download = doc ? doc.label.replace(/[^a-zA-Z0-9 ]/g, '') + '.pdf' : 'document.pdf';
+              a.download = doc.label.replace(/[^a-zA-Z0-9 ]/g, '') + '.pdf';
               document.body.appendChild(a);
               a.click();
               document.body.removeChild(a);
               setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
-              btn.disabled = false;
-              btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download';
+              completed++;
             })
             .catch(function() {
-              btn.disabled = false;
-              btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download';
-              showToast('Document not available — it may not have been uploaded during onboarding');
+              failed++;
+            })
+            .finally(function() {
+              if (completed + failed === total) {
+                btn.disabled = false;
+                var dlSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+                btn.innerHTML = dlSvg + ' Download';
+                if (failed === total) {
+                  showToast('Documents not available — they may not have been uploaded during onboarding');
+                } else if (failed > 0) {
+                  showToast(completed + ' of ' + total + ' documents downloaded');
+                }
+              }
             });
         });
       });
@@ -2362,6 +2452,7 @@
     function wireDocsActionButtons() {
       var downloadBtn = document.getElementById('qualDocsDownloadBtn');
       var missingBtn = document.getElementById('qualDocsMissingBtn');
+      var myDocsBtn = document.getElementById('goToMyDocsBtn');
 
       if (downloadBtn) {
         downloadBtn.addEventListener('click', function() {
@@ -2380,6 +2471,16 @@
           } else {
             openMissingDocsModal([], missingBtn);
             showToast('All your documents are uploaded');
+          }
+        });
+      }
+
+      if (myDocsBtn) {
+        myDocsBtn.addEventListener('click', function() {
+          if (window.parent !== window) {
+            window.parent.postMessage({ type: 'gp-shell-route', href: '/pages/my-documents.html', title: 'My Documents' }, window.location.origin);
+          } else {
+            window.location.assign('/pages/my-documents.html');
           }
         });
       }
