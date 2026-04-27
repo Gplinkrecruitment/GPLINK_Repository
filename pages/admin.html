@@ -681,10 +681,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab active" data-view="inbox">Inbox</div>
     <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="medicalcentres">Medical Centres</div>
-    <div class="view-tab sa-only-tab" data-view="interviews" style="display:none">Interviews</div>
-    <div class="view-tab sa-only-tab" data-view="applications" style="display:none">Applications</div>
-    <div class="view-tab sa-only-tab" data-view="support" style="display:none">Support</div>
-    <div class="view-tab sa-only-tab" data-view="tools" style="display:none">Tools</div>
+    <div class="view-tab" data-view="support">Support</div>
+    <div class="view-tab" data-view="tools">Tools</div>
   </div>
   <div class="layout" id="mainLayout">
     <div class="list-panel">
@@ -700,8 +698,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   </div>
   <div class="today-wrap" id="inboxPanel" style="display:none"></div>
   <div class="medical-centres-wrap" id="medicalCentresPanel" style="display:none"></div>
-  <div class="interviews-wrap" id="interviewsPanel" style="display:none"></div>
-  <div class="applications-wrap" id="applicationsPanel" style="display:none"></div>
   <div class="support-wrap" id="supportPanel" style="display:none"></div>
   <div class="tools-wrap" id="toolsPanel" style="display:none">
     <div class="tools-subnav" id="toolsSubnav"></div>
@@ -2783,10 +2779,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderCaseList();renderDetail();
       }else if(view==="medicalcentres"){
         await loadMedicalCentres();
-      }else if(view==="interviews"){
-        await loadInterviews();
-      }else if(view==="applications"){
-        await loadAdminApplications();
       }else if(view==="support"){
         await loadSupportItems();
         renderSupportPanel();
@@ -3327,11 +3319,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","interviewsPanel":"interviews","applicationsPanel":"applications","supportPanel":"support","toolsPanel":"tools"};
+    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   function vaHidePanels(){
-    ["inboxPanel","medicalCentresPanel","interviewsPanel","applicationsPanel","supportPanel","toolsPanel"].forEach(function(id){
+    ["inboxPanel","medicalCentresPanel","supportPanel","toolsPanel"].forEach(function(id){
       var el=document.getElementById(id);if(el)el.style.display="none";
     });
     document.getElementById("mainLayout").style.display="grid";
@@ -4114,7 +4106,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var gpParam=urlParams.get("gp");
     if(gpParam){S.selectedCaseId=gpParam;S.view="gps";document.querySelectorAll(".view-tab").forEach(function(t){t.classList.toggle("active",t.getAttribute("data-view")==="gps");});vaShowPanel("gps");}
     if(isSA()){
-      document.querySelectorAll(".sa-only-tab").forEach(function(t){t.style.display="";});
       const agentTab=document.getElementById("agentTab");
       if(agentTab)agentTab.style.display="";
       var saWrap=document.getElementById("saToolsWrap");
