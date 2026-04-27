@@ -3460,9 +3460,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const el=document.getElementById("toolsPanel");if(!el)return;
     const subnav=document.getElementById("toolsSubnav");if(!subnav)return;
     const saOnly=typeof isSA==="function"&&isSA();
-    const items=[{key:"ops",label:"Ops Queue"},{key:"sweep",label:"Weekly Sweep"},{key:"integrations",label:"Integrations"}];
-    if(saOnly)items.push({key:"agent",label:"Agent"});
-    if(S.toolsSubView==="agent"&&!saOnly)S.toolsSubView="ops";
+    const items=[{key:"ops",label:"Ops Queue"},{key:"sweep",label:"Weekly Sweep"}];
+    if(saOnly)items.push({key:"integrations",label:"Integrations"},{key:"agent",label:"Agent"});
+    if((S.toolsSubView==="agent"||S.toolsSubView==="integrations")&&!saOnly)S.toolsSubView="ops";
     subnav.innerHTML=items.map(i=>`<button class="tools-subnav-btn ${S.toolsSubView===i.key?"active":""}" data-tools-sub="${esc(i.key)}">${esc(i.label)}</button>`).join("");
     document.getElementById("toolsOps").style.display=(S.toolsSubView==="ops"?"block":"none");
     document.getElementById("toolsSweep").style.display=(S.toolsSubView==="sweep"?"block":"none");
