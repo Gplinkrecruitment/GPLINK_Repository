@@ -477,6 +477,25 @@
       padding: 20px;
       margin-bottom: var(--sp-5);
     }
+    .action-card-body { }
+    .action-card-label {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-muted); margin-bottom: 6px;
+    }
+    .action-card-text {
+      font-size: 15px; font-weight: 600; color: var(--ink);
+      line-height: 1.4; margin-bottom: 8px;
+    }
+    .action-card-time {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 13px; color: var(--ink-muted);
+    }
+    .action-card-time svg { opacity: 0.5; }
+    .action-card-meta {
+      display: flex; align-items: center; gap: 16px;
+      margin-bottom: 16px;
+    }
+    .action-card .btn-primary { margin-top: 0; }
 
     /* ---- HELP CARD ---- */
     .help-card {
@@ -2259,32 +2278,34 @@
       // Info rows
       const doNow = meta.doNow;
 
+      let actionBtnHtml = '';
+      if (effectiveKey === "verification_issued") {
+        actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
+      } else if (isCurrent && !isWaiting) {
+        actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
+      }
+
       document.getElementById("stepInfoGrid").innerHTML = `
-        <div class="info-row">
-          <span class="info-label">Your Action</span>
-          <span class="info-val">${doNow}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Estimated Time</span>
-          <span class="info-val">${meta.time}</span>
+        <div class="action-card">
+          <div class="action-card-body">
+            <div class="action-card-label">Your Action</div>
+            <div class="action-card-text">${doNow}</div>
+            <div class="action-card-meta">
+              <div class="action-card-time"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${meta.time}</div>
+            </div>
+            ${actionBtnHtml}
+          </div>
         </div>
       `;
 
       // Actions
       const actionsEl = document.getElementById("stepActions");
       const navActionsEl = document.getElementById("stepNavActions");
-      let html = '';
       let navHtml = '';
 
       // Previous button
       const tabIdx = TAB_STAGES.indexOf(key);
       const hasPrev = tabIdx > 0;
-
-      if (effectiveKey === "verification_issued") {
-        html += `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-      } else if (isCurrent && !isWaiting) {
-        html += `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
-      }
 
       const markDisabled = !isCurrent || isDone;
       const markLabel = isDone ? "Completed" : "Mark Complete";
@@ -2298,7 +2319,7 @@
       }
       navHtml += `</div>`;
       }
-      actionsEl.innerHTML = html;
+      actionsEl.innerHTML = '';
       navActionsEl.innerHTML = navHtml;
 
       // Stuck help row (visible on both desktop and mobile)
