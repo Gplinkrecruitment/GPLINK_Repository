@@ -574,27 +574,117 @@
     .btn-docs-action.primary:hover { background: #1444aa; }
     .btn-docs-action.primary svg { opacity: 1; }
 
-    /* ---- INSTITUTION PENDING ROWS ---- */
-    .inst-pending-row {
+    /* ---- ADDITIONAL DOCS MODAL ---- */
+    .addl-doc-group-title {
+      font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-muted);
+      padding: 10px 0 6px; border-bottom: 1px solid var(--border-light);
+    }
+    .addl-doc-row {
       display: flex; align-items: center; gap: 10px;
-      padding: 8px 0;
-      border-top: 1px solid var(--border-light);
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border-light);
     }
-    .inst-pending-row:first-of-type { border-top: none; }
-    .inst-pending-icon {
-      flex-shrink: 0; color: var(--warn-text); opacity: .7;
-    }
-    .inst-pending-label {
+    .addl-doc-row:last-child { border-bottom: none; }
+    .addl-doc-name {
       font-size: 13px; font-weight: 600; color: var(--ink);
       flex: 1; min-width: 0;
     }
-    .inst-pending-badge {
+    .addl-doc-status {
       flex-shrink: 0;
       font-size: 11px; font-weight: 600;
       padding: 3px 8px; border-radius: 6px;
+    }
+    .addl-doc-status.ready {
+      background: #ecfdf5; color: var(--success);
+      border: 1px solid rgba(13, 124, 95, 0.2);
+    }
+    .addl-doc-status.pending {
       background: #fff7ed; color: var(--warn-text);
       border: 1px solid rgba(229, 166, 48, 0.25);
     }
+    .addl-doc-status.preparing {
+      background: var(--accent-glow); color: var(--accent);
+      border: 1px solid rgba(26, 86, 219, 0.15);
+    }
+    .addl-doc-actions {
+      display: flex; align-items: center; gap: 6px;
+      flex-shrink: 0;
+    }
+    .btn-addl-small {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 10px; border-radius: 6px;
+      font-size: 11px; font-weight: 600;
+      border: 1px solid var(--border); cursor: pointer;
+      background: var(--surface-raised); color: var(--ink-soft);
+      transition: all .12s ease; font-family: var(--font-body);
+    }
+    .btn-addl-small:hover { background: var(--surface); border-color: var(--ink-muted); }
+    .btn-addl-small svg { width: 12px; height: 12px; }
+    .btn-addl-small.accent {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .btn-addl-small.accent:hover { background: #1444aa; }
+    .btn-addl-small.success {
+      background: #ecfdf5; color: var(--success); border-color: rgba(13, 124, 95, 0.2);
+    }
+
+    /* ---- HELP POPOVER ---- */
+    .help-popover-backdrop {
+      position: fixed; inset: 0; z-index: 70;
+      background: rgba(12, 18, 34, 0.3);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transition: opacity .2s ease;
+    }
+    .help-popover-backdrop.show {
+      opacity: 1; visibility: visible; pointer-events: auto;
+    }
+    .help-popover {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(0.95);
+      width: min(440px, calc(100vw - 32px));
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      background: var(--surface-raised);
+      border-radius: 14px; border: 1px solid var(--border);
+      box-shadow: 0 24px 48px -16px rgba(12, 18, 34, 0.35);
+      padding: 20px; z-index: 71;
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transition: transform .25s cubic-bezier(.22,.9,.18,1.02), opacity .25s ease;
+    }
+    .help-popover.show {
+      opacity: 1; visibility: visible; pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .help-popover h4 {
+      font-size: 16px; font-weight: 700; color: var(--ink);
+      margin-bottom: 12px;
+    }
+    .help-popover ol {
+      padding-left: 18px; margin: 0 0 14px;
+      display: grid; gap: 8px;
+    }
+    .help-popover ol li {
+      font-size: 13px; color: var(--ink-soft); line-height: 1.5;
+    }
+    .help-popover ol li a {
+      color: var(--accent); text-decoration: underline;
+    }
+    .help-popover .help-reminder {
+      font-size: 12px; font-weight: 600; color: var(--warn-text);
+      background: #fff7ed; border: 1px solid rgba(229, 166, 48, 0.25);
+      border-radius: 8px; padding: 8px 10px; margin-bottom: 12px;
+    }
+    .help-popover .cert-note {
+      font-size: 12px; color: var(--ink-soft); line-height: 1.5;
+      background: var(--surface); border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 12px;
+    }
+    .help-popover .cert-note p { margin: 0 0 6px; }
+    .help-popover .cert-note ul { padding-left: 16px; margin: 0; }
+    .help-popover .cert-note li { margin-bottom: 3px; }
 
     /* ---- HELP CARD ---- */
     .help-card {
@@ -1455,6 +1545,28 @@
     </div>
   </div>
 
+  <!-- ADDITIONAL DOCS MODAL -->
+  <div class="modal" id="addlDocsModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="addlDocsTitle" style="max-width:580px;">
+      <h4 id="addlDocsTitle">Additional Documents</h4>
+      <p id="addlDocsSubtitle">These documents are required for your AHPRA application. Upload missing items or download what's ready.</p>
+      <div id="addlDocsContent" style="display:grid; gap:4px;"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;">
+        <button class="btn-modern btn-outline" data-close="addlDocsModal" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HELP POPOVER -->
+  <div class="help-popover-backdrop" id="ahpraHelpBackdrop"></div>
+  <div class="help-popover" id="ahpraHelpPopover" role="dialog" aria-modal="true">
+    <h4 id="ahpraHelpTitle"></h4>
+    <ol id="ahpraHelpSteps"></ol>
+    <div class="cert-note" id="ahpraHelpCertNote" hidden></div>
+    <div class="help-reminder" id="ahpraHelpReminder" hidden></div>
+    <button class="btn-modern btn-outline" id="ahpraHelpClose" type="button" style="width:100%;justify-content:center;">Got it</button>
+  </div>
+
   <div class="toast" id="toast">Progress saved</div>
 
   <script>
@@ -2304,32 +2416,292 @@
     }
     window.addEventListener('resize', updateProgressFill);
 
-    // ── Institution docs that must be sent directly to AHPRA (country-specific) ──
-    const INSTITUTION_DOCS = {
-      uk: [
-        { key: "certificate_good_standing", title: "Certificate of Good Standing" },
-        { key: "confirmation_training", title: "Confirmation of Training" },
-        { key: "criminal_history", title: "Criminal History Check" }
-      ],
-      ie: [
-        { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status" },
-        { key: "criminal_history", title: "Criminal History Check" }
-      ],
-      nz: [
-        { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status" },
-        { key: "criminal_history", title: "Criminal History Check" }
-      ]
+    // ── Additional docs: all docs the user needs beyond their onboarding qualifications ──
+    const ADDITIONAL_DOCS = {
+      uk: {
+        institution: [
+          { key: "certificate_good_standing", title: "Certificate of Good Standing",
+            help: { title: "Certificate of Good Standing", steps: ['Log in to your <a href="https://www.gmc-uk.org/registration-and-licensing">GMC Online account</a>', 'In the left hand menu choose "My registration"', 'Then open "My CCPS requests"', "Request the certificate to be sent directly to Ahpra"], reminder: "Reminder: this must be sent directly by the issuing authority to Ahpra." } },
+          { key: "confirmation_training", title: "Confirmation of Training",
+            help: { title: "Confirmation of Training", steps: ['<a href="mailto:portfolio@gmc-uk.org?subject=Request%20for%20Confirmation%20of%20Training">Email portfolio@gmc-uk.org</a>', "State that you require confirmation of your specialist / GP training posts", "GMC will review the request and send you an application form to complete", "Complete the form and return it as instructed"], reminder: "Reminder: request that the confirmation is sent by the GMC directly to Ahpra." } },
+          { key: "criminal_history", title: "Criminal History Check",
+            help: { title: "Criminal History Check", steps: ['Complete your international criminal history check through <a href="https://www.fit2work.com.au">Fit2Work</a>'] } }
+        ],
+        prepared: [
+          { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree (MBBS/MBChB)",
+            help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
+          { key: "mrcgp_certified", title: "Certified copy of MRCGP",
+            help: { title: "MRCGP", steps: ["Upload a certified copy of your MRCGP certificate"], certNote: true } },
+          { key: "cct_certified", title: "Certified copy of CCT (General Practice)",
+            help: { title: "CCT", steps: ["Upload a certified copy of your CCT certificate issued by the GMC or PMETB"], certNote: true } },
+          { key: "cv_signed_dated", title: "CV (Signed and dated)",
+            help: { title: "CV", steps: ["Upload your signed and dated CV"] } }
+        ],
+        gplink: [
+          { key: "sppa_00", title: "Supervised Practice Plan - SPPA-00" },
+          { key: "section_g", title: "Supervised Practice Plan - Section G" },
+          { key: "position_description", title: "Position Description" },
+          { key: "offer_contract", title: "Letter of Offer / Employment Contract" },
+          { key: "supervisor_cv", title: "Supervisor's CV" }
+        ]
+      },
+      ie: {
+        institution: [
+          { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status",
+            help: { title: "Certificate of Good Standing", steps: ["Request a current certificate of good standing / registration status from your Irish regulator", "Ensure it is sent in the required format for Ahpra"], reminder: "Reminder: this must be sent directly where required." } },
+          { key: "criminal_history", title: "Criminal History Check",
+            help: { title: "Criminal History Check", steps: ["Complete your criminal history check through the approved provider"] } }
+        ],
+        prepared: [
+          { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree",
+            help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
+          { key: "micgp_certified", title: "Certified copy of MICGP",
+            help: { title: "MICGP", steps: ["Upload a certified copy of your MICGP certificate", "If you do not have a copy, request a re-issue from ICGP Membership Services"], certNote: true } },
+          { key: "cscst_certified", title: "Certified copy of CSCST",
+            help: { title: "CSCST", steps: ["Upload a certified copy of your CSCST", "If needed, request a re-issue from ICGP Membership Services"], certNote: true } },
+          { key: "icgp_confirmation_letter", title: "Certified copy of ICGP Confirmation Letter",
+            help: { title: "ICGP Confirmation Letter", steps: ["Contact ICGP Membership Services", "Request a confirmation / verification letter confirming your qualification was awarded under the ICGP curriculum after completion of the approved GP training pathway"], certNote: true, reminder: "This is the key supporting letter for Irish GPs." } },
+          { key: "cv_signed_dated", title: "CV (Signed and dated)",
+            help: { title: "CV", steps: ["Upload your signed and dated CV"] } }
+        ],
+        gplink: [
+          { key: "sppa_00", title: "Supervised Practice Plan - SPPA-00" },
+          { key: "section_g", title: "Supervised Practice Plan - Section G" },
+          { key: "position_description", title: "Position Description" },
+          { key: "offer_contract", title: "Letter of Offer / Employment Contract" },
+          { key: "supervisor_cv", title: "Supervisor's CV" }
+        ]
+      },
+      nz: {
+        institution: [
+          { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status",
+            help: { title: "Certificate of Good Standing", steps: ["Request your current certificate of good standing / registration status from the relevant New Zealand authority", "Ensure it is provided in a format acceptable for Ahpra"] } },
+          { key: "criminal_history", title: "Criminal History Check",
+            help: { title: "Criminal History Check", steps: ["Complete your criminal history check through the approved provider"] } }
+        ],
+        prepared: [
+          { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree",
+            help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
+          { key: "frnzcgp_certified", title: "Certified copy of FRNZCGP",
+            help: { title: "FRNZCGP", steps: ["Upload a certified copy of your FRNZCGP certificate", "If needed, contact RNZCGP for replacement or confirmation"], certNote: true } },
+          { key: "rnzcgp_confirmation_letter", title: "Certified copy of RNZCGP Confirmation Letter",
+            help: { title: "RNZCGP Confirmation Letter", steps: ["Contact RNZCGP", "Request a confirmation letter stating that your fellowship was awarded under the RNZCGP curriculum following satisfactory completion of GPEP"], certNote: true } },
+          { key: "cv_signed_dated", title: "CV (Signed and dated)",
+            help: { title: "CV", steps: ["Upload your signed and dated CV"] } }
+        ],
+        gplink: [
+          { key: "sppa_00", title: "Supervised Practice Plan - SPPA-00" },
+          { key: "section_g", title: "Supervised Practice Plan - Section G" },
+          { key: "position_description", title: "Position Description" },
+          { key: "offer_contract", title: "Letter of Offer / Employment Contract" },
+          { key: "supervisor_cv", title: "Supervisor's CV" }
+        ]
+      }
     };
 
-    function getPendingInstitutionDocs() {
+    // ── Help popover ──
+    var ahpraHelpBackdrop = document.getElementById('ahpraHelpBackdrop');
+    var ahpraHelpPopover = document.getElementById('ahpraHelpPopover');
+    var ahpraHelpTitle = document.getElementById('ahpraHelpTitle');
+    var ahpraHelpSteps = document.getElementById('ahpraHelpSteps');
+    var ahpraHelpReminder = document.getElementById('ahpraHelpReminder');
+    var ahpraHelpCertNote = document.getElementById('ahpraHelpCertNote');
+    var ahpraHelpClose = document.getElementById('ahpraHelpClose');
+
+    var CERT_NOTE_HTML = '<p style="font-weight:600;margin-bottom:8px;">Before uploading, each required document must be certified by an authorised person (e.g. JP, solicitor, pharmacist).</p>' +
+      '<p>The certifier must write or stamp on a copy of the original document:</p>' +
+      '<ul><li>Their signature</li><li>Their printed name</li><li>Their qualification or title</li><li>The date of certification</li><li>A statement such as: <em>"I have sighted the original document and certify this to be a true copy"</em></li></ul>';
+
+    function openAhpraHelpPopover(helpData) {
+      if (!ahpraHelpPopover) return;
+      ahpraHelpTitle.textContent = helpData.title || 'How to get this document';
+      ahpraHelpSteps.innerHTML = '';
+      (helpData.steps || []).forEach(function(step) {
+        var li = document.createElement('li');
+        li.innerHTML = step;
+        ahpraHelpSteps.appendChild(li);
+      });
+      if (helpData.certNote) {
+        ahpraHelpCertNote.innerHTML = CERT_NOTE_HTML;
+        ahpraHelpCertNote.hidden = false;
+      } else {
+        ahpraHelpCertNote.hidden = true;
+      }
+      if (helpData.reminder) {
+        ahpraHelpReminder.textContent = helpData.reminder;
+        ahpraHelpReminder.hidden = false;
+      } else {
+        ahpraHelpReminder.hidden = true;
+      }
+      ahpraHelpBackdrop.classList.add('show');
+      ahpraHelpPopover.classList.add('show');
+    }
+
+    function closeAhpraHelpPopover() {
+      if (ahpraHelpBackdrop) ahpraHelpBackdrop.classList.remove('show');
+      if (ahpraHelpPopover) ahpraHelpPopover.classList.remove('show');
+    }
+    if (ahpraHelpClose) ahpraHelpClose.addEventListener('click', closeAhpraHelpPopover);
+    if (ahpraHelpBackdrop) ahpraHelpBackdrop.addEventListener('click', closeAhpraHelpPopover);
+
+    // ── Get full document status snapshot for additional docs ──
+    function getAdditionalDocsStatus() {
       var country = getPageCountry();
-      var instDocs = INSTITUTION_DOCS[country] || INSTITUTION_DOCS.uk;
+      var cfg = ADDITIONAL_DOCS[country] || ADDITIONAL_DOCS.uk;
       var docState = readJsonStorage(DOC_KEY, { docs: {} }) || { docs: {} };
       var docs = docState.docs || {};
-      return instDocs.filter(function(item) {
-        var s = docs[item.key];
-        return !s || s.status === 'pending';
+      var preparedState = readJsonStorage(PREPARED_DOCS_KEY, { docs: {} }) || { docs: {} };
+      var prepDocs = preparedState.docs || {};
+
+      var result = { institution: [], prepared: [], gplink: [], all: [], missing: [], downloadable: [] };
+
+      cfg.institution.forEach(function(item) {
+        var s = docs[item.key] || {};
+        var status = s.status || 'pending';
+        var isRequested = status !== 'pending';
+        result.institution.push({ key: item.key, title: item.title, group: 'institution', help: item.help, status: status, ready: isRequested, downloadUrl: '' });
       });
+
+      cfg.prepared.forEach(function(item) {
+        var s = docs[item.key] || {};
+        var uploaded = s.uploaded === true;
+        var status = typeof s.status === 'string' ? s.status : (uploaded ? 'under_review' : 'pending');
+        var ready = status === 'accepted' || status === 'approved' || !!s.url;
+        var downloadUrl = typeof s.url === 'string' ? s.url : (typeof s.downloadUrl === 'string' ? s.downloadUrl : '');
+        result.prepared.push({ key: item.key, title: item.title, group: 'prepared', help: item.help, status: status, uploaded: uploaded, ready: ready || uploaded, downloadUrl: downloadUrl });
+      });
+
+      cfg.gplink.forEach(function(item) {
+        var s = prepDocs[item.key] || {};
+        var ready = !!(s.ready || s.url);
+        var downloadUrl = typeof s.url === 'string' ? s.url : '';
+        result.gplink.push({ key: item.key, title: item.title, group: 'gplink', help: null, status: ready ? 'ready' : 'preparing', ready: ready, downloadUrl: downloadUrl });
+      });
+
+      result.all = [].concat(result.institution, result.prepared, result.gplink);
+      result.missing = result.all.filter(function(d) { return !d.ready; });
+      result.downloadable = result.all.filter(function(d) { return d.ready && d.downloadUrl; });
+      return result;
+    }
+
+    // ── Render additional docs modal content ──
+    function renderAdditionalDocsModal(triggerEl) {
+      var addlModal = document.getElementById('addlDocsModal');
+      var addlContent = document.getElementById('addlDocsContent');
+      if (!addlModal || !addlContent) return;
+
+      var status = getAdditionalDocsStatus();
+      var html = '';
+
+      var infoSvg = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+
+      // Group 1: Direct to AHPRA
+      html += '<div class="addl-doc-group-title">Send directly to AHPRA</div>';
+      status.institution.forEach(function(doc) {
+        var badgeClass = doc.ready ? 'ready' : 'pending';
+        var badgeLabel = doc.ready ? (doc.status === 'requested' ? 'Requested' : doc.status.charAt(0).toUpperCase() + doc.status.slice(1)) : 'Not requested';
+        var helpBtn = doc.help ? '<button type="button" class="btn-addl-small" data-addl-help=\'' + JSON.stringify(doc.help).replace(/'/g, '&#39;') + '\'>' + infoSvg + ' Show me how</button>' : '';
+        var markBtn = !doc.ready ? '<button type="button" class="btn-addl-small accent" data-addl-mark="' + doc.key + '">Mark Requested</button>' : '';
+        html += '<div class="addl-doc-row">' +
+          '<span class="addl-doc-name">' + doc.title + '</span>' +
+          '<span class="addl-doc-status ' + badgeClass + '">' + badgeLabel + '</span>' +
+          '<div class="addl-doc-actions">' + helpBtn + markBtn + '</div>' +
+        '</div>';
+      });
+
+      // Group 2: You Prepare
+      html += '<div class="addl-doc-group-title" style="margin-top:8px;">You prepare</div>';
+      status.prepared.forEach(function(doc) {
+        var badgeClass = doc.ready ? 'ready' : 'pending';
+        var badgeLabel = doc.ready ? (doc.status === 'under_review' ? 'Uploaded' : doc.status === 'approved' || doc.status === 'accepted' ? 'Approved' : 'Uploaded') : 'Missing';
+        var helpBtn = doc.help ? '<button type="button" class="btn-addl-small" data-addl-help=\'' + JSON.stringify(doc.help).replace(/'/g, '&#39;') + '\'>' + infoSvg + ' Show me how</button>' : '';
+        var uploadHtml = '';
+        if (!doc.uploaded) {
+          uploadHtml = '<label class="btn-addl-small accent" style="cursor:pointer;">Upload<input type="file" data-addl-upload="' + doc.key + '" accept="image/*,.pdf" style="display:none;" /></label>';
+        } else if (doc.downloadUrl) {
+          uploadHtml = '<a class="btn-addl-small success" href="' + doc.downloadUrl + '" download>Download</a>';
+        }
+        html += '<div class="addl-doc-row">' +
+          '<span class="addl-doc-name">' + doc.title + '</span>' +
+          '<span class="addl-doc-status ' + badgeClass + '">' + badgeLabel + '</span>' +
+          '<div class="addl-doc-actions">' + helpBtn + uploadHtml + '</div>' +
+        '</div>';
+      });
+
+      // Group 3: GP Link Prepares
+      html += '<div class="addl-doc-group-title" style="margin-top:8px;">Prepared by GP Link</div>';
+      status.gplink.forEach(function(doc) {
+        var badgeClass = doc.ready ? 'ready' : 'preparing';
+        var badgeLabel = doc.ready ? 'Ready' : 'Preparing';
+        var downloadHtml = doc.ready && doc.downloadUrl ? '<a class="btn-addl-small success" href="' + doc.downloadUrl + '" download>Download</a>' : '';
+        html += '<div class="addl-doc-row">' +
+          '<span class="addl-doc-name">' + doc.title + '</span>' +
+          '<span class="addl-doc-status ' + badgeClass + '">' + badgeLabel + '</span>' +
+          '<div class="addl-doc-actions">' + downloadHtml + '</div>' +
+        '</div>';
+      });
+
+      addlContent.innerHTML = html;
+
+      // Wire help buttons
+      addlContent.querySelectorAll('[data-addl-help]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          try {
+            var helpData = JSON.parse(btn.getAttribute('data-addl-help'));
+            openAhpraHelpPopover(helpData);
+          } catch (e) { /* ignore */ }
+        });
+      });
+
+      // Wire mark-requested buttons
+      addlContent.querySelectorAll('[data-addl-mark]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var key = btn.getAttribute('data-addl-mark');
+          if (!key) return;
+          var state = readJsonStorage(DOC_KEY, { docs: {} }) || { docs: {} };
+          if (!state.docs) state.docs = {};
+          if (!state.docs[key]) state.docs[key] = {};
+          state.docs[key].status = 'requested';
+          try { localStorage.setItem(DOC_KEY, JSON.stringify(state)); } catch (e) {}
+          showToast('Marked as requested');
+          renderAdditionalDocsModal();
+        });
+      });
+
+      // Wire upload inputs
+      addlContent.querySelectorAll('[data-addl-upload]').forEach(function(input) {
+        input.addEventListener('change', function() {
+          var file = input.files && input.files[0];
+          var key = input.getAttribute('data-addl-upload');
+          if (!file || !key) return;
+          input.value = '';
+          var state = readJsonStorage(DOC_KEY, { docs: {} }) || { docs: {} };
+          if (!state.docs) state.docs = {};
+          if (!state.docs[key]) state.docs[key] = {};
+          state.docs[key].uploaded = true;
+          state.docs[key].fileName = file.name;
+          state.docs[key].status = 'under_review';
+          try { localStorage.setItem(DOC_KEY, JSON.stringify(state)); } catch (e) {}
+
+          // If qualification-scan is available, trigger AI scan
+          if (typeof window.gpOpenCertScan === 'function') {
+            var country = getPageCountry();
+            var cfg = ADDITIONAL_DOCS[country] || ADDITIONAL_DOCS.uk;
+            var docDef = cfg.prepared.find(function(d) { return d.key === key; });
+            if (docDef && docDef.help && docDef.help.certNote) {
+              window.gpOpenCertScan(key, docDef.title, function() {
+                renderAdditionalDocsModal();
+              });
+              return;
+            }
+          }
+
+          showToast('Document uploaded — under review');
+          renderAdditionalDocsModal();
+        });
+      });
+
+      openModal(addlModal, triggerEl);
     }
 
     // ── Qualification guidance panel (for account_establishment step) ──
@@ -2343,10 +2715,6 @@
 
       var downloadSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
       var docIconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
-      var folderSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
-      var alertSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
-      var checkSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
-      var clockSvg = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
 
       // Single combined download row for qualifications
       var qualRowHtml = '<div class="qual-doc-row">' +
@@ -2357,45 +2725,20 @@
         '<button type="button" class="btn-download-qual" id="qualDownloadAllBtn">' + downloadSvg + ' Download</button>' +
       '</div>';
 
-      // Check for pending institution docs (Direct to AHPRA)
-      var pendingInst = getPendingInstitutionDocs();
-      var instHtml = '';
-      if (pendingInst.length > 0) {
-        var instRowsHtml = pendingInst.map(function(item) {
-          return '<div class="inst-pending-row">' +
-            '<div class="inst-pending-icon">' + clockSvg + '</div>' +
-            '<span class="inst-pending-label">' + item.title + '</span>' +
-            '<span class="inst-pending-badge">Not yet requested</span>' +
-          '</div>';
-        }).join('');
-
-        instHtml = '<div class="qual-divider"></div>' +
-          '<div class="qual-guidance-title" style="color:var(--warn-text);">' + alertSvg + ' Documents to send directly to AHPRA</div>' +
-          '<div class="qual-guidance-subtitle">These documents must be requested from the issuing authority and sent directly to AHPRA. Go to <strong>My Documents</strong> to mark them as requested.</div>' +
-          instRowsHtml +
-          '<div style="margin-top:10px;">' +
-            '<button type="button" class="btn-docs-action" id="goToMyDocsBtn">' + folderSvg + ' Go to My Documents</button>' +
-          '</div>';
-      } else {
-        instHtml = '<div class="qual-divider"></div>' +
-          '<div style="display:flex; align-items:center; gap:8px; padding:8px 0;">' +
-            '<span style="color:var(--success);">' + checkSvg + '</span>' +
-            '<span style="font-size:13px; font-weight:600; color:var(--success);">All direct-to-AHPRA documents have been requested</span>' +
-          '</div>';
-      }
+      // Additional documents row
+      var addlRowHtml = '<div class="qual-doc-row">' +
+        '<div class="qual-doc-info">' +
+          '<div class="qual-doc-icon">' + docIconSvg + '</div>' +
+          '<span class="qual-doc-label">Additional documents</span>' +
+        '</div>' +
+        '<button type="button" class="btn-download-qual" id="addlDocsDownloadBtn">' + downloadSvg + ' Download</button>' +
+      '</div>';
 
       return '<div class="qual-guidance">' +
-        '<div class="qual-guidance-title">Qualifications you need to have ready</div>' +
-        '<div class="qual-guidance-subtitle">As a ' + countryLabel + ' GP, you will need your <strong>Primary Medical Degree</strong> and your <strong>' + specialistLabel + '</strong> specialist qualification. We collected and verified these during onboarding &mdash; download them below to have them ready.</div>' +
+        '<div class="qual-guidance-title">Documents you need to have ready</div>' +
+        '<div class="qual-guidance-subtitle">As a ' + countryLabel + ' GP, you will need your <strong>Primary Medical Degree</strong> and your <strong>' + specialistLabel + '</strong> specialist qualification, plus additional supporting documents. Download everything below to have it ready for your application.</div>' +
         qualRowHtml +
-        instHtml +
-        '<div class="qual-divider"></div>' +
-        '<div class="qual-guidance-title">Supporting documents</div>' +
-        '<div class="qual-guidance-subtitle">You will also need to submit all documents in your My Documents section. Download your document pack or check what\'s still needed.</div>' +
-        '<div class="docs-action-row">' +
-          '<button type="button" class="btn-docs-action primary" id="qualDocsDownloadBtn">' + folderSvg + ' Download Documents</button>' +
-          '<button type="button" class="btn-docs-action" id="qualDocsMissingBtn">' + alertSvg + ' Check Missing Documents</button>' +
-        '</div>' +
+        addlRowHtml +
       '</div>';
     }
 
@@ -2450,37 +2793,27 @@
     }
 
     function wireDocsActionButtons() {
-      var downloadBtn = document.getElementById('qualDocsDownloadBtn');
-      var missingBtn = document.getElementById('qualDocsMissingBtn');
-      var myDocsBtn = document.getElementById('goToMyDocsBtn');
+      var addlBtn = document.getElementById('addlDocsDownloadBtn');
 
-      if (downloadBtn) {
-        downloadBtn.addEventListener('click', function() {
-          var snapshot = getDocSnapshot();
-          renderDownloadPackModal(snapshot);
-          if (downloadPackModalEl) openModal(downloadPackModalEl, downloadBtn);
-        });
-      }
-
-      if (missingBtn) {
-        missingBtn.addEventListener('click', function() {
-          var snapshot = getDocSnapshot();
-          var gpMissing = getGpMissing(snapshot);
-          if (gpMissing.length) {
-            openMissingDocsModal(gpMissing, missingBtn);
+      if (addlBtn) {
+        addlBtn.addEventListener('click', function() {
+          var status = getAdditionalDocsStatus();
+          // If any docs are missing or not ready, show the full additional docs modal
+          if (status.missing.length > 0) {
+            renderAdditionalDocsModal(addlBtn);
+          } else if (status.downloadable.length > 0) {
+            // All ready — download them all
+            addlBtn.disabled = true;
+            addlBtn.textContent = 'Downloading…';
+            tryDownloadRows(status.downloadable);
+            setTimeout(function() {
+              addlBtn.disabled = false;
+              var dlSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+              addlBtn.innerHTML = dlSvg + ' Download';
+            }, 2000);
           } else {
-            openMissingDocsModal([], missingBtn);
-            showToast('All your documents are uploaded');
-          }
-        });
-      }
-
-      if (myDocsBtn) {
-        myDocsBtn.addEventListener('click', function() {
-          if (window.parent !== window) {
-            window.parent.postMessage({ type: 'gp-shell-route', href: '/pages/my-documents.html', title: 'My Documents' }, window.location.origin);
-          } else {
-            window.location.assign('/pages/my-documents.html');
+            // Nothing downloadable, show modal anyway
+            renderAdditionalDocsModal(addlBtn);
           }
         });
       }
@@ -3109,7 +3442,8 @@
       });
     });
 
-    [supportModalEl, missingDocsModalEl, downloadPackModalEl, reviewPendingModalEl].forEach((modalEl) => {
+    var addlDocsModalEl = document.getElementById('addlDocsModal');
+    [supportModalEl, missingDocsModalEl, downloadPackModalEl, reviewPendingModalEl, addlDocsModalEl].forEach((modalEl) => {
       if (!modalEl) return;
       modalEl.addEventListener("click", (e) => {
         if (e.target === modalEl) closeModal(modalEl);
