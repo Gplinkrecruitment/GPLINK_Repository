@@ -1370,11 +1370,46 @@
       .btn-row .btn-complete { width: 100%; justify-content: center; }
       .desktop-only-section { display: none; }
       .help-card .trust-grid { grid-template-columns: 1fr; }
-      .modal { padding: 10px; }
+      .modal { padding: 8px; }
       .modal-card {
         width: 100%;
-        max-height: calc(100dvh - 20px);
+        max-height: calc(100dvh - 16px);
         border-radius: 16px;
+        padding: 16px;
+      }
+      .modal-card h4 { font-size: 16px; }
+
+      /* Additional docs modal — mobile layout */
+      #addlDocsModal .modal-card { max-width: 100%; }
+      .addl-doc-group-title { font-size: 11px; padding: 8px 0 4px; }
+      .addl-doc-row {
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px 0;
+      }
+      .addl-doc-name {
+        flex: 1 1 100%;
+        font-size: 13px;
+        white-space: normal;
+        word-break: break-word;
+      }
+      .addl-doc-status {
+        font-size: 10px;
+        padding: 2px 6px;
+      }
+      .addl-doc-actions {
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+      .btn-addl-small {
+        font-size: 10px;
+        padding: 4px 8px;
+      }
+
+      /* Help popover — mobile */
+      .help-popover {
+        width: calc(100vw - 20px);
+        max-height: calc(100dvh - 20px);
       }
     }
   </style>
