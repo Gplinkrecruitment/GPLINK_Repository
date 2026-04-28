@@ -2734,6 +2734,22 @@
         '<button type="button" class="btn-download-qual" id="addlDocsDownloadBtn">' + downloadSvg + ' Download</button>' +
       '</div>';
 
+      // Authorised representative section
+      var copySvg = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+      var repHtml = '<div class="qual-divider"></div>' +
+        '<div class="qual-guidance-title">Your dedicated registration authorised representative</div>' +
+        '<div class="qual-guidance-subtitle">AHPRA will ask you to nominate an authorised representative. Copy the details below and add them to your application.</div>' +
+        '<div style="display:grid; gap:8px; margin-top:4px;">' +
+          '<div style="display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px;">' +
+            '<div><span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.4px; color:var(--ink-muted); display:block; margin-bottom:2px;">Name</span><span style="font-size:14px; font-weight:600; color:var(--ink);" id="repNameValue">Hazel Rodrigues</span></div>' +
+            '<button type="button" class="btn-addl-small" id="copyRepName" title="Copy name">' + copySvg + ' Copy</button>' +
+          '</div>' +
+          '<div style="display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border-light); border-radius:8px; padding:8px 12px;">' +
+            '<div><span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.4px; color:var(--ink-muted); display:block; margin-bottom:2px;">Email</span><span style="font-size:14px; font-weight:600; color:var(--ink);" id="repEmailValue">Hazel@mygplink.com.au</span></div>' +
+            '<button type="button" class="btn-addl-small" id="copyRepEmail" title="Copy email">' + copySvg + ' Copy</button>' +
+          '</div>' +
+        '</div>';
+
       // English language skills section
       var extLinkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
       var englishHtml = '<div class="qual-divider"></div>' +
@@ -2748,6 +2764,7 @@
         '<div class="qual-guidance-subtitle">As a ' + countryLabel + ' GP, you will need your <strong>Primary Medical Degree</strong> and your <strong>' + specialistLabel + '</strong> specialist qualification, plus additional supporting documents. Download everything below to have it ready for your application.</div>' +
         qualRowHtml +
         addlRowHtml +
+        repHtml +
         englishHtml +
       '</div>';
     }
@@ -2825,6 +2842,26 @@
             // Nothing downloadable, show modal anyway
             renderAdditionalDocsModal(addlBtn);
           }
+        });
+      }
+
+      // Wire copy buttons for authorised representative
+      var copyNameBtn = document.getElementById('copyRepName');
+      var copyEmailBtn = document.getElementById('copyRepEmail');
+      if (copyNameBtn) {
+        copyNameBtn.addEventListener('click', function() {
+          navigator.clipboard.writeText('Hazel Rodrigues').then(function() {
+            copyNameBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg> Copied';
+            setTimeout(function() { copyNameBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy'; }, 1500);
+          }).catch(function() { showToast('Could not copy — select and copy manually'); });
+        });
+      }
+      if (copyEmailBtn) {
+        copyEmailBtn.addEventListener('click', function() {
+          navigator.clipboard.writeText('Hazel@mygplink.com.au').then(function() {
+            copyEmailBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg> Copied';
+            setTimeout(function() { copyEmailBtn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy'; }, 1500);
+          }).catch(function() { showToast('Could not copy — select and copy manually'); });
         });
       }
     }
