@@ -1370,12 +1370,19 @@
       .btn-row .btn-complete { width: 100%; justify-content: center; }
       .desktop-only-section { display: none; }
       .help-card .trust-grid { grid-template-columns: 1fr; }
-      .modal { padding: 8px; }
+      .modal {
+        padding: 0;
+        padding-bottom: var(--gp-shell-bottom-clearance, 0px);
+        align-items: flex-end;
+      }
       .modal-card {
         width: 100%;
-        max-height: calc(100dvh - 16px);
-        border-radius: 16px;
-        padding: 16px;
+        max-height: calc(100dvh - var(--gp-shell-bottom-clearance, 0px));
+        border-radius: 20px 20px 0 0;
+        padding: 20px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+      }
+      .modal.show .modal-card {
+        transform: translateY(0) scale(1);
       }
       .modal-card h4 { font-size: 16px; }
 
@@ -1408,8 +1415,15 @@
 
       /* Help popover — mobile */
       .help-popover {
-        width: calc(100vw - 20px);
-        max-height: calc(100dvh - 20px);
+        top: auto; bottom: 0; left: 0;
+        transform: translateY(100%);
+        width: 100%;
+        max-height: calc(100dvh - var(--gp-shell-bottom-clearance, 0px));
+        border-radius: 20px 20px 0 0;
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      }
+      .help-popover.show {
+        transform: translateY(0);
       }
     }
   </style>
