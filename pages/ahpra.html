@@ -2734,11 +2734,21 @@
         '<button type="button" class="btn-download-qual" id="addlDocsDownloadBtn">' + downloadSvg + ' Download</button>' +
       '</div>';
 
+      // English language skills section
+      var extLinkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+      var englishHtml = '<div class="qual-divider"></div>' +
+        '<div class="qual-guidance-title">English language skills registration standard</div>' +
+        '<div class="qual-guidance-subtitle">AHPRA requires evidence that you meet the English language skills registration standard. You will need to determine which pathway you are eligible for &mdash; this depends on your country of training, qualifications, and practice history.</div>' +
+        '<div style="margin-top:4px;">' +
+          '<a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="btn-download-qual" style="text-decoration:none;display:inline-flex;">' + extLinkSvg + ' Check your eligibility</a>' +
+        '</div>';
+
       return '<div class="qual-guidance">' +
         '<div class="qual-guidance-title">Documents you need to have ready</div>' +
         '<div class="qual-guidance-subtitle">As a ' + countryLabel + ' GP, you will need your <strong>Primary Medical Degree</strong> and your <strong>' + specialistLabel + '</strong> specialist qualification, plus additional supporting documents. Download everything below to have it ready for your application.</div>' +
         qualRowHtml +
         addlRowHtml +
+        englishHtml +
       '</div>';
     }
 
