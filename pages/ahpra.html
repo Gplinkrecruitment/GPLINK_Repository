@@ -498,144 +498,108 @@
     }
     .action-card .btn-primary { margin-top: 0; }
 
-    /* ---- QUALIFICATION GUIDANCE PANEL ---- */
-    .qual-panel-wrap {
-      display: grid; gap: 10px;
+    /* ---- QUALIFICATION GUIDANCE PANEL (single card) ---- */
+    .qp-card {
+      background: var(--surface-raised);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 18px 20px;
       margin-bottom: var(--sp-5);
     }
-
-    /* ── Numbered step cards ── */
-    .qp-step {
-      background: var(--surface-raised);
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      padding: 16px 18px;
-      display: grid;
-      grid-template-columns: 28px 1fr;
-      gap: 12px;
-      align-items: start;
-    }
-    .qp-step-num {
-      width: 28px; height: 28px; border-radius: 50%;
-      display: grid; place-items: center;
-      font-size: 13px; font-weight: 700;
-      background: var(--ink); color: #fff;
-      flex-shrink: 0; line-height: 1;
-      margin-top: 1px;
-    }
-    .qp-step-body { min-width: 0; }
-    .qp-step-title {
+    .qp-card-title {
       font-family: var(--font-heading);
-      font-size: 15px; font-weight: 700; color: var(--ink);
-      line-height: 1.3; margin-bottom: 3px;
+      font-size: 16px; font-weight: 700; color: var(--ink);
+      margin-bottom: 14px;
     }
-    .qp-step-desc {
-      font-size: 12px; color: var(--ink-muted); line-height: 1.5;
-      margin-bottom: 10px;
-    }
-    .qp-step-desc strong { color: var(--ink-soft); }
 
-    /* Download row inside step */
+    /* ── Step row ── */
+    .qp-row {
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      gap: 10px;
+      padding: 12px 0;
+      border-top: 1px solid var(--border-light);
+    }
+    .qp-row:first-of-type { border-top: none; padding-top: 0; }
+    .qp-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 11px; font-weight: 700;
+      background: var(--ink); color: #fff;
+      line-height: 1; margin-top: 1px;
+    }
+    .qp-body { min-width: 0; }
+    .qp-label {
+      font-size: 13px; font-weight: 700; color: var(--ink);
+      line-height: 1.3; margin-bottom: 2px;
+    }
+    .qp-desc {
+      font-size: 12px; color: var(--ink-muted); line-height: 1.45;
+      margin-bottom: 8px;
+    }
+    .qp-desc strong { color: var(--ink-soft); }
+
+    /* Inline action link / button */
+    .qp-link {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; font-weight: 600;
+      color: var(--accent); text-decoration: none;
+      transition: color .12s ease;
+    }
+    .qp-link:hover { color: #1444aa; text-decoration: underline; }
+    .qp-link svg { width: 13px; height: 13px; }
+
+    /* Download rows */
     .qp-dl-row {
       display: flex; align-items: center; justify-content: space-between;
-      gap: 10px; padding: 8px 12px;
-      background: var(--surface); border-radius: 10px;
-      border: 1px solid var(--border-light);
+      gap: 10px; padding: 7px 10px;
+      background: var(--surface); border-radius: 8px;
     }
-    .qp-dl-row + .qp-dl-row { margin-top: 6px; }
-    .qp-dl-label {
-      font-size: 13px; font-weight: 600; color: var(--ink);
-      min-width: 0; overflow: hidden; text-overflow: ellipsis;
-      white-space: nowrap;
+    .qp-dl-row + .qp-dl-row { margin-top: 5px; }
+    .qp-dl-name {
+      font-size: 12px; font-weight: 600; color: var(--ink-soft);
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .qp-dl-btn {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 5px 12px; border-radius: 8px;
-      font-size: 12px; font-weight: 600;
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 10px; border-radius: 6px;
+      font-size: 11px; font-weight: 600;
       background: var(--accent); color: #fff;
       border: none; cursor: pointer;
-      transition: background .15s ease;
-      flex-shrink: 0; white-space: nowrap;
-      font-family: var(--font-body);
+      transition: background .12s ease;
+      flex-shrink: 0; font-family: var(--font-body);
     }
     .qp-dl-btn:hover { background: #1444aa; }
-    .qp-dl-btn svg { width: 13px; height: 13px; }
-    .qp-dl-btn:disabled {
-      background: var(--border); color: var(--ink-muted); cursor: default;
-    }
+    .qp-dl-btn svg { width: 12px; height: 12px; }
+    .qp-dl-btn:disabled { background: var(--border); color: var(--ink-muted); cursor: default; }
 
-    /* ── Representative card ── */
-    .qp-rep-card {
-      background: var(--surface-raised);
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      padding: 16px 18px;
-      display: grid;
-      grid-template-columns: 28px 1fr;
-      gap: 12px;
-      align-items: start;
+    /* Copy fields */
+    .qp-copy-row {
+      display: flex; align-items: center; gap: 12px;
+      flex-wrap: wrap;
     }
-    .qp-rep-fields {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
+    .qp-copy-field {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 10px; background: var(--surface); border-radius: 8px;
     }
-    @media (max-width: 520px) {
-      .qp-rep-fields { grid-template-columns: 1fr; }
+    .qp-copy-text {
+      font-size: 12px; color: var(--ink-soft); line-height: 1;
     }
-    .qp-rep-field {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 8px; padding: 8px 12px;
-      background: var(--surface); border-radius: 10px;
-      border: 1px solid var(--border-light);
-    }
-    .qp-rep-field-label {
-      font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.5px; color: var(--ink-muted);
-      display: block; margin-bottom: 1px;
-    }
-    .qp-rep-field-value {
-      font-size: 13px; font-weight: 600; color: var(--ink);
-      display: block; user-select: all;
+    .qp-copy-text strong {
+      font-weight: 600; color: var(--ink); margin-left: 2px;
     }
     .qp-copy-btn {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 4px 8px; border-radius: 6px;
-      font-size: 11px; font-weight: 600;
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 2px 6px; border-radius: 4px;
+      font-size: 10px; font-weight: 600;
       background: transparent; color: var(--ink-muted);
       border: 1px solid var(--border-light); cursor: pointer;
-      transition: all .15s ease; flex-shrink: 0;
+      transition: all .12s ease; flex-shrink: 0;
       font-family: var(--font-body);
     }
     .qp-copy-btn:hover { background: var(--surface); color: var(--ink-soft); border-color: var(--border); }
-    .qp-copy-btn svg { width: 12px; height: 12px; }
-    .qp-copy-btn.copied {
-      background: #ecfdf5; color: var(--success); border-color: rgba(13, 124, 95, 0.2);
-    }
-
-    /* ── English language card ── */
-    .qp-english-card {
-      background: var(--surface-raised);
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      padding: 16px 18px;
-      display: grid;
-      grid-template-columns: 28px 1fr;
-      gap: 12px;
-      align-items: start;
-    }
-    .qp-ext-link {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 6px 14px; border-radius: 8px;
-      font-size: 12px; font-weight: 600;
-      background: var(--surface); color: var(--accent);
-      border: 1px solid var(--border);
-      text-decoration: none;
-      transition: all .15s ease;
-      font-family: var(--font-body);
-    }
-    .qp-ext-link:hover { background: var(--accent-glow); border-color: var(--accent); }
-    .qp-ext-link svg { width: 13px; height: 13px; }
+    .qp-copy-btn svg { width: 10px; height: 10px; }
+    .qp-copy-btn.copied { background: #ecfdf5; color: var(--success); border-color: rgba(13, 124, 95, 0.2); }
 
     /* ---- ADDITIONAL DOCS MODAL ---- */
     .addl-doc-group-title {
@@ -2780,53 +2744,56 @@
       var copySvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
       var extSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
 
-      // Step 1: English language skills
-      var step1 = '<div class="qp-english-card">' +
-        '<div class="qp-step-num">1</div>' +
-        '<div class="qp-step-body">' +
-          '<div class="qp-step-title">English language skills</div>' +
-          '<div class="qp-step-desc">Determine which English language skills pathway you are eligible for. This depends on your country of training, qualifications, and practice history.</div>' +
-          '<a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="qp-ext-link">' + extSvg + ' Check your eligibility on AHPRA</a>' +
+      // Row 1: English language
+      var row1 = '<div class="qp-row">' +
+        '<div class="qp-num">1</div>' +
+        '<div class="qp-body">' +
+          '<div class="qp-label">English language skills</div>' +
+          '<div class="qp-desc">Determine which pathway you are eligible for based on your training and practice history.</div>' +
+          '<a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="qp-link">' + extSvg + ' Check your eligibility on AHPRA</a>' +
         '</div>' +
       '</div>';
 
-      // Step 2: Download documents
-      var step2 = '<div class="qp-step">' +
-        '<div class="qp-step-num">2</div>' +
-        '<div class="qp-step-body">' +
-          '<div class="qp-step-title">Download your documents</div>' +
-          '<div class="qp-step-desc">As a ' + countryLabel + ' GP you need your <strong>' + specialistLabel + '</strong> and <strong>Primary Medical Degree</strong>, plus additional supporting documents for your application.</div>' +
+      // Row 2: Documents
+      var row2 = '<div class="qp-row">' +
+        '<div class="qp-num">2</div>' +
+        '<div class="qp-body">' +
+          '<div class="qp-label">Download your documents</div>' +
+          '<div class="qp-desc">Your <strong>' + specialistLabel + '</strong> and <strong>Primary Medical Degree</strong>, plus additional supporting documents.</div>' +
           '<div class="qp-dl-row">' +
-            '<span class="qp-dl-label">' + qualLabels + '</span>' +
+            '<span class="qp-dl-name">' + qualLabels + '</span>' +
             '<button type="button" class="qp-dl-btn" id="qualDownloadAllBtn">' + dlSvg + ' Download</button>' +
           '</div>' +
           '<div class="qp-dl-row">' +
-            '<span class="qp-dl-label">Additional documents</span>' +
+            '<span class="qp-dl-name">Additional documents</span>' +
             '<button type="button" class="qp-dl-btn" id="addlDocsDownloadBtn">' + dlSvg + ' Download</button>' +
           '</div>' +
         '</div>' +
       '</div>';
 
-      // Step 3: Authorised representative
-      var step3 = '<div class="qp-rep-card">' +
-        '<div class="qp-step-num">3</div>' +
-        '<div class="qp-step-body">' +
-          '<div class="qp-step-title">Add your authorised representative</div>' +
-          '<div class="qp-step-desc">AHPRA will ask you to nominate an authorised representative. Copy these details into your application.</div>' +
-          '<div class="qp-rep-fields">' +
-            '<div class="qp-rep-field">' +
-              '<div><span class="qp-rep-field-label">Name</span><span class="qp-rep-field-value">Hazel Rodrigues</span></div>' +
-              '<button type="button" class="qp-copy-btn" id="copyRepName">' + copySvg + ' Copy</button>' +
+      // Row 3: Representative
+      var row3 = '<div class="qp-row">' +
+        '<div class="qp-num">3</div>' +
+        '<div class="qp-body">' +
+          '<div class="qp-label">Add your authorised representative</div>' +
+          '<div class="qp-desc">Copy these details into the AHPRA application when asked to nominate a representative.</div>' +
+          '<div class="qp-copy-row">' +
+            '<div class="qp-copy-field">' +
+              '<span class="qp-copy-text">Name: <strong>Hazel Rodrigues</strong></span>' +
+              '<button type="button" class="qp-copy-btn" id="copyRepName">' + copySvg + '</button>' +
             '</div>' +
-            '<div class="qp-rep-field">' +
-              '<div><span class="qp-rep-field-label">Email</span><span class="qp-rep-field-value">Hazel@mygplink.com.au</span></div>' +
-              '<button type="button" class="qp-copy-btn" id="copyRepEmail">' + copySvg + ' Copy</button>' +
+            '<div class="qp-copy-field">' +
+              '<span class="qp-copy-text">Email: <strong>Hazel@mygplink.com.au</strong></span>' +
+              '<button type="button" class="qp-copy-btn" id="copyRepEmail">' + copySvg + '</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
       '</div>';
 
-      return '<div class="qual-panel-wrap">' + step1 + step2 + step3 + '</div>';
+      return '<div class="qp-card">' +
+        '<div class="qp-card-title">What you need for this step</div>' +
+        row1 + row2 + row3 +
+      '</div>';
     }
 
     function wireQualDownloadButtons() {
@@ -2914,10 +2881,11 @@
         btn.addEventListener('click', function() {
           navigator.clipboard.writeText(text).then(function() {
             btn.classList.add('copied');
-            btn.innerHTML = checkSvgStr + ' Copied';
+            btn.innerHTML = checkSvgStr;
+            showToast('Copied to clipboard');
             setTimeout(function() {
               btn.classList.remove('copied');
-              btn.innerHTML = copySvgStr + ' Copy';
+              btn.innerHTML = copySvgStr;
             }, 1500);
           }).catch(function() { showToast('Could not copy — select and copy manually'); });
         });
