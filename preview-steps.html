@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Step Cards Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #0c1222;
+      --ink-soft: #3d4663;
+      --ink-muted: #7c849b;
+      --surface: #f2f4f8;
+      --surface-raised: #ffffff;
+      --border: #e4e7ee;
+      --border-light: #eef0f4;
+      --accent: #1a56db;
+      --accent-glow: rgba(26, 86, 219, 0.12);
+      --success: #0d7c5f;
+      --font-heading: "Source Serif 4", Georgia, serif;
+      --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: var(--surface);
+      min-height: 100vh;
+      padding: 40px 20px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 640px; margin: 0 auto; }
+    h1 {
+      font-family: var(--font-heading);
+      font-size: 22px; font-weight: 700; margin-bottom: 24px;
+    }
+
+    .qual-panel-wrap { display: grid; gap: 10px; }
+
+    .qp-step, .qp-rep-card, .qp-english-card {
+      background: var(--surface-raised);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      padding: 16px 18px;
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+    .qp-step-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 700;
+      background: var(--ink); color: #fff;
+      flex-shrink: 0; line-height: 1;
+      margin-top: 1px;
+    }
+    .qp-step-body { min-width: 0; }
+    .qp-step-title {
+      font-family: var(--font-heading);
+      font-size: 15px; font-weight: 700; color: var(--ink);
+      line-height: 1.3; margin-bottom: 3px;
+    }
+    .qp-step-desc {
+      font-size: 12px; color: var(--ink-muted); line-height: 1.5;
+      margin-bottom: 10px;
+    }
+    .qp-step-desc strong { color: var(--ink-soft); }
+
+    .qp-dl-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; padding: 8px 12px;
+      background: var(--surface); border-radius: 10px;
+      border: 1px solid var(--border-light);
+    }
+    .qp-dl-row + .qp-dl-row { margin-top: 6px; }
+    .qp-dl-label {
+      font-size: 13px; font-weight: 600; color: var(--ink);
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .qp-dl-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 12px; border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      background: var(--accent); color: #fff;
+      border: none; cursor: pointer;
+      transition: background .15s ease;
+      flex-shrink: 0; white-space: nowrap;
+      font-family: var(--font-body);
+    }
+    .qp-dl-btn:hover { background: #1444aa; }
+    .qp-dl-btn svg { width: 13px; height: 13px; }
+
+    .qp-rep-fields {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    @media (max-width: 520px) { .qp-rep-fields { grid-template-columns: 1fr; } }
+    .qp-rep-field {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 8px 12px;
+      background: var(--surface); border-radius: 10px;
+      border: 1px solid var(--border-light);
+    }
+    .qp-rep-field-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--ink-muted);
+      display: block; margin-bottom: 1px;
+    }
+    .qp-rep-field-value {
+      font-size: 13px; font-weight: 600; color: var(--ink);
+      display: block; user-select: all;
+    }
+    .qp-copy-btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 8px; border-radius: 6px;
+      font-size: 11px; font-weight: 600;
+      background: transparent; color: var(--ink-muted);
+      border: 1px solid var(--border-light); cursor: pointer;
+      transition: all .15s ease; flex-shrink: 0;
+      font-family: var(--font-body);
+    }
+    .qp-copy-btn:hover { background: var(--surface); color: var(--ink-soft); border-color: var(--border); }
+    .qp-copy-btn svg { width: 12px; height: 12px; }
+    .qp-copy-btn.copied { background: #ecfdf5; color: var(--success); border-color: rgba(13, 124, 95, 0.2); }
+
+    .qp-ext-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      background: var(--surface); color: var(--accent);
+      border: 1px solid var(--border);
+      text-decoration: none;
+      transition: all .15s ease;
+      font-family: var(--font-body);
+    }
+    .qp-ext-link:hover { background: var(--accent-glow); border-color: var(--accent); }
+    .qp-ext-link svg { width: 13px; height: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Application for Specialist Registration</h1>
+
+    <div class="qual-panel-wrap">
+
+      <!-- STEP 1 -->
+      <div class="qp-english-card">
+        <div class="qp-step-num">1</div>
+        <div class="qp-step-body">
+          <div class="qp-step-title">English language skills</div>
+          <div class="qp-step-desc">Determine which English language skills pathway you are eligible for. This depends on your country of training, qualifications, and practice history.</div>
+          <a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="qp-ext-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Check your eligibility on AHPRA
+          </a>
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="qp-step">
+        <div class="qp-step-num">2</div>
+        <div class="qp-step-body">
+          <div class="qp-step-title">Download your documents</div>
+          <div class="qp-step-desc">As a UK GP you need your <strong>MRCGP</strong> and <strong>Primary Medical Degree</strong>, plus additional supporting documents for your application.</div>
+          <div class="qp-dl-row">
+            <span class="qp-dl-label">MRCGP Certificate + Primary Medical Degree</span>
+            <button type="button" class="qp-dl-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download
+            </button>
+          </div>
+          <div class="qp-dl-row">
+            <span class="qp-dl-label">Additional documents</span>
+            <button type="button" class="qp-dl-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="qp-rep-card">
+        <div class="qp-step-num">3</div>
+        <div class="qp-step-body">
+          <div class="qp-step-title">Add your authorised representative</div>
+          <div class="qp-step-desc">AHPRA will ask you to nominate an authorised representative. Copy these details into your application.</div>
+          <div class="qp-rep-fields">
+            <div class="qp-rep-field">
+              <div>
+                <span class="qp-rep-field-label">Name</span>
+                <span class="qp-rep-field-value">Hazel Rodrigues</span>
+              </div>
+              <button type="button" class="qp-copy-btn" onclick="copyText(this,'Hazel Rodrigues')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy
+              </button>
+            </div>
+            <div class="qp-rep-field">
+              <div>
+                <span class="qp-rep-field-label">Email</span>
+                <span class="qp-rep-field-value">Hazel@mygplink.com.au</span>
+              </div>
+              <button type="button" class="qp-copy-btn" onclick="copyText(this,'Hazel@mygplink.com.au')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function copyText(btn, text) {
+      navigator.clipboard.writeText(text).then(function() {
+        btn.classList.add('copied');
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg> Copied';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy';
+        }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>

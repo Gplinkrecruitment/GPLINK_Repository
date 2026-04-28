@@ -2780,9 +2780,19 @@
       var copySvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
       var extSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
 
-      // Step 1: Documents
-      var step1 = '<div class="qp-step">' +
+      // Step 1: English language skills
+      var step1 = '<div class="qp-english-card">' +
         '<div class="qp-step-num">1</div>' +
+        '<div class="qp-step-body">' +
+          '<div class="qp-step-title">English language skills</div>' +
+          '<div class="qp-step-desc">Determine which English language skills pathway you are eligible for. This depends on your country of training, qualifications, and practice history.</div>' +
+          '<a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="qp-ext-link">' + extSvg + ' Check your eligibility on AHPRA</a>' +
+        '</div>' +
+      '</div>';
+
+      // Step 2: Download documents
+      var step2 = '<div class="qp-step">' +
+        '<div class="qp-step-num">2</div>' +
         '<div class="qp-step-body">' +
           '<div class="qp-step-title">Download your documents</div>' +
           '<div class="qp-step-desc">As a ' + countryLabel + ' GP you need your <strong>' + specialistLabel + '</strong> and <strong>Primary Medical Degree</strong>, plus additional supporting documents for your application.</div>' +
@@ -2797,9 +2807,9 @@
         '</div>' +
       '</div>';
 
-      // Step 2: Authorised representative
-      var step2 = '<div class="qp-rep-card">' +
-        '<div class="qp-step-num">2</div>' +
+      // Step 3: Authorised representative
+      var step3 = '<div class="qp-rep-card">' +
+        '<div class="qp-step-num">3</div>' +
         '<div class="qp-step-body">' +
           '<div class="qp-step-title">Add your authorised representative</div>' +
           '<div class="qp-step-desc">AHPRA will ask you to nominate an authorised representative. Copy these details into your application.</div>' +
@@ -2813,16 +2823,6 @@
               '<button type="button" class="qp-copy-btn" id="copyRepEmail">' + copySvg + ' Copy</button>' +
             '</div>' +
           '</div>' +
-        '</div>' +
-      '</div>';
-
-      // Step 3: English language
-      var step3 = '<div class="qp-english-card">' +
-        '<div class="qp-step-num">3</div>' +
-        '<div class="qp-step-body">' +
-          '<div class="qp-step-title">English language skills</div>' +
-          '<div class="qp-step-desc">Determine which English language skills pathway you are eligible for. This depends on your country of training, qualifications, and practice history.</div>' +
-          '<a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="qp-ext-link">' + extSvg + ' Check your eligibility on AHPRA</a>' +
         '</div>' +
       '</div>';
 
