@@ -9,7 +9,7 @@
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260331c" defer></script>
   <script src="../js/account-dropdown.js?v=20260323a" defer></script>
-  <script src="../js/app-shell.js?v=20260429a" defer></script>
+  <script src="../js/app-shell.js?v=20260429b" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
@@ -27,6 +27,7 @@
       --radius-lg: 20px;
       --app-shell-top-offset: 0px;
       --app-shell-frame-top: 0px;
+      --gp-frame-top: 87px;
       --app-shell-bottom-offset: 0px;
       --app-shell-nav-clearance: 0px;
     }
@@ -335,10 +336,10 @@
       position: fixed;
       left: 0;
       right: 0;
-      top: var(--app-shell-frame-top);
+      top: var(--gp-frame-top);
       bottom: 0;
       width: 100%;
-      height: calc(100dvh - var(--app-shell-frame-top));
+      height: calc(100dvh - var(--gp-frame-top));
       overflow: hidden;
       z-index: 1;
     }
@@ -364,7 +365,7 @@
 
     .app-shell-loader {
       position: fixed;
-      inset: var(--app-shell-frame-top) 0 0;
+      inset: var(--gp-frame-top) 0 0;
       display: grid;
       place-items: center;
       background: linear-gradient(180deg, rgba(240, 244, 250, 0.82), rgba(240, 244, 250, 0.94));

@@ -706,6 +706,7 @@
 
     document.documentElement.style.setProperty("--app-shell-top-offset", Math.max(topOffset, 0) + "px");
     document.documentElement.style.setProperty("--app-shell-frame-top", Math.max(frameTop, 0) + "px");
+    document.documentElement.style.setProperty("--gp-frame-top", Math.max(frameTop, 0) + "px");
     document.documentElement.style.setProperty("--app-shell-bottom-offset", "0px");
     document.documentElement.style.setProperty("--app-shell-nav-clearance", navClearance + "px");
   }
