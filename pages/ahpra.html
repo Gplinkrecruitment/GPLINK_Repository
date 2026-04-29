@@ -783,6 +783,10 @@
       animation: spin .9s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes statusPulse {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(197,48,48,0.15); }
+      50% { box-shadow: 0 0 0 6px rgba(197,48,48,0.08); }
+    }
 
     /* ---- DESKTOP TOPBAR ---- */
     .desktop-topbar {
@@ -2968,36 +2972,29 @@
 
       let actionBtnHtml = '';
       if (isAwaitingOutcome) {
-        // Status card for awaiting outcome — no action button, show status instead
         var isGranted = isDone;
         var statusColor = isGranted ? 'var(--success)' : '#c53030';
-        var statusBg = isGranted ? '#ecfdf5' : '#fff5f5';
-        var statusBorder = isGranted ? 'rgba(13,124,95,0.2)' : 'rgba(197,48,48,0.2)';
+        var statusDot = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + statusColor + ';' + (!isGranted ? 'box-shadow:0 0 0 3px rgba(197,48,48,0.15);animation:statusPulse 2s ease-in-out infinite;' : '') + '"></span>';
         var statusLabel = isGranted ? 'Registration Granted' : 'In Progress';
-        var statusIcon = isGranted
-          ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
-          : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+
+        var heroTitle = isGranted ? 'Registration Granted' : 'Application Submitted';
+        var heroLead = isGranted
+          ? 'Your AHPRA specialist registration has been granted. You can now proceed with the next steps in your GP Link journey.'
+          : 'An AHPRA officer will be assigned to your application and will be in touch with us directly.';
+        var heroNote = isGranted ? '' :
+          '<p style="font-size:13px;color:var(--ink-muted);margin-top:24px;line-height:1.45;max-width:340px;margin-left:auto;margin-right:auto;">Our team will liaise with the assigned AHPRA officer on your behalf and help with any additional documentation they may request.</p>';
 
         document.getElementById("stepInfoGrid").innerHTML = `
-          <div style="background:${statusBg}; border:1px solid ${statusBorder}; border-radius:12px; padding:16px; margin-bottom:12px;">
-            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-              <span style="color:${statusColor};">${statusIcon}</span>
-              <span style="font-size:15px; font-weight:700; color:${statusColor};">${statusLabel}</span>
+          <div style="min-height:calc(50dvh - 80px);display:grid;place-items:center;padding:40px 20px;">
+            <div style="text-align:center;max-width:400px;">
+              <h2 style="font-family:var(--font-heading);font-size:clamp(1.6rem,6vw,2.4rem);font-weight:700;color:var(--ink);letter-spacing:-0.02em;line-height:1.1;margin-bottom:16px;text-wrap:balance;">${heroTitle}</h2>
+              <p style="font-size:1rem;color:var(--ink-muted);line-height:1.4;max-width:320px;margin:0 auto;">${heroLead}</p>
+              <div style="margin-top:28px;display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;background:var(--surface-raised);border:1px solid var(--border);font-size:14px;font-weight:600;color:${statusColor};">
+                ${statusDot} ${statusLabel}
+              </div>
+              ${heroNote}
+              ${isGranted ? '<div style="margin-top:24px;"><button class="btn-primary" id="actionOpenBtn" type="button">' + meta.cta + ' <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button></div>' : ''}
             </div>
-            <p style="font-size:13px; color:var(--ink-soft); line-height:1.5; margin:0 0 12px;">
-              ${isGranted
-                ? 'Your AHPRA specialist registration has been granted. You can now proceed with the next steps in your GP Link journey.'
-                : 'Your application has been submitted. An AHPRA officer will be assigned to review your application and will be in touch with us directly.'}
-            </p>
-            ${!isGranted ? `<div style="font-size:12px; color:var(--ink-muted); line-height:1.5;">
-              <p style="margin:0 0 6px;"><strong style="color:var(--ink-soft);">What happens next:</strong></p>
-              <ul style="margin:0; padding-left:16px; display:grid; gap:4px;">
-                <li>Our team will liaise with the assigned AHPRA officer on your behalf</li>
-                <li>If the officer requests additional documentation, we will help you prepare and submit it</li>
-                <li>This status will turn green once your registration is granted</li>
-              </ul>
-            </div>` : ''}
-            ${isGranted ? `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>` : ''}
           </div>
         `;
       } else {
