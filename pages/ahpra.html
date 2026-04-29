@@ -2810,19 +2810,15 @@
         '</div>' +
       '</div>';
 
-      // Row 2: Documents
+      // Row 2: Documents (qualifications only — additional docs are in the Qualifications step)
       var row2 = '<div class="qp-row">' +
         '<div class="qp-num">2</div>' +
         '<div class="qp-body">' +
-          '<div class="qp-label">Download your documents</div>' +
-          '<div class="qp-desc">Your <strong>' + specialistLabel + '</strong> and <strong>Primary Medical Degree</strong>, plus additional supporting documents.</div>' +
+          '<div class="qp-label">Download your qualifications</div>' +
+          '<div class="qp-desc">Your <strong>' + specialistLabel + '</strong> and <strong>Primary Medical Degree</strong> were verified during onboarding. Download them to have ready.</div>' +
           '<div class="qp-dl-row">' +
             '<span class="qp-dl-name">' + qualLabels + '</span>' +
             '<button type="button" class="qp-dl-btn" id="qualDownloadAllBtn">' + dlSvg + ' Download</button>' +
-          '</div>' +
-          '<div class="qp-dl-row">' +
-            '<span class="qp-dl-name">Additional documents</span>' +
-            '<button type="button" class="qp-dl-btn" id="addlDocsDownloadBtn">' + dlSvg + ' Download</button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -2903,31 +2899,6 @@
     }
 
     function wireDocsActionButtons() {
-      var addlBtn = document.getElementById('addlDocsDownloadBtn');
-
-      if (addlBtn) {
-        addlBtn.addEventListener('click', function() {
-          var status = getAdditionalDocsStatus();
-          // If any docs are missing or not ready, show the full additional docs modal
-          if (status.missing.length > 0) {
-            renderAdditionalDocsModal(addlBtn);
-          } else if (status.downloadable.length > 0) {
-            // All ready — download them all
-            addlBtn.disabled = true;
-            addlBtn.textContent = 'Downloading…';
-            tryDownloadRows(status.downloadable);
-            setTimeout(function() {
-              addlBtn.disabled = false;
-              var dlSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-              addlBtn.innerHTML = dlSvg + ' Download';
-            }, 2000);
-          } else {
-            // Nothing downloadable, show modal anyway
-            renderAdditionalDocsModal(addlBtn);
-          }
-        });
-      }
-
       // Wire copy buttons for authorised representative
       var copySvgStr = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
       var checkSvgStr = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
@@ -3140,9 +3111,7 @@
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.location.assign(AHPRA_URL);
           else if (meta.ctaType === "download_docs") {
-            const snapshot = getDocSnapshot();
-            renderDownloadPackModal(snapshot);
-            if (downloadPackModalEl) openModal(downloadPackModalEl, openBtn);
+            renderAdditionalDocsModal(openBtn);
           }
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
           else if (meta.ctaType === "home") {
