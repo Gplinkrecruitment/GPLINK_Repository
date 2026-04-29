@@ -5043,8 +5043,8 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     }
 
     // ── MyIntealth substep transitions ──
-    const epicLabels = { create_account: 'Confirm MyIntealth account created', account_establishment: 'Verify account establishment documents', upload_qualifications: 'Review uploaded qualification documents', verification_issued: 'Confirm EPIC verification issued' };
-    for (const key of ['create_account', 'account_establishment', 'upload_qualifications', 'verification_issued']) {
+    const epicLabels = { account_establishment: 'Verify account establishment documents', upload_qualifications: 'Review uploaded qualification documents', verification_issued: 'Confirm EPIC verification issued' };
+    for (const key of ['account_establishment', 'upload_qualifications', 'verification_issued']) {
       if (!pc[key] && nc[key] === true) {
         if (!(await _hasOpenTask(caseId, 'myintealth', 'verify'))) {
           await _createRegTask(caseId, { task_type: 'verify', title: epicLabels[key], priority: key === 'upload_qualifications' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'myintealth', related_substage: key, _actor: 'system' });
@@ -5062,8 +5062,8 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // ── AMC transitions ──
     const pac = prev.amc.completed || {};
     const nac = nxt.amc.completed || {};
-    const amcLabels = { create_portfolio: 'Confirm AMC portfolio created', upload_credentials: 'Review AMC credentials uploaded', waiting_verification: 'Monitor AMC verification progress', qualifications_verified: 'Confirm AMC qualifications verified' };
-    for (const key of ['create_portfolio', 'upload_credentials', 'waiting_verification', 'qualifications_verified']) {
+    const amcLabels = { upload_credentials: 'Review AMC credentials uploaded', waiting_verification: 'Monitor AMC verification progress', qualifications_verified: 'Confirm AMC qualifications verified' };
+    for (const key of ['upload_credentials', 'waiting_verification', 'qualifications_verified']) {
       if (!pac[key] && nac[key] === true) {
         if (!(await _hasOpenTask(caseId, 'amc', 'verify'))) {
           await _createRegTask(caseId, { task_type: 'verify', title: amcLabels[key], priority: key === 'upload_credentials' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'amc', related_substage: key, _actor: 'system' });
@@ -5222,8 +5222,8 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // ── AHPRA transitions ──
     const phc = prev.ahpra.completed || {};
     const nhc = nxt.ahpra.completed || {};
-    const ahpraLabels = { create_account: 'Confirm AHPRA account created', account_establishment: 'Verify AHPRA profile details', upload_qualifications: 'Confirm all AHPRA supporting docs ready', waiting_verification: 'Monitor AHPRA assessment', verification_issued: 'Verify AHPRA registration outcome' };
-    for (const key of ['create_account', 'account_establishment', 'upload_qualifications', 'waiting_verification', 'verification_issued']) {
+    const ahpraLabels = { account_establishment: 'Verify AHPRA profile details', upload_qualifications: 'Confirm all AHPRA supporting docs ready', waiting_verification: 'Monitor AHPRA assessment', verification_issued: 'Verify AHPRA registration outcome' };
+    for (const key of ['account_establishment', 'upload_qualifications', 'waiting_verification', 'verification_issued']) {
       if (!phc[key] && nhc[key] === true) {
         if (!(await _hasOpenTask(caseId, 'ahpra', 'verify'))) {
           await _createRegTask(caseId, { task_type: 'verify', title: ahpraLabels[key], priority: key === 'upload_qualifications' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'ahpra', related_substage: key, _actor: 'system' });
