@@ -2893,12 +2893,37 @@ async function handleDoubleTickWebhook(req, res) {
       ? [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim()
       : '';
 
+    // Check for pending nudges — if GP is replying after a nudge, dismiss it and tag the task
+    let isNudgeReply = false;
+    if (gpProfile && isSupabaseDbConfigured()) {
+      const nudgeRes = await supabaseDbRequest(
+        'user_nudges',
+        'select=id,title&user_id=eq.' + encodeURIComponent(gpProfile.user_id) + '&status=in.(pending,delivered)&order=created_at.desc&limit=5'
+      );
+      const pendingNudges = nudgeRes.ok && Array.isArray(nudgeRes.data) ? nudgeRes.data : [];
+      if (pendingNudges.length > 0) {
+        isNudgeReply = true;
+        // Dismiss all pending nudges for this GP
+        for (const n of pendingNudges) {
+          await supabaseDbRequest('user_nudges', 'id=eq.' + encodeURIComponent(n.id), {
+            method: 'PATCH',
+            headers: { Prefer: 'return=minimal' },
+            body: { status: 'read', read_at: new Date().toISOString() }
+          });
+        }
+        console.log('[doubletick-webhook] Dismissed', pendingNudges.length, 'pending nudge(s) for', gpProfile.user_id);
+      }
+    }
+
     // Stage label map for human-readable VA task titles (DoubleTick webhook help tasks)
     const _dtStageLabel = ({ myintealth: 'MyIntealth', amc: 'AMC', career: 'Career', ahpra: 'AHPRA', visa: 'Visa', pbs: 'PBS', commencement: 'Commencement' })[activeCase.stage] || (activeCase.stage || 'Registration');
+    const taskTitle = isNudgeReply
+      ? 'Reply to nudge — ' + _dtStageLabel
+      : 'GP requested WhatsApp help — ' + _dtStageLabel;
     const taskPayload = {
       case_id: activeCase.id,
-      task_type: 'whatsapp_help',
-      title: 'GP requested WhatsApp help — ' + _dtStageLabel,
+      task_type: isNudgeReply ? 'nudge_reply' : 'whatsapp_help',
+      title: taskTitle,
       description: messageBody.slice(0, 500),
       priority: 'high',
       status: 'open',
@@ -4907,6 +4932,57 @@ async function sendDoubleTickTemplate(toPhone, stage, gpFirstName) {
     return { ok: true, messageId: messageId || null };
   } catch (err) {
     console.error('[doubletick] Send error:', err && err.message, err && err.stack);
+    return { ok: false };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Send a nudge via DoubleTick WhatsApp — uses stage-specific template or falls back to direct text
+async function sendDoubleTickNudge(toPhone, stage, substage, gpFirstName, customMessage) {
+  if (!DOUBLETICK_API_KEY) return { ok: false };
+  const phone = normalizePhone(toPhone);
+  if (!phone) return { ok: false };
+  const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+
+  // Try template first — nudge templates follow naming: gp_link_nudge_{stage}
+  const nudgeTemplateMap = {
+    myintealth: { templateName: 'gp_link_nudge_myintealth', language: 'en' },
+    amc: { templateName: 'gp_link_nudge_amc', language: 'en' },
+    career: { templateName: 'gp_link_nudge_career', language: 'en' },
+    ahpra: { templateName: 'gp_link_nudge_ahpra', language: 'en' },
+    visa: { templateName: 'gp_link_nudge_visa', language: 'en' },
+    pbs: { templateName: 'gp_link_nudge_pbs', language: 'en' },
+    _default: { templateName: 'gp_link_nudge_checkin', language: 'en' }
+  };
+  const tpl = nudgeTemplateMap[stage] || nudgeTemplateMap._default;
+  const name = (gpFirstName || '').trim() || 'there';
+
+  // Always try direct text mode for nudges since templates may not exist yet
+  const textMessage = customMessage
+    ? customMessage.replace(/\{\{name\}\}/gi, name)
+    : 'Hi ' + name + ', just checking in on your progress. Need any help with your current step? Reply here or message Hazel on WhatsApp for support.';
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const apiResponse = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: DOUBLETICK_API_KEY },
+      body: JSON.stringify({
+        messages: [{
+          to: phone,
+          from: fromNumber,
+          content: { text: textMessage }
+        }]
+      })
+    });
+    const data = await apiResponse.json().catch(() => ({}));
+    console.log('[DoubleTick nudge] sent to', phone, ':', apiResponse.ok ? 'success' : 'failed');
+    if (apiResponse.ok) return { ok: true, messageId: data && data.messageId };
+    return { ok: false };
+  } catch {
     return { ok: false };
   } finally {
     clearTimeout(timeout);
@@ -21452,6 +21528,21 @@ Return ONLY valid JSON with no markdown formatting:
     const firstName = pRes.ok && Array.isArray(pRes.data) && pRes.data[0] ? pRes.data[0].first_name : '';
     const whatsappLink = buildWhatsAppLink(stage, firstName);
 
+    // Send WhatsApp nudge via DoubleTick
+    const channels = ['in_app'];
+    let dtResult = null;
+    const profileFull = await supabaseDbRequest('user_profiles', 'select=first_name,phone_number,phone&user_id=eq.' + encodeURIComponent(targetUserId) + '&limit=1');
+    const gpPhone = profileFull.ok && Array.isArray(profileFull.data) && profileFull.data[0]
+      ? (profileFull.data[0].phone_number || profileFull.data[0].phone || '')
+      : '';
+    const gpFirstName = profileFull.ok && Array.isArray(profileFull.data) && profileFull.data[0]
+      ? (profileFull.data[0].first_name || '')
+      : (firstName || '');
+    if (gpPhone && DOUBLETICK_API_KEY) {
+      dtResult = await sendDoubleTickNudge(gpPhone, stage, substage, gpFirstName, message).catch(() => null);
+      if (dtResult && dtResult.ok) channels.push('whatsapp');
+    }
+
     const insertRes = await supabaseDbRequest('user_nudges', '', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
@@ -21463,7 +21554,7 @@ Return ONLY valid JSON with no markdown formatting:
         title: title,
         message: message,
         whatsapp_number: HAZEL_WHATSAPP_NUMBER,
-        delivered_channels: ['in_app'],
+        delivered_channels: channels,
         status: 'pending',
         created_by: adminCtx.email
       }]
@@ -21472,10 +21563,10 @@ Return ONLY valid JSON with no markdown formatting:
     if (!nudge) { sendJson(res, 502, { ok: false, message: 'Failed to create nudge.' }); return; }
     // Log to case timeline
     if (regCase) {
-      await _logCaseEvent(regCase.id, null, 'note', 'Nudge sent', title + ' — ' + message, adminCtx.email);
+      await _logCaseEvent(regCase.id, null, 'note', 'Nudge sent' + (channels.includes('whatsapp') ? ' (WhatsApp + in-app)' : ' (in-app only)'), title + ' — ' + message, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(regCase.id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
     }
-    sendJson(res, 200, { ok: true, nudge: nudge, whatsapp_link: whatsappLink });
+    sendJson(res, 200, { ok: true, nudge: nudge, whatsapp_link: whatsappLink, whatsapp_sent: channels.includes('whatsapp') });
     return;
   }
 
