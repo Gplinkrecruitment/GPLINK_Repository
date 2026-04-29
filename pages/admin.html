@@ -1853,7 +1853,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
             <a class="btn wa" href="${safeUrl(u.whatsapp_link||c.whatsapp_link||"")}" target="_blank" rel="noopener">WhatsApp</a>
-            <button class="btn nudge" data-case-nudge="${esc(c.id)}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())}">Send Nudge</button>
+            <button class="btn nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())}">Send Nudge</button>
           </div>
           <div style="margin-top:16px">
             <h4 style="margin:0 0 6px;font-size:12px;text-transform:uppercase;color:var(--muted,#9aa3b2)">Case Management</h4>
