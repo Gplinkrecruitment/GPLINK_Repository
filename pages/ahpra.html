@@ -1737,16 +1737,15 @@
       { key: "supervisor_cv", name: "Supervisor's CV" }
     ];
 
-    // Internal stages (keep verification_issued for backward compat)
-    const STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification", "verification_issued"];
+    // Internal stages
+    const STAGES = ["create_account", "account_establishment", "awaiting_outcome"];
 
-    // Visible tabs (4 steps only)
-    const TAB_STAGES = ["create_account", "account_establishment", "upload_qualifications", "waiting_verification"];
+    // Visible tabs (3 steps)
+    const TAB_STAGES = ["create_account", "account_establishment", "awaiting_outcome"];
     const TAB_LABELS = {
       create_account: "Account",
       account_establishment: "Application",
-      upload_qualifications: "Qualifications",
-      waiting_verification: "Verification"
+      awaiting_outcome: "Status"
     };
 
     const stageMeta = {
@@ -1772,36 +1771,14 @@
         cta: "Open AHPRA",
         ctaType: "open"
       },
-      upload_qualifications: {
-        label: "Qualifications",
-        full: "Prepare Supporting Documents",
-        short: "Upload and verify all specialist registration supporting documents.",
-        doNow: "Upload all required supporting files in the correct AHPRA-ready format.",
-        time: "10-20 minutes",
-        support: "We verify completeness and quality before final submission.",
-        next: "Once prepared, submit your specialist application.",
-        cta: "Download Supporting Documents",
-        ctaType: "download_docs"
-      },
-      waiting_verification: {
-        label: "Verification",
-        full: "Submit Application",
-        short: "Submit your specialist application in AHPRA Online Services.",
-        doNow: "Submit your completed specialist registration application.",
-        time: "Depends on submission readiness",
-        support: "We help resolve blockers before and after submission.",
-        next: "After submission, await final AHPRA outcome.",
-        cta: "Contact Support",
-        ctaType: "support"
-      },
-      verification_issued: {
-        label: "Complete",
-        full: "Registration Submitted",
-        short: "Your AHPRA specialist registration submission is complete.",
-        doNow: "Track your final outcome and continue with GP Link onboarding.",
-        time: "5 minutes",
-        support: "We will keep guiding you through outcome and commencement readiness.",
-        next: "Return to your dashboard for next onboarding actions.",
+      awaiting_outcome: {
+        label: "Status",
+        full: "Application Submitted",
+        short: "Your application has been submitted. An AHPRA officer will be in touch.",
+        doNow: "Your application has been submitted successfully.",
+        time: "AHPRA processing times vary",
+        support: "Our team will liaise with the assigned AHPRA officer and help with any additional documentation they may request.",
+        next: "Your registration status will update once AHPRA grants registration.",
         cta: "Go to Home Dashboard",
         ctaType: "home"
       }
@@ -1810,9 +1787,7 @@
     const stageRouteMap = {
       create_account: "account",
       account_establishment: "establish",
-      upload_qualifications: "upload",
-      waiting_verification: "verify",
-      verification_issued: "complete"
+      awaiting_outcome: "status"
     };
     const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([k, v]) => [v, k]));
 
@@ -1863,7 +1838,7 @@
     function defaultProgress() {
       return {
         stage: "create_account",
-        completed: { create_account: false, upload_qualifications: false, waiting_verification: false, account_establishment: false, verification_issued: false },
+        completed: { create_account: false, account_establishment: false, awaiting_outcome: false },
         updatedAt: new Date().toISOString()
       };
     }
@@ -1881,9 +1856,16 @@
       const base = defaultProgress();
       if (typeof v.stage === "string" && STAGES.includes(v.stage)) base.stage = v.stage;
       for (const k of STAGES) { if (typeof v.completed[k] === "boolean") base.completed[k] = v.completed[k]; }
-      if (base.completed.upload_qualifications || base.completed.waiting_verification || base.completed.verification_issued) {
+      // Migrate old stages to new structure
+      if (v.completed && (v.completed.upload_qualifications || v.completed.waiting_verification || v.completed.verification_issued)) {
         base.completed.account_establishment = true;
       }
+      if (v.completed && v.completed.verification_issued) {
+        base.completed.awaiting_outcome = true;
+      }
+      // Migrate old stage names
+      if (base.stage === 'upload_qualifications' || base.stage === 'waiting_verification') base.stage = 'awaiting_outcome';
+      if (base.stage === 'verification_issued') base.stage = 'awaiting_outcome';
       if (typeof v.updatedAt === "string") base.updatedAt = v.updatedAt;
       return base;
     }
@@ -1895,7 +1877,7 @@
 
     function expectedStageFromCompleted(completed) {
       for (const k of STAGES) { if (!completed[k]) return k; }
-      return "verification_issued";
+      return "awaiting_outcome";
     }
 
     function normalizeProgress(progress) {
@@ -1929,9 +1911,7 @@
       return "current";
     }
 
-    // Get the active tab stage (maps verification_issued back to waiting_verification for display)
     function activeTabStage(progress) {
-      if (progress.stage === "verification_issued") return "waiting_verification";
       return progress.stage;
     }
 
@@ -1945,9 +1925,8 @@
     function pickTabFromRoute(progress) {
       const routeStage = stageFromRoute(window.location.pathname);
       if (!routeStage) return null;
-      const viewStage = routeStage === "verification_issued" ? "waiting_verification" : routeStage;
-      if (!TAB_STAGES.includes(viewStage)) return null;
-      return stageStatus(progress, viewStage) === "locked" ? null : viewStage;
+      if (!TAB_STAGES.includes(routeStage)) return null;
+      return stageStatus(progress, routeStage) === "locked" ? null : routeStage;
     }
 
     function syncRouteForStage(key, replace) {
@@ -2035,8 +2014,7 @@
     function getCurrentSupportContext() {
       const progress = loadProgress();
       const key = currentTabKey || activeTabStage(progress);
-      const effectiveKey = key === "waiting_verification" && progress.completed.verification_issued ? "verification_issued" : key;
-      const meta = stageMeta[effectiveKey] || stageMeta[key] || stageMeta.create_account;
+      const meta = stageMeta[key] || stageMeta.create_account;
       return {
         category: "AHPRA",
         stepKey: key || "create_account",
@@ -2409,35 +2387,7 @@
     function markStageComplete(progress, key) {
       if (progress.stage !== key) return;
 
-      if (key === "upload_qualifications") {
-        const snapshot = getDocSnapshot();
-        const gpMissing = getGpMissing(snapshot);
-        const gplinkMissing = snapshot.gplink.filter((item) => !item.ready || item.rejected);
-        if (gpMissing.length || gplinkMissing.length) {
-          if (gpMissing.length) {
-            openMissingDocsModal(gpMissing);
-            showToast("Upload missing documents to continue");
-          } else if (hasDocsUnderReview(snapshot) || gplinkMissing.length) {
-            if (reviewPendingModalEl) openModal(reviewPendingModalEl);
-            showToast("Some documents are still under review");
-          }
-          return;
-        }
-      }
-
       progress.completed[key] = true;
-
-      // Completing submit-application stage moves to final submitted state
-      if (key === "waiting_verification") {
-        progress.completed.verification_issued = true;
-        progress.stage = "verification_issued";
-        saveProgress(progress, true);
-        syncRouteForStage(progress.stage);
-        currentTabKey = activeTabStage(progress);
-        renderPage(progress);
-        showToast("Submission marked complete");
-        return;
-      }
 
       const idx = STAGES.indexOf(key);
       const next = STAGES[idx + 1];
@@ -2467,7 +2417,6 @@
       const previous = TAB_STAGES[tabIdx - 1];
       progress.completed[key] = false;
       progress.completed[previous] = false;
-      if (key === "waiting_verification") progress.completed.verification_issued = false;
       progress.stage = previous;
       saveProgress(progress, true);
       syncRouteForStage(previous);
@@ -2995,15 +2944,12 @@
     // ─── RENDER: STEP CONTENT ───────────────────────────────────
     function renderStepContent(progress) {
       const key = currentTabKey;
-      const effectiveKey = (key === "waiting_verification" && progress.completed.verification_issued) ? "verification_issued" : key;
-      const meta = stageMeta[effectiveKey];
+      const meta = stageMeta[key];
       if (!meta) return;
       const status = stageStatus(progress, key);
       const isDone = status === "done";
       const isCurrent = status === "current";
-      const isWaiting = key === "waiting_verification" && isCurrent;
-      const isAction = key === "upload_qualifications" && isCurrent;
-      const allDone = STAGES.every(k => progress.completed[k]);
+      const isAwaitingOutcome = key === "awaiting_outcome";
 
       // Title & sub
       document.getElementById("stepTitle").textContent = meta.full;
@@ -3015,52 +2961,73 @@
 
       // Warning
       const warning = document.getElementById("stepWarning");
-      if (isAction) {
-        warning.classList.remove("hidden");
-        document.getElementById("stepWarningTitle").textContent = "Documents need uploading";
-        document.getElementById("stepWarningText").textContent = "Ensure all required supporting documents are complete and correctly formatted before submission.";
-      } else if (isWaiting) {
-        warning.classList.remove("hidden");
-        document.getElementById("stepWarningTitle").textContent = "Submission step";
-        document.getElementById("stepWarningText").textContent = "Submit your specialist registration application in AHPRA Online Services.";
-      } else {
-        warning.classList.add("hidden");
-      }
+      warning.classList.add("hidden");
 
       // Info rows
       const doNow = meta.doNow;
 
       let actionBtnHtml = '';
-      if (effectiveKey === "verification_issued") {
-        actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-      } else if (isCurrent && !isWaiting) {
-        actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
-      }
+      if (isAwaitingOutcome) {
+        // Status card for awaiting outcome — no action button, show status instead
+        var isGranted = isDone;
+        var statusColor = isGranted ? 'var(--success)' : '#c53030';
+        var statusBg = isGranted ? '#ecfdf5' : '#fff5f5';
+        var statusBorder = isGranted ? 'rgba(13,124,95,0.2)' : 'rgba(197,48,48,0.2)';
+        var statusLabel = isGranted ? 'Registration Granted' : 'In Progress';
+        var statusIcon = isGranted
+          ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+          : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
 
-      // Build qualification guidance panel for the application step
-      var qualGuidanceHtml = '';
-      if (effectiveKey === 'account_establishment') {
-        qualGuidanceHtml = buildQualGuidanceHtml();
-      }
-
-      document.getElementById("stepInfoGrid").innerHTML = `
-        <div class="action-card">
-          <div class="action-card-body">
-            <div class="action-card-label">Your Action</div>
-            <div class="action-card-text">${doNow}</div>
-            <div class="action-card-meta">
-              <div class="action-card-time"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${meta.time}</div>
+        document.getElementById("stepInfoGrid").innerHTML = `
+          <div style="background:${statusBg}; border:1px solid ${statusBorder}; border-radius:12px; padding:16px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+              <span style="color:${statusColor};">${statusIcon}</span>
+              <span style="font-size:15px; font-weight:700; color:${statusColor};">${statusLabel}</span>
             </div>
-            ${actionBtnHtml}
+            <p style="font-size:13px; color:var(--ink-soft); line-height:1.5; margin:0 0 12px;">
+              ${isGranted
+                ? 'Your AHPRA specialist registration has been granted. You can now proceed with the next steps in your GP Link journey.'
+                : 'Your application has been submitted. An AHPRA officer will be assigned to review your application and will be in touch with us directly.'}
+            </p>
+            ${!isGranted ? `<div style="font-size:12px; color:var(--ink-muted); line-height:1.5;">
+              <p style="margin:0 0 6px;"><strong style="color:var(--ink-soft);">What happens next:</strong></p>
+              <ul style="margin:0; padding-left:16px; display:grid; gap:4px;">
+                <li>Our team will liaise with the assigned AHPRA officer on your behalf</li>
+                <li>If the officer requests additional documentation, we will help you prepare and submit it</li>
+                <li>This status will turn green once your registration is granted</li>
+              </ul>
+            </div>` : ''}
+            ${isGranted ? `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>` : ''}
           </div>
-        </div>
-        ${qualGuidanceHtml}
-      `;
+        `;
+      } else {
+        if (isCurrent) {
+          actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
+        }
 
-      // Wire qualification download buttons if present
-      if (effectiveKey === 'account_establishment') {
-        wireQualDownloadButtons();
-        wireDocsActionButtons();
+        var qualGuidanceHtml = '';
+        if (key === 'account_establishment') {
+          qualGuidanceHtml = buildQualGuidanceHtml();
+        }
+
+        document.getElementById("stepInfoGrid").innerHTML = `
+          <div class="action-card">
+            <div class="action-card-body">
+              <div class="action-card-label">Your Action</div>
+              <div class="action-card-text">${doNow}</div>
+              <div class="action-card-meta">
+                <div class="action-card-time"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${meta.time}</div>
+              </div>
+              ${actionBtnHtml}
+            </div>
+          </div>
+          ${qualGuidanceHtml}
+        `;
+
+        if (key === 'account_establishment') {
+          wireQualDownloadButtons();
+          wireDocsActionButtons();
+        }
       }
 
       // Actions
@@ -3068,13 +3035,12 @@
       const navActionsEl = document.getElementById("stepNavActions");
       let navHtml = '';
 
-      // Previous button
       const tabIdx = TAB_STAGES.indexOf(key);
       const hasPrev = tabIdx > 0;
 
       const markDisabled = !isCurrent || isDone;
       const markLabel = isDone ? "Completed" : "Mark Complete";
-      if (effectiveKey !== "verification_issued") {
+      if (!isAwaitingOutcome || !isDone) {
         navHtml += hasPrev
           ? `<button class="btn-ghost" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
           : `<span aria-hidden="true"></span>`;
@@ -3087,10 +3053,10 @@
       actionsEl.innerHTML = '';
       navActionsEl.innerHTML = navHtml;
 
-      // Stuck help row (visible on both desktop and mobile)
+      // Stuck help row
       var stuckRow = document.getElementById('stuckRow');
       if (stuckRow) {
-        if (!isDone && isCurrent) {
+        if (!isDone && isCurrent && !isAwaitingOutcome) {
           stuckRow.innerHTML = '<div class="stuck-line">Stuck on this step? <button class="stuck-link" id="stuckHelpBtn" type="button">Submit a ticket</button> &mdash; we respond within 1 hour.</div>';
         } else {
           stuckRow.innerHTML = '';
@@ -3101,7 +3067,7 @@
       var headerActions = document.getElementById('stepHeaderActions');
       if (headerActions) {
         var hdrHtml = '';
-        if (effectiveKey !== "verification_issued") {
+        if (!isAwaitingOutcome || !isDone) {
           if (hasPrev) {
             hdrHtml += `<button class="btn-ghost" id="headerPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
           }
@@ -3113,15 +3079,6 @@
       // Wire buttons
       const openBtn = document.getElementById("actionOpenBtn");
       if (openBtn) {
-        if (effectiveKey === "verification_issued") {
-          openBtn.classList.add("cta-pulse");
-          if (!openBtn.querySelector(".cta-cursor")) {
-            const hint = document.createElement("span");
-            hint.className = "cta-cursor";
-            hint.textContent = "Click Here";
-            openBtn.appendChild(hint);
-          }
-        }
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.location.assign(AHPRA_URL);
           else if (meta.ctaType === "download_docs") {
@@ -3324,7 +3281,7 @@
       const ahpra = parseStorage(STORAGE_KEY);
       const epicDone = true;
       const amcDone = true;
-      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.awaiting_outcome === true);
       return [
         buildRegistrationRow("myinthealth", {
           title: "1. MyIntealth Account",
@@ -3648,7 +3605,7 @@
       // No longer redirects for missing EPIC/AMC — the placement gate handles messaging.
       // Only redirect away if AHPRA is fully completed and no return override is set.
       const ahpra = parseStorage(STORAGE_KEY);
-      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
+      const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.awaiting_outcome === true);
       if (!ahpraDone || isRegistrationReturnAllowed("ahpra")) return false;
       window.location.replace("/pages/index.html");
       return true;
