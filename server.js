@@ -2904,6 +2904,7 @@ async function handleDoubleTickWebhook(req, res) {
       status: 'open',
       source_trigger: 'doubletick_webhook',
       related_stage: activeCase.stage || '',
+      related_substage: activeCase.substage || '',
       doubletick_conversation_url: conversationUrl || null,
       doubletick_message_id: messageId || null
     };
