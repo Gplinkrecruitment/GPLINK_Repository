@@ -1009,8 +1009,20 @@
       transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
     }
     .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
+    .modal-card { position: relative; }
     .modal-card h4 { font-size: 18px; font-weight: 700; }
     .modal-card p { font-size: 13px; color: var(--ink-soft); line-height: 1.5; font-weight: 500; }
+    .modal-close-x {
+      display: none;
+      position: absolute; top: 12px; right: 12px;
+      width: 30px; height: 30px; border-radius: 50%;
+      align-items: center; justify-content: center;
+      background: var(--surface); border: 1px solid var(--border-light);
+      cursor: pointer; color: var(--ink-soft); z-index: 2;
+      transition: background .12s ease;
+    }
+    .modal-close-x:hover { background: var(--border-light); }
+    .modal-close-x svg { width: 16px; height: 16px; }
     .modal-card textarea {
       width: 100%; min-height: 90px; border-radius: var(--radius);
       border: 1px solid var(--border); padding: 12px;
@@ -1371,20 +1383,20 @@
       .desktop-only-section { display: none; }
       .help-card .trust-grid { grid-template-columns: 1fr; }
       .modal {
-        padding: 0;
-        padding-bottom: var(--gp-shell-bottom-clearance, 0px);
-        align-items: flex-end;
+        padding: 12px;
+        align-items: center;
+        justify-content: center;
       }
       .modal-card {
-        width: 100%;
-        max-height: 70dvh;
-        border-radius: 20px 20px 0 0;
-        padding: 20px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+        width: calc(100% - 8px);
+        max-height: calc(100dvh - 24px);
+        border-radius: 16px;
+        padding: 16px;
       }
-      .modal.show .modal-card {
-        transform: translateY(0) scale(1);
+      .modal-card h4 { font-size: 16px; padding-right: 32px; }
+      .modal-card .modal-close-x {
+        display: flex;
       }
-      .modal-card h4 { font-size: 16px; }
 
       /* Additional docs modal — mobile layout */
       #addlDocsModal .modal-card { max-width: 100%; }
@@ -1415,15 +1427,9 @@
 
       /* Help popover — mobile */
       .help-popover {
-        top: auto; bottom: 0; left: 0;
-        transform: translateY(100%);
-        width: 100%;
-        max-height: 70dvh;
-        border-radius: 20px 20px 0 0;
-        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-      }
-      .help-popover.show {
-        transform: translateY(0);
+        width: calc(100vw - 24px);
+        max-height: calc(100dvh - 24px);
+        border-radius: 16px;
       }
     }
   </style>
@@ -1624,6 +1630,7 @@
   <!-- ADDITIONAL DOCS MODAL -->
   <div class="modal" id="addlDocsModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="addlDocsTitle" style="max-width:580px;">
+      <button class="modal-close-x" data-close="addlDocsModal" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       <h4 id="addlDocsTitle">Additional Documents</h4>
       <p id="addlDocsSubtitle">These documents are required for your AHPRA application. Upload missing items or download what's ready.</p>
       <div id="addlDocsContent" style="display:grid; gap:4px;"></div>
