@@ -2984,11 +2984,21 @@
         var heroNote = isGranted ? '' :
           '<p style="font-size:13px;color:var(--ink-muted);margin-top:24px;line-height:1.45;max-width:340px;margin-left:auto;margin-right:auto;">Our team will liaise with the assigned AHPRA officer on your behalf and help with any additional documentation they may request.</p>';
 
+        // Hide step header, mobile title, tutorial, warning for full-page layout
+        var stepHeaderBar = document.getElementById('stepHeaderBar');
+        if (stepHeaderBar) stepHeaderBar.style.display = 'none';
+        if (mTitle) mTitle.style.display = 'none';
+        if (mSub) mSub.style.display = 'none';
+        var tutToggle = document.getElementById('tutorialToggle');
+        var tutCard = document.getElementById('tutorialCard');
+        if (tutToggle) tutToggle.style.display = 'none';
+        if (tutCard) tutCard.style.display = 'none';
+
         document.getElementById("stepInfoGrid").innerHTML = `
-          <div style="min-height:calc(50dvh - 80px);display:grid;place-items:center;padding:40px 20px;">
+          <div style="min-height:calc(100dvh - 220px);display:grid;place-items:center;padding:40px 20px 0;">
             <div style="text-align:center;max-width:400px;">
-              <h2 style="font-family:var(--font-heading);font-size:clamp(1.6rem,6vw,2.4rem);font-weight:700;color:var(--ink);letter-spacing:-0.02em;line-height:1.1;margin-bottom:16px;text-wrap:balance;">${heroTitle}</h2>
-              <p style="font-size:1rem;color:var(--ink-muted);line-height:1.4;max-width:320px;margin:0 auto;">${heroLead}</p>
+              <h2 style="font-family:var(--font-heading);font-size:clamp(1.8rem,7vw,2.8rem);font-weight:700;color:var(--ink);letter-spacing:-0.02em;line-height:1.1;margin-bottom:16px;text-wrap:balance;">${heroTitle}</h2>
+              <p style="font-size:1.05rem;color:var(--ink-muted);line-height:1.4;max-width:320px;margin:0 auto;">${heroLead}</p>
               <div style="margin-top:28px;display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border-radius:10px;background:var(--surface-raised);border:1px solid var(--border);font-size:14px;font-weight:600;color:${statusColor};">
                 ${statusDot} ${statusLabel}
               </div>
@@ -2998,6 +3008,15 @@
           </div>
         `;
       } else {
+        // Restore elements that the status step may have hidden
+        var stepHeaderBar = document.getElementById('stepHeaderBar');
+        if (stepHeaderBar) stepHeaderBar.style.display = '';
+        if (mTitle) mTitle.style.display = '';
+        if (mSub) mSub.style.display = '';
+        var tutToggle = document.getElementById('tutorialToggle');
+        var tutCard = document.getElementById('tutorialCard');
+        if (tutToggle) tutToggle.style.display = '';
+        if (tutCard) tutCard.style.display = '';
         if (isCurrent) {
           actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
         }
@@ -3037,7 +3056,7 @@
 
       const markDisabled = !isCurrent || isDone;
       const markLabel = isDone ? "Completed" : "Mark Complete";
-      if (!isAwaitingOutcome || !isDone) {
+      if (!isAwaitingOutcome) {
         navHtml += hasPrev
           ? `<button class="btn-ghost" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
           : `<span aria-hidden="true"></span>`;
@@ -3050,11 +3069,11 @@
       actionsEl.innerHTML = '';
       navActionsEl.innerHTML = navHtml;
 
-      // Stuck help row
+      // Stuck help row — show on all steps including status
       var stuckRow = document.getElementById('stuckRow');
       if (stuckRow) {
-        if (!isDone && isCurrent && !isAwaitingOutcome) {
-          stuckRow.innerHTML = '<div class="stuck-line">Stuck on this step? <button class="stuck-link" id="stuckHelpBtn" type="button">Submit a ticket</button> &mdash; we respond within 1 hour.</div>';
+        if (!isDone && isCurrent) {
+          stuckRow.innerHTML = '<div class="stuck-line">Need help? <button class="stuck-link" id="stuckHelpBtn" type="button">Submit a ticket</button> &mdash; we respond within 1 hour.</div>';
         } else {
           stuckRow.innerHTML = '';
         }
@@ -3064,7 +3083,7 @@
       var headerActions = document.getElementById('stepHeaderActions');
       if (headerActions) {
         var hdrHtml = '';
-        if (!isAwaitingOutcome || !isDone) {
+        if (!isAwaitingOutcome) {
           if (hasPrev) {
             hdrHtml += `<button class="btn-ghost" id="headerPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
           }
