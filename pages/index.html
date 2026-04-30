@@ -862,7 +862,7 @@
 
   <script>
     // Visa step hidden from the v1 user flow — see docs/deferred-visa-application.md
-    const TOTAL_STEPS = 6;
+    const TOTAL_STEPS = 5;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
@@ -1258,9 +1258,8 @@
 
       // Visa step deferred from v1 flow — see docs/deferred-visa-application.md
       const pbsDone = false;
-      const commencementDone = false;
 
-      const completedSteps = [careerSecured, epicDone, amcDone, ahpraDone, pbsDone, commencementDone].filter(Boolean).length;
+      const completedSteps = [careerSecured, epicDone, amcDone, ahpraDone, pbsDone].filter(Boolean).length;
       const progressPercent = Math.max(3, (completedSteps * 100) / TOTAL_STEPS);
 
       let currentRoute = "myinthealth.html";
@@ -1275,7 +1274,7 @@
         epicDone, epicCurrentLabel,
         amcDone, amcCurrentLabel,
         careerSecured, ahpraDone,
-        pbsDone, commencementDone,
+        pbsDone,
         docsDone, preparedUploaded, institutionRequested, supervisedReady,
         completedSteps, progressPercent,
         currentRoute, currentTitle, currentSub
@@ -1329,8 +1328,7 @@
       const allSteps = [
         !snap.careerSecured ? { key: "career", title: "Your Practice", sub: "View your placement", detail: "View your secured practice placement details, contact information, and area lifestyle information.", done: false, locked: false, href: "career.html" } : null,
         { key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
-        { key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" },
-        { key: "commencement", title: "Commencement", sub: snap.commencementDone ? "Ready to start" : "Pre-arrival checklist", detail: "Complete your pre-arrival checklist: travel, accommodation, medical indemnity, bank account, TFN, and practice orientation.", done: snap.commencementDone, locked: !bypassAll && !snap.pbsDone, href: "commencement.html" }
+        { key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" }
       ];
       const steps = allSteps.filter(Boolean).map((s, i) => ({ ...s, num: i + 1 }));
 
@@ -1484,15 +1482,6 @@
           locked: !bypassAll && !snap.ahpraDone,
           done: snap.pbsDone,
           href: "pbs.html"
-        }),
-        buildRegistrationRow("commencement", {
-          title: "6. Commencement",
-          sub: "Pre-arrival checklist and first-day preparation.",
-          mobileDetail: "Everything to prepare before your start date.",
-          mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
-          locked: !bypassAll && !snap.pbsDone,
-          done: snap.commencementDone,
-          href: "commencement.html"
         })
       ];
     }

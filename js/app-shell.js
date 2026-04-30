@@ -452,15 +452,6 @@
         done: false,
         href: "/pages/pbs.html"
       }),
-      buildRegistrationRow("commencement", {
-        title: "6. Commencement",
-        sub: "Pre-arrival checklist and first-day preparation.",
-        mobileDetail: "Everything to prepare before your start date.",
-        mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
-        locked: !bypassLocks && !snap.ahpraDone,
-        done: false,
-        href: "/pages/commencement.html"
-      })
     ];
   }
 
