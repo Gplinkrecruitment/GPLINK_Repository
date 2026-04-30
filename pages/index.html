@@ -953,10 +953,58 @@
             profile = data && data.profile ? data.profile : null;
           }
         }
-        return {
-          firstName: profile && typeof profile.firstName === "string" ? profile.firstName.trim() : "",
-          lastName: profile && typeof profile.lastName === "string" ? profile.lastName.trim() : ""
-        };
+        var firstName = profile && typeof profile.firstName === "string" ? profile.firstName.trim() : "";
+        var lastName = profile && typeof profile.lastName === "string" ? profile.lastName.trim() : "";
+
+        // Fallback: check profile cache in sessionStorage then localStorage
+        if (!firstName) {
+          try {
+            var cached = JSON.parse((sessionStorage.getItem("gp_session_profile_cache") || localStorage.getItem("gp_session_profile_cache")) || "null");
+            if (cached) {
+              if (!firstName && cached.firstName) firstName = String(cached.firstName).trim();
+              if (!lastName && cached.lastName) lastName = String(cached.lastName).trim();
+            }
+          } catch (e) {}
+        }
+
+        // Fallback: check account profile cache
+        if (!firstName) {
+          try {
+            var profCache = JSON.parse((sessionStorage.getItem("gp_profile_cache") || localStorage.getItem("gp_profile_cache")) || "null");
+            if (profCache) {
+              if (!firstName && profCache.firstName) firstName = String(profCache.firstName).trim();
+              if (!lastName && profCache.lastName) lastName = String(profCache.lastName).trim();
+            }
+          } catch (e) {}
+        }
+
+        // Fallback: check onboarding state for name fields
+        if (!firstName) {
+          try {
+            var onb = JSON.parse(localStorage.getItem("gp_onboarding") || "null");
+            if (onb) {
+              if (!firstName && onb.firstName) firstName = String(onb.firstName).trim();
+              if (!lastName && onb.lastName) lastName = String(onb.lastName).trim();
+            }
+          } catch (e) {}
+        }
+
+        // Fallback: fetch from profile API
+        if (!firstName) {
+          try {
+            var profResp = await fetch("/api/profile", { credentials: "same-origin" });
+            if (profResp.ok) {
+              var profData = await profResp.json();
+              var p = profData && profData.profile ? profData.profile : profData;
+              if (p) {
+                if (!firstName && (p.firstName || p.first_name)) firstName = String(p.firstName || p.first_name).trim();
+                if (!lastName && (p.lastName || p.last_name)) lastName = String(p.lastName || p.last_name).trim();
+              }
+            }
+          } catch (e) {}
+        }
+
+        return { firstName, lastName };
       } catch (err) {
         return { firstName: "", lastName: "" };
       }
