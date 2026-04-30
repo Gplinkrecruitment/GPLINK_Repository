@@ -965,7 +965,7 @@
     function applyIntroTitle() {
       const titleEl = document.getElementById("intro-title-mobile");
       if (titleEl) {
-        titleEl.textContent = sessionFirstName ? `Good morning, Dr ${sessionFirstName}` : "Welcome Back";
+        titleEl.textContent = sessionFirstName ? `Welcome Back, Dr ${sessionFirstName}` : "Welcome Back";
       }
       const avatarEl = document.getElementById("headerAvatarMobile");
       if (avatarEl && sessionFirstName) {
@@ -973,7 +973,7 @@
       }
       var subtitleEl = document.getElementById("headerSubtitleMobile");
       if (subtitleEl) {
-        var pathway = "Standard Pathway";
+        var pathway = "Expedited Specialist Pathway";
         try {
           var stored = localStorage.getItem("gp_registration_pathway");
           if (stored) {
