@@ -4880,8 +4880,9 @@ function resolveNudgeTemplate(stage, substage) {
 function buildWhatsAppLink(stageLabel, gpFirstName, gpPhone) {
   // If GP phone is available, link to DoubleTick conversation
   if (gpPhone) {
-    const normalized = normalizePhone(gpPhone).replace(/[^\d]/g, '');
-    if (normalized) return 'https://app.doubletick.io/chat/' + normalized;
+    const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+    const toNumber = normalizePhone(gpPhone).replace(/[^\d]/g, '');
+    if (fromNumber && toNumber) return 'https://web.doubletick.io/conversations/' + fromNumber + '/' + toNumber;
   }
   // Fallback to wa.me link to Hazel's number
   const nameBit = gpFirstName ? (', I\'m ' + gpFirstName) : '';
