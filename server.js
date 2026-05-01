@@ -5896,7 +5896,7 @@ async function getCachedAdminDashboardData() {
 
 async function collectAdminDashboardData() {
   if (isSupabaseDbConfigured()) {
-    const [profilesResult, statesResult, rolesResult, applicationsResult] = await Promise.all([
+    const [profilesResult, statesResult, rolesResult, applicationsResult, userRolesResult] = await Promise.all([
       supabaseDbRequest(
         'user_profiles',
         'select=user_id,email,first_name,last_name,phone,registration_country,created_at,updated_at'
@@ -5912,6 +5912,10 @@ async function collectAdminDashboardData() {
       supabaseDbRequest(
         'gp_applications',
         'select=status,applied_at,updated_at,career_role_id'
+      ),
+      supabaseDbRequest(
+        'user_roles',
+        'select=user_id,role&role=in.(admin,super_admin)'
       )
     ]);
 
@@ -5932,6 +5936,21 @@ async function collectAdminDashboardData() {
         }
       }
 
+      // Build set of admin/VA user IDs to exclude from GP list
+      const adminUserIds = new Set();
+      if (userRolesResult.ok && Array.isArray(userRolesResult.data)) {
+        for (const ur of userRolesResult.data) {
+          if (ur && ur.user_id) adminUserIds.add(ur.user_id);
+        }
+      }
+      // Also exclude users whose email is in ADMIN_EMAILS or SUPER_ADMIN_EMAILS env vars
+      for (const [uid, prof] of profileByUserId) {
+        var profEmail = String(prof.email || '').trim().toLowerCase();
+        if (ADMIN_EMAILS.has(profEmail) || SUPER_ADMIN_EMAILS.has(profEmail)) {
+          adminUserIds.add(uid);
+        }
+      }
+
       const userIds = new Set([
         ...profileByUserId.keys(),
         ...stateByUserId.keys()
@@ -5943,6 +5962,7 @@ async function collectAdminDashboardData() {
         const staleThresholdMs = 5 * 24 * 60 * 60 * 1000;
 
         for (const userId of userIds) {
+          if (adminUserIds.has(userId)) continue;
           const profile = profileByUserId.get(userId) || {};
           const stateRow = stateByUserId.get(userId) || {};
           const email = typeof profile.email === 'string' ? profile.email : '';
