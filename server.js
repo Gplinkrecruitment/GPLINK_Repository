@@ -17461,6 +17461,8 @@ async function handleApi(req, res, pathname) {
       ok: !!syncResult.ok,
       syncedAt: syncResult.syncedAt || null,
       syncedRoleCount: syncResult.syncedRoleCount || 0,
+      applicationsDiscovered: syncResult.applicationsDiscovered || 0,
+      applicationsSynced: syncResult.applicationsSynced || 0,
       message: syncResult.message || '',
       connection: syncResult.connected || null
     });

@@ -732,7 +732,7 @@
         <div class="hero-greeting-left">
           <div class="hero-avatar" id="headerAvatarMobile">GP</div>
           <div>
-            <div class="hero-name" id="intro-title-mobile">Welcome Back</div>
+            <div class="hero-name" id="intro-title-mobile">Welcome</div>
             <div class="hero-pathway" id="headerSubtitleMobile">Standard Pathway</div>
           </div>
         </div>
@@ -1026,11 +1026,34 @@
       }
     }
 
+    function isReturningUser() {
+      // User is "returning" if they have any registration progress or career state beyond initial
+      try {
+        var epic = localStorage.getItem("gp_epic_progress");
+        if (epic && epic !== "{}" && epic !== "null") return true;
+        var career = localStorage.getItem("gp_career_state");
+        if (career) {
+          var c = JSON.parse(career);
+          if (c && (c.career_secured || (Array.isArray(c.applications) && c.applications.length > 0))) return true;
+        }
+        // Check if user has visited the dashboard before
+        if (sessionStorage.getItem("gp_dashboard_visited")) return true;
+      } catch (e) {}
+      return false;
+    }
+
     function applyIntroTitle() {
       const titleEl = document.getElementById("intro-title-mobile");
       if (titleEl) {
-        titleEl.textContent = sessionFirstName ? `Welcome Back, Dr ${sessionFirstName}` : "Welcome Back";
+        var returning = isReturningUser();
+        if (returning) {
+          titleEl.textContent = sessionFirstName ? `Welcome Back, Dr ${sessionFirstName}` : "Welcome Back";
+        } else {
+          titleEl.textContent = sessionFirstName ? `Welcome, Dr ${sessionFirstName}` : "Welcome";
+        }
       }
+      // Mark dashboard as visited for future loads
+      try { sessionStorage.setItem("gp_dashboard_visited", "1"); } catch (e) {}
       const avatarEl = document.getElementById("headerAvatarMobile");
       if (avatarEl && sessionFirstName) {
         avatarEl.textContent = sessionFirstName.charAt(0).toUpperCase();
