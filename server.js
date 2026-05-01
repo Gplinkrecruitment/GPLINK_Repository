@@ -9615,12 +9615,17 @@ async function syncZohoRecruitRoles() {
 async function discoverUnlinkedZohoApplications(zoho) {
   if (!isSupabaseDbConfigured() || !zoho || !zoho.accessToken) return 0;
 
-  // Build a map of provider_role_id → career_role for quick lookup
-  var rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id&provider=eq.zoho_recruit');
+  // Build maps for quick lookup by provider_role_id and practice_name
+  var rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id,practice_name&provider=eq.zoho_recruit');
   var roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
   var rolesByProviderId = {};
+  var rolesByPracticeName = {};
   for (var ri = 0; ri < roles.length; ri++) {
     if (roles[ri].provider_role_id) rolesByProviderId[roles[ri].provider_role_id] = roles[ri];
+    if (roles[ri].practice_name) {
+      var pnKey = roles[ri].practice_name.toLowerCase();
+      if (!rolesByPracticeName[pnKey]) rolesByPracticeName[pnKey] = roles[ri];
+    }
   }
 
   // Get all GP users (non-admin) who don't already have a gp_applications row
@@ -9659,6 +9664,25 @@ async function discoverUnlinkedZohoApplications(zoho) {
       // Find the matching career_role via job opening ID
       var jobOpeningId = getZohoApplicationJobOpeningId(zohoApp);
       var matchedRole = jobOpeningId ? rolesByProviderId[jobOpeningId] : null;
+
+      // Fallback: if search result doesn't include job opening lookup, fetch the full record
+      if (!matchedRole && zohoAppId) {
+        var fullRecord = await fetchZohoRecruitApplicationRecord(zoho, zohoAppId);
+        if (fullRecord) {
+          jobOpeningId = getZohoApplicationJobOpeningId(fullRecord);
+          matchedRole = jobOpeningId ? rolesByProviderId[jobOpeningId] : null;
+        }
+      }
+
+      // Fallback: match by practice name from Posting_Title or Job_Opening_Name
+      if (!matchedRole) {
+        var practiceName = getZohoField(zohoApp, ['Posting_Title', 'Job_Opening_Name']);
+        if (practiceName) {
+          matchedRole = rolesByPracticeName[practiceName.toLowerCase()] || null;
+          if (matchedRole) console.log('[ZohoRecruit reverse-sync] Matched by practice name:', practiceName, '→ role', matchedRole.id);
+        }
+      }
+
       if (!matchedRole) {
         console.log('[ZohoRecruit reverse-sync] No career_role for job opening', jobOpeningId, '— skipping application', zohoAppId);
         continue;
