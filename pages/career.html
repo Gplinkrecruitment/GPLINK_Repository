@@ -6440,7 +6440,8 @@
           </a>
 
           <div class="placement-primary-grid">
-            <section class="practice-lifestyle-module" aria-labelledby="practiceLifestyleHeading">
+            <!-- Lifestyle Planning: vaulted for later release -->
+            <section class="practice-lifestyle-module" aria-labelledby="practiceLifestyleHeading" style="display:none;">
               <div class="practice-lifestyle-head">
                 <span class="detail-label">Lifestyle planning</span>
                 <h3 class="card-title" id="practiceLifestyleHeading">Life Around This Practice</h3>
@@ -6453,18 +6454,18 @@
               <div class="placement-card-head">
                 <div>
                   <span class="detail-label">Your GP broker</span>
-                  <h3 class="card-title" id="securedBrokerName">Khaleed</h3>
+                  <h3 class="card-title" id="securedBrokerName">Hazel Ramirez</h3>
                   <p class="application-sub" id="securedBrokerRole">Your GP Link placement agent</p>
                 </div>
                 <span class="placement-broker-presence" id="securedBrokerPresence">Last active 2 days ago</span>
               </div>
               <div class="placement-broker-profile">
-                <div class="placement-broker-avatar" id="securedBrokerInitials">KH</div>
+                <div class="placement-broker-avatar" id="securedBrokerInitials">HR</div>
                 <p class="role-summary" id="securedBrokerNote">I’ll coordinate registration timing, contract questions and your relocation handover with the practice.</p>
               </div>
               <div class="placement-broker-actions">
                 <a class="placement-contact-btn" id="securedBrokerCallLink" href="tel:+61432555018">Call</a>
-                <a class="placement-contact-btn" id="securedBrokerEmailLink" href="mailto:khaleed@gplink.com.au">Email</a>
+                <a class="placement-contact-btn" id="securedBrokerEmailLink" href="mailto:hazel@mygplink.com.au">Email</a>
                 <a class="placement-contact-btn placement-contact-btn-whatsapp" id="securedBrokerWhatsAppLink" href="https://wa.me/61432555018" target="_blank" rel="noreferrer">WhatsApp</a>
               </div>
             </article>
@@ -6510,9 +6511,9 @@
     <aside class="placement-dock" id="placementDock" aria-label="Placement contact">
       <div class="placement-dock-card">
         <div class="placement-dock-copy">
-          <div class="placement-dock-avatar" id="placementDockInitials">KH</div>
+          <div class="placement-dock-avatar" id="placementDockInitials">HR</div>
           <div class="placement-dock-text">
-            <strong id="placementDockTitle">Khaleed — Your GP Link Agent</strong>
+            <strong id="placementDockTitle">Hazel Ramirez — Your GP Link Agent</strong>
             <span id="placementDockStatus">Online now</span>
           </div>
         </div>
@@ -6743,15 +6744,15 @@
         whatsapp: "+61400000000"
       },
       broker: {
-        name: "Khaleed",
-        initials: "KH",
+        name: "Hazel Ramirez",
+        initials: "HR",
         role: "Your GP Link placement agent",
         presence: "Last active 2 days ago",
         note: "I’ll coordinate registration timing, contract questions and your relocation handover with the practice.",
         phone: "+61 432 555 018",
-        email: "khaleed@gplink.com.au",
+        email: "hazel@mygplink.com.au",
         whatsapp: "+61432555018",
-        dockTitle: "Khaleed — Your GP Link Agent",
+        dockTitle: "Hazel Ramirez — Your GP Link Agent",
         dockStatus: "Online now"
       },
         compensation: {
@@ -10651,6 +10652,9 @@
     });
 
     window.addEventListener("gp-state-hydrated", () => {
+      // If we already have concrete placement data from the API, don't let state-sync
+      // overwrite it with potentially stale/empty localStorage data
+      if (hasConcreteSecuredPlacementData()) return;
       careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
       syncCareerViewFromLocation();
       renderPage();
