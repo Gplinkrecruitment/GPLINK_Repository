@@ -861,6 +861,10 @@
   </div>
 
   <script>
+    // Redirect new users to onboarding if they haven't completed setup
+    if (localStorage.getItem("gp_onboarding_complete") !== "true") {
+      window.location.replace("onboarding.html");
+    }
     // Visa step hidden from the v1 user flow — see docs/deferred-visa-application.md
     const TOTAL_STEPS = 5;
     const EPIC_KEY = "gp_epic_progress";
