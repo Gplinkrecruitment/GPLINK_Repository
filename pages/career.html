@@ -5373,7 +5373,8 @@
     body.career-mode-secured .secured-grid {
       max-width: 480px;
       margin: 0 auto;
-      gap: 16px;
+      gap: 20px;
+      padding: 0 12px;
     }
 
     body.career-mode-secured .placement-hero-card,
@@ -5494,33 +5495,35 @@
     }
 
     body.career-mode-secured .placement-quick-stats {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
     }
 
     body.career-mode-secured .placement-stat-card {
-      padding: 12px 10px;
-      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-      border: 0;
+      padding: 14px 14px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.10);
       border-radius: 14px;
-      box-shadow: 0 14px 22px -18px rgba(37, 99, 235, 0.92);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-      transform: translateY(-2px);
+      box-shadow: none;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transform: none;
     }
 
     body.career-mode-secured .placement-stat-value {
-      font-size: 18px;
+      font-size: 17px;
       color: #fff;
+      font-weight: 800;
     }
 
     body.career-mode-secured .placement-stat-label {
       display: block;
-      font-size: 10px;
+      font-size: 11px;
       letter-spacing: 0;
-      line-height: 1.2;
+      line-height: 1.3;
       text-transform: none;
-      color: rgba(226, 232, 240, 0.82);
+      color: rgba(148, 163, 184, 0.9);
+      margin-top: 4px;
     }
 
     body.career-mode-secured .placement-primary-grid,
@@ -5532,70 +5535,78 @@
     body.career-mode-secured .placement-income-float {
       display: grid;
       justify-items: center;
-      padding: 2px 4px 6px;
-      color: var(--text);
+      padding: 16px 14px;
+      color: #fff;
       text-align: center;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
     }
 
     body.career-mode-secured .placement-income-label {
       display: block;
-      color: #1d4ed8;
-      font-size: 9px;
-      font-weight: 800;
-      letter-spacing: 0.14em;
+      color: rgba(148, 163, 184, 0.9);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
     }
 
     body.career-mode-secured .placement-income-line {
       display: flex;
       align-items: flex-end;
-      gap: 6px;
+      gap: 8px;
       flex-wrap: wrap;
       justify-content: center;
     }
 
     body.career-mode-secured .placement-income-value {
       margin: 0;
-      font-size: 34px;
+      font-size: 32px;
       line-height: 0.94;
-      letter-spacing: -0.06em;
+      letter-spacing: -0.05em;
       font-weight: 800;
-      color: #0f172a;
-      text-shadow: 0 14px 22px rgba(15, 23, 42, 0.16), 0 8px 18px rgba(37, 99, 235, 0.1);
+      color: #fff;
+      text-shadow: none;
     }
 
     body.career-mode-secured .placement-income-unit {
-      color: #334155;
-      font-size: 11px;
+      color: rgba(148, 163, 184, 0.8);
+      font-size: 12px;
       font-weight: 700;
-      padding-bottom: 4px;
+      padding-bottom: 3px;
     }
 
     body.career-mode-secured .placement-practice-contact-card {
-      padding: 16px;
-      gap: 12px;
-      background: #101b28;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
+      padding: 18px;
+      gap: 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 16px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
 
     body.career-mode-secured .placement-practice-contact-kicker {
-      color: rgba(191, 219, 254, 0.48);
-      font-size: 9px;
+      color: rgba(148, 163, 184, 0.7);
+      font-size: 10px;
+      letter-spacing: 0.06em;
     }
 
     body.career-mode-secured .placement-practice-contact-name {
-      font-size: 25px;
+      font-size: 22px;
+      color: #fff;
     }
 
     body.career-mode-secured .placement-practice-contact-role {
       font-size: 12px;
+      color: rgba(148, 163, 184, 0.9);
     }
 
     body.career-mode-secured .placement-practice-contact-meta {
-      font-size: 10px;
+      font-size: 11px;
+      color: rgba(148, 163, 184, 0.6);
     }
 
     body.career-mode-secured .placement-story-card {
