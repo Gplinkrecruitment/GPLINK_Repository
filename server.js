@@ -17460,7 +17460,13 @@ async function handleApi(req, res, pathname) {
         jobOpeningId: getZohoApplicationJobOpeningId(a),
         email: getZohoField(a, ['Email', 'Candidate_Email', 'email']),
         candidateId: getZohoLookupId(a, ['Candidate_Id', 'Candidate']),
-        rawKeys: Object.keys(a).slice(0, 20)
+        rawKeys: Object.keys(a).slice(0, 30),
+        postingTitle: a.Posting_Title || a.posting_title || '',
+        jobOpening: a.Job_Opening || a.job_opening || '',
+        jobOpeningName: a.Job_Opening_Name || '',
+        clientName: a.Client_Name || '',
+        applicationId: a.Application_ID || '',
+        candidateIdField: a['$Candidate_Id'] || a.Candidate_Id || a.Candidate || ''
       };
     });
     var rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id&provider=eq.zoho_recruit');
