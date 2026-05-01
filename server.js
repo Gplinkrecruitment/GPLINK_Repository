@@ -9623,10 +9623,10 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
           practiceContacts,
           providerRoleId: app.provider_role_id,
           profile
-        }).catch(() => null);
+        }).catch(function (e) { console.error('[ZohoRecruit sync] buildCareerPlacementPayload failed for user', app.user_id, ':', e && e.message); return null; });
 
-        // Update gp_career_state
-        if (placement) {
+        // Update gp_career_state (proceed even without full placement so task automation fires)
+        if (placement || nowSecured) {
           const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
           const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
             ? stateResult.data[0].state : {};
@@ -13596,7 +13596,7 @@ async function buildCareerPlacementPayload({
     || 'Medical Centre';
   const roleTitle = derivePlacementRoleTitle(roleRow, jobOpeningRecord, practiceName);
   const location = getZohoPlacementLocation(jobOpeningRecord, roleRow);
-  const contractTerms = applicationRecord ? await resolveCareerContractTerms(zoho, sanitizeZohoText(applicationRecord.id)) : null;
+  const contractTerms = applicationRecord ? await resolveCareerContractTerms(zoho, sanitizeZohoText(applicationRecord.id)).catch(function (e) { console.error('[buildPlacement] contractTerms failed:', e && e.message); return null; }) : null;
   const fallbackTerms = extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow);
   const billingLabel = normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
     || normalizeCareerBillingLabel(roleRow && roleRow.billing_model)
@@ -13618,7 +13618,7 @@ async function buildCareerPlacementPayload({
     location,
     roleRow,
     profile
-  });
+  }).catch(function (e) { console.error('[buildPlacement] lifestyle failed:', e && e.message); return null; });
 
   return {
     practiceName,
