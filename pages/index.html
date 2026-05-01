@@ -862,9 +862,21 @@
 
   <script>
     // Redirect new users to onboarding if they haven't completed setup
-    if (localStorage.getItem("gp_onboarding_complete") !== "true") {
-      window.location.replace("onboarding.html");
-    }
+    (function checkOnboarding() {
+      if (localStorage.getItem("gp_onboarding_complete") === "true") return;
+      // localStorage may not be hydrated yet — check server before redirecting
+      fetch("/api/state", { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var s = d && d.state && typeof d.state === 'object' ? d.state : {};
+          if (s.gp_onboarding_complete) {
+            localStorage.setItem("gp_onboarding_complete", "true");
+          } else {
+            window.location.replace("onboarding.html");
+          }
+        })
+        .catch(function () {});
+    })();
     // Visa step hidden from the v1 user flow — see docs/deferred-visa-application.md
     const TOTAL_STEPS = 5;
     const EPIC_KEY = "gp_epic_progress";

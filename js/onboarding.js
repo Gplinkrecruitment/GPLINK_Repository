@@ -1310,6 +1310,7 @@
         credentials: "same-origin",
         body: JSON.stringify({ gp_onboarding_complete: true, gp_selected_country: (COUNTRIES.find((c) => c.code === state.country) || {}).name || state.country }),
       });
+      localStorage.setItem("gp_onboarding_complete", "true");
     } catch (e) { /* ignore */ }
 
     loadingOverlay.classList.remove("show");
