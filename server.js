@@ -9835,6 +9835,16 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
             apps[appIdx].status = liveStatus;
             apps[appIdx].isPlacementSecured = true;
             apps[appIdx].placement = placement;
+          } else {
+            // Application not in careerState yet (e.g. discovered via reverse sync) — add it
+            apps.push({
+              id: String(app.id),
+              zohoApplicationId: app.zoho_application_id || '',
+              status: liveStatus,
+              isPlacementSecured: true,
+              placement: placement,
+              provider_role_id: app.provider_role_id || ''
+            });
           }
           careerState.applications = apps;
           careerState.career_secured = apps.some(a => a && a.isPlacementSecured);
