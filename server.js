@@ -9612,10 +9612,10 @@ async function syncZohoRecruitRoles() {
 async function discoverUnlinkedZohoApplications(zoho) {
   if (!isSupabaseDbConfigured() || !zoho || !zoho.accessToken) return 0;
 
-  // Get all career_roles (job openings) synced from Zoho
+  // Get ALL career_roles (including inactive — filled positions still need application discovery)
   const rolesResult = await supabaseDbRequest(
     'career_roles',
-    'select=id,provider_role_id&provider=eq.zoho_recruit&is_active=eq.true'
+    'select=id,provider_role_id&provider=eq.zoho_recruit'
   );
   const roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
   if (!roles.length) return 0;
