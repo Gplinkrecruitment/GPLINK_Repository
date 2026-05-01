@@ -554,6 +554,7 @@ async function getOpenPracticePackTasks() {
     var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(t.case_id) + '&limit=1');
     if (!caseRes.ok || !caseRes.data || !caseRes.data[0]) continue;
     var userId = caseRes.data[0].user_id;
+    if (await isAdminOrVAUser(userId)) continue;
 
     var profileRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     var profile = (profileRes.ok && profileRes.data && profileRes.data[0]) ? profileRes.data[0] : {};
@@ -595,8 +596,10 @@ async function getPlacedGPsForTriage() {
   var statesRes = await supabaseDbRequest('user_state',
     'select=user_id,state&key=eq.gp_career_state');
   if (!statesRes.ok || !Array.isArray(statesRes.data)) return [];
+  var adminIds = await getAdminUserIdSet();
   var placed = [];
   for (var row of statesRes.data) {
+    if (adminIds.has(row.user_id)) continue;
     var state = row.state;
     if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = {}; } }
     if (!state) continue;
@@ -4705,6 +4708,49 @@ function _deriveStageFromState(state) {
   return 'visa';
 }
 
+// ── Admin/VA user detection (cached) ──
+// Returns a Set of user_ids that are admin/VA (not GPs). Cached for 2 minutes.
+var _adminUserIdsCache = { set: null, expiresAt: 0 };
+async function getAdminUserIdSet() {
+  var now = Date.now();
+  if (_adminUserIdsCache.set && _adminUserIdsCache.expiresAt > now) {
+    return _adminUserIdsCache.set;
+  }
+  var ids = new Set();
+  if (isSupabaseDbConfigured()) {
+    var rolesRes = await supabaseDbRequest('user_roles', 'select=user_id&role=in.(admin,super_admin)');
+    if (rolesRes.ok && Array.isArray(rolesRes.data)) {
+      for (var ri = 0; ri < rolesRes.data.length; ri++) {
+        if (rolesRes.data[ri] && rolesRes.data[ri].user_id) ids.add(rolesRes.data[ri].user_id);
+      }
+    }
+    // Also match by email against env-based admin lists
+    if (ADMIN_EMAILS.size > 0 || SUPER_ADMIN_EMAILS.size > 0) {
+      var allEmails = new Set([...ADMIN_EMAILS, ...SUPER_ADMIN_EMAILS]);
+      var profileRes = await supabaseDbRequest('user_profiles', 'select=user_id,email');
+      if (profileRes.ok && Array.isArray(profileRes.data)) {
+        for (var pi = 0; pi < profileRes.data.length; pi++) {
+          var pe = String(profileRes.data[pi].email || '').trim().toLowerCase();
+          if (allEmails.has(pe)) ids.add(profileRes.data[pi].user_id);
+        }
+      }
+    }
+  }
+  _adminUserIdsCache.set = ids;
+  _adminUserIdsCache.expiresAt = now + 120000;
+  return ids;
+}
+
+function invalidateAdminUserIdCache() {
+  _adminUserIdsCache.set = null;
+  _adminUserIdsCache.expiresAt = 0;
+}
+
+async function isAdminOrVAUser(userId) {
+  var ids = await getAdminUserIdSet();
+  return ids.has(userId);
+}
+
 async function _ensureRegCase(userId) {
   if (!isSupabaseDbConfigured()) return null;
   const q = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
@@ -5075,6 +5121,7 @@ async function getUserQualificationSnapshot(userId, country) {
 
 async function processRegistrationTaskAutomation(userId, email, prevState, nextState) {
   if (!isSupabaseDbConfigured()) return;
+  if (await isAdminOrVAUser(userId)) { console.log('[task-automation] Skipping admin/VA user:', userId); return; }
   try {
     console.log('[task-automation] START for user:', userId, 'email:', email);
     const regCase = await _ensureRegCase(userId);
@@ -5896,7 +5943,7 @@ async function getCachedAdminDashboardData() {
 
 async function collectAdminDashboardData() {
   if (isSupabaseDbConfigured()) {
-    const [profilesResult, statesResult, rolesResult, applicationsResult, userRolesResult] = await Promise.all([
+    const [profilesResult, statesResult, rolesResult, applicationsResult] = await Promise.all([
       supabaseDbRequest(
         'user_profiles',
         'select=user_id,email,first_name,last_name,phone,registration_country,created_at,updated_at'
@@ -5912,10 +5959,6 @@ async function collectAdminDashboardData() {
       supabaseDbRequest(
         'gp_applications',
         'select=status,applied_at,updated_at,career_role_id'
-      ),
-      supabaseDbRequest(
-        'user_roles',
-        'select=user_id,role&role=in.(admin,super_admin)'
       )
     ]);
 
@@ -5936,20 +5979,8 @@ async function collectAdminDashboardData() {
         }
       }
 
-      // Build set of admin/VA user IDs to exclude from GP list
-      const adminUserIds = new Set();
-      if (userRolesResult.ok && Array.isArray(userRolesResult.data)) {
-        for (const ur of userRolesResult.data) {
-          if (ur && ur.user_id) adminUserIds.add(ur.user_id);
-        }
-      }
-      // Also exclude users whose email is in ADMIN_EMAILS or SUPER_ADMIN_EMAILS env vars
-      for (const [uid, prof] of profileByUserId) {
-        var profEmail = String(prof.email || '').trim().toLowerCase();
-        if (ADMIN_EMAILS.has(profEmail) || SUPER_ADMIN_EMAILS.has(profEmail)) {
-          adminUserIds.add(uid);
-        }
-      }
+      // Use shared admin user ID cache to exclude admin/VA from GP list
+      const adminUserIds = await getAdminUserIdSet();
 
       const userIds = new Set([
         ...profileByUserId.keys(),
@@ -9642,13 +9673,14 @@ async function discoverUnlinkedZohoApplications(zoho) {
       }
       if (!candidateEmail) continue;
 
-      // Match to an existing app user
+      // Match to an existing app user (skip admin/VA accounts)
       var matchedUserResult = await supabaseDbRequest(
         'user_profiles',
         'select=user_id,zoho_candidate_id&email=eq.' + encodeURIComponent(candidateEmail) + '&limit=1'
       );
       if (!matchedUserResult.ok || !Array.isArray(matchedUserResult.data) || !matchedUserResult.data[0]) continue;
       var matchedUser = matchedUserResult.data[0];
+      if (await isAdminOrVAUser(matchedUser.user_id)) continue;
 
       // Check if this user already has an application for this role (avoid duplicates)
       var existingApp = await supabaseDbRequest(
@@ -15337,6 +15369,7 @@ async function handleApi(req, res, pathname) {
           if (_signupUserId) {
             (async function () {
               try {
+                if (await isAdminOrVAUser(_signupUserId)) return;
                 const zoho = await getZohoRecruitAccessTokenAndDomain();
                 if (!zoho) return;
                 const apps = await searchZohoRecruitApplicationsByEmail(zoho, email);
