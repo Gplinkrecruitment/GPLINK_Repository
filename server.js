@@ -14730,21 +14730,38 @@ async function ensureSupabaseUserProfile(supaUser) {
   const email = String(supaUser && supaUser.email ? supaUser.email : '').trim().toLowerCase();
   if (!supabaseUserId || !email) return;
 
-  // Check if row already exists
-  const existing = await supabaseDbRequest(
-    'user_profiles',
-    `select=user_id&user_id=eq.${encodeURIComponent(supabaseUserId)}&limit=1`
-  );
-  if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) return;
-
   const meta = supaUser && typeof supaUser.user_metadata === 'object' && supaUser.user_metadata
     ? supaUser.user_metadata
     : {};
+  const firstName = String(meta.firstName || meta.given_name || '').trim();
+  const lastName = String(meta.lastName || meta.family_name || '').trim();
+
+  // Check if row already exists (may be created by DB trigger with empty names)
+  const existing = await supabaseDbRequest(
+    'user_profiles',
+    `select=user_id,first_name,last_name&user_id=eq.${encodeURIComponent(supabaseUserId)}&limit=1`
+  );
+  if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) {
+    // Row exists — update name if signup provided one and profile is still blank
+    var existingRow = existing.data[0];
+    if ((firstName || lastName) && !existingRow.first_name && !existingRow.last_name) {
+      var patch = { updated_at: new Date().toISOString() };
+      if (firstName) patch.first_name = firstName;
+      if (lastName) patch.last_name = lastName;
+      await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(supabaseUserId), {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: patch
+      });
+    }
+    return;
+  }
+
   const payload = {
     user_id: supabaseUserId,
     email,
-    first_name: String(meta.firstName || meta.given_name || '').trim(),
-    last_name: String(meta.lastName || meta.family_name || '').trim(),
+    first_name: firstName,
+    last_name: lastName,
     country_dial: String(meta.countryDial || '').trim(),
     phone_number: String(meta.phoneNumber || '').trim(),
     registration_country: String(meta.registrationCountry || '').trim(),
