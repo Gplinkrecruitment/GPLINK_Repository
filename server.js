@@ -17138,6 +17138,65 @@ async function handleApi(req, res, pathname) {
   }
 
   // Admin: initialize Gmail watch for monitored VA emails
+  // ── Purge all GP user accounts (preserves admin accounts) ──
+  if (req.method === 'POST' && pathname === '/api/admin/purge-all-users') {
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 503, { ok: false, message: 'Requires Supabase.' });
+      return;
+    }
+    var purgeAdminCtx = requireAdminSession(req, res);
+    if (!purgeAdminCtx) return;
+    // Require super_admin role
+    var purgeAdminEmail = getSessionEmail(purgeAdminCtx.session);
+    if (!SUPER_ADMIN_EMAILS.has(purgeAdminEmail)) {
+      sendJson(res, 403, { ok: false, message: 'Super admin access required.' });
+      return;
+    }
+
+    // Collect admin/super_admin emails to preserve
+    var protectedEmails = new Set([...ADMIN_EMAILS, ...SUPER_ADMIN_EMAILS]);
+
+    // Fetch all user profiles
+    var allProfilesResult = await supabaseDbRequest('user_profiles', 'select=user_id,email');
+    var allProfiles = allProfilesResult.ok && Array.isArray(allProfilesResult.data) ? allProfilesResult.data : [];
+    var deletedCount = 0;
+    var skippedAdmins = [];
+    var errors = [];
+
+    for (var pi = 0; pi < allProfiles.length; pi++) {
+      var p = allProfiles[pi];
+      var pEmail = String(p.email || '').trim().toLowerCase();
+      if (protectedEmails.has(pEmail)) {
+        skippedAdmins.push(pEmail);
+        continue;
+      }
+      // Delete from Supabase Auth (cascades to user_profiles, user_state, user_documents,
+      // registration_cases, registration_tasks, gp_applications, etc.)
+      var delResult = await supabaseAuthAdminRequest('admin/users/' + encodeURIComponent(p.user_id), { method: 'DELETE' });
+      if (delResult.ok || delResult.status === 404) {
+        deletedCount++;
+        console.log('[Purge] Deleted user:', pEmail, '(' + p.user_id + ')');
+      } else {
+        errors.push({ email: pEmail, error: delResult.data && delResult.data.message || 'Unknown error' });
+        console.error('[Purge] Failed to delete', pEmail, ':', delResult.data);
+      }
+    }
+
+    // Clean up non-cascading tables (filter required by PostgREST)
+    await supabaseDbRequest('processed_gmail_messages', 'gmail_message_id=not.is.null', { method: 'DELETE', headers: { Prefer: 'return=minimal' } }).catch(function () {});
+    await supabaseDbRequest('incoming_email_todos', 'id=not.is.null', { method: 'DELETE', headers: { Prefer: 'return=minimal' } }).catch(function () {});
+
+    invalidateAdminDashboardCache();
+
+    sendJson(res, 200, {
+      ok: true,
+      deleted: deletedCount,
+      skippedAdmins: skippedAdmins,
+      errors: errors
+    });
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/api/admin/gmail/setup-watch') {
     var adminGmailAuth = requireAdminSession(req, res);
     if (!adminGmailAuth) return;
