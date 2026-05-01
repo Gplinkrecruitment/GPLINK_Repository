@@ -4831,7 +4831,13 @@ function resolveNudgeTemplate(stage, substage) {
   return NUDGE_TEMPLATES._default;
 }
 
-function buildWhatsAppLink(stageLabel, gpFirstName) {
+function buildWhatsAppLink(stageLabel, gpFirstName, gpPhone) {
+  // If GP phone is available, link to DoubleTick conversation
+  if (gpPhone) {
+    const normalized = normalizePhone(gpPhone).replace(/[^\d]/g, '');
+    if (normalized) return 'https://app.doubletick.io/chat/' + normalized;
+  }
+  // Fallback to wa.me link to Hazel's number
   const nameBit = gpFirstName ? (', I\'m ' + gpFirstName) : '';
   const stageBit = stageLabel ? (' on the ' + stageLabel + ' step') : '';
   const msg = 'Hi Hazel' + nameBit + '.' + stageBit + ' I need some help with my GP Link application.';
@@ -21319,7 +21325,7 @@ Return ONLY valid JSON with no markdown formatting:
         quals_required: qualSnap.required.length,
         quals_approved: qualSnap.approved.length,
         quals_missing: qualSnap.missing.length,
-        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '')
+        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', p.phone || p.phone_number || '')
       });
     }
 
@@ -21348,7 +21354,7 @@ Return ONLY valid JSON with no markdown formatting:
         age_hours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))),
         is_urgent: isUrgent,
         is_overdue: isOverdue,
-        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || ''),
+        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', p.phone || p.phone_number || ''),
         practice_contact: practiceContactMap[c.user_id] || {},
         attachment_url: !!t.attachment_url,
         attachment_filename: t.attachment_filename || '',
@@ -21394,7 +21400,7 @@ Return ONLY valid JSON with no markdown formatting:
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
         gp_phone: p.phone || p.phone_number || '',
-        whatsapp_link: buildWhatsAppLink(tk.stage, p.first_name || '')
+        whatsapp_link: buildWhatsAppLink(tk.stage, p.first_name || '', p.phone || p.phone_number || '')
       });
     });
 
@@ -21519,7 +21525,7 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
         gp_email: p.email || '',
         gp_phone: p.phone_number || p.phone || '',
-        whatsapp_link: buildWhatsAppLink(item.stage, p.first_name || '')
+        whatsapp_link: buildWhatsAppLink(item.stage, p.first_name || '', p.phone_number || p.phone || '')
       });
     });
 
@@ -21556,7 +21562,7 @@ Return ONLY valid JSON with no markdown formatting:
       return Object.assign({}, t, {
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
         gp_email: p.email || '',
-        whatsapp_link: buildWhatsAppLink(t.stage, p.first_name || '')
+        whatsapp_link: buildWhatsAppLink(t.stage, p.first_name || '', p.phone || p.phone_number || '')
       });
     });
     sendJson(res, 200, { ok: true, tickets: enriched });
@@ -21653,9 +21659,10 @@ Return ONLY valid JSON with no markdown formatting:
     const tpl = resolveNudgeTemplate(stage, substage);
     const title = sanitizeUserString(body && body.title, 200) || tpl.title;
     const message = sanitizeUserString(body && body.message, 1200) || tpl.body;
-    const pRes = await supabaseDbRequest('user_profiles', 'select=first_name&user_id=eq.' + encodeURIComponent(targetUserId) + '&limit=1');
-    const firstName = pRes.ok && Array.isArray(pRes.data) && pRes.data[0] ? pRes.data[0].first_name : '';
-    const whatsappLink = buildWhatsAppLink(stage, firstName);
+    const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,phone,phone_number&user_id=eq.' + encodeURIComponent(targetUserId) + '&limit=1');
+    const pRow = pRes.ok && Array.isArray(pRes.data) && pRes.data[0] ? pRes.data[0] : {};
+    const firstName = pRow.first_name || '';
+    const whatsappLink = buildWhatsAppLink(stage, firstName, pRow.phone || pRow.phone_number || '');
 
     // Send WhatsApp nudge via DoubleTick
     const channels = ['in_app'];
