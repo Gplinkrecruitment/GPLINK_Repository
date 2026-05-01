@@ -16,7 +16,7 @@
           "media/**",
           "data/.gitkeep"
         ],
-        "maxDuration": 60
+        "maxDuration": 30
       }
     }
   ],
