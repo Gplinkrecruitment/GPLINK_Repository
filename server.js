@@ -17430,9 +17430,8 @@ async function handleApi(req, res, pathname) {
   }
 
   // Temporary diagnostic endpoint — test reverse sync for a specific email
-  if (pathname === '/api/admin/integrations/zoho-recruit/debug-discover' && req.method === 'GET') {
-    const adminCtx = requireAdminSession(req, res);
-    if (!adminCtx) return;
+  if (pathname === '/api/integrations/zoho-recruit/debug-discover' && req.method === 'GET') {
+    if (!requireZohoRecruitCronAuth(req, res)) return;
     const zoho = await getZohoRecruitAccessTokenAndDomain();
     if (!zoho) { sendJson(res, 502, { ok: false, error: 'No Zoho connection' }); return; }
     var debugEmail = new URL(req.url, 'http://localhost').searchParams.get('email') || 'smithmiller1234@gmail.com';
