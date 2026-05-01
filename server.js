@@ -9520,13 +9520,142 @@ async function syncZohoRecruitRoles() {
   _zohoRolesCache = null;
   _zohoRolesFetchPromise = null;
 
+  // Sync application statuses from Zoho (runs after role sync)
+  let appsSynced = 0;
+  try {
+    appsSynced = await syncZohoRecruitApplicationStatuses({ accessToken, apiDomain, connection });
+  } catch (err) {
+    console.error('[ZohoRecruit sync] Application status sync error:', err && err.message);
+  }
+
   return {
     ok: true,
     status: 200,
     connected,
     syncedAt,
-    syncedRoleCount: rows.length
+    syncedRoleCount: rows.length,
+    applicationsSynced: appsSynced
   };
+}
+
+// Sync application statuses from Zoho Recruit back to gp_applications
+async function syncZohoRecruitApplicationStatuses(zoho) {
+  if (!isSupabaseDbConfigured() || !zoho || !zoho.accessToken) return 0;
+
+  // Fetch all applications that have a zoho_application_id
+  const appsResult = await supabaseDbRequest(
+    'gp_applications',
+    'select=id,user_id,career_role_id,provider_role_id,status,zoho_application_id,zoho_candidate_id,zoho_client_id,practice_contact_name,practice_contact_email&zoho_application_id=not.is.null&limit=500'
+  );
+  const localApps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
+  if (!localApps.length) return 0;
+
+  let synced = 0;
+  for (const app of localApps) {
+    try {
+      // Fetch live application record from Zoho
+      const liveRecord = await fetchZohoRecruitApplicationRecord(
+        { connection: zoho.connection, accessToken: zoho.accessToken, apiDomain: zoho.apiDomain },
+        app.zoho_application_id
+      );
+      if (!liveRecord) continue;
+
+      const liveStatus = normalizeCareerApplicationStatusKey(getZohoApplicationStatus(liveRecord));
+      const localStatus = normalizeCareerApplicationStatusKey(app.status);
+      if (!liveStatus || liveStatus === localStatus) continue;
+
+      // Status changed — update gp_applications
+      const patch = { status: liveStatus, updated_at: new Date().toISOString() };
+
+      // If newly secured, fetch practice contacts and build placement
+      const wasSecured = isCareerPlacementSecuredStatus(localStatus);
+      const nowSecured = isCareerPlacementSecuredStatus(liveStatus);
+      if (nowSecured && !wasSecured) {
+        // Resolve client ID from job opening
+        let clientId = app.zoho_client_id || '';
+        let jobOpeningRecord = null;
+        if (app.provider_role_id) {
+          jobOpeningRecord = await fetchZohoRecruitJobOpeningRecord(
+            { connection: zoho.connection, accessToken: zoho.accessToken, apiDomain: zoho.apiDomain },
+            app.provider_role_id
+          );
+          if (jobOpeningRecord && !clientId) {
+            clientId = getZohoApplicationClientId(jobOpeningRecord)
+              || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
+          }
+        }
+
+        // Fetch practice contacts
+        let practiceContacts = [];
+        if (clientId) {
+          practiceContacts = await fetchZohoRecruitClientContacts(
+            { connection: zoho.connection, accessToken: zoho.accessToken, apiDomain: zoho.apiDomain },
+            clientId
+          );
+          const contact = pickZohoRecruitClientContact(practiceContacts);
+          if (contact) {
+            const contactName = buildZohoDisplayName(contact) || getZohoField(contact, ['Contact_Name', 'Name']);
+            const contactEmail = getZohoField(contact, ['Email', 'Secondary_Email']);
+            const contactPhone = choosePreferredZohoPhone(contact);
+            if (!app.practice_contact_name && contactName) patch.practice_contact_name = contactName;
+            if (!app.practice_contact_email && contactEmail) patch.practice_contact_email = contactEmail;
+            if (!app.zoho_client_id && clientId) patch.zoho_client_id = clientId;
+          }
+        }
+
+        // Update the GP's career state with placement data
+        const profileResult = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+        const profile = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0] ? profileResult.data[0] : {};
+        const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+
+        const placement = await buildCareerPlacementPayload({
+          zoho: { connection: zoho.connection, accessToken: zoho.accessToken, apiDomain: zoho.apiDomain },
+          applicationRecord: liveRecord,
+          roleRow,
+          jobOpeningRecord,
+          startDateIso: getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Joining_Date', 'Start_Date']) || null,
+          practiceContacts,
+          providerRoleId: app.provider_role_id,
+          profile
+        }).catch(() => null);
+
+        // Update gp_career_state
+        if (placement) {
+          const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+          const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+            ? stateResult.data[0].state : {};
+          const careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
+          const apps = Array.isArray(careerState.applications) ? careerState.applications : [];
+          const appIdx = apps.findIndex(a => a && (a.id === String(app.id) || a.zohoApplicationId === app.zoho_application_id));
+          if (appIdx >= 0) {
+            apps[appIdx].status = liveStatus;
+            apps[appIdx].isPlacementSecured = true;
+            apps[appIdx].placement = placement;
+          }
+          careerState.applications = apps;
+          careerState.career_secured = apps.some(a => a && a.isPlacementSecured);
+          currentState.gp_career_state = careerState;
+          await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(app.user_id), {
+            method: 'PATCH',
+            body: { state: currentState }
+          });
+          console.log('[ZohoRecruit sync] Placement secured for user', app.user_id, '— practice contact:', patch.practice_contact_name || 'N/A');
+        }
+      }
+
+      // Write the status update
+      await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app.id), {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: patch
+      });
+      synced++;
+      console.log('[ZohoRecruit sync] Application', app.id, 'status:', localStatus, '→', liveStatus);
+    } catch (err) {
+      console.error('[ZohoRecruit sync] Error syncing application', app.id, ':', err && err.message);
+    }
+  }
+  return synced;
 }
 
 async function runZohoRecruitScheduledSync() {
