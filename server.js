@@ -17429,6 +17429,58 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Temporary diagnostic endpoint — test reverse sync for a specific email
+  if (pathname === '/api/admin/integrations/zoho-recruit/debug-discover' && req.method === 'GET') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const zoho = await getZohoRecruitAccessTokenAndDomain();
+    if (!zoho) { sendJson(res, 502, { ok: false, error: 'No Zoho connection' }); return; }
+    var debugEmail = new URL(req.url, 'http://localhost').searchParams.get('email') || 'smithmiller1234@gmail.com';
+    var debugLog = [];
+    debugLog.push('Searching applications for: ' + debugEmail);
+    var apps = await searchZohoRecruitApplicationsByEmail(zoho, debugEmail);
+    debugLog.push('searchZohoRecruitApplicationsByEmail returned ' + apps.length + ' results');
+    if (!apps.length) {
+      // Try candidate search as fallback
+      var candidates = await searchZohoRecruitCandidatesByEmail(zoho, debugEmail);
+      debugLog.push('searchZohoRecruitCandidatesByEmail returned ' + candidates.length + ' results');
+      if (candidates.length) {
+        var candId = getZohoCandidateId(candidates[0]);
+        debugLog.push('Candidate ID: ' + candId);
+        var candApps = await searchZohoRecruitApplicationsByCandidateId(zoho, candId);
+        debugLog.push('searchZohoRecruitApplicationsByCandidateId returned ' + candApps.length + ' results');
+        apps = candApps;
+      }
+    }
+    var results = apps.map(function (a) {
+      return {
+        id: sanitizeZohoText(a.id),
+        status: getZohoApplicationStatus(a),
+        normalizedStatus: normalizeCareerApplicationStatusKey(getZohoApplicationStatus(a)),
+        isSecured: isCareerPlacementSecuredStatus(normalizeCareerApplicationStatusKey(getZohoApplicationStatus(a))),
+        jobOpeningId: getZohoApplicationJobOpeningId(a),
+        email: getZohoField(a, ['Email', 'Candidate_Email', 'email']),
+        candidateId: getZohoLookupId(a, ['Candidate_Id', 'Candidate']),
+        rawKeys: Object.keys(a).slice(0, 20)
+      };
+    });
+    var rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id&provider=eq.zoho_recruit');
+    var roleCount = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data.length : 0;
+    var adminIds = await getAdminUserIdSet();
+    var profileResult = await supabaseDbRequest('user_profiles', 'select=user_id,email&email=eq.' + encodeURIComponent(debugEmail) + '&limit=1');
+    var matchedUser = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0] ? profileResult.data[0] : null;
+    sendJson(res, 200, {
+      ok: true,
+      email: debugEmail,
+      log: debugLog,
+      zohoApplications: results,
+      roleCount: roleCount,
+      matchedUser: matchedUser ? { user_id: matchedUser.user_id, isAdmin: adminIds.has(matchedUser.user_id) } : null,
+      scopeStatus: getZohoRecruitScopeStatus(zoho.connection)
+    });
+    return;
+  }
+
   if (pathname === '/api/admin/integrations/zoho-recruit/disconnect' && req.method === 'POST') {
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
