@@ -782,6 +782,31 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           </div>
         </div>
       </div>
+
+      <div class="integration-card" id="zoho-recruit-card" style="margin-top:16px;">
+        <div class="integration-header">
+          <h3>Zoho Recruit</h3>
+          <span id="zr-status-chip" class="status-chip disconnected">Checking...</span>
+        </div>
+        <div class="integration-body">
+          <div id="zr-connected-info" style="display:none;">
+            <div><b>Connected email:</b> <span id="zr-connected-email">&mdash;</span></div>
+            <div><b>Last sync:</b> <span id="zr-last-sync">&mdash;</span></div>
+            <div><b>Roles synced:</b> <span id="zr-role-count">&mdash;</span></div>
+            <div><b>Scopes:</b> <span id="zr-scopes">&mdash;</span></div>
+            <div id="zr-scope-warning" style="display:none;color:#e53e3e;font-size:13px;margin:6px 0;"><b>Missing scopes:</b> <span id="zr-missing-scopes"></span> — Disconnect and Reconnect to fix.</div>
+          </div>
+          <div id="zr-disconnected-info" style="display:none;">
+            <p>Job sync and placement discovery require Zoho Recruit connection.</p>
+          </div>
+          <div style="margin-top:12px;">
+            <button id="zr-connect-btn" class="btn primary" style="display:none;" onclick="window.location.href='/api/admin/integrations/zoho-recruit/connect'">Connect Zoho Recruit</button>
+            <button id="zr-sync-btn" class="btn" style="display:none;" onclick="zohoRecruitSync()">Sync Now</button>
+            <span id="zr-sync-status" style="margin-left:8px;font-size:12px;color:var(--muted,#888);"></span>
+            <button id="zr-disconnect-btn" class="btn" style="display:none;" onclick="zohoRecruitDisconnect()">Disconnect</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3471,7 +3496,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(S.toolsSubView==="ops"&&typeof loadOpsQueue==="function")loadOpsQueue();
     else if(S.toolsSubView==="sweep")renderToolsSweepPane();
     else if(S.toolsSubView==="agent")renderToolsAgentPane();
-    else if(S.toolsSubView==="integrations")loadZohoSignStatus();
+    else if(S.toolsSubView==="integrations"){loadZohoSignStatus();loadZohoRecruitStatus();}
   }
   function renderToolsSweepPane(){
     const el=document.getElementById("toolsSweep");if(!el)return;
@@ -4136,6 +4161,72 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.zohoSignConnect = zohoSignConnect;
   window.zohoSignSync = zohoSignSync;
   window.zohoSignDisconnect = zohoSignDisconnect;
+
+  /* ══ Zoho Recruit integration card ══ */
+  async function loadZohoRecruitStatus() {
+    try {
+      var r = await fetch("/api/admin/integrations/zoho-recruit/status", { credentials: "same-origin" });
+      var d = await r.json();
+      var chip = document.getElementById("zr-status-chip");
+      var connInfo = document.getElementById("zr-connected-info");
+      var discInfo = document.getElementById("zr-disconnected-info");
+      var connectBtn = document.getElementById("zr-connect-btn");
+      var syncBtn = document.getElementById("zr-sync-btn");
+      var disconnectBtn = document.getElementById("zr-disconnect-btn");
+      if (d.connected) {
+        chip.textContent = "Connected";
+        chip.className = "status-chip connected";
+        connInfo.style.display = "";
+        discInfo.style.display = "none";
+        connectBtn.style.display = "none";
+        syncBtn.style.display = "";
+        disconnectBtn.style.display = "";
+        var conn = d.connection || {};
+        document.getElementById("zr-connected-email").textContent = conn.connectedEmail || conn.connected_email || "-";
+        document.getElementById("zr-last-sync").textContent = conn.lastSyncAt ? new Date(conn.lastSyncAt).toLocaleString() : "-";
+        document.getElementById("zr-role-count").textContent = d.roleCount || 0;
+        document.getElementById("zr-scopes").textContent = (d.grantedScopes || []).join(", ") || "-";
+        var scopeWarn = document.getElementById("zr-scope-warning");
+        if (d.missingScopes && d.missingScopes.length > 0) {
+          scopeWarn.style.display = "";
+          document.getElementById("zr-missing-scopes").textContent = d.missingScopes.join(", ");
+        } else {
+          scopeWarn.style.display = "none";
+        }
+      } else {
+        chip.textContent = d.configured ? "Disconnected" : "Not Configured";
+        chip.className = "status-chip disconnected";
+        connInfo.style.display = "none";
+        discInfo.style.display = "";
+        connectBtn.style.display = d.configured ? "" : "none";
+        syncBtn.style.display = "none";
+        disconnectBtn.style.display = "none";
+      }
+    } catch (e) {
+      var chip2 = document.getElementById("zr-status-chip");
+      if (chip2) { chip2.textContent = "Error"; chip2.className = "status-chip disconnected"; }
+    }
+  }
+  async function zohoRecruitSync() {
+    var el = document.getElementById("zr-sync-status");
+    if (el) el.textContent = "Syncing...";
+    try {
+      var r = await fetch("/api/admin/integrations/zoho-recruit/sync", { method: "POST", credentials: "same-origin" });
+      var d = await r.json();
+      if (el) el.textContent = d.ok ? ("Synced " + (d.syncedRoleCount || 0) + " roles, discovered " + (d.applicationsDiscovered || 0) + " apps") : (d.message || "Sync failed");
+      loadZohoRecruitStatus();
+    } catch (e) { if (el) el.textContent = "Sync failed"; }
+  }
+  async function zohoRecruitDisconnect() {
+    if (!confirm("Disconnect Zoho Recruit? You will need to reconnect to resume job syncing.")) return;
+    try {
+      await fetch("/api/admin/integrations/zoho-recruit/disconnect", { method: "POST", credentials: "same-origin" });
+      loadZohoRecruitStatus();
+    } catch (e) { alert("Disconnect failed"); }
+  }
+  window.loadZohoRecruitStatus = loadZohoRecruitStatus;
+  window.zohoRecruitSync = zohoRecruitSync;
+  window.zohoRecruitDisconnect = zohoRecruitDisconnect;
   window.sendSppa = sendSppa;
   window.resendSppa = resendSppa;
   window.updateSppaRecipient = updateSppaRecipient;

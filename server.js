@@ -17429,6 +17429,18 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  if (pathname === '/api/admin/integrations/zoho-recruit/disconnect' && req.method === 'POST') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    await supabaseDbRequest('integration_connections', 'provider=eq.zoho_recruit', {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' }
+    });
+    invalidateAdminDashboardCache();
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (pathname === '/api/admin/integrations/zoho-recruit/sync' && (req.method === 'POST' || req.method === 'GET')) {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Zoho Recruit sync requires Supabase database configuration.' });
