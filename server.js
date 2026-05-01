@@ -9609,89 +9609,70 @@ async function syncZohoRecruitRoles() {
 
 // Discover Zoho Recruit applications that exist in Zoho but aren't linked to gp_applications.
 // This handles GPs who were hired externally (not through the app) or transitioned onto the app.
+// Strategy: for each GP user without a linked gp_applications row, search Zoho by email
+// for applications with a secured/hired status. Uses the Applications/search endpoint
+// which is the correct Zoho Recruit v2 API (not nested sub-resource endpoints).
 async function discoverUnlinkedZohoApplications(zoho) {
   if (!isSupabaseDbConfigured() || !zoho || !zoho.accessToken) return 0;
 
-  // Get ALL career_roles (including inactive — filled positions still need application discovery)
-  const rolesResult = await supabaseDbRequest(
-    'career_roles',
-    'select=id,provider_role_id&provider=eq.zoho_recruit'
-  );
-  const roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
-  if (!roles.length) return 0;
+  // Build a map of provider_role_id → career_role for quick lookup
+  var rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id&provider=eq.zoho_recruit');
+  var roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
+  var rolesByProviderId = {};
+  for (var ri = 0; ri < roles.length; ri++) {
+    if (roles[ri].provider_role_id) rolesByProviderId[roles[ri].provider_role_id] = roles[ri];
+  }
 
-  // Get all locally known zoho_application_ids for quick dedup
-  const localAppsResult = await supabaseDbRequest(
-    'gp_applications',
-    'select=zoho_application_id&zoho_application_id=not.is.null'
-  );
-  const knownZohoAppIds = new Set(
-    localAppsResult.ok && Array.isArray(localAppsResult.data)
-      ? localAppsResult.data.map(function (a) { return a.zoho_application_id; }).filter(Boolean)
+  // Get all GP users (non-admin) who don't already have a gp_applications row
+  var allProfilesResult = await supabaseDbRequest('user_profiles', 'select=user_id,email,zoho_candidate_id');
+  var allProfiles = allProfilesResult.ok && Array.isArray(allProfilesResult.data) ? allProfilesResult.data : [];
+  var existingAppsResult = await supabaseDbRequest('gp_applications', 'select=user_id&zoho_application_id=not.is.null');
+  var usersWithApps = new Set(
+    existingAppsResult.ok && Array.isArray(existingAppsResult.data)
+      ? existingAppsResult.data.map(function (a) { return a.user_id; }).filter(Boolean)
       : []
   );
+  var adminIds = await getAdminUserIdSet();
 
-  let linked = 0;
+  var linked = 0;
 
-  for (const role of roles) {
-    if (!role.provider_role_id) continue;
+  for (var pi = 0; pi < allProfiles.length; pi++) {
+    var profile = allProfiles[pi];
+    if (!profile.email || !profile.user_id) continue;
+    if (adminIds.has(profile.user_id)) continue;
+    if (usersWithApps.has(profile.user_id)) continue;
 
-    // Fetch applications for this job opening from Zoho
-    var appsResult = await fetchZohoRecruitRecordsWithVariants(
-      zoho.connection, zoho.accessToken, zoho.apiDomain,
-      ['Job_Openings/' + role.provider_role_id + '/Applications',
-       'JobOpenings/' + role.provider_role_id + '/Applications',
-       'jobopenings/' + role.provider_role_id + '/Applications'],
-      { page: 1, per_page: 200 }
-    );
-    var zohoApps = Array.isArray(appsResult.records) ? appsResult.records : [];
+    // Search Zoho for applications by this user's email
+    var zohoApps = await searchZohoRecruitApplicationsByEmail(zoho, profile.email);
+    if (!zohoApps.length) continue;
 
     for (var ai = 0; ai < zohoApps.length; ai++) {
       var zohoApp = zohoApps[ai];
       var zohoAppId = sanitizeZohoText(zohoApp.id);
-      if (!zohoAppId || knownZohoAppIds.has(zohoAppId)) continue;
+      if (!zohoAppId) continue;
 
       // Only interested in secured/hired applications
       var appStatus = getZohoApplicationStatus(zohoApp);
       var normalizedStatus = normalizeCareerApplicationStatusKey(appStatus);
       if (!isCareerPlacementSecuredStatus(normalizedStatus)) continue;
 
-      // Get candidate email from application record
-      var candidateEmail = getZohoField(zohoApp, ['Email', 'Candidate_Email', 'email', 'Primary_Email']).trim().toLowerCase();
-      if (!candidateEmail) {
-        // Try to get email from the candidate record itself
-        var candidateLookupId = getZohoLookupId(zohoApp, ['Candidate_Id', 'Candidate']);
-        if (candidateLookupId) {
-          var candidateResult = await fetchZohoRecruitRecordsWithVariants(
-            zoho.connection, zoho.accessToken, zoho.apiDomain,
-            ['Candidates/' + candidateLookupId, 'candidates/' + candidateLookupId]
-          );
-          var candidateRecord = Array.isArray(candidateResult.records) && candidateResult.records[0] ? candidateResult.records[0] : null;
-          if (candidateRecord) {
-            candidateEmail = getZohoField(candidateRecord, ['Email', 'Primary_Email', 'email']).trim().toLowerCase();
-          }
-        }
+      // Find the matching career_role via job opening ID
+      var jobOpeningId = getZohoApplicationJobOpeningId(zohoApp);
+      var matchedRole = jobOpeningId ? rolesByProviderId[jobOpeningId] : null;
+      if (!matchedRole) {
+        console.log('[ZohoRecruit reverse-sync] No career_role for job opening', jobOpeningId, '— skipping application', zohoAppId);
+        continue;
       }
-      if (!candidateEmail) continue;
 
-      // Match to an existing app user (skip admin/VA accounts)
-      var matchedUserResult = await supabaseDbRequest(
-        'user_profiles',
-        'select=user_id,zoho_candidate_id&email=eq.' + encodeURIComponent(candidateEmail) + '&limit=1'
-      );
-      if (!matchedUserResult.ok || !Array.isArray(matchedUserResult.data) || !matchedUserResult.data[0]) continue;
-      var matchedUser = matchedUserResult.data[0];
-      if (await isAdminOrVAUser(matchedUser.user_id)) continue;
-
-      // Check if this user already has an application for this role (avoid duplicates)
+      // Check if this user already has an application for this role
       var existingApp = await supabaseDbRequest(
         'gp_applications',
-        'select=id&user_id=eq.' + encodeURIComponent(matchedUser.user_id) + '&provider_role_id=eq.' + encodeURIComponent(role.provider_role_id) + '&limit=1'
+        'select=id&user_id=eq.' + encodeURIComponent(profile.user_id) + '&provider_role_id=eq.' + encodeURIComponent(matchedRole.provider_role_id) + '&limit=1'
       );
       if (existingApp.ok && Array.isArray(existingApp.data) && existingApp.data[0]) continue;
 
       // Resolve Zoho candidate ID
-      var zohoCandidateId = matchedUser.zoho_candidate_id
+      var zohoCandidateId = profile.zoho_candidate_id
         || getZohoLookupId(zohoApp, ['Candidate_Id', 'Candidate'])
         || '';
 
@@ -9701,9 +9682,9 @@ async function discoverUnlinkedZohoApplications(zoho) {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
         body: {
-          user_id: matchedUser.user_id,
-          career_role_id: role.id,
-          provider_role_id: role.provider_role_id,
+          user_id: profile.user_id,
+          career_role_id: matchedRole.id,
+          provider_role_id: matchedRole.provider_role_id,
           zoho_candidate_id: zohoCandidateId,
           zoho_application_id: zohoAppId,
           status: 'new',
@@ -9713,20 +9694,20 @@ async function discoverUnlinkedZohoApplications(zoho) {
       });
 
       if (createResult.ok) {
-        knownZohoAppIds.add(zohoAppId);
+        usersWithApps.add(profile.user_id);
         linked++;
-        console.log('[ZohoRecruit reverse-sync] Linked Hired application for', candidateEmail, '— zohoAppId:', zohoAppId, 'roleId:', role.provider_role_id);
+        console.log('[ZohoRecruit reverse-sync] Linked Hired application for', profile.email, '— zohoAppId:', zohoAppId, 'roleId:', matchedRole.provider_role_id);
 
         // Store zoho_candidate_id on user_profiles if missing
-        if (!matchedUser.zoho_candidate_id && zohoCandidateId) {
-          await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(matchedUser.user_id), {
+        if (!profile.zoho_candidate_id && zohoCandidateId) {
+          await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(profile.user_id), {
             method: 'PATCH',
             headers: { Prefer: 'return=minimal' },
             body: { zoho_candidate_id: zohoCandidateId, updated_at: new Date().toISOString() }
           });
         }
       } else {
-        console.error('[ZohoRecruit reverse-sync] Failed to create gp_applications for', candidateEmail, ':', createResult.data && createResult.data.message);
+        console.error('[ZohoRecruit reverse-sync] Failed to create gp_applications for', profile.email, ':', createResult.data && createResult.data.message);
       }
     }
   }
