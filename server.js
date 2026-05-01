@@ -9630,6 +9630,8 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
           const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
           const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
             ? stateResult.data[0].state : {};
+          // Snapshot prev state before mutation so task automation can diff
+          const prevState = JSON.parse(JSON.stringify(currentState));
           const careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
           const apps = Array.isArray(careerState.applications) ? careerState.applications : [];
           const appIdx = apps.findIndex(a => a && (a.id === String(app.id) || a.zohoApplicationId === app.zoho_application_id));
@@ -9646,6 +9648,12 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
             body: { state: currentState }
           });
           console.log('[ZohoRecruit sync] Placement secured for user', app.user_id, '— practice contact:', patch.practice_contact_name || 'N/A');
+
+          // Fire task automation so Practice Pack (Drive folder, Section G, tasks, SPPA-00) is created
+          const gpEmail = profile.email || '';
+          processRegistrationTaskAutomation(app.user_id, gpEmail, prevState, currentState).catch(function (err) {
+            console.error('[ZohoRecruit sync] Task automation failed for user', app.user_id, ':', err && err.message);
+          });
         }
       }
 
