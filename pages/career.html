@@ -5336,10 +5336,30 @@
     }
 
     body.career-mode-secured {
-      background: var(--bg, #ffffff);
+      background: #ffffff !important;
       min-height: 100vh;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior-y: contain;
+      color: #0f172a;
+      --bg: #ffffff;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --panel-muted: #f1f5f9;
+      --text: #0f172a;
+      --muted: #64748b;
+      --ink: #0f172a;
+      --charcoal: #1e293b;
+      --line: #e2e8f0;
+      --line-strong: #cbd5e1;
+      --blue: #2563eb;
+      --blue2: #1d4ed8;
+      --blue3: #1e3a8a;
+      --success: #16a34a;
+      --success-soft: #ecfdf5;
+      --warning: #d97706;
+      --warning-soft: #fffbeb;
+      --shadow-soft: 0 4px 16px -8px rgba(2, 6, 23, 0.10);
+      --shadow-card: 0 12px 32px -16px rgba(2, 6, 23, 0.14);
     }
 
     @media (prefers-reduced-motion: no-preference) {
@@ -5495,8 +5515,8 @@
 
     body.career-mode-secured .placement-stat-card {
       padding: 14px 14px;
-      background: var(--panel);
-      border: 1px solid var(--line);
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
       border-radius: 14px;
       box-shadow: none;
       transform: none;
@@ -5504,7 +5524,7 @@
 
     body.career-mode-secured .placement-stat-value {
       font-size: 17px;
-      color: var(--text);
+      color: #0f172a;
       font-weight: 800;
     }
 
@@ -5514,7 +5534,7 @@
       letter-spacing: 0;
       line-height: 1.3;
       text-transform: none;
-      color: var(--muted);
+      color: #64748b;
       margin-top: 4px;
     }
 
@@ -5758,54 +5778,6 @@
     }
 
     @media (min-width: 768px) {
-      /* Force light mode on desktop for secured placement view */
-      html.dark-mode body.career-mode-secured {
-        --bg: #ffffff;
-        --panel: #ffffff;
-        --panel-soft: #f8fafc;
-        --panel-muted: #f1f5f9;
-        --text: #0f172a;
-        --muted: #64748b;
-        --ink: #0f172a;
-        --charcoal: #1e293b;
-        --line: #e2e8f0;
-        --line-strong: #cbd5e1;
-        --blue: #2563eb;
-        --blue2: #1d4ed8;
-        --blue3: #1e3a8a;
-        --success: #16a34a;
-        --success-soft: #ecfdf5;
-        --warning: #d97706;
-        --warning-soft: #fffbeb;
-        --shadow-soft: 0 4px 16px -8px rgba(2, 6, 23, 0.10);
-        --shadow-card: 0 12px 32px -16px rgba(2, 6, 23, 0.14);
-        background: #ffffff;
-        color: #0f172a;
-      }
-
-      /* Reset hero to dark gradient on desktop (even when system is dark) */
-      html.dark-mode body.career-mode-secured .placement-hero-card {
-        background:
-          radial-gradient(360px 180px at 100% 0%, rgba(37, 99, 235, 0.10), transparent 62%),
-          linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        box-shadow: 0 28px 40px -34px rgba(15, 23, 42, 0.6);
-      }
-
-      /* Reset atmospheric bg to light on desktop */
-      html.dark-mode body.career-mode-secured::before {
-        background:
-          radial-gradient(ellipse 90% 55% at 78% -8%, rgba(37, 99, 235, 0.06), transparent 62%),
-          radial-gradient(ellipse 70% 45% at 8% 12%, rgba(99, 102, 241, 0.04), transparent 58%),
-          radial-gradient(ellipse 55% 35% at 92% 88%, rgba(37, 99, 235, 0.035), transparent 55%);
-      }
-
-      html.dark-mode body.career-mode-secured::after {
-        opacity: 0.018;
-      }
-
       body.career-mode-secured .shell {
         max-width: none;
         padding-top: 0;
@@ -6117,71 +6089,15 @@
       -webkit-backdrop-filter: blur(12px);
     }
 
-    /* ── Dark mode: Secured placement overrides ── */
-    html.dark-mode body.career-mode-secured .placement-hero-card {
-      background: rgba(255, 255, 255, 0.08);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: none;
+    /* ── Dark mode: Secured placement is always light, only override atmospheric bg ── */
+    html.dark-mode body.career-mode-secured::before {
+      background:
+        radial-gradient(ellipse 90% 55% at 78% -8%, rgba(37, 99, 235, 0.06), transparent 62%),
+        radial-gradient(ellipse 70% 45% at 8% 12%, rgba(99, 102, 241, 0.04), transparent 58%),
+        radial-gradient(ellipse 55% 35% at 92% 88%, rgba(37, 99, 235, 0.035), transparent 55%);
     }
-
-    html.dark-mode body.career-mode-secured .placement-stat-card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-    }
-
-    html.dark-mode body.career-mode-secured .placement-kicker {
-      color: #60a5fa;
-    }
-
-    html.dark-mode body.career-mode-secured .placement-title,
-    html.dark-mode body.career-mode-secured .placement-subtitle {
-      color: #f1f5f9;
-    }
-
-    html.dark-mode body.career-mode-secured .placement-location-line {
-      color: rgba(148, 163, 184, 0.8);
-    }
-
-    html.dark-mode body.career-mode-secured .placement-countdown-value {
-      color: #f1f5f9;
-    }
-
-    html.dark-mode body.career-mode-secured .placement-countdown-copy {
-      color: rgba(148, 163, 184, 0.8);
-    }
-
-    html.dark-mode body.career-mode-secured .placement-countdown-tag {
-      background: rgba(255, 255, 255, 0.10);
-      border-color: rgba(255, 255, 255, 0.10);
-    }
-
-    html.dark-mode body.career-mode-secured .placement-practice-contact-btn-whatsapp {
-      color: #22c55e;
-      border-color: rgba(34, 197, 94, 0.28);
-    }
-
-    html.dark-mode body.career-mode-secured .placement-practice-contact-btn {
-      background: var(--panel-soft);
-      border-color: var(--line);
-      color: var(--text);
-    }
-
-    html.dark-mode body.career-mode-secured .placement-practice-contact-btn:hover {
-      border-color: var(--blue);
-      background: rgba(96, 165, 250, 0.08);
-    }
-
-    html.dark-mode body.career-mode-secured .placement-broker-presence {
-      background: rgba(96, 165, 250, 0.12);
-      color: #60a5fa;
-    }
-
-    html.dark-mode body.career-mode-secured .placement-contact-btn-whatsapp {
-      background: #16a34a;
-      border-color: #16a34a;
-      color: #fff;
+    html.dark-mode body.career-mode-secured::after {
+      opacity: 0.018;
     }
 
     /* ── Offline indicator ── */
