@@ -14759,10 +14759,20 @@ async function ensureSupabaseUserProfile(supaUser) {
   if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) {
     // Row exists — update name if signup provided one and profile is still blank
     var existingRow = existing.data[0];
-    if ((firstName || lastName) && !existingRow.first_name && !existingRow.last_name) {
+    const countryDial = String(meta.countryDial || '').trim();
+    const phoneNumber = String(meta.phoneNumber || '').trim();
+    const phone = [countryDial, phoneNumber].filter(Boolean).join(' ').trim();
+    const needsName = (firstName || lastName) && !existingRow.first_name && !existingRow.last_name;
+    const needsPhone = phone && !existingRow.phone_number && !existingRow.phone;
+    if (needsName || needsPhone) {
       var patch = { updated_at: new Date().toISOString() };
       if (firstName) patch.first_name = firstName;
       if (lastName) patch.last_name = lastName;
+      if (needsPhone) {
+        patch.country_dial = countryDial;
+        patch.phone_number = phoneNumber;
+        patch.phone = phone;
+      }
       await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(supabaseUserId), {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
@@ -14779,6 +14789,7 @@ async function ensureSupabaseUserProfile(supaUser) {
     last_name: lastName,
     country_dial: String(meta.countryDial || '').trim(),
     phone_number: String(meta.phoneNumber || '').trim(),
+    phone: [String(meta.countryDial || '').trim(), String(meta.phoneNumber || '').trim()].filter(Boolean).join(' ').trim(),
     registration_country: String(meta.registrationCountry || '').trim(),
     updated_at: new Date().toISOString()
   };
@@ -15606,9 +15617,20 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
+    const firstName = sanitizeUserString(body.firstName, 80);
+    const lastName = sanitizeUserString(body.lastName, 80);
+    const countryDial = sanitizeUserString(body.countryDial, 10);
+    const phoneNumber = sanitizeUserString(body.phoneNumber, 24);
+
     const signupResult = await supabaseAuthRequest('signup', {
       email,
-      password
+      password,
+      data: {
+        firstName,
+        lastName,
+        countryDial,
+        phoneNumber
+      }
     });
     if (!signupResult.ok) {
       const msg = signupResult.data && signupResult.data.msg
