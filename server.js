@@ -15689,13 +15689,50 @@ async function handleApi(req, res, pathname) {
       const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
       if (!loginResult.ok) {
         const rawMsg = loginResult.data && (loginResult.data.msg || loginResult.data.message || loginResult.data.error_description) || '';
-        // Detect unconfirmed email — resend confirmation automatically
+        // Detect unconfirmed email — auto-confirm via Admin API and retry login
         if (/email.*not.*confirm|not.*confirm|confirm.*email/i.test(rawMsg) || rawMsg === 'Invalid login credentials') {
-          // Try resending confirmation via Supabase resend endpoint
-          const resendResult = await supabaseAuthRequest('resend', { type: 'signup', email }).catch(() => ({ ok: false }));
-          if (resendResult.ok) {
-            sendJson(res, 401, { ok: false, message: 'Your email has not been verified yet. A new confirmation email has been sent to ' + email + '. Please check your inbox and click the link to verify.' });
-            return;
+          // Look up user via Admin API to check if they exist but aren't confirmed
+          try {
+            const listRes = await fetch(SUPABASE_URL + '/auth/v1/admin/users?page=1&per_page=1', {
+              method: 'GET',
+              headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY }
+            });
+            // Search by email using the admin endpoint
+            const userLookup = await fetch(SUPABASE_URL + '/auth/v1/admin/users', {
+              method: 'GET',
+              headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY }
+            });
+            const usersData = await userLookup.json().catch(() => ({}));
+            const users = Array.isArray(usersData.users) ? usersData.users : (Array.isArray(usersData) ? usersData : []);
+            const unconfirmedUser = users.find(u => u && String(u.email || '').toLowerCase() === email && !u.email_confirmed_at);
+            if (unconfirmedUser && unconfirmedUser.id) {
+              // Auto-confirm via Admin API
+              const confirmRes = await fetch(SUPABASE_URL + '/auth/v1/admin/users/' + unconfirmedUser.id, {
+                method: 'PUT',
+                headers: {
+                  apikey: SUPABASE_SERVICE_ROLE_KEY,
+                  Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email_confirm: true })
+              });
+              if (confirmRes.ok) {
+                // Retry login now that email is confirmed
+                const retryLogin = await supabaseAuthRequest('token?grant_type=password', { email, password });
+                if (retryLogin.ok) {
+                  const loginUser = retryLogin.data && retryLogin.data.user ? retryLogin.data.user : { email };
+                  upsertLocalUserFromSupabaseUser(loginUser);
+                  ensureSupabaseUserProfile(loginUser).catch(() => {});
+                  const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
+                  setSession(res, sessionProfile);
+                  const bootstrapResult = resolveFastAuthBootstrap(email, { sessionUserId: sessionProfile.supabaseUserId, sessionProfile });
+                  sendJson(res, 200, { ok: true, message: 'Signed in.', redirectTo: '/pages/index.html', bootstrap: bootstrapResult });
+                  return;
+                }
+              }
+            }
+          } catch (err) {
+            console.error('[auth/login] Auto-confirm error:', err && err.message);
           }
         }
         const msg = rawMsg || 'Invalid email or password.';
