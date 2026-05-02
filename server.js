@@ -15688,11 +15688,17 @@ async function handleApi(req, res, pathname) {
     if (isSupabaseConfigured()) {
       const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
       if (!loginResult.ok) {
-        const msg = loginResult.data && loginResult.data.msg
-          ? loginResult.data.msg
-          : loginResult.data && loginResult.data.message
-            ? loginResult.data.message
-            : 'Invalid email or password.';
+        const rawMsg = loginResult.data && (loginResult.data.msg || loginResult.data.message || loginResult.data.error_description) || '';
+        // Detect unconfirmed email — resend confirmation automatically
+        if (/email.*not.*confirm|not.*confirm|confirm.*email/i.test(rawMsg) || rawMsg === 'Invalid login credentials') {
+          // Try resending confirmation via Supabase resend endpoint
+          const resendResult = await supabaseAuthRequest('resend', { type: 'signup', email }).catch(() => ({ ok: false }));
+          if (resendResult.ok) {
+            sendJson(res, 401, { ok: false, message: 'Your email has not been verified yet. A new confirmation email has been sent to ' + email + '. Please check your inbox and click the link to verify.' });
+            return;
+          }
+        }
+        const msg = rawMsg || 'Invalid email or password.';
         sendJson(res, loginResult.status === 400 || loginResult.status === 401 ? 401 : loginResult.status, { ok: false, message: msg });
         return;
       }
