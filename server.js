@@ -20027,7 +20027,42 @@ Return ONLY valid JSON with no markdown formatting:
 
     const email = String(body.email || '').trim().toLowerCase();
     if (isValidEmail(email) && isSupabaseConfigured()) {
-      await supabaseAuthRequest('recover', { email });
+      // Send password reset via Resend for reliable delivery
+      if (isEmailConfigured() && SUPABASE_SERVICE_ROLE_KEY) {
+        try {
+          const redirectTo = 'https://app.mygplink.com.au/pages/signin.html?reset=true';
+          const linkRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
+            method: 'POST',
+            headers: {
+              apikey: SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ type: 'recovery', email, options: { redirect_to: redirectTo } })
+          });
+          const linkData = await linkRes.json().catch(() => ({}));
+          const resetUrl = linkData.action_link || (linkData.properties && linkData.properties.action_link) || '';
+          if (resetUrl) {
+            await sendEmail({
+              to: email,
+              subject: 'Reset your GP Link password',
+              html: buildCareerEmailHtml({
+                title: 'Reset your password',
+                body: 'We received a request to reset your GP Link password. Click the button below to set a new password.',
+                ctaText: 'Reset Password',
+                ctaUrl: resetUrl,
+                footer: 'If you didn\'t request a password reset, you can safely ignore this email. This link expires in 1 hour.'
+              })
+            });
+          } else {
+            await supabaseAuthRequest('recover', { email });
+          }
+        } catch {
+          await supabaseAuthRequest('recover', { email });
+        }
+      } else {
+        await supabaseAuthRequest('recover', { email });
+      }
     } else if (!REQUIRE_SUPABASE_DB && isValidEmail(email) && dbState.users[email]) {
       const rawToken = randomToken(32);
       const tokenHash = hashToken(rawToken);
