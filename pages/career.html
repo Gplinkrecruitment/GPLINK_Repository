@@ -10675,6 +10675,12 @@
 
     window.addEventListener("storage", (event) => {
       if (event.key === CAREER_STATE_KEY) {
+        // Don't let stale localStorage overwrites wipe placement data we already have
+        if (hasConcreteSecuredPlacementData()) {
+          var candidateState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
+          var candidateApp = candidateState.applications.find(function (a) { return a && a.isPlacementSecured; });
+          if (!candidateApp || !candidateApp.placement) return;
+        }
         careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
         syncCareerViewFromLocation();
         renderPage();
@@ -10741,15 +10747,11 @@
     }
 
     (async function init() {
-      const hadStoredCareerState = !!localStorage.getItem(CAREER_STATE_KEY);
       remoteApplicationsSettled = hasConcreteSecuredPlacementData();
       await hydrateCareerSessionEmail();
       syncCareerViewFromLocation();
       renderPage();
       moveNavGlass(activeNavItem);
-      if (!hadStoredCareerState) {
-        persistCareerState();
-      }
       if (handleRequestedRoleRedirect()) return;
       await loadRemoteRoles({ render: false });
       await loadRemoteApplications({ render: false });
