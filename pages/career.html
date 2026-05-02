@@ -5687,7 +5687,6 @@
       grid-auto-columns: 172px;
     }
 
-    body.career-mode-secured .placement-broker-card,
     body.career-mode-secured .placement-secondary-grid {
       display: none;
     }
@@ -6067,6 +6066,81 @@
       border-color: rgba(148, 163, 184, 0.1);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
+    }
+
+    /* ── Dark mode: Secured placement overrides ── */
+    html.dark-mode body.career-mode-secured .placement-hero-card {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: none;
+    }
+
+    html.dark-mode body.career-mode-secured .placement-stat-card {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    html.dark-mode body.career-mode-secured .placement-stat-value {
+      color: #e2e8f0;
+    }
+
+    html.dark-mode body.career-mode-secured .placement-stat-label {
+      color: rgba(148, 163, 184, 0.8);
+    }
+
+    html.dark-mode body.career-mode-secured .placement-kicker {
+      color: #60a5fa;
+    }
+
+    html.dark-mode body.career-mode-secured .placement-title,
+    html.dark-mode body.career-mode-secured .placement-subtitle {
+      color: #f1f5f9;
+    }
+
+    html.dark-mode body.career-mode-secured .placement-location-line {
+      color: rgba(148, 163, 184, 0.8);
+    }
+
+    html.dark-mode body.career-mode-secured .placement-countdown-value {
+      color: #f1f5f9;
+    }
+
+    html.dark-mode body.career-mode-secured .placement-countdown-copy {
+      color: rgba(148, 163, 184, 0.8);
+    }
+
+    html.dark-mode body.career-mode-secured .placement-countdown-tag {
+      background: rgba(255, 255, 255, 0.10);
+      border-color: rgba(255, 255, 255, 0.10);
+    }
+
+    html.dark-mode body.career-mode-secured .placement-practice-contact-btn-whatsapp {
+      color: #22c55e;
+      border-color: rgba(34, 197, 94, 0.28);
+    }
+
+    html.dark-mode body.career-mode-secured .placement-practice-contact-btn {
+      background: var(--panel-soft);
+      border-color: var(--line);
+      color: var(--text);
+    }
+
+    html.dark-mode body.career-mode-secured .placement-practice-contact-btn:hover {
+      border-color: var(--blue);
+      background: rgba(96, 165, 250, 0.08);
+    }
+
+    html.dark-mode body.career-mode-secured .placement-broker-presence {
+      background: rgba(96, 165, 250, 0.12);
+      color: #60a5fa;
+    }
+
+    html.dark-mode body.career-mode-secured .placement-contact-btn-whatsapp {
+      background: #16a34a;
+      border-color: #16a34a;
+      color: #fff;
     }
 
     /* ── Offline indicator ── */
@@ -6465,7 +6539,6 @@
                 <p class="role-summary" id="securedBrokerNote">I’ll coordinate registration timing, contract questions and your relocation handover with the practice.</p>
               </div>
               <div class="placement-broker-actions">
-                <a class="placement-contact-btn" id="securedBrokerCallLink" href="tel:+61432555018">Call</a>
                 <a class="placement-contact-btn" id="securedBrokerEmailLink" href="mailto:hazel@mygplink.com.au">Email</a>
                 <a class="placement-contact-btn placement-contact-btn-whatsapp" id="securedBrokerWhatsAppLink" href="https://wa.me/61432555018" target="_blank" rel="noreferrer">WhatsApp</a>
               </div>
