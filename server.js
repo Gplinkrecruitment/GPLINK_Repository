@@ -15029,6 +15029,63 @@ async function sendEmail({ to, subject, html, text }) {
   }
 }
 
+/* ───────── Email confirmation via Resend ───────── */
+
+async function sendEmailConfirmationViaResend(email) {
+  if (!isEmailConfigured() || !SUPABASE_SERVICE_ROLE_KEY) return false;
+
+  // Generate a confirmation link via Supabase Admin API
+  const redirectTo = 'https://app.mygplink.com.au/pages/signin.html?confirmed=true';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const linkRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        type: 'signup',
+        email: email,
+        options: { redirect_to: redirectTo }
+      })
+    });
+    const linkData = await linkRes.json().catch(() => ({}));
+    const confirmUrl = linkData.action_link || linkData.properties && linkData.properties.action_link || '';
+    if (!confirmUrl) {
+      console.error('[email-confirm] No action_link returned from Supabase:', JSON.stringify(linkData).slice(0, 300));
+      return false;
+    }
+
+    // Send via Resend
+    const result = await sendEmail({
+      to: email,
+      subject: 'Verify your GP Link account',
+      html: buildCareerEmailHtml({
+        title: 'Verify your email',
+        body: 'Thanks for signing up to GP Link! Please click the button below to verify your email address and activate your account.',
+        ctaText: 'Verify Email',
+        ctaUrl: confirmUrl,
+        footer: 'If you didn\'t create a GP Link account, you can safely ignore this email. This link expires in 24 hours.'
+      })
+    });
+    if (result.ok) {
+      console.log('[email-confirm] Confirmation email sent to', email);
+      return true;
+    }
+    console.error('[email-confirm] Resend send failed:', result.error);
+    return false;
+  } catch (err) {
+    console.error('[email-confirm] Error:', err && err.message);
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /* ───────── Push notifications via FCM ───────── */
 
 async function sendPushNotification(userId, { title, body, data }) {
@@ -15648,10 +15705,12 @@ async function handleApi(req, res, pathname) {
 
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
     if (!loginResult.ok) {
+      // Email confirmation required — send via Resend for reliable delivery
+      await sendEmailConfirmationViaResend(email).catch(() => {});
       sendJson(res, 200, {
         ok: true,
         requiresConfirmation: true,
-        message: 'Account created. If email confirmation is enabled, verify your inbox before signing in.'
+        message: 'Account created! A verification email has been sent to ' + email + '. Please check your inbox and click the link to activate your account.'
       });
       return;
     }
@@ -15689,50 +15748,12 @@ async function handleApi(req, res, pathname) {
       const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
       if (!loginResult.ok) {
         const rawMsg = loginResult.data && (loginResult.data.msg || loginResult.data.message || loginResult.data.error_description) || '';
-        // Detect unconfirmed email — auto-confirm via Admin API and retry login
+        // Detect unconfirmed email — resend confirmation via Resend
         if (/email.*not.*confirm|not.*confirm|confirm.*email/i.test(rawMsg) || rawMsg === 'Invalid login credentials') {
-          // Look up user via Admin API to check if they exist but aren't confirmed
-          try {
-            const listRes = await fetch(SUPABASE_URL + '/auth/v1/admin/users?page=1&per_page=1', {
-              method: 'GET',
-              headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY }
-            });
-            // Search by email using the admin endpoint
-            const userLookup = await fetch(SUPABASE_URL + '/auth/v1/admin/users', {
-              method: 'GET',
-              headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY }
-            });
-            const usersData = await userLookup.json().catch(() => ({}));
-            const users = Array.isArray(usersData.users) ? usersData.users : (Array.isArray(usersData) ? usersData : []);
-            const unconfirmedUser = users.find(u => u && String(u.email || '').toLowerCase() === email && !u.email_confirmed_at);
-            if (unconfirmedUser && unconfirmedUser.id) {
-              // Auto-confirm via Admin API
-              const confirmRes = await fetch(SUPABASE_URL + '/auth/v1/admin/users/' + unconfirmedUser.id, {
-                method: 'PUT',
-                headers: {
-                  apikey: SUPABASE_SERVICE_ROLE_KEY,
-                  Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ email_confirm: true })
-              });
-              if (confirmRes.ok) {
-                // Retry login now that email is confirmed
-                const retryLogin = await supabaseAuthRequest('token?grant_type=password', { email, password });
-                if (retryLogin.ok) {
-                  const loginUser = retryLogin.data && retryLogin.data.user ? retryLogin.data.user : { email };
-                  upsertLocalUserFromSupabaseUser(loginUser);
-                  ensureSupabaseUserProfile(loginUser).catch(() => {});
-                  const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
-                  setSession(res, sessionProfile);
-                  const bootstrapResult = resolveFastAuthBootstrap(email, { sessionUserId: sessionProfile.supabaseUserId, sessionProfile });
-                  sendJson(res, 200, { ok: true, message: 'Signed in.', redirectTo: '/pages/index.html', bootstrap: bootstrapResult });
-                  return;
-                }
-              }
-            }
-          } catch (err) {
-            console.error('[auth/login] Auto-confirm error:', err && err.message);
+          const sent = await sendEmailConfirmationViaResend(email).catch(() => false);
+          if (sent) {
+            sendJson(res, 401, { ok: false, message: 'Your email has not been verified yet. A new confirmation link has been sent to ' + email + '. Please check your inbox (and spam folder) and click the link to verify.' });
+            return;
           }
         }
         const msg = rawMsg || 'Invalid email or password.';
