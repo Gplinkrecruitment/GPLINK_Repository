@@ -11,23 +11,26 @@ Sent from: **GP Link \<notifications@mygplink.com.au\>**
 | Email | Subject | Trigger | Recipient | Status |
 |---|---|---|---|---|
 | Email Verification | Verify your GP Link account | User signs up or unconfirmed user tries to login | GP | LIVE |
+| Password Reset | Reset your GP Link password | User clicks "Forgot Password" | GP | LIVE |
+| Welcome Email | Welcome to GP Link | First login after email verification | GP | LIVE |
+| Onboarding Complete | Profile Complete - GP Link | GP finishes 8-step onboarding | GP | LIVE |
+| MyIntealth Complete | MyIntealth Complete - GP Link | EPIC verification issued | GP | LIVE |
+| AMC Complete | AMC Complete - GP Link | AMC qualifications verified | GP | LIVE |
+| AHPRA Complete | AHPRA Complete - GP Link | AHPRA verification issued | GP | LIVE |
 | Application Submitted | Application Submitted - GP Link | GP submits a job application | GP | LIVE |
 | Interview Scheduled | Interview Scheduled - GP Link | Admin schedules an interview | GP | LIVE |
 | Offer Pending | Offer Pending - GP Link | Application status changed to offer | GP | LIVE |
 | Placement Secured | Placement Secured! - GP Link | Application status changed to hired/placed | GP | LIVE |
-| Password Reset | (Supabase default) | User clicks "Forgot Password" | GP | LIVE (via Supabase) |
+| Document Approved | Document Approved - GP Link | VA approves an uploaded document | GP | LIVE |
+| Document Revision | Revision Needed - GP Link | VA requests a document revision | GP | LIVE |
+| Stalled Reminder | Need a hand? - GP Link | Weekly sweep detects GP stalled 14+ days | GP | LIVE |
 
 ### Not Yet Built
 
 | Email | Subject | Trigger | Recipient | Status |
 |---|---|---|---|---|
-| Welcome Email | Welcome to GP Link | After email verification confirmed | GP | TODO |
-| Document Approved | Document Approved - GP Link | VA approves an uploaded document | GP | TODO |
-| Document Revision | Revision Requested - GP Link | VA requests a document revision | GP | TODO |
-| Stage Complete | Stage Complete - GP Link | GP completes a registration stage | GP | TODO |
 | Nudge Email | Check-in from GP Link | VA sends a nudge (email channel) | GP | TODO |
 | Weekly Progress | Your Weekly Progress - GP Link | Scheduled weekly for active GPs | GP | TODO |
-| Practice Submission | Candidate Submitted - GP Link | VA submits GP to a practice | Practice contact | TODO |
 | Admin Alert: New Signup | New GP Signup - GP Link | New user signs up | Admin/VA | TODO |
 | Admin Alert: Help Request | GP Help Request - GP Link | GP submits a support ticket | Admin/VA | TODO |
 
