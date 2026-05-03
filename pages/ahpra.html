@@ -2783,8 +2783,20 @@
               '<button type="button" class="qp-copy-btn" id="copyRepMobile">' + copySvg + '</button>' +
             '</div>' +
             '<div class="qp-copy-field">' +
-              '<span class="qp-copy-text">Address: <strong>Erina, NSW, Australia, 2250</strong></span>' +
-              '<button type="button" class="qp-copy-btn" id="copyRepAddress">' + copySvg + '</button>' +
+              '<span class="qp-copy-text">Suburb: <strong>Erina</strong></span>' +
+              '<button type="button" class="qp-copy-btn" id="copyRepSuburb">' + copySvg + '</button>' +
+            '</div>' +
+            '<div class="qp-copy-field">' +
+              '<span class="qp-copy-text">State: <strong>NSW</strong></span>' +
+              '<button type="button" class="qp-copy-btn" id="copyRepState">' + copySvg + '</button>' +
+            '</div>' +
+            '<div class="qp-copy-field">' +
+              '<span class="qp-copy-text">Country: <strong>Australia</strong></span>' +
+              '<button type="button" class="qp-copy-btn" id="copyRepCountry">' + copySvg + '</button>' +
+            '</div>' +
+            '<div class="qp-copy-field">' +
+              '<span class="qp-copy-text">Postcode: <strong>2250</strong></span>' +
+              '<button type="button" class="qp-copy-btn" id="copyRepPostcode">' + copySvg + '</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -2870,7 +2882,10 @@
       wireCopyBtn('copyRepName', 'Hazel Ramirez');
       wireCopyBtn('copyRepEmail', 'Hazel@mygplink.com.au');
       wireCopyBtn('copyRepMobile', '+61 494 565 783');
-      wireCopyBtn('copyRepAddress', 'Erina, NSW, Australia, 2250');
+      wireCopyBtn('copyRepSuburb', 'Erina');
+      wireCopyBtn('copyRepState', 'NSW');
+      wireCopyBtn('copyRepCountry', 'Australia');
+      wireCopyBtn('copyRepPostcode', '2250');
     }
 
     function renderStepTabs(progress) {

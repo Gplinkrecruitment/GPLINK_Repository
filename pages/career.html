@@ -6100,6 +6100,31 @@
       opacity: 0.018;
     }
 
+    /* Hero card must keep dark gradient — override the general html.dark-mode rule */
+    html.dark-mode body.career-mode-secured .placement-hero-card {
+      background:
+        radial-gradient(360px 180px at 100% 0%, rgba(37, 99, 235, 0.10), transparent 62%),
+        linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      box-shadow: 0 28px 40px -34px rgba(15, 23, 42, 0.6);
+    }
+
+    /* Stat cards stay light in secured mode */
+    html.dark-mode body.career-mode-secured .placement-stat-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+    }
+
+    /* Other secured cards stay light */
+    html.dark-mode body.career-mode-secured .placement-practice-contact-card,
+    html.dark-mode body.career-mode-secured .placement-checklist,
+    html.dark-mode body.career-mode-secured .placement-broker-card,
+    html.dark-mode body.career-mode-secured .placement-income-float,
+    html.dark-mode body.career-mode-secured .placement-dock-card {
+      background: #ffffff;
+      border-color: #e2e8f0;
+    }
+
     /* ── Offline indicator ── */
     html.is-offline::after {
       content: "You're offline — showing cached data";
