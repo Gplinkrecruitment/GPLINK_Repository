@@ -2763,19 +2763,19 @@
         '</div>' +
       '</div>';
 
-      // Row 2: Documents
+      // Row 2: Supervised Practice Documents
       var row2 = '<div class="qp-row">' +
         '<div class="qp-num">2</div>' +
         '<div class="qp-body">' +
-          '<div class="qp-label">Download your documents</div>' +
-          '<div class="qp-desc">Your <strong>' + specialistLabel + '</strong> and <strong>Primary Medical Degree</strong>, plus additional supporting documents.</div>' +
+          '<div class="qp-label">Supervised Practice Documents</div>' +
+          '<div class="qp-desc">Download the supervised practice documents prepared by GP Link for your AHPRA application.</div>' +
           '<div class="qp-dl-row">' +
-            '<span class="qp-dl-name">' + qualLabels + '</span>' +
-            '<button type="button" class="qp-dl-btn" id="qualDownloadAllBtn">' + dlSvg + ' Download</button>' +
+            '<span class="qp-dl-name">SPPA-00</span>' +
+            '<button type="button" class="qp-dl-btn" id="sppa00DownloadBtn">' + dlSvg + ' Download</button>' +
           '</div>' +
           '<div class="qp-dl-row">' +
-            '<span class="qp-dl-name">Additional documents</span>' +
-            '<button type="button" class="qp-dl-btn" id="addlDocsDownloadBtn">' + dlSvg + ' Download</button>' +
+            '<span class="qp-dl-name">Section G</span>' +
+            '<button type="button" class="qp-dl-btn" id="sectionGDownloadBtn">' + dlSvg + ' Download</button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -2814,66 +2814,51 @@
     }
 
     function wireQualDownloadButtons() {
-      var btn = document.getElementById('qualDownloadAllBtn');
-      if (!btn) return;
-      btn.addEventListener('click', function() {
-        var country = getPageCountry();
-        var countryCode = country === 'ie' ? 'IE' : country === 'nz' ? 'NZ' : 'GB';
-        var qualDocs = ONBOARDING_QUAL_DOCS[country] || ONBOARDING_QUAL_DOCS.uk;
-        btn.disabled = true;
-        btn.textContent = 'Downloading…';
-        var completed = 0;
-        var failed = 0;
-        var total = qualDocs.length;
+      var dlSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
 
-        qualDocs.forEach(function(doc) {
-          var downloadUrl = '/api/onboarding-documents/download?country=' + encodeURIComponent(countryCode) + '&key=' + encodeURIComponent(doc.key);
-          fetch(downloadUrl, { credentials: 'same-origin' })
-            .then(function(resp) {
-              if (!resp.ok) throw new Error('Not available');
-              return resp.blob();
-            })
-            .then(function(blob) {
-              var a = document.createElement('a');
-              var url = URL.createObjectURL(blob);
-              a.href = url;
-              a.download = doc.label.replace(/[^a-zA-Z0-9 ]/g, '') + '.pdf';
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
-              completed++;
-            })
-            .catch(function() {
-              failed++;
-            })
-            .finally(function() {
-              if (completed + failed === total) {
+      function wireSupervisedDocBtn(btnId, docKey, docLabel) {
+        var btn = document.getElementById(btnId);
+        if (!btn) return;
+        btn.addEventListener('click', function() {
+          var snapshot = getDocSnapshot();
+          var doc = snapshot.gplink.find(function(d) { return d.key === docKey; });
+          if (doc && doc.ready && doc.downloadUrl) {
+            btn.disabled = true;
+            btn.textContent = 'Downloading…';
+            fetch(doc.downloadUrl, { credentials: 'same-origin' })
+              .then(function(resp) {
+                if (!resp.ok) throw new Error('Not available');
+                return resp.blob();
+              })
+              .then(function(blob) {
+                var a = document.createElement('a');
+                var url = URL.createObjectURL(blob);
+                a.href = url;
+                a.download = docLabel + '.pdf';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+              })
+              .catch(function() {
+                showToast(docLabel + ' could not be downloaded — it may not be ready yet');
+              })
+              .finally(function() {
                 btn.disabled = false;
-                var dlSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
                 btn.innerHTML = dlSvg + ' Download';
-                if (failed === total) {
-                  showToast('Documents not available — they may not have been uploaded during onboarding');
-                } else if (failed > 0) {
-                  showToast(completed + ' of ' + total + ' documents downloaded');
-                }
-              }
-            });
+              });
+          } else {
+            showToast(docLabel + ' is not ready yet — GP Link is still preparing this document');
+          }
         });
-      });
+      }
+
+      wireSupervisedDocBtn('sppa00DownloadBtn', 'sppa_00', 'SPPA-00');
+      wireSupervisedDocBtn('sectionGDownloadBtn', 'section_g', 'Section G');
     }
 
     function wireDocsActionButtons() {
       // Wire additional documents button to open download pack modal
-      var addlBtn = document.getElementById('addlDocsDownloadBtn');
-      if (addlBtn) {
-        addlBtn.addEventListener('click', function() {
-          var snapshot = getDocSnapshot();
-          renderDownloadPackModal(snapshot);
-          if (downloadPackModalEl) openModal(downloadPackModalEl, addlBtn);
-        });
-      }
-
       // Wire copy buttons for authorised representative
       var copySvgStr = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
       var checkSvgStr = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
