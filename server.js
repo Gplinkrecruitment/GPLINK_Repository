@@ -5185,6 +5185,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
           // Send WhatsApp template via DoubleTick instead of creating a kickoff task
           if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'amc', _gpFirstName);
+          sendMyintealthCompleteEmail(userId).catch(() => {});
           await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
         }
       }
@@ -5204,6 +5205,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
           // Send WhatsApp template via DoubleTick instead of creating a kickoff task
           if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'career', _gpFirstName);
+          sendAmcCompleteEmail(userId).catch(() => {});
           await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
         }
       }
@@ -5364,6 +5366,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
           // Send WhatsApp template via DoubleTick instead of creating a kickoff task
           if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName);
+          sendAhpraCompleteEmail(userId).catch(() => {});
           await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
         }
       }
@@ -15086,6 +15089,140 @@ async function sendEmailConfirmationViaResend(email) {
   }
 }
 
+/* ───────── Automated GP Email Notifications ───────── */
+
+async function getGpEmailContext(userId) {
+  if (!isSupabaseDbConfigured() || !userId) return null;
+  const r = await supabaseDbRequest('user_profiles', 'select=email,first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  if (!r.ok || !Array.isArray(r.data) || !r.data[0]) return null;
+  const p = r.data[0];
+  return { email: p.email, firstName: p.first_name || '', lastName: p.last_name || '', name: ((p.first_name || '') + ' ' + (p.last_name || '')).trim() };
+}
+
+async function getGpEmailContextByCaseId(caseId) {
+  if (!isSupabaseDbConfigured() || !caseId) return null;
+  const cr = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+  if (!cr.ok || !Array.isArray(cr.data) || !cr.data[0]) return null;
+  return getGpEmailContext(cr.data[0].user_id);
+}
+
+async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ctaUrl, footer) {
+  if (!isEmailConfigured()) return;
+  const gp = await getGpEmailContext(userId);
+  if (!gp || !gp.email) return;
+  const personalBody = body.replace(/\{\{name\}\}/g, gp.firstName || 'there');
+  await sendEmail({
+    to: gp.email,
+    subject: subject,
+    html: buildCareerEmailHtml({
+      title: title,
+      body: personalBody,
+      ctaText: ctaText || 'Go to Dashboard',
+      ctaUrl: ctaUrl || 'https://app.mygplink.com.au/pages/index.html',
+      footer: footer || ''
+    })
+  }).catch((e) => console.error('[email-notify] Send failed:', e && e.error));
+}
+
+// 1. Welcome Email — sent on first successful login
+async function sendWelcomeEmail(userId) {
+  await sendGpNotificationEmail(userId,
+    'Welcome to GP Link',
+    'Welcome to GP Link, {{name}}!',
+    'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Your dedicated support expert Hazel is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.',
+    'Get Started',
+    'https://app.mygplink.com.au/pages/index.html',
+    'Questions? Reply to this email or message Hazel on WhatsApp.'
+  );
+}
+
+// 2. Onboarding Complete
+async function sendOnboardingCompleteEmail(userId) {
+  await sendGpNotificationEmail(userId,
+    'Profile Complete — GP Link',
+    'Your profile is complete, {{name}}!',
+    'Great work! Your GP Link profile is now set up. The next step is MyIntealth — this is where your qualification verification begins.\n\nHead to your dashboard to get started.',
+    'Start MyIntealth',
+    'https://app.mygplink.com.au/pages/myintealth.html',
+    ''
+  );
+}
+
+// 3. MyIntealth Complete — AMC Next
+async function sendMyintealthCompleteEmail(userId) {
+  await sendGpNotificationEmail(userId,
+    'MyIntealth Complete — GP Link',
+    'MyIntealth is done, {{name}}!',
+    'Congratulations on completing your MyIntealth verification! You\'re making excellent progress.\n\nYour next step is AMC (Australian Medical Council). This is where your qualifications get formally assessed for practise in Australia.',
+    'Start AMC',
+    'https://app.mygplink.com.au/pages/amc.html',
+    ''
+  );
+}
+
+// 4. AMC Complete — Career Next
+async function sendAmcCompleteEmail(userId) {
+  await sendGpNotificationEmail(userId,
+    'AMC Complete — GP Link',
+    'AMC verification complete, {{name}}!',
+    'Your AMC qualifications have been verified — fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.',
+    'Browse Positions',
+    'https://app.mygplink.com.au/pages/career.html',
+    ''
+  );
+}
+
+// 5. AHPRA Complete
+async function sendAhpraCompleteEmail(userId) {
+  await sendGpNotificationEmail(userId,
+    'AHPRA Complete — GP Link',
+    'AHPRA registration complete, {{name}}!',
+    'Your AHPRA registration has been processed — you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.',
+    'View Dashboard',
+    'https://app.mygplink.com.au/pages/index.html',
+    ''
+  );
+}
+
+// 6. Stalled GP Reminder (7+ days)
+async function sendStalledReminderEmail(userId, stage) {
+  const stageLabels = { myintealth: 'MyIntealth', amc: 'AMC', career: 'Career', ahpra: 'AHPRA', visa: 'Visa', pbs: 'PBS' };
+  const label = stageLabels[stage] || 'your current step';
+  await sendGpNotificationEmail(userId,
+    'Need a hand? — GP Link',
+    'How are you going, {{name}}?',
+    'We noticed you haven\'t made progress on ' + label + ' recently. No rush — but if you\'re stuck or have questions, we\'re here to help.\n\nYour support expert Hazel can assist you with anything you need. Just reply to this email or message her on WhatsApp.',
+    'Continue ' + label,
+    'https://app.mygplink.com.au/pages/index.html',
+    'If you\'re waiting on something external (like a verification), no action needed — we\'ll follow up when there\'s an update.'
+  );
+}
+
+// 7. Document Approved
+async function sendDocumentApprovedEmail(userId, docLabel) {
+  await sendGpNotificationEmail(userId,
+    'Document Approved — GP Link',
+    'Your document has been approved!',
+    'Good news, {{name}} — your ' + (docLabel || 'document') + ' has been reviewed and approved.\n\nHead to your dashboard to see your updated progress.',
+    'View Dashboard',
+    'https://app.mygplink.com.au/pages/index.html',
+    ''
+  );
+}
+
+// 8. Document Revision Requested
+async function sendDocumentRevisionEmail(userId, docLabel, practiceName) {
+  const practiceNote = practiceName ? ' from ' + practiceName : '';
+  await sendGpNotificationEmail(userId,
+    'Revision Needed — GP Link',
+    'A document needs your attention',
+    '{{name}}, the ' + (docLabel || 'document') + practiceNote + ' requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.',
+    'View Details',
+    'https://app.mygplink.com.au/pages/index.html',
+    'If you have questions about what\'s needed, message your support expert Hazel on WhatsApp.'
+  );
+}
+
 /* ───────── Push notifications via FCM ───────── */
 
 async function sendPushNotification(userId, { title, body, data }) {
@@ -15766,8 +15903,13 @@ async function handleApi(req, res, pathname) {
       ensureSupabaseUserProfile(loginUser).catch(() => {});
       const sessionProfile = getSessionProfileFromSupabaseUser(loginUser, email);
       setSession(res, sessionProfile);
+      // Send welcome email on first login (confirmed_at exists but last_sign_in was null before this login)
+      const supaUserId = sessionProfile.supabaseUserId;
+      if (supaUserId && loginUser.email_confirmed_at && !loginUser.last_sign_in_at) {
+        sendWelcomeEmail(supaUserId).catch(() => {});
+      }
       const bootstrapResult = resolveFastAuthBootstrap(email, {
-        sessionUserId: sessionProfile.supabaseUserId,
+        sessionUserId: supaUserId,
         sessionProfile
       });
       sendJson(res, 200, {
@@ -18536,6 +18678,7 @@ async function handleApi(req, res, pathname) {
           current.account_status = 'under_review';
         }
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
+        sendOnboardingCompleteEmail(userId).catch(() => {});
 
         // Also update user profile with onboarding data
         const profileUpdate = {};
@@ -22349,6 +22492,7 @@ Return ONLY valid JSON with no markdown formatting:
         related_substage: c.substage || null,
         _actor: 'system'
       });
+      sendStalledReminderEmail(c.user_id, c.stage).catch(() => {});
       created++;
     }
     invalidateAdminDashboardCache();
@@ -22789,6 +22933,7 @@ Return ONLY valid JSON with no markdown formatting:
       title: docLabel + ' verified',
       detail: 'Your document has been reviewed and verified. You can download it from My Documents.'
     });
+    sendDocumentApprovedEmail(userId, docLabel).catch(() => {});
 
     sendJson(res, 200, { ok: true, message: 'Document approved.' });
     return;
@@ -23171,6 +23316,8 @@ Return ONLY valid JSON with no markdown formatting:
       });
 
       await _logCaseEvent(task.case_id, taskId, 'revision_requested', 'Revision requested — draft created for ' + practiceEmail, 'Document: ' + fileName, adminCtx.email);
+      var revDocLabel = getDocumentLabelForKey(task.related_document_key) || task.related_document_key || 'document';
+      sendDocumentRevisionEmail(userId, revDocLabel, practiceName).catch(() => {});
       sendJson(res, 200, { ok: true, draft_url: draftUrl });
     } catch (gmailErr) {
       console.error('[RequestRevision] Gmail draft error:', gmailErr.message);
