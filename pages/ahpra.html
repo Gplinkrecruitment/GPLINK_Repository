@@ -2788,12 +2788,20 @@
           '<div class="qp-desc">Copy these details into the AHPRA application when asked to nominate a representative.</div>' +
           '<div class="qp-copy-row">' +
             '<div class="qp-copy-field">' +
-              '<span class="qp-copy-text">Name: <strong>Hazel Rodrigues</strong></span>' +
+              '<span class="qp-copy-text">Name: <strong>Hazel Ramirez</strong></span>' +
               '<button type="button" class="qp-copy-btn" id="copyRepName">' + copySvg + '</button>' +
             '</div>' +
             '<div class="qp-copy-field">' +
               '<span class="qp-copy-text">Email: <strong>Hazel@mygplink.com.au</strong></span>' +
               '<button type="button" class="qp-copy-btn" id="copyRepEmail">' + copySvg + '</button>' +
+            '</div>' +
+            '<div class="qp-copy-field">' +
+              '<span class="qp-copy-text">Mobile: <strong>0494 565 783</strong></span>' +
+              '<button type="button" class="qp-copy-btn" id="copyRepMobile">' + copySvg + '</button>' +
+            '</div>' +
+            '<div class="qp-copy-field">' +
+              '<span class="qp-copy-text">Address: <strong>Erina, NSW, Australia, 2250</strong></span>' +
+              '<button type="button" class="qp-copy-btn" id="copyRepAddress">' + copySvg + '</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -2884,8 +2892,10 @@
           }).catch(function() { showToast('Could not copy — select and copy manually'); });
         });
       }
-      wireCopyBtn('copyRepName', 'Hazel Rodrigues');
+      wireCopyBtn('copyRepName', 'Hazel Ramirez');
       wireCopyBtn('copyRepEmail', 'Hazel@mygplink.com.au');
+      wireCopyBtn('copyRepMobile', '0494565783');
+      wireCopyBtn('copyRepAddress', 'Erina, NSW, Australia, 2250');
     }
 
     function renderStepTabs(progress) {
