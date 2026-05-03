@@ -2763,9 +2763,25 @@
         '</div>' +
       '</div>';
 
-      // Row 2: Representative
+      // Row 2: AMC Number
+      var amcProgress = null;
+      try { amcProgress = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null'); } catch (e) {}
+      var amcNumber = (amcProgress && amcProgress.amcNumber && amcProgress.amcNumber.length === 7) ? amcProgress.amcNumber : '';
       var row2 = '<div class="qp-row">' +
         '<div class="qp-num">2</div>' +
+        '<div class="qp-body">' +
+          '<div class="qp-label">AMC Number</div>' +
+          '<div class="qp-desc">Enter this number when your AHPRA application asks for your AMC candidate number.</div>' +
+          (amcNumber
+            ? '<div class="qp-copy-row"><div class="qp-copy-field"><span class="qp-copy-text">AMC Number: <strong>' + amcNumber + '</strong></span><button type="button" class="qp-copy-btn" id="copyAmcNumber">' + copySvg + '</button></div></div>'
+            : '<div class="qp-desc" style="color:var(--warning,#d97706);font-weight:600;">Not yet entered — complete the AMC Verification step first.</div>'
+          ) +
+        '</div>' +
+      '</div>';
+
+      // Row 3: Representative
+      var row3 = '<div class="qp-row">' +
+        '<div class="qp-num">3</div>' +
         '<div class="qp-body">' +
           '<div class="qp-label">Add your authorised representative</div>' +
           '<div class="qp-desc">Copy these details into the AHPRA application when asked to nominate a representative.</div>' +
@@ -2790,9 +2806,9 @@
         '</div>' +
       '</div>';
 
-      // Row 3: Documents
-      var row3 = '<div class="qp-row">' +
-        '<div class="qp-num">3</div>' +
+      // Row 4: Documents
+      var row4 = '<div class="qp-row">' +
+        '<div class="qp-num">4</div>' +
         '<div class="qp-body">' +
           '<div class="qp-label">Upload additional documents to your AHPRA application</div>' +
           '<div class="qp-desc">Download the supervised practice documents prepared by GP Link for your AHPRA application.</div>' +
@@ -2811,7 +2827,7 @@
 
       return '<div class="qp-card">' +
         '<div class="qp-card-title">What you need for this step</div>' +
-        row1 + row2 + row3 +
+        row1 + row2 + row3 + row4 +
       '</div>';
     }
 
@@ -2888,6 +2904,10 @@
           }
         });
       }
+      var amcProg = null;
+      try { amcProg = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null'); } catch (e) {}
+      var storedAmcNumber = (amcProg && amcProg.amcNumber && amcProg.amcNumber.length === 7) ? amcProg.amcNumber : '';
+      if (storedAmcNumber) wireCopyBtn('copyAmcNumber', storedAmcNumber);
       wireCopyBtn('copyRepName', 'Hazel Ramirez');
       wireCopyBtn('copyRepEmail', 'Hazel@mygplink.com.au');
       wireCopyBtn('copyRepMobile', '+61 494 565 783');

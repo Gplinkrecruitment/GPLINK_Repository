@@ -1364,6 +1364,15 @@
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
     function markStageComplete(progress, key) {
       if (progress.stage !== key) return;
+
+      // Require AMC number before completing waiting_verification
+      if (key === "waiting_verification" && (!progress.amcNumber || progress.amcNumber.length !== 7)) {
+        showToast("Enter your 7-digit AMC number before marking this step complete");
+        var amcInput = document.getElementById('amcNumberInput');
+        if (amcInput) amcInput.focus();
+        return;
+      }
+
       progress.completed[key] = true;
 
       // When completing waiting_verification, also complete qualifications_verified
@@ -1542,6 +1551,23 @@
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 
+      var amcNumberHtml = '';
+      if (key === 'waiting_verification' && isCurrent) {
+        var savedAmcNumber = progress.amcNumber || '';
+        amcNumberHtml = `
+        <div class="action-card" style="margin-top:12px;">
+          <div class="action-card-body">
+            <div class="action-card-label">Your AMC Number</div>
+            <div class="action-card-text">Enter your 7-digit AMC candidate number. You'll find this in your AMC Candidate Portfolio account.</div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+              <input type="text" id="amcNumberInput" maxlength="7" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 2264986" value="${savedAmcNumber}" style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid var(--border);font-size:16px;font-weight:700;letter-spacing:0.08em;font-family:inherit;background:var(--surface);color:var(--ink);outline:none;max-width:200px;" />
+              <button type="button" id="amcNumberSaveBtn" class="btn-primary" style="padding:10px 16px;font-size:13px;" ${savedAmcNumber.length === 7 ? '' : 'disabled'}>Save</button>
+            </div>
+            <div id="amcNumberStatus" style="font-size:11px;margin-top:6px;color:var(--ink-muted);">${savedAmcNumber.length === 7 ? '<span style="color:var(--success);">✓ AMC number saved</span>' : 'Required before you can progress to AHPRA'}</div>
+          </div>
+        </div>`;
+      }
+
       document.getElementById("stepInfoGrid").innerHTML = `
         <div class="action-card">
           <div class="action-card-body">
@@ -1553,7 +1579,36 @@
             ${actionBtnHtml}
           </div>
         </div>
+        ${amcNumberHtml}
       `;
+
+      // Wire AMC number input
+      if (key === 'waiting_verification' && isCurrent) {
+        var amcInput = document.getElementById('amcNumberInput');
+        var amcSaveBtn = document.getElementById('amcNumberSaveBtn');
+        var amcStatus = document.getElementById('amcNumberStatus');
+        if (amcInput && amcSaveBtn) {
+          amcInput.addEventListener('input', function() {
+            var val = amcInput.value.replace(/\D/g, '').slice(0, 7);
+            amcInput.value = val;
+            amcSaveBtn.disabled = val.length !== 7;
+            if (val.length === 7) {
+              amcStatus.innerHTML = '';
+            } else {
+              amcStatus.innerHTML = 'Required before you can progress to AHPRA';
+              amcStatus.style.color = 'var(--ink-muted)';
+            }
+          });
+          amcSaveBtn.addEventListener('click', function() {
+            var val = amcInput.value.replace(/\D/g, '').slice(0, 7);
+            if (val.length !== 7) return;
+            progress.amcNumber = val;
+            saveProgress(progress, true);
+            amcStatus.innerHTML = '<span style="color:var(--success);">✓ AMC number saved</span>';
+            showToast('AMC number saved');
+          });
+        }
+      }
 
       // Actions
       const actionsEl = document.getElementById("stepActions");
