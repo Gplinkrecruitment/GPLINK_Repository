@@ -2767,17 +2767,14 @@
       var row2 = '<div class="qp-row">' +
         '<div class="qp-num">2</div>' +
         '<div class="qp-body">' +
-          '<div class="qp-label">Supervised Practice Documents</div>' +
+          '<div class="qp-label">Upload additional documents to your AHPRA application</div>' +
           '<div class="qp-desc">Download the supervised practice documents prepared by GP Link for your AHPRA application.</div>' +
           '<div class="qp-dl-row">' +
-            '<span class="qp-dl-name">SPPA-00</span>' +
-            '<button type="button" class="qp-dl-btn" id="sppa00DownloadBtn">' + dlSvg + ' Download</button>' +
+            '<span class="qp-dl-name">Supervised Practice Documents</span>' +
+            '<button type="button" class="qp-dl-btn" id="supervisedDocsDownloadBtn">' + dlSvg + ' Download</button>' +
           '</div>' +
+          '<div class="qp-desc" style="margin-top:10px;">Upload these additional supporting documents to your AHPRA application.</div>' +
           '<div class="qp-dl-row">' +
-            '<span class="qp-dl-name">Section G</span>' +
-            '<button type="button" class="qp-dl-btn" id="sectionGDownloadBtn">' + dlSvg + ' Download</button>' +
-          '</div>' +
-          '<div class="qp-dl-row" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(148,163,184,0.18);">' +
             '<span class="qp-dl-name">Additional documents</span>' +
             '<button type="button" class="qp-dl-btn" id="addlDocsDownloadBtn">' + dlSvg + ' Download</button>' +
           '</div>' +
@@ -2818,47 +2815,25 @@
     }
 
     function wireQualDownloadButtons() {
-      var dlSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-
-      function wireSupervisedDocBtn(btnId, docKey, docLabel) {
-        var btn = document.getElementById(btnId);
-        if (!btn) return;
-        btn.addEventListener('click', function() {
-          var snapshot = getDocSnapshot();
-          var doc = snapshot.gplink.find(function(d) { return d.key === docKey; });
-          if (doc && doc.ready && doc.downloadUrl) {
-            btn.disabled = true;
-            btn.textContent = 'Downloading…';
-            fetch(doc.downloadUrl, { credentials: 'same-origin' })
-              .then(function(resp) {
-                if (!resp.ok) throw new Error('Not available');
-                return resp.blob();
-              })
-              .then(function(blob) {
-                var a = document.createElement('a');
-                var url = URL.createObjectURL(blob);
-                a.href = url;
-                a.download = docLabel + '.pdf';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
-              })
-              .catch(function() {
-                showToast(docLabel + ' could not be downloaded — it may not be ready yet');
-              })
-              .finally(function() {
-                btn.disabled = false;
-                btn.innerHTML = dlSvg + ' Download';
-              });
-          } else {
-            showToast(docLabel + ' is not ready yet — GP Link is still preparing this document');
-          }
+      var btn = document.getElementById('supervisedDocsDownloadBtn');
+      if (!btn) return;
+      btn.addEventListener('click', function() {
+        var snapshot = getDocSnapshot();
+        var supervisedDocs = snapshot.gplink.filter(function(d) {
+          return d.key === 'sppa_00' || d.key === 'section_g';
         });
-      }
-
-      wireSupervisedDocBtn('sppa00DownloadBtn', 'sppa_00', 'SPPA-00');
-      wireSupervisedDocBtn('sectionGDownloadBtn', 'section_g', 'Section G');
+        var supervisedSnapshot = {
+          gp: [],
+          gplink: supervisedDocs,
+          all: supervisedDocs,
+          missing: supervisedDocs.filter(function(d) { return !d.ready || d.rejected; }),
+          downloadable: supervisedDocs.filter(function(d) { return d.ready && d.downloadUrl; }),
+          gpTotal: 0,
+          gplinkTotal: supervisedDocs.length
+        };
+        renderDownloadPackModal(supervisedSnapshot);
+        if (downloadPackModalEl) openModal(downloadPackModalEl, btn);
+      });
     }
 
     function wireDocsActionButtons() {
