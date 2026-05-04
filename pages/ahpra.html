@@ -2779,9 +2779,25 @@
         '</div>' +
       '</div>';
 
-      // Row 3: Representative
+      // Row 3: Criminal History Reference Number
+      var docState = null;
+      try { docState = JSON.parse(localStorage.getItem('gp_documents_prep') || 'null'); } catch (e) {}
+      var crimRefNum = (docState && docState.docs && docState.docs.criminal_history && docState.docs.criminal_history.referenceNumber) ? docState.docs.criminal_history.referenceNumber : '';
       var row3 = '<div class="qp-row">' +
         '<div class="qp-num">3</div>' +
+        '<div class="qp-body">' +
+          '<div class="qp-label">Criminal History Check Reference Number</div>' +
+          '<div class="qp-desc">Enter this reference number when your AHPRA application asks for your criminal history check details.</div>' +
+          (crimRefNum
+            ? '<div class="qp-copy-row"><div class="qp-copy-field"><span class="qp-copy-text">Reference: <strong>' + crimRefNum + '</strong></span><button type="button" class="qp-copy-btn" id="copyCrimRef">' + copySvg + '</button></div></div>'
+            : '<div class="qp-desc" style="color:var(--warning,#d97706);font-weight:600;">Not yet entered — add your reference number in My Documents.</div>'
+          ) +
+        '</div>' +
+      '</div>';
+
+      // Row 4: Representative
+      var row4 = '<div class="qp-row">' +
+        '<div class="qp-num">4</div>' +
         '<div class="qp-body">' +
           '<div class="qp-label">Add your authorised representative</div>' +
           '<div class="qp-desc">Copy these details into the AHPRA application when asked to nominate a representative.</div>' +
@@ -2806,9 +2822,9 @@
         '</div>' +
       '</div>';
 
-      // Row 4: Documents
-      var row4 = '<div class="qp-row">' +
-        '<div class="qp-num">4</div>' +
+      // Row 5: Documents
+      var row5 = '<div class="qp-row">' +
+        '<div class="qp-num">5</div>' +
         '<div class="qp-body">' +
           '<div class="qp-label">Upload additional documents to your AHPRA application</div>' +
           '<div class="qp-desc">Download the supervised practice documents prepared by GP Link for your AHPRA application.</div>' +
@@ -2827,7 +2843,7 @@
 
       return '<div class="qp-card">' +
         '<div class="qp-card-title">What you need for this step</div>' +
-        row1 + row2 + row3 + row4 +
+        row1 + row2 + row3 + row4 + row5 +
       '</div>';
     }
 
@@ -2908,6 +2924,10 @@
       try { amcProg = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null'); } catch (e) {}
       var storedAmcNumber = (amcProg && amcProg.amcNumber && amcProg.amcNumber.length === 7) ? amcProg.amcNumber : '';
       if (storedAmcNumber) wireCopyBtn('copyAmcNumber', storedAmcNumber);
+      var docSt = null;
+      try { docSt = JSON.parse(localStorage.getItem('gp_documents_prep') || 'null'); } catch (e) {}
+      var storedCrimRef = (docSt && docSt.docs && docSt.docs.criminal_history && docSt.docs.criminal_history.referenceNumber) ? docSt.docs.criminal_history.referenceNumber : '';
+      if (storedCrimRef) wireCopyBtn('copyCrimRef', storedCrimRef);
       wireCopyBtn('copyRepName', 'Hazel Ramirez');
       wireCopyBtn('copyRepEmail', 'Hazel@mygplink.com.au');
       wireCopyBtn('copyRepMobile', '+61 494 565 783');
