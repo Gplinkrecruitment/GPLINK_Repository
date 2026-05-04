@@ -3713,17 +3713,27 @@
       });
     }
 
-    if (!redirectToAllowedStage()) {
-      if (!hasCareerSecured()) {
-        showPlacementGate();
-      } else {
-        const initialProgress = loadProgress();
-        const routeTab = pickTabFromRoute(initialProgress);
-        currentTabKey = routeTab || activeTabStage(initialProgress);
-        if (!routeTab) syncRouteForStage(initialProgress.stage, true);
-        renderPage(initialProgress);
+    function initPage() {
+      if (!redirectToAllowedStage()) {
+        if (!hasCareerSecured()) {
+          showPlacementGate();
+        } else {
+          hidePlacementGate();
+          const initialProgress = loadProgress();
+          const routeTab = pickTabFromRoute(initialProgress);
+          currentTabKey = routeTab || activeTabStage(initialProgress);
+          if (!routeTab) syncRouteForStage(initialProgress.stage, true);
+          renderPage(initialProgress);
+        }
       }
+    }
 
+    // Run immediately, then re-check after state sync hydrates
+    initPage();
+    window.addEventListener("gp-state-hydrated", function() { initPage(); });
+    window.addEventListener("gp-data-ready", function() { initPage(); });
+
+    if (!redirectToAllowedStage()) {
       window.addEventListener("popstate", () => {
         if (!hasCareerSecured()) { showPlacementGate(); return; }
         hidePlacementGate();

@@ -21203,8 +21203,13 @@ Return ONLY valid JSON with no markdown formatting:
       const preCheckState = preCheckRemote && preCheckRemote.state && typeof preCheckRemote.state === 'object'
         ? preCheckRemote.state
         : (dbState.userState[email] && typeof dbState.userState[email] === 'object' ? dbState.userState[email] : {});
-      const careerState = preCheckState.gp_career_state && typeof preCheckState.gp_career_state === 'object' ? preCheckState.gp_career_state : {};
-      const careerSecured = !!(careerState.career_secured || careerState.secured);
+      let careerState = preCheckState.gp_career_state || {};
+      if (typeof careerState === 'string') { try { careerState = JSON.parse(careerState); } catch (e) { careerState = {}; } }
+      if (typeof careerState !== 'object' || careerState === null) careerState = {};
+      let careerSecured = !!(careerState.career_secured || careerState.secured);
+      if (!careerSecured && Array.isArray(careerState.applications)) {
+        careerSecured = careerState.applications.some(a => a && (a.isPlacementSecured === true || /^(secured|placement_secured|practice_secured)$/.test(String(a.rawStatus || a.status || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''))));
+      }
       if (!careerSecured) {
         sendJson(res, 403, { ok: false, message: 'Cannot start AHPRA registration until career is secured.' });
         return;
