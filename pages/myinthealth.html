@@ -1105,15 +1105,15 @@
         doNow: "Establish your EPIC account and complete your NotaryCam session.",
         time: "10-20 minutes",
         support: "We track this step and follow up if establishment is delayed.",
-        next: "Once established, you'll upload your specialist qualifications.",
+        next: "Once established, you'll upload your qualifications.",
         cta: "Open MyIntealth",
         ctaType: "open"
       },
       upload_qualifications: {
         label: "Qualifications",
         full: "Upload Qualifications",
-        short: "Upload your specialist qualification and nominate AMC.",
-        doNow: "Upload your specialist qualification and ensure AMC is nominated.",
+        get short() { return "Upload your " + getQualLabel() + " and nominate AMC."; },
+        get doNow() { return "Upload your " + getQualLabel() + " and ensure AMC is nominated."; },
         time: "10-20 minutes",
         support: "We check your submission is correct and chase delays.",
         next: "Once complete, you will move straight to the AMC Portfolio.",
@@ -1591,7 +1591,7 @@
       if (isAction) {
         warning.classList.remove("hidden");
         document.getElementById("stepWarningTitle").textContent = "Documents need uploading";
-        document.getElementById("stepWarningText").textContent = "You need to upload your specialist qualification to EPIC via MyIntealth. Make sure to nominate AMC as the recipient.";
+        document.getElementById("stepWarningText").textContent = "You need to upload your " + getQualLabel() + " to EPIC via MyIntealth. Make sure to nominate AMC as the recipient.";
       } else {
         warning.classList.add("hidden");
       }
@@ -1608,7 +1608,7 @@
       let actionBtnHtml = '';
       if (effectiveKey === "verification_issued") {
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-      } else if (isCurrent) {
+      } else if (isCurrent && key !== "upload_qualifications") {
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 
@@ -1880,6 +1880,14 @@
     function getOnboardingCountry() {
       const onboarding = parseStorage("gp_onboarding");
       return onboarding && typeof onboarding.country === "string" ? onboarding.country : "";
+    }
+
+    function getQualLabel() {
+      var c = getOnboardingCountry();
+      if (c === "GB") return "MRCGP certificate and primary medical degree";
+      if (c === "IE") return "MICGP certificate and primary medical degree";
+      if (c === "NZ") return "FRNZCGP certificate and primary medical degree";
+      return "specialist qualification and primary medical degree";
     }
 
     function buildOnboardingDownloadUrl(country, key) {
