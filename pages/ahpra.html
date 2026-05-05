@@ -2455,7 +2455,7 @@
           html += '      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Mark Requested';
           html += '    </button>';
           if (doc.help) {
-            html += '    <button class="intro-show-me-how" data-intro-help-idx="' + idx + '" type="button">';
+            html += '    <button class="intro-show-me-how" data-intro-help-key="' + doc.key + '" type="button">';
             html += '      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
             html += '      Show me how';
             html += '    </button>';
@@ -2469,7 +2469,7 @@
           html += '      <input type="file" accept="image/*,.pdf" data-intro-upload="' + doc.key + '" style="display:none;" />';
           html += '    </label>';
           if (doc.help) {
-            html += '    <button class="intro-show-me-how" data-intro-help-idx="' + idx + '" type="button">';
+            html += '    <button class="intro-show-me-how" data-intro-help-key="' + doc.key + '" type="button">';
             html += '      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
             html += '      Show me how';
             html += '    </button>';
@@ -2485,25 +2485,33 @@
     }
 
     // Panel slide transitions
+    var introSliding = false;
+
     function slideToDocsPanel() {
+      if (introSliding) return;
+      introSliding = true;
       introWelcomePanel.classList.remove("intro-panel-active");
       introWelcomePanel.classList.add("intro-panel-exit");
       introDocsPanel.classList.remove("intro-panel-exit");
       introDocsPanel.style.transform = "";
       void introDocsPanel.offsetWidth;
       introDocsPanel.classList.add("intro-panel-active");
+      setTimeout(function() { introSliding = false; }, 450);
     }
 
     function slideToWelcomePanel() {
+      if (introSliding) return;
+      introSliding = true;
       introDocsPanel.classList.remove("intro-panel-active");
       introDocsPanel.classList.add("intro-panel-exit");
       introWelcomePanel.classList.remove("intro-panel-exit");
       introWelcomePanel.style.transform = "";
       void introWelcomePanel.offsetWidth;
       introWelcomePanel.classList.add("intro-panel-active");
+      setTimeout(function() { introSliding = false; }, 450);
     }
 
-    introBackBtn.addEventListener("click", function() { slideToWelcomePanel(); });
+    if (introBackBtn) introBackBtn.addEventListener("click", function() { slideToWelcomePanel(); });
 
     // ─── INTRO SCREEN: HELP POPOVER ──────────────────────────────
     function openIntroHelp(helpData) {
@@ -2535,14 +2543,18 @@
       introHelpPopover.classList.remove("show");
     }
 
-    introHelpClose.addEventListener("click", closeIntroHelp);
-    introHelpBackdrop.addEventListener("click", closeIntroHelp);
+    if (introHelpClose) introHelpClose.addEventListener("click", closeIntroHelp);
+    if (introHelpBackdrop) introHelpBackdrop.addEventListener("click", closeIntroHelp);
 
     // ─── INTRO SCREEN: UPLOAD HANDLER ────────────────────────────
     var introIncompleteDocs = [];
 
     function handleIntroUpload(docKey, file) {
       if (!file) return;
+      if (file.size > 50 * 1024 * 1024) {
+        showToast("File is too large. Maximum size is 50 MB.");
+        return;
+      }
 
       var progressBar = document.getElementById("introProgress_" + docKey);
       var progressFill = document.getElementById("introProgressFill_" + docKey);
@@ -2550,6 +2562,10 @@
       if (progressFill) progressFill.style.width = "30%";
 
       var reader = new FileReader();
+      reader.onerror = reader.onabort = function() {
+        if (progressBar) progressBar.classList.remove("show");
+        showToast("Could not read the file. Please try again.");
+      };
       reader.onload = function() {
         if (progressFill) progressFill.style.width = "60%";
         var fileDataUrl = reader.result;
@@ -2609,8 +2625,8 @@
       try { localStorage.setItem(DOC_KEY, JSON.stringify(state)); } catch (e) {}
 
       // Sync to API
-      fetch("/api/state/sync", {
-        method: "POST",
+      fetch("/api/state", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify({ key: DOC_KEY, value: state })
@@ -2641,10 +2657,10 @@
     // ─── INTRO SCREEN: EVENT DELEGATION ──────────────────────────
     introDocsListEl.addEventListener("click", function(e) {
       // Show me how
-      var helpBtn = e.target.closest("[data-intro-help-idx]");
+      var helpBtn = e.target.closest("[data-intro-help-key]");
       if (helpBtn) {
-        var idx = parseInt(helpBtn.dataset.introHelpIdx, 10);
-        var doc = introIncompleteDocs[idx];
+        var docKey = helpBtn.dataset.introHelpKey;
+        var doc = introIncompleteDocs.find(function(d) { return d.key === docKey; });
         if (doc && doc.help) openIntroHelp(doc.help);
         return;
       }
@@ -4764,6 +4780,7 @@
           const initialProgress = loadProgress();
           // Show intro screen if not yet dismissed
           if (!isIntroDismissed()) {
+            if (introEl.style.display !== "none") return;
             showIntroScreen();
             return;
           }
