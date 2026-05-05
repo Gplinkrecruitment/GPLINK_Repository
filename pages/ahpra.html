@@ -4,6 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>AHPRA Registration - GP Link</title>
   <script src="/js/nav-shell-bridge.js?v=20260506a"></script>
+  <script>
+    // Hide registration content immediately if intro screen should show (prevents flash)
+    (function(){try{if(localStorage.getItem("gp_ahpra_progress__intro_seen")!=="1"){
+      var s=document.createElement("style");s.id="ahpra-intro-hide";
+      s.textContent=".hero-compact,.reg-content,.desktop-sidebar,.step-header-bar{display:none!important}";
+      document.head.appendChild(s);
+    }}catch(e){}})();
+  </script>
   <script src="/js/auth-guard.js?v=20260506a" defer></script>
   <script src="/js/state-sync.js?v=20260506a" defer></script>
   <script src="/js/updates-sync.js?v=20260506a" defer></script>
@@ -2349,9 +2357,15 @@
       try { return localStorage.getItem(getIntroDismissedKey()) === "1"; } catch (e) { return false; }
     }
 
+    function removeIntroHideStyle() {
+      var s = document.getElementById("ahpra-intro-hide");
+      if (s) s.remove();
+    }
+
     function dismissIntro() {
       try { localStorage.setItem(getIntroDismissedKey(), "1"); } catch (e) {}
       introEl.style.display = "none";
+      removeIntroHideStyle();
       // Show the normal AHPRA registration content
       document.querySelector(".hero-compact").style.display = "";
       document.querySelector(".reg-content").style.display = "";
@@ -4607,19 +4621,21 @@
 
     // Touch drag for mobile reg sheet
     let startY = 0, deltaY = 0, dragging = false;
-    mobileRegSheet.addEventListener("touchstart", e => {
-      if (!mobileRegSheet.classList.contains("show")) return;
-      startY = e.touches[0].clientY; deltaY = 0; dragging = true;
-    }, { passive: true });
-    mobileRegSheet.addEventListener("touchmove", e => {
-      if (!dragging) return;
-      deltaY = Math.max(0, e.touches[0].clientY - startY);
-      if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
-    }, { passive: true });
-    mobileRegSheet.addEventListener("touchend", () => {
-      if (!dragging) return; dragging = false;
-      if (deltaY > 90) closeMobileRegistration(); else mobileRegSheet.style.transform = "";
-    });
+    if (mobileRegSheet) {
+      mobileRegSheet.addEventListener("touchstart", e => {
+        if (!mobileRegSheet.classList.contains("show")) return;
+        startY = e.touches[0].clientY; deltaY = 0; dragging = true;
+      }, { passive: true });
+      mobileRegSheet.addEventListener("touchmove", e => {
+        if (!dragging) return;
+        deltaY = Math.max(0, e.touches[0].clientY - startY);
+        if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+      }, { passive: true });
+      mobileRegSheet.addEventListener("touchend", () => {
+        if (!dragging) return; dragging = false;
+        if (deltaY > 90) closeMobileRegistration(); else mobileRegSheet.style.transform = "";
+      });
+    }
 
     // Reposition nav glass on resize
     window.addEventListener("resize", () => {
@@ -4774,6 +4790,7 @@
     function initPage() {
       if (!redirectToAllowedStage()) {
         if (!hasCareerSecured()) {
+          removeIntroHideStyle();
           showPlacementGate();
         } else {
           hidePlacementGate();
@@ -4784,6 +4801,7 @@
             showIntroScreen();
             return;
           }
+          removeIntroHideStyle();
           const routeTab = pickTabFromRoute(initialProgress);
           currentTabKey = routeTab || activeTabStage(initialProgress);
           if (!routeTab) syncRouteForStage(initialProgress.stage, true);

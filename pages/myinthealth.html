@@ -2160,19 +2160,21 @@
 
     // Touch drag for mobile reg sheet
     let startY = 0, deltaY = 0, dragging = false;
-    mobileRegSheet.addEventListener("touchstart", e => {
-      if (!mobileRegSheet.classList.contains("show")) return;
-      startY = e.touches[0].clientY; deltaY = 0; dragging = true;
-    }, { passive: true });
-    mobileRegSheet.addEventListener("touchmove", e => {
-      if (!dragging) return;
-      deltaY = Math.max(0, e.touches[0].clientY - startY);
-      if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
-    }, { passive: true });
-    mobileRegSheet.addEventListener("touchend", () => {
-      if (!dragging) return; dragging = false;
-      if (deltaY > 90) closeMobileRegistration(); else mobileRegSheet.style.transform = "";
-    });
+    if (mobileRegSheet) {
+      mobileRegSheet.addEventListener("touchstart", e => {
+        if (!mobileRegSheet.classList.contains("show")) return;
+        startY = e.touches[0].clientY; deltaY = 0; dragging = true;
+      }, { passive: true });
+      mobileRegSheet.addEventListener("touchmove", e => {
+        if (!dragging) return;
+        deltaY = Math.max(0, e.touches[0].clientY - startY);
+        if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+      }, { passive: true });
+      mobileRegSheet.addEventListener("touchend", () => {
+        if (!dragging) return; dragging = false;
+        if (deltaY > 90) closeMobileRegistration(); else mobileRegSheet.style.transform = "";
+      });
+    }
 
     // Reposition nav glass on resize
     window.addEventListener("resize", () => {

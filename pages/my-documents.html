@@ -2795,26 +2795,28 @@
     let deltaY = 0;
     let dragging = false;
 
-    mobileRegSheet.addEventListener("touchstart", (e) => {
-      if (!mobileRegSheet.classList.contains("show")) return;
-      startY = e.touches[0].clientY;
-      deltaY = 0;
-      dragging = true;
-    }, { passive: true });
+    if (mobileRegSheet) {
+      mobileRegSheet.addEventListener("touchstart", (e) => {
+        if (!mobileRegSheet.classList.contains("show")) return;
+        startY = e.touches[0].clientY;
+        deltaY = 0;
+        dragging = true;
+      }, { passive: true });
 
-    mobileRegSheet.addEventListener("touchmove", (e) => {
-      if (!dragging) return;
-      const currentY = e.touches[0].clientY;
-      deltaY = Math.max(0, currentY - startY);
-      if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
-    }, { passive: true });
+      mobileRegSheet.addEventListener("touchmove", (e) => {
+        if (!dragging) return;
+        const currentY = e.touches[0].clientY;
+        deltaY = Math.max(0, currentY - startY);
+        if (deltaY > 0) mobileRegSheet.style.transform = `translateY(${deltaY}px)`;
+      }, { passive: true });
 
-    mobileRegSheet.addEventListener("touchend", () => {
-      if (!dragging) return;
-      dragging = false;
-      if (deltaY > 90) closeMobileRegistration();
-      else mobileRegSheet.style.transform = "";
-    });
+      mobileRegSheet.addEventListener("touchend", () => {
+        if (!dragging) return;
+        dragging = false;
+        if (deltaY > 90) closeMobileRegistration();
+        else mobileRegSheet.style.transform = "";
+      });
+    }
 
     activeNavItem = navMenuEl ? (document.querySelector(".nav-menu .nav-item.active") || navItems[0] || null) : null;
     if (activeNavItem) setActiveNav(activeNavItem, false);
