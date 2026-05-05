@@ -4677,9 +4677,21 @@
     }
 
     // ─── INTRO SCREEN: SHOW/HIDE LOGIC ───────────────────────────
+    // ?intro=ready  → preview "all docs complete" state
+    // ?intro=reset  → clear intro_seen flag and reload
+    (function() {
+      var ip = new URLSearchParams(window.location.search).get("intro");
+      if (ip === "reset") {
+        localStorage.removeItem(STORAGE_KEY + "__intro_seen");
+        window.history.replaceState({}, "", window.location.pathname);
+        window.location.reload();
+      }
+    })();
+
     function showIntroScreen() {
+      var introParam = new URLSearchParams(window.location.search).get("intro");
       var country = getPageCountry();
-      introIncompleteDocs = getIncompleteDocsForIntro(country);
+      introIncompleteDocs = introParam === "ready" ? [] : getIncompleteDocsForIntro(country);
 
       renderIntroCta(introIncompleteDocs);
       renderIntroDocsList(introIncompleteDocs);
