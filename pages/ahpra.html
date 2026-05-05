@@ -1541,7 +1541,7 @@
       z-index: 1;
       display: flex;
       flex-direction: column;
-      min-height: calc(100dvh - var(--gp-shell-bottom-clearance, 0px) - 60px);
+      min-height: calc(100dvh - 60px);
       padding: 20px var(--sp-6) 16px;
     }
 
@@ -4702,6 +4702,33 @@
       }
     })();
 
+    function getShellBottomClearance() {
+      var clearance = 0;
+      try {
+        clearance = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--gp-shell-bottom-clearance')) || 0;
+      } catch (e) {}
+      if (!clearance) {
+        try {
+          if (window.parent !== window && window.parent.document) {
+            var nav = window.parent.document.querySelector('.mobile-nav');
+            if (nav && nav.getClientRects().length > 0) {
+              clearance = Math.max(0, Math.ceil(window.parent.innerHeight - nav.getBoundingClientRect().top));
+            }
+          }
+        } catch (e) {}
+      }
+      return clearance;
+    }
+
+    function updateIntroHeight() {
+      var introContent = introEl.querySelector('.intro-content');
+      if (!introContent || introEl.style.display === 'none') return;
+      var clearance = getShellBottomClearance();
+      introContent.style.minHeight = (window.innerHeight - clearance - 20) + 'px';
+    }
+
+    window.addEventListener('resize', updateIntroHeight);
+
     function showIntroScreen() {
       var introParam = new URLSearchParams(window.location.search).get("intro");
       var country = getPageCountry();
@@ -4721,6 +4748,11 @@
       if (stepHeader) stepHeader.style.display = "none";
       var sidebar = document.querySelector(".desktop-sidebar");
       if (sidebar) sidebar.style.display = "none";
+
+      // Set intro height immediately, then re-check after shell bridge measures nav
+      updateIntroHeight();
+      requestAnimationFrame(function() { updateIntroHeight(); });
+      setTimeout(function() { updateIntroHeight(); }, 150);
     }
 
     function initPage() {
