@@ -624,8 +624,6 @@
     // Initialize doc state
     if (!state.qualDocs) state.qualDocs = {};
     const prev = state.qualDocs[docKey] || {};
-    const retryCount = (prev.retryCount || 0) + (prev.status === "failed" ? 0 : 0);
-
     state.qualDocs[docKey] = {
       fileName: fileName,
       status: "scanning",

@@ -841,18 +841,18 @@
       return;
     }
 
+    setDesktopRegistrationOpen(false);
+    closeMobileRegistrationSheet();
+
+    var route = routeFromUrl(routeUrl);
+
     // Restore chrome if a child page hid it — but only when navigating
-    // away from the page that hid it (currentRoute is already set)
+    // away from the page that hid it
     if (chromeHidden && currentRoute && route !== currentRoute) {
       chromeHidden = false;
       if (mobileNavEl) mobileNavEl.style.display = "";
       if (desktopHostEl) desktopHostEl.style.display = "";
     }
-
-    setDesktopRegistrationOpen(false);
-    closeMobileRegistrationSheet();
-
-    var route = routeFromUrl(routeUrl);
     var embeddedRoute = toEmbeddedRoute(routeUrl);
     if (!embeddedRoute) return;
 
