@@ -342,6 +342,7 @@
       height: calc(100dvh - var(--gp-frame-top));
       overflow: hidden;
       z-index: 1;
+      background: #f0f4fa;
     }
 
     .app-shell-frame {
@@ -353,7 +354,7 @@
       background: #f0f4fa;
       opacity: 0;
       pointer-events: none;
-      transition: opacity .16s ease;
+      transition: opacity .12s ease;
       z-index: 1;
     }
 
@@ -361,6 +362,11 @@
       opacity: 1;
       pointer-events: auto;
       z-index: 2;
+    }
+
+    .app-shell-frame.is-leaving {
+      opacity: 0;
+      z-index: 1;
     }
 
     .app-shell-loader {
