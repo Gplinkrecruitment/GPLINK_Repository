@@ -121,6 +121,10 @@
 
     canvas.toBlob(function (blob) {
       closeCamera();
+      if (!blob) {
+        if (onCaptureCallback) onCaptureCallback(null, new Error("Could not capture image"));
+        return;
+      }
       if (onCaptureCallback) onCaptureCallback(blob, null);
     }, "image/jpeg", 0.85);
   }

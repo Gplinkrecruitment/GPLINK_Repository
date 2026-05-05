@@ -1271,7 +1271,7 @@
       frame.addEventListener("load", handleFrameLoad);
       getFrameState(frame);
     });
-    window.addEventListener("message", handleMessage);
+    // handleMessage already registered before init() for early iframe messages
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("resize", handleResize);
     document.addEventListener("keydown", handleKeydown);
