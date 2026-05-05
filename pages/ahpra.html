@@ -2780,18 +2780,33 @@
       '</div>';
 
       // Row 3: Criminal History Reference Number
-      // Read from gp_documents_prep first, fallback to gp_amc_progress.criminalHistoryRef
+      // Read from multiple sources, persist to gp_ahpra_progress if found elsewhere
       var crimRefNum = '';
+      var crimRefSource = '';
       try {
-        var docState = JSON.parse(localStorage.getItem('gp_documents_prep') || 'null');
-        if (docState && docState.docs && docState.docs.criminal_history && docState.docs.criminal_history.referenceNumber) {
-          crimRefNum = docState.docs.criminal_history.referenceNumber;
-        }
+        var ahpraState = JSON.parse(localStorage.getItem('gp_ahpra_progress') || 'null');
+        if (ahpraState && ahpraState.criminalHistoryRef) { crimRefNum = ahpraState.criminalHistoryRef; crimRefSource = 'ahpra'; }
       } catch (e) {}
       if (!crimRefNum) {
         try {
-          var amcFallback = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null');
-          if (amcFallback && amcFallback.criminalHistoryRef) crimRefNum = amcFallback.criminalHistoryRef;
+          var amcFb = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null');
+          if (amcFb && amcFb.criminalHistoryRef) { crimRefNum = amcFb.criminalHistoryRef; crimRefSource = 'amc'; }
+        } catch (e) {}
+      }
+      if (!crimRefNum) {
+        try {
+          var docSt = JSON.parse(localStorage.getItem('gp_documents_prep') || 'null');
+          if (docSt && docSt.docs && docSt.docs.criminal_history && docSt.docs.criminal_history.referenceNumber) {
+            crimRefNum = docSt.docs.criminal_history.referenceNumber; crimRefSource = 'docs';
+          }
+        } catch (e) {}
+      }
+      // Persist to own state if found from another source
+      if (crimRefNum && crimRefSource !== 'ahpra') {
+        try {
+          var ahpraPersist = JSON.parse(localStorage.getItem('gp_ahpra_progress') || '{}');
+          ahpraPersist.criminalHistoryRef = crimRefNum;
+          localStorage.setItem('gp_ahpra_progress', JSON.stringify(ahpraPersist));
         } catch (e) {}
       }
       var row3 = '<div class="qp-row">' +
@@ -2935,9 +2950,10 @@
       try { amcProg = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null'); } catch (e) {}
       var storedAmcNumber = (amcProg && amcProg.amcNumber && amcProg.amcNumber.length === 7) ? amcProg.amcNumber : '';
       if (storedAmcNumber) wireCopyBtn('copyAmcNumber', storedAmcNumber);
-      var docSt = null;
-      try { docSt = JSON.parse(localStorage.getItem('gp_documents_prep') || 'null'); } catch (e) {}
-      var storedCrimRef = (docSt && docSt.docs && docSt.docs.criminal_history && docSt.docs.criminal_history.referenceNumber) ? docSt.docs.criminal_history.referenceNumber : '';
+      var storedCrimRef = '';
+      try { var ap = JSON.parse(localStorage.getItem('gp_ahpra_progress') || 'null'); if (ap && ap.criminalHistoryRef) storedCrimRef = ap.criminalHistoryRef; } catch (e) {}
+      if (!storedCrimRef) { try { var am = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null'); if (am && am.criminalHistoryRef) storedCrimRef = am.criminalHistoryRef; } catch (e) {} }
+      if (!storedCrimRef) { try { var ds = JSON.parse(localStorage.getItem('gp_documents_prep') || 'null'); if (ds && ds.docs && ds.docs.criminal_history && ds.docs.criminal_history.referenceNumber) storedCrimRef = ds.docs.criminal_history.referenceNumber; } catch (e) {} }
       if (storedCrimRef) wireCopyBtn('copyCrimRef', storedCrimRef);
       wireCopyBtn('copyRepName', 'Hazel Ramirez');
       wireCopyBtn('copyRepEmail', 'Hazel@mygplink.com.au');
