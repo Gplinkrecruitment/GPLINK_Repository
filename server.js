@@ -4879,14 +4879,70 @@ function resolveNudgeTemplate(stage, substage) {
 
 function buildWhatsAppLink(stageLabel, gpFirstName, gpPhone) {
   const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
-  // If GP phone is available, link to DoubleTick conversation thread
-  if (gpPhone) {
-    const toNumber = normalizePhone(gpPhone).replace(/[^\d]/g, '');
-    if (fromNumber && toNumber) return 'https://web.doubletick.io/conversations/' + fromNumber + '/' + toNumber;
-  }
   // Fallback to DoubleTick inbox (no specific conversation)
   if (fromNumber) return 'https://web.doubletick.io/conversations/' + fromNumber;
   return 'https://web.doubletick.io';
+}
+
+/**
+ * Fetch a DoubleTick embed URL for a GP phone number.
+ * Uses POST /embed/url which returns a conversation URL with the internal
+ * DoubleTick customer ID (e.g. customer_XXXXX) — not the raw phone number.
+ * Results are cached in-memory for 1 hour to avoid repeated API calls.
+ */
+const _dtEmbedCache = new Map(); // phone → { url, ts }
+const DT_EMBED_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+async function getDoubleTickEmbedUrl(gpPhone) {
+  if (!DOUBLETICK_API_KEY || !gpPhone) return '';
+  const normalised = normalizePhone(gpPhone).replace(/[^\d]/g, '');
+  if (!normalised) return '';
+
+  // Check cache
+  const cached = _dtEmbedCache.get(normalised);
+  if (cached && (Date.now() - cached.ts) < DT_EMBED_CACHE_TTL) return cached.url;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(DOUBLETICK_BASE_URL + '/embed/url', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Authorization': DOUBLETICK_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ phone: normalised })
+    });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      console.warn('[doubletick-embed] API returned', resp.status, 'for', normalised);
+      return '';
+    }
+    const data = await resp.json().catch(() => ({}));
+    console.log('[doubletick-embed] Response for', normalised, ':', JSON.stringify(data).slice(0, 500));
+    // The API returns a URL — extract it (may be { url: "..." } or raw string)
+    const rawUrl = typeof data === 'string' ? data
+      : (data.url || data.embedUrl || data.iframeUrl || '');
+    if (!rawUrl) return '';
+
+    // Try to extract customer ID from the URL and build a web.doubletick.io conversation link
+    // Embed URLs may contain customer_XXXXX identifiers we can use
+    const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+    const customerMatch = rawUrl.match(/customer_\d+/);
+    let url;
+    if (customerMatch && fromNumber) {
+      url = 'https://web.doubletick.io/conversations/' + fromNumber + '/' + customerMatch[0];
+    } else {
+      url = rawUrl;
+    }
+    _dtEmbedCache.set(normalised, { url, ts: Date.now() });
+    return url;
+  } catch (err) {
+    console.warn('[doubletick-embed] Error fetching embed URL for', normalised, ':', err && err.message);
+    return '';
+  }
 }
 
 /**
@@ -21991,6 +22047,19 @@ Return ONLY valid JSON with no markdown formatting:
     const ticketCountsByUser = {};
     openTickets.forEach(function (tk) { ticketCountsByUser[tk.user_id] = (ticketCountsByUser[tk.user_id] || 0) + 1; });
 
+    // Batch-fetch DoubleTick embed URLs for all GPs (parallel, non-blocking)
+    const dtEmbedByUserId = {};
+    if (DOUBLETICK_API_KEY) {
+      const embedPromises = cases.map(async function (c) {
+        const p = profileMap[c.user_id] || {};
+        const phone = resolvePhone(p);
+        if (!phone) return;
+        const url = await getDoubleTickEmbedUrl(phone);
+        if (url) dtEmbedByUserId[c.user_id] = url;
+      });
+      await Promise.all(embedPromises);
+    }
+
     // Enriched users list with quick qual snapshot (required + approved counts only, not full lists)
     const users = [];
     for (const c of cases) {
@@ -22023,8 +22092,8 @@ Return ONLY valid JSON with no markdown formatting:
         quals_required: qualSnap.required.length,
         quals_approved: qualSnap.approved.length,
         quals_missing: qualSnap.missing.length,
-        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', resolvePhone(p)),
-        doubletick_conversation_url: dtUrlByCase[c.id] || null
+        whatsapp_link: dtEmbedByUserId[c.user_id] || dtUrlByCase[c.id] || buildWhatsAppLink(c.stage, p.first_name || '', resolvePhone(p)),
+        doubletick_conversation_url: dtEmbedByUserId[c.user_id] || dtUrlByCase[c.id] || null
       });
     }
 
@@ -22053,7 +22122,8 @@ Return ONLY valid JSON with no markdown formatting:
         age_hours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))),
         is_urgent: isUrgent,
         is_overdue: isOverdue,
-        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', resolvePhone(p)),
+        whatsapp_link: dtEmbedByUserId[c.user_id] || buildWhatsAppLink(c.stage, p.first_name || '', resolvePhone(p)),
+        doubletick_conversation_url: dtEmbedByUserId[c.user_id] || t.doubletick_conversation_url || null,
         practice_contact: practiceContactMap[c.user_id] || {},
         attachment_url: !!t.attachment_url,
         attachment_filename: t.attachment_filename || '',
@@ -22099,7 +22169,7 @@ Return ONLY valid JSON with no markdown formatting:
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
         gp_phone: resolvePhone(p),
-        whatsapp_link: buildWhatsAppLink(tk.stage, p.first_name || '', resolvePhone(p))
+        whatsapp_link: dtEmbedByUserId[tk.user_id] || buildWhatsAppLink(tk.stage, p.first_name || '', resolvePhone(p))
       });
     });
 
