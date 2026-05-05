@@ -9680,17 +9680,18 @@ async function syncZohoRecruitRoles() {
 }
 
 /**
- * Backfill phone numbers from Zoho Recruit for GPs who have a zoho_candidate_id
- * but no phone stored in user_profiles. Fetches the candidate record from Zoho
- * and copies the Phone/Mobile field back to the profile.
+ * Backfill phone numbers from Zoho Recruit for GPs with no phone in user_profiles.
+ * Two paths:
+ *   1. GPs with a zoho_candidate_id → fetch candidate record directly
+ *   2. GPs without a zoho_candidate_id → search Zoho by email, store candidate ID + phone
  */
 async function backfillPhonesFromZoho(zoho) {
   if (!isSupabaseDbConfigured() || !zoho || !zoho.accessToken) return 0;
 
-  // Find GPs with a zoho_candidate_id but empty phone
+  // Find all GPs with empty phone
   var profilesRes = await supabaseDbRequest(
     'user_profiles',
-    'select=user_id,email,zoho_candidate_id,phone&zoho_candidate_id=not.is.null&or=(phone.is.null,phone.eq.)&limit=50'
+    'select=user_id,email,zoho_candidate_id,phone&or=(phone.is.null,phone.eq.)&limit=50'
   );
   var profiles = profilesRes.ok && Array.isArray(profilesRes.data) ? profilesRes.data : [];
   if (profiles.length === 0) return 0;
@@ -9698,32 +9699,50 @@ async function backfillPhonesFromZoho(zoho) {
   var count = 0;
   for (var i = 0; i < profiles.length; i++) {
     var p = profiles[i];
-    if (!p.zoho_candidate_id || !p.user_id) continue;
+    if (!p.user_id || !p.email) continue;
 
-    // Fetch candidate record from Zoho to get phone
-    var fetchResult = await fetchZohoRecruitRecordsWithVariants(
-      zoho.connection, zoho.accessToken, zoho.apiDomain,
-      ['Candidates/' + encodeURIComponent(p.zoho_candidate_id), 'candidates/' + encodeURIComponent(p.zoho_candidate_id)],
-      {}
-    );
-    var record = fetchResult.records && fetchResult.records[0] ? fetchResult.records[0] : null;
+    var record = null;
+    var candidateId = p.zoho_candidate_id || '';
+
+    if (candidateId) {
+      // Path 1: fetch candidate record directly by Zoho ID
+      var fetchResult = await fetchZohoRecruitRecordsWithVariants(
+        zoho.connection, zoho.accessToken, zoho.apiDomain,
+        ['Candidates/' + encodeURIComponent(candidateId), 'candidates/' + encodeURIComponent(candidateId)],
+        {}
+      );
+      record = fetchResult.records && fetchResult.records[0] ? fetchResult.records[0] : null;
+    } else {
+      // Path 2: search Zoho by email to find the candidate
+      var matches = await searchZohoRecruitCandidatesByEmail(zoho, p.email);
+      if (matches.length > 0) {
+        record = matches[0];
+        candidateId = getZohoCandidateId(record) || '';
+      }
+    }
     if (!record) continue;
 
     var zohoPhone = getZohoField(record, ['Phone', 'Mobile', 'phone', 'mobile']);
-    if (!zohoPhone) continue;
+    var patch = { updated_at: new Date().toISOString() };
+    if (zohoPhone) {
+      var split = splitPhoneForProfile(zohoPhone);
+      patch.phone = zohoPhone;
+      if (split.countryDial) patch.country_dial = split.countryDial;
+      if (split.phoneNumber) patch.phone_number = split.phoneNumber;
+    }
+    // Also store zoho_candidate_id if we discovered it
+    if (candidateId && !p.zoho_candidate_id) patch.zoho_candidate_id = candidateId;
 
-    var split = splitPhoneForProfile(zohoPhone);
-    var patch = { phone: zohoPhone, updated_at: new Date().toISOString() };
-    if (split.countryDial) patch.country_dial = split.countryDial;
-    if (split.phoneNumber) patch.phone_number = split.phoneNumber;
-
-    await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(p.user_id), {
-      method: 'PATCH',
-      headers: { Prefer: 'return=minimal' },
-      body: patch
-    });
-    count++;
-    console.log('[ZohoRecruit phone-backfill] Updated phone for', p.email, ':', zohoPhone);
+    // Only write if we have something new
+    if (patch.phone || patch.zoho_candidate_id) {
+      await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(p.user_id), {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: patch
+      });
+      if (patch.phone) count++;
+      console.log('[ZohoRecruit phone-backfill]', p.email, '— phone:', zohoPhone || '(none)', candidateId && !p.zoho_candidate_id ? '+ stored candidateId ' + candidateId : '');
+    }
   }
   return count;
 }
