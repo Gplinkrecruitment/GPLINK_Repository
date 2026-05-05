@@ -14754,7 +14754,7 @@ async function ensureSupabaseUserProfile(supaUser) {
   // Check if row already exists (may be created by DB trigger with empty names)
   const existing = await supabaseDbRequest(
     'user_profiles',
-    `select=user_id,first_name,last_name&user_id=eq.${encodeURIComponent(supabaseUserId)}&limit=1`
+    `select=user_id,first_name,last_name,phone_number,phone&user_id=eq.${encodeURIComponent(supabaseUserId)}&limit=1`
   );
   if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) {
     // Row exists — update name if signup provided one and profile is still blank
@@ -21947,11 +21947,16 @@ Return ONLY valid JSON with no markdown formatting:
     let stateMap = {};
     if (userIds.length > 0) {
       const [pRes, sRes] = await Promise.all([
-        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,phone,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
+        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,country_dial,phone_number,phone,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
         supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')')
       ]);
       if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
       if (sRes.ok && Array.isArray(sRes.data)) sRes.data.forEach(function (s) { stateMap[s.user_id] = (s && typeof s.state === 'object') ? s.state : {}; });
+    }
+
+    // Resolve phone from profile: prefer `phone`, fall back to country_dial + phone_number
+    function resolvePhone(p) {
+      return p.phone || [p.country_dial, p.phone_number].filter(Boolean).join(' ').trim() || '';
     }
 
     // Build practice contact lookup from career state
@@ -22002,7 +22007,7 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
-        gp_phone: p.phone || p.phone_number || '',
+        gp_phone: resolvePhone(p),
         country: countryCode,
         stage: c.stage,
         substage: c.substage,
@@ -22018,7 +22023,7 @@ Return ONLY valid JSON with no markdown formatting:
         quals_required: qualSnap.required.length,
         quals_approved: qualSnap.approved.length,
         quals_missing: qualSnap.missing.length,
-        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', p.phone || p.phone_number || ''),
+        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', resolvePhone(p)),
         doubletick_conversation_url: dtUrlByCase[c.id] || null
       });
     }
@@ -22041,14 +22046,14 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
-        gp_phone: p.phone || p.phone_number || '',
+        gp_phone: resolvePhone(p),
         gp_user_id: c.user_id || null,
         case_stage: c.stage || '',
         case_substage: c.substage || '',
         age_hours: Math.max(0, Math.floor(ageMs / (60 * 60 * 1000))),
         is_urgent: isUrgent,
         is_overdue: isOverdue,
-        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', p.phone || p.phone_number || ''),
+        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', resolvePhone(p)),
         practice_contact: practiceContactMap[c.user_id] || {},
         attachment_url: !!t.attachment_url,
         attachment_filename: t.attachment_filename || '',
@@ -22093,8 +22098,8 @@ Return ONLY valid JSON with no markdown formatting:
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || ''),
         gp_first_name: p.first_name || '',
         gp_email: p.email || '',
-        gp_phone: p.phone || p.phone_number || '',
-        whatsapp_link: buildWhatsAppLink(tk.stage, p.first_name || '', p.phone || p.phone_number || '')
+        gp_phone: resolvePhone(p),
+        whatsapp_link: buildWhatsAppLink(tk.stage, p.first_name || '', resolvePhone(p))
       });
     });
 
