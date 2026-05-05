@@ -2753,22 +2753,12 @@
       var copySvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
       var extSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
 
-      // Row 1: English language
-      var row1 = '<div class="qp-row">' +
-        '<div class="qp-num">1</div>' +
-        '<div class="qp-body">' +
-          '<div class="qp-label">English language skills</div>' +
-          '<div class="qp-desc">Determine which pathway you are eligible for based on your training and practice history.</div>' +
-          '<a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="qp-link">' + extSvg + ' Check your eligibility on AHPRA</a>' +
-        '</div>' +
-      '</div>';
-
-      // Row 2: AMC Number
+      // Row 1: AMC Number
       var amcProgress = null;
       try { amcProgress = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null'); } catch (e) {}
       var amcNumber = (amcProgress && amcProgress.amcNumber && amcProgress.amcNumber.length === 7) ? amcProgress.amcNumber : '';
-      var row2 = '<div class="qp-row">' +
-        '<div class="qp-num">2</div>' +
+      var row1 = '<div class="qp-row">' +
+        '<div class="qp-num">1</div>' +
         '<div class="qp-body">' +
           '<div class="qp-label">AMC Number</div>' +
           '<div class="qp-desc">Enter this number when your AHPRA application asks for your AMC candidate number.</div>' +
@@ -2779,7 +2769,7 @@
         '</div>' +
       '</div>';
 
-      // Row 3: Criminal History Reference Number
+      // Row 2: Criminal History Reference Number
       // Read from multiple sources, persist to gp_ahpra_progress if found elsewhere
       var crimRefNum = '';
       var crimRefSource = '';
@@ -2809,8 +2799,8 @@
           localStorage.setItem('gp_ahpra_progress', JSON.stringify(ahpraPersist));
         } catch (e) {}
       }
-      var row3 = '<div class="qp-row">' +
-        '<div class="qp-num">3</div>' +
+      var row2 = '<div class="qp-row">' +
+        '<div class="qp-num">2</div>' +
         '<div class="qp-body">' +
           '<div class="qp-label">Criminal History Check Reference Number</div>' +
           '<div class="qp-desc">Enter this reference number when your AHPRA application asks for your criminal history check details.</div>' +
@@ -2818,6 +2808,16 @@
             ? '<div class="qp-copy-row"><div class="qp-copy-field"><span class="qp-copy-text">Reference: <strong>' + crimRefNum + '</strong></span><button type="button" class="qp-copy-btn" id="copyCrimRef">' + copySvg + '</button></div></div>'
             : '<div class="qp-desc" style="color:var(--warning,#d97706);font-weight:600;">Not yet entered — add your reference number in My Documents.</div>'
           ) +
+        '</div>' +
+      '</div>';
+
+      // Row 3: English language skills
+      var row3 = '<div class="qp-row">' +
+        '<div class="qp-num">3</div>' +
+        '<div class="qp-body">' +
+          '<div class="qp-label">English language skills</div>' +
+          '<div class="qp-desc">Determine which pathway you are eligible for based on your training and practice history.</div>' +
+          '<a href="https://www.ahpra.gov.au/Registration/Registration-Standards/English-language-skills.aspx#form-top" target="_blank" rel="noopener noreferrer" class="qp-link">' + extSvg + ' Check your eligibility on AHPRA</a>' +
         '</div>' +
       '</div>';
 
