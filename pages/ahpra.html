@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>AHPRA Registration - GP Link</title>
-  <script src="/js/nav-shell-bridge.js?v=20260424b"></script>
-  <script src="/js/auth-guard.js?v=20260424b" defer></script>
-  <script src="/js/state-sync.js?v=20260424b" defer></script>
-  <script src="/js/updates-sync.js?v=20260424b" defer></script>
-  <script src="/js/qualification-camera.js?v=20260424b" defer></script>
-  <script src="/js/qualification-scan.js?v=20260424b" defer></script>
+  <script src="/js/nav-shell-bridge.js?v=20260506a"></script>
+  <script src="/js/auth-guard.js?v=20260506a" defer></script>
+  <script src="/js/state-sync.js?v=20260506a" defer></script>
+  <script src="/js/updates-sync.js?v=20260506a" defer></script>
+  <script src="/js/qualification-camera.js?v=20260506a" defer></script>
+  <script src="/js/qualification-scan.js?v=20260506a" defer></script>
   <script src="/js/account-dropdown.js" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -4650,6 +4650,25 @@
       });
     }
 
+    // ─── INTRO SCREEN: SHOW/HIDE LOGIC ───────────────────────────
+    function showIntroScreen() {
+      var country = getPageCountry();
+      introIncompleteDocs = getIncompleteDocsForIntro(country);
+
+      renderIntroCta(introIncompleteDocs);
+      renderIntroDocsList(introIncompleteDocs);
+
+      introEl.style.display = "";
+
+      // Hide the normal registration content while intro is showing
+      document.querySelector(".hero-compact").style.display = "none";
+      document.querySelector(".reg-content").style.display = "none";
+      var footerContent = document.querySelectorAll(".reg-content")[1];
+      if (footerContent) footerContent.style.display = "none";
+      var sidebar = document.querySelector(".sidebar-desktop");
+      if (sidebar) sidebar.style.display = "none";
+    }
+
     function initPage() {
       if (!redirectToAllowedStage()) {
         if (!hasCareerSecured()) {
@@ -4657,6 +4676,11 @@
         } else {
           hidePlacementGate();
           const initialProgress = loadProgress();
+          // Show intro screen if not yet dismissed
+          if (!isIntroDismissed()) {
+            showIntroScreen();
+            return;
+          }
           const routeTab = pickTabFromRoute(initialProgress);
           currentTabKey = routeTab || activeTabStage(initialProgress);
           if (!routeTab) syncRouteForStage(initialProgress.stage, true);
