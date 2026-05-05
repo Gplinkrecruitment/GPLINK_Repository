@@ -2465,6 +2465,165 @@
 
     introBackBtn.addEventListener("click", function() { slideToWelcomePanel(); });
 
+    // ─── INTRO SCREEN: HELP POPOVER ──────────────────────────────
+    function openIntroHelp(helpData) {
+      introHelpTitle.textContent = helpData.title || "How to get this document";
+      introHelpSteps.innerHTML = "";
+      (helpData.steps || []).forEach(function(step) {
+        var li = document.createElement("li");
+        li.innerHTML = step;
+        introHelpSteps.appendChild(li);
+      });
+      if (helpData.certNote) {
+        introHelpCertNote.innerHTML = INTRO_CERT_NOTE_HTML;
+        introHelpCertNote.hidden = false;
+      } else {
+        introHelpCertNote.hidden = true;
+      }
+      if (helpData.reminder) {
+        introHelpReminder.textContent = helpData.reminder;
+        introHelpReminder.hidden = false;
+      } else {
+        introHelpReminder.hidden = true;
+      }
+      introHelpBackdrop.classList.add("show");
+      introHelpPopover.classList.add("show");
+    }
+
+    function closeIntroHelp() {
+      introHelpBackdrop.classList.remove("show");
+      introHelpPopover.classList.remove("show");
+    }
+
+    introHelpClose.addEventListener("click", closeIntroHelp);
+    introHelpBackdrop.addEventListener("click", closeIntroHelp);
+
+    // ─── INTRO SCREEN: UPLOAD HANDLER ────────────────────────────
+    var introIncompleteDocs = [];
+
+    function handleIntroUpload(docKey, file) {
+      if (!file) return;
+
+      var progressBar = document.getElementById("introProgress_" + docKey);
+      var progressFill = document.getElementById("introProgressFill_" + docKey);
+      if (progressBar) progressBar.classList.add("show");
+      if (progressFill) progressFill.style.width = "30%";
+
+      var reader = new FileReader();
+      reader.onload = function() {
+        if (progressFill) progressFill.style.width = "60%";
+        var fileDataUrl = reader.result;
+
+        // Save to gp_documents_prep (same as my-documents.html)
+        var country = getPageCountry();
+        var state = readJsonStorage(DOC_KEY, { docs: {}, country: country }) || { docs: {}, country: country };
+        if (!state.docs) state.docs = {};
+        if (!state.docs[docKey]) state.docs[docKey] = {};
+        state.docs[docKey].uploaded = true;
+        state.docs[docKey].fileName = file.name;
+        state.docs[docKey].mimeType = file.type;
+        state.docs[docKey].fileSize = file.size;
+        state.docs[docKey].status = "uploaded";
+        state.updatedAt = new Date().toISOString();
+        try { localStorage.setItem(DOC_KEY, JSON.stringify(state)); } catch (e) {}
+
+        // Also save to API (same pattern as my-documents.html)
+        fetch("/api/prepared-documents", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ country: country, key: docKey, fileName: file.name, mimeType: file.type, fileSize: file.size, fileDataUrl: fileDataUrl })
+        }).catch(function() {});
+
+        if (progressFill) progressFill.style.width = "100%";
+
+        setTimeout(function() {
+          // Update the card to show uploaded state
+          var card = document.getElementById("introDocCard_" + docKey);
+          if (card) {
+            card.classList.add("uploaded");
+            var statusEl = document.getElementById("introDocStatus_" + docKey);
+            if (statusEl) { statusEl.textContent = "Uploaded"; statusEl.className = "intro-doc-status"; statusEl.style.background = "#ecfdf5"; statusEl.style.color = "#166534"; }
+            var actionsEl = card.querySelector(".intro-doc-actions");
+            if (actionsEl) {
+              actionsEl.innerHTML = '<div class="intro-doc-uploaded-row"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> ' + file.name + '</div>';
+            }
+            if (progressBar) progressBar.classList.remove("show");
+          }
+
+          // Check if all docs are now complete
+          checkIntroCompletion();
+        }, 400);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function handleIntroMarkRequested(docKey) {
+      var country = getPageCountry();
+      var state = readJsonStorage(DOC_KEY, { docs: {}, country: country }) || { docs: {}, country: country };
+      if (!state.docs) state.docs = {};
+      if (!state.docs[docKey]) state.docs[docKey] = {};
+      state.docs[docKey].status = "requested";
+      state.docs[docKey].uploaded = true;
+      state.updatedAt = new Date().toISOString();
+      try { localStorage.setItem(DOC_KEY, JSON.stringify(state)); } catch (e) {}
+
+      // Sync to API
+      fetch("/api/state/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ key: DOC_KEY, value: state })
+      }).catch(function() {});
+
+      // Update card UI
+      var statusEl = document.getElementById("introDocStatus_" + docKey);
+      if (statusEl) { statusEl.textContent = "Requested"; statusEl.className = "intro-doc-status requested"; }
+      var card = document.getElementById("introDocCard_" + docKey);
+      if (card) {
+        var actionsEl = card.querySelector(".intro-doc-actions");
+        if (actionsEl) {
+          actionsEl.innerHTML = '<div class="intro-doc-uploaded-row"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Requested from issuing authority</div>';
+        }
+      }
+
+      checkIntroCompletion();
+    }
+
+    function checkIntroCompletion() {
+      var country = getPageCountry();
+      var remaining = getIncompleteDocsForIntro(country);
+      if (remaining.length === 0) {
+        setTimeout(function() { dismissIntro(); }, 600);
+      }
+    }
+
+    // ─── INTRO SCREEN: EVENT DELEGATION ──────────────────────────
+    introDocsListEl.addEventListener("click", function(e) {
+      // Show me how
+      var helpBtn = e.target.closest("[data-intro-help-idx]");
+      if (helpBtn) {
+        var idx = parseInt(helpBtn.dataset.introHelpIdx, 10);
+        var doc = introIncompleteDocs[idx];
+        if (doc && doc.help) openIntroHelp(doc.help);
+        return;
+      }
+
+      // Mark requested
+      var reqBtn = e.target.closest("[data-intro-action='mark-requested']");
+      if (reqBtn) {
+        handleIntroMarkRequested(reqBtn.dataset.introDocKey);
+        return;
+      }
+    });
+
+    introDocsListEl.addEventListener("change", function(e) {
+      var uploadInput = e.target.closest("[data-intro-upload]");
+      if (uploadInput && uploadInput.files && uploadInput.files[0]) {
+        handleIntroUpload(uploadInput.dataset.introUpload, uploadInput.files[0]);
+      }
+    });
+
     function getPageCountry() {
       var raw = "";
       try { raw = localStorage.getItem("gp_selected_country") || ""; } catch (e) { raw = ""; }
