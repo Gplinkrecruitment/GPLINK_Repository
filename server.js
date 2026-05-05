@@ -4878,18 +4878,15 @@ function resolveNudgeTemplate(stage, substage) {
 }
 
 function buildWhatsAppLink(stageLabel, gpFirstName, gpPhone) {
-  // If GP phone is available, link to DoubleTick conversation
+  const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+  // If GP phone is available, link to DoubleTick conversation thread
   if (gpPhone) {
-    const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
     const toNumber = normalizePhone(gpPhone).replace(/[^\d]/g, '');
     if (fromNumber && toNumber) return 'https://web.doubletick.io/conversations/' + fromNumber + '/' + toNumber;
   }
-  // Fallback to wa.me link to Hazel's number
-  const nameBit = gpFirstName ? (', I\'m ' + gpFirstName) : '';
-  const stageBit = stageLabel ? (' on the ' + stageLabel + ' step') : '';
-  const msg = 'Hi Hazel' + nameBit + '.' + stageBit + ' I need some help with my GP Link application.';
-  const digits = HAZEL_WHATSAPP_NUMBER.replace(/[^\d]/g, '');
-  return 'https://wa.me/' + digits + '?text=' + encodeURIComponent(msg);
+  // Fallback to DoubleTick inbox (no specific conversation)
+  if (fromNumber) return 'https://web.doubletick.io/conversations/' + fromNumber;
+  return 'https://web.doubletick.io';
 }
 
 /**
