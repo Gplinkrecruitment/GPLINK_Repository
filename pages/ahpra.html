@@ -2780,9 +2780,20 @@
       '</div>';
 
       // Row 3: Criminal History Reference Number
-      var docState = null;
-      try { docState = JSON.parse(localStorage.getItem('gp_documents_prep') || 'null'); } catch (e) {}
-      var crimRefNum = (docState && docState.docs && docState.docs.criminal_history && docState.docs.criminal_history.referenceNumber) ? docState.docs.criminal_history.referenceNumber : '';
+      // Read from gp_documents_prep first, fallback to gp_amc_progress.criminalHistoryRef
+      var crimRefNum = '';
+      try {
+        var docState = JSON.parse(localStorage.getItem('gp_documents_prep') || 'null');
+        if (docState && docState.docs && docState.docs.criminal_history && docState.docs.criminal_history.referenceNumber) {
+          crimRefNum = docState.docs.criminal_history.referenceNumber;
+        }
+      } catch (e) {}
+      if (!crimRefNum) {
+        try {
+          var amcFallback = JSON.parse(localStorage.getItem('gp_amc_progress') || 'null');
+          if (amcFallback && amcFallback.criminalHistoryRef) crimRefNum = amcFallback.criminalHistoryRef;
+        } catch (e) {}
+      }
       var row3 = '<div class="qp-row">' +
         '<div class="qp-num">3</div>' +
         '<div class="qp-body">' +

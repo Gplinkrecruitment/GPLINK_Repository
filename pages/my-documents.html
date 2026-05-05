@@ -2532,6 +2532,15 @@
             if (!state.docs[refKey]) state.docs[refKey] = { uploaded: true, fileName: "", status: "requested" };
             state.docs[refKey].referenceNumber = refInput.value.trim();
             persistDocsState(state, true);
+            // Also save to gp_amc_progress as fallback for AHPRA page
+            try {
+              var amcRaw = localStorage.getItem('gp_amc_progress');
+              var amcObj = amcRaw ? JSON.parse(amcRaw) : {};
+              amcObj.criminalHistoryRef = refInput.value.trim();
+              amcObj.updatedAt = new Date().toISOString();
+              localStorage.setItem('gp_amc_progress', JSON.stringify(amcObj));
+              if (window.gpLinkStateSync && window.gpLinkStateSync.push) window.gpLinkStateSync.push();
+            } catch (e) {}
             refSaveBtn.textContent = '✓ Saved';
             showToast('Reference number saved');
           } else {
