@@ -4885,22 +4885,26 @@ function buildWhatsAppLink(stageLabel, gpFirstName, gpPhone) {
 }
 
 /**
- * Fetch a DoubleTick embed URL for a GP phone number.
- * Uses POST /embed/url which returns a conversation URL with the internal
- * DoubleTick customer ID (e.g. customer_XXXXX) — not the raw phone number.
- * Results are cached in-memory for 1 hour to avoid repeated API calls.
+ * Build a DoubleTick web conversation URL from a stored customer ID.
  */
-const _dtEmbedCache = new Map(); // phone → { url, ts }
-const DT_EMBED_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+function buildDoubleTickUrl(customerId) {
+  if (!customerId) return '';
+  const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+  if (!fromNumber) return '';
+  return 'https://web.doubletick.io/conversations/' + fromNumber + '/' + customerId;
+}
 
-async function getDoubleTickEmbedUrl(gpPhone) {
-  if (!DOUBLETICK_API_KEY || !gpPhone) return '';
+/**
+ * Fetch a DoubleTick customer ID for a GP phone number via the embed API.
+ * Calls POST /embed/url, extracts customer_XXXXX from the returned URL,
+ * and persists it to user_profiles so future loads skip the API call.
+ *
+ * @returns {{ url: string, customerId: string }} — url is the full conversation link
+ */
+async function fetchDoubleTickCustomerId(gpPhone) {
+  if (!DOUBLETICK_API_KEY || !gpPhone) return { url: '', customerId: '' };
   const normalised = normalizePhone(gpPhone).replace(/[^\d]/g, '');
-  if (!normalised) return '';
-
-  // Check cache
-  const cached = _dtEmbedCache.get(normalised);
-  if (cached && (Date.now() - cached.ts) < DT_EMBED_CACHE_TTL) return cached.url;
+  if (!normalised) return { url: '', customerId: '' };
 
   try {
     const controller = new AbortController();
@@ -4918,31 +4922,36 @@ async function getDoubleTickEmbedUrl(gpPhone) {
 
     if (!resp.ok) {
       console.warn('[doubletick-embed] API returned', resp.status, 'for', normalised);
-      return '';
+      return { url: '', customerId: '' };
     }
     const data = await resp.json().catch(() => ({}));
     console.log('[doubletick-embed] Response for', normalised, ':', JSON.stringify(data).slice(0, 500));
-    // The API returns a URL — extract it (may be { url: "..." } or raw string)
     const rawUrl = typeof data === 'string' ? data
       : (data.url || data.embedUrl || data.iframeUrl || '');
-    if (!rawUrl) return '';
+    if (!rawUrl) return { url: '', customerId: '' };
 
-    // Try to extract customer ID from the URL and build a web.doubletick.io conversation link
-    // Embed URLs may contain customer_XXXXX identifiers we can use
-    const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
     const customerMatch = rawUrl.match(/customer_\d+/);
-    let url;
-    if (customerMatch && fromNumber) {
-      url = 'https://web.doubletick.io/conversations/' + fromNumber + '/' + customerMatch[0];
-    } else {
-      url = rawUrl;
-    }
-    _dtEmbedCache.set(normalised, { url, ts: Date.now() });
-    return url;
+    const customerId = customerMatch ? customerMatch[0] : '';
+    const url = customerId ? buildDoubleTickUrl(customerId) : rawUrl;
+    return { url, customerId };
   } catch (err) {
-    console.warn('[doubletick-embed] Error fetching embed URL for', normalised, ':', err && err.message);
-    return '';
+    console.warn('[doubletick-embed] Error fetching for', normalised, ':', err && err.message);
+    return { url: '', customerId: '' };
   }
+}
+
+/**
+ * Persist a DoubleTick customer ID to user_profiles (fire-and-forget).
+ */
+function saveDoubleTickCustomerId(userId, customerId) {
+  if (!userId || !customerId || !isSupabaseDbConfigured()) return;
+  supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: { doubletick_customer_id: customerId, updated_at: new Date().toISOString() }
+  }).catch(function (err) {
+    console.warn('[doubletick-embed] Failed to persist customer ID for', userId, ':', err && err.message);
+  });
 }
 
 /**
@@ -22003,7 +22012,7 @@ Return ONLY valid JSON with no markdown formatting:
     let stateMap = {};
     if (userIds.length > 0) {
       const [pRes, sRes] = await Promise.all([
-        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,country_dial,phone_number,phone,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
+        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,country_dial,phone_number,phone,doubletick_customer_id,created_at&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
         supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')')
       ]);
       if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(function (p) { profileMap[p.user_id] = p; });
@@ -22047,17 +22056,25 @@ Return ONLY valid JSON with no markdown formatting:
     const ticketCountsByUser = {};
     openTickets.forEach(function (tk) { ticketCountsByUser[tk.user_id] = (ticketCountsByUser[tk.user_id] || 0) + 1; });
 
-    // Batch-fetch DoubleTick embed URLs for all GPs (parallel, non-blocking)
+    // Resolve DoubleTick conversation URLs for all GPs.
+    // Use stored customer IDs from the DB; only call the API for GPs missing one.
     const dtEmbedByUserId = {};
-    if (DOUBLETICK_API_KEY) {
-      const embedPromises = cases.map(async function (c) {
+    const dtMissingCases = [];
+    for (const c of cases) {
+      const p = profileMap[c.user_id] || {};
+      if (p.doubletick_customer_id) {
+        dtEmbedByUserId[c.user_id] = buildDoubleTickUrl(p.doubletick_customer_id);
+      } else if (resolvePhone(p)) {
+        dtMissingCases.push(c);
+      }
+    }
+    if (DOUBLETICK_API_KEY && dtMissingCases.length > 0) {
+      await Promise.all(dtMissingCases.map(async function (c) {
         const p = profileMap[c.user_id] || {};
-        const phone = resolvePhone(p);
-        if (!phone) return;
-        const url = await getDoubleTickEmbedUrl(phone);
-        if (url) dtEmbedByUserId[c.user_id] = url;
-      });
-      await Promise.all(embedPromises);
+        const result = await fetchDoubleTickCustomerId(resolvePhone(p));
+        if (result.url) dtEmbedByUserId[c.user_id] = result.url;
+        if (result.customerId) saveDoubleTickCustomerId(c.user_id, result.customerId);
+      }));
     }
 
     // Enriched users list with quick qual snapshot (required + approved counts only, not full lists)
