@@ -4878,9 +4878,7 @@ function resolveNudgeTemplate(stage, substage) {
 }
 
 function buildWhatsAppLink(stageLabel, gpFirstName, gpPhone) {
-  const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
-  // Fallback to DoubleTick inbox (no specific conversation)
-  if (fromNumber) return 'https://web.doubletick.io/conversations/' + fromNumber;
+  // Fallback: link to DoubleTick inbox (not a specific conversation)
   return 'https://web.doubletick.io';
 }
 
