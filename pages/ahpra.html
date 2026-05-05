@@ -1509,6 +1509,76 @@
       <div class="step-header-actions" id="stepHeaderActions"></div>
     </div>
 
+    <!-- AHPRA INTRO / WELCOME SCREEN -->
+    <div class="ahpra-intro" id="ahpraIntro" style="display:none;">
+      <!-- Blob background -->
+      <div class="intro-blob-canvas">
+        <div class="intro-blob intro-blob-1"></div>
+        <div class="intro-blob intro-blob-2"></div>
+        <div class="intro-blob intro-blob-3"></div>
+      </div>
+
+      <!-- Panel 1: Welcome -->
+      <div class="intro-panel intro-panel-active" id="introWelcomePanel">
+        <div class="intro-content">
+          <div class="intro-pathway-badge">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            Expedited Specialist Pathway
+          </div>
+
+          <h1 class="intro-title">Welcome to your AHPRA Registration</h1>
+          <p class="intro-subtitle">You're on the fast track. GP Link will guide you through each step of your Expedited Specialist Pathway application — from account setup to final approval.</p>
+
+          <div class="intro-milestones">
+            <div class="intro-milestone">
+              <div class="intro-milestone-icon green">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </div>
+              <div class="intro-milestone-text"><strong>Create your AHPRA account</strong> — we'll walk you through it</div>
+            </div>
+            <div class="intro-milestone">
+              <div class="intro-milestone-icon green">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </div>
+              <div class="intro-milestone-text"><strong>Submit your application</strong> — with GP Link prepared docs</div>
+            </div>
+            <div class="intro-milestone">
+              <div class="intro-milestone-icon amber">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </div>
+              <div class="intro-milestone-text"><strong>Track your outcome</strong> — we'll keep you updated</div>
+            </div>
+          </div>
+
+          <div class="intro-cta-area" id="introCta"></div>
+        </div>
+      </div>
+
+      <!-- Panel 2: Document Preparation (slide-over) -->
+      <div class="intro-panel" id="introDocsPanel">
+        <div class="intro-docs-header">
+          <div class="intro-docs-header-top">
+            <button class="intro-back-btn" id="introBackBtn" type="button">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <h2 class="intro-docs-title">Prepare Documents</h2>
+          </div>
+          <p class="intro-docs-sub">Upload or complete these before starting your application</p>
+        </div>
+        <div class="intro-docs-list" id="introDocsList"></div>
+      </div>
+    </div>
+
+    <!-- INTRO HELP POPOVER -->
+    <div class="help-popover-backdrop" id="introHelpBackdrop"></div>
+    <div class="help-popover" id="introHelpPopover" role="dialog" aria-modal="true">
+      <h4 id="introHelpTitle"></h4>
+      <ol id="introHelpSteps"></ol>
+      <div class="cert-note" id="introHelpCertNote" hidden></div>
+      <div class="help-reminder" id="introHelpReminder" hidden></div>
+      <button class="btn-modern btn-outline" id="introHelpClose" type="button" style="width:100%;justify-content:center;">Got it</button>
+    </div>
+
     <!-- LIGHT CONTENT SURFACE -->
     <div class="reg-content">
       <h2 class="step-title mobile-step-title" id="stepTitleMobile">Create AHPRA Account</h2>
