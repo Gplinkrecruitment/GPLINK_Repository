@@ -9659,6 +9659,14 @@ async function syncZohoRecruitRoles() {
     console.error('[ZohoRecruit sync] Application status sync error:', err && err.message);
   }
 
+  // Backfill phone numbers from Zoho for GPs who have a zoho_candidate_id but no phone
+  let phonesBackfilled = 0;
+  try {
+    phonesBackfilled = await backfillPhonesFromZoho({ accessToken, apiDomain, connection });
+  } catch (err) {
+    console.error('[ZohoRecruit sync] Phone backfill error:', err && err.message);
+  }
+
   return {
     ok: true,
     status: 200,
@@ -9666,8 +9674,58 @@ async function syncZohoRecruitRoles() {
     syncedAt,
     syncedRoleCount: rows.length,
     applicationsDiscovered: appsDiscovered,
-    applicationsSynced: appsSynced
+    applicationsSynced: appsSynced,
+    phonesBackfilled
   };
+}
+
+/**
+ * Backfill phone numbers from Zoho Recruit for GPs who have a zoho_candidate_id
+ * but no phone stored in user_profiles. Fetches the candidate record from Zoho
+ * and copies the Phone/Mobile field back to the profile.
+ */
+async function backfillPhonesFromZoho(zoho) {
+  if (!isSupabaseDbConfigured() || !zoho || !zoho.accessToken) return 0;
+
+  // Find GPs with a zoho_candidate_id but empty phone
+  var profilesRes = await supabaseDbRequest(
+    'user_profiles',
+    'select=user_id,email,zoho_candidate_id,phone&zoho_candidate_id=not.is.null&or=(phone.is.null,phone.eq.)&limit=50'
+  );
+  var profiles = profilesRes.ok && Array.isArray(profilesRes.data) ? profilesRes.data : [];
+  if (profiles.length === 0) return 0;
+
+  var count = 0;
+  for (var i = 0; i < profiles.length; i++) {
+    var p = profiles[i];
+    if (!p.zoho_candidate_id || !p.user_id) continue;
+
+    // Fetch candidate record from Zoho to get phone
+    var fetchResult = await fetchZohoRecruitRecordsWithVariants(
+      zoho.connection, zoho.accessToken, zoho.apiDomain,
+      ['Candidates/' + encodeURIComponent(p.zoho_candidate_id), 'candidates/' + encodeURIComponent(p.zoho_candidate_id)],
+      {}
+    );
+    var record = fetchResult.records && fetchResult.records[0] ? fetchResult.records[0] : null;
+    if (!record) continue;
+
+    var zohoPhone = getZohoField(record, ['Phone', 'Mobile', 'phone', 'mobile']);
+    if (!zohoPhone) continue;
+
+    var split = splitPhoneForProfile(zohoPhone);
+    var patch = { phone: zohoPhone, updated_at: new Date().toISOString() };
+    if (split.countryDial) patch.country_dial = split.countryDial;
+    if (split.phoneNumber) patch.phone_number = split.phoneNumber;
+
+    await supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(p.user_id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: patch
+    });
+    count++;
+    console.log('[ZohoRecruit phone-backfill] Updated phone for', p.email, ':', zohoPhone);
+  }
+  return count;
 }
 
 // Discover Zoho Recruit applications that exist in Zoho but aren't linked to gp_applications.
@@ -10129,12 +10187,26 @@ async function ensureZohoRecruitCandidateIdForUser(userId, email, userProfile = 
   }
 
   const matches = await searchZohoRecruitCandidatesByEmail(zoho, email);
-  const matchedId = matches.map(getZohoCandidateId).find(Boolean);
+  const matchedRecord = matches.find(function (r) { return getZohoCandidateId(r); });
+  const matchedId = matchedRecord ? getZohoCandidateId(matchedRecord) : '';
   if (matchedId) {
+    const patch = { zoho_candidate_id: matchedId, updated_at: new Date().toISOString() };
+    // Backfill phone from Zoho if the profile has no phone stored
+    const currentPhone = String(profile && profile.phone || '').trim();
+    if (!currentPhone && matchedRecord) {
+      const zohoPhone = getZohoField(matchedRecord, ['Phone', 'Mobile', 'phone', 'mobile']);
+      if (zohoPhone) {
+        const split = splitPhoneForProfile(zohoPhone);
+        patch.phone = zohoPhone;
+        if (split.countryDial) patch.country_dial = split.countryDial;
+        if (split.phoneNumber) patch.phone_number = split.phoneNumber;
+        console.log('[ZohoRecruit] Backfilled phone for', email, ':', zohoPhone);
+      }
+    }
     await supabaseDbRequest('user_profiles', `user_id=eq.${encodeURIComponent(userId)}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=minimal' },
-      body: { zoho_candidate_id: matchedId, updated_at: new Date().toISOString() }
+      body: patch
     });
     return { ok: true, zohoId: matchedId, created: false };
   }

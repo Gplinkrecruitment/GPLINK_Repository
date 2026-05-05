@@ -905,7 +905,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ${(tk.gp_phone||tk.gp_email)?'<div class="task-gp-meta">'+(tk.gp_phone?'<span>'+esc(tk.gp_phone)+'</span>':'')+(tk.gp_email?'<span>'+esc(tk.gp_email)+'</span>':'')+'</div>':''}
       <div class="todo-detail">${esc(tk.category||"")} • opened ${fmtR(tk.created_at)}</div>
       <div class="todo-actions">
-        <a class="btn dt" href="${safeUrl(tk.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+        ${(tk.whatsapp_link||"").indexOf("doubletick.io/conversations/")>-1
+          ?'<a class="btn dt" href="'+safeUrl(tk.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'
+          :tk.gp_email?'<a class="btn" href="mailto:'+esc(tk.gp_email)+'" target="_blank" rel="noopener">Email GP</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
         <button class="btn primary sm" data-close-ticket="${esc(tk.id)}">Resolve & Close</button>
       </div>
@@ -923,7 +925,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
       <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" • Due "+fmtD(t.due_date):""} ${overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""}</div>
       <div class="todo-actions">
-        <a class="btn dt" href="${safeUrl(t.doubletick_conversation_url||t.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+        ${(t.doubletick_conversation_url||t.whatsapp_link||"").indexOf("doubletick.io/conversations/")>-1
+          ?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url||t.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'
+          :t.gp_email?'<a class="btn" href="mailto:'+esc(t.gp_email)+'" target="_blank" rel="noopener">Email GP</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
         <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
         <button class="btn sm" data-view-todo-case="${esc(t.case_id)}">Open Case</button>
@@ -967,7 +971,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         ${highCount?'<span class="task-count-pill high">'+highCount+' high</span>':''}
       </div>
       <div class="todo-actions">
-        <a class="btn dt" href="${safeUrl(g.doubletickUrl||firstTask.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+        ${(g.doubletickUrl||firstTask.whatsapp_link||"").indexOf("doubletick.io/conversations/")>-1
+          ?'<a class="btn dt" href="'+safeUrl(g.doubletickUrl||firstTask.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'
+          :g.email?'<a class="btn" href="mailto:'+esc(g.email)+'" target="_blank" rel="noopener">Email GP</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(g.userId||"")}" data-nudge-stage="${esc(g.stage||"")}" data-nudge-substage="" data-nudge-name="${esc(g.firstName||"")}">Send Nudge</button>
         <button class="btn sm" data-view-todo-case="${esc(g.caseId)}">Open Profile</button>
       </div>
@@ -1878,7 +1884,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             <div style="font-size:11px;color:var(--muted,#9aa3b2);margin-top:4px">${u.quals_approved||0} / ${u.quals_required||0} approved</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
-            <a class="btn dt" href="${safeUrl(u.doubletick_conversation_url||u.whatsapp_link||c.whatsapp_link||"")}" target="_blank" rel="noopener">WhatsApp</a>
+            ${(u.doubletick_conversation_url||u.whatsapp_link||"").indexOf("doubletick.io/conversations/")>-1
+              ?'<a class="btn dt" href="'+safeUrl(u.doubletick_conversation_url||u.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'
+              :(u.gp_email||c.gp_email)
+                ?'<a class="btn" href="mailto:'+esc(u.gp_email||c.gp_email)+'" target="_blank" rel="noopener">Email GP</a>'
+                :''}
             <button class="btn nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())}">Send Nudge</button>
           </div>
           <div style="margin-top:16px">
@@ -3327,8 +3337,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(item.resolved_at)h+='<span>Resolved: '+fmtR(item.resolved_at)+'</span>';
         h+='</div>';
         h+='<div class="support-expand-actions">';
-        if(item.doubletick_url)h+='<a class="btn dt" href="'+safeUrl(item.doubletick_url)+'" target="_blank" rel="noopener">WhatsApp</a>';
-        else if(item.whatsapp_link)h+='<a class="btn dt" href="'+safeUrl(item.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>';
+        var _dtLink=item.doubletick_url||item.whatsapp_link||"";
+        if(_dtLink.indexOf("doubletick.io/conversations/")>-1)h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">WhatsApp</a>';
+        else if(item.gp_email)h+='<a class="btn" href="mailto:'+esc(item.gp_email)+'" target="_blank" rel="noopener">Email GP</a>';
         if(item.status!=="closed"){
           h+='<button class="btn primary sm" data-support-resolve="'+esc(item.id)+'" data-support-kind="'+esc(item.kind)+'">Resolve & Close</button>';
         }else{
