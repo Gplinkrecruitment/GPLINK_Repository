@@ -923,8 +923,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
       <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" • Due "+fmtD(t.due_date):""} ${overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""}</div>
       <div class="todo-actions">
-        <a class="btn wa" href="${safeUrl(t.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
-        ${t.doubletick_conversation_url?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url)+'" target="_blank" rel="noopener">DoubleTick</a>':''}
+        ${t.doubletick_conversation_url
+          ?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url)+'" target="_blank" rel="noopener">DoubleTick Chat</a>'
+          :'<a class="btn wa" href="'+safeUrl(t.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'}
         <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
         <button class="btn primary sm" data-complete-todo-task="${esc(t.id)}">Complete</button>
         <button class="btn sm" data-view-todo-case="${esc(t.case_id)}">Open Case</button>
@@ -968,7 +969,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         ${highCount?'<span class="task-count-pill high">'+highCount+' high</span>':''}
       </div>
       <div class="todo-actions">
-        <a class="btn wa" href="${safeUrl(firstTask.whatsapp_link)}" target="_blank" rel="noopener">WhatsApp</a>
+        ${g.doubletickUrl
+          ?'<a class="btn dt" href="'+safeUrl(g.doubletickUrl)+'" target="_blank" rel="noopener">DoubleTick Chat</a>'
+          :'<a class="btn wa" href="'+safeUrl(firstTask.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'}
         <button class="btn nudge" data-nudge-user="${esc(g.userId||"")}" data-nudge-stage="${esc(g.stage||"")}" data-nudge-substage="" data-nudge-name="${esc(g.firstName||"")}">Send Nudge</button>
         <button class="btn sm" data-view-todo-case="${esc(g.caseId)}">Open Profile</button>
       </div>
@@ -992,6 +995,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           phone:t.gp_phone||ref.phone||"",
           stage:t.case_stage||t.related_stage||"",
           whatsappLink:t.whatsapp_link||"",
+          doubletickUrl:t.doubletick_conversation_url||"",
           tasks:[]
         });
       }
@@ -1001,6 +1005,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!grp.email&&t.gp_email)grp.email=t.gp_email;
       if(!grp.phone&&t.gp_phone)grp.phone=t.gp_phone;
       if(!grp.firstName&&t.gp_first_name)grp.firstName=t.gp_first_name;
+      if(!grp.doubletickUrl&&t.doubletick_conversation_url)grp.doubletickUrl=t.doubletick_conversation_url;
       grp.tasks.push(t);
     }
     return Array.from(map.values());
@@ -1877,7 +1882,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             <div style="font-size:11px;color:var(--muted,#9aa3b2);margin-top:4px">${u.quals_approved||0} / ${u.quals_required||0} approved</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
-            <a class="btn wa" href="${safeUrl(u.whatsapp_link||c.whatsapp_link||"")}" target="_blank" rel="noopener">WhatsApp</a>
+            ${(u.doubletick_conversation_url||c.doubletick_conversation_url)
+              ?'<a class="btn dt" href="'+safeUrl(u.doubletick_conversation_url||c.doubletick_conversation_url)+'" target="_blank" rel="noopener">DoubleTick Chat</a>'
+              :'<a class="btn wa" href="'+safeUrl(u.whatsapp_link||c.whatsapp_link||"")+'" target="_blank" rel="noopener">WhatsApp</a>'}
             <button class="btn nudge" data-case-nudge="${esc(c.user_id||u.userId||"")}" data-nudge-stage="${esc(c.stage||"")}" data-nudge-substage="${esc(c.substage||"")}" data-nudge-name="${esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())}">Send Nudge</button>
           </div>
           <div style="margin-top:16px">

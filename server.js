@@ -21976,13 +21976,15 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    // Task/ticket counts per case
+    // Task/ticket counts per case + latest DoubleTick conversation URL per case
     const taskCountsByCase = {};
+    const dtUrlByCase = {};
     tasks.forEach(function (t) {
       if (!taskCountsByCase[t.case_id]) taskCountsByCase[t.case_id] = { open: 0, urgent: 0, overdue: 0 };
       taskCountsByCase[t.case_id].open++;
       if (t.priority === 'urgent') taskCountsByCase[t.case_id].urgent++;
       if (t.due_date && new Date(t.due_date) < new Date()) taskCountsByCase[t.case_id].overdue++;
+      if (t.doubletick_conversation_url && !dtUrlByCase[t.case_id]) dtUrlByCase[t.case_id] = t.doubletick_conversation_url;
     });
     const ticketCountsByUser = {};
     openTickets.forEach(function (tk) { ticketCountsByUser[tk.user_id] = (ticketCountsByUser[tk.user_id] || 0) + 1; });
@@ -22019,7 +22021,8 @@ Return ONLY valid JSON with no markdown formatting:
         quals_required: qualSnap.required.length,
         quals_approved: qualSnap.approved.length,
         quals_missing: qualSnap.missing.length,
-        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', p.phone || p.phone_number || '')
+        whatsapp_link: buildWhatsAppLink(c.stage, p.first_name || '', p.phone || p.phone_number || ''),
+        doubletick_conversation_url: dtUrlByCase[c.id] || null
       });
     }
 
