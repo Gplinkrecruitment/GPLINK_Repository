@@ -2449,6 +2449,7 @@
       introWelcomePanel.classList.remove("intro-panel-active");
       introWelcomePanel.classList.add("intro-panel-exit");
       introDocsPanel.classList.remove("intro-panel-exit");
+      introDocsPanel.style.transform = "";
       void introDocsPanel.offsetWidth;
       introDocsPanel.classList.add("intro-panel-active");
     }
@@ -2456,7 +2457,6 @@
     function slideToWelcomePanel() {
       introDocsPanel.classList.remove("intro-panel-active");
       introDocsPanel.classList.add("intro-panel-exit");
-      introDocsPanel.style.transform = "translateX(40px)";
       introWelcomePanel.classList.remove("intro-panel-exit");
       introWelcomePanel.style.transform = "";
       void introWelcomePanel.offsetWidth;
