@@ -2038,7 +2038,7 @@
           refNumHtml = '<div class="doc-card-ref" style="margin-top:8px;">' +
             '<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Reference Number</label>' +
             '<div style="display:flex;gap:6px;align-items:center;">' +
-              '<input type="text" class="criminal-ref-input" data-ref-key="criminal_history" placeholder="Enter reference number" value="' + savedRef + '" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid #e2e8f0;font-size:13px;font-weight:600;font-family:inherit;background:#f8fafc;color:#0f172a;outline:none;" />' +
+              '<input type="text" class="criminal-ref-input" data-ref-key="criminal_history" placeholder="Enter reference number" value="' + escapeHtml(savedRef) + '" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid #e2e8f0;font-size:13px;font-weight:600;font-family:inherit;background:#f8fafc;color:#0f172a;outline:none;" />' +
               '<button type="button" class="btn btn-soft criminal-ref-save" data-ref-key="criminal_history" style="padding:8px 12px;font-size:12px;white-space:nowrap;">' + (savedRef ? '✓ Saved' : 'Save') + '</button>' +
             '</div>' +
           '</div>';
@@ -2788,8 +2788,8 @@
     }
 
     if (mobileRegistrationBtn) mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
-    mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
-    mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
+    if (mobileRegBackdrop) mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
+    if (mobileRegCloseBtn) mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
 
     let startY = 0;
     let deltaY = 0;

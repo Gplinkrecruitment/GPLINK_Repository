@@ -4471,8 +4471,8 @@
     }
 
     if (mobileRegistrationBtn) mobileRegistrationBtn.addEventListener("click", openMobileRegistration);
-    mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
-    mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
+    if (mobileRegBackdrop) mobileRegBackdrop.addEventListener("click", closeMobileRegistration);
+    if (mobileRegCloseBtn) mobileRegCloseBtn.addEventListener("click", closeMobileRegistration);
 
     navItems.forEach(item => {
       item.addEventListener("mouseenter", () => { if (hoveredNavItem !== item) { hoveredNavItem = item; moveNavGlass(item, true); } });
