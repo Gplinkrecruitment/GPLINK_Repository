@@ -2194,6 +2194,277 @@
       ]
     };
 
+    // ─── INTRO SCREEN: COUNTRY DOC HELP DATA ─────────────────────
+    // Mirrors the COUNTRY_DOCS help data from my-documents.html exactly.
+    // Keys must stay in sync with my-documents.html COUNTRY_DOCS.
+    const INTRO_COUNTRY_DOCS = {
+      uk: {
+        institution: [
+          {
+            key: "certificate_good_standing",
+            title: "Certificate of Good Standing",
+            help: {
+              title: "Certificate of Good Standing",
+              steps: [
+                'Log in to your <a href="https://extgenmedcouncil.b2clogin.com/extgenmedcouncil.onmicrosoft.com/b2c_1a_usersigninormigrategmconline/oauth2/v2.0/authorize?client_id=1304d06d-0b67-4d06-9abd-e03aaef62a88&redirect_uri=https%3A%2F%2Fwww.gmc-uk.org%2Fqitm%2Fsignin-oidc&response_type=id_token&scope=openid%20profile&response_mode=form_post&nonce=639088171193672580.ZjQwODcyZDgtNTAxOC00YmM2LWE4ZGUtM2I2NWUxNjE0MTVhNzJmY2YzMmQtNTg5Zi00NWRhLTgzYWEtNGMwYWZmMTFjZjg0&client_info=1&x-client-brkrver=IDWeb.1.24.0.0&state=CfDJ8CCFNphTI2xLiogAzC0YsAyIgiiJHlbcbo8KWD0yCcvLYHNZ1xxff35Gjym3wF68p0qnWcVa14sNBtztLdjKu9LyjSCebUIDBFdIvp2xvEUn086Tmqz1yP1ib7R7GaecxE6Aqb9w32l4XIh2x-7FLDYD92INc-Py--FWGS6YBTk1W1cUGoSi79jwFYlY7Ikf-chZf7yqV-3iVm-m_ZXnD-0rwEyDlyUHXfgM5eLMvcXvP_zNSmyKOLvzfe3bHddEmWStUY2QOXtCHxHYqD8womPvW29r7VGUM81fT1hbaj3xUprxuVhINsQTRA9_eIT8me26YGF4Io1VXbZEk4ObR8fDjVhTB38PUd8HiyHdALY2xv5qz5arVs3nzap_Ttoorg">GMC Online account</a>',
+                'In the left hand menu choose "My registration"',
+                'Then open "My CCPS requests"',
+                "Request the certificate to be sent directly to Ahpra"
+              ],
+              reminder: "Reminder: this must be sent directly by the issuing authority to Ahpra."
+            }
+          },
+          {
+            key: "confirmation_training",
+            title: "Confirmation of Training",
+            help: {
+              title: "Confirmation of Training",
+              steps: [
+                '<a href="mailto:portfolio@gmc-uk.org?subject=Request%20for%20Confirmation%20of%20Training&body=Dear%20GMC%20Portfolio%20Team%2C%0A%0AI%20am%20writing%20to%20request%20confirmation%20of%20my%20specialist%20%2F%20GP%20training%20posts.%20I%20require%20this%20documentation%20for%20my%20application%20to%20the%20Australian%20Health%20Practitioner%20Regulation%20Agency%20(Ahpra).%0A%0APlease%20advise%20on%20the%20next%20steps%20and%20any%20forms%20I%20need%20to%20complete.%0A%0AKind%20regards">Email portfolio@gmc-uk.org</a>',
+                "State that you require confirmation of your specialist / GP training posts",
+                "GMC will review the request and send you an application form to complete",
+                "Complete the form and return it as instructed"
+              ],
+              reminder: "Reminder: request that the confirmation is sent by the GMC directly to Ahpra."
+            }
+          },
+          {
+            key: "criminal_history",
+            title: "Criminal History Check",
+            help: {
+              title: "Criminal History Check",
+              steps: [
+                'Complete your international criminal history check through <a href="https://www.fit2work.com.au/PreEmployment/GeneralBasicDetails?id=q8Uuw%2BuklTU%3D&amp;_gl=1*ckbmax*_gcl_au*NjY2MzAyMDA3LjE3NzE3NjkwMjU.*_ga*ODA4ODU4NTIuMTc3MTc2OTAyNg..*_ga_0BTJRVTY8V*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgw*_ga_WM6YQZ40M2*czE3Nzc1NTcwODQkbzUkZzAkdDE3Nzc1NTcwODQkajYwJGwwJGgxNzk3MjAwOTU0" target="_blank" rel="noopener noreferrer">Fit2Work</a>'
+              ]
+            }
+          }
+        ],
+        prepared: [
+          { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree (MBBS/MBChB)", help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
+          { key: "mrcgp_certified", title: "Certified copy of MRCGP", help: { title: "MRCGP", steps: ["Upload a certified copy of your MRCGP certificate"], certNote: true } },
+          { key: "cct_certified", title: "Certified copy of CCT (General Practice) issued by the General Medical Council or PMETB", help: { title: "CCT", steps: ["Upload a certified copy of your CCT certificate issued by the GMC or PMETB"], certNote: true } },
+          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Upload your signed and dated CV"] } }
+        ]
+      },
+      ie: {
+        institution: [
+          { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status", help: { title: "Certificate of Good Standing / Registration Status", steps: ["Request a current certificate of good standing / registration status from your Irish regulator", "Ensure it is sent in the required format for Ahpra"], reminder: "Reminder: this must be sent directly where required." } },
+          { key: "criminal_history", title: "Criminal History Check", help: { title: "Criminal History Check", steps: ["Complete your criminal history check through the approved provider"] } }
+        ],
+        prepared: [
+          { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree", help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
+          { key: "micgp_certified", title: "Certified copy of MICGP", help: { title: "MICGP", steps: ["Upload a certified copy of your MICGP certificate", "If you do not have a copy, request a re-issue from ICGP Membership Services"], certNote: true } },
+          { key: "cscst_certified", title: "Certified copy of CSCST", help: { title: "CSCST", steps: ["Upload a certified copy of your CSCST", "If needed, request a re-issue from ICGP Membership Services"], certNote: true } },
+          { key: "icgp_confirmation_letter", title: "Certified copy of ICGP Confirmation Letter", help: { title: "ICGP Confirmation Letter", steps: ["Contact ICGP Membership Services", "Request a confirmation / verification letter confirming your qualification was awarded under the ICGP curriculum after completion of the approved GP training pathway", "If needed, request verification of training through ICGP"], certNote: true, reminder: "This is the key supporting letter for Irish GPs." } },
+          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Upload your signed and dated CV"] } }
+        ]
+      },
+      nz: {
+        institution: [
+          { key: "certificate_good_standing", title: "Certificate of Good Standing / Registration Status", help: { title: "Certificate of Good Standing / Registration Status", steps: ["Request your current certificate of good standing / registration status from the relevant New Zealand authority", "Ensure it is provided in a format acceptable for Ahpra"] } },
+          { key: "criminal_history", title: "Criminal History Check", help: { title: "Criminal History Check", steps: ["Complete your criminal history check through the approved provider"] } }
+        ],
+        prepared: [
+          { key: "primary_medical_degree", title: "Certified copy of Primary Medical Degree", help: { title: "Primary Medical Degree", steps: ["Upload a certified copy of your primary medical degree"], certNote: true } },
+          { key: "frnzcgp_certified", title: "Certified copy of FRNZCGP", help: { title: "FRNZCGP", steps: ["Upload a certified copy of your FRNZCGP certificate", "If needed, contact RNZCGP for replacement or confirmation"], certNote: true } },
+          { key: "rnzcgp_confirmation_letter", title: "Certified copy of RNZCGP Confirmation Letter", help: { title: "RNZCGP Confirmation Letter", steps: ["Contact RNZCGP", "Request a confirmation letter stating that your fellowship was awarded under the RNZCGP curriculum following satisfactory completion of GPEP"], certNote: true } },
+          { key: "cv_signed_dated", title: "CV (Signed and dated)", help: { title: "CV", steps: ["Upload your signed and dated CV"] } }
+        ]
+      }
+    };
+
+    const INTRO_CERT_NOTE_HTML = '<p>Before uploading, each required document must be certified as a true copy of the original by a solicitor or public notary.</p>' +
+      '<p>On the copy of the document, the certifier must write or stamp:</p>' +
+      '<p class="cert-quote">"I have sighted the original document and certify this to be a true copy of the original."</p>' +
+      '<p>They must also include:</p>' +
+      '<ul>' +
+        '<li>Their signature</li>' +
+        '<li>Their full name</li>' +
+        '<li>Their occupation or profession</li>' +
+        '<li>Their profession or registration number (if applicable)</li>' +
+        '<li>Their phone number</li>' +
+        '<li>The date</li>' +
+        '<li>Their stamp or seal (if relevant)</li>' +
+      '</ul>';
+
+    // ─── INTRO SCREEN: LOGIC ─────────────────────────────────────
+    const introEl = document.getElementById("ahpraIntro");
+    const introWelcomePanel = document.getElementById("introWelcomePanel");
+    const introDocsPanel = document.getElementById("introDocsPanel");
+    const introCtaEl = document.getElementById("introCta");
+    const introDocsListEl = document.getElementById("introDocsList");
+    const introBackBtn = document.getElementById("introBackBtn");
+    const introHelpBackdrop = document.getElementById("introHelpBackdrop");
+    const introHelpPopover = document.getElementById("introHelpPopover");
+    const introHelpTitle = document.getElementById("introHelpTitle");
+    const introHelpSteps = document.getElementById("introHelpSteps");
+    const introHelpCertNote = document.getElementById("introHelpCertNote");
+    const introHelpReminder = document.getElementById("introHelpReminder");
+    const introHelpClose = document.getElementById("introHelpClose");
+
+    function getIntroDismissedKey() {
+      return STORAGE_KEY + "__intro_seen";
+    }
+
+    function isIntroDismissed() {
+      try { return localStorage.getItem(getIntroDismissedKey()) === "1"; } catch (e) { return false; }
+    }
+
+    function dismissIntro() {
+      try { localStorage.setItem(getIntroDismissedKey(), "1"); } catch (e) {}
+      introEl.style.display = "none";
+      // Show the normal AHPRA registration content
+      document.querySelector(".hero-compact").style.display = "";
+      document.querySelector(".reg-content").style.display = "";
+      var footerContent = document.querySelectorAll(".reg-content")[1];
+      if (footerContent) footerContent.style.display = "";
+      // Desktop sidebar
+      var sidebar = document.querySelector(".sidebar-desktop");
+      if (sidebar) sidebar.style.display = "";
+    }
+
+    function getIncompleteDocsForIntro(country) {
+      var countryKey = (country || "").toLowerCase();
+      if (countryKey === "gb") countryKey = "uk";
+      var cfg = INTRO_COUNTRY_DOCS[countryKey];
+      if (!cfg) return [];
+
+      var docState = readJsonStorage(DOC_KEY, { docs: {} }) || { docs: {} };
+      var docs = docState.docs || {};
+      var preparedState = readJsonStorage(PREPARED_DOCS_KEY, { docs: {} }) || { docs: {} };
+      var prepDocs = preparedState.docs || {};
+
+      var incomplete = [];
+
+      // Institution docs: complete if status is requested/under_review/approved/accepted
+      (cfg.institution || []).forEach(function(doc) {
+        var d = docs[doc.key] || {};
+        var status = d.status || "pending";
+        var isDone = d.uploaded || status === "requested" || status === "under_review" || status === "approved" || status === "accepted";
+        if (!isDone) {
+          incomplete.push({ key: doc.key, title: doc.title, help: doc.help, group: "institution", status: "missing" });
+        }
+      });
+
+      // Prepared docs: complete if uploaded
+      (cfg.prepared || []).forEach(function(doc) {
+        var d = docs[doc.key] || {};
+        var isDone = d.uploaded;
+        if (!isDone) {
+          incomplete.push({ key: doc.key, title: doc.title, help: doc.help, group: "prepared", status: "missing" });
+        }
+      });
+
+      // GP Link prepared docs (SUPERVISED_PRACTICE_DOCS): complete if ready or has url
+      var spDocs = typeof SUPERVISED_PRACTICE_DOCS !== "undefined" ? SUPERVISED_PRACTICE_DOCS : [];
+      spDocs.forEach(function(doc) {
+        var p = prepDocs[doc.key] || {};
+        var isDone = p.ready || !!p.url;
+        if (!isDone) {
+          incomplete.push({ key: doc.key, title: doc.label || doc.title, help: null, group: "gplink", status: "preparing" });
+        }
+      });
+
+      return incomplete;
+    }
+
+    function renderIntroCta(incompleteDocs) {
+      var html = "";
+      if (incompleteDocs.length === 0) {
+        html += '<div class="intro-ready-check"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>';
+        html += '<p class="intro-ready-text">All your documents are prepared and ready</p>';
+        html += '<button class="intro-cta-btn success" id="introBeginBtn" type="button">Begin Now <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>';
+      } else {
+        html += '<p class="intro-doc-notice">There are a few documents we need prepared before commencing</p>';
+        html += '<button class="intro-cta-btn primary" id="introCompleteBtn" type="button">Complete Now <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>';
+      }
+      introCtaEl.innerHTML = html;
+
+      var beginBtn = document.getElementById("introBeginBtn");
+      if (beginBtn) beginBtn.addEventListener("click", function() { dismissIntro(); });
+
+      var completeBtn = document.getElementById("introCompleteBtn");
+      if (completeBtn) completeBtn.addEventListener("click", function() { slideToDocsPanel(); });
+    }
+
+    function renderIntroDocsList(incompleteDocs) {
+      var html = "";
+      var currentGroup = "";
+      var groupLabels = { institution: "Direct to AHPRA", prepared: "You Prepare", gplink: "GP Link Prepares" };
+
+      incompleteDocs.forEach(function(doc, idx) {
+        if (doc.group !== currentGroup) {
+          currentGroup = doc.group;
+          html += '<div class="intro-doc-group-label">' + groupLabels[currentGroup] + '</div>';
+        }
+
+        var statusClass = doc.status === "preparing" ? "preparing" : "missing";
+        var statusLabel = doc.status === "preparing" ? "Preparing" : "Missing";
+
+        html += '<div class="intro-doc-card" id="introDocCard_' + doc.key + '" data-doc-key="' + doc.key + '" data-doc-group="' + doc.group + '">';
+        html += '  <div class="intro-doc-card-top">';
+        html += '    <span class="intro-doc-title">' + doc.title + '</span>';
+        html += '    <span class="intro-doc-status ' + statusClass + '" id="introDocStatus_' + doc.key + '">' + statusLabel + '</span>';
+        html += '  </div>';
+
+        if (doc.group === "gplink") {
+          html += '  <p class="intro-doc-desc">GP Link is preparing this document for your application</p>';
+        } else if (doc.group === "institution") {
+          html += '  <div class="intro-doc-actions">';
+          html += '    <button class="intro-upload-btn" data-intro-action="mark-requested" data-intro-doc-key="' + doc.key + '" type="button">';
+          html += '      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Mark Requested';
+          html += '    </button>';
+          if (doc.help) {
+            html += '    <button class="intro-show-me-how" data-intro-help-idx="' + idx + '" type="button">';
+            html += '      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+            html += '      Show me how';
+            html += '    </button>';
+          }
+          html += '  </div>';
+        } else {
+          html += '  <div class="intro-doc-actions">';
+          html += '    <label class="intro-upload-btn" style="cursor:pointer;">';
+          html += '      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+          html += '      Upload Document';
+          html += '      <input type="file" accept="image/*,.pdf" data-intro-upload="' + doc.key + '" style="display:none;" />';
+          html += '    </label>';
+          if (doc.help) {
+            html += '    <button class="intro-show-me-how" data-intro-help-idx="' + idx + '" type="button">';
+            html += '      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+            html += '      Show me how';
+            html += '    </button>';
+          }
+          html += '  </div>';
+          html += '  <div class="intro-upload-progress" id="introProgress_' + doc.key + '"><div class="intro-upload-progress-fill" id="introProgressFill_' + doc.key + '"></div></div>';
+        }
+
+        html += '</div>';
+      });
+
+      introDocsListEl.innerHTML = html;
+    }
+
+    // Panel slide transitions
+    function slideToDocsPanel() {
+      introWelcomePanel.classList.remove("intro-panel-active");
+      introWelcomePanel.classList.add("intro-panel-exit");
+      introDocsPanel.classList.remove("intro-panel-exit");
+      void introDocsPanel.offsetWidth;
+      introDocsPanel.classList.add("intro-panel-active");
+    }
+
+    function slideToWelcomePanel() {
+      introDocsPanel.classList.remove("intro-panel-active");
+      introDocsPanel.classList.add("intro-panel-exit");
+      introDocsPanel.style.transform = "translateX(40px)";
+      introWelcomePanel.classList.remove("intro-panel-exit");
+      introWelcomePanel.style.transform = "";
+      void introWelcomePanel.offsetWidth;
+      introWelcomePanel.classList.add("intro-panel-active");
+    }
+
+    introBackBtn.addEventListener("click", function() { slideToWelcomePanel(); });
+
     function getPageCountry() {
       var raw = "";
       try { raw = localStorage.getItem("gp_selected_country") || ""; } catch (e) { raw = ""; }
