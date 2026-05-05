@@ -1436,6 +1436,416 @@
         border-radius: 16px;
       }
     }
+
+    /* ── AHPRA INTRO SCREEN ── */
+    .ahpra-intro {
+      position: relative;
+      min-height: calc(100dvh - 200px);
+      overflow: hidden;
+    }
+
+    /* Blob background */
+    .intro-blob-canvas {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .intro-blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.35;
+    }
+    .intro-blob-1 {
+      width: 280px; height: 280px;
+      background: radial-gradient(circle, #60a5fa, #3b82f6);
+      top: -60px; left: -40px;
+    }
+    .intro-blob-2 {
+      width: 200px; height: 200px;
+      background: radial-gradient(circle, #a78bfa, #7c3aed);
+      top: 120px; right: -30px;
+    }
+    .intro-blob-3 {
+      width: 160px; height: 160px;
+      background: radial-gradient(circle, #34d399, #10b981);
+      bottom: 80px; left: 20px;
+    }
+
+    /* Panels */
+    .intro-panel {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      opacity: 0;
+      transform: translateX(40px);
+      pointer-events: none;
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      overflow-y: auto;
+    }
+    .intro-panel-active {
+      position: relative;
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+    .intro-panel-exit {
+      opacity: 0;
+      transform: translateX(-40px);
+      pointer-events: none;
+    }
+
+    /* Welcome panel content */
+    .intro-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: calc(100dvh - 200px);
+      padding: 40px var(--sp-7) 40px;
+    }
+
+    .intro-pathway-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(26, 86, 219, 0.08);
+      border: 1px solid rgba(26, 86, 219, 0.15);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 24px;
+      width: fit-content;
+    }
+    .intro-pathway-badge svg { stroke: var(--accent); }
+
+    .intro-title {
+      font-family: var(--font-heading);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--ink);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+    }
+    .intro-subtitle {
+      font-size: 15px;
+      color: var(--ink-soft);
+      line-height: 1.6;
+      margin-bottom: 32px;
+      max-width: 520px;
+    }
+
+    /* Milestone cards */
+    .intro-milestones {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 36px;
+    }
+    .intro-milestone {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .intro-milestone-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+    .intro-milestone-icon.green { background: rgba(16, 185, 129, 0.08); }
+    .intro-milestone-icon.green svg { stroke: #10b981; }
+    .intro-milestone-icon.amber { background: rgba(245, 158, 11, 0.08); }
+    .intro-milestone-icon.amber svg { stroke: #f59e0b; }
+    .intro-milestone-text {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink-soft);
+      line-height: 1.4;
+    }
+    .intro-milestone-text strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    /* CTA area */
+    .intro-cta-area {
+      margin-top: auto;
+      padding-top: 20px;
+    }
+    .intro-doc-notice {
+      text-align: center;
+      font-size: 13px;
+      color: var(--ink-muted);
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    .intro-ready-check {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: rgba(16, 185, 129, 0.08);
+      display: grid;
+      place-items: center;
+      margin: 0 auto 20px;
+    }
+    .intro-ready-check svg { stroke: #10b981; }
+    .intro-ready-text {
+      text-align: center;
+      font-size: 14px;
+      color: #166534;
+      font-weight: 500;
+      margin-bottom: 24px;
+    }
+    .intro-cta-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 16px 24px;
+      border: none;
+      border-radius: 14px;
+      font-family: var(--font-body);
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .intro-cta-btn svg {
+      width: 18px; height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .intro-cta-btn.primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(26, 86, 219, 0.3);
+    }
+    .intro-cta-btn.primary:hover {
+      background: #1d4ed8;
+      box-shadow: 0 6px 20px rgba(26, 86, 219, 0.4);
+      transform: translateY(-1px);
+    }
+    .intro-cta-btn.success {
+      background: #10b981;
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+    }
+    .intro-cta-btn.success:hover {
+      background: #059669;
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+      transform: translateY(-1px);
+    }
+
+    /* ── Document Preparation Panel ── */
+    .intro-docs-header {
+      background: var(--surface-raised);
+      padding: 20px var(--sp-7) 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .intro-docs-header-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .intro-back-btn {
+      width: 32px; height: 32px;
+      border-radius: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .intro-back-btn:hover { background: var(--border); }
+    .intro-docs-title {
+      font-family: var(--font-heading);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+    }
+    .intro-docs-sub {
+      font-size: 13px;
+      color: var(--ink-muted);
+      margin-left: 42px;
+    }
+
+    /* Document cards */
+    .intro-docs-list {
+      padding: 16px var(--sp-7) 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .intro-doc-group-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-muted);
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+    .intro-doc-card {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      transition: border-color 0.15s;
+    }
+    .intro-doc-card:hover {
+      border-color: rgba(26, 86, 219, 0.25);
+    }
+    .intro-doc-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .intro-doc-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .intro-doc-status {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+    .intro-doc-status.missing {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+    .intro-doc-status.preparing {
+      background: #fffbeb;
+      color: #92400e;
+    }
+    .intro-doc-status.requested {
+      background: #f0f9ff;
+      color: #0369a1;
+    }
+    .intro-doc-desc {
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+    .intro-doc-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .intro-upload-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font-body);
+      transition: background 0.15s;
+    }
+    .intro-upload-btn:hover { background: #dbeafe; }
+    .intro-upload-btn svg {
+      width: 14px; height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .intro-show-me-how {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 0;
+      background: transparent;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+      font-family: var(--font-body);
+      transition: color 0.15s;
+    }
+    .intro-show-me-how:hover { color: #1d4ed8; }
+    .intro-show-me-how svg {
+      width: 14px; height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Upload progress bar inside doc card */
+    .intro-upload-progress {
+      height: 3px;
+      border-radius: 2px;
+      background: var(--border);
+      margin-top: 10px;
+      overflow: hidden;
+      display: none;
+    }
+    .intro-upload-progress.show { display: block; }
+    .intro-upload-progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      width: 0;
+      transition: width 0.3s ease;
+    }
+
+    /* Uploaded state for doc card */
+    .intro-doc-card.uploaded .intro-doc-status.missing {
+      background: #ecfdf5;
+      color: #166534;
+    }
+    .intro-doc-uploaded-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #166534;
+      font-weight: 500;
+    }
+    .intro-doc-uploaded-row svg {
+      width: 14px; height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
