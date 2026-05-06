@@ -4884,12 +4884,26 @@ function buildWhatsAppLink(stageLabel, gpFirstName, gpPhone) {
 
 /**
  * Build a DoubleTick web conversation URL from a stored customer ID.
+ * Uses the /conversations/{wabaNumber}/{customerId} path which opens
+ * the full DoubleTick web app (not the embed/iframe view).
  */
 function buildDoubleTickUrl(customerId) {
   if (!customerId) return '';
   const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
   if (!fromNumber) return '';
   return 'https://web.doubletick.io/conversations/' + fromNumber + '/' + customerId;
+}
+
+/**
+ * Convert a DoubleTick embed URL to a full web app conversation URL.
+ * Embed URLs look like: web.doubletick.io/embed/conversations/intg_XXX/customer_XXX?showChatListPanel=false&...
+ * Web app URLs look like: web.doubletick.io/conversations/intg_XXX/customer_XXX
+ */
+function embedUrlToWebUrl(embedUrl) {
+  if (!embedUrl) return '';
+  // Strip query params and convert /embed/conversations/ to /conversations/
+  var clean = embedUrl.split('?')[0];
+  return clean.replace('/embed/conversations/', '/conversations/');
 }
 
 /**
@@ -4928,9 +4942,10 @@ async function fetchDoubleTickCustomerId(gpPhone) {
       : (data.url || data.embedUrl || data.iframeUrl || '');
     if (!rawUrl) return { url: '', customerId: '' };
 
-    const customerMatch = rawUrl.match(/customer_\d+/);
+    const customerMatch = rawUrl.match(/customer_[A-Za-z0-9]+/);
     const customerId = customerMatch ? customerMatch[0] : '';
-    const url = customerId ? buildDoubleTickUrl(customerId) : rawUrl;
+    // Convert embed URL to web app URL (strips iframe params, changes /embed/ to /)
+    const url = embedUrlToWebUrl(rawUrl) || rawUrl;
     return { url, customerId };
   } catch (err) {
     console.warn('[doubletick-embed] Error fetching for', normalised, ':', err && err.message);
@@ -4939,14 +4954,15 @@ async function fetchDoubleTickCustomerId(gpPhone) {
 }
 
 /**
- * Persist a DoubleTick customer ID to user_profiles (fire-and-forget).
+ * Persist the DoubleTick conversation URL to user_profiles (fire-and-forget).
+ * Stores the full web URL so it can be used directly without reconstruction.
  */
-function saveDoubleTickCustomerId(userId, customerId) {
-  if (!userId || !customerId || !isSupabaseDbConfigured()) return;
+function saveDoubleTickCustomerId(userId, url) {
+  if (!userId || !url || !isSupabaseDbConfigured()) return;
   supabaseDbRequest('user_profiles', 'user_id=eq.' + encodeURIComponent(userId), {
     method: 'PATCH',
     headers: { Prefer: 'return=minimal' },
-    body: { doubletick_customer_id: customerId, updated_at: new Date().toISOString() }
+    body: { doubletick_customer_id: url, updated_at: new Date().toISOString() }
   }).catch(function (err) {
     console.warn('[doubletick-embed] Failed to persist customer ID for', userId, ':', err && err.message);
   });
@@ -22152,7 +22168,7 @@ Return ONLY valid JSON with no markdown formatting:
     for (const c of cases) {
       const p = profileMap[c.user_id] || {};
       if (p.doubletick_customer_id) {
-        dtEmbedByUserId[c.user_id] = buildDoubleTickUrl(p.doubletick_customer_id);
+        dtEmbedByUserId[c.user_id] = p.doubletick_customer_id;
       } else if (resolvePhone(p)) {
         dtMissingCases.push(c);
       }
@@ -22162,7 +22178,7 @@ Return ONLY valid JSON with no markdown formatting:
         const p = profileMap[c.user_id] || {};
         const result = await fetchDoubleTickCustomerId(resolvePhone(p));
         if (result.url) dtEmbedByUserId[c.user_id] = result.url;
-        if (result.customerId) saveDoubleTickCustomerId(c.user_id, result.customerId);
+        if (result.url) saveDoubleTickCustomerId(c.user_id, result.url);
       }));
     }
 
