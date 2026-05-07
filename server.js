@@ -15693,6 +15693,20 @@ async function handleApi(req, res, pathname) {
       var processedRes = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id&limit=1');
       diag.steps.push({ step: 'db_records', todos_exist: todosRes.ok && Array.isArray(todosRes.data) && todosRes.data.length > 0, processed_exist: processedRes.ok && Array.isArray(processedRes.data) && processedRes.data.length > 0 });
 
+      // Step 7: If ?process=true, actually process the emails
+      if (url.searchParams.get('process') === 'true') {
+        try {
+          await processGmailNotification('hazel@mygplink.com.au', null);
+          diag.steps.push({ step: 'process', success: true });
+        } catch (procErr) {
+          diag.steps.push({ step: 'process', success: false, error: procErr.message });
+        }
+        // Check DB again after processing
+        var todosRes2 = await supabaseDbRequest('incoming_email_todos', 'select=id,sender_email,subject&order=created_at.desc&limit=5');
+        var processedRes2 = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id,sender,subject,result&order=processed_at.desc&limit=5');
+        diag.steps.push({ step: 'db_after_process', todos: todosRes2.ok ? todosRes2.data : [], processed: processedRes2.ok ? processedRes2.data : [] });
+      }
+
     } catch (diagErr) {
       diag.error = diagErr.message;
     }
