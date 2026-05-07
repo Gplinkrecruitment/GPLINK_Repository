@@ -1186,6 +1186,19 @@
     function applyHashRouting(){
       const h=window.location.hash||"";
       if(h==="#help-center") switchView("viewHelpCenter");
+      else if(h==="#tab-action"){
+        switchView("viewMyTickets");
+        openNewTicket();
+        // Pre-fill from the latest nudge so the user can reply
+        try {
+          var updates=JSON.parse(localStorage.getItem("gp_link_updates")||"[]");
+          var nudge=updates.find(function(u){return u&&u.type==="action";});
+          if(nudge){
+            newSubjectEl.value=nudge.title||"";
+            newDescriptionEl.value="Replying to: \""+( nudge.detail||nudge.title||"")+ "\"\n\n";
+          }
+        }catch(e){}
+      }
       else if(h==="#new-ticket"){switchView("viewMyTickets");openNewTicket();var urlCat=new URLSearchParams(window.location.search).get("category");if(urlCat&&newCategoryEl){newCategoryEl.value=urlCat;}}
       else if(h.startsWith("#ticket-")){const id=decodeURIComponent(h.replace("#ticket-",""));switchView("viewMyTickets");if(id)setTimeout(()=>openTicketDetail(id),100);}
       else switchView("viewMyTickets");
