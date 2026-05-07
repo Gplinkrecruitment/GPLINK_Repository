@@ -966,6 +966,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     {key:"pbs",label:"PBS & Medicare",num:6},
     {key:"commencement",label:"Commencement",num:7}
   ];
+  const STAGE_ORDER=["career","myintealth","amc","ahpra","pbs","commencement"];
   const PLAYBOOK={
     myintealth:{gp:"Create MyIntealth account, complete onboarding, upload qualification certificates.",va:"Verify uploaded documents match GP credentials. Approve verification or request re-upload if rejected."},
     amc:{gp:"Create AMC account, upload credentials and portfolio documents.",va:"Confirm AMC account created. Help GP gather required credentials. Check qualifications are accepted."},
@@ -1819,33 +1820,182 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>`;
   }
 
-  function renderGpTasksPane(c){
-    const tasks=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="complete"&&t.status!=="completed");
-    if(!tasks.length)return'<div class="empty">No open tasks.</div><button class="btn sm" data-add-task>+ Add Task</button>';
-    const byPri={urgent:[],high:[],normal:[]};
-    tasks.forEach(t=>{(byPri[t.priority]||byPri.normal).push(t);});
-    const nextAction=tasks[0];
-    let h='';
-    if(nextAction){
-      const naDocActions=nextAction.task_type==='practice_pack_child'?renderDocTaskActions(nextAction):'';
-      h+=`<div class="todo-card" style="border-left:4px solid var(--accent,#4f46e5);margin-bottom:12px">
-        <div style="font-size:11px;text-transform:uppercase;color:var(--accent,#4f46e5);font-weight:700">Next Action</div>
-        <div class="todo-title">${esc(nextAction.title)}</div>
-        <div class="todo-detail">${esc(nextAction.description||"")}</div>
-        ${naDocActions?naDocActions:`<div class="todo-actions"><button class="btn primary sm" data-complete-task="${esc(nextAction.id)}">Complete</button><button class="btn sm" data-start-task="${esc(nextAction.id)}">Start</button></div>`}
-      </div>`;
-    }
-    ["urgent","high","normal"].forEach(pri=>{
-      if(!byPri[pri].length)return;
-      h+=`<div class="inbox-section-title">${esc(pri)} <span class="count">${byPri[pri].length}</span></div>`;
-      h+=byPri[pri].map(t=>{const docAct=t.task_type==='practice_pack_child'?renderDocTaskActions(t):'';return`<div class="todo-card ${esc(t.priority)}" data-task-row="${esc(t.id)}">
-        <div class="todo-title">${esc(t.title)}</div>
-        <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" \u2022 Due "+fmtD(t.due_date):""}</div>
-        ${docAct?docAct:`<div class="todo-actions"><button class="btn primary sm" data-complete-task="${esc(t.id)}">Complete</button><button class="btn sm" data-start-task="${esc(t.id)}">Start</button></div>`}
-      </div>`;}).join("");
+  function groupTasksByStage(tasks){
+    const groups=new Map();
+    const other=[];
+    tasks.forEach(t=>{
+      const stage=t.related_stage||"";
+      if(stage&&STAGE_ORDER.includes(stage)){
+        if(!groups.has(stage))groups.set(stage,[]);
+        groups.get(stage).push(t);
+      }else{
+        other.push(t);
+      }
     });
-    h+='<div style="margin-top:12px"><button class="btn sm" data-add-task>+ Add Task</button></div>';
-    return h;
+    const result=[];
+    STAGE_ORDER.forEach(s=>{
+      if(groups.has(s))result.push({stage:s,tasks:groups.get(s)});
+    });
+    if(other.length)result.push({stage:"other",tasks:other});
+    return result;
+  }
+
+  function getGuidedAction(t){
+    const dk=t.related_document_key;
+    const hasAttachment=!!(t.attachment_url||t.zoho_attachment_id);
+    const hasHtml=!!t.document_html;
+
+    if(t.task_type==='practice_pack_child'||dk){
+      if(dk==='sppa_00'){
+        if(t.zoho_sign_envelope_id)return{prompt:'Check Zoho Sign status for signatures',label:'Check Status',action:'checkSppaStatus',taskId:t.id};
+        return{prompt:'Send SPPA agreement via Zoho Sign',label:'Send SPPA',action:'sendSppa',taskId:t.id};
+      }
+      if(dk==='section_g'){
+        if(t.status==='completed')return{prompt:'Section G auto-delivered',label:'Done',action:null,taskId:t.id};
+        return{prompt:'Will auto-deliver when GP enters AHPRA stage',label:'Waiting',action:null,taskId:t.id};
+      }
+      if(dk==='position_description'){
+        if(hasHtml)return{prompt:'Review the generated position description and approve',label:'Edit & Review',action:'editPD',taskId:t.id};
+        return{prompt:'Generate a position description using AI',label:'Generate',action:'generatePD',taskId:t.id};
+      }
+      if(hasAttachment&&t.gmail_message_id){
+        return{prompt:'Review the auto-matched document and approve or request revision',label:'Review Doc',action:'previewDoc',taskId:t.id};
+      }
+      if(hasAttachment){
+        return{prompt:'Review the uploaded document and approve',label:'Review Doc',action:'previewDoc',taskId:t.id};
+      }
+      if(t.status==='waiting_on_practice'){
+        return{prompt:'Waiting on practice to send the document',label:'Waiting',action:null,taskId:t.id};
+      }
+      const docLabel=dk==='offer_contract'?'Contract':'Supervisor CV';
+      return{prompt:'Email the practice requesting the '+docLabel,label:'Email Practice',action:'emailPractice',taskId:t.id,dk:dk};
+    }
+
+    if(t.task_type==='verify'){
+      return{prompt:'Review the evidence and verify',label:'Review',action:'completeTask',taskId:t.id};
+    }
+    if(t.task_type==='kickoff'||t.task_type==='review'){
+      return{prompt:'Review and complete this task',label:'Complete',action:'completeTask',taskId:t.id};
+    }
+    if(t.task_type==='blocker'||t.task_type==='escalation'){
+      return{prompt:'Resolve the blocking issue',label:'Resolve',action:'completeTask',taskId:t.id};
+    }
+    if(t.task_type==='whatsapp_help'){
+      return{prompt:'Respond to the GP\u2019s WhatsApp query',label:'Open Chat',action:'openWhatsApp',taskId:t.id};
+    }
+    if(t.task_type==='followup'||t.task_type==='chase'||t.task_type==='nudge_reply'){
+      return{prompt:'Follow up with the GP',label:'Follow Up',action:'completeTask',taskId:t.id};
+    }
+    return{prompt:'Complete this task',label:'Complete',action:'completeTask',taskId:t.id};
+  }
+
+  function renderGpTasksPane(c){
+    const tasks=(S.tasks||[]).filter(t=>t.case_id===c.id&&t.status!=="complete"&&t.status!=="completed"&&t.status!=="cancelled");
+    if(!tasks.length)return '<div class="empty">No open tasks.</div><button class="btn sm" data-add-task>+ Add Task</button>';
+
+    const u=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))
+      ?(S.va.dashboard.users.find(x=>x.case_id===c.id||x.user_id===c.user_id)||{}):{};
+    const currentStage=c.stage||"";
+    const stageGroups=groupTasksByStage(tasks);
+
+    let html='';
+    let isFirstActiveTask=true;
+
+    stageGroups.forEach(group=>{
+      const stageLabel=STEPS.find(s=>s.key===group.stage);
+      const label=stageLabel?stageLabel.label:group.stage==="other"?"Other":"Unknown";
+      const stageIdx=STAGE_ORDER.indexOf(group.stage);
+      const currentIdx=STAGE_ORDER.indexOf(currentStage);
+      const isCurrentOrPast=group.stage==="other"||stageIdx<=currentIdx||currentIdx===-1;
+      const isLocked=!isCurrentOrPast&&stageIdx>currentIdx&&currentIdx!==-1;
+
+      html+='<div class="stage-group'+(isLocked?' locked':'')+'">';
+      html+='<div class="stage-group-header">';
+      html+='<div class="sg-dot '+(isLocked?'locked':'active')+'"></div>';
+      html+='<div class="sg-label '+(isLocked?'locked':'active')+'">'+esc(label)+'</div>';
+      html+='<div class="sg-count">'+group.tasks.length+' task'+(group.tasks.length===1?'':'s')+'</div>';
+
+      if(isLocked){
+        const unlockStage=STEPS.find(s=>s.key===currentStage);
+        html+='<div class="sg-lock-badge">\uD83D\uDD12 Unlocks after '+(unlockStage?unlockStage.label:currentStage)+'</div>';
+      }
+      if(!isLocked&&group.stage===currentStage){
+        html+='<div class="sg-lock-badge" style="background:#eff6ff;color:var(--blue)">Current stage</div>';
+      }
+      html+='</div>';
+
+      if(isLocked){
+        html+='<div class="stage-task" style="opacity:.35;pointer-events:none"><div class="st-body"><div style="font-size:11px;color:var(--muted)">'+group.tasks.map(t=>esc(t.title)).join(' \u2022 ')+'</div></div></div>';
+      }else{
+        group.tasks.forEach(t=>{
+          const guided=getGuidedAction(t);
+          const isUrgent=t.priority==='urgent';
+          const isOverdue=t.is_overdue||(t.due_date&&new Date(t.due_date)<new Date());
+          const isNext=isFirstActiveTask;
+          if(isNext)isFirstActiveTask=false;
+
+          html+='<div class="stage-task'+(isNext?' active-next':'')+'" data-task-row="'+esc(t.id)+'">';
+          html+='<div class="st-top">';
+          html+='<div class="st-body">';
+          html+='<div class="st-title">'+esc(t.title);
+          if(isUrgent)html+='<span class="urgent-badge">urgent</span>';
+          if(isOverdue)html+='<span class="overdue-badge">overdue</span>';
+          html+='</div>';
+
+          if(t.attachment_url&&t.attachment_filename){
+            const conf=typeof t.ai_confidence==='number'?Math.round(t.ai_confidence*100):0;
+            html+='<div class="st-doc-info">';
+            html+='<span class="st-doc-chip">\uD83D\uDCC4 '+esc(t.attachment_filename)+'</span>';
+            if(t.gmail_message_id)html+='<span style="font-size:10px;color:var(--muted)">Auto-matched \u2022 '+conf+'% confidence</span>';
+            html+='</div>';
+          }
+
+          if(guided.prompt&&guided.action!==null){
+            html+='<div class="st-guide">\u2192 '+esc(guided.prompt)+'</div>';
+          }
+          if(t.status==='waiting_on_practice'){
+            html+='<div class="st-waiting">\u23F3 Waiting on practice</div>';
+          }else if(t.status==='waiting_on_gp'){
+            html+='<div class="st-waiting">\u23F3 Waiting on GP</div>';
+          }else if(t.status==='waiting_on_external'){
+            html+='<div class="st-waiting">\u23F3 Waiting on external</div>';
+          }
+
+          html+='</div>';
+          html+='<div class="st-actions">';
+          if(guided.action){
+            html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
+          }
+          html+='<button class="st-more-btn" data-more-menu="'+esc(t.id)+'">\u2022\u2022\u2022';
+          html+='<div class="st-dropdown" id="dropdown-'+esc(t.id)+'">';
+          html+='<button class="st-dropdown-item" data-complete-task="'+esc(t.id)+'">\u2713 Mark Complete</button>';
+          html+='<button class="st-dropdown-item" data-start-task="'+esc(t.id)+'">\u25B6 Start / In Progress</button>';
+          html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="waiting_on_practice">\u23F3 Waiting on Practice</button>';
+          html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="waiting_on_gp">\u23F3 Waiting on GP</button>';
+          html+='<div class="st-dropdown-sep"></div>';
+          var gpEmail2=u.gp_email||c.gp_email||"";
+          if(gpEmail2){
+            html+='<a class="st-dropdown-item" href="mailto:'+esc(gpEmail2)+'" target="_blank">\u2709 Email GP</a>';
+          }
+          var dtUrl2=t.doubletick_conversation_url||u.doubletick_conversation_url||"";
+          if(dtUrl2.indexOf("doubletick.io/conversations/")>-1){
+            html+='<a class="st-dropdown-item" href="'+safeUrl(dtUrl2)+'" target="_blank">\uD83D\uDCAC WhatsApp</a>';
+          }
+          html+='<button class="st-dropdown-item" data-case-nudge="'+esc(c.user_id||"")+'" data-nudge-stage="'+esc(c.stage||"")+'" data-nudge-substage="" data-nudge-name="'+esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())+'">\uD83D\uDCE8 Send Nudge</button>';
+          html+='<div class="st-dropdown-sep"></div>';
+          html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="blocked">\uD83D\uDEA8 Escalate</button>';
+          html+='</div>';
+          html+='</button>';
+          html+='</div>';
+          html+='</div>';
+          html+='</div>';
+        });
+      }
+      html+='</div>';
+    });
+
+    html+='<div style="margin-top:12px"><button class="btn sm" data-add-task>+ Add Task</button></div>';
+    return html;
   }
 
   function renderGpDocumentsPane(c){
