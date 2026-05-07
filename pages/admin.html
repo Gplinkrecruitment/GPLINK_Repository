@@ -3228,12 +3228,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         e.preventDefault();
         const name=e.target.closest("[data-navigate-practice]").getAttribute("data-navigate-practice");
         if(name){
-          // Switch to Medical Centres tab
-          const mcTab=document.querySelector('[data-view="medicalcentres"]');
-          if(mcTab)mcTab.click();
-          await loadMedicalCentres("list");
-          const centre=S.mc.centres.find(c=>(c.practice_name||"").toLowerCase()===name.toLowerCase());
-          if(centre){S.mc.selectedCentre=centre;S.mc.subView="overview";renderMedicalCentresPanel();}
+          // Fetch all centres directly, pre-select the match, then switch view
+          S.mc.loading=true;
+          try{
+            var _r=await fetch("/api/admin/medical-centres?status=all",{credentials:"same-origin"});
+            var _d=await _r.json().catch(()=>({}));
+            if(_d.ok&&Array.isArray(_d.centres)){S.mc.centres=_d.centres;S.mc.allData=_d.centres;S.mc.listView="list";}
+          }catch{}
+          S.mc.loading=false;
+          S.mc.selectedCentre=S.mc.centres.find(c=>(c.practice_name||"").toLowerCase()===name.toLowerCase())||null;
+          S.mc.subView="overview";
+          // Switch to Medical Centres view
+          S.view="medicalcentres";
+          document.querySelectorAll(".view-tab").forEach(t=>t.classList.toggle("active",t.getAttribute("data-view")==="medicalcentres"));
+          vaShowPanel("medicalcentres");
+          renderMedicalCentresPanel();
         }
         return;
       }
