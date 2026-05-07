@@ -2908,9 +2908,38 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   async function addCaseNote(caseId){
     const input=document.getElementById("caseNoteInput")||document.getElementById("gpNoteInput");
     const text=input?input.value.trim():"";if(!text)return;
-    await fetch("/api/admin/case/note?id="+encodeURIComponent(caseId),{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text})});
-    if(input)input.value="";
-    await loadAll(true);
+    try{
+      await fetch("/api/admin/case/note?id="+encodeURIComponent(caseId),{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({text})});
+
+      /* Parse for AI follow-up suggestion */
+      const c=S.cases.find(x=>x.id===caseId);
+      const u=(S.va.dashboard&&S.va.dashboard.users||[]).find(x=>x.case_id===caseId)||{};
+      const parseRes=await fetch("/api/admin/va/note/parse-followup",{
+        method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({text:text,gp_name:u.gp_name||((c&&c.gp_name)||""),case_id:caseId})
+      });
+      const parseData=await parseRes.json();
+
+      if(parseData.ok&&parseData.followup){
+        const fu=parseData.followup;
+        const old=document.querySelector(".followup-suggestion");
+        if(old)old.remove();
+
+        const confirmDiv=document.createElement("div");
+        confirmDiv.className="followup-suggestion";
+        confirmDiv.style.cssText="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;margin-top:8px;font-size:12px;";
+        confirmDiv.innerHTML='<div style="font-weight:700;color:#1d4ed8;margin-bottom:4px">Follow-up detected</div>'
+          +'<div style="color:#334155;margin-bottom:6px">'+esc(fu.action)+(fu.deadline?' \u2014 due '+esc(fu.deadline):'')+(fu.condition?'<br><span style="color:#64748b">Condition: '+esc(fu.condition)+'</span>':'')+'</div>'
+          +'<button class="btn primary sm" data-create-followup-task="'+esc(caseId)+'" data-fu-action="'+esc(fu.action)+'" data-fu-deadline="'+esc(fu.deadline||'')+'">Create Follow-up Task</button>'
+          +' <button class="btn sm" data-dismiss-followup>Dismiss</button>';
+        input.parentElement.appendChild(confirmDiv);
+      }
+
+      if(input)input.value="";
+      if(c&&S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].timeline;
+      renderDetail();
+    }catch(err){console.error("[VA] Note creation failed:",err);}
   }
 
   /* ══ Ops Queue ══ */
@@ -3164,7 +3193,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderMedicalCentresPanel();
       }
     });
-    document.getElementById("detailContent").addEventListener("click",e=>{
+    document.getElementById("detailContent").addEventListener("click",async e=>{
       /* Close dropdowns on outside click */
       if(!e.target.closest(".st-dropdown")&&!e.target.closest("[data-more-menu]")){
         document.querySelectorAll(".st-dropdown.open").forEach(d=>d.classList.remove("open"));
@@ -3252,6 +3281,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const st=e.target.closest("[data-start-task]");if(st){startTask(st.getAttribute("data-start-task"));return;}
       const sc=e.target.closest("[data-save-case]");if(sc){saveCase(sc.getAttribute("data-save-case"));return;}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}
+      /* Create follow-up task from AI suggestion */
+      if(e.target.closest("[data-create-followup-task]")){
+        const btn=e.target.closest("[data-create-followup-task]");
+        const fuCaseId=btn.getAttribute("data-create-followup-task");
+        const action=btn.getAttribute("data-fu-action");
+        const deadline=btn.getAttribute("data-fu-deadline");
+        const fuCase=S.cases.find(x=>x.id===fuCaseId);
+        try{
+          await fetch("/api/admin/tasks",{
+            method:"POST",credentials:"same-origin",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({case_id:fuCaseId,title:action,task_type:"followup",priority:"normal",due_date:deadline||null,related_stage:fuCase?fuCase.stage:null,description:"Auto-created from note follow-up"})
+          });
+          btn.closest(".followup-suggestion").innerHTML='<div style="color:#16a34a;font-weight:600;font-size:12px">\u2713 Follow-up task created'+(deadline?' \u2014 due '+esc(deadline):'')+'</div>';
+          await loadAll(true);
+          renderCaseList();
+        }catch(err){console.error("[VA] Follow-up task creation failed:",err);}
+        return;
+      }
+      /* Dismiss follow-up suggestion */
+      if(e.target.closest("[data-dismiss-followup]")){const div=e.target.closest(".followup-suggestion");if(div)div.remove();return;}
       const at=e.target.closest("[data-add-task]");if(at){const rc=S.cases.find(c=>c.id===S.selectedCaseId);if(rc)openAddTaskModal(rc.id);return;}
       const vt=e.target.closest("[data-view-ticket]");if(vt){openTicketModal(vt.getAttribute("data-view-ticket"),vt.getAttribute("data-email")||"");return;}
       const cn=e.target.closest("[data-case-nudge]");if(cn){openNudgeModal(cn.getAttribute("data-case-nudge"),cn.getAttribute("data-nudge-stage"),cn.getAttribute("data-nudge-substage"),cn.getAttribute("data-nudge-name"));return;}

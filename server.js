@@ -22051,6 +22051,53 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  /* ── AI Note Follow-up Parsing ── */
+  if (pathname === '/api/admin/va/note/parse-followup' && req.method === 'POST') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!ANTHROPIC_API_KEY) { sendJson(res, 200, { ok: true, followup: null }); return; }
+
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const text = body && typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) { sendJson(res, 200, { ok: true, followup: null }); return; }
+
+    if (!checkAnthropicBudget()) { sendJson(res, 200, { ok: true, followup: null, reason: 'budget_exceeded' }); return; }
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          temperature: 0,
+          system: 'You extract follow-up actions from case management notes. Today is ' + today + '. Return JSON only, no markdown. If no follow-up is needed, return {"followup":null}. If a follow-up exists, return {"followup":{"action":"<what to do>","deadline":"<YYYY-MM-DD>","condition":"<if any, else null>"}}. Interpret relative dates (e.g. "Monday" = next Monday, "Friday" = this Friday if today is before Friday, else next Friday).',
+          messages: [{ role: 'user', content: 'Note about GP ' + ((body.gp_name || '') || 'unknown') + ':\n\n' + text.substring(0, 1000) }]
+        }),
+        signal: AbortSignal.timeout(15000)
+      });
+
+      const data = await r.json();
+      const usage = data.usage || {};
+      recordAnthropicSpend(usage.input_tokens || 0, usage.output_tokens || 0);
+
+      const content = data.content && data.content[0] && data.content[0].text ? data.content[0].text : '';
+      let parsed;
+      try { parsed = JSON.parse(content); } catch { parsed = { followup: null }; }
+
+      sendJson(res, 200, { ok: true, followup: parsed.followup || null });
+    } catch (err) {
+      console.error('[AI] Note follow-up parse failed:', err.message);
+      sendJson(res, 200, { ok: true, followup: null });
+    }
+    return;
+  }
+
   // ── List tasks (with case/GP enrichment) ──
   if (pathname === '/api/admin/tasks' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
