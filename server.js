@@ -4779,6 +4779,14 @@ async function _createRegTask(caseId, data) {
   return task;
 }
 
+function inferStageFromDocKey(docKey) {
+  const docToStage = {
+    'sppa_00': 'ahpra', 'section_g': 'ahpra', 'position_description': 'ahpra',
+    'offer_contract': 'ahpra', 'supervisor_cv': 'ahpra'
+  };
+  return docToStage[docKey] || 'career';
+}
+
 async function _completeRegTask(taskId, caseId, actor) {
   if (!isSupabaseDbConfigured()) return;
   await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
@@ -14427,6 +14435,7 @@ async function createDocReviewTask(userId, documentKey, expectedLabel, confidenc
     priority: 'normal',
     status: 'open',
     source_trigger: 'doc_upload',
+    related_stage: inferStageFromDocKey(documentKey),
     related_document_key: documentKey,
     ai_match_confidence: confidence,
     ai_match_reasoning: aiResult.reason || '',
@@ -21997,6 +22006,12 @@ Return ONLY valid JSON with no markdown formatting:
     if (!adminCtx) return;
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     if (!body || !body.case_id || !body.title) { sendJson(res, 400, { ok: false, message: 'case_id and title required.' }); return; }
+    if (!body.related_stage && body.case_id) {
+      const caseRes = await supabaseDbRequest('registration_cases', '?id=eq.' + body.case_id + '&select=stage', { method: 'GET' });
+      if (caseRes.ok && Array.isArray(caseRes.data) && caseRes.data.length > 0) {
+        body.related_stage = caseRes.data[0].stage;
+      }
+    }
     const task = await _createRegTask(body.case_id, {
       task_type: body.task_type || 'manual',
       title: body.title,
