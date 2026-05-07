@@ -15641,9 +15641,11 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
-  // Gmail pipeline diagnostic — tests every step
-  if (req.method === 'GET' && pathname === '/api/admin/gmail-diagnostic') {
-    if (!requireAdminSession(req, res)) return;
+  // Gmail pipeline diagnostic — tests every step (admin session or cron secret)
+  if (req.method === 'GET' && pathname === '/api/cron/gmail-diagnostic') {
+    var gdCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var gdAuth = req.headers['authorization'] || '';
+    if (gdCronSecret && gdAuth !== 'Bearer ' + gdCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var diag = { steps: [] };
     try {
       // Step 1: Check env vars
