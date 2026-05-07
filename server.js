@@ -950,6 +950,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         var placedGPs = await getPlacedGPsForTriage();
         var triageResult = await triageEmailWithSonnet(emailMeta, placedGPs);
 
+        // AHPRA officer emails are always highest priority
+        if (emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au')) {
+          triageResult.urgency = 'urgent';
+          triageResult.ai_category = triageResult.category || 'ahpra_correspondence';
+          if (!triageResult.summary) triageResult.summary = 'Email from AHPRA officer regarding GP registration.';
+        }
+
         if (triageResult && triageResult._usage) {
           recordAnthropicSpend(
             triageResult._usage.input_tokens || 0,
