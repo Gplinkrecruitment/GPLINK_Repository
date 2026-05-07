@@ -484,6 +484,7 @@ function extractEmailMeta(gmailMessage) {
 
   return {
     messageId: gmailMessage.id,
+    threadId: gmailMessage.threadId || '',
     sender: sender,
     senderName: senderName,
     subject: getHeader('Subject'),
@@ -981,6 +982,9 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
               source_trigger: 'gmail_triage',
               related_stage: isAhpra ? 'ahpra' : (gpCase.stage || ''),
               gmail_message_id: currentMsgId,
+              email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
+              email_sender: emailMeta.sender || '',
+              gmail_thread_id: emailMeta.threadId || '',
               _actor: 'system'
             });
           }
