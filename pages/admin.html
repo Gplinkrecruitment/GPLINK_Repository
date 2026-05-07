@@ -649,6 +649,89 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     .mc-status-pill.placement_secured{background:#c7d2fe;color:#3730a3}
 .mc-list-filter{padding:6px 10px;border:1px solid var(--line,#e5e7eb);border-radius:6px;font-size:12px;font-weight:500;background:#fff;color:var(--text);cursor:pointer}
 .mc-list-filter:focus{outline:none;border-color:var(--blue,#2563eb)}
+
+/* ── Priority Lanes ── */
+.lane-label{display:flex;align-items:center;gap:6px;padding:6px 14px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.lane-label .lane-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.lane-label.needs-action .lane-dot{background:var(--red)}
+.lane-label.needs-action{color:var(--red)}
+.lane-label.on-track .lane-dot{background:var(--green)}
+.lane-label.on-track{color:var(--green)}
+.lane-divider{border-top:1px solid var(--line);margin:4px 14px}
+
+/* ── Profile Bar ── */
+.profile-bar{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--panel);border-radius:var(--radius);border:1px solid var(--line);margin-bottom:8px}
+.profile-bar .pb-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--purple-1));display:grid;place-items:center;color:#fff;font-size:13px;font-weight:800;flex-shrink:0}
+.profile-bar .pb-info{flex:1;min-width:0}
+.profile-bar .pb-name{font-size:14px;font-weight:800;letter-spacing:-.01em}
+.profile-bar .pb-meta{font-size:11px;color:var(--muted);font-weight:500;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.profile-bar .pb-pills{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.profile-bar .pb-pill{padding:3px 8px;border-radius:6px;font-size:10px;font-weight:800}
+.pb-expand-toggle{background:none;border:none;cursor:pointer;font-size:14px;color:var(--muted);padding:4px}
+.pb-expand-panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:8px;display:none}
+.pb-expand-panel.open{display:block}
+
+/* ── Journey Rail ── */
+.journey-rail{display:flex;align-items:center;gap:0;padding:8px 16px;background:var(--bg2);border-radius:var(--radius);border:1px solid var(--line);margin-bottom:8px;overflow-x:auto;flex-wrap:nowrap}
+.jr-step{display:flex;align-items:center;gap:0;flex-shrink:0}
+.jr-pill{padding:4px 10px;font-size:10px;font-weight:700;white-space:nowrap}
+.jr-pill.done{background:var(--green);color:#fff;border-radius:3px 0 0 3px}
+.jr-pill.current{background:var(--blue);color:#fff;font-weight:800;box-shadow:0 0 8px rgba(37,99,235,.3)}
+.jr-pill.pending{background:var(--bg3);color:var(--muted);border-radius:0 3px 3px 0}
+.jr-pill:first-child{border-radius:3px 0 0 3px}
+.jr-pill:last-child{border-radius:0 3px 3px 0}
+.jr-arrow{width:0;height:0;border-top:12px solid transparent;border-bottom:12px solid transparent;margin-right:-1px;flex-shrink:0}
+.jr-arrow.done{border-left:8px solid var(--green)}
+.jr-arrow.current{border-left:8px solid var(--blue)}
+.jr-arrow.pending{border-left:8px solid var(--bg3)}
+
+/* ── Stage Groups ── */
+.stage-group{margin-bottom:16px}
+.stage-group-header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.sg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.sg-dot.active{background:var(--blue)}
+.sg-dot.locked{background:var(--bg3)}
+.sg-label{font-size:13px;font-weight:700}
+.sg-label.active{color:var(--text)}
+.sg-label.locked{color:var(--muted)}
+.sg-count{font-size:11px;color:var(--muted);font-weight:500}
+.sg-lock-badge{font-size:10px;color:var(--muted);background:var(--bg2);padding:2px 8px;border-radius:4px;margin-left:auto}
+.stage-group.locked .stage-task{opacity:.35;pointer-events:none}
+
+/* ── Guided Task Card ── */
+.stage-task{background:var(--panel);border-radius:var(--radius);border:1px solid var(--line);padding:12px;margin-bottom:6px;transition:border-color .15s}
+.stage-task:hover{border-color:#cbd5e1}
+.stage-task.active-next{border-left:3px solid var(--blue)}
+.stage-task .st-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.stage-task .st-body{flex:1;min-width:0}
+.stage-task .st-title{font-size:13px;font-weight:700}
+.stage-task .st-title .urgent-badge{background:#fef2f2;color:var(--red);font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:6px}
+.stage-task .st-title .overdue-badge{background:#fffbeb;color:var(--amber);font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:6px}
+.stage-task .st-guide{font-size:11px;color:var(--blue);margin-top:4px;background:#eff6ff;display:inline-block;padding:2px 8px;border-radius:4px;font-weight:600}
+.stage-task .st-doc-info{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px}
+.stage-task .st-doc-chip{background:var(--bg2);border-radius:4px;padding:2px 8px;color:var(--muted);font-weight:500}
+.stage-task .st-actions{display:flex;gap:4px;flex-shrink:0;margin-left:8px}
+.stage-task .st-primary-btn{padding:5px 14px;border-radius:8px;font-size:11px;font-weight:700;background:var(--blue);color:#fff;border:none;cursor:pointer;font-family:inherit}
+.stage-task .st-primary-btn:hover{background:#1d4ed8}
+.stage-task .st-more-btn{padding:5px 8px;border-radius:8px;font-size:12px;font-weight:700;background:var(--bg3);color:var(--muted);border:none;cursor:pointer;font-family:inherit;position:relative}
+.stage-task .st-more-btn:hover{background:#cbd5e1}
+.stage-task .st-waiting{font-size:11px;color:var(--amber);margin-top:4px;font-weight:600}
+
+/* ── Dropdown Menu ── */
+.st-dropdown{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:200px;z-index:50;padding:4px 0;display:none}
+.st-dropdown.open{display:block}
+.st-dropdown-item{display:block;width:100%;text-align:left;padding:7px 12px;border:none;background:none;font-size:12px;font-weight:500;color:var(--text);cursor:pointer;font-family:inherit}
+.st-dropdown-item:hover{background:var(--bg2)}
+.st-dropdown-sep{border-top:1px solid var(--line);margin:3px 0}
+
+/* ── GP Sub-Tabs (Tasks | Notes) ── */
+.gp-subtabs{display:flex;gap:0;border-bottom:1px solid var(--line);margin-bottom:12px}
+.gp-subtab{padding:8px 16px;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.gp-subtab.active{color:var(--blue);border-bottom-color:var(--blue)}
+.gp-subtab:hover{color:var(--text)}
+.gp-subtab .subtab-count{background:var(--bg3);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px}
+.gp-subtab.active .subtab-count{background:var(--blue);color:#fff}
+
   </style>
 </head>
 <body>
@@ -678,11 +761,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     </div>
   </div>
   <div class="view-tabs">
-    <div class="view-tab active" data-view="inbox">Inbox</div>
-    <div class="view-tab" data-view="gps">GPs</div>
+    <div class="view-tab active" data-view="gps">GPs</div>
     <div class="view-tab" data-view="medicalcentres">Medical Centres</div>
     <div class="view-tab" data-view="support">Support</div>
-    <div class="view-tab" data-view="tools">Tools</div>
+    <div class="view-tab" data-view="tools">Ops Queue</div>
   </div>
   <div class="layout" id="mainLayout">
     <div class="list-panel">
@@ -862,7 +944,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 (function(){
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
-    selectedCaseId:null,view:"inbox",filter:"all",query:"",expanded:{},refreshTimer:null,
+    selectedCaseId:null,view:"gps",filter:"all",query:"",expanded:{},refreshTimer:null,
     mc:{centres:[],allData:[],loading:false,selectedCentre:null,subView:"overview",listView:"open",listFilters:{status:"all",billing:"",location:""}},
     opsTasks:[],opsExpandedId:null,opsLoading:false,
     toolsSubView:"ops",gpsProfileTab:"tasks",
@@ -1293,7 +1375,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     await Promise.all(jobs);
     S.loading=false;
     renderAll();
-    if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();}
+    if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();}
+    else if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();}
     else if(S.view==="tickets"){vaShowPanel("tickets");await loadVaTickets();/*TASK4 renderTicketsPanel()*/}
     if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
   }
@@ -2812,6 +2895,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(!S.va.dashboard)await loadVaDashboard();
         renderInboxPanel();
       }else if(view==="gps"){
+        if(!S.va.dashboard)await loadVaDashboard();
         renderCaseList();renderDetail();
       }else if(view==="medicalcentres"){
         await loadMedicalCentres();
