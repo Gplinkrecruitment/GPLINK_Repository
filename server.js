@@ -1015,6 +1015,58 @@ async function setupGmailWatch(userEmail) {
   }
 }
 
+async function searchGmailForGP(gpEmail, gpName, practiceEmail, daysBack) {
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) return [];
+  daysBack = daysBack || 7;
+  const vaEmail = process.env.VA_GMAIL_ADDRESS || process.env.GOOGLE_SERVICE_ACCOUNT_DELEGATED_EMAIL || '';
+  if (!vaEmail) return [];
+
+  try {
+    const gmail = await getGmailClient(vaEmail);
+    const afterDate = new Date(Date.now() - daysBack * 86400000);
+    const afterStr = afterDate.toISOString().split('T')[0].replace(/-/g, '/');
+
+    const queryParts = [];
+    if (gpEmail) queryParts.push('from:' + gpEmail, 'to:' + gpEmail);
+    if (practiceEmail) queryParts.push('from:' + practiceEmail, 'to:' + practiceEmail);
+    if (!queryParts.length && gpName) queryParts.push('"' + gpName + '"');
+    if (!queryParts.length) return [];
+
+    const query = '{' + queryParts.join(' ') + '} after:' + afterStr;
+    const listRes = await gmail.users.messages.list({
+      userId: vaEmail,
+      q: query,
+      maxResults: 20
+    });
+
+    if (!listRes.data || !listRes.data.messages || !listRes.data.messages.length) return [];
+
+    const results = [];
+    for (const msg of listRes.data.messages.slice(0, 10)) {
+      try {
+        const full = await gmail.users.messages.get({
+          userId: vaEmail,
+          id: msg.id,
+          format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date']
+        });
+        const headers = full.data.payload && full.data.payload.headers ? full.data.payload.headers : [];
+        results.push({
+          subject: (headers.find(h => h.name === 'Subject') || {}).value || '',
+          from: (headers.find(h => h.name === 'From') || {}).value || '',
+          to: (headers.find(h => h.name === 'To') || {}).value || '',
+          date: (headers.find(h => h.name === 'Date') || {}).value || '',
+          snippet: full.data.snippet || ''
+        });
+      } catch (e) { /* skip individual message errors */ }
+    }
+    return results;
+  } catch (err) {
+    console.error('[Gmail] searchGmailForGP failed:', err.message);
+    return [];
+  }
+}
+
 function validateRuntimeConfig() {
   if (NODE_ENV !== 'production') return;
 
@@ -2835,6 +2887,44 @@ async function handleDoubleTickWebhook(req, res) {
   }
 
   const { messageBody, fromPhone, contactName, conversationUrl, messageId } = payload;
+
+  // Store message for reconciliation
+  if (isSupabaseDbConfigured()) {
+    const phoneClean = fromPhone.replace(/[^0-9]/g, '');
+    let dtCaseId = null;
+    let dtUserId = null;
+
+    // Try to match phone to a user profile
+    if (phoneClean.length >= 9) {
+      const userLookup = await supabaseDbRequest('user_profiles',
+        '?phone=ilike.*' + phoneClean.slice(-9) + '&select=id,user_id',
+        { method: 'GET' });
+      if (userLookup.ok && Array.isArray(userLookup.data) && userLookup.data.length > 0) {
+        dtUserId = userLookup.data[0].user_id;
+        const caseLookup = await supabaseDbRequest('registration_cases',
+          '?user_id=eq.' + dtUserId + '&select=id',
+          { method: 'GET' });
+        if (caseLookup.ok && Array.isArray(caseLookup.data) && caseLookup.data.length > 0) {
+          dtCaseId = caseLookup.data[0].id;
+        }
+      }
+    }
+
+    await supabaseDbRequest('doubletick_messages', '', {
+      method: 'POST',
+      body: [{
+        case_id: dtCaseId,
+        user_id: dtUserId,
+        from_phone: fromPhone,
+        contact_name: contactName || null,
+        message_body: (messageBody || '').substring(0, 2000),
+        message_type: (body.message && body.message.type) || 'TEXT',
+        direction: 'inbound',
+        doubletick_message_id: messageId || null,
+        conversation_url: conversationUrl || null
+      }]
+    }).catch(err => console.error('[DT] Message storage failed:', err.message));
+  }
 
   // Use AI to determine if the message is a question or help request
   const isHelpRequest = await classifyDoubleTickMessage(messageBody, fromPhone);
