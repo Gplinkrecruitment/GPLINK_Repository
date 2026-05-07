@@ -3228,8 +3228,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         e.preventDefault();
         const name=e.target.closest("[data-navigate-practice]").getAttribute("data-navigate-practice");
         if(name){
-          // Switch to Medical Centres tab and find the matching centre
-          document.querySelector('[data-tab="medCentres"]').click();
+          // Switch to Medical Centres tab
+          const mcTab=document.querySelector('[data-view="medicalcentres"]');
+          if(mcTab)mcTab.click();
           await loadMedicalCentres("list");
           const centre=S.mc.centres.find(c=>(c.practice_name||"").toLowerCase()===name.toLowerCase());
           if(centre){S.mc.selectedCentre=centre;S.mc.subView="overview";renderMedicalCentresPanel();}
