@@ -1235,6 +1235,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function fmtDT(d){if(!d)return"\u2014";try{return new Date(d).toLocaleString("en-AU",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"});}catch{return"\u2014";}}
   function fmtR(d){if(!d)return"never";const ms=Date.now()-new Date(d).getTime();if(ms<60000)return"just now";if(ms<3600000)return Math.floor(ms/60000)+"m ago";if(ms<86400000)return Math.floor(ms/3600000)+"h ago";return Math.floor(ms/86400000)+"d ago";}
   function daysAgo(d){if(!d)return 999;return Math.floor((Date.now()-new Date(d).getTime())/86400000);}
+  function isSameDay(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
   function shortTask(text,max){text=String(text||"").trim();return text.length>(max||110)?text.slice(0,(max||110)-1)+"\u2026":text;}
   function agentStatusClass(status){status=String(status||"").toLowerCase();if(status==="completed"||status==="connected"||status==="ready")return"ok";if(status==="running"||status==="starting"||status==="launching"||status==="cancelling")return"warn";return"err";}
   function prettyRole(role){return String(role||"").replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase());}
@@ -1716,42 +1717,69 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("filterBar").innerHTML=filters.map(f=>`<button class="filter-btn ${f.k===S.filter?"active":""}" data-filter="${f.k}">${esc(f.l)}<span class="fc">${f.c}</span></button>`).join("");
   }
 
+  function renderCaseCard(m,showUrgencyDetail){
+    const rc=m.rc;const gp=m.gp;
+    const id=rc?rc.id:(gp?gp.userId||gp.email:"");
+    const sel=S.selectedCaseId===id;
+    const name=rc?rc.gp_name:gp?gp.name||gp.email:"Unknown";
+    const stage=rc?rc.stage:"";
+    const openT=rc?rc.open_tasks||0:0;
+    const urgentT=rc?rc.urgent_tasks||0:0;
+    const overdueT=rc?rc.overdue_tasks||0:0;
+    const hasDueToday=(S.tasks||[]).some(t=>t.case_id===(rc?rc.id:"")&&t.due_date&&isSameDay(new Date(t.due_date),new Date())&&t.status!=='completed');
+
+    let urgencyHtml='';
+    if(showUrgencyDetail){
+      if(urgentT)urgencyHtml+='<span class="task-badge urgent">'+urgentT+' urgent</span>';
+      if(overdueT)urgencyHtml+='<span class="task-badge overdue">overdue</span>';
+      if(hasDueToday&&!urgentT&&!overdueT)urgencyHtml+='<span class="task-badge open">due today</span>';
+    }
+
+    return '<div class="case-card '+(sel?"selected":"")+'" data-case-id="'+esc(id)+'" data-user-id="'+esc(rc?rc.user_id:gp?gp.userId:"")+'" data-rc-id="'+esc(rc?rc.id:"")+'">'+
+      '<div class="case-card-top">'+
+        '<div class="case-avatar">'+esc(ini(name))+'</div>'+
+        '<div class="case-card-info">'+
+          '<div class="case-card-name">'+esc(name)+'</div>'+
+          '<div class="case-card-sub">'+(stage?'<span class="case-stage-pill stage-'+esc(stage)+'">'+esc(stage)+'</span>':'')+' '+esc(String(openT))+' task'+(openT===1?'':'s')+'</div>'+
+        '</div>'+
+      '</div>'+
+      (urgencyHtml?'<div class="case-card-tasks">'+urgencyHtml+'</div>':'')+
+    '</div>';
+  }
+
   function renderCaseList(){
     const el=document.getElementById("caseList");
     if(S.view==="queue"){renderQueueList();return;}
     if(S.view==="agent"){renderAgentRunList();return;}
     const list=filteredCases();
-    if(!list.length){el.innerHTML=`<div class="empty">${S.cases.length||S.dashboard?"No cases match filter.":"Loading..."}</div>`;return;}
-    el.innerHTML=list.map(m=>{
-      const rc=m.rc;const gp=m.gp;
-      const id=rc?rc.id:(gp?gp.userId||gp.email:"");
-      const sel=S.selectedCaseId===id;
-      const name=rc?rc.gp_name:gp?gp.name||gp.email:"Unknown";
-      const stage=rc?rc.stage:gp?"no_case":"";
-      const email=rc?rc.gp_email:gp?gp.email:"";
-      const lastActive=gp?fmtR(gp.lastActiveAt):rc?fmtR(rc.last_gp_activity_at):"";
-      const openT=rc?rc.open_tasks||0:0;
-      const urgentT=rc?rc.urgent_tasks||0:0;
-      const overdueT=rc?rc.overdue_tasks||0:0;
-      const journey=gp?buildJourney(gp):[];
-      const dots=journey.length?journey.map(s=>`<span class="jdot-sm ${s.status}"></span>`).join(""):"";
-      return`<div class="case-card ${sel?"selected":""}" data-case-id="${esc(id)}" data-user-id="${esc(rc?rc.user_id:gp?gp.userId:"")}" data-rc-id="${esc(rc?rc.id:"")}">
-        <div class="case-card-top">
-          <div class="case-avatar">${esc(ini(name))}</div>
-          <div class="case-card-info">
-            <div class="case-card-name">${esc(name)}</div>
-            <div class="case-card-sub">${esc(lastActive)} ${stage?`\u2022 <span class="case-stage-pill stage-${esc(stage)}">${esc(stage)}</span>`:""}</div>
-          </div>
-        </div>
-        ${dots?`<div class="case-card-vis">${dots}</div>`:""}
-        <div class="case-card-tasks">
-          ${urgentT?`<span class="task-badge urgent">${urgentT} urgent</span>`:""}
-          ${openT?`<span class="task-badge open">${openT} open</span>`:""}
-          ${overdueT?`<span class="task-badge overdue">${overdueT} overdue</span>`:""}
-          ${rc&&rc.blocker_status?`<span class="task-badge overdue">${esc(rc.blocker_status.replace(/_/g," "))}</span>`:""}
-        </div>
-      </div>`;
-    }).join("");
+    if(!list.length){el.innerHTML='<div class="empty">'+(S.cases.length||S.dashboard?"No cases match filter.":"Loading...")+'</div>';return;}
+
+    /* Split into priority lanes */
+    const needsAction=[];
+    const onTrack=[];
+    list.forEach(m=>{
+      const rc=m.rc;
+      if(!rc){onTrack.push(m);return;}
+      const hasUrgent=rc.urgent_tasks>0;
+      const hasOverdue=rc.overdue_tasks>0;
+      const hasDueToday=(S.tasks||[]).some(t=>t.case_id===rc.id&&t.due_date&&isSameDay(new Date(t.due_date),new Date())&&t.status!=='completed');
+      if(hasUrgent||hasOverdue||hasDueToday){needsAction.push(m);}
+      else{onTrack.push(m);}
+    });
+
+    let html='';
+    if(needsAction.length){
+      html+='<div class="lane-label needs-action"><span class="lane-dot"></span>Needs Action <span style="margin-left:auto;font-size:11px;opacity:.7">'+needsAction.length+'</span></div>';
+      html+=needsAction.map(m=>renderCaseCard(m,true)).join("");
+    }
+    if(needsAction.length&&onTrack.length){
+      html+='<div class="lane-divider"></div>';
+    }
+    if(onTrack.length){
+      html+='<div class="lane-label on-track"><span class="lane-dot"></span>On Track <span style="margin-left:auto;font-size:11px;opacity:.7">'+onTrack.length+'</span></div>';
+      html+=onTrack.map(m=>renderCaseCard(m,false)).join("");
+    }
+    el.innerHTML=html;
   }
 
   function renderQueueList(){
