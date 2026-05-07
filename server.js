@@ -15615,19 +15615,17 @@ async function handleApi(req, res, pathname) {
 
   // Gmail Pub/Sub webhook — external origin, must be before same-origin enforcement
   if (req.method === 'POST' && pathname === '/api/webhooks/gmail') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end('{"ok":true}');
-    // Process in background
+    // Process synchronously before responding — Vercel kills the function after res.end()
     try {
       var gmailBody = await readJsonBody(req);
       var pubsubData = parseGmailPubSubMessage(gmailBody);
       if (pubsubData && pubsubData.emailAddress) {
-        processGmailNotification(pubsubData.emailAddress, pubsubData.historyId)
-          .catch(function (err) { console.error('[Gmail webhook] background processing error:', err.message); });
+        await processGmailNotification(pubsubData.emailAddress, pubsubData.historyId);
       }
     } catch (whErr) {
-      console.error('[Gmail webhook] parse error:', whErr.message);
+      console.error('[Gmail webhook] processing error:', whErr.message);
     }
+    sendJson(res, 200, { ok: true });
     return;
   }
 
