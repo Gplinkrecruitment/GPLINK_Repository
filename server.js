@@ -22526,6 +22526,140 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Email triage: suggest reply via AI ──
+  if (pathname === '/api/admin/email-triage/suggest-reply' && req.method === 'POST') {
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var body;
+    try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+    var taskId = String(body.taskId || '').trim();
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'taskId required.' }); return; }
+
+    try {
+      // 1. Load task
+      var taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+      var task = taskRes.ok && Array.isArray(taskRes.data) && taskRes.data[0] ? taskRes.data[0] : null;
+      if (!task) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+
+      // 2. Load registration case
+      var caseRes = await supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      var regCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : {};
+
+      // 3. Load GP profile
+      var profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone,country_dial,phone_number,registration_country&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+      var profile = profRes.ok && Array.isArray(profRes.data) && profRes.data[0] ? profRes.data[0] : {};
+      var gpName = ((profile.first_name || '') + ' ' + (profile.last_name || '')).trim() || profile.email || 'Unknown';
+      var gpPhone = profile.phone || [profile.country_dial, profile.phone_number].filter(Boolean).join(' ').trim() || '';
+
+      // 4. Load open tasks for this case
+      var tasksRes2 = await supabaseDbRequest('registration_tasks', 'select=title,priority,related_stage,status&case_id=eq.' + encodeURIComponent(task.case_id) + '&status=neq.completed&status=neq.cancelled&limit=20');
+      var openTasks = tasksRes2.ok && Array.isArray(tasksRes2.data) ? tasksRes2.data : [];
+
+      // 5. Load qualification snapshot
+      var countryCode = profile.registration_country || 'GB';
+      var qualSnap = await getUserQualificationSnapshot(regCase.user_id, countryCode);
+
+      // 6. Fetch DoubleTick messages (best-effort)
+      var dtMessages = [];
+      if (DOUBLETICK_API_KEY && gpPhone) {
+        try {
+          var dtPhone = normalizePhone(gpPhone).replace(/[^\d]/g, '');
+          var wabaNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+          if (dtPhone && wabaNumber) {
+            var dtResp = await fetch(DOUBLETICK_BASE_URL + '/chat-messages?wabaNumber=' + wabaNumber + '&customerNumber=' + dtPhone, {
+              headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' }
+            });
+            if (dtResp.ok) {
+              var dtData = await dtResp.json();
+              dtMessages = Array.isArray(dtData.messages) ? dtData.messages.slice(0, 10).map(function (m) {
+                return { from: m.senderUser ? m.senderUser.name : (m.senderId || 'unknown'), text: m.text || m.content || '', date: m.timestamp ? new Date(m.timestamp).toISOString() : '' };
+              }) : [];
+            }
+          }
+        } catch (dtErr) { console.warn('[suggest-reply] DoubleTick fetch failed:', dtErr.message); }
+      }
+
+      // 7. Fetch Gmail thread (best-effort)
+      var emailThread = [];
+      if (task.gmail_thread_id) {
+        try {
+          var gmail = await getGmailClient('hazel@mygplink.com.au');
+          if (gmail) {
+            var threadRes = await gmail.users.threads.get({ userId: 'hazel@mygplink.com.au', id: task.gmail_thread_id, format: 'metadata', metadataHeaders: ['From', 'To', 'Subject', 'Date'] });
+            if (threadRes.data && Array.isArray(threadRes.data.messages)) {
+              emailThread = threadRes.data.messages.map(function (m) {
+                var hdrs = {};
+                if (m.payload && Array.isArray(m.payload.headers)) m.payload.headers.forEach(function (h) { hdrs[h.name] = h.value; });
+                return { from: hdrs.From || '', to: hdrs.To || '', subject: hdrs.Subject || '', date: hdrs.Date || '', snippet: m.snippet || '' };
+              });
+            }
+          }
+        } catch (gmErr) { console.warn('[suggest-reply] Gmail thread fetch failed:', gmErr.message); }
+      }
+
+      // 8. Build context and call Claude
+      var contextJson = JSON.stringify({
+        gp: { name: gpName, email: profile.email, phone: gpPhone, country: countryCode },
+        registration: { stage: regCase.stage, substage: regCase.substage, blocker: regCase.blocker_status, practice: regCase.practice_name || '' },
+        open_tasks: openTasks.map(function (t) { return t.title + ' (' + t.priority + ', ' + t.related_stage + ')'; }),
+        qualifications: { required: qualSnap.required.length, approved: qualSnap.approved.length, missing: qualSnap.missing.map(function (m) { return m.label || m.key; }) },
+        whatsapp_recent: dtMessages,
+        email_thread: emailThread,
+        current_email: { from: task.email_sender, subject: task.title, body: task.email_body_snippet || task.description }
+      }, null, 2);
+
+      var systemPrompt = 'You are drafting an email reply for Hazel, a Virtual Assistant at GP Link who helps international GPs register to practice in Australia. Write a professional, helpful reply. Use the GP context provided to give accurate, specific information. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows. Return ONLY the email reply text, no subject line or metadata.';
+
+      var apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) { sendJson(res, 503, { ok: false, message: 'AI not configured.' }); return; }
+
+      var controller = new AbortController();
+      var aiTimeout = setTimeout(function () { controller.abort(); }, 30000);
+      try {
+        var aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST', signal: controller.signal,
+          headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 1000,
+            system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+            messages: [{ role: 'user', content: 'GP CONTEXT:\n' + contextJson + '\n\nDraft a reply to the latest email in the thread.' }]
+          })
+        });
+        clearTimeout(aiTimeout);
+        if (!aiResp.ok) { sendJson(res, 502, { ok: false, message: 'AI request failed.' }); return; }
+        var aiData = await aiResp.json();
+        var suggestedReply = (aiData.content && aiData.content[0] && aiData.content[0].text) || '';
+
+        if (aiData.usage) {
+          recordAnthropicSpend(aiData.usage.input_tokens || 0, aiData.usage.output_tokens || 0, aiData.usage.cache_read_input_tokens || 0, aiData.usage.cache_creation_input_tokens || 0);
+        }
+
+        sendJson(res, 200, {
+          ok: true,
+          suggestedReply: suggestedReply,
+          context: {
+            gp_name: gpName,
+            stage: regCase.stage,
+            practice: regCase.practice_name || '',
+            open_tasks: openTasks.length,
+            quals_approved: qualSnap.approved.length,
+            quals_required: qualSnap.required.length,
+            whatsapp_messages: dtMessages.length,
+            email_thread_length: emailThread.length
+          }
+        });
+      } catch (aiErr) {
+        clearTimeout(aiTimeout);
+        sendJson(res, 502, { ok: false, message: 'AI timeout or error: ' + aiErr.message });
+      }
+    } catch (err) {
+      console.error('[suggest-reply] Error:', err.message);
+      sendJson(res, 500, { ok: false, message: 'Internal error.' });
+    }
+    return;
+  }
+
   // ── Sync: bulk create cases for all GPs ──
   if (pathname === '/api/admin/cases/sync' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
