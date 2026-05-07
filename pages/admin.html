@@ -666,6 +666,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .profile-bar .pb-info{flex:1;min-width:0}
 .profile-bar .pb-name{font-size:14px;font-weight:800;letter-spacing:-.01em}
 .profile-bar .pb-meta{font-size:11px;color:var(--muted);font-weight:500;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pb-practice-link{color:var(--blue,#2563eb);text-decoration:none;font-weight:600;cursor:pointer}
+.pb-practice-link:hover{text-decoration:underline}
 .profile-bar .pb-pills{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .profile-bar .pb-pill{padding:3px 8px;border-radius:6px;font-size:10px;font-weight:800}
 .pb-expand-toggle{background:none;border:none;cursor:pointer;font-size:14px;color:var(--muted);padding:4px}
@@ -2165,12 +2167,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const dtUrl=u.doubletick_conversation_url||u.whatsapp_link||"";
       const hasDt=dtUrl.indexOf("doubletick.io/conversations/")>-1;
 
+      const practiceName=u.practice_name||(u.practice_contact&&u.practice_contact.practiceName)||c.practice_name||"";
       const profileBarHtml=`
         <div class="profile-bar">
           <div class="pb-avatar">${esc(ini(gpName))}</div>
           <div class="pb-info">
             <div class="pb-name">${esc(gpName)}</div>
-            <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}</div>
+            <div class="pb-meta">${esc(gpEmail)}${gpPhone?' \u2022 '+esc(gpPhone):''}${gpCountry?' \u2022 '+esc(gpCountry):''}${practiceName?' \u2022 <a class="pb-practice-link" data-navigate-practice="'+esc(practiceName)+'" href="#">'+esc(practiceName)+'</a>':''}</div>
           </div>
           <div class="pb-pills">
             <span class="pb-pill case-stage-pill stage-${esc(c.stage||'')}">${esc(c.stage||'')}</span>
@@ -3217,6 +3220,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(dd){
           document.querySelectorAll(".st-dropdown.open").forEach(d=>{if(d!==dd)d.classList.remove("open");});
           dd.classList.toggle("open");
+        }
+        return;
+      }
+      /* Navigate to practice in Medical Centres tab */
+      if(e.target.closest("[data-navigate-practice]")){
+        e.preventDefault();
+        const name=e.target.closest("[data-navigate-practice]").getAttribute("data-navigate-practice");
+        if(name){
+          // Switch to Medical Centres tab and find the matching centre
+          document.querySelector('[data-tab="medCentres"]').click();
+          await loadMedicalCentres("list");
+          const centre=S.mc.centres.find(c=>(c.practice_name||"").toLowerCase()===name.toLowerCase());
+          if(centre){S.mc.selectedCentre=centre;S.mc.subView="overview";renderMedicalCentresPanel();}
         }
         return;
       }
