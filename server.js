@@ -593,38 +593,71 @@ async function getOpenPracticePackTasks() {
  * Shape: { user_id, gp_name, practice_name, contact_emails: [string] }
  */
 async function getPlacedGPsForTriage() {
-  var statesRes = await supabaseDbRequest('user_state',
-    'select=user_id,state&key=eq.gp_career_state');
-  if (!statesRes.ok || !Array.isArray(statesRes.data)) return [];
   var adminIds = await getAdminUserIdSet();
   var placed = [];
-  for (var row of statesRes.data) {
-    if (adminIds.has(row.user_id)) continue;
-    var state = row.state;
-    if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = {}; } }
-    if (!state) continue;
-    var placement = null;
-    if (state.career_secured) placement = state.placement || state;
-    else if (Array.isArray(state.applications)) {
-      var app = state.applications.find(function (a) { return a && a.isPlacementSecured; });
-      if (app) placement = app;
+  var seenUserIds = new Set();
+
+  // Source 1: user_state career state (localStorage-synced placements)
+  var statesRes = await supabaseDbRequest('user_state',
+    'select=user_id,state&key=eq.gp_career_state');
+  if (statesRes.ok && Array.isArray(statesRes.data)) {
+    for (var row of statesRes.data) {
+      if (adminIds.has(row.user_id)) continue;
+      var state = row.state;
+      if (typeof state === 'string') { try { state = JSON.parse(state); } catch (e) { state = {}; } }
+      if (!state) continue;
+      var placement = null;
+      if (state.career_secured) placement = state.placement || state;
+      else if (Array.isArray(state.applications)) {
+        var app = state.applications.find(function (a) { return a && a.isPlacementSecured; });
+        if (app) placement = app;
+      }
+      if (!placement) continue;
+
+      var profRes = await supabaseDbRequest('user_profiles',
+        'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(row.user_id) + '&limit=1');
+      var prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+      var contactEmails = [];
+      if (placement.practiceContact && placement.practiceContact.email) contactEmails.push(placement.practiceContact.email);
+      if (prof.email) contactEmails.push(prof.email);
+
+      placed.push({
+        user_id: row.user_id,
+        gp_name: ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim(),
+        practice_name: placement.practiceName || placement.practice_name || '',
+        contact_emails: contactEmails
+      });
+      seenUserIds.add(row.user_id);
     }
-    if (!placement) continue;
-
-    var profRes = await supabaseDbRequest('user_profiles',
-      'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(row.user_id) + '&limit=1');
-    var prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
-    var contactEmails = [];
-    if (placement.practiceContact && placement.practiceContact.email) contactEmails.push(placement.practiceContact.email);
-    if (prof.email) contactEmails.push(prof.email);
-
-    placed.push({
-      user_id: row.user_id,
-      gp_name: ('Dr ' + (prof.first_name || '') + ' ' + (prof.last_name || '')).trim(),
-      practice_name: placement.practiceName || placement.practice_name || '',
-      contact_emails: contactEmails
-    });
   }
+
+  // Source 2: gp_applications with hired status (Zoho-synced placements)
+  var hiredRes = await supabaseDbRequest('gp_applications',
+    'select=user_id,career_role_id,practice_contact_name,practice_contact_email,status&status=eq.hired&limit=200');
+  if (hiredRes.ok && Array.isArray(hiredRes.data)) {
+    for (var ha of hiredRes.data) {
+      if (!ha.user_id || seenUserIds.has(ha.user_id) || adminIds.has(ha.user_id)) continue;
+      var profRes2 = await supabaseDbRequest('user_profiles',
+        'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(ha.user_id) + '&limit=1');
+      var prof2 = (profRes2.ok && profRes2.data && profRes2.data[0]) ? profRes2.data[0] : {};
+      var roleRes = ha.career_role_id
+        ? await supabaseDbRequest('career_roles', 'select=practice_name&id=eq.' + encodeURIComponent(ha.career_role_id) + '&limit=1')
+        : { ok: false };
+      var role = (roleRes.ok && roleRes.data && roleRes.data[0]) ? roleRes.data[0] : {};
+      var emails2 = [];
+      if (ha.practice_contact_email) emails2.push(ha.practice_contact_email);
+      if (prof2.email) emails2.push(prof2.email);
+
+      placed.push({
+        user_id: ha.user_id,
+        gp_name: ('Dr ' + (prof2.first_name || '') + ' ' + (prof2.last_name || '')).trim(),
+        practice_name: role.practice_name || '',
+        contact_emails: emails2
+      });
+      seenUserIds.add(ha.user_id);
+    }
+  }
+
   return placed;
 }
 
@@ -748,8 +781,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
             email_address: emailAddress,
             sender: emailMeta.sender,
             subject: emailMeta.subject,
-            status: 'filtered',
-            filter_reason: filterResult.reason,
+            result: 'filtered',
+            ai_summary: filterResult.reason || '',
             processed_at: new Date().toISOString()
           }]
         });
@@ -770,8 +803,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
             email_address: emailAddress,
             sender: emailMeta.sender,
             subject: emailMeta.subject,
-            status: 'filtered',
-            filter_reason: 'ai_not_relevant',
+            result: 'filtered',
             ai_summary: aiResult.summary || '',
             processed_at: new Date().toISOString()
           }]
@@ -866,9 +898,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         email_address: emailAddress,
         sender: emailMeta.sender,
         subject: emailMeta.subject,
-        status: hasMatch ? 'matched' : 'unmatched',
+        result: hasMatch ? 'matched' : 'unmatched',
         ai_summary: aiResult.summary || '',
-        ai_matches: JSON.stringify(matches),
         processed_at: new Date().toISOString()
       };
 
@@ -908,8 +939,8 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
               email_address: emailAddress,
               sender: emailMeta.sender,
               subject: emailMeta.subject,
-              status: 'filtered',
-              filter_reason: 'budget_exceeded',
+              result: 'filtered',
+              ai_summary: 'budget_exceeded',
               processed_at: new Date().toISOString()
             }]
           });
@@ -929,23 +960,24 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         }
 
         // Insert into incoming_email_todos
-        await supabaseDbRequest('incoming_email_todos', '', {
+        var todoInsert = await supabaseDbRequest('incoming_email_todos', '', {
           method: 'POST',
           body: [{
             gmail_message_id: currentMsgId,
-            email_address: emailAddress,
-            sender: emailMeta.sender,
+            sender_email: emailMeta.sender || '',
             subject: emailMeta.subject,
-            body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
             matched_user_id: triageResult.matched_gp_user_id || null,
-            confidence: triageResult.confidence || 0,
-            category: triageResult.category || 'other',
-            urgency: triageResult.urgency || 'low',
-            summary: triageResult.summary || '',
+            ai_confidence: triageResult.confidence || 0,
+            ai_category: triageResult.category || 'other',
+            ai_urgency: triageResult.urgency || 'low',
+            ai_summary: triageResult.summary || '',
             needs_triage: triageResult.needs_triage !== false,
             created_at: new Date().toISOString()
           }]
         });
+        if (!todoInsert.ok) {
+          console.error('[Gmail] Failed to insert incoming_email_todo for', currentMsgId, ':', todoInsert.data && todoInsert.data.message);
+        }
 
         // Record in processed_gmail_messages
         await supabaseDbRequest('processed_gmail_messages', '', {
@@ -955,7 +987,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
             email_address: emailAddress,
             sender: emailMeta.sender,
             subject: emailMeta.subject,
-            status: 'triaged',
+            result: 'matched',
             ai_summary: triageResult.summary || '',
             processed_at: new Date().toISOString()
           }]
