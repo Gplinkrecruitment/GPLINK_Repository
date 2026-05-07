@@ -679,6 +679,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .jr-pill.done{background:var(--green);color:#fff;border-radius:3px 0 0 3px}
 .jr-pill.current{background:var(--blue);color:#fff;font-weight:800;box-shadow:0 0 8px rgba(37,99,235,.3)}
 .jr-pill.pending{background:var(--bg3);color:var(--muted);border-radius:0 3px 3px 0}
+.jr-pill.locked{background:var(--bg3);color:var(--muted);opacity:.5;border-radius:0 3px 3px 0}
 .jr-pill:first-child{border-radius:3px 0 0 3px}
 .jr-pill:last-child{border-radius:0 3px 3px 0}
 .jr-arrow{width:0;height:0;border-top:12px solid transparent;border-bottom:12px solid transparent;margin-right:-1px;flex-shrink:0}
@@ -958,19 +959,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       warnings:[],security:null,providerStatusRefreshedAt:"",error:"",
       bridge:{connected:false,mode:"remote",baseUrl:"",error:"",status:null,candidates:["http://127.0.0.1:4317","http://localhost:4317"]}}};
   const STEPS=[
-    {key:"myintealth",label:"MyIntealth",num:1},
-    {key:"amc",label:"AMC Portfolio",num:2},
-    {key:"career",label:"Career & Documents",num:3},
+    {key:"placement",label:"Secure Placement",num:1},
+    {key:"myintealth",label:"MyIntealth",num:2},
+    {key:"amc",label:"AMC Portfolio",num:3},
     {key:"ahpra",label:"AHPRA Registration",num:4},
     {key:"visa",label:"Visa Application",num:5},
     {key:"pbs",label:"PBS & Medicare",num:6},
     {key:"commencement",label:"Commencement",num:7}
   ];
-  const STAGE_ORDER=["career","myintealth","amc","ahpra","pbs","commencement"];
+  const STAGE_ORDER=["placement","myintealth","amc","ahpra","pbs","commencement"];
   const PLAYBOOK={
+    placement:{gp:"Browse jobs, apply to positions, secure a placement with an Australian practice.",va:"Match GP with suitable positions. Coordinate with practice. Confirm placement is secured."},
     myintealth:{gp:"Create MyIntealth account, complete onboarding, upload qualification certificates.",va:"Verify uploaded documents match GP credentials. Approve verification or request re-upload if rejected."},
     amc:{gp:"Create AMC account, upload credentials and portfolio documents.",va:"Confirm AMC account created. Help GP gather required credentials. Check qualifications are accepted."},
-    career:{gp:"Browse jobs, apply to positions, complete document preparation checklist.",va:"Match GP with suitable positions. Ensure all documents prepared. Confirm placement is secured."},
     ahpra:{gp:"Complete AHPRA registration form, submit documents, respond to assessment queries.",va:"Guide through AHPRA stages. Ensure submission is complete. Monitor assessment. Escalate if stuck."},
     visa:{gp:"Upload required visa documents, respond to document requests from VA.",va:"Create visa case in admin-visa. Review documents. Request missing items. Track visa progress."},
     pbs:{gp:"Upload Medicare/PBS documents, provide practice details when requested.",va:"Create PBS case in admin-pbs. Apply for Medicare Provider Number and PBS Prescriber Number."},
@@ -1619,19 +1620,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function caseTasks(caseId){return S.tasks.filter(t=>t.case_id===caseId);}
   function gpTix(rc){const e=(rc.gp_email||"").toLowerCase();return tix().filter(t=>(t.candidateEmail||"").toLowerCase()===e);}
 
-  function buildJourney(gp){
+  function buildJourney(gp,regCase){
     const pw=Array.isArray(gp.pathwaySteps)?gp.pathwaySteps:[];
     const ms=s=>!s?"pending":s.status==="done"?"done":s.status==="current"?"current":"pending";
     const msub=s=>!s||!Array.isArray(s.substeps)?[]:s.substeps.map(x=>({label:x.label||x.key||"",status:x.status==="done"?"done":x.status==="current"?"current":"pending"}));
-    const s1=ms(pw.find(s=>s.id==="myintealth")),s2=ms(pw.find(s=>s.id==="amc")),s3=ms(pw.find(s=>s.id==="documents")),s4=ms(pw.find(s=>s.id==="ahpra"));
+    // Placement status: done if case has practice_name or prerequisite_placement is met
+    const c=regCase||{};
+    const placementDone=!!(c.practice_name||c.practice_contact||(c.prerequisites&&c.prerequisites.placement));
+    const sP=placementDone?"done":"current";
+    const s1=ms(pw.find(s=>s.id==="myintealth")),s2=ms(pw.find(s=>s.id==="amc")),s4=ms(pw.find(s=>s.id==="ahpra"));
+    // Build placement label with practice name
+    const placementLabel=placementDone&&c.practice_name?"Secure Placement \u2014 "+c.practice_name:"Secure Placement";
     return[
-      {...STEPS[0],status:s1,substeps:msub(pw.find(s=>s.id==="myintealth"))},
-      {...STEPS[1],status:s2,substeps:msub(pw.find(s=>s.id==="amc"))},
-      {...STEPS[2],status:s3,substeps:msub(pw.find(s=>s.id==="documents"))},
-      {...STEPS[3],status:s4,substeps:msub(pw.find(s=>s.id==="ahpra"))},
+      {...STEPS[0],label:placementLabel,status:sP,substeps:[]},
+      {...STEPS[1],status:s1,substeps:msub(pw.find(s=>s.id==="myintealth"))},
+      {...STEPS[2],status:s2,substeps:msub(pw.find(s=>s.id==="amc"))},
+      {...STEPS[3],status:!placementDone?"locked":s4,substeps:msub(pw.find(s=>s.id==="ahpra"))},
       {...STEPS[4],status:"pending",substeps:[]},
-      {...STEPS[5],status:"pending",substeps:[]},
-      {...STEPS[6],status:"pending",substeps:[]}
+      {...STEPS[5],status:!placementDone?"locked":"pending",substeps:[]},
+      {...STEPS[6],status:!placementDone?"locked":"pending",substeps:[]}
     ];
   }
 
@@ -2031,13 +2038,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderJourneyRail(c){
     const gp=findGp(c);
     if(typeof buildJourney!=="function")return '';
-    const journey=gp?buildJourney(gp):[];
+    const journey=gp?buildJourney(gp,c):[];
     if(!journey.length)return '';
     const steps=journey.filter(s=>s.key!=="visa");
     let html='<div class="journey-rail">';
     steps.forEach((step,idx)=>{
-      const cls=step.status==="done"?"done":step.status==="current"?"current":"pending";
-      const label=step.status==="done"?"\u2713 "+step.label:step.status==="current"?"\u25CF "+step.label:step.label;
+      const cls=step.status==="done"?"done":step.status==="current"?"current":step.status==="locked"?"locked":"pending";
+      const label=step.status==="done"?"\u2713 "+step.label:step.status==="current"?"\u25CF "+step.label:step.status==="locked"?"\uD83D\uDD12 "+step.label:step.label;
       html+='<div class="jr-step">';
       html+='<div class="jr-pill '+cls+'">'+esc(label)+'</div>';
       if(idx<steps.length-1){
@@ -2051,7 +2058,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderGpJourneyPane(c){
     const gp=findGp(c);
     if(typeof buildJourney!=="function")return '<div class="empty">Journey renderer unavailable.</div>';
-    const journey=gp?buildJourney(gp):[];
+    const journey=gp?buildJourney(gp,c):[];
     if(!journey.length)return '<div class="empty">No journey data available.</div>';
     let h='<div class="journey-stepper">';
     journey.forEach((step,idx)=>{
@@ -2106,7 +2113,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const name=cand.name||cand.email||"Unknown";
     const email=cand.email||"";
     const phone=cand.phone||"";
-    const journey=buildJourney(cand);
+    const journey=buildJourney(cand,null);
     const dots=journey.length?journey.map(function(s){return'<div style="display:flex;align-items:center;gap:6px;margin:4px 0"><span class="jdot-sm '+esc(s.status)+'"></span><span style="font-size:12px">'+esc(s.label||s.key)+'</span></div>';}).join(""):'<div class="empty">No journey data available.</div>';
     el.innerHTML=`
       <div class="gp-detail-grid">
