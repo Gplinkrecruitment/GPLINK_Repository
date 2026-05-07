@@ -1917,7 +1917,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
       if(isLocked){
         const unlockStage=STEPS.find(s=>s.key===currentStage);
-        html+='<div class="sg-lock-badge">\uD83D\uDD12 Unlocks after '+(unlockStage?unlockStage.label:currentStage)+'</div>';
+        html+='<div class="sg-lock-badge">\uD83D\uDD12 Unlocks after '+esc(unlockStage?unlockStage.label:currentStage)+'</div>';
       }
       if(!isLocked&&group.stage===currentStage){
         html+='<div class="sg-lock-badge" style="background:#eff6ff;color:var(--blue)">Current stage</div>';
@@ -1966,7 +1966,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
           }
-          html+='<button class="st-more-btn" data-more-menu="'+esc(t.id)+'">\u2022\u2022\u2022';
+          html+='<div style="position:relative;display:inline-block">';
+          html+='<button class="st-more-btn" data-more-menu="'+esc(t.id)+'">\u2022\u2022\u2022</button>';
           html+='<div class="st-dropdown" id="dropdown-'+esc(t.id)+'">';
           html+='<button class="st-dropdown-item" data-complete-task="'+esc(t.id)+'">\u2713 Mark Complete</button>';
           html+='<button class="st-dropdown-item" data-start-task="'+esc(t.id)+'">\u25B6 Start / In Progress</button>';
@@ -1985,7 +1986,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='<div class="st-dropdown-sep"></div>';
           html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="blocked">\uD83D\uDEA8 Escalate</button>';
           html+='</div>';
-          html+='</button>';
+          html+='</div>';
           html+='</div>';
           html+='</div>';
           html+='</div>';
