@@ -3194,7 +3194,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(gpLink){
         e.preventDefault();
         var userId=gpLink.getAttribute("data-mc-gp-id");
-        window.open("/pages/admin.html?gp="+encodeURIComponent(userId),"_blank");
+        // Navigate to GP profile within the same page
+        var matchCase=S.cases.find(function(c){return c.user_id===userId;});
+        if(matchCase){
+          S.view="gps";S.selectedCaseId=matchCase.id;
+          document.querySelectorAll(".view-tab").forEach(function(t){t.classList.toggle("active",t.getAttribute("data-view")==="gps");});
+          vaShowPanel("gps");renderCaseList();renderDetail();
+        } else {
+          window.open("/pages/admin.html?gp="+encodeURIComponent(userId),"_blank");
+        }
         return;
       }
     });

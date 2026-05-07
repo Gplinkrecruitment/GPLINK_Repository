@@ -18486,8 +18486,8 @@ async function handleApi(req, res, pathname) {
         }
       }
       const centres = Object.values(centreMap).sort((a, b) => b.open_positions - a.open_positions);
-      // For filled positions, enrich with hired GP info
-      if (showFilled) {
+      // Enrich job openings with hired GP info (for filled and all views)
+      if (showFilled || showAll) {
         const allRoleIds = [];
         for (const c of centres) for (const jo of c.job_openings) allRoleIds.push(jo.id);
         if (allRoleIds.length) {
@@ -18517,7 +18517,7 @@ async function handleApi(req, res, pathname) {
             for (const jo of c.job_openings) {
               const roleApps = appsByRole[jo.id] || [];
               jo.hired_gps = roleApps
-                .filter(a => /placement_secured|offered|offer/i.test(a.status || ''))
+                .filter(a => /hired|placement_secured|secured|placed|offered|offer_accepted|contract_signed/i.test(a.status || ''))
                 .map(a => ({ user_id: a.user_id, gp_name: profileMap[a.user_id] || 'Unknown', status: a.status }));
             }
           }
