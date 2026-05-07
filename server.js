@@ -15632,6 +15632,152 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Cron: daily follow-up reconciliation — AI checks if follow-up tasks have been fulfilled
+  if (req.method === 'GET' && pathname === '/api/cron/reconcile-followups') {
+    var rfCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var rfCronAuth = req.headers['authorization'] || '';
+    if (!rfCronSecret || rfCronAuth !== 'Bearer ' + rfCronSecret) {
+      sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+      return;
+    }
+    if (!isSupabaseDbConfigured() || !ANTHROPIC_API_KEY) {
+      sendJson(res, 200, { ok: true, message: 'Not configured', results: [] });
+      return;
+    }
+
+    var CONFIDENCE_THRESHOLD = 0.9;
+    var RECONCILE_MODEL = process.env.RECONCILE_AI_MODEL || 'claude-opus-4-6';
+
+    try {
+      var rfToday = new Date().toISOString().split('T')[0];
+      var rfTaskRes = await supabaseDbRequest('registration_tasks',
+        '?task_type=eq.followup&status=in.(open,in_progress,waiting)&due_date=lte.' + rfToday + '&select=*',
+        { method: 'GET' });
+      var rfTasks = rfTaskRes.ok && Array.isArray(rfTaskRes.data) ? rfTaskRes.data : [];
+      if (!rfTasks.length) { sendJson(res, 200, { ok: true, message: 'No follow-ups due', results: [] }); return; }
+
+      var rfResults = [];
+
+      for (var rfTask of rfTasks) {
+        if (!checkAnthropicBudget()) {
+          rfResults.push({ task_id: rfTask.id, status: 'skipped', reason: 'budget_exceeded' });
+          continue;
+        }
+
+        var rfCaseRes = await supabaseDbRequest('registration_cases',
+          '?id=eq.' + rfTask.case_id + '&select=*', { method: 'GET' });
+        var rfCase = rfCaseRes.ok && rfCaseRes.data && rfCaseRes.data[0] ? rfCaseRes.data[0] : null;
+        if (!rfCase) { rfResults.push({ task_id: rfTask.id, status: 'skipped', reason: 'no_case' }); continue; }
+
+        var rfProfileRes = await supabaseDbRequest('user_profiles',
+          '?user_id=eq.' + rfCase.user_id + '&select=email,phone,first_name,last_name', { method: 'GET' });
+        var rfProfile = rfProfileRes.ok && rfProfileRes.data && rfProfileRes.data[0] ? rfProfileRes.data[0] : {};
+        var rfGpEmail = rfProfile.email || '';
+        var rfGpName = ((rfProfile.first_name || '') + ' ' + (rfProfile.last_name || '')).trim();
+
+        // Gather recent activity from all channels
+        var rfWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+
+        var rfDtRes = await supabaseDbRequest('doubletick_messages',
+          '?case_id=eq.' + rfTask.case_id + '&created_at=gte.' + rfWeekAgo + '&order=created_at.desc&limit=10',
+          { method: 'GET' });
+        var rfDtMessages = rfDtRes.ok && Array.isArray(rfDtRes.data) ? rfDtRes.data : [];
+
+        var rfPracticeEmail = '';
+        try {
+          var rfPc = rfCase.practice_contact ? JSON.parse(rfCase.practice_contact) : {};
+          rfPracticeEmail = rfPc.contactEmail || '';
+        } catch (e) { /* practice_contact might not be JSON */ }
+
+        var rfGmailMessages = await searchGmailForGP(rfGpEmail, rfGpName, rfPracticeEmail, 7);
+
+        var rfRecentTaskRes = await supabaseDbRequest('task_timeline',
+          '?case_id=eq.' + rfTask.case_id + '&event_type=in.(completed,status_change,note)&created_at=gte.' + rfWeekAgo + '&order=created_at.desc&limit=10',
+          { method: 'GET' });
+        var rfRecentEvents = rfRecentTaskRes.ok && Array.isArray(rfRecentTaskRes.data) ? rfRecentTaskRes.data : [];
+
+        // Build activity summary for AI
+        var rfSummary = 'Recent activity for ' + (rfGpName || 'GP') + ':\n\n';
+
+        if (rfDtMessages.length) {
+          rfSummary += 'WhatsApp messages (last 7 days):\n';
+          for (var rfDtm of rfDtMessages) {
+            rfSummary += '- [' + rfDtm.direction + '] ' + (rfDtm.message_body || '').substring(0, 200) + ' (' + new Date(rfDtm.created_at).toLocaleDateString() + ')\n';
+          }
+        } else {
+          rfSummary += 'No WhatsApp messages in last 7 days.\n';
+        }
+
+        if (rfGmailMessages.length) {
+          rfSummary += '\nEmails (last 7 days):\n';
+          for (var rfGm of rfGmailMessages) {
+            rfSummary += '- From: ' + (rfGm.from || '').substring(0, 100) + ' | Subject: ' + (rfGm.subject || '').substring(0, 100) + ' | ' + (rfGm.snippet || '').substring(0, 150) + '\n';
+          }
+        } else {
+          rfSummary += '\nNo emails found in last 7 days.\n';
+        }
+
+        if (rfRecentEvents.length) {
+          rfSummary += '\nApp events (last 7 days):\n';
+          for (var rfEv of rfRecentEvents) {
+            rfSummary += '- ' + (rfEv.title || rfEv.event_type) + ': ' + (rfEv.detail || '').substring(0, 150) + ' (' + new Date(rfEv.created_at).toLocaleDateString() + ')\n';
+          }
+        } else {
+          rfSummary += '\nNo app events in last 7 days.\n';
+        }
+
+        // AI verdict
+        var rfAiRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
+            model: RECONCILE_MODEL,
+            max_tokens: 200,
+            temperature: 0,
+            system: 'You are reviewing whether a follow-up task has been fulfilled based on recent activity. Return JSON only. Format: {"fulfilled": true/false, "confidence": 0.0-1.0, "evidence": "brief explanation"}. A task is fulfilled if the activity clearly shows the follow-up action was completed or the condition was met.',
+            messages: [{
+              role: 'user',
+              content: 'Follow-up task: "' + rfTask.title + '"\nDue: ' + rfTask.due_date + '\nDescription: ' + (rfTask.description || 'none') + '\n\n' + rfSummary
+            }]
+          }),
+          signal: AbortSignal.timeout(30000)
+        });
+
+        var rfAiData = await rfAiRes.json();
+        var rfAiUsage = rfAiData.usage || {};
+        recordAnthropicSpend(rfAiUsage.input_tokens || 0, rfAiUsage.output_tokens || 0);
+
+        var rfAiContent = rfAiData.content && rfAiData.content[0] && rfAiData.content[0].text ? rfAiData.content[0].text : '';
+        var rfVerdict;
+        try { rfVerdict = JSON.parse(rfAiContent); } catch (e) { rfVerdict = { fulfilled: false, confidence: 0, evidence: 'Parse error' }; }
+
+        if (rfVerdict.fulfilled && rfVerdict.confidence >= CONFIDENCE_THRESHOLD) {
+          await _completeRegTask(rfTask.id, rfTask.case_id, 'system:reconciliation');
+          await _logCaseEvent(rfTask.case_id, rfTask.id, 'note', 'Auto-resolved by reconciliation',
+            'Evidence: ' + (rfVerdict.evidence || 'AI determined follow-up was fulfilled with ' + Math.round(rfVerdict.confidence * 100) + '% confidence'),
+            'system:reconciliation');
+          rfResults.push({ task_id: rfTask.id, title: rfTask.title, status: 'auto_completed', confidence: rfVerdict.confidence, evidence: rfVerdict.evidence });
+        } else {
+          await supabaseDbRequest('registration_tasks', '?id=eq.' + rfTask.id,
+            { method: 'PATCH', body: { priority: 'urgent' } });
+          await _logCaseEvent(rfTask.case_id, rfTask.id, 'priority_change', 'Escalated to urgent by reconciliation',
+            'Follow-up not fulfilled. ' + (rfVerdict.evidence || ''), 'system:reconciliation');
+          rfResults.push({ task_id: rfTask.id, title: rfTask.title, status: 'escalated_to_urgent', confidence: rfVerdict.confidence, evidence: rfVerdict.evidence });
+        }
+      }
+
+      sendJson(res, 200, { ok: true, processed: rfResults.length, results: rfResults });
+    } catch (err) {
+      console.error('[Cron] Reconcile follow-ups failed:', err);
+      sendJson(res, 500, { ok: false, error: err.message });
+    }
+    return;
+  }
+
   if (!enforceMutationOrigin(req, res)) return;
 
   // Zoho Sign OAuth callback — redirect from Zoho lands on app domain, must be before admin host guard
