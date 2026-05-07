@@ -2687,6 +2687,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"in_progress"})});
     await loadAll(true);
   }
+  async function updateTaskStatus(taskId,status){
+    try{
+      await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{
+        method:"PUT",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({status:status})
+      });
+      await loadAll(true);
+    }catch(err){console.error("[VA] updateTaskStatus failed",err);}
+  }
 
   /* ── Practice Pack document action handlers (Task 9) ── */
   async function generatePositionDescription(taskId) {
@@ -3154,6 +3164,68 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
     });
     document.getElementById("detailContent").addEventListener("click",e=>{
+      /* Close dropdowns on outside click */
+      if(!e.target.closest(".st-dropdown")&&!e.target.closest("[data-more-menu]")){
+        document.querySelectorAll(".st-dropdown.open").forEach(d=>d.classList.remove("open"));
+      }
+      /* ••• dropdown toggle */
+      if(e.target.closest("[data-more-menu]")){
+        e.stopPropagation();
+        const btn=e.target.closest("[data-more-menu]");
+        const taskId=btn.getAttribute("data-more-menu");
+        const dd=document.getElementById("dropdown-"+taskId);
+        if(dd){
+          document.querySelectorAll(".st-dropdown.open").forEach(d=>{if(d!==dd)d.classList.remove("open");});
+          dd.classList.toggle("open");
+        }
+        return;
+      }
+      /* Guided action buttons */
+      if(e.target.closest("[data-guided-action]")){
+        const btn=e.target.closest("[data-guided-action]");
+        const action=btn.getAttribute("data-guided-action");
+        const taskId=btn.getAttribute("data-task-id");
+        const dk=btn.getAttribute("data-doc-key")||"";
+        const task=(S.tasks||[]).find(t=>t.id===taskId);
+
+        if(action==="completeTask"){completeTask(taskId);}
+        else if(action==="previewDoc"){previewTaskDoc(taskId);}
+        else if(action==="generatePD"){generatePositionDescription(taskId);}
+        else if(action==="editPD"){if(typeof openPDEditor==="function")openPDEditor(taskId);}
+        else if(action==="emailPractice"){
+          if(task){
+            const pc=task.practice_contact||{};
+            const gpName=task.gp_name||"the GP";
+            const docLabel=dk==="offer_contract"?"Offer/Contract":"Supervisor CV";
+            const subject=docLabel+" Required \u2014 "+gpName+" at "+(pc.practiceName||"the practice");
+            const body="Hi "+(pc.contactName||"")+",\n\nWe require the "+docLabel.toLowerCase()+" for "+gpName+".\n\nPlease reply with the document attached.\n\nKind regards,\nGP Link Team";
+            window.open(buildMailtoLinkFE(pc.contactEmail||"",subject,body));
+            if(typeof markTaskWaiting==="function")markTaskWaiting(taskId);
+          }
+        }
+        else if(action==="openWhatsApp"){
+          if(task){
+            const url=task.doubletick_conversation_url||task.whatsapp_link||"";
+            if(url)window.open(url,"_blank");
+          }
+        }
+        else if(action==="sendSppa"){
+          if(typeof sendSppaForSigning==="function")sendSppaForSigning(taskId);
+        }
+        else if(action==="checkSppaStatus"){
+          if(typeof checkSppaStatus==="function")checkSppaStatus(taskId);
+        }
+        return;
+      }
+      /* Set waiting status from dropdown */
+      if(e.target.closest("[data-set-waiting]")){
+        const btn=e.target.closest("[data-set-waiting]");
+        const taskId=btn.getAttribute("data-set-waiting");
+        const status=btn.getAttribute("data-waiting");
+        updateTaskStatus(taskId,status);
+        document.querySelectorAll(".st-dropdown.open").forEach(d=>d.classList.remove("open"));
+        return;
+      }
       const agStart=e.target.closest("[data-agent-start]");if(agStart){startAgentRun();return;}
       const agRefresh=e.target.closest("[data-agent-refresh]");if(agRefresh){refreshAgentStatus(true);return;}
       const agRefreshProviders=e.target.closest("[data-agent-refresh-providers]");if(agRefreshProviders){refreshAgentProviders();return;}
