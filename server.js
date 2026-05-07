@@ -966,6 +966,26 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           );
         }
 
+        // Create a registration_task so it shows up in the VA's task list for this GP
+        if (triageResult.matched_gp_user_id) {
+          var caseRes = await supabaseDbRequest('registration_cases',
+            'select=id,stage&user_id=eq.' + encodeURIComponent(triageResult.matched_gp_user_id) + '&limit=1');
+          var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+          if (gpCase) {
+            var isAhpra = emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au');
+            await _createRegTask(gpCase.id, {
+              task_type: 'email_triage',
+              title: (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
+              description: triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' — ' + (emailMeta.subject || '')),
+              priority: triageResult.urgency === 'urgent' ? 'urgent' : triageResult.urgency === 'high' ? 'high' : 'normal',
+              source_trigger: 'gmail_triage',
+              related_stage: isAhpra ? 'ahpra' : (gpCase.stage || ''),
+              gmail_message_id: currentMsgId,
+              _actor: 'system'
+            });
+          }
+        }
+
         // Insert into incoming_email_todos
         var todoInsert = await supabaseDbRequest('incoming_email_todos', '', {
           method: 'POST',
