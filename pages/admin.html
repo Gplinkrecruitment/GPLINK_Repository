@@ -721,6 +721,19 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .stage-task .st-more-btn:hover{background:#cbd5e1}
 .stage-task .st-waiting{font-size:11px;color:var(--amber);margin-top:4px;font-weight:600}
 
+/* ── Email Triage Panel ── */
+.et-panel{background:var(--bg2,#f8fafc);border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:14px;margin-top:8px}
+.et-section{margin-bottom:12px}
+.et-section-title{font-size:11px;text-transform:uppercase;color:var(--muted,#9aa3b2);font-weight:700;margin-bottom:6px}
+.et-email-from{font-size:12px;color:var(--text);font-weight:600}
+.et-email-body{font-size:12px;color:var(--text);line-height:1.5;white-space:pre-wrap;max-height:200px;overflow-y:auto;background:var(--bg1,#fff);border:1px solid var(--line);border-radius:6px;padding:10px;margin-top:6px}
+.et-ctx-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px}
+.et-ctx-item{padding:6px 8px;background:var(--bg1,#fff);border-radius:4px}
+.et-ctx-label{font-size:10px;color:var(--muted);text-transform:uppercase}
+.et-reply-area{width:100%;min-height:120px;padding:10px;font-family:inherit;font-size:13px;border:1px solid var(--line);border-radius:6px;background:var(--bg1,#fff);color:var(--text);resize:vertical}
+.et-btn-row{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
+.et-note{font-size:10px;color:var(--muted);margin-left:8px}
+
 /* ── Dropdown Menu ── */
 .st-dropdown{position:absolute;right:0;top:calc(100% + 4px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:200px;z-index:50;padding:4px 0;display:none}
 .st-dropdown.open{display:block}
@@ -2001,6 +2014,39 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='</div>';
           html+='</div>';
           html+='</div>';
+
+          // Email triage expanded panel
+          if(t.task_type==='email_triage'){
+            var emailSubject=(t.title||'').replace(/^[\u2709\ufe0f\u26a0\ufe0f\s]*(AHPRA:\s*|Email:\s*)/,'');
+            var gmailUrl=t.gmail_thread_id?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(t.gmail_thread_id):'';
+            html+='<div class="et-panel" id="et-panel-'+esc(t.id)+'" style="display:none">';
+            html+='<div class="et-section"><div class="et-section-title">Email</div>';
+            html+='<div class="et-email-from">From: '+esc(t.email_sender||'Unknown')+'</div>';
+            html+='<div style="font-size:12px;margin-top:2px"><strong>Subject:</strong> '+esc(emailSubject)+'</div>';
+            if(t.email_body_snippet)html+='<div class="et-email-body">'+esc(t.email_body_snippet)+'</div>';
+            if(gmailUrl)html+='<a class="btn sm" href="'+esc(gmailUrl)+'" target="_blank" rel="noopener" style="margin-top:8px">\uD83D\uDD17 Open in Gmail</a>';
+            html+='</div>';
+            html+='<div class="et-section"><div class="et-section-title">GP Context</div>';
+            html+='<div class="et-ctx-grid">';
+            html+='<div class="et-ctx-item"><div class="et-ctx-label">Stage</div>'+esc(c.stage||'Unknown')+'</div>';
+            html+='<div class="et-ctx-item"><div class="et-ctx-label">Practice</div>'+esc(u.practice_name||(u.practice_contact&&u.practice_contact.practiceName)||c.practice_name||'Not placed')+'</div>';
+            html+='<div class="et-ctx-item"><div class="et-ctx-label">Open Tasks</div>'+tasks.length+'</div>';
+            html+='<div class="et-ctx-item"><div class="et-ctx-label">Qualifications</div>'+(u.quals_approved||0)+'/'+(u.quals_required||0)+' approved</div>';
+            html+='</div></div>';
+            html+='<div class="et-section"><div class="et-section-title">Suggested Reply</div>';
+            html+='<button class="btn sm primary" data-generate-reply="'+esc(t.id)+'">Generate Suggested Reply</button>';
+            html+='<div id="et-reply-wrap-'+esc(t.id)+'" style="display:none;margin-top:8px">';
+            html+='<textarea class="et-reply-area" id="et-reply-'+esc(t.id)+'"></textarea>';
+            html+='<div class="et-btn-row"><button class="btn sm" data-copy-reply="'+esc(t.id)+'">Copy to Clipboard</button>';
+            if(gmailUrl)html+='<a class="btn sm" href="'+esc(gmailUrl)+'" target="_blank" rel="noopener">Open Gmail to Reply</a>';
+            html+='<span class="et-note">This is a suggestion \u2014 edit as needed before sending.</span></div>';
+            html+='</div></div>';
+            html+='<div class="et-btn-row" style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px">';
+            html+='<button class="btn sm" data-complete-task="'+esc(t.id)+'">\u2713 Mark Resolved</button>';
+            html+='</div>';
+            html+='</div>';
+          }
+
           html+='</div>';
         });
       }
@@ -3254,6 +3300,60 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         return;
       }
+      /* Toggle email triage panel */
+      var etRow=e.target.closest("[data-task-row]");
+      if(etRow&&!e.target.closest("button")&&!e.target.closest("a")&&!e.target.closest(".st-dropdown")){
+        var panelId="et-panel-"+etRow.getAttribute("data-task-row");
+        var panel=document.getElementById(panelId);
+        if(panel){
+          panel.style.display=panel.style.display==="none"?"block":"none";
+        }
+      }
+
+      /* Generate suggested reply */
+      if(e.target.closest("[data-generate-reply]")){
+        var replyBtn=e.target.closest("[data-generate-reply]");
+        var replyTaskId=replyBtn.getAttribute("data-generate-reply");
+        replyBtn.disabled=true;
+        replyBtn.textContent="Generating\u2026";
+        try{
+          var rr=await fetch("/api/admin/email-triage/suggest-reply",{
+            method:"POST",credentials:"same-origin",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({taskId:replyTaskId})
+          });
+          var rd=await rr.json().catch(function(){return {};});
+          if(rd.ok&&rd.suggestedReply){
+            var replyWrap=document.getElementById("et-reply-wrap-"+replyTaskId);
+            var replyArea=document.getElementById("et-reply-"+replyTaskId);
+            if(replyWrap)replyWrap.style.display="block";
+            if(replyArea)replyArea.value=rd.suggestedReply;
+            replyBtn.textContent="\u2713 Reply Generated";
+          }else{
+            replyBtn.textContent="Failed \u2014 try again";
+            replyBtn.disabled=false;
+          }
+        }catch(err){
+          replyBtn.textContent="Error \u2014 try again";
+          replyBtn.disabled=false;
+        }
+        return;
+      }
+
+      /* Copy reply to clipboard */
+      if(e.target.closest("[data-copy-reply]")){
+        var copyId=e.target.closest("[data-copy-reply]").getAttribute("data-copy-reply");
+        var copyArea=document.getElementById("et-reply-"+copyId);
+        if(copyArea&&copyArea.value){
+          navigator.clipboard.writeText(copyArea.value).then(function(){
+            var btn=e.target.closest("[data-copy-reply]");
+            btn.textContent="\u2713 Copied!";
+            setTimeout(function(){btn.textContent="Copy to Clipboard";},2000);
+          });
+        }
+        return;
+      }
+
       /* Guided action buttons */
       if(e.target.closest("[data-guided-action]")){
         const btn=e.target.closest("[data-guided-action]");
