@@ -9726,17 +9726,17 @@ async function syncZohoRecruitRoles() {
   const inactiveIds = existing
     .map((row) => row && typeof row.provider_role_id === 'string' ? row.provider_role_id : '')
     .filter((id) => id && !seenIds.has(id));
-  // Delete roles that no longer exist in Zoho Recruit (truly removed, not just inactive)
+  // Soft-delete: mark roles removed from Zoho as inactive (preserves audit trail + gp_applications links)
   if (inactiveIds.length > 0) {
     for (let di = 0; di < inactiveIds.length; di += 50) {
       const chunk = inactiveIds.slice(di, di + 50);
       await supabaseDbRequest(
         'career_roles',
         'provider=eq.zoho_recruit&provider_role_id=in.' + buildPostgrestTextList(chunk),
-        { method: 'DELETE', headers: { Prefer: 'return=minimal' } }
+        { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { is_active: false, updated_at: new Date().toISOString() } }
       );
     }
-    console.log('[ZohoRecruit sync] Deleted', inactiveIds.length, 'record(s) no longer in Zoho');
+    console.log('[ZohoRecruit sync] Deactivated', inactiveIds.length, 'role(s) no longer in Zoho');
   }
 
   const connected = await upsertZohoRecruitConnection({
@@ -10123,6 +10123,17 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
         headers: { Prefer: 'return=minimal' },
         body: patch
       });
+
+      // Mark the career role as filled when an application is hired
+      if (nowSecured && !wasSecured && app.career_role_id) {
+        await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(app.career_role_id), {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: { is_active: false, updated_at: new Date().toISOString() }
+        });
+        console.log('[ZohoRecruit sync] Marked career_role', app.career_role_id, 'as filled (hired application)');
+      }
+
       synced++;
       console.log('[ZohoRecruit sync] Application', app.id, 'status:', localStatus, '→', liveStatus);
     } catch (err) {
@@ -18391,9 +18402,11 @@ async function handleApi(req, res, pathname) {
       const statusFilter = url.searchParams.get('status') || 'open';
       const showFilled = statusFilter === 'filled';
       const showAll = statusFilter === 'all';
+      // Only show Zoho-synced roles in open/filled views; "all" includes everything
+      const providerFilter = showAll ? '' : '&provider=eq.zoho_recruit';
       const result = await supabaseDbRequest(
         'career_roles',
-        'select=id,title,practice_name,location_city,location_state,location_label,location_country,billing_model,employment_type,practice_type,summary,is_active,published_at,source_payload' + (showAll ? '' : '&is_active=eq.' + (showFilled ? 'false' : 'true')) + '&order=practice_name.asc'
+        'select=id,title,practice_name,location_city,location_state,location_label,location_country,billing_model,employment_type,practice_type,summary,is_active,published_at,source_payload' + providerFilter + (showAll ? '' : '&is_active=eq.' + (showFilled ? 'false' : 'true')) + '&order=practice_name.asc'
       );
       const roles = result.ok && Array.isArray(result.data) ? result.data : [];
       const centreMap = {};
