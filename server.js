@@ -15700,6 +15700,24 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Cron: poll Gmail for new emails (fallback when Pub/Sub push doesn't fire)
+  if (req.method === 'GET' && pathname === '/api/cron/process-gmail') {
+    var pgCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var pgAuth = req.headers['authorization'] || '';
+    if (pgCronSecret && pgAuth !== 'Bearer ' + pgCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    var pgResults = [];
+    for (var pgEmail of MONITORED_VA_EMAILS) {
+      try {
+        await processGmailNotification(pgEmail, null);
+        pgResults.push({ email: pgEmail, ok: true });
+      } catch (pgErr) {
+        pgResults.push({ email: pgEmail, ok: false, error: pgErr.message });
+      }
+    }
+    sendJson(res, 200, { ok: true, results: pgResults });
+    return;
+  }
+
   // Cron: renew Gmail watch (before same-origin — called by Vercel cron)
   if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
     var cronSecret = String(process.env.CRON_SECRET || '').trim();
