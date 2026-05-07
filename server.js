@@ -15641,6 +15641,63 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Gmail pipeline diagnostic — tests every step
+  if (req.method === 'GET' && pathname === '/api/admin/gmail-diagnostic') {
+    if (!requireAdminSession(req, res)) return;
+    var diag = { steps: [] };
+    try {
+      // Step 1: Check env vars
+      diag.steps.push({ step: 'env_vars', google_email: !!GOOGLE_SERVICE_ACCOUNT_EMAIL, google_key_len: (GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').length, pubsub_topic: GOOGLE_PUBSUB_TOPIC || '(empty)', anthropic_key: !!process.env.ANTHROPIC_API_KEY });
+
+      // Step 2: Check watch state
+      var watchRes = await supabaseDbRequest('gmail_watch_state', 'select=*&email_address=eq.hazel@mygplink.com.au');
+      diag.steps.push({ step: 'watch_state', data: watchRes.ok && watchRes.data ? watchRes.data[0] : null });
+
+      // Step 3: Test Gmail client
+      var gmail = await getGmailClient('hazel@mygplink.com.au');
+      diag.steps.push({ step: 'gmail_client', success: !!gmail, error: _gmailClientErrors['hazel@mygplink.com.au'] || null });
+
+      // Step 4: Test history.list API call
+      if (gmail) {
+        var watchState = watchRes.ok && watchRes.data && watchRes.data[0] ? watchRes.data[0] : {};
+        var historyId = watchState.history_id || '1';
+        try {
+          var historyResponse = await gmail.users.history.list({
+            userId: 'hazel@mygplink.com.au',
+            startHistoryId: historyId,
+            historyTypes: ['messageAdded']
+          });
+          var history = historyResponse.data.history || [];
+          var messageIds = [];
+          for (var h of history) {
+            if (h.messagesAdded) {
+              for (var ma of h.messagesAdded) {
+                if (ma.message && ma.message.id) messageIds.push(ma.message.id);
+              }
+            }
+          }
+          diag.steps.push({ step: 'history_list', success: true, messages_found: messageIds.length, message_ids: messageIds.slice(0, 10), new_history_id: historyResponse.data.historyId || null });
+        } catch (histErr) {
+          diag.steps.push({ step: 'history_list', success: false, error: histErr.message, code: histErr.code, status: histErr.status });
+        }
+      }
+
+      // Step 5: Check placed GPs for triage
+      var placedGPs = await getPlacedGPsForTriage();
+      diag.steps.push({ step: 'placed_gps', count: placedGPs.length, gps: placedGPs.map(function(g) { return { name: g.gp_name, practice: g.practice_name, emails: g.contact_emails }; }) });
+
+      // Step 6: Check existing records
+      var todosRes = await supabaseDbRequest('incoming_email_todos', 'select=id&limit=1');
+      var processedRes = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id&limit=1');
+      diag.steps.push({ step: 'db_records', todos_exist: todosRes.ok && Array.isArray(todosRes.data) && todosRes.data.length > 0, processed_exist: processedRes.ok && Array.isArray(processedRes.data) && processedRes.data.length > 0 });
+
+    } catch (diagErr) {
+      diag.error = diagErr.message;
+    }
+    sendJson(res, 200, diag);
+    return;
+  }
+
   // Cron: renew Gmail watch (before same-origin — called by Vercel cron)
   if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
     var cronSecret = String(process.env.CRON_SECRET || '').trim();
