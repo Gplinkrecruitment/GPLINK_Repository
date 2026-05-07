@@ -266,7 +266,7 @@ Phase 2 adds two AI-powered capabilities that reduce manual work and catch thing
 
 1. VA writes a note in the Notes tab and clicks Save
 2. The note text is sent to the API endpoint `/api/admin/va/note/parse-followup`
-3. The endpoint sends the note to **Claude Haiku** (Anthropic's fastest, cheapest model) with this system prompt:
+3. The endpoint sends the note to **Claude Opus** (Anthropic's most capable model) with this system prompt:
 
    > "You extract follow-up actions from case management notes. Today is [date]. Return JSON only, no markdown. If no follow-up is needed, return `{"followup":null}`. If a follow-up exists, return `{"followup":{"action":"<what to do>","deadline":"<YYYY-MM-DD>","condition":"<if any, else null>"}}`. Interpret relative dates (e.g. 'Monday' = next Monday, 'Friday' = this Friday if today is before Friday, else next Friday)."
 
@@ -283,7 +283,7 @@ Phase 2 adds two AI-powered capabilities that reduce manual work and catch thing
 
 **What happens if the budget is exceeded:** The endpoint returns `{"followup": null, "reason": "budget_exceeded"}` -- the feature silently degrades with no disruption to the VA's workflow.
 
-**Model used:** Claude Haiku (`claude-haiku-4-5-20251001`) -- chosen for speed (under 1 second) and cost (fraction of a cent per call).
+**Model used:** Claude Opus (`claude-opus-4-6`) -- chosen for maximum accuracy on delicate follow-up extraction. Cost is higher than lighter models but accuracy is the priority for these operations.
 
 ### Part B: Daily Reconciliation
 
@@ -629,11 +629,11 @@ The endpoint returns a JSON summary of all processed tasks:
 
 | Feature | Model | Pricing | Estimated daily usage | Estimated daily cost | Monthly cost (30 days) |
 |---|---|---|---|---|---|
-| Note follow-up detection | Claude Haiku | $0.80/MTok in, $4/MTok out | ~100 notes, ~200 tokens each | $0.30 - $0.50 | $9 - $15 |
+| Note follow-up detection | Claude Opus | $15/MTok in, $75/MTok out | ~100 notes, ~200 tokens each | $2 - $4 | $60 - $120 |
 | Daily reconciliation | Claude Opus | $15/MTok in, $75/MTok out | ~50 follow-ups, ~800 tokens each | $3 - $8 | $90 - $240 |
 | WhatsApp AI triage | Claude Sonnet | $3/MTok in, $15/MTok out | ~100 messages | $0.50 - $1.00 | $15 - $30 |
 | Qualification verification | Claude Sonnet | $3/MTok in, $15/MTok out | ~20 scans | $0.30 - $0.50 | $9 - $15 |
-| **Total** | | | | **$4 - $10/day** | **$123 - $300/month** |
+| **Total** | | | | **$6 - $14/day** | **$174 - $405/month** |
 
 ### At scale (1,000 active GPs)
 

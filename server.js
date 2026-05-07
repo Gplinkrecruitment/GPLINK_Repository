@@ -22219,7 +22219,7 @@ Return ONLY valid JSON with no markdown formatting:
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
+          model: 'claude-opus-4-6',
           max_tokens: 200,
           temperature: 0,
           system: 'You extract follow-up actions from case management notes. Today is ' + today + '. Return JSON only, no markdown. If no follow-up is needed, return {"followup":null}. If a follow-up exists, return {"followup":{"action":"<what to do>","deadline":"<YYYY-MM-DD>","condition":"<if any, else null>"}}. Interpret relative dates (e.g. "Monday" = next Monday, "Friday" = this Friday if today is before Friday, else next Friday).',
