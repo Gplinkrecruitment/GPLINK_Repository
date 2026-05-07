@@ -1624,13 +1624,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const pw=Array.isArray(gp.pathwaySteps)?gp.pathwaySteps:[];
     const ms=s=>!s?"pending":s.status==="done"?"done":s.status==="current"?"current":"pending";
     const msub=s=>!s||!Array.isArray(s.substeps)?[]:s.substeps.map(x=>({label:x.label||x.key||"",status:x.status==="done"?"done":x.status==="current"?"current":"pending"}));
-    // Placement status: done if case has practice_name or prerequisite_placement is met
+    // Placement status: check case, dashboard user, and prerequisite data
     const c=regCase||{};
-    const placementDone=!!(c.practice_name||c.practice_contact||(c.prerequisites&&c.prerequisites.placement));
+    const u=(S.va.dashboard&&Array.isArray(S.va.dashboard.users))
+      ?(S.va.dashboard.users.find(x=>x.case_id===c.id||x.user_id===c.user_id)||{}):{};
+    const pName=c.practice_name||u.practice_name||(u.practice_contact&&u.practice_contact.practiceName)||"";
+    const placementDone=!!(pName||c.practice_contact||(u.practice_contact&&u.practice_contact.practiceName));
     const sP=placementDone?"done":"current";
     const s1=ms(pw.find(s=>s.id==="myintealth")),s2=ms(pw.find(s=>s.id==="amc")),s4=ms(pw.find(s=>s.id==="ahpra"));
     // Build placement label with practice name
-    const placementLabel=placementDone&&c.practice_name?"Secure Placement \u2014 "+c.practice_name:"Secure Placement";
+    const placementLabel=placementDone&&pName?"Secure Placement \u2014 "+pName:"Secure Placement";
     return[
       {...STEPS[0],label:placementLabel,status:sP,substeps:[]},
       {...STEPS[1],status:s1,substeps:msub(pw.find(s=>s.id==="myintealth"))},

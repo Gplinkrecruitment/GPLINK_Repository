@@ -22427,7 +22427,7 @@ Return ONLY valid JSON with no markdown formatting:
       return p.phone || [p.country_dial, p.phone_number].filter(Boolean).join(' ').trim() || '';
     }
 
-    // Build practice contact lookup from career state
+    // Build practice contact lookup from career state + gp_applications (hired)
     const practiceContactMap = {};
     for (const uid of userIds) {
       const st = stateMap[uid] || {};
@@ -22443,6 +22443,34 @@ Return ONLY valid JSON with no markdown formatting:
           roleTitle: secured.placement.roleTitle || '',
           location: secured.placement.location || ''
         };
+      }
+    }
+    // Fallback: check gp_applications table for hired placements not in career state
+    if (userIds.length > 0) {
+      const hiredRes = await supabaseDbRequest(
+        'gp_applications',
+        'select=user_id,career_role_id,practice_contact_name,practice_contact_email,status&status=eq.hired&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'
+      );
+      if (hiredRes.ok && Array.isArray(hiredRes.data)) {
+        // Build role lookup for practice names
+        const roleIds = [...new Set(hiredRes.data.map(a => a.career_role_id).filter(Boolean))];
+        let roleMap = {};
+        if (roleIds.length > 0) {
+          const roleRes = await supabaseDbRequest('career_roles', 'select=id,practice_name,title,location_city,location_state&id=in.(' + roleIds.join(',') + ')');
+          if (roleRes.ok && Array.isArray(roleRes.data)) roleRes.data.forEach(function (r) { roleMap[r.id] = r; });
+        }
+        hiredRes.data.forEach(function (app) {
+          if (practiceContactMap[app.user_id]) return; // career state already has data
+          const role = roleMap[app.career_role_id] || {};
+          practiceContactMap[app.user_id] = {
+            practiceName: role.practice_name || role.title || '',
+            contactName: app.practice_contact_name || '',
+            contactEmail: app.practice_contact_email || '',
+            contactPhone: '',
+            roleTitle: role.title || '',
+            location: [role.location_city, role.location_state].filter(Boolean).join(', ')
+          };
+        });
       }
     }
 
