@@ -965,7 +965,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     selectedCaseId:null,view:"gps",filter:"all",query:"",expanded:{},refreshTimer:null,
     mc:{centres:[],allData:[],loading:false,selectedCentre:null,subView:"overview",listView:"open",listFilters:{status:"all",billing:"",location:""}},
     opsTasks:[],opsExpandedId:null,opsLoading:false,
-    toolsSubView:"ops",gpsProfileTab:"tasks",
+    toolsSubView:"ops",gpsProfileTab:"tasks",openEmailPanels:{},
     va:{dashboard:null,tickets:[],ticketsView:"open",supportItems:[],supportSource:"all",supportStatus:"open",supportExpandedId:null,selectedQuals:null,loading:false,gpDetailCache:{},lastSweepResult:null,unmatchedDocs:[],incomingQuestions:[]},
     interviews:{list:[],loading:false},
     applications:{list:[],loading:false},
@@ -2026,7 +2026,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(t.task_type==='email_triage'){
             var emailSubject=(t.title||'').replace(/^[\u2709\ufe0f\u26a0\ufe0f\s]*(AHPRA:\s*|Email:\s*)/,'');
             var gmailUrl=t.gmail_thread_id?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(t.gmail_thread_id):'';
-            html+='<div class="et-panel" id="et-panel-'+esc(t.id)+'" style="display:none">';
+            var epState=S.openEmailPanels[t.id]||{};
+            var epOpen=!!epState.open;
+            var epReply=epState.reply||'';
+            html+='<div class="et-panel" id="et-panel-'+esc(t.id)+'" style="display:'+(epOpen?'block':'none')+'">';
             html+='<div class="et-section"><div class="et-section-title">Email</div>';
             html+='<div class="et-email-from">From: '+esc(t.email_sender||'Unknown')+'</div>';
             html+='<div style="font-size:12px;margin-top:2px"><strong>Subject:</strong> '+esc(emailSubject)+'</div>';
@@ -2041,9 +2044,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             html+='<div class="et-ctx-item"><div class="et-ctx-label">Qualifications</div>'+(u.quals_approved||0)+'/'+(u.quals_required||0)+' approved</div>';
             html+='</div></div>';
             html+='<div class="et-section"><div class="et-section-title">Suggested Reply</div>';
-            html+='<button class="btn sm primary" data-generate-reply="'+esc(t.id)+'">Generate Suggested Reply</button>';
-            html+='<div id="et-reply-wrap-'+esc(t.id)+'" style="display:none;margin-top:8px">';
-            html+='<textarea class="et-reply-area" id="et-reply-'+esc(t.id)+'"></textarea>';
+            html+='<button class="btn sm primary" data-generate-reply="'+esc(t.id)+'">'+(epReply?'\u2713 Reply Generated':'Generate Suggested Reply')+'</button>';
+            html+='<div id="et-reply-wrap-'+esc(t.id)+'" style="display:'+(epReply?'block':'none')+';margin-top:8px">';
+            html+='<textarea class="et-reply-area" id="et-reply-'+esc(t.id)+'">'+esc(epReply)+'</textarea>';
             html+='<div class="et-btn-row"><button class="btn sm" data-copy-reply="'+esc(t.id)+'">Copy to Clipboard</button>';
             if(gmailUrl)html+='<a class="btn sm" href="'+esc(gmailUrl)+'" target="_blank" rel="noopener">Open Gmail to Reply</a>';
             html+='<span class="et-note">This is a suggestion \u2014 edit as needed before sending.</span></div>';
@@ -3311,10 +3314,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       /* Toggle email triage panel */
       var etRow=e.target.closest("[data-task-row]");
       if(etRow&&!e.target.closest("button")&&!e.target.closest("a")&&!e.target.closest(".st-dropdown")&&!e.target.closest(".et-panel")&&!e.target.closest("textarea")){
-        var panelId="et-panel-"+etRow.getAttribute("data-task-row");
+        var etTaskId=etRow.getAttribute("data-task-row");
+        var panelId="et-panel-"+etTaskId;
         var panel=document.getElementById(panelId);
         if(panel){
-          panel.style.display=panel.style.display==="none"?"block":"none";
+          var nowOpen=panel.style.display==="none";
+          panel.style.display=nowOpen?"block":"none";
+          if(!S.openEmailPanels[etTaskId])S.openEmailPanels[etTaskId]={};
+          S.openEmailPanels[etTaskId].open=nowOpen;
         }
       }
 
@@ -3337,6 +3344,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             if(replyWrap)replyWrap.style.display="block";
             if(replyArea)replyArea.value=rd.suggestedReply;
             replyBtn.textContent="\u2713 Reply Generated";
+            // Persist in state so re-renders don't lose it
+            if(!S.openEmailPanels[replyTaskId])S.openEmailPanels[replyTaskId]={};
+            S.openEmailPanels[replyTaskId].open=true;
+            S.openEmailPanels[replyTaskId].reply=rd.suggestedReply;
           }else{
             replyBtn.textContent="Failed \u2014 try again";
             replyBtn.disabled=false;
