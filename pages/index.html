@@ -1405,7 +1405,7 @@
       const ahpraSubText = snap.ahpraDone ? "Completed" : !snap.careerSecured ? "Secure a placement to continue" : "Specialist registration";
 
       const regSubs = [
-        { key: "myintealth", title: "MyIntealth Account", sub: snap.epicDone ? "Completed" : snap.epicCurrentLabel, detail: "Create your MyIntealth account and complete EPIC verification.", done: snap.epicDone, locked: false, href: "myinthealth.html" },
+        { key: "myinthealth", title: "MyIntealth Account", sub: snap.epicDone ? "Completed" : snap.epicCurrentLabel, detail: "Create your MyIntealth account and complete EPIC verification.", done: snap.epicDone, locked: false, href: "myinthealth.html" },
         { key: "amc", title: "AMC Portfolio", sub: snap.amcDone ? "Completed" : snap.amcCurrentLabel, detail: "Create your AMC candidate portfolio and upload credentials.", done: snap.amcDone, locked: !bypassAll && !snap.epicDone, href: "amc.html" },
         { key: "ahpra", title: "AHPRA Registration", sub: ahpraSubText, detail: "Prepare and submit your specialist registration application with AHPRA.", done: snap.ahpraDone, locked: false, href: "ahpra.html" }
       ];
