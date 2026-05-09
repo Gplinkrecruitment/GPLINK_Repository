@@ -25986,6 +25986,11 @@ Return ONLY valid JSON with no markdown formatting:
     if (priorityFilter) query += '&priority=eq.' + encodeURIComponent(priorityFilter);
     if (assigneeFilter) query += '&assignee=eq.' + encodeURIComponent(assigneeFilter);
     if (overdueOnly) query += '&due_date=lt.' + new Date().toISOString().slice(0, 10);
+    const staleDays = url.searchParams.get('stale_days');
+    if (staleDays) {
+      const cutoff = new Date(Date.now() - parseInt(staleDays) * 86400000).toISOString();
+      query += '&updated_at=lt.' + encodeURIComponent(cutoff);
+    }
 
     const tasksRes = await supabaseDbRequest('registration_tasks', query);
     if (!tasksRes.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load tasks.' }); return; }

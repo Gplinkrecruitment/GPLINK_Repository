@@ -830,6 +830,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <option value="waiting_on_external">Waiting on External</option>
           <option value="blocked">Blocked</option>
           <option value="all_active">All Active</option>
+          <option value="needs_followup">Needs Follow-up (7+ days)</option>
           <option value="completed">Completed</option>
         </select>
         <select id="opsPriority">
@@ -3040,6 +3041,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(domain)url+="&domain="+encodeURIComponent(domain);
     if(status&&status!=="all_active")url+="&status="+encodeURIComponent(status);
     if(status==="all_active")url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked";
+    if(status==="needs_followup")url+="&status=waiting_on_gp,waiting_on_practice,waiting_on_external&stale_days=7";
     if(priority)url+="&priority="+encodeURIComponent(priority);
     if(overdue)url+="&overdue=true";
     try{
@@ -3060,12 +3062,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const overdueC=all.filter(t=>{if(!t.due_date&&!t.sla_due_date)return false;const d=new Date(t.sla_due_date||t.due_date);return d<now&&t.status!=="completed"&&t.status!=="cancelled";}).length;
     const waitGp=all.filter(t=>t.status==="waiting_on_gp").length;
     const waitPrac=all.filter(t=>t.status==="waiting_on_practice").length;
+    const needsFollowUp=all.filter(t=>(t.status==="waiting_on_gp"||t.status==="waiting_on_practice"||t.status==="waiting_on_external")&&t.updated_at&&Math.floor((now.getTime()-new Date(t.updated_at).getTime())/86400000)>=7).length;
     document.getElementById("opsStats").innerHTML=
       `<div class="ops-stat"><div class="ops-stat-val blue">${openC}</div><div class="ops-stat-label">Open Tasks</div></div>`+
       `<div class="ops-stat"><div class="ops-stat-val red">${urgentC}</div><div class="ops-stat-label">Urgent</div></div>`+
       `<div class="ops-stat"><div class="ops-stat-val ${overdueC?"red":""}">${overdueC}</div><div class="ops-stat-label">Overdue</div></div>`+
       `<div class="ops-stat"><div class="ops-stat-val amber">${waitGp}</div><div class="ops-stat-label">Waiting on GP</div></div>`+
-      `<div class="ops-stat"><div class="ops-stat-val amber">${waitPrac}</div><div class="ops-stat-label">Waiting on Practice</div></div>`;
+      `<div class="ops-stat"><div class="ops-stat-val amber">${waitPrac}</div><div class="ops-stat-label">Waiting on Practice</div></div>`+
+      `<div class="ops-stat"><div class="ops-stat-val ${needsFollowUp?"purple":""}">${needsFollowUp}</div><div class="ops-stat-label">Needs Follow-up</div></div>`;
   }
 
   function renderOpsTable(){
@@ -3081,7 +3085,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <td><span class="ops-gp-name">${esc(t.gp_name||"\u2014")}</span></td>
         <td><span class="ops-task-title" title="${esc(t.title||"")}">${esc(t.title||"\u2014")}</span></td>
         <td><span class="ops-domain-badge ${esc(t.domain||"")}">${esc(t.domain||"\u2014")}</span></td>
-        <td><span class="ops-status-pill ${esc(t.status||"")}">${esc(statusLabel)}</span></td>
+        <td><span class="ops-status-pill ${esc(t.status||"")}">${esc(statusLabel)}</span>${(t.status==="waiting_on_gp"||t.status==="waiting_on_practice"||t.status==="waiting_on_external")&&t.updated_at?(()=>{const wd=Math.floor((Date.now()-new Date(t.updated_at).getTime())/86400000);return wd>0?' <span style="font-size:10px;color:'+(wd>=7?'#dc2626':'var(--muted)')+';font-weight:'+(wd>=7?'700':'500')+'">'+wd+'d</span>':'';})():''}</td>
         <td><span class="ops-pri-pill ${esc(t.priority||"normal")}">${esc(t.priority||"normal")}</span></td>
         <td><span class="ops-due${isOverdue?" overdue":""}">${isOverdue?"OVERDUE \u2022 ":""}${fmtD(t.due_date||t.sla_due_date)}</span></td>
         <td class="hide-mobile"><span class="task-tag stage">${esc(t.related_stage||t.case_stage||"\u2014")}</span></td>
