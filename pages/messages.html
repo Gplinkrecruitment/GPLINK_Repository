@@ -772,6 +772,7 @@
     let currentView = "viewMyTickets";
     let selectedTicketId = null;
     let isUrgent = false;
+    let pendingNudgeReply = false;
 
     /* ═══ UTILITIES ═══ */
     function parseStorage(key) { const r = localStorage.getItem(key); if (!r) return null; try { return JSON.parse(r); } catch { return null; } }
@@ -1163,10 +1164,12 @@
       const caseCode=`Case GP-${dayCode}-${String(nextNo).padStart(3,"0")}`;
       const priority=isUrgent?"blocked":"normal";
       const ticketData={id:`case_${Date.now()}_${Math.floor(Math.random()*1000)}`,caseCode,title,category:category||"Other",priority,status:"open",unread:false,createdAt:now,updatedAt:now,thread:[{from:"me",text:description,ts:now,attachments:attachment?[attachment]:[]}]};
+      if(pendingNudgeReply){ticketData.source="nudge_reply";}
       const createdCase=normalizeCase(ticketData);
       cases.unshift(createdCase);
       saveSupportCases(cases);
       createTicketOnServer(ticketData);
+      pendingNudgeReply=false;
       localStorage.removeItem(SUPPORT_DRAFT_KEY);
       newCategoryEl.value="";newSubjectEl.value="";newDescriptionEl.value="";newAttachmentEl.value="";uploadFileNameEl.hidden=true;
       isUrgent=false;urgentToggleEl.classList.remove("on");urgentToggleEl.setAttribute("aria-checked","false");
@@ -1194,6 +1197,7 @@
           var updates=JSON.parse(localStorage.getItem("gp_link_updates")||"[]");
           var nudge=updates.find(function(u){return u&&u.type==="action";});
           if(nudge){
+            pendingNudgeReply=true;
             newSubjectEl.value=nudge.title||"";
             newDescriptionEl.value="Replying to: \""+( nudge.detail||nudge.title||"")+ "\"\n\n";
           }

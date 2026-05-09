@@ -5296,6 +5296,7 @@ async function upsertSupportTicketFromLegacy(userId, caseId, legacyTicket, stage
     substage: substage || null,
     priority: ['urgent','high','normal','low','blocked','time_sensitive'].includes(legacyTicket.priority) ? legacyTicket.priority : 'normal',
     status: legacyTicket.status === 'closed' ? 'closed' : 'open',
+    source: legacyTicket.source === 'nudge_reply' ? 'nudge_reply' : 'manual',
     thread_json: Array.isArray(legacyTicket.thread) ? legacyTicket.thread : [],
     created_at: legacyTicket.createdAt || new Date().toISOString(),
     updated_at: legacyTicket.updatedAt || new Date().toISOString()
@@ -20265,6 +20266,7 @@ Return ONLY valid JSON with no markdown formatting:
         attachments: []
       })) : []
     };
+    if (body.source === 'nudge_reply') ticket.source = 'nudge_reply';
 
     if (isSupabaseDbConfigured()) {
       try {
@@ -22967,7 +22969,7 @@ Return ONLY valid JSON with no markdown formatting:
         items.push({
           id: tk.id,
           kind: 'ticket',
-          source: 'manual',
+          source: tk.source || 'manual',
           user_id: tk.user_id,
           case_id: tk.case_id || null,
           title: tk.title || 'Support request',
