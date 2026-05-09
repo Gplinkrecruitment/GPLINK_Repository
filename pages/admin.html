@@ -1950,8 +1950,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html+='</div>';
 
       if(isLocked){
-        html+='<div class="stage-task" style="opacity:.35;pointer-events:none"><div class="st-body"><div style="font-size:11px;color:var(--muted)">'+group.tasks.map(t=>esc(t.title)).join(' \u2022 ')+'</div></div></div>';
-      }else{
+        var lockedTasks=group.tasks.filter(t=>t.task_type!=='email_triage');
+        var emailTasks=group.tasks.filter(t=>t.task_type==='email_triage');
+        if(lockedTasks.length)html+='<div class="stage-task" style="opacity:.35;pointer-events:none"><div class="st-body"><div style="font-size:11px;color:var(--muted)">'+lockedTasks.map(t=>esc(t.title)).join(' \u2022 ')+'</div></div></div>';
+        // Email tasks are never locked — fall through to normal rendering
+        if(!emailTasks.length){html+='</div>';return;}
+        group.tasks=emailTasks;
+      }
+      {
         group.tasks.forEach(t=>{
           const guided=getGuidedAction(t);
           const isUrgent=t.priority==='urgent';
