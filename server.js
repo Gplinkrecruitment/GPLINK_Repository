@@ -22607,10 +22607,11 @@ Return ONLY valid JSON with no markdown formatting:
         qualifications: { required: qualSnap.required.length, approved: qualSnap.approved.length, missing: qualSnap.missing.map(function (m) { return m.label || m.key; }) },
         whatsapp_recent: dtMessages,
         email_thread: emailThread,
-        current_email: { from: task.email_sender, subject: task.title, body: task.email_body_snippet || task.description }
+        current_email: { from: task.email_sender, sender_name: task.email_sender ? task.email_sender.split('@')[0].replace(/[._]/g, ' ') : '', subject: task.title, body: task.email_body_snippet || task.description },
+        practice_contact: { name: regCase.practice_contact_name || '', email: regCase.practice_contact_email || '' }
       }, null, 2);
 
-      var systemPrompt = 'You are drafting an email reply for Hazel, a Virtual Assistant at GP Link who helps international GPs register to practice in Australia. Write a professional, helpful reply. Use the GP context provided to give accurate, specific information. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows. Return ONLY the email reply text, no subject line or metadata.';
+      var systemPrompt = 'You are drafting an email reply for Hazel, a Virtual Assistant at GP Link who helps international GPs register to practice in Australia. IMPORTANT: The reply is addressed TO THE SENDER of the email (shown in current_email.from), NOT to the GP. The GP is the candidate being discussed. Address the sender by name if known, or professionally if not. Use the GP context to give accurate, specific information about the GP\'s registration progress. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows. Return ONLY the email reply text, no subject line or metadata.';
 
       var apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) { sendJson(res, 503, { ok: false, message: 'AI not configured.' }); return; }

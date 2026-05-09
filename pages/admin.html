@@ -3303,7 +3303,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       /* Toggle email triage panel */
       var etRow=e.target.closest("[data-task-row]");
-      if(etRow&&!e.target.closest("button")&&!e.target.closest("a")&&!e.target.closest(".st-dropdown")){
+      if(etRow&&!e.target.closest("button")&&!e.target.closest("a")&&!e.target.closest(".st-dropdown")&&!e.target.closest(".et-panel")&&!e.target.closest("textarea")){
         var panelId="et-panel-"+etRow.getAttribute("data-task-row");
         var panel=document.getElementById(panelId);
         if(panel){
