@@ -1,0 +1,14 @@
+name: Gmail Poll
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll Gmail for new emails
+        run: |
+          curl -sf "https://app.mygplink.com.au/api/cron/process-gmail" || echo "Poll failed"
