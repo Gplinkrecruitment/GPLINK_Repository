@@ -3039,7 +3039,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const overdue=document.getElementById("opsOverdue").checked;
     let url="/api/admin/ops/queue?limit=200";
     if(domain)url+="&domain="+encodeURIComponent(domain);
-    if(status&&status!=="all_active")url+="&status="+encodeURIComponent(status);
+    if(status&&status!=="all_active"&&status!=="needs_followup")url+="&status="+encodeURIComponent(status);
     if(status==="all_active")url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked";
     if(status==="needs_followup")url+="&status=waiting_on_gp,waiting_on_practice,waiting_on_external&stale_days=7";
     if(priority)url+="&priority="+encodeURIComponent(priority);
