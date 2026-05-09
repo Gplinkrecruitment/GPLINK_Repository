@@ -22611,7 +22611,12 @@ Return ONLY valid JSON with no markdown formatting:
         practice_contact: { name: regCase.practice_contact_name || '', email: regCase.practice_contact_email || '' }
       }, null, 2);
 
-      var systemPrompt = 'You are drafting an email reply for Hazel, a Virtual Assistant at GP Link who helps international GPs register to practice in Australia. IMPORTANT: The reply is addressed TO THE SENDER of the email (shown in current_email.from), NOT to the GP. The GP is the candidate being discussed. Address the sender by name if known, or professionally if not. Use the GP context to give accurate, specific information about the GP\'s registration progress. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows. Return ONLY the email reply text, no subject line or metadata.';
+      var senderIsGp = task.email_sender && profile.email && task.email_sender.toLowerCase() === profile.email.toLowerCase();
+      var systemPrompt = 'You are drafting an email reply for Hazel, a Virtual Assistant at GP Link who helps international GPs register to practice in Australia. '
+        + (senderIsGp
+          ? 'The sender IS the GP candidate themselves. Address them directly and personally about their own registration progress.'
+          : 'The sender is NOT the GP — they are a third party (practice contact, AHPRA officer, or other). Address the sender professionally and refer to the GP (' + gpName + ') in third person when discussing their registration.')
+        + ' Use the GP context to give accurate, specific information. Keep the tone warm but professional. Do not fabricate information — only reference what the context shows. Return ONLY the email reply text, no subject line or metadata.';
 
       var apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) { sendJson(res, 503, { ok: false, message: 'AI not configured.' }); return; }
