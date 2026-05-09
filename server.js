@@ -22669,6 +22669,56 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // Check if the RSO has replied to an email thread before allowing resolve
+  if (pathname === '/api/admin/email-triage/check-reply' && req.method === 'POST') {
+    var crAdminCtx = requireAdminSession(req, res);
+    if (!crAdminCtx) return;
+    var crBody;
+    try { crBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid request.' }); return; }
+    var crTaskId = String(crBody.taskId || '').trim();
+    if (!crTaskId) { sendJson(res, 400, { ok: false, message: 'taskId required.' }); return; }
+
+    try {
+      var crTaskRes = await supabaseDbRequest('registration_tasks', 'select=gmail_thread_id,gmail_message_id&id=eq.' + encodeURIComponent(crTaskId) + '&limit=1');
+      var crTask = crTaskRes.ok && Array.isArray(crTaskRes.data) && crTaskRes.data[0] ? crTaskRes.data[0] : null;
+      if (!crTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+
+      if (!crTask.gmail_thread_id) {
+        // No thread ID — can't verify, allow resolve
+        sendJson(res, 200, { ok: true, replied: true, reason: 'no_thread_id' });
+        return;
+      }
+
+      var crGmail = await getGmailClient('hazel@mygplink.com.au');
+      if (!crGmail) {
+        // Can't check — allow resolve
+        sendJson(res, 200, { ok: true, replied: true, reason: 'gmail_unavailable' });
+        return;
+      }
+
+      var crThread = await crGmail.users.threads.get({
+        userId: 'hazel@mygplink.com.au',
+        id: crTask.gmail_thread_id,
+        format: 'metadata',
+        metadataHeaders: ['From']
+      });
+
+      var crMessages = crThread.data && Array.isArray(crThread.data.messages) ? crThread.data.messages : [];
+      var hazelReplied = crMessages.some(function (m) {
+        if (!m.payload || !Array.isArray(m.payload.headers)) return false;
+        var fromHeader = m.payload.headers.find(function (h) { return h.name === 'From'; });
+        return fromHeader && fromHeader.value && fromHeader.value.toLowerCase().indexOf('hazel@mygplink.com.au') >= 0;
+      });
+
+      sendJson(res, 200, { ok: true, replied: hazelReplied });
+    } catch (crErr) {
+      console.error('[check-reply] Error:', crErr.message);
+      // On error, allow resolve rather than blocking
+      sendJson(res, 200, { ok: true, replied: true, reason: 'check_error' });
+    }
+    return;
+  }
+
   // ── Sync: bulk create cases for all GPs ──
   if (pathname === '/api/admin/cases/sync' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
