@@ -701,6 +701,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .sg-count{font-size:11px;color:var(--muted);font-weight:500}
 .sg-lock-badge{font-size:10px;color:var(--muted);background:var(--bg2);padding:2px 8px;border-radius:4px;margin-left:auto}
 .stage-group.locked .stage-task{opacity:.35;pointer-events:none}
+.stage-group.locked .stage-task.unlocked-email{opacity:1;pointer-events:auto}
 
 /* ── Guided Task Card ── */
 .stage-task{background:var(--panel);border-radius:var(--radius);border:1px solid var(--line);padding:12px;margin-bottom:6px;transition:border-color .15s}
@@ -1965,7 +1966,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           const isNext=isFirstActiveTask;
           if(isNext)isFirstActiveTask=false;
 
-          html+='<div class="stage-task'+(isNext?' active-next':'')+'" data-task-row="'+esc(t.id)+'">';
+          html+='<div class="stage-task'+(isNext?' active-next':'')+(t.task_type==='email_triage'?' unlocked-email':'')+'" data-task-row="'+esc(t.id)+'">';
           html+='<div class="st-top">';
           html+='<div class="st-body">';
           html+='<div class="st-title">'+esc(t.title);
