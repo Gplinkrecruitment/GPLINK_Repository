@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VA Command Centre - GP Link</title>
+  <title>RSO Command Centre - GP Link</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
@@ -755,7 +755,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 <body>
   <div class="top-bar">
     <div class="top-bar-left">
-      <h1 id="topTitle">VA Command Centre</h1>
+      <h1 id="topTitle">RSO Command Centre</h1>
       <div class="top-chips" id="topChips"></div>
     </div>
     <div class="top-search">
@@ -989,7 +989,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     myintealth:{gp:"Create MyIntealth account, complete onboarding, upload qualification certificates.",va:"Verify uploaded documents match GP credentials. Approve verification or request re-upload if rejected."},
     amc:{gp:"Create AMC account, upload credentials and portfolio documents.",va:"Confirm AMC account created. Help GP gather required credentials. Check qualifications are accepted."},
     ahpra:{gp:"Complete AHPRA registration form, submit documents, respond to assessment queries.",va:"Guide through AHPRA stages. Ensure submission is complete. Monitor assessment. Escalate if stuck."},
-    visa:{gp:"Upload required visa documents, respond to document requests from VA.",va:"Create visa case in admin-visa. Review documents. Request missing items. Track visa progress."},
+    visa:{gp:"Upload required visa documents, respond to document requests from your Registration Support Officer.",va:"Create visa case in admin-visa. Review documents. Request missing items. Track visa progress."},
     pbs:{gp:"Upload Medicare/PBS documents, provide practice details when requested.",va:"Create PBS case in admin-pbs. Apply for Medicare Provider Number and PBS Prescriber Number."},
     commencement:{gp:"Complete pre-arrival checklist, confirm arrival date.",va:"Prepare welcome pack. Coordinate with practice. Confirm all registrations complete."}
   };
@@ -1719,7 +1719,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   /* ══ Render ══ */
   function renderTopBar(){
-    document.getElementById("topTitle").textContent=isSA()?"CEO Command Centre":"VA Command Centre";
+    document.getElementById("topTitle").textContent=isSA()?"CEO Command Centre":"RSO Command Centre";
     const c=counts();
     document.getElementById("topChips").innerHTML=[
       `<span class="chip"><b>${c.all}</b> GPs</span>`,

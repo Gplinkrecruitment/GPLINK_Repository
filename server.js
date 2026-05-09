@@ -22613,7 +22613,7 @@ Return ONLY valid JSON with no markdown formatting:
       }, null, 2);
 
       var senderIsGp = task.email_sender && profile.email && task.email_sender.toLowerCase() === profile.email.toLowerCase();
-      var systemPrompt = 'You are drafting an email reply for Hazel, a Virtual Assistant at GP Link who helps international GPs register to practice in Australia. '
+      var systemPrompt = 'You are drafting an email reply for Hazel, a Registration Support Officer at GP Link who helps international GPs register to practice in Australia. Always sign off as "Hazel" with title "Registration Support Officer | GP Link". Never use the title "Virtual Assistant". '
         + (senderIsGp
           ? 'The sender IS the GP candidate themselves. Address them directly and personally about their own registration progress.'
           : 'The sender is NOT the GP — they are a third party (practice contact, AHPRA officer, or other). Address the sender professionally and refer to the GP (' + gpName + ') in third person when discussing their registration.')
