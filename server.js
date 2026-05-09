@@ -1207,7 +1207,8 @@ const USER_STATE_KEYS = [
   'gp_career_state',
   'gp_onboarding_complete',
   'gp_onboarding',
-  'gp_registration_return_overrides'
+  'gp_registration_return_overrides',
+  'gp_amc_myintealth_id'
 ];
 
 const EPIC_STAGE_META = [

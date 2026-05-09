@@ -19,7 +19,8 @@
     'gp_career_state',
     'gp_onboarding',
     'gp_onboarding_complete',
-    'gp_registration_return_overrides'
+    'gp_registration_return_overrides',
+    'gp_amc_myintealth_id'
   ];
   const SAVE_BATCH_META_SUFFIX = '__save_batch_meta';
   const SESSION_OWNER_KEY = 'gp_state_owner';
