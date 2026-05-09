@@ -15624,7 +15624,8 @@ async function handleApi(req, res, pathname) {
       status: 'healthy',
       environment: NODE_ENV,
       authDisabled: AUTH_DISABLED,
-      serverTime: new Date().toISOString()
+      serverTime: new Date().toISOString(),
+      build: '20260510a'
     });
     return;
   }
