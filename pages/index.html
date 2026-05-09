@@ -1426,21 +1426,24 @@
 
       listEl.innerHTML = "";
       steps.forEach((step, idx) => {
-        const effectiveStepDone = step.done && !bypassAll;
+        const stepReturnable = step.done && (bypassAll || isRegistrationReturnAllowed(step.key));
+        const effectiveStepDone = step.done && !bypassAll && !stepReturnable;
         const isActive = idx === currentIdx && !step.done;
         const stateClass = effectiveStepDone ? "done" : step.locked ? "locked" : isActive ? "active" : "";
-        const isOpen = isActive || (bypassAll && idx === currentIdx);
+        const isOpen = isActive || (bypassAll && idx === currentIdx) || (stepReturnable && idx === currentIdx);
 
         const el = document.createElement("div");
         el.className = `journey-step ${stateClass} ${isOpen ? "open" : ""}`.trim();
 
         const pillClass = effectiveStepDone ? "done" : step.locked ? "locked" : "current";
-        const pillText = effectiveStepDone ? "Done" : step.locked ? "Locked" : isActive ? "Current" : "Ready";
+        const pillText = effectiveStepDone ? "Done" : step.locked ? "Locked" : stepReturnable ? "Return" : isActive ? "Current" : "Ready";
 
         let bodyHtml = "";
         if (step.subs) {
           bodyHtml = '<div class="journey-subs">' + step.subs.map((sub) => {
-            const subState = (sub.done && !bypassAll) ? "done" : sub.locked ? "locked" : "active";
+            const subReturnable = sub.done && (bypassAll || isRegistrationReturnAllowed(sub.key));
+            const subEffectiveDone = sub.done && !bypassAll && !subReturnable;
+            const subState = subEffectiveDone ? "done" : sub.locked ? "locked" : "active";
             return `
               <div class="journey-sub-item ${subState}">
                 <span class="journey-sub-dot ${subState}"></span>
@@ -1448,21 +1451,21 @@
                   <div class="journey-sub-title">${sub.title}</div>
                   <div class="journey-sub-detail">${sub.sub}</div>
                 </div>
-                ${(sub.done && !bypassAll)
+                ${subEffectiveDone
                   ? '<span class="journey-pill done" style="font-size:10px;padding:3px 10px;">Done</span>'
                   : sub.locked
                     ? '<span class="journey-pill locked" style="font-size:10px;padding:3px 10px;">Locked</span>'
-                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="${sub.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
+                    : `<a class="journey-body-cta" style="padding:6px 14px;font-size:12px;" href="${sub.href}">${subReturnable ? "Return" : "Continue"} <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`
                 }
               </div>
             `;
           }).join("") + '</div>';
         } else {
           bodyHtml = `<p>${step.detail}</p>`;
-          if (step.done && !bypassAll) {
+          if (effectiveStepDone) {
             bodyHtml += '<span class="journey-body-cta done-cta"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> Completed</span>';
           } else if (!step.locked) {
-            bodyHtml += `<a class="journey-body-cta" href="${step.href}">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
+            bodyHtml += `<a class="journey-body-cta" href="${step.href}">${stepReturnable ? "Return" : "Continue"} <svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></a>`;
           }
         }
 
