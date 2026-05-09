@@ -2784,7 +2784,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         body:JSON.stringify({status:status})
       });
       var d=await r.json().catch(function(){return {};});
-      if(!r.ok||!d.ok){toast("Failed to update status: "+(d.message||r.status),"red");return;}
+      if(!r.ok||!d.ok){toast("Failed to update status: "+(d.detail||d.message||r.status),"red");return;}
       toast("Status updated to "+status.replace(/_/g," "));
       await loadAll(true);
     }catch(err){console.error("[VA] updateTaskStatus failed",err);toast("Network error updating status","red");}
