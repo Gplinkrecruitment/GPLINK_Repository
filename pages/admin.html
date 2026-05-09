@@ -2778,13 +2778,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   async function updateTaskStatus(taskId,status){
     try{
-      await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{
+      var r=await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{
         method:"PUT",credentials:"same-origin",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({status:status})
       });
+      var d=await r.json().catch(function(){return {};});
+      if(!r.ok||!d.ok){toast("Failed to update status: "+(d.message||r.status),"red");return;}
+      toast("Status updated to "+status.replace(/_/g," "));
       await loadAll(true);
-    }catch(err){console.error("[VA] updateTaskStatus failed",err);}
+    }catch(err){console.error("[VA] updateTaskStatus failed",err);toast("Network error updating status","red");}
   }
 
   /* ── Practice Pack document action handlers (Task 9) ── */
@@ -3465,9 +3468,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(e.target.closest("[data-set-waiting]")){
         const btn=e.target.closest("[data-set-waiting]");
         const taskId=btn.getAttribute("data-set-waiting");
-        const status=btn.getAttribute("data-waiting");
-        updateTaskStatus(taskId,status);
+        const waitStatus=btn.getAttribute("data-waiting");
         document.querySelectorAll(".st-dropdown.open").forEach(d=>d.classList.remove("open"));
+        await updateTaskStatus(taskId,waitStatus);
         return;
       }
       const agStart=e.target.closest("[data-agent-start]");if(agStart){startAgentRun();return;}
