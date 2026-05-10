@@ -157,7 +157,8 @@
     .ops-panel{display:none;flex-direction:column;height:calc(100vh - 48px);overflow:hidden;background:var(--bg)}
     .ops-panel.active{display:flex}
     .ops-stats{display:flex;gap:10px;padding:14px 20px 0;flex-wrap:wrap}
-    .ops-stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 16px;flex:1;min-width:120px}
+    .ops-stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 16px;flex:1;min-width:120px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+    .ops-stat:hover{border-color:var(--blue);box-shadow:0 0 0 2px rgba(99,102,241,.12)}
     .ops-stat-val{font-size:22px;font-weight:900;letter-spacing:-.02em}
     .ops-stat-val.red{color:var(--red)}.ops-stat-val.amber{color:var(--amber)}.ops-stat-val.blue{color:var(--blue)}
     .ops-stat-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin-top:2px}
@@ -212,6 +213,7 @@
     .ops-note-area textarea{flex:1;min-height:36px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-family:inherit;resize:vertical}
     .ops-note-area textarea:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.06)}
     .ops-gp-name{font-weight:700;font-size:12px;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
+    a.ops-gp-link{cursor:pointer;text-decoration:none}a.ops-gp-link:hover{text-decoration:underline}
     .ops-task-title{font-weight:700;font-size:12px;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .ops-due{font-size:11px;white-space:nowrap}
     .ops-due.overdue{color:var(--red);font-weight:700}
@@ -1161,9 +1163,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           '<button class="btn-action btn-submit" onclick="approvePositionDescription(\'' + task.id + '\')">Approve & Send to GP</button>' +
           '</div>';
       }
-      return '<div class="doc-task-actions">' +
-        '<button class="btn-action btn-generate" onclick="generatePositionDescription(\'' + task.id + '\')">Generate Position Description</button>' +
-        '</div>';
+      if (task.zoho_attachment_id || task.attachment_url) {
+        return '<div class="doc-task-actions">' +
+          '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review: ' + (task.attachment_filename || 'Position Description').replace(/'/g, "\\'") + '</button>' +
+          '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Submit to GP</button>' +
+          '</div>';
+      }
+      var pdHtml = '<div class="doc-task-actions">';
+      var pdMailto = buildMailtoLinkFE(pc.contactEmail || '',
+        'Position Description Required \u2014 ' + gpName + ' at ' + (pc.practiceName || 'the practice'),
+        'Hi ' + (pc.contactName || '') + ',\\n\\nWe require a position description for ' + gpName + '\\\'s Specialist Registration application with AHPRA at ' + (pc.practiceName || 'the practice') + '.\\n\\nPlease reply with the position description attached.\\n\\nKind regards,\\nGP Link Team');
+      pdHtml += '<a class="btn-action btn-mailto" href="' + pdMailto + '" onclick="markTaskWaiting(\'' + task.id + '\')">Email Practice</a>';
+      pdHtml += '</div>';
+      pdHtml += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
+      if (task.status === 'waiting_on_practice') pdHtml += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
+      return pdHtml;
     }
 
     if (dk === 'offer_contract') {
@@ -1892,7 +1906,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       if(dk==='position_description'){
         if(hasHtml)return{prompt:'Review the generated position description and approve',label:'Edit & Review',action:'editPD',taskId:t.id};
-        return{prompt:'Generate a position description using AI',label:'Generate',action:'generatePD',taskId:t.id};
+        if(hasAttachment)return{prompt:'Review the uploaded position description',label:'Review Doc',action:'previewDoc',taskId:t.id};
+        if(t.status==='waiting_on_practice')return{prompt:'Waiting on practice to send the position description',label:'Waiting',action:null,taskId:t.id};
+        return{prompt:'Email the practice requesting the Position Description',label:'Email Practice',action:'emailPractice',taskId:t.id,dk:dk};
       }
       if(hasAttachment&&t.gmail_message_id){
         return{prompt:'Review the auto-matched document and approve or request revision',label:'Review Doc',action:'previewDoc',taskId:t.id};
@@ -3074,12 +3090,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const waitPrac=all.filter(t=>t.status==="waiting_on_practice").length;
     const needsFollowUp=all.filter(t=>(t.status==="waiting_on_gp"||t.status==="waiting_on_practice"||t.status==="waiting_on_external")&&t.updated_at&&Math.floor((now.getTime()-new Date(t.updated_at).getTime())/86400000)>=7).length;
     document.getElementById("opsStats").innerHTML=
-      `<div class="ops-stat"><div class="ops-stat-val blue">${openC}</div><div class="ops-stat-label">Open Tasks</div></div>`+
-      `<div class="ops-stat"><div class="ops-stat-val red">${urgentC}</div><div class="ops-stat-label">Urgent</div></div>`+
-      `<div class="ops-stat"><div class="ops-stat-val ${overdueC?"red":""}">${overdueC}</div><div class="ops-stat-label">Overdue</div></div>`+
-      `<div class="ops-stat"><div class="ops-stat-val amber">${waitGp}</div><div class="ops-stat-label">Waiting on GP</div></div>`+
-      `<div class="ops-stat"><div class="ops-stat-val amber">${waitPrac}</div><div class="ops-stat-label">Waiting on Practice</div></div>`+
-      `<div class="ops-stat"><div class="ops-stat-val ${needsFollowUp?"purple":""}">${needsFollowUp}</div><div class="ops-stat-label">Needs Follow-up</div></div>`;
+      `<div class="ops-stat" data-ops-filter="open" title="Filter to open tasks"><div class="ops-stat-val blue">${openC}</div><div class="ops-stat-label">Open Tasks</div></div>`+
+      `<div class="ops-stat" data-ops-filter="urgent" title="Filter to urgent tasks"><div class="ops-stat-val red">${urgentC}</div><div class="ops-stat-label">Urgent</div></div>`+
+      `<div class="ops-stat" data-ops-filter="overdue" title="Filter to overdue tasks"><div class="ops-stat-val ${overdueC?"red":""}">${overdueC}</div><div class="ops-stat-label">Overdue</div></div>`+
+      `<div class="ops-stat" data-ops-filter="waiting_on_gp" title="Filter to waiting on GP"><div class="ops-stat-val amber">${waitGp}</div><div class="ops-stat-label">Waiting on GP</div></div>`+
+      `<div class="ops-stat" data-ops-filter="waiting_on_practice" title="Filter to waiting on practice"><div class="ops-stat-val amber">${waitPrac}</div><div class="ops-stat-label">Waiting on Practice</div></div>`+
+      `<div class="ops-stat" data-ops-filter="needs_followup" title="Filter to needs follow-up"><div class="ops-stat-val ${needsFollowUp?"purple":""}">${needsFollowUp}</div><div class="ops-stat-label">Needs Follow-up</div></div>`;
   }
 
   function renderOpsTable(){
@@ -3092,7 +3108,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const isExpanded=S.opsExpandedId===t.id;
       const statusLabel=(t.status||"open").replace(/_/g," ");
       html+=`<tr class="ops-row${isOverdue?" overdue":""}${isExpanded?" selected":""}" data-ops-task-id="${esc(t.id)}">
-        <td><span class="ops-gp-name">${esc(t.gp_name||"\u2014")}</span></td>
+        <td>${t.case_id?`<a class="ops-gp-name ops-gp-link" data-ops-view-case="${esc(t.case_id)}">${esc(t.gp_name||"\u2014")}</a>`:`<span class="ops-gp-name">${esc(t.gp_name||"\u2014")}</span>`}</td>
         <td><span class="ops-task-title" title="${esc(t.title||"")}">${esc(t.title||"\u2014")}</span></td>
         <td><span class="ops-domain-badge ${esc(t.domain||"")}">${esc(t.domain||"\u2014")}</span></td>
         <td><span class="ops-status-pill ${esc(t.status||"")}">${esc(statusLabel)}</span>${(t.status==="waiting_on_gp"||t.status==="waiting_on_practice"||t.status==="waiting_on_external")&&t.updated_at?(()=>{const wd=Math.floor((Date.now()-new Date(t.updated_at).getTime())/86400000);return wd>0?' <span style="font-size:10px;color:'+(wd>=7?'#dc2626':'var(--muted)')+';font-weight:'+(wd>=7?'700':'500')+'">'+wd+'d</span>':'';})():''}</td>
@@ -3450,9 +3466,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(task){
             const pc=task.practice_contact||{};
             const gpName=task.gp_name||"the GP";
-            const docLabel=dk==="offer_contract"?"Offer/Contract":"Supervisor CV";
+            const docLabel=dk==="offer_contract"?"Offer/Contract":dk==="position_description"?"Position Description":"Supervisor CV";
             const subject=docLabel+" Required \u2014 "+gpName+" at "+(pc.practiceName||"the practice");
-            const body="Hi "+(pc.contactName||"")+",\n\nWe require the "+docLabel.toLowerCase()+" for "+gpName+".\n\nPlease reply with the document attached.\n\nKind regards,\nGP Link Team";
+            const bodyExtra=dk==="position_description"?" for "+gpName+"'s Specialist Registration application with AHPRA at "+(pc.practiceName||"the practice"):" for "+gpName;
+            const body="Hi "+(pc.contactName||"")+",\n\nWe require the "+docLabel.toLowerCase()+bodyExtra+".\n\nPlease reply with the document attached.\n\nKind regards,\nGP Link Team";
             window.open(buildMailtoLinkFE(pc.contactEmail||"",subject,body));
             if(typeof markTaskWaiting==="function")markTaskWaiting(taskId);
           }
@@ -3557,6 +3574,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("opsOverdue").addEventListener("change",()=>loadOpsQueue());
     document.getElementById("opsSlaBtn").addEventListener("click",runSlaCheck);
     document.getElementById("opsRefreshBtn").addEventListener("click",()=>loadOpsQueue());
+    document.getElementById("opsStats").addEventListener("click",e=>{
+      const stat=e.target.closest("[data-ops-filter]");if(!stat)return;
+      const f=stat.getAttribute("data-ops-filter");
+      const sel=document.getElementById("opsStatus");
+      if(f==="urgent"){sel.value="all_active";document.getElementById("opsPriority").value="urgent";}
+      else if(f==="overdue"){sel.value="all_active";document.getElementById("opsOverdue").checked=true;}
+      else if(f==="needs_followup"){sel.value="needs_followup";}
+      else{sel.value=f;}
+      loadOpsQueue();
+    });
     document.getElementById("opsTableBody").addEventListener("click",e=>{
       const row=e.target.closest("tr.ops-row");
       const saveBtn=e.target.closest("[data-ops-save]");

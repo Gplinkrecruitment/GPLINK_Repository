@@ -4919,7 +4919,7 @@ async function _ensureRegCase(userId) {
 async function _createRegTask(caseId, data) {
   if (!isSupabaseDbConfigured()) return null;
   const actor = data._actor || 'system';
-  const payload = { case_id: caseId };
+  const payload = { case_id: caseId, domain: 'registration' };
   for (const [k, v] of Object.entries(data)) { if (k !== '_actor') payload[k] = v; }
   const r = await supabaseDbRequest('registration_tasks', '', {
     method: 'POST', headers: { Prefer: 'return=representation' }, body: [payload]
@@ -22275,7 +22275,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
     }
     // Get open task counts per case
-    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting)');
+    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked)');
     const tasksByCase = {};
     if (tasksRes.ok && Array.isArray(tasksRes.data)) {
       tasksRes.data.forEach(function (t) {
@@ -26001,21 +26001,22 @@ Return ONLY valid JSON with no markdown formatting:
     const caseIds = [...new Set(tasks.map(function (t) { return t.case_id; }).filter(Boolean))];
     let caseMap = {};
     if (caseIds.length > 0) {
-      const cRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,status,assigned_va,visa_case_id,practice_name,sponsor_name&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
+      const cRes = await supabaseDbRequest('registration_cases', 'select=*&id=in.(' + caseIds.map(encodeURIComponent).join(',') + ')');
       if (cRes.ok && Array.isArray(cRes.data)) { cRes.data.forEach(function (c) { caseMap[c.id] = c; }); }
     }
     const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
     if (userIds.length > 0) {
-      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
     }
     const enriched = tasks.map(function (t) {
       const c = caseMap[t.case_id] || {};
       const p = profileMap[c.user_id] || {};
       return Object.assign({}, t, {
-        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || 'Unknown',
+        gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
         gp_email: p.email || '',
+        gp_phone: p.phone || p.phone_number || '',
         case_stage: c.stage || '',
         case_status: c.status || '',
         practice_name: c.practice_name || '',
