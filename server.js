@@ -2790,8 +2790,9 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
   if (HELP_PATTERNS.some((p) => p.test(messageBody))) return true;
 
   // Skip AI if not configured, over global budget, or over per-phone budget
+  // Default to TRUE (treat as help request) — missing a message is worse than a false positive
   if (!ANTHROPIC_API_KEY || !checkAnthropicBudget() || !checkDtPhoneBudget(fromPhone)) {
-    return false;
+    return true;
   }
 
   const controller = new AbortController();
@@ -2815,8 +2816,8 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
       })
     });
     if (!resp.ok) {
-      console.warn('[doubletick-webhook] AI classify failed:', resp.status);
-      return false;
+      console.warn('[doubletick-webhook] AI classify failed:', resp.status, '— defaulting to help request');
+      return true;
     }
     const result = await resp.json();
     const answer = (result.content && result.content[0] && result.content[0].text || '').trim().toUpperCase();
@@ -2824,10 +2825,11 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
     // Record against both global and per-phone budgets
     recordAnthropicSpend(usage.input_tokens || 0, usage.output_tokens || 0, usage.cache_read_input_tokens || 0, usage.cache_creation_input_tokens || 0);
     recordDtPhoneSpend(fromPhone, usage.input_tokens || 0, usage.output_tokens || 0);
-    return answer === 'YES';
+    // Only ignore if AI explicitly says NO — ambiguous or empty answers default to help request
+    return answer !== 'NO';
   } catch (err) {
-    console.warn('[doubletick-webhook] AI classify error:', err && err.message);
-    return false;
+    console.warn('[doubletick-webhook] AI classify error:', err && err.message, '— defaulting to help request');
+    return true;
   } finally {
     clearTimeout(timeout);
   }
@@ -3040,8 +3042,14 @@ async function handleDoubleTickWebhook(req, res) {
       if (cr.ok && Array.isArray(cr.data) && cr.data.length > 0) activeCase = cr.data[0];
     }
 
+    // If GP profile found but no active case, create one so the message isn't lost
+    if (!activeCase && gpProfile && isSupabaseDbConfigured()) {
+      activeCase = await _ensureRegCase(gpProfile.user_id);
+      if (activeCase) console.log('[doubletick-webhook] Created registration case for', gpProfile.user_id);
+    }
+
     if (!activeCase) {
-      console.warn('[doubletick-webhook] No active case for phone:', fromPhone);
+      console.warn('[doubletick-webhook] No GP profile or case for phone:', fromPhone, '— message stored in doubletick_messages but no task created');
       sendJson(res, 200, { ok: true, action: 'no_active_case' });
       return;
     }
@@ -3079,7 +3087,7 @@ async function handleDoubleTickWebhook(req, res) {
       : 'GP requested WhatsApp help — ' + _dtStageLabel;
     const taskPayload = {
       case_id: activeCase.id,
-      task_type: isNudgeReply ? 'nudge_reply' : 'whatsapp_help',
+      task_type: 'whatsapp_help',
       title: taskTitle,
       description: messageBody.slice(0, 500),
       priority: 'high',
