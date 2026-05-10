@@ -823,13 +823,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <option value="system">System</option>
         </select>
         <select id="opsStatus">
+          <option value="all_active">All Active</option>
           <option value="open">Open</option>
           <option value="in_progress">In Progress</option>
           <option value="waiting_on_gp">Waiting on GP</option>
           <option value="waiting_on_practice">Waiting on Practice</option>
           <option value="waiting_on_external">Waiting on External</option>
           <option value="blocked">Blocked</option>
-          <option value="all_active">All Active</option>
           <option value="needs_followup">Needs Follow-up (7+ days)</option>
           <option value="completed">Completed</option>
         </select>
@@ -3047,10 +3047,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(status==="needs_followup")url+="&status=waiting_on_gp,waiting_on_practice,waiting_on_external&stale_days=7";
     if(priority)url+="&priority="+encodeURIComponent(priority);
     if(overdue)url+="&overdue=true";
+    // Always fetch all active tasks for stats counters (parallel with filtered fetch)
+    const statsUrl="/api/admin/ops/queue?limit=500&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked";
     try{
-      const r=await fetch(url,{credentials:"same-origin"});
+      const [r,sr]=await Promise.all([
+        fetch(url,{credentials:"same-origin"}),
+        fetch(statsUrl,{credentials:"same-origin"})
+      ]);
       const d=await r.json().catch(()=>({}));
+      const sd=await sr.json().catch(()=>({}));
       if(d.ok&&Array.isArray(d.tasks))S.opsTasks=d.tasks;
+      S.opsTasksAll=(sd.ok&&Array.isArray(sd.tasks))?sd.tasks:S.opsTasks;
     }catch{}
     S.opsLoading=false;
     renderOpsStats();
@@ -3058,7 +3065,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function renderOpsStats(){
-    const all=S.opsTasks;
+    const all=S.opsTasksAll||S.opsTasks;
     const now=new Date();
     const openC=all.filter(t=>t.status==="open").length;
     const urgentC=all.filter(t=>t.priority==="urgent").length;
