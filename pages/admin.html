@@ -1935,6 +1935,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(t.task_type==='whatsapp_help'){
       return{prompt:'Respond to the GP\u2019s WhatsApp query',label:'Open Chat',action:'openWhatsApp',taskId:t.id};
     }
+    if(t.task_type==='email_triage'){
+      return{prompt:'Reply via Gmail, then mark resolved',label:'Mark Resolved',action:'resolveEmail',taskId:t.id};
+    }
     if(t.task_type==='followup'||t.task_type==='chase'||t.task_type==='nudge_reply'){
       return{prompt:'Follow up with the GP',label:'Follow Up',action:'completeTask',taskId:t.id};
     }
@@ -2788,6 +2791,30 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"completed"})});
     await loadAll(true);
   }
+  async function resolveEmailTask(btn,taskId){
+    var origText=btn.textContent;
+    btn.disabled=true;
+    btn.textContent="Checking\u2026";
+    try{
+      var cr=await fetch("/api/admin/email-triage/check-reply",{
+        method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({taskId:taskId})
+      });
+      var crd=await cr.json().catch(function(){return {};});
+      if(crd.ok&&crd.replied){
+        completeTask(taskId);
+      }else{
+        toast("No email reply found \u2014 please reply via Gmail before resolving.","red");
+        btn.textContent=origText;
+        btn.disabled=false;
+      }
+    }catch(err){
+      toast("Failed to check reply status","red");
+      btn.textContent=origText;
+      btn.disabled=false;
+    }
+  }
   async function startTask(taskId){
     await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({status:"in_progress"})});
     await loadAll(true);
@@ -3459,6 +3486,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         const task=(S.tasks||[]).find(t=>t.id===taskId);
 
         if(action==="completeTask"){completeTask(taskId);}
+        else if(action==="resolveEmail"){resolveEmailTask(btn,taskId);}
         else if(action==="previewDoc"){previewTaskDoc(taskId);}
         else if(action==="generatePD"){generatePositionDescription(taskId);}
         else if(action==="editPD"){if(typeof openPDEditor==="function")openPDEditor(taskId);}
@@ -3518,7 +3546,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const gpBack=e.target.closest("[data-gp-back]");
       if(gpBack){S.selectedCaseId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderCaseList();renderDetail();return;}
       if(e.target.closest("[data-back]")){S.selectedCaseId=null;document.getElementById("mainLayout").classList.remove("detail-open");renderDetail();return;}
-      const ct=e.target.closest("[data-complete-task]");if(ct){completeTask(ct.getAttribute("data-complete-task"));return;}
+      const ct=e.target.closest("[data-complete-task]");if(ct){var ctId=ct.getAttribute("data-complete-task");var ctTask=(S.tasks||[]).find(function(t){return t.id===ctId;});if(ctTask&&ctTask.task_type==='email_triage'){resolveEmailTask(ct,ctId);}else{completeTask(ctId);}return;}
       const st=e.target.closest("[data-start-task]");if(st){startTask(st.getAttribute("data-start-task"));return;}
       const sc=e.target.closest("[data-save-case]");if(sc){saveCase(sc.getAttribute("data-save-case"));return;}
       const an=e.target.closest("[data-add-note]");if(an){addCaseNote(an.getAttribute("data-add-note"));return;}

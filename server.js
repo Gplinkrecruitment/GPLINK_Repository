@@ -22440,9 +22440,58 @@ Return ONLY valid JSON with no markdown formatting:
     }
     const userIds = [...new Set(Object.values(caseMap).map(function (c) { return c.user_id; }).filter(Boolean))];
     let profileMap = {};
+    let stateMap = {};
     if (userIds.length > 0) {
-      const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      const [pRes, sRes] = await Promise.all([
+        supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'),
+        supabaseDbRequest('user_state', 'select=user_id,state&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')')
+      ]);
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
+      if (sRes.ok && Array.isArray(sRes.data)) { sRes.data.forEach(function (s) { stateMap[s.user_id] = (s && typeof s.state === 'object') ? s.state : {}; }); }
+    }
+    // Build practice contact lookup from career state + gp_applications (hired)
+    const practiceContactMap = {};
+    for (const uid of userIds) {
+      const st = stateMap[uid] || {};
+      const career = typeof st.gp_career_state === 'string' ? {} : (st.gp_career_state || {});
+      const apps = Array.isArray(career.applications) ? career.applications : [];
+      const secured = apps.find(function (a) { return a && a.isPlacementSecured === true; });
+      if (secured && secured.placement) {
+        practiceContactMap[uid] = {
+          practiceName: secured.placement.practiceName || '',
+          contactName: secured.placement.practiceContact ? secured.placement.practiceContact.name : '',
+          contactEmail: secured.placement.practiceContact ? secured.placement.practiceContact.email : '',
+          contactPhone: secured.placement.practiceContact ? secured.placement.practiceContact.phone : '',
+          roleTitle: secured.placement.roleTitle || '',
+          location: secured.placement.location || ''
+        };
+      }
+    }
+    if (userIds.length > 0) {
+      const hiredRes = await supabaseDbRequest(
+        'gp_applications',
+        'select=user_id,career_role_id,practice_contact_name,practice_contact_email,status&status=eq.hired&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')'
+      );
+      if (hiredRes.ok && Array.isArray(hiredRes.data)) {
+        const roleIds = [...new Set(hiredRes.data.map(a => a.career_role_id).filter(Boolean))];
+        let roleMap = {};
+        if (roleIds.length > 0) {
+          const roleRes = await supabaseDbRequest('career_roles', 'select=id,practice_name,title,location_city,location_state&id=in.(' + roleIds.join(',') + ')');
+          if (roleRes.ok && Array.isArray(roleRes.data)) roleRes.data.forEach(function (r) { roleMap[r.id] = r; });
+        }
+        hiredRes.data.forEach(function (app) {
+          if (practiceContactMap[app.user_id]) return;
+          const role = roleMap[app.career_role_id] || {};
+          practiceContactMap[app.user_id] = {
+            practiceName: role.practice_name || role.title || '',
+            contactName: app.practice_contact_name || '',
+            contactEmail: app.practice_contact_email || '',
+            contactPhone: '',
+            roleTitle: role.title || '',
+            location: [role.location_city, role.location_state].filter(Boolean).join(', ')
+          };
+        });
+      }
     }
     const enriched = tasks.map(function (t) {
       const c = caseMap[t.case_id] || {};
@@ -22452,7 +22501,8 @@ Return ONLY valid JSON with no markdown formatting:
         gp_email: p.email || '',
         gp_phone: p.phone || p.phone_number || '',
         case_stage: c.stage || '',
-        case_status: c.status || ''
+        case_status: c.status || '',
+        practice_contact: practiceContactMap[c.user_id] || {}
       });
     });
     sendJson(res, 200, { ok: true, tasks: enriched });
