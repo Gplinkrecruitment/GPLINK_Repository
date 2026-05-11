@@ -4683,7 +4683,7 @@
     }
 
     // ─── PLACEMENT GATE ─────────────────────────────────────────
-    function hasCareerSecured() {
+    function hasCareerSecuredLocal() {
       if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return true;
       try {
         const raw = localStorage.getItem("gp_career_state");
@@ -4696,14 +4696,33 @@
           if (!app || typeof app !== "object") continue;
           if (app.isPlacementSecured === true) return true;
           const status = String(app.rawStatus || app.status || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-          if (status === "secured" || status === "placement_secured" || status === "practice_secured") return true;
+          if (status === "secured" || status === "placement_secured" || status === "practice_secured" || status === "hired" || status === "placed" || status === "offer_accepted" || status === "contract_signed") return true;
         }
       } catch (e) {}
       return false;
     }
 
-    const placementGateEl = document.getElementById("placementGate");
+    var _serverCareerSecured = null;
+    async function checkCareerSecuredFromServer() {
+      if (_serverCareerSecured !== null) return _serverCareerSecured;
+      try {
+        const resp = await fetch("/api/registration/can-proceed", { credentials: "same-origin" });
+        if (!resp.ok) return false;
+        const data = await resp.json();
+        if (data && data.ok && data.steps && data.steps.ahpra && data.steps.ahpra.accessible) {
+          _serverCareerSecured = true;
+          return true;
+        }
+      } catch (e) {}
+      _serverCareerSecured = false;
+      return false;
+    }
 
+    function hasCareerSecured() {
+      return hasCareerSecuredLocal();
+    }
+
+    const placementGateEl = document.getElementById("placementGate");
 
     function showPlacementGate() {
       if (placementGateEl) placementGateEl.classList.add("show");
@@ -4790,26 +4809,35 @@
       setTimeout(function() { updateIntroHeight(); }, 150);
     }
 
-    function initPage() {
-      if (!redirectToAllowedStage()) {
-        if (!hasCareerSecured()) {
-          removeIntroHideStyle();
-          showPlacementGate();
-        } else {
-          hidePlacementGate();
-          const initialProgress = loadProgress();
-          // Show intro screen if not yet dismissed
-          if (!isIntroDismissed()) {
-            if (introEl.style.display !== "none") return;
-            showIntroScreen();
-            return;
-          }
-          removeIntroHideStyle();
-          const routeTab = pickTabFromRoute(initialProgress);
-          currentTabKey = routeTab || activeTabStage(initialProgress);
-          if (!routeTab) syncRouteForStage(initialProgress.stage, true);
-          renderPage(initialProgress);
-        }
+    function showSecuredPage() {
+      hidePlacementGate();
+      const initialProgress = loadProgress();
+      if (!isIntroDismissed()) {
+        if (introEl.style.display !== "none") return;
+        showIntroScreen();
+        return;
+      }
+      removeIntroHideStyle();
+      const routeTab = pickTabFromRoute(initialProgress);
+      currentTabKey = routeTab || activeTabStage(initialProgress);
+      if (!routeTab) syncRouteForStage(initialProgress.stage, true);
+      renderPage(initialProgress);
+    }
+
+    async function initPage() {
+      if (redirectToAllowedStage()) return;
+      if (hasCareerSecuredLocal()) {
+        showSecuredPage();
+        return;
+      }
+      // Local check failed — ask server before showing gate
+      const serverSays = await checkCareerSecuredFromServer();
+      if (redirectToAllowedStage()) return;
+      if (serverSays) {
+        showSecuredPage();
+      } else {
+        removeIntroHideStyle();
+        showPlacementGate();
       }
     }
 
@@ -4819,8 +4847,8 @@
     window.addEventListener("gp-data-ready", function() { initPage(); });
 
     if (!redirectToAllowedStage()) {
-      window.addEventListener("popstate", () => {
-        if (!hasCareerSecured()) { showPlacementGate(); return; }
+      window.addEventListener("popstate", async () => {
+        if (!hasCareerSecuredLocal() && !(await checkCareerSecuredFromServer())) { showPlacementGate(); return; }
         hidePlacementGate();
         const progress = loadProgress();
         const tabFromRoute = pickTabFromRoute(progress);
@@ -4828,9 +4856,9 @@
         renderPage(progress);
       });
 
-      window.addEventListener("gp-state-hydrated", function () {
+      window.addEventListener("gp-state-hydrated", async function () {
         if (redirectToAllowedStage()) return;
-        if (!hasCareerSecured()) { showPlacementGate(); return; }
+        if (!hasCareerSecuredLocal() && !(await checkCareerSecuredFromServer())) { showPlacementGate(); return; }
         hidePlacementGate();
         const progress = loadProgress();
         currentTabKey = activeTabStage(progress);

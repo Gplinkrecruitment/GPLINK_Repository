@@ -24619,9 +24619,22 @@ Return ONLY valid JSON with no markdown formatting:
     const stateResult = await getSupabaseUserStateByEmail(email);
     const userState = stateResult && stateResult.state && typeof stateResult.state === 'object' ? stateResult.state : {};
 
-    // Determine career_secured from gp_career_state
-    const careerState = userState.gp_career_state && typeof userState.gp_career_state === 'object' ? userState.gp_career_state : {};
-    const careerSecured = !!(careerState.career_secured || careerState.secured);
+    // Determine career_secured from gp_career_state (may be object or double-encoded string)
+    let careerState = userState.gp_career_state || {};
+    if (typeof careerState === 'string') { try { careerState = JSON.parse(careerState); } catch (e) { careerState = {}; } }
+    if (typeof careerState !== 'object' || careerState === null) careerState = {};
+    let careerSecured = !!(careerState.career_secured || careerState.secured);
+    if (!careerSecured && Array.isArray(careerState.applications)) {
+      careerSecured = careerState.applications.some(a => a && (a.isPlacementSecured === true || /^(secured|placement_secured|practice_secured|hired|placed|offer_accepted|contract_signed)$/.test(String(a.rawStatus || a.status || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''))));
+    }
+    // Fallback: check gp_applications table for any hired/secured application
+    if (!careerSecured && isSupabaseDbConfigured()) {
+      const hiredRes = await supabaseDbRequest('gp_applications',
+        'select=id&user_id=eq.' + encodeURIComponent(userId) + '&status=in.(hired,placed,secured,Hired,Placed,Secured,placement_secured,offer_accepted,contract_signed)&limit=1');
+      if (hiredRes.ok && Array.isArray(hiredRes.data) && hiredRes.data.length > 0) {
+        careerSecured = true;
+      }
+    }
 
     // Check AHPRA progress
     const ahpraProgress = userState.gp_ahpra_progress && typeof userState.gp_ahpra_progress === 'object' ? userState.gp_ahpra_progress : {};
