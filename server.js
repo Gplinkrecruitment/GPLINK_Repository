@@ -5497,7 +5497,10 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           // Send WhatsApp template + email only if not already sent for this case
           if (!(await _hasDoubleTickBeenSent(caseId, 'Career stage'))) {
             if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'career', _gpFirstName);
-            sendAmcCompleteEmail(userId).catch(() => {});
+            // Check if GP already has a secured placement to send the right email variant
+            var _amcCareerSecured = nxt.career.career_secured === true || nxt.career.secured === true;
+            if (!_amcCareerSecured && Array.isArray(nxt.career.applications)) { _amcCareerSecured = nxt.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
+            sendAmcCompleteEmail(userId, _amcCareerSecured).catch(() => {});
             await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
           }
         }
@@ -15569,16 +15572,42 @@ async function sendMyintealthCompleteEmail(userId) {
   );
 }
 
-// 4. AMC Complete — Career Next
-async function sendAmcCompleteEmail(userId) {
-  await sendGpNotificationEmail(userId,
-    'AMC Complete — GP Link',
-    'AMC verification complete, {{name}}!',
-    'Your AMC qualifications have been verified — fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.',
-    'Browse Positions',
-    'https://app.mygplink.com.au/pages/career.html',
-    ''
-  );
+// 4. AMC Complete — Career Next (variant based on whether placement is already secured)
+async function sendAmcCompleteEmail(userId, careerSecured) {
+  if (!isEmailConfigured()) return;
+  const gp = await getGpEmailContext(userId);
+  if (!gp || !gp.email) return;
+  const name = gp.firstName || 'there';
+
+  if (careerSecured) {
+    // GP already has a secured placement — don't mention browsing positions
+    await sendEmail({
+      to: gp.email,
+      subject: 'AMC Complete — GP Link',
+      html: buildCareerEmailHtml({
+        title: 'AMC verification complete, ' + name + '!',
+        body: 'Your AMC qualifications have been verified — fantastic progress! Your placement is secured and your qualifications are now formally recognised for practise in Australia.\n\nHead to your dashboard to continue with the next steps in your registration journey.',
+        ctaText: 'View Dashboard',
+        ctaUrl: 'https://app.mygplink.com.au/pages/index.html',
+        footer: ''
+      })
+    }).catch((e) => console.error('[email-notify] Send failed:', e && e.error));
+  } else {
+    // GP has NOT secured a placement — include career browsing + consultation booking
+    await sendEmail({
+      to: gp.email,
+      subject: 'AMC Complete — GP Link',
+      html: buildCareerEmailHtml({
+        title: 'AMC verification complete, ' + name + '!',
+        body: 'Your AMC qualifications have been verified — fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.\n\nWant help finding the right practice? Book a free consultation to discuss your preferences with our team.',
+        ctaText: 'Browse Positions',
+        ctaUrl: 'https://app.mygplink.com.au/pages/career.html',
+        secondaryCtaText: 'Book a Consultation',
+        secondaryCtaUrl: 'https://calendly.com/hello-mygplink/30min',
+        footer: ''
+      })
+    }).catch((e) => console.error('[email-notify] Send failed:', e && e.error));
+  }
 }
 
 // 5. AHPRA Complete
@@ -15736,7 +15765,16 @@ async function sendPushNotification(userId, { title, body, data }) {
   } catch {}
 }
 
-function buildCareerEmailHtml({ title, body, ctaText, ctaUrl, footer }) {
+function buildCareerEmailHtml({ title, body, ctaText, ctaUrl, secondaryCtaText, secondaryCtaUrl, footer }) {
+  var ctaHtml = '';
+  if (ctaText && ctaUrl) {
+    ctaHtml += '<div style="text-align:center;margin:24px 0">';
+    ctaHtml += '<a href="' + ctaUrl + '" style="display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px">' + ctaText + '</a>';
+    if (secondaryCtaText && secondaryCtaUrl) {
+      ctaHtml += '<br><a href="' + secondaryCtaUrl + '" style="display:inline-block;margin-top:12px;padding:12px 28px;background:#fff;color:#2563eb;font-weight:600;font-size:14px;text-decoration:none;border-radius:12px;border:2px solid #2563eb">' + secondaryCtaText + '</a>';
+    }
+    ctaHtml += '</div>';
+  }
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f0f4fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
 <div style="max-width:560px;margin:0 auto;padding:32px 16px">
@@ -15746,7 +15784,7 @@ function buildCareerEmailHtml({ title, body, ctaText, ctaUrl, footer }) {
 </div>
 <h1 style="font-size:20px;font-weight:700;color:#0f172a;margin:0 0 12px">${title || ''}</h1>
 <p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 24px">${body || ''}</p>
-${ctaText && ctaUrl ? '<div style="text-align:center;margin:24px 0"><a href="' + ctaUrl + '" style="display:inline-block;padding:14px 32px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:12px">' + ctaText + '</a></div>' : ''}
+${ctaHtml}
 ${footer ? '<p style="font-size:13px;color:#64748b;margin:24px 0 0;border-top:1px solid #e2e8f0;padding-top:16px">' + footer + '</p>' : ''}
 </div>
 <p style="text-align:center;font-size:12px;color:#94a3b8;margin:16px 0 0">GP Link Australia &middot; <a href="https://app.mygplink.com.au" style="color:#64748b">app.mygplink.com.au</a></p>
