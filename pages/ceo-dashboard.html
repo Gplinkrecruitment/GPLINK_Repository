@@ -1268,8 +1268,8 @@
         for (var i = 0; i < keys.length; i++) {
           var k = keys[i];
           var v = velocity[k];
-          var label = k.replace(/_to_/g, ' -> ').replace(/_/g, ' ');
-          label = label.charAt(0).toUpperCase() + label.slice(1);
+          var label = v.label || k.replace(/_to_/g, ' \u2192 ').replace(/_/g, ' ');
+          if (!v.label) label = label.charAt(0).toUpperCase() + label.slice(1);
           html += '<div class="velocity-row">';
           html += '<span class="velocity-label">' + esc(label) + '</span>';
           html += '<span class="velocity-val">' + (v.avg_days != null ? v.avg_days.toFixed(1) + ' days' : '--') + '<span class="velocity-sample">n=' + (v.sample_size || 0) + '</span></span>';

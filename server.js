@@ -27199,9 +27199,11 @@ Return ONLY valid JSON with no markdown formatting:
     }
     var vaWorkload = Object.values(vaMap).sort(function(a, b) { return b.case_count - a.case_count; });
 
-    // Velocity
-    var timelineRes = await supabaseDbRequest('task_timeline', 'select=case_id,created_at,metadata&event_type=eq.stage_change&order=case_id.asc,created_at.asc&limit=2000');
+    // Velocity — compute avg days between stage transitions
+    // Fetch title too for fallback parsing of old events without metadata
+    var timelineRes = await supabaseDbRequest('task_timeline', 'select=case_id,created_at,metadata,title&event_type=eq.stage_change&order=case_id.asc,created_at.asc&limit=2000');
     var stageEvents = (timelineRes.ok && Array.isArray(timelineRes.data)) ? timelineRes.data : [];
+    var VELOCITY_STAGE_LABELS = { myintealth: 'MyIntealth', amc: 'AMC Portfolio', career: 'Secure Placement', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement' };
     var STAGE_PAIRS = [
       ['myintealth', 'amc', 'myintealth_to_amc'],
       ['amc', 'career', 'amc_to_career'],
@@ -27211,6 +27213,12 @@ Return ONLY valid JSON with no markdown formatting:
     ];
     var velocityTransitions = {};
     for (var spi = 0; spi < STAGE_PAIRS.length; spi++) velocityTransitions[STAGE_PAIRS[spi][2]] = [];
+    // Helper: extract stage name from event title like "Stage advanced to amc"
+    function extractStageFromTitle(title) {
+      if (!title) return null;
+      var m = title.match(/stage advanced to (\w+)/i);
+      return m ? m[1].toLowerCase() : null;
+    }
     var eventsByCase = {};
     for (var ei = 0; ei < stageEvents.length; ei++) {
       if (!eventsByCase[stageEvents[ei].case_id]) eventsByCase[stageEvents[ei].case_id] = [];
@@ -27222,12 +27230,23 @@ Return ONLY valid JSON with no markdown formatting:
         var prevEv = evs[evi - 1];
         var currEv = evs[evi];
         var days = (new Date(currEv.created_at).getTime() - new Date(prevEv.created_at).getTime()) / DAY_MS;
+        // Try metadata first (new events)
         var meta = null;
         if (typeof currEv.metadata === 'object' && currEv.metadata) { meta = currEv.metadata; }
         else if (typeof currEv.metadata === 'string') { try { meta = JSON.parse(currEv.metadata); } catch(e) {} }
+        var fromStage = null, toStage = null;
         if (meta && meta.from_stage && meta.to_stage) {
+          fromStage = meta.from_stage;
+          toStage = meta.to_stage;
+        } else {
+          // Fallback: parse titles — "Stage advanced to X"
+          // Previous event's title tells us what stage that case moved TO (which is the FROM for this transition)
+          fromStage = extractStageFromTitle(prevEv.title);
+          toStage = extractStageFromTitle(currEv.title);
+        }
+        if (fromStage && toStage) {
           for (var msi = 0; msi < STAGE_PAIRS.length; msi++) {
-            if (meta.from_stage === STAGE_PAIRS[msi][0] && meta.to_stage === STAGE_PAIRS[msi][1]) { velocityTransitions[STAGE_PAIRS[msi][2]].push(days); break; }
+            if (fromStage === STAGE_PAIRS[msi][0] && toStage === STAGE_PAIRS[msi][1]) { velocityTransitions[STAGE_PAIRS[msi][2]].push(days); break; }
           }
         }
       }
@@ -27235,7 +27254,9 @@ Return ONLY valid JSON with no markdown formatting:
     var velocity = {};
     for (var vsi = 0; vsi < STAGE_PAIRS.length; vsi++) {
       var arr = velocityTransitions[STAGE_PAIRS[vsi][2]];
-      velocity[STAGE_PAIRS[vsi][2]] = { avg_days: arr.length > 0 ? Math.round((arr.reduce(function(a, b) { return a + b; }, 0) / arr.length) * 10) / 10 : null, sample_size: arr.length };
+      var fromLabel = VELOCITY_STAGE_LABELS[STAGE_PAIRS[vsi][0]] || STAGE_PAIRS[vsi][0];
+      var toLabel = VELOCITY_STAGE_LABELS[STAGE_PAIRS[vsi][1]] || STAGE_PAIRS[vsi][1];
+      velocity[STAGE_PAIRS[vsi][2]] = { avg_days: arr.length > 0 ? Math.round((arr.reduce(function(a, b) { return a + b; }, 0) / arr.length) * 10) / 10 : null, sample_size: arr.length, label: fromLabel + ' \u2192 ' + toLabel };
     }
 
     // Placements — each bucket is mutually exclusive (no double-counting)
