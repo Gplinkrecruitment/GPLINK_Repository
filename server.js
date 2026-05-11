@@ -227,6 +227,7 @@ const SUPER_ADMIN_EMAILS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
+const CEO_EMAIL = 'khaleedmahmoud1211@gmail.com';
 let _domainApiAccessTokenCache = new Map();
 
 // ── Google Drive integration ──
@@ -3839,6 +3840,16 @@ function requireSuperAdminSession(req, res) {
   if (!adminCtx) return null;
   if (!isSuperAdminRole(adminCtx.role)) {
     sendJson(res, 403, { ok: false, message: 'Super admin access required.' });
+    return null;
+  }
+  return adminCtx;
+}
+
+function requireCeoSession(req, res) {
+  var adminCtx = requireAdminSession(req, res);
+  if (!adminCtx) return null;
+  if (adminCtx.email.toLowerCase() !== CEO_EMAIL) {
+    sendJson(res, 403, { ok: false, message: 'CEO access required.' });
     return null;
   }
   return adminCtx;
@@ -26743,6 +26754,543 @@ Return ONLY valid JSON with no markdown formatting:
       await _logCaseEvent(caseId, null, evType, 'Case updated: ' + changes.join(', '), JSON.stringify(patch), adminCtx.email);
     }
     sendJson(res, 200, { ok: true, case: r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null });
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CEO DASHBOARD ENDPOINTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  if (pathname === '/api/ceo/dashboard' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+
+    var [casesRes, tasksRes, ticketsRes, appsRes, interviewsRes, rolesRes, profilesRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated)&order=created_at.desc&limit=1000'),
+      supabaseDbRequest('support_tickets', 'select=*&order=created_at.desc&limit=500'),
+      supabaseDbRequest('gp_applications', 'select=*'),
+      supabaseDbRequest('career_interviews', 'select=*&status=neq.cancelled'),
+      supabaseDbRequest('career_roles', 'select=id,practice_name,is_active'),
+      supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,phone')
+    ]);
+
+    var cases = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
+    var tasks = (tasksRes.ok && Array.isArray(tasksRes.data)) ? tasksRes.data : [];
+    var tickets = (ticketsRes.ok && Array.isArray(ticketsRes.data)) ? ticketsRes.data : [];
+    var apps = (appsRes.ok && Array.isArray(appsRes.data)) ? appsRes.data : [];
+    var interviews = (interviewsRes.ok && Array.isArray(interviewsRes.data)) ? interviewsRes.data : [];
+    var roles = (rolesRes.ok && Array.isArray(rolesRes.data)) ? rolesRes.data : [];
+    var profiles = (profilesRes.ok && Array.isArray(profilesRes.data)) ? profilesRes.data : [];
+
+    var profileByUserId = {};
+    for (var pi = 0; pi < profiles.length; pi++) { if (profiles[pi].user_id) profileByUserId[profiles[pi].user_id] = profiles[pi]; }
+    function ceoGpName(userId) {
+      var p = profileByUserId[userId];
+      if (!p) return 'Unknown GP';
+      return ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || p.email || 'Unknown GP';
+    }
+    function ceoGpEmail(userId) { var p = profileByUserId[userId]; return p ? (p.email || '') : ''; }
+
+    var now = Date.now();
+    var DAY_MS = 86400000;
+    var weekAgo = new Date(now - 7 * DAY_MS).toISOString();
+
+    // KPI
+    var SECURED_STATUSES = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
+    var securedApps = apps.filter(function(a) { return SECURED_STATUSES.has((a.status || '').toLowerCase()); });
+    var openTickets = tickets.filter(function(t) { return t.status !== 'closed'; });
+    var overdueTasks = tasks.filter(function(t) { return t.due_date && new Date(t.due_date).getTime() < now && ['completed', 'cancelled'].indexOf(t.status) === -1; });
+    var blockedCases = cases.filter(function(c) { return c.status === 'blocked' || c.blocker_status; });
+    var completedCases = cases.filter(function(c) { return c.stage === 'complete'; });
+
+    var kpi = {
+      total_gps: cases.length,
+      placed: securedApps.length,
+      open_tasks: tasks.length,
+      overdue_tasks: overdueTasks.length,
+      blocked_cases: blockedCases.length,
+      completed_gps: completedCases.length
+    };
+
+    // Escalations
+    var escalations = tasks.filter(function(t) { return t.status === 'escalated' && t.escalated_to; }).map(function(t) {
+      var c = null;
+      for (var ci = 0; ci < cases.length; ci++) { if (cases[ci].id === t.case_id) { c = cases[ci]; break; } }
+      return {
+        task_id: t.id, case_id: t.case_id, user_id: c ? c.user_id : null,
+        gp_name: c ? ceoGpName(c.user_id) : 'Unknown', gp_email: c ? ceoGpEmail(c.user_id) : '',
+        title: t.title, reason: t.escalated_reason || '', escalated_by: 'VA',
+        escalated_at: t.escalated_at, stage: t.related_stage || (c ? c.stage : ''), priority: t.priority
+      };
+    });
+
+    // Pipeline
+    var STAGES = ['myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement', 'complete'];
+    var pipeline = {};
+    for (var si = 0; si < STAGES.length; si++) pipeline[STAGES[si]] = { count: 0, blocked: 0 };
+    for (var ci2 = 0; ci2 < cases.length; ci2++) {
+      var s = cases[ci2].stage || 'myintealth';
+      if (pipeline[s]) {
+        pipeline[s].count++;
+        if (cases[ci2].status === 'blocked' || cases[ci2].blocker_status) pipeline[s].blocked++;
+      }
+    }
+
+    // Blockers
+    var blockers = blockedCases.map(function(c) {
+      return {
+        case_id: c.id, user_id: c.user_id, gp_name: ceoGpName(c.user_id), gp_email: ceoGpEmail(c.user_id),
+        stage: c.stage, days_in_stage: c.last_gp_activity_at ? Math.floor((now - new Date(c.last_gp_activity_at).getTime()) / DAY_MS) : Math.floor((now - new Date(c.updated_at || c.created_at).getTime()) / DAY_MS),
+        blocker_status: c.blocker_status || c.status, blocker_reason: c.blocker_reason || '',
+        assigned_va: c.assigned_va ? ceoGpName(c.assigned_va) : 'Unassigned', assigned_va_id: c.assigned_va
+      };
+    }).sort(function(a, b) { return b.days_in_stage - a.days_in_stage; });
+
+    // Task Health
+    var completedRes = await supabaseDbRequest('registration_tasks', 'select=id,created_at,completed_at&status=eq.completed&order=completed_at.desc&limit=500');
+    var completedTasks = (completedRes.ok && Array.isArray(completedRes.data)) ? completedRes.data : [];
+    var completedThisWeek = completedTasks.filter(function(t) { return t.completed_at && t.completed_at >= weekAgo; }).length;
+    var resolveDurations = completedTasks.filter(function(t) { return t.completed_at && t.created_at; }).map(function(t) { return (new Date(t.completed_at).getTime() - new Date(t.created_at).getTime()) / DAY_MS; });
+    var avgResolveDays = resolveDurations.length > 0 ? Math.round((resolveDurations.reduce(function(a, b) { return a + b; }, 0) / resolveDurations.length) * 10) / 10 : 0;
+
+    var taskHealth = {
+      open: tasks.filter(function(t) { return t.status === 'open'; }).length,
+      in_progress: tasks.filter(function(t) { return t.status === 'in_progress'; }).length,
+      completed_this_week: completedThisWeek,
+      completed_total: completedTasks.length,
+      overdue: overdueTasks.length,
+      avg_resolve_days: avgResolveDays
+    };
+
+    // VA Workload
+    var vaMap = {};
+    for (var vi = 0; vi < cases.length; vi++) {
+      var vaId = cases[vi].assigned_va || '__unassigned__';
+      if (!vaMap[vaId]) vaMap[vaId] = { va_id: vaId, va_email: '', va_name: vaId === '__unassigned__' ? 'Unassigned' : ceoGpName(vaId), case_count: 0, open_tasks: 0, overdue_tasks: 0 };
+      vaMap[vaId].case_count++;
+      if (vaId !== '__unassigned__') vaMap[vaId].va_email = ceoGpEmail(vaId);
+    }
+    for (var ti = 0; ti < tasks.length; ti++) {
+      var tc = null;
+      for (var tci = 0; tci < cases.length; tci++) { if (cases[tci].id === tasks[ti].case_id) { tc = cases[tci]; break; } }
+      var tVaId = (tc && tc.assigned_va) || '__unassigned__';
+      if (vaMap[tVaId]) {
+        vaMap[tVaId].open_tasks++;
+        if (tasks[ti].due_date && new Date(tasks[ti].due_date).getTime() < now) vaMap[tVaId].overdue_tasks++;
+      }
+    }
+    var vaWorkload = Object.values(vaMap).sort(function(a, b) { return b.case_count - a.case_count; });
+
+    // Velocity
+    var timelineRes = await supabaseDbRequest('task_timeline', 'select=case_id,created_at,metadata&event_type=eq.stage_change&order=case_id.asc,created_at.asc&limit=2000');
+    var stageEvents = (timelineRes.ok && Array.isArray(timelineRes.data)) ? timelineRes.data : [];
+    var STAGE_PAIRS = [
+      ['myintealth', 'amc', 'myintealth_to_amc'],
+      ['amc', 'career', 'amc_to_career'],
+      ['career', 'ahpra', 'career_to_ahpra'],
+      ['ahpra', 'pbs', 'ahpra_to_pbs'],
+      ['pbs', 'commencement', 'pbs_to_commencement']
+    ];
+    var velocityTransitions = {};
+    for (var spi = 0; spi < STAGE_PAIRS.length; spi++) velocityTransitions[STAGE_PAIRS[spi][2]] = [];
+    var eventsByCase = {};
+    for (var ei = 0; ei < stageEvents.length; ei++) {
+      if (!eventsByCase[stageEvents[ei].case_id]) eventsByCase[stageEvents[ei].case_id] = [];
+      eventsByCase[stageEvents[ei].case_id].push(stageEvents[ei]);
+    }
+    for (var ecKey in eventsByCase) {
+      var evs = eventsByCase[ecKey];
+      for (var evi = 1; evi < evs.length; evi++) {
+        var prevEv = evs[evi - 1];
+        var currEv = evs[evi];
+        var days = (new Date(currEv.created_at).getTime() - new Date(prevEv.created_at).getTime()) / DAY_MS;
+        var meta = null;
+        if (typeof currEv.metadata === 'object' && currEv.metadata) { meta = currEv.metadata; }
+        else if (typeof currEv.metadata === 'string') { try { meta = JSON.parse(currEv.metadata); } catch(e) {} }
+        if (meta && meta.from_stage && meta.to_stage) {
+          for (var msi = 0; msi < STAGE_PAIRS.length; msi++) {
+            if (meta.from_stage === STAGE_PAIRS[msi][0] && meta.to_stage === STAGE_PAIRS[msi][1]) { velocityTransitions[STAGE_PAIRS[msi][2]].push(days); break; }
+          }
+        }
+      }
+    }
+    var velocity = {};
+    for (var vsi = 0; vsi < STAGE_PAIRS.length; vsi++) {
+      var arr = velocityTransitions[STAGE_PAIRS[vsi][2]];
+      velocity[STAGE_PAIRS[vsi][2]] = { avg_days: arr.length > 0 ? Math.round((arr.reduce(function(a, b) { return a + b; }, 0) / arr.length) * 10) / 10 : null, sample_size: arr.length };
+    }
+
+    // Placements
+    var securedSet = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
+    var appInterviewIds = new Set(interviews.map(function(i) { return i.application_id; }));
+    var placements = {
+      applied: apps.filter(function(a) { return ['withdrawn', 'rejected'].indexOf((a.status || '').toLowerCase()) === -1; }).length,
+      submitted_to_practice: apps.filter(function(a) { return a.practice_submission_status && a.practice_submission_status !== 'pending_va_submission'; }).length,
+      interviewing: apps.filter(function(a) { return appInterviewIds.has(a.id) && !securedSet.has((a.status || '').toLowerCase()); }).length,
+      offers_made: apps.filter(function(a) { return ['offer', 'offer_pending', 'offered'].indexOf((a.status || '').toLowerCase()) > -1; }).length,
+      secured: securedApps.length,
+      active_roles: roles.filter(function(r) { return r.is_active; }).length
+    };
+
+    // GP Activity
+    var activeCases = cases.filter(function(c) { return c.stage !== 'complete' && c.status !== 'withdrawn'; });
+    var active7d = []; var inactive7_14d = []; var cold14d = [];
+    for (var ai = 0; ai < activeCases.length; ai++) {
+      var lastAct = activeCases[ai].last_gp_activity_at ? new Date(activeCases[ai].last_gp_activity_at).getTime() : new Date(activeCases[ai].created_at).getTime();
+      var daysSince = Math.floor((now - lastAct) / DAY_MS);
+      if (daysSince <= 7) active7d.push(activeCases[ai]);
+      else if (daysSince <= 14) inactive7_14d.push(activeCases[ai]);
+      else cold14d.push(activeCases[ai]);
+    }
+    var gpActivity = {
+      active_7d: active7d.length,
+      inactive_7_14d: inactive7_14d.length,
+      cold_14d_plus: cold14d.length,
+      cold_gps: cold14d.slice(0, 10).map(function(c) {
+        return {
+          case_id: c.id, user_id: c.user_id, gp_name: ceoGpName(c.user_id), gp_email: ceoGpEmail(c.user_id),
+          last_activity: c.last_gp_activity_at || c.created_at, stage: c.stage,
+          days_inactive: Math.floor((now - new Date(c.last_gp_activity_at || c.created_at).getTime()) / DAY_MS),
+          assigned_va: c.assigned_va ? ceoGpName(c.assigned_va) : 'Unassigned'
+        };
+      }).sort(function(a, b) { return b.days_inactive - a.days_inactive; })
+    };
+
+    // Tickets
+    var closedTickets = tickets.filter(function(t) { return t.status === 'closed'; });
+    var resolvedThisWeek = closedTickets.filter(function(t) { return t.resolved_at && t.resolved_at >= weekAgo; }).length;
+    var resDurations = closedTickets.filter(function(t) { return t.resolved_at && t.created_at; }).map(function(t) { return (new Date(t.resolved_at).getTime() - new Date(t.created_at).getTime()) / 3600000; });
+    var avgResolutionHours = resDurations.length > 0 ? Math.round((resDurations.reduce(function(a, b) { return a + b; }, 0) / resDurations.length) * 10) / 10 : null;
+    var replyDurations = closedTickets.filter(function(t) { return t.first_reply_at && t.created_at; }).map(function(t) { return (new Date(t.first_reply_at).getTime() - new Date(t.created_at).getTime()) / 3600000; });
+    var avgFirstReplyHours = replyDurations.length > 0 ? Math.round((replyDurations.reduce(function(a, b) { return a + b; }, 0) / replyDurations.length) * 10) / 10 : null;
+
+    var ticketStats = {
+      open: openTickets.length,
+      resolved_this_week: resolvedThisWeek,
+      resolved_total: closedTickets.length,
+      avg_resolution_hours: avgResolutionHours,
+      avg_first_reply_hours: avgFirstReplyHours
+    };
+
+    // Completions
+    var monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    var thisMonthCompleted = completedCases.filter(function(c) { return c.completed_at && c.completed_at >= monthStart; }).length;
+    var recentMilestones = stageEvents.slice(-20).reverse().slice(0, 5).map(function(ev) {
+      var mc = null;
+      for (var mci = 0; mci < cases.length; mci++) { if (cases[mci].id === ev.case_id) { mc = cases[mci]; break; } }
+      return {
+        gp_name: mc ? ceoGpName(mc.user_id) : 'Unknown',
+        milestone: ev.title || 'Stage change',
+        date: ev.created_at,
+        days_ago: Math.floor((now - new Date(ev.created_at).getTime()) / DAY_MS)
+      };
+    });
+
+    var completions = { this_month: thisMonthCompleted, total: completedCases.length, recent_milestones: recentMilestones };
+
+    sendJson(res, 200, {
+      ok: true, refreshed_at: new Date().toISOString(),
+      kpi: kpi, escalations: escalations, pipeline: pipeline, blockers: blockers, task_health: taskHealth,
+      va_workload: vaWorkload, velocity: velocity, placements: placements, gp_activity: gpActivity,
+      tickets: ticketStats, completions: completions
+    });
+    return;
+  }
+
+  // ── CEO Drilldown ──
+  var ceoDrilldownMatch = pathname.match(/^\/api\/ceo\/drilldown\/([a-z_]+)$/);
+  if (ceoDrilldownMatch && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+    var section = ceoDrilldownMatch[1];
+
+    var dProfilesRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,phone');
+    var dProfiles = (dProfilesRes.ok && Array.isArray(dProfilesRes.data)) ? dProfilesRes.data : [];
+    var dProfileByUserId = {};
+    for (var dpi = 0; dpi < dProfiles.length; dpi++) { if (dProfiles[dpi].user_id) dProfileByUserId[dProfiles[dpi].user_id] = dProfiles[dpi]; }
+    function dGpName(uid) { var p = dProfileByUserId[uid]; return p ? ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || p.email || 'Unknown' : 'Unknown'; }
+    function dGpEmail(uid) { var p = dProfileByUserId[uid]; return p ? (p.email || '') : ''; }
+
+    var dNow = Date.now();
+    var dDAY_MS = 86400000;
+
+    if (section === 'pipeline') {
+      var stage = url.searchParams.get('stage') || 'myintealth';
+      var dCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=eq.' + encodeURIComponent(stage) + '&order=updated_at.desc');
+      var dCases = (dCasesRes.ok && Array.isArray(dCasesRes.data)) ? dCasesRes.data : [];
+      var dCaseIds = dCases.map(function(c) { return c.id; });
+      var dTasks = [];
+      if (dCaseIds.length > 0) {
+        var dTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + dCaseIds.join(',') + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated)');
+        dTasks = (dTasksRes.ok && Array.isArray(dTasksRes.data)) ? dTasksRes.data : [];
+      }
+      var dTaskCountByCase = {};
+      for (var dti = 0; dti < dTasks.length; dti++) { dTaskCountByCase[dTasks[dti].case_id] = (dTaskCountByCase[dTasks[dti].case_id] || 0) + 1; }
+      var items = dCases.map(function(c) {
+        return {
+          case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
+          substage: c.substage || '', assigned_va: c.assigned_va ? dGpName(c.assigned_va) : 'Unassigned', assigned_va_id: c.assigned_va,
+          days_in_stage: c.last_gp_activity_at ? Math.floor((dNow - new Date(c.last_gp_activity_at).getTime()) / dDAY_MS) : Math.floor((dNow - new Date(c.updated_at || c.created_at).getTime()) / dDAY_MS),
+          status: c.status, blocker_status: c.blocker_status, blocker_reason: c.blocker_reason,
+          open_task_count: dTaskCountByCase[c.id] || 0, last_gp_activity_at: c.last_gp_activity_at, last_va_action_at: c.last_va_action_at, practice_name: c.practice_name
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'pipeline', stage: stage, items: items });
+      return;
+    }
+
+    if (section === 'blockers') {
+      var bCasesRes = await supabaseDbRequest('registration_cases', 'select=*&or=(status.eq.blocked,blocker_status.not.is.null)&order=updated_at.desc');
+      var bCases = (bCasesRes.ok && Array.isArray(bCasesRes.data)) ? bCasesRes.data : [];
+      var bItems = bCases.map(function(c) {
+        return {
+          case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
+          stage: c.stage, blocker_status: c.blocker_status || c.status, blocker_reason: c.blocker_reason || '',
+          days_stuck: c.last_gp_activity_at ? Math.floor((dNow - new Date(c.last_gp_activity_at).getTime()) / dDAY_MS) : 0,
+          assigned_va: c.assigned_va ? dGpName(c.assigned_va) : 'Unassigned', assigned_va_id: c.assigned_va,
+          last_va_action_at: c.last_va_action_at, practice_name: c.practice_name
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'blockers', items: bItems });
+      return;
+    }
+
+    if (section === 'tasks') {
+      var tStatusFilter = url.searchParams.get('status') || 'open';
+      var tQuery = 'select=*&order=priority.asc,created_at.desc&limit=200';
+      if (tStatusFilter === 'overdue') {
+        tQuery += '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked)&due_date=lt.' + new Date().toISOString().slice(0, 10);
+      } else {
+        tQuery += '&status=eq.' + encodeURIComponent(tStatusFilter);
+      }
+      var tTasksRes = await supabaseDbRequest('registration_tasks', tQuery);
+      var tTaskList = (tTasksRes.ok && Array.isArray(tTasksRes.data)) ? tTasksRes.data : [];
+      var tCaseIds = [];
+      for (var tti = 0; tti < tTaskList.length; tti++) { if (tCaseIds.indexOf(tTaskList[tti].case_id) === -1) tCaseIds.push(tTaskList[tti].case_id); }
+      var tCaseLookup = {};
+      if (tCaseIds.length > 0) {
+        var tCRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,stage,assigned_va&id=in.(' + tCaseIds.join(',') + ')');
+        if (tCRes.ok && Array.isArray(tCRes.data)) { for (var tci2 = 0; tci2 < tCRes.data.length; tci2++) tCaseLookup[tCRes.data[tci2].id] = tCRes.data[tci2]; }
+      }
+      var tItems = tTaskList.map(function(t) {
+        var tc = tCaseLookup[t.case_id] || {};
+        return {
+          task_id: t.id, case_id: t.case_id, user_id: tc.user_id, gp_name: tc.user_id ? dGpName(tc.user_id) : 'Unknown', gp_email: tc.user_id ? dGpEmail(tc.user_id) : '',
+          title: t.title, priority: t.priority, status: t.status, due_date: t.due_date,
+          stage: t.related_stage || tc.stage, assigned_va: tc.assigned_va ? dGpName(tc.assigned_va) : 'Unassigned', assigned_va_id: tc.assigned_va,
+          created_at: t.created_at, description: t.description
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'tasks', status: tStatusFilter, items: tItems });
+      return;
+    }
+
+    if (section === 'activity') {
+      var aBucket = url.searchParams.get('bucket') || 'cold';
+      var aCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=neq.complete&status=neq.withdrawn&order=last_gp_activity_at.asc.nullsfirst');
+      var aCases = (aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : [];
+      var aItems = aCases.filter(function(c) {
+        var la = c.last_gp_activity_at ? new Date(c.last_gp_activity_at).getTime() : new Date(c.created_at).getTime();
+        var d = Math.floor((dNow - la) / dDAY_MS);
+        if (aBucket === 'active') return d <= 7;
+        if (aBucket === 'inactive') return d > 7 && d <= 14;
+        return d > 14;
+      }).map(function(c) {
+        return {
+          case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
+          stage: c.stage, last_activity: c.last_gp_activity_at || c.created_at,
+          days_inactive: Math.floor((dNow - new Date(c.last_gp_activity_at || c.created_at).getTime()) / dDAY_MS),
+          assigned_va: c.assigned_va ? dGpName(c.assigned_va) : 'Unassigned', assigned_va_id: c.assigned_va
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'activity', bucket: aBucket, items: aItems });
+      return;
+    }
+
+    if (section === 'tickets') {
+      var stTicketsRes = await supabaseDbRequest('support_tickets', 'select=*&status=neq.closed&order=created_at.desc&limit=100');
+      var stTicketList = (stTicketsRes.ok && Array.isArray(stTicketsRes.data)) ? stTicketsRes.data : [];
+      var stItems = stTicketList.map(function(t) {
+        return {
+          ticket_id: t.id, user_id: t.user_id, case_id: t.case_id, gp_name: dGpName(t.user_id), gp_email: dGpEmail(t.user_id),
+          title: t.title, category: t.category, priority: t.priority, status: t.status,
+          created_at: t.created_at, days_open: Math.floor((dNow - new Date(t.created_at).getTime()) / dDAY_MS)
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'tickets', items: stItems });
+      return;
+    }
+
+    if (section === 'completions') {
+      var compCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=eq.complete&order=completed_at.desc.nullslast,updated_at.desc');
+      var compCases = (compCasesRes.ok && Array.isArray(compCasesRes.data)) ? compCasesRes.data : [];
+      var compItems = compCases.map(function(c) {
+        return {
+          case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
+          completed_at: c.completed_at || c.updated_at, practice_name: c.practice_name || '',
+          total_days: c.completed_at ? Math.floor((new Date(c.completed_at).getTime() - new Date(c.created_at).getTime()) / dDAY_MS) : null
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'completions', items: compItems });
+      return;
+    }
+
+    if (section === 'placements') {
+      var plStatusFilter = url.searchParams.get('status') || 'all';
+      var plSECURED = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
+      var plAppsRes = await supabaseDbRequest('gp_applications', 'select=*&order=updated_at.desc&limit=300');
+      var plAllApps = (plAppsRes.ok && Array.isArray(plAppsRes.data)) ? plAppsRes.data : [];
+      var plInterviewsRes = await supabaseDbRequest('career_interviews', 'select=*&status=neq.cancelled');
+      var plAllInterviews = (plInterviewsRes.ok && Array.isArray(plInterviewsRes.data)) ? plInterviewsRes.data : [];
+      var plInterviewByAppId = {};
+      for (var pli = 0; pli < plAllInterviews.length; pli++) { plInterviewByAppId[plAllInterviews[pli].application_id] = plAllInterviews[pli]; }
+      var plRolesRes = await supabaseDbRequest('career_roles', 'select=id,title,practice_name,location_label');
+      var plAllRoles = (plRolesRes.ok && Array.isArray(plRolesRes.data)) ? plRolesRes.data : [];
+      var plRoleById = {};
+      for (var pri = 0; pri < plAllRoles.length; pri++) plRoleById[plAllRoles[pri].id] = plAllRoles[pri];
+      var plFiltered = plAllApps;
+      if (plStatusFilter === 'secured') plFiltered = plAllApps.filter(function(a) { return plSECURED.has((a.status || '').toLowerCase()); });
+      else if (plStatusFilter === 'interviewing') plFiltered = plAllApps.filter(function(a) { return !!plInterviewByAppId[a.id]; });
+      else if (plStatusFilter === 'applied') plFiltered = plAllApps.filter(function(a) { return ['withdrawn', 'rejected'].indexOf((a.status || '').toLowerCase()) === -1; });
+      var plItems = plFiltered.map(function(a) {
+        var role = plRoleById[a.career_role_id] || {};
+        var interview = plInterviewByAppId[a.id];
+        return {
+          application_id: a.id, user_id: a.user_id, gp_name: dGpName(a.user_id), gp_email: dGpEmail(a.user_id),
+          role_title: role.title || 'GP Role', practice_name: role.practice_name || a.practice_contact_name || '',
+          location: role.location_label || '', status: a.status, practice_submission_status: a.practice_submission_status,
+          applied_at: a.applied_at, submitted_to_practice_at: a.submitted_to_practice_at,
+          interview_date: interview ? interview.scheduled_at : null, interview_status: interview ? interview.status : null
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'placements', status: plStatusFilter, items: plItems });
+      return;
+    }
+
+    if (section === 'va') {
+      var vaEmail = url.searchParams.get('va_email') || '';
+      var vaProfileRes = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(vaEmail) + '&limit=1');
+      var vaUserId = (vaProfileRes.ok && Array.isArray(vaProfileRes.data) && vaProfileRes.data[0]) ? vaProfileRes.data[0].user_id : null;
+      if (!vaUserId) { sendJson(res, 200, { ok: true, section: 'va', items: [] }); return; }
+      var vaCasesRes = await supabaseDbRequest('registration_cases', 'select=*&assigned_va=eq.' + encodeURIComponent(vaUserId));
+      var vaCases = (vaCasesRes.ok && Array.isArray(vaCasesRes.data)) ? vaCasesRes.data : [];
+      var vaCaseIds = vaCases.map(function(c) { return c.id; });
+      var vaTasks = [];
+      if (vaCaseIds.length > 0) {
+        var vaTRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=in.(' + vaCaseIds.join(',') + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated)');
+        vaTasks = (vaTRes.ok && Array.isArray(vaTRes.data)) ? vaTRes.data : [];
+      }
+      var vaItems = vaCases.map(function(c) {
+        return {
+          case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
+          stage: c.stage, status: c.status, blocker_status: c.blocker_status,
+          open_tasks: vaTasks.filter(function(t) { return t.case_id === c.id; }).length,
+          overdue_tasks: vaTasks.filter(function(t) { return t.case_id === c.id && t.due_date && new Date(t.due_date).getTime() < dNow; }).length
+        };
+      });
+      sendJson(res, 200, { ok: true, section: 'va', va_email: vaEmail, va_name: dGpName(vaUserId), items: vaItems });
+      return;
+    }
+
+    sendJson(res, 400, { ok: false, message: 'Unknown section: ' + section });
+    return;
+  }
+
+  // ── CEO Trends (weekly) ──
+  if (pathname === '/api/ceo/trends' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+
+    var tDAY_MS = 86400000;
+    var tWEEK_MS = 7 * tDAY_MS;
+    var tNow = Date.now();
+    var twelveWeeksAgo = new Date(tNow - 12 * tWEEK_MS).toISOString();
+
+    var [trCasesRes, trTasksRes, trTicketsRes, trAppsRes, trTimelineRes] = await Promise.all([
+      supabaseDbRequest('registration_cases', 'select=created_at&created_at=gte.' + twelveWeeksAgo),
+      supabaseDbRequest('registration_tasks', 'select=created_at,completed_at,status&or=(created_at.gte.' + twelveWeeksAgo + ',completed_at.gte.' + twelveWeeksAgo + ')&limit=2000'),
+      supabaseDbRequest('support_tickets', 'select=created_at,resolved_at&or=(created_at.gte.' + twelveWeeksAgo + ',resolved_at.gte.' + twelveWeeksAgo + ')&limit=1000'),
+      supabaseDbRequest('gp_applications', 'select=applied_at,status,updated_at&applied_at=gte.' + twelveWeeksAgo),
+      supabaseDbRequest('task_timeline', 'select=created_at&event_type=eq.stage_change&created_at=gte.' + twelveWeeksAgo)
+    ]);
+
+    var trCases = (trCasesRes.ok && Array.isArray(trCasesRes.data)) ? trCasesRes.data : [];
+    var trTasks = (trTasksRes.ok && Array.isArray(trTasksRes.data)) ? trTasksRes.data : [];
+    var trTickets = (trTicketsRes.ok && Array.isArray(trTicketsRes.data)) ? trTicketsRes.data : [];
+    var trApps = (trAppsRes.ok && Array.isArray(trAppsRes.data)) ? trAppsRes.data : [];
+    var trTimeline = (trTimelineRes.ok && Array.isArray(trTimelineRes.data)) ? trTimelineRes.data : [];
+
+    function getWeekStart(dateStr) {
+      var d = new Date(dateStr);
+      var day = d.getUTCDay();
+      var diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
+      var monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff));
+      return monday.toISOString().slice(0, 10);
+    }
+
+    var trSECURED = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
+    var weeks = {};
+    for (var wi = 0; wi < 12; wi++) {
+      var ws = getWeekStart(new Date(tNow - wi * tWEEK_MS).toISOString());
+      weeks[ws] = { week_start: ws, new_gps: 0, tasks_completed: 0, tasks_created: 0, stage_transitions: 0, tickets_opened: 0, tickets_resolved: 0, applications_submitted: 0, placements_secured: 0 };
+    }
+
+    for (var wci = 0; wci < trCases.length; wci++) { var wk = getWeekStart(trCases[wci].created_at); if (weeks[wk]) weeks[wk].new_gps++; }
+    for (var wti = 0; wti < trTasks.length; wti++) {
+      if (trTasks[wti].created_at) { var wk2 = getWeekStart(trTasks[wti].created_at); if (weeks[wk2]) weeks[wk2].tasks_created++; }
+      if (trTasks[wti].completed_at) { var wk3 = getWeekStart(trTasks[wti].completed_at); if (weeks[wk3]) weeks[wk3].tasks_completed++; }
+    }
+    for (var wtki = 0; wtki < trTickets.length; wtki++) {
+      if (trTickets[wtki].created_at) { var wk4 = getWeekStart(trTickets[wtki].created_at); if (weeks[wk4]) weeks[wk4].tickets_opened++; }
+      if (trTickets[wtki].resolved_at) { var wk5 = getWeekStart(trTickets[wtki].resolved_at); if (weeks[wk5]) weeks[wk5].tickets_resolved++; }
+    }
+    for (var wai = 0; wai < trApps.length; wai++) {
+      if (trApps[wai].applied_at) { var wk6 = getWeekStart(trApps[wai].applied_at); if (weeks[wk6]) weeks[wk6].applications_submitted++; }
+      if (trSECURED.has((trApps[wai].status || '').toLowerCase()) && trApps[wai].updated_at) { var wk7 = getWeekStart(trApps[wai].updated_at); if (weeks[wk7]) weeks[wk7].placements_secured++; }
+    }
+    for (var wtli = 0; wtli < trTimeline.length; wtli++) { var wk8 = getWeekStart(trTimeline[wtli].created_at); if (weeks[wk8]) weeks[wk8].stage_transitions++; }
+
+    var weekList = Object.values(weeks).sort(function(a, b) { return a.week_start.localeCompare(b.week_start); });
+    sendJson(res, 200, { ok: true, weeks: weekList });
+    return;
+  }
+
+  // ── CEO Escalation Resolve/Respond ──
+  var ceoEscMatch = pathname.match(/^\/api\/ceo\/escalation\/([^/]+)\/(resolve|respond)$/);
+  if (ceoEscMatch && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+    var escTaskId = decodeURIComponent(ceoEscMatch[1]);
+    var escAction = ceoEscMatch[2];
+    var escBody; try { escBody = await readJsonBody(req); } catch(e) { sendJson(res, 400, { ok: false }); return; }
+    var escNote = (escBody && typeof escBody.note === 'string') ? escBody.note.trim().slice(0, 2000) : '';
+
+    if (escAction === 'respond' && !escNote) {
+      sendJson(res, 400, { ok: false, message: 'Note required when responding to escalation.' });
+      return;
+    }
+
+    var escTaskRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,escalated_to,status&id=eq.' + encodeURIComponent(escTaskId) + '&limit=1');
+    var escTask = (escTaskRes.ok && Array.isArray(escTaskRes.data) && escTaskRes.data[0]) ? escTaskRes.data[0] : null;
+    if (!escTask) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+    if (escTask.status !== 'escalated') { sendJson(res, 400, { ok: false, message: 'Task is not escalated.' }); return; }
+
+    var escPatch = { status: 'open', escalated_to: null, escalated_at: null };
+    if (escAction === 'resolve') { escPatch.escalated_reason = null; }
+
+    await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(escTaskId), { method: 'PATCH', body: escPatch });
+
+    var escEvTitle = escAction === 'resolve' ? 'CEO resolved escalation' : 'CEO response';
+    await _logCaseEvent(escTask.case_id, escTaskId, escAction === 'resolve' ? 'escalation' : 'note', escEvTitle, escNote || null, ceoCtx.email);
+
+    await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(escTask.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+
+    sendJson(res, 200, { ok: true, action: escAction, task_id: escTaskId });
     return;
   }
 
