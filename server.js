@@ -4982,10 +4982,12 @@ async function _completeRegTask(taskId, caseId, actor) {
   });
 }
 
-async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor) {
+async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor, metadata) {
   if (!isSupabaseDbConfigured()) return;
+  var entry = { case_id: caseId, task_id: taskId || null, event_type: eventType, title: title, detail: detail || null, actor: actor || 'system' };
+  if (metadata) entry.metadata = metadata;
   await supabaseDbRequest('task_timeline', '', {
-    method: 'POST', body: [{ case_id: caseId, task_id: taskId || null, event_type: eventType, title: title, detail: detail || null, actor: actor || 'system' }]
+    method: 'POST', body: [entry]
   });
 }
 
@@ -5675,10 +5677,13 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     // ── Update case stage ──
     const newStage = _deriveStageFromState(nextState);
     const caseUpdate = { last_gp_activity_at: new Date().toISOString() };
-    if (newStage !== regCase.stage) { caseUpdate.stage = newStage; }
+    if (newStage !== regCase.stage) {
+      caseUpdate.stage = newStage;
+      if (newStage === 'complete') { caseUpdate.completed_at = new Date().toISOString(); }
+    }
     await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), { method: 'PATCH', body: caseUpdate });
     if (newStage !== regCase.stage) {
-      await _logCaseEvent(caseId, null, 'stage_change', 'Stage advanced to ' + newStage, null, 'system');
+      await _logCaseEvent(caseId, null, 'stage_change', 'Stage advanced to ' + newStage, null, 'system', { from_stage: regCase.stage, to_stage: newStage });
     }
   } catch (err) {
     // Non-blocking: do not fail the state update
@@ -22586,18 +22591,27 @@ Return ONLY valid JSON with no markdown formatting:
     const taskId = url.searchParams.get('id');
     if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
     let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
-    const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description'];
+    const allowed = ['status', 'priority', 'assignee', 'due_date', 'blocker_reason', 'description', 'escalated_to', 'escalated_reason', 'escalated_at'];
     const patch = {};
     for (const key of allowed) { if (body && body[key] !== undefined) patch[key] = body[key]; }
     if (patch.status === 'completed') {
       patch.completed_at = new Date().toISOString();
       patch.completed_by = adminCtx.email;
     }
+    // Auto-set escalation fields when status is 'escalated'
+    if (patch.status === 'escalated' && patch.escalated_to) {
+      if (!patch.escalated_at) patch.escalated_at = new Date().toISOString();
+    }
+    // Clear escalation fields when status changes away from 'escalated'
+    if (patch.status && patch.status !== 'escalated' && !patch.escalated_to) {
+      patch.escalated_to = null;
+      patch.escalated_at = null;
+    }
     const r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { console.error('[ADMIN] Task update failed:', r.status, JSON.stringify(r.data)); sendJson(res, 502, { ok: false, message: 'Failed to update task.', detail: typeof r.data === 'object' ? (r.data.message || r.data.msg || JSON.stringify(r.data)) : String(r.data || ''), httpStatus: r.status }); return; }
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     // Timeline
-    const evType = patch.status === 'completed' ? 'completed' : patch.status === 'cancelled' ? 'cancelled' : patch.priority ? 'priority_change' : 'status_change';
+    const evType = patch.status === 'completed' ? 'completed' : patch.status === 'cancelled' ? 'cancelled' : patch.status === 'escalated' ? 'escalation' : patch.priority ? 'priority_change' : 'status_change';
     if (updated) {
       await _logCaseEvent(updated.case_id, taskId, evType, 'Task updated: ' + Object.keys(patch).join(', '), JSON.stringify(patch), adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
@@ -23285,6 +23299,12 @@ Return ONLY valid JSON with no markdown formatting:
     else { patch.resolved_at = null; patch.resolved_by = null; }
     const r = await supabaseDbRequest('support_tickets', 'id=eq.' + encodeURIComponent(ticketId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+    // Set first_reply_at if this is the first admin interaction
+    if (updated && !updated.first_reply_at) {
+      await supabaseDbRequest('support_tickets', 'id=eq.' + encodeURIComponent(ticketId) + '&first_reply_at=is.null', {
+        method: 'PATCH', body: { first_reply_at: new Date().toISOString() }
+      });
+    }
     if (!updated) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
     // Also mirror to the legacy user-state JSON so /api/support/tickets stays consistent
     try {
