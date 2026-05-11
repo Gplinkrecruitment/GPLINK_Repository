@@ -282,6 +282,15 @@
         var localState = snapshotTrackedLocalState();
         var fetched = await fetchState();
         var serverState = fetched.state;
+        // Server may return values as objects (e.g. Zoho sync writes JSON objects
+        // directly to Supabase JSONB instead of double-encoded strings). Normalize
+        // to strings so they survive the merge logic and localStorage storage.
+        STATE_KEYS.forEach(function (key) {
+          var v = serverState[key];
+          if (v != null && typeof v !== 'string') {
+            serverState[key] = JSON.stringify(v);
+          }
+        });
         var serverResetAt = fetched.resetAt;
         var storedResetAt = readStoredResetAt();
 
