@@ -979,19 +979,21 @@
     }
 
     /* ── Auth Check ── */
+    var isEmbedded = (window.self !== window.top);
     function checkAuth() {
       return apiFetch('/api/admin/auth/session').then(function(d) {
         if (!d.ok || !d.authenticated) {
-          window.location.href = '/pages/admin-signin.html';
+          if (!isEmbedded) window.location.href = '/pages/admin-signin.html';
           return false;
         }
-        if (!d.profile || d.profile.role !== 'super_admin') {
-          window.location.href = '/pages/admin-signin.html';
+        var role = (d.profile && (d.profile.role || d.profile.adminRole)) || '';
+        if (role !== 'super_admin') {
+          if (!isEmbedded) window.location.href = '/pages/admin-signin.html';
           return false;
         }
         return true;
       }).catch(function() {
-        window.location.href = '/pages/admin-signin.html';
+        if (!isEmbedded) window.location.href = '/pages/admin-signin.html';
         return false;
       });
     }
