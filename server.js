@@ -4988,8 +4988,14 @@ async function _hasOpenTask(caseId, stage, type) {
 async function _hasDoubleTickBeenSent(caseId, stageTitle) {
   if (!isSupabaseDbConfigured()) return false;
   const exactTitle = stageTitle + ' started — WhatsApp template sent';
+  const titles = [exactTitle];
+  // Backward compat: AHPRA was previously logged as "unlocked" instead of "started"
+  if (stageTitle === 'AHPRA stage') titles.push('AHPRA stage unlocked — WhatsApp template sent');
+  const titleFilter = titles.length === 1
+    ? 'title=eq.' + encodeURIComponent(titles[0])
+    : 'title=in.(' + titles.map(t => '"' + t.replace(/"/g, '\\"') + '"').join(',') + ')';
   const q = await supabaseDbRequest('task_timeline',
-    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&event_type=eq.system&title=eq.' + encodeURIComponent(exactTitle) + '&limit=1');
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&event_type=eq.system&' + titleFilter + '&limit=1');
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
@@ -5442,10 +5448,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'verification_issued') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.myintealth&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          // Send WhatsApp template via DoubleTick instead of creating a kickoff task
-          if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'amc', _gpFirstName);
-          sendMyintealthCompleteEmail(userId).catch(() => {});
-          await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
+          // Send WhatsApp template + email only if not already sent for this case
+          if (!(await _hasDoubleTickBeenSent(caseId, 'AMC stage'))) {
+            if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'amc', _gpFirstName);
+            sendMyintealthCompleteEmail(userId).catch(() => {});
+            await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
+          }
         }
       }
     }
@@ -5462,10 +5470,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'qualifications_verified') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.amc&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          // Send WhatsApp template via DoubleTick instead of creating a kickoff task
-          if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'career', _gpFirstName);
-          sendAmcCompleteEmail(userId).catch(() => {});
-          await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
+          // Send WhatsApp template + email only if not already sent for this case
+          if (!(await _hasDoubleTickBeenSent(caseId, 'Career stage'))) {
+            if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'career', _gpFirstName);
+            sendAmcCompleteEmail(userId).catch(() => {});
+            await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
+          }
         }
       }
     }
@@ -5593,9 +5603,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         console.error('[PracticePack] Offer/Contract attachment check error:', ocErr.message);
       }
 
-      // Send WhatsApp template via DoubleTick instead of creating a kickoff task
-      if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
-      await _logCaseEvent(caseId, null, 'system', 'AHPRA stage unlocked — WhatsApp template sent', null, 'system');
+      // Send WhatsApp template only if not already sent for this case
+      if (!(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
+        if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
+        await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
+      }
     }
 
     // ── Document uploads ──
@@ -5623,10 +5635,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (key === 'verification_issued') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.ahpra&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-          // Send WhatsApp template via DoubleTick instead of creating a kickoff task
-          if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName);
-          sendAhpraCompleteEmail(userId).catch(() => {});
-          await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
+          // Send WhatsApp template + email only if not already sent for this case
+          if (!(await _hasDoubleTickBeenSent(caseId, 'Visa stage'))) {
+            if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName);
+            sendAhpraCompleteEmail(userId).catch(() => {});
+            await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
+          }
         }
       }
     }
