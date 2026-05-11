@@ -1298,6 +1298,7 @@
     function hasCareerSecured() {
       var careerState = parseStorage(CAREER_STATE_KEY);
       if (!careerState) return false;
+      if (careerState.career_secured === true || careerState.secured === true) return true;
       var applications = Array.isArray(careerState.applications) ? careerState.applications : [];
       for (var i = 0; i < applications.length; i++) {
         var app = applications[i];

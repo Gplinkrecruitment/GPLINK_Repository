@@ -4688,7 +4688,9 @@
       try {
         const raw = localStorage.getItem("gp_career_state");
         const careerState = raw ? JSON.parse(raw) : null;
-        const applications = careerState && Array.isArray(careerState.applications) ? careerState.applications : [];
+        if (!careerState) return false;
+        if (careerState.career_secured === true || careerState.secured === true) return true;
+        const applications = Array.isArray(careerState.applications) ? careerState.applications : [];
         for (let i = 0; i < applications.length; i++) {
           const app = applications[i];
           if (!app || typeof app !== "object") continue;
