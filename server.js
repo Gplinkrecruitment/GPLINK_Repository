@@ -23648,43 +23648,6 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
-  // ── One-shot preview: send all templates to hello@mygplink.com.au (TEMPORARY — remove after use) ──
-  if (pathname === '/api/internal/email-preview-oneshot' && req.method === 'GET') {
-    if (!isEmailConfigured()) { sendJson(res, 503, { ok: false, message: 'Resend not configured.' }); return; }
-    var osTo = 'hello@mygplink.com.au';
-    var osTemplates = [
-      { name: 'Welcome', subject: 'Welcome to GP Link', title: 'Welcome to GP Link, Dr Sarah!', body: 'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Your dedicated support expert Hazel is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.', ctaText: 'Get Started', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: 'Questions? Reply to this email or message Hazel on WhatsApp.' },
-      { name: 'Email Verification', subject: 'Verify your GP Link account', title: 'Verify your email', body: 'Thanks for signing up to GP Link! Please click the button below to verify your email address and activate your account.', ctaText: 'Verify Email', ctaUrl: 'https://app.mygplink.com.au', footer: 'If you didn\'t create a GP Link account, you can safely ignore this email. This link expires in 24 hours.' },
-      { name: 'Onboarding Complete', subject: 'Profile Complete \u2014 GP Link', title: 'Your profile is complete, Dr Sarah!', body: 'Great work! Your GP Link profile is now set up. The next step is MyIntealth \u2014 this is where your qualification verification begins.\n\nHead to your dashboard to get started.', ctaText: 'Start MyIntealth', ctaUrl: 'https://app.mygplink.com.au/pages/myintealth.html', footer: '' },
-      { name: 'MyIntealth Complete', subject: 'MyIntealth Complete \u2014 GP Link', title: 'MyIntealth is done, Dr Sarah!', body: 'Congratulations on completing your MyIntealth verification! You\'re making excellent progress.\n\nYour next step is AMC (Australian Medical Council). This is where your qualifications get formally assessed for practise in Australia.', ctaText: 'Start AMC', ctaUrl: 'https://app.mygplink.com.au/pages/amc.html', footer: '' },
-      { name: 'AMC Complete', subject: 'AMC Complete \u2014 GP Link', title: 'AMC verification complete, Dr Sarah!', body: 'Your AMC qualifications have been verified \u2014 fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.', ctaText: 'Browse Positions', ctaUrl: 'https://app.mygplink.com.au/pages/career.html', footer: '' },
-      { name: 'AHPRA Unlocked (NEW)', subject: 'AHPRA Registration Unlocked \u2014 GP Link', title: 'Your AHPRA step is now available, Dr Sarah!', body: 'Great news \u2014 your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.', ctaText: 'Start AHPRA', ctaUrl: 'https://app.mygplink.com.au/pages/ahpra.html', footer: 'Questions? Message your support expert Hazel on WhatsApp or reply to this email.' },
-      { name: 'AHPRA Complete', subject: 'AHPRA Complete \u2014 GP Link', title: 'AHPRA registration complete, Dr Sarah!', body: 'Your AHPRA registration has been processed \u2014 you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.', ctaText: 'View Dashboard', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: '' },
-      { name: 'Application Submitted', subject: 'Application Submitted \u2014 GP Link', title: 'Application Submitted', body: 'Your application for the Greenfield Medical Centre \u2014 Melbourne role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.', ctaText: 'View Your Applications', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications', footer: 'You\'re receiving this because you applied for a role on GP Link.' },
-      { name: 'Interview Scheduled', subject: 'Interview Scheduled \u2014 GP Link', title: 'Interview Scheduled', body: 'Great news! An interview has been scheduled for Greenfield Medical Centre \u2014 Melbourne.<br><br><strong>Interview Details:</strong><br>Date: Monday, 19 May 2026<br>Time: 10:00 AM<br>Duration: 30 minutes<br>Interviewer: Dr James Chen<br>Format: Video Call (Zoom)', ctaText: 'Join Video Interview', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
-      { name: 'Interview Reminder (NEW)', subject: 'Interview Tomorrow \u2014 GP Link', title: 'Interview reminder, Dr Sarah', body: 'Just a friendly reminder \u2014 you have an interview scheduled for tomorrow.<br><br><strong>Interview Details:</strong><br>Practice: Greenfield Medical Centre \u2014 Melbourne<br>Date: Tuesday, 20 May 2026<br>Time: 10:00 AM<br>Format: Video Call (Zoom)<br><br>Your Zoom meeting link is included in the button below.', ctaText: 'Join Video Interview', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications', footer: 'Make sure you\'re in a quiet place with stable internet. Good luck!' },
-      { name: 'Offer Pending', subject: 'Offer Pending \u2014 GP Link', title: 'Offer Pending', body: 'Exciting news! An offer is pending for Greenfield Medical Centre \u2014 Melbourne. Our team will be in touch with the details.', ctaText: 'View Application', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
-      { name: 'Placement Secured', subject: 'Placement Secured! \u2014 GP Link', title: 'Congratulations!', body: 'Your placement at Greenfield Medical Centre \u2014 Melbourne has been secured. Visit your dashboard to see your placement details, start date, and next steps.', ctaText: 'View Your Placement', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#secured', footer: '' },
-      { name: 'Practice Pack Docs Needed (NEW)', subject: 'Documents Needed \u2014 GP Link', title: 'Time to prepare your practice pack, Dr Sarah', body: 'Now that your placement at Greenfield Medical Centre is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n\u2022 SPPA-00 Agreement\n\u2022 Section G Form\n\u2022 Position Description\n\u2022 Offer / Contract\n\u2022 Supervisor CV\n\nSome of these will be handled by GP Link and the practice \u2014 we\'ll keep you updated as each one progresses.', ctaText: 'View Documents', ctaUrl: 'https://app.mygplink.com.au/pages/my-documents.html', footer: 'If you have questions about any document, message Hazel on WhatsApp.' },
-      { name: 'Stalled Reminder', subject: 'Need a hand? \u2014 GP Link', title: 'How are you going, Dr Sarah?', body: 'We noticed you haven\'t made progress on AMC recently. No rush \u2014 but if you\'re stuck or have questions, we\'re here to help.\n\nYour support expert Hazel can assist you with anything you need. Just reply to this email or message her on WhatsApp.', ctaText: 'Continue AMC', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: 'If you\'re waiting on something external (like a verification), no action needed \u2014 we\'ll follow up when there\'s an update.' },
-      { name: 'Document Approved', subject: 'Document Approved \u2014 GP Link', title: 'Your document has been approved!', body: 'Good news, Dr Sarah \u2014 your MRCGP Certificate has been reviewed and approved.\n\nHead to your dashboard to see your updated progress.', ctaText: 'View Dashboard', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: '' },
-      { name: 'Document Revision', subject: 'Revision Needed \u2014 GP Link', title: 'A document needs your attention', body: 'Dr Sarah, the Section G Form from Greenfield Medical Centre requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.', ctaText: 'View Details', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: 'If you have questions about what\'s needed, message your support expert Hazel on WhatsApp.' },
-      { name: 'Support Ticket Reply (NEW)', subject: 'New Reply \u2014 GP Link', title: 'You have a new reply, Dr Sarah', body: 'Your support team has replied to your request: "Need help with MyIntealth account setup".\n\nCheck your messages to read the full response and continue the conversation.', ctaText: 'View Messages', ctaUrl: 'https://app.mygplink.com.au/pages/messages.html', footer: 'Need more help? Reply directly in the app or message Hazel on WhatsApp.' },
-      { name: 'Account Activated (NEW)', subject: 'Account Activated \u2014 GP Link', title: 'Your account is ready, Dr Sarah!', body: 'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.', ctaText: 'Go to Dashboard', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: '' },
-      { name: 'Password Reset', subject: 'Reset your GP Link password', title: 'Reset your password', body: 'We received a request to reset your GP Link password. Click the button below to set a new password.', ctaText: 'Reset Password', ctaUrl: 'https://app.mygplink.com.au', footer: 'If you didn\'t request a password reset, you can safely ignore this email. This link expires in 1 hour.' }
-    ];
-    var osResults = [];
-    for (var oi = 0; oi < osTemplates.length; oi++) {
-      var osTpl = osTemplates[oi];
-      var osSubject = '[Preview ' + (oi + 1) + '/' + osTemplates.length + '] ' + osTpl.name + ' \u2014 ' + osTpl.subject;
-      var osResult = await sendEmail({ to: osTo, subject: osSubject, html: buildCareerEmailHtml({ title: osTpl.title, body: osTpl.body, ctaText: osTpl.ctaText, ctaUrl: osTpl.ctaUrl, footer: osTpl.footer }) });
-      osResults.push({ name: osTpl.name, ok: osResult.ok, error: osResult.error || null });
-      if (oi < osTemplates.length - 1) await new Promise(function (r) { setTimeout(r, 1200); });
-    }
-    sendJson(res, 200, { ok: true, sent: osResults.filter(function (r) { return r.ok; }).length, total: osTemplates.length, results: osResults });
-    return;
-  }
-
   // ── Send preview of all email templates to a given address ──
   if (pathname === '/api/admin/email-preview' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
@@ -27036,11 +26999,19 @@ Return ONLY valid JSON with no markdown formatting:
     var SIX_MONTHS_MS = 180 * DAY_MS;
     var weekAgo = new Date(now - 7 * DAY_MS).toISOString();
 
+    // Time filter: current (default), 7d, 14d, 30d, all
+    var period = url.searchParams.get('period') || 'current';
+    var periodMs = period === '7d' ? 7 * DAY_MS : period === '14d' ? 14 * DAY_MS : period === '30d' ? 30 * DAY_MS : 0;
+
     // Filter out withdrawn and 6-month inactive cases from all metrics
     var cases = allCasesRaw.filter(function(c) {
       if (c.status === 'withdrawn') return false;
       var lastAct = c.last_gp_activity_at ? new Date(c.last_gp_activity_at).getTime() : (c.updated_at ? new Date(c.updated_at).getTime() : new Date(c.created_at).getTime());
       if ((now - lastAct) > SIX_MONTHS_MS) return false;
+      // Apply period filter (except 'current' and 'all' which show everything active)
+      if (periodMs > 0) {
+        if ((now - lastAct) > periodMs) return false;
+      }
       return true;
     });
 
@@ -27074,17 +27045,34 @@ Return ONLY valid JSON with no markdown formatting:
     });
 
     // Pipeline — user-facing funnel order, excluding visa (deferred) and complete (shown in completions)
+    // Database stage progression order (for cumulative): myintealth(0) → amc(1) → career(2) → ahpra(3) → pbs(4) → commencement(5) → complete(6)
+    var DB_STAGE_ORDER = { myintealth: 0, amc: 1, career: 2, ahpra: 3, visa: 4, pbs: 4, commencement: 5, complete: 6 };
     var FUNNEL_STAGES = ['career', 'myintealth', 'amc', 'ahpra', 'pbs', 'commencement'];
     var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement' };
+    var isCumulative = (period !== 'current');
     var pipeline = [];
     var pipelineCounts = {};
     for (var si = 0; si < FUNNEL_STAGES.length; si++) pipelineCounts[FUNNEL_STAGES[si]] = { count: 0, blocked: 0 };
     for (var ci2 = 0; ci2 < cases.length; ci2++) {
-      var s = cases[ci2].stage || 'myintealth';
-      if (s === 'visa') s = 'pbs'; // visa deferred — roll into PBS
-      if (pipelineCounts[s]) {
-        pipelineCounts[s].count++;
-        if (cases[ci2].status === 'blocked' || cases[ci2].blocker_status) pipelineCounts[s].blocked++;
+      var caseStage = cases[ci2].stage || 'myintealth';
+      if (caseStage === 'visa') caseStage = 'pbs';
+      var caseDbIndex = DB_STAGE_ORDER[caseStage] !== undefined ? DB_STAGE_ORDER[caseStage] : 0;
+      var isBlocked = cases[ci2].status === 'blocked' || !!cases[ci2].blocker_status;
+      if (isCumulative) {
+        // Cumulative: count GP in every stage they've reached or passed
+        for (var fsi = 0; fsi < FUNNEL_STAGES.length; fsi++) {
+          var funnelDbIndex = DB_STAGE_ORDER[FUNNEL_STAGES[fsi]] !== undefined ? DB_STAGE_ORDER[FUNNEL_STAGES[fsi]] : 0;
+          if (caseDbIndex >= funnelDbIndex) {
+            pipelineCounts[FUNNEL_STAGES[fsi]].count++;
+            if (isBlocked) pipelineCounts[FUNNEL_STAGES[fsi]].blocked++;
+          }
+        }
+      } else {
+        // Current snapshot: count GP in their current stage only
+        if (pipelineCounts[caseStage]) {
+          pipelineCounts[caseStage].count++;
+          if (isBlocked) pipelineCounts[caseStage].blocked++;
+        }
       }
     }
     for (var fi = 0; fi < FUNNEL_STAGES.length; fi++) {
@@ -27253,7 +27241,7 @@ Return ONLY valid JSON with no markdown formatting:
     var completions = { this_month: thisMonthCompleted, total: completedCases.length, recent_milestones: recentMilestones };
 
     sendJson(res, 200, {
-      ok: true, refreshed_at: new Date().toISOString(),
+      ok: true, refreshed_at: new Date().toISOString(), period: period,
       kpi: kpi, escalations: escalations, pipeline: pipeline, blockers: blockers, task_health: taskHealth,
       va_workload: vaWorkload, velocity: velocity, placements: placements, gp_activity: gpActivity,
       tickets: ticketStats, completions: completions
