@@ -4757,6 +4757,7 @@
       if (!introContent || introEl.style.display === 'none') return;
       var clearance = getShellBottomClearance();
       introContent.style.minHeight = (window.innerHeight - clearance - 20) + 'px';
+      introContent.style.paddingBottom = clearance ? (clearance + 16) + 'px' : '';
     }
 
     window.addEventListener('resize', updateIntroHeight);
