@@ -2960,16 +2960,15 @@ async function handleDoubleTickWebhook(req, res) {
     let dtCaseId = null;
     let dtUserId = null;
 
-    // Try to match phone to a user profile
+    // Try to match phone to a user profile (fuzzy last-9-digit match on both phone columns)
     if (phoneClean.length >= 9) {
+      const phoneSuffix = phoneClean.slice(-9);
       const userLookup = await supabaseDbRequest('user_profiles',
-        '?phone=ilike.*' + phoneClean.slice(-9) + '&select=id,user_id',
-        { method: 'GET' });
+        'select=id,user_id&or=(phone.ilike.*' + phoneSuffix + ',phone_number.ilike.*' + phoneSuffix + ')&limit=1');
       if (userLookup.ok && Array.isArray(userLookup.data) && userLookup.data.length > 0) {
         dtUserId = userLookup.data[0].user_id;
         const caseLookup = await supabaseDbRequest('registration_cases',
-          '?user_id=eq.' + dtUserId + '&select=id',
-          { method: 'GET' });
+          'user_id=eq.' + dtUserId + '&select=id');
         if (caseLookup.ok && Array.isArray(caseLookup.data) && caseLookup.data.length > 0) {
           dtCaseId = caseLookup.data[0].id;
         }
@@ -3012,24 +3011,19 @@ async function handleDoubleTickWebhook(req, res) {
       }
     }
 
-    // Resolve GP by phone (try E.164, raw, and local AU formats)
-    const normalizedPhone = normalizePhone(fromPhone);
-    // Convert +61… / 61… to local 0… format for matching profiles stored as 04xx
-    const localPhone = normalizedPhone.startsWith('+61')
-      ? '0' + normalizedPhone.slice(3)
-      : (fromPhone.startsWith('61') && fromPhone.length === 11 ? '0' + fromPhone.slice(2) : null);
+    // Resolve GP by phone — use fuzzy last-9-digit match across both phone columns.
+    // Phones are stored in varied formats: phone_number='406281243' (no leading 0, no country code),
+    // phone='+61 406281243' (country code + space + number). Exact eq. matching fails because
+    // DoubleTick sends E.164 format (+61406281243) which matches neither stored format.
+    const phoneDigits = fromPhone.replace(/[^0-9]/g, '');
     let gpProfile = null;
-    if (isSupabaseDbConfigured()) {
-      for (const pv of [...new Set([normalizedPhone, fromPhone, localPhone].filter(Boolean))]) {
-        for (const col of ['phone_number', 'phone']) {
-          const r = await supabaseDbRequest(
-            'user_profiles',
-            'select=user_id,first_name,last_name,email,phone_number,phone&' + col + '=eq.' + encodeURIComponent(pv) + '&limit=1'
-          );
-          if (r.ok && Array.isArray(r.data) && r.data.length > 0) { gpProfile = r.data[0]; break; }
-        }
-        if (gpProfile) break;
-      }
+    if (isSupabaseDbConfigured() && phoneDigits.length >= 9) {
+      const suffix = phoneDigits.slice(-9);
+      const r = await supabaseDbRequest(
+        'user_profiles',
+        'select=user_id,first_name,last_name,email,phone_number,phone&or=(phone.ilike.*' + suffix + ',phone_number.ilike.*' + suffix + ')&limit=1'
+      );
+      if (r.ok && Array.isArray(r.data) && r.data.length > 0) { gpProfile = r.data[0]; }
     }
 
     // Find the most recent active registration case for this GP
