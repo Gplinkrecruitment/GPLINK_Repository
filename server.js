@@ -5520,6 +5520,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         }
       }
 
+      // Notify GP about practice pack docs needed
+      const _securedApp = Array.isArray(nxt.career.applications) ? nxt.career.applications.find(function (a) { return a && a.isPlacementSecured; }) : null;
+      const _practiceName = _securedApp && _securedApp.placement ? (_securedApp.placement.practiceName || _securedApp.placement.practice_name || '') : '';
+      sendPracticePackEmail(userId, _practiceName).catch(() => {});
+
       // Auto-send SPPA-00 if Zoho Sign is connected + practice contact email is present
       try {
         const sppaTasks = await supabaseDbRequest('registration_tasks',
@@ -5627,9 +5632,10 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         console.error('[PracticePack] Offer/Contract attachment check error:', ocErr.message);
       }
 
-      // Send WhatsApp template only if not already sent for this case
+      // Send WhatsApp template + email only if not already sent for this case
       if (!(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
         if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
+        sendAhpraUnlockedEmail(userId).catch(() => {});
         await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
       }
     }
@@ -15626,6 +15632,77 @@ async function sendDocumentRevisionEmail(userId, docLabel, practiceName) {
   );
 }
 
+// 9. AHPRA Unlocked — Career secured + AMC done
+async function sendAhpraUnlockedEmail(userId) {
+  await sendGpNotificationEmail(userId,
+    'AHPRA Registration Unlocked — GP Link',
+    'Your AHPRA step is now available, {{name}}!',
+    'Great news — your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.',
+    'Start AHPRA',
+    'https://app.mygplink.com.au/pages/ahpra.html',
+    'Questions? Message your support expert Hazel on WhatsApp or reply to this email.'
+  );
+}
+
+// 10. Interview Reminder — 24h before scheduled interview
+async function sendInterviewReminderEmail(userId, { practiceName, scheduledAt, format, zoomJoinUrl }) {
+  const dateObj = new Date(scheduledAt);
+  const dateStr = dateObj.toLocaleDateString('en-AU', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const timeStr = dateObj.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+  const formatLabels = { video: 'Video Call (Zoom)', phone: 'Phone Call', in_person: 'In Person' };
+  let detail = '<br><br><strong>Interview Details:</strong><br>';
+  detail += 'Practice: ' + (practiceName || 'Your matched practice') + '<br>';
+  detail += 'Date: ' + dateStr + '<br>';
+  detail += 'Time: ' + timeStr + '<br>';
+  detail += 'Format: ' + (formatLabels[format] || format || 'TBC') + '<br>';
+  if (zoomJoinUrl) detail += '<br>Your Zoom meeting link is included in the button below.';
+  await sendGpNotificationEmail(userId,
+    'Interview Tomorrow — GP Link',
+    'Interview reminder, {{name}}',
+    'Just a friendly reminder — you have an interview scheduled for tomorrow.' + detail,
+    zoomJoinUrl ? 'Join Video Interview' : 'View Application',
+    zoomJoinUrl || 'https://app.mygplink.com.au/pages/career.html#applications',
+    'Make sure you\'re in a quiet place with stable internet. Good luck!'
+  );
+}
+
+// 11. Support Ticket Reply — VA replied to GP's ticket
+async function sendTicketReplyEmail(userId, ticketTitle) {
+  await sendGpNotificationEmail(userId,
+    'New Reply — GP Link',
+    'You have a new reply, {{name}}',
+    'Your support team has replied to your request' + (ticketTitle ? ': "' + ticketTitle + '"' : '') + '.\n\nCheck your messages to read the full response and continue the conversation.',
+    'View Messages',
+    'https://app.mygplink.com.au/pages/messages.html',
+    'Need more help? Reply directly in the app or message Hazel on WhatsApp.'
+  );
+}
+
+// 12. Account Activated — after review
+async function sendAccountActivatedEmail(userId) {
+  await sendGpNotificationEmail(userId,
+    'Account Activated — GP Link',
+    'Your account is ready, {{name}}!',
+    'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.',
+    'Go to Dashboard',
+    'https://app.mygplink.com.au/pages/index.html',
+    ''
+  );
+}
+
+// 13. Practice Pack Documents Needed — after career secured
+async function sendPracticePackEmail(userId, practiceName) {
+  const practiceNote = practiceName ? ' at ' + practiceName : '';
+  await sendGpNotificationEmail(userId,
+    'Documents Needed — GP Link',
+    'Time to prepare your practice pack, {{name}}',
+    'Now that your placement' + practiceNote + ' is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice — we\'ll keep you updated as each one progresses.',
+    'View Documents',
+    'https://app.mygplink.com.au/pages/my-documents.html',
+    'If you have questions about any document, message Hazel on WhatsApp.'
+  );
+}
+
 /* ───────── Push notifications via FCM ───────── */
 
 async function sendPushNotification(userId, { title, body, data }) {
@@ -19973,6 +20050,12 @@ Classify this document.`;
 
     await setAccountStatus(targetEmail, status);
 
+    // Send account activated email when status changes to active
+    if (status === 'active') {
+      const activatedUserId = await getSupabaseUserIdByEmail(targetEmail);
+      if (activatedUserId) sendAccountActivatedEmail(activatedUserId).catch(() => {});
+    }
+
     // If setting to under_review, auto-revert to active after 5 minutes
     if (status === 'under_review') {
       setTimeout(async () => {
@@ -20571,6 +20654,13 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (!updatedTicket) { sendJson(res, 404, { ok: false, message: 'Ticket not found.' }); return; }
     invalidateAdminDashboardCache();
+
+    // Send email notification to GP about the reply
+    const replyUserId = await getSupabaseUserIdByEmail(candidateEmail);
+    if (replyUserId) {
+      sendTicketReplyEmail(replyUserId, updatedTicket.title || '').catch(() => {});
+    }
+
     sendJson(res, 200, { ok: true, ticket: updatedTicket });
     return;
   }
@@ -26864,18 +26954,25 @@ Return ONLY valid JSON with no markdown formatting:
       avg_resolve_days: avgResolveDays
     };
 
-    // VA Workload
+    // VA Workload — use case assigned_va, fall back to task assignee if case unassigned
     var vaMap = {};
+    var caseEffectiveVa = {}; // case_id -> effective VA id
     for (var vi = 0; vi < cases.length; vi++) {
-      var vaId = cases[vi].assigned_va || '__unassigned__';
+      var vaId = cases[vi].assigned_va || null;
+      // If case has no assigned_va, check if any task for this case has an assignee
+      if (!vaId) {
+        for (var fti = 0; fti < tasks.length; fti++) {
+          if (tasks[fti].case_id === cases[vi].id && tasks[fti].assignee) { vaId = tasks[fti].assignee; break; }
+        }
+      }
+      vaId = vaId || '__unassigned__';
+      caseEffectiveVa[cases[vi].id] = vaId;
       if (!vaMap[vaId]) vaMap[vaId] = { va_id: vaId, va_email: '', va_name: vaId === '__unassigned__' ? 'Unassigned' : ceoGpName(vaId), case_count: 0, open_tasks: 0, overdue_tasks: 0 };
       vaMap[vaId].case_count++;
       if (vaId !== '__unassigned__') vaMap[vaId].va_email = ceoGpEmail(vaId);
     }
     for (var ti = 0; ti < tasks.length; ti++) {
-      var tc = null;
-      for (var tci = 0; tci < cases.length; tci++) { if (cases[tci].id === tasks[ti].case_id) { tc = cases[tci]; break; } }
-      var tVaId = (tc && tc.assigned_va) || '__unassigned__';
+      var tVaId = caseEffectiveVa[tasks[ti].case_id] || '__unassigned__';
       if (vaMap[tVaId]) {
         vaMap[tVaId].open_tasks++;
         if (tasks[ti].due_date && new Date(tasks[ti].due_date).getTime() < now) vaMap[tVaId].overdue_tasks++;
@@ -26922,11 +27019,13 @@ Return ONLY valid JSON with no markdown formatting:
       velocity[STAGE_PAIRS[vsi][2]] = { avg_days: arr.length > 0 ? Math.round((arr.reduce(function(a, b) { return a + b; }, 0) / arr.length) * 10) / 10 : null, sample_size: arr.length };
     }
 
-    // Placements
+    // Placements — each bucket is mutually exclusive (no double-counting)
     var securedSet = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
+    var offerSet = new Set(['offer', 'offer_pending', 'offered']);
+    var excludeFromApplied = new Set(['withdrawn', 'rejected', 'hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed', 'offer', 'offer_pending', 'offered']);
     var appInterviewIds = new Set(interviews.map(function(i) { return i.application_id; }));
     var placements = {
-      applied: apps.filter(function(a) { return ['withdrawn', 'rejected'].indexOf((a.status || '').toLowerCase()) === -1; }).length,
+      applied: apps.filter(function(a) { var s = (a.status || '').toLowerCase(); return !excludeFromApplied.has(s) && !appInterviewIds.has(a.id); }).length,
       submitted_to_practice: apps.filter(function(a) { return a.practice_submission_status && a.practice_submission_status !== 'pending_va_submission'; }).length,
       interviewing: apps.filter(function(a) { return appInterviewIds.has(a.id) && !securedSet.has((a.status || '').toLowerCase()); }).length,
       offers_made: apps.filter(function(a) { return ['offer', 'offer_pending', 'offered'].indexOf((a.status || '').toLowerCase()) > -1; }).length,
