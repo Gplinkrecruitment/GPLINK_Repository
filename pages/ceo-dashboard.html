@@ -93,6 +93,11 @@
     }
     .header-title span { color: var(--text-muted); font-weight: 500; }
     .header-right { display: flex; align-items: center; gap: 12px; }
+    .time-filter-bar { display: flex; align-items: center; gap: 6px; padding: 8px 24px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); }
+    .time-filter-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin-right: 4px; }
+    .time-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+    .time-btn:hover { border-color: var(--accent); color: var(--text); }
+    .time-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
     .escalation-badge {
       display: none;
       align-items: center; gap: 6px;
@@ -871,6 +876,16 @@
       </div>
     </header>
 
+    <!-- TIME FILTER -->
+    <div class="time-filter-bar" id="timeFilterBar">
+      <span class="time-filter-label">Period:</span>
+      <button class="time-btn" data-period="current">Current</button>
+      <button class="time-btn" data-period="7d">7 Days</button>
+      <button class="time-btn" data-period="14d">14 Days</button>
+      <button class="time-btn" data-period="30d">30 Days</button>
+      <button class="time-btn active" data-period="all">All Time</button>
+    </div>
+
     <!-- CONTENT -->
     <div class="content" id="mainContent">
       <div class="page-loading" id="pageLoading">
@@ -903,6 +918,7 @@
     var trendTimerId = null;
     var refreshLabelTimerId = null;
     var activeDrilldown = null; // { section, param, cardEl }
+    var currentPeriod = 'all';
 
     var STAGES = ['career', 'myintealth', 'amc', 'ahpra', 'pbs', 'commencement'];
     var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement', complete: 'Complete', visa: 'Visa' };
@@ -1675,7 +1691,8 @@
     /* ═══ DATA FETCHING ═══ */
     function refreshDashboard() {
       lastRefreshAt = Date.now();
-      return apiFetch('/api/ceo/dashboard').then(function(d) {
+      var periodParam = currentPeriod ? '?period=' + currentPeriod : '';
+      return apiFetch('/api/ceo/dashboard' + periodParam).then(function(d) {
         if (d.ok) {
           renderDashboard(d);
         } else {
@@ -1778,6 +1795,18 @@
     /* ── Keyboard shortcut: Escape closes modal ── */
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') closeModal();
+    });
+
+    /* ── Time filter ── */
+    document.getElementById('timeFilterBar').addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-period]');
+      if (!btn) return;
+      var p = btn.getAttribute('data-period');
+      if (p === currentPeriod) return;
+      currentPeriod = p;
+      var all = document.querySelectorAll('.time-btn');
+      for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i].getAttribute('data-period') === p);
+      refreshDashboard();
     });
 
     /* ═══ INIT ═══ */
