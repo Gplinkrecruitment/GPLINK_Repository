@@ -1207,7 +1207,8 @@
           var b = list[i];
           rows += '<div class="blocker-row">';
           rows += '<span class="blocker-gp">' + esc(b.gp_name) + '</span>';
-          rows += '<span class="blocker-stage">' + esc(STAGE_LABELS[b.stage] || b.stage) + '</span>';
+          var bStage = b.stage === 'visa' ? 'pbs' : b.stage;
+          rows += '<span class="blocker-stage">' + esc(STAGE_LABELS[bStage] || bStage) + '</span>';
           rows += '<span class="blocker-reason" title="' + esc(b.blocker_reason || b.blocker_status || '') + '">' + esc(b.blocker_reason || b.blocker_status || '--') + '</span>';
           rows += '<span class="blocker-days">' + fmtDays(b.days_in_stage) + '</span>';
           rows += '</div>';
@@ -1402,7 +1403,9 @@
       panel.innerHTML = '<div class="drilldown-loading"><div class="spinner" style="width:20px;height:20px;border-width:2px;margin:0 auto"></div><div style="margin-top:8px">Loading details...</div></div>';
       activeDrilldown = { section: section, param: param, cardEl: cardEl };
 
-      var url = '/api/ceo/drilldown/' + section + (param ? '?' + param : '');
+      var periodParam = currentPeriod ? 'period=' + currentPeriod : '';
+      var paramStr = [param, periodParam].filter(Boolean).join('&');
+      var url = '/api/ceo/drilldown/' + section + (paramStr ? '?' + paramStr : '');
       apiFetch(url).then(function(d) {
         if (!d.ok) {
           panel.innerHTML = '<div class="drilldown-empty">Failed to load: ' + esc(d.message || 'Unknown error') + '</div>';

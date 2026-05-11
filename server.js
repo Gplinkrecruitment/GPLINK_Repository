@@ -27053,25 +27053,55 @@ Return ONLY valid JSON with no markdown formatting:
       return true;
     });
 
-    // KPI
+    // Build case ID set for filtering tasks/apps/tickets to active cases only
+    var activeCaseIds = new Set();
+    var activeCaseUserIds = new Set();
+    for (var aci = 0; aci < cases.length; aci++) {
+      activeCaseIds.add(cases[aci].id);
+      if (cases[aci].user_id) activeCaseUserIds.add(cases[aci].user_id);
+    }
+
+    // Filter tasks to only those belonging to active (non-withdrawn, non-stale) cases
+    var filteredTasks = tasks.filter(function(t) { return activeCaseIds.has(t.case_id); });
+
+    // Filter apps to only active GPs, and apply period filter if set
+    var filteredApps = apps.filter(function(a) {
+      if (!activeCaseUserIds.has(a.user_id)) return false;
+      if (periodMs > 0 && a.applied_at) {
+        if ((now - new Date(a.applied_at).getTime()) > periodMs) return false;
+      }
+      return true;
+    });
+
+    // Filter tickets to only active GPs, and apply period filter if set
+    var filteredTickets = tickets.filter(function(t) {
+      if (periodMs > 0 && t.created_at) {
+        if ((now - new Date(t.created_at).getTime()) > periodMs) return false;
+      }
+      return true;
+    });
+
+    // KPI — use unique GPs for "placed", filtered data for everything else
     var SECURED_STATUSES = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
-    var securedApps = apps.filter(function(a) { return SECURED_STATUSES.has((a.status || '').toLowerCase()); });
-    var openTickets = tickets.filter(function(t) { return t.status !== 'closed'; });
-    var overdueTasks = tasks.filter(function(t) { return t.due_date && new Date(t.due_date).getTime() < now && ['completed', 'cancelled'].indexOf(t.status) === -1; });
+    var securedApps = filteredApps.filter(function(a) { return SECURED_STATUSES.has((a.status || '').toLowerCase()); });
+    var uniquePlacedGps = new Set();
+    for (var sai = 0; sai < securedApps.length; sai++) { if (securedApps[sai].user_id) uniquePlacedGps.add(securedApps[sai].user_id); }
+    var openTickets = filteredTickets.filter(function(t) { return t.status !== 'closed'; });
+    var overdueTasks = filteredTasks.filter(function(t) { return t.due_date && new Date(t.due_date).getTime() < now && ['completed', 'cancelled'].indexOf(t.status) === -1; });
     var blockedCases = cases.filter(function(c) { return c.status === 'blocked' || c.blocker_status; });
     var completedCases = cases.filter(function(c) { return c.stage === 'complete'; });
 
     var kpi = {
       total_gps: cases.length,
-      placed: securedApps.length,
-      open_tasks: tasks.length,
+      placed: uniquePlacedGps.size,
+      open_tasks: filteredTasks.length,
       overdue_tasks: overdueTasks.length,
       blocked_cases: blockedCases.length,
       completed_gps: completedCases.length
     };
 
     // Escalations
-    var escalations = tasks.filter(function(t) { return t.status === 'escalated' && t.escalated_to; }).map(function(t) {
+    var escalations = filteredTasks.filter(function(t) { return t.status === 'escalated' && t.escalated_to; }).map(function(t) {
       var c = null;
       for (var ci = 0; ci < cases.length; ci++) { if (cases[ci].id === t.case_id) { c = cases[ci]; break; } }
       return {
@@ -27135,8 +27165,8 @@ Return ONLY valid JSON with no markdown formatting:
     var avgResolveDays = resolveDurations.length > 0 ? Math.round((resolveDurations.reduce(function(a, b) { return a + b; }, 0) / resolveDurations.length) * 10) / 10 : 0;
 
     var taskHealth = {
-      open: tasks.filter(function(t) { return t.status === 'open'; }).length,
-      in_progress: tasks.filter(function(t) { return t.status === 'in_progress'; }).length,
+      open: filteredTasks.filter(function(t) { return t.status === 'open'; }).length,
+      in_progress: filteredTasks.filter(function(t) { return t.status === 'in_progress'; }).length,
       completed_this_week: completedThisWeek,
       completed_total: completedTasks.length,
       overdue: overdueTasks.length,
@@ -27151,7 +27181,7 @@ Return ONLY valid JSON with no markdown formatting:
       // If case has no assigned_va, check if any task for this case has an assignee
       if (!vaId) {
         for (var fti = 0; fti < tasks.length; fti++) {
-          if (tasks[fti].case_id === cases[vi].id && tasks[fti].assignee) { vaId = tasks[fti].assignee; break; }
+          if (tasks[fti].case_id === cases[vi].id && tasks[fti].assignee && profileByUserId[tasks[fti].assignee]) { vaId = tasks[fti].assignee; break; }
         }
       }
       vaId = vaId || '__unassigned__';
@@ -27160,11 +27190,11 @@ Return ONLY valid JSON with no markdown formatting:
       vaMap[vaId].case_count++;
       if (vaId !== '__unassigned__') vaMap[vaId].va_email = ceoGpEmail(vaId);
     }
-    for (var ti = 0; ti < tasks.length; ti++) {
-      var tVaId = caseEffectiveVa[tasks[ti].case_id] || '__unassigned__';
+    for (var ti = 0; ti < filteredTasks.length; ti++) {
+      var tVaId = caseEffectiveVa[filteredTasks[ti].case_id] || '__unassigned__';
       if (vaMap[tVaId]) {
         vaMap[tVaId].open_tasks++;
-        if (tasks[ti].due_date && new Date(tasks[ti].due_date).getTime() < now) vaMap[tVaId].overdue_tasks++;
+        if (filteredTasks[ti].due_date && new Date(filteredTasks[ti].due_date).getTime() < now) vaMap[tVaId].overdue_tasks++;
       }
     }
     var vaWorkload = Object.values(vaMap).sort(function(a, b) { return b.case_count - a.case_count; });
@@ -27214,10 +27244,10 @@ Return ONLY valid JSON with no markdown formatting:
     var excludeFromApplied = new Set(['withdrawn', 'rejected', 'hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed', 'offer', 'offer_pending', 'offered']);
     var appInterviewIds = new Set(interviews.map(function(i) { return i.application_id; }));
     var placements = {
-      applied: apps.filter(function(a) { var s = (a.status || '').toLowerCase(); return !excludeFromApplied.has(s) && !appInterviewIds.has(a.id); }).length,
-      submitted_to_practice: apps.filter(function(a) { return a.practice_submission_status && a.practice_submission_status !== 'pending_va_submission'; }).length,
-      interviewing: apps.filter(function(a) { return appInterviewIds.has(a.id) && !securedSet.has((a.status || '').toLowerCase()); }).length,
-      offers_made: apps.filter(function(a) { return ['offer', 'offer_pending', 'offered'].indexOf((a.status || '').toLowerCase()) > -1; }).length,
+      applied: filteredApps.filter(function(a) { var s = (a.status || '').toLowerCase(); return !excludeFromApplied.has(s) && !appInterviewIds.has(a.id); }).length,
+      submitted_to_practice: filteredApps.filter(function(a) { return a.practice_submission_status && a.practice_submission_status !== 'pending_va_submission'; }).length,
+      interviewing: filteredApps.filter(function(a) { return appInterviewIds.has(a.id) && !securedSet.has((a.status || '').toLowerCase()); }).length,
+      offers_made: filteredApps.filter(function(a) { return ['offer', 'offer_pending', 'offered'].indexOf((a.status || '').toLowerCase()) > -1; }).length,
       secured: securedApps.length,
       active_roles: roles.filter(function(r) { return r.is_active; }).length
     };
@@ -27247,7 +27277,7 @@ Return ONLY valid JSON with no markdown formatting:
     };
 
     // Tickets
-    var closedTickets = tickets.filter(function(t) { return t.status === 'closed'; });
+    var closedTickets = filteredTickets.filter(function(t) { return t.status === 'closed'; });
     var resolvedThisWeek = closedTickets.filter(function(t) { return t.resolved_at && t.resolved_at >= weekAgo; }).length;
     var resDurations = closedTickets.filter(function(t) { return t.resolved_at && t.created_at; }).map(function(t) { return (new Date(t.resolved_at).getTime() - new Date(t.created_at).getTime()) / 3600000; });
     var avgResolutionHours = resDurations.length > 0 ? Math.round((resDurations.reduce(function(a, b) { return a + b; }, 0) / resDurations.length) * 10) / 10 : null;
@@ -27264,7 +27294,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Completions
     var monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    var thisMonthCompleted = completedCases.filter(function(c) { return c.completed_at && c.completed_at >= monthStart; }).length;
+    var thisMonthCompleted = completedCases.filter(function(c) { var ct = c.completed_at || c.updated_at; return ct && ct >= monthStart; }).length;
     var recentMilestones = stageEvents.slice(-20).reverse().slice(0, 5).map(function(ev) {
       var mc = null;
       for (var mci = 0; mci < cases.length; mci++) { if (cases[mci].id === ev.case_id) { mc = cases[mci]; break; } }
@@ -27304,11 +27334,23 @@ Return ONLY valid JSON with no markdown formatting:
 
     var dNow = Date.now();
     var dDAY_MS = 86400000;
+    var dSIX_MONTHS_MS = 180 * dDAY_MS;
+    var dPeriod = url.searchParams.get('period') || 'current';
+    var dPeriodMs = dPeriod === '7d' ? 7 * dDAY_MS : dPeriod === '14d' ? 14 * dDAY_MS : dPeriod === '30d' ? 30 * dDAY_MS : 0;
+    function dFilterCases(arr) {
+      return arr.filter(function(c) {
+        if (c.status === 'withdrawn') return false;
+        var la = c.last_gp_activity_at ? new Date(c.last_gp_activity_at).getTime() : (c.updated_at ? new Date(c.updated_at).getTime() : new Date(c.created_at).getTime());
+        if ((dNow - la) > dSIX_MONTHS_MS) return false;
+        if (dPeriodMs > 0 && (dNow - la) > dPeriodMs) return false;
+        return true;
+      });
+    }
 
     if (section === 'pipeline') {
       var stage = url.searchParams.get('stage') || 'myintealth';
       var dCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=eq.' + encodeURIComponent(stage) + '&order=updated_at.desc');
-      var dCases = (dCasesRes.ok && Array.isArray(dCasesRes.data)) ? dCasesRes.data : [];
+      var dCases = dFilterCases((dCasesRes.ok && Array.isArray(dCasesRes.data)) ? dCasesRes.data : []);
       var dCaseIds = dCases.map(function(c) { return c.id; });
       var dTasks = [];
       if (dCaseIds.length > 0) {
@@ -27332,7 +27374,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (section === 'blockers') {
       var bCasesRes = await supabaseDbRequest('registration_cases', 'select=*&or=(status.eq.blocked,blocker_status.not.is.null)&order=updated_at.desc');
-      var bCases = (bCasesRes.ok && Array.isArray(bCasesRes.data)) ? bCasesRes.data : [];
+      var bCases = dFilterCases((bCasesRes.ok && Array.isArray(bCasesRes.data)) ? bCasesRes.data : []);
       var bItems = bCases.map(function(c) {
         return {
           case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
@@ -27379,7 +27421,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (section === 'activity') {
       var aBucket = url.searchParams.get('bucket') || 'cold';
       var aCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=neq.complete&status=neq.withdrawn&order=last_gp_activity_at.asc.nullsfirst');
-      var aCases = (aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : [];
+      var aCases = dFilterCases((aCasesRes.ok && Array.isArray(aCasesRes.data)) ? aCasesRes.data : []);
       var aItems = aCases.filter(function(c) {
         var la = c.last_gp_activity_at ? new Date(c.last_gp_activity_at).getTime() : new Date(c.created_at).getTime();
         var d = Math.floor((dNow - la) / dDAY_MS);
@@ -27414,7 +27456,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (section === 'completions') {
       var compCasesRes = await supabaseDbRequest('registration_cases', 'select=*&stage=eq.complete&order=completed_at.desc.nullslast,updated_at.desc');
-      var compCases = (compCasesRes.ok && Array.isArray(compCasesRes.data)) ? compCasesRes.data : [];
+      var compCases = dFilterCases((compCasesRes.ok && Array.isArray(compCasesRes.data)) ? compCasesRes.data : []);
       var compItems = compCases.map(function(c) {
         return {
           case_id: c.id, user_id: c.user_id, gp_name: dGpName(c.user_id), gp_email: dGpEmail(c.user_id),
