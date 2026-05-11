@@ -89,6 +89,8 @@
     .task-row:last-child{border-bottom:0}
     .tp{width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0}
     .tp.urgent{background:var(--red)}.tp.high{background:var(--amber)}.tp.normal{background:var(--blue)}.tp.low{background:#94a3b8}
+    .tp.escalated{background:#dc2626;color:#fff;font-weight:700;}
+    .st-escalate-ceo{color:#dc2626 !important;font-weight:600;}
     .task-body{flex:1;min-width:0}
     .task-title{font-size:13px;font-weight:700}
     .task-desc{font-size:11px;color:var(--muted);font-weight:500;margin-top:1px}
@@ -2017,6 +2019,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(guided.prompt&&guided.action!==null){
             html+='<div class="st-guide">\u2192 '+esc(guided.prompt)+'</div>';
           }
+          if(t.status==='escalated'){
+            html+='<div><span class="tp escalated" style="display:inline-flex;align-items:center;border-radius:4px;padding:2px 8px;width:auto;height:auto;font-size:0.75rem;">\uD83D\uDEA8 Escalated</span></div>';
+          }
           if(isWaiting){
             var waitLabel=t.status==='waiting_on_practice'?'Waiting on practice':t.status==='waiting_on_gp'?'Waiting on GP':'Waiting on external';
             html+='<div><span class="st-waiting-pill">\u23F3 '+waitLabel+'</span>';
@@ -2037,6 +2042,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='<div style="position:relative;display:inline-block">';
           html+='<button class="st-more-btn" data-more-menu="'+esc(t.id)+'">\u2022\u2022\u2022</button>';
           html+='<div class="st-dropdown" id="dropdown-'+esc(t.id)+'">';
+          if(t.status==='escalated'){
+            html+='<div style="padding:8px 12px;color:#dc2626;font-size:0.8rem;font-weight:600;">\uD83D\uDEA8 Escalated to CEO \u2014 awaiting decision</div>';
+          } else {
           html+='<button class="st-dropdown-item" data-complete-task="'+esc(t.id)+'">\u2713 Mark Complete</button>';
           html+='<button class="st-dropdown-item" data-start-task="'+esc(t.id)+'">\u25B6 Start / In Progress</button>';
           html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="waiting_on_practice">\u23F3 Waiting on Practice</button>';
@@ -2052,7 +2060,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
           html+='<button class="st-dropdown-item" data-case-nudge="'+esc(c.user_id||"")+'" data-nudge-stage="'+esc(c.stage||"")+'" data-nudge-substage="" data-nudge-name="'+esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())+'">\uD83D\uDCE8 Send Nudge</button>';
           html+='<div class="st-dropdown-sep"></div>';
-          html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="blocked">\uD83D\uDEA8 Escalate</button>';
+          html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="blocked">\u26D4 Set Blocked</button>';
+          html+='<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="'+esc(t.id)+'">\uD83D\uDEA8 Escalate to CEO</button>';
+          }
           html+='</div>';
           html+='</div>';
           html+='</div>';
@@ -3133,7 +3143,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     S.opsTasks.forEach(t=>{
       const isOverdue=t.status!=="completed"&&t.status!=="cancelled"&&(t.due_date||t.sla_due_date)&&new Date(t.sla_due_date||t.due_date)<now;
       const isExpanded=S.opsExpandedId===t.id;
-      const statusLabel=(t.status||"open").replace(/_/g," ");
+      var statusLabel=(t.status||"open").replace(/_/g," ");
+      if(t.status==='escalated') statusLabel='\uD83D\uDEA8 Escalated';
       html+=`<tr class="ops-row${isOverdue?" overdue":""}${isExpanded?" selected":""}" data-ops-task-id="${esc(t.id)}">
         <td>${t.case_id?`<a class="ops-gp-name ops-gp-link" data-ops-view-case="${esc(t.case_id)}">${esc(t.gp_name||"\u2014")}</a>`:`<span class="ops-gp-name">${esc(t.gp_name||"\u2014")}</span>`}</td>
         <td><span class="ops-task-title" title="${esc(t.title||"")}">${esc(t.title||"\u2014")}</span></td>
@@ -3514,6 +3525,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         else if(action==="checkSppaStatus"){
           if(typeof checkSppaStatus==="function")checkSppaStatus(taskId);
         }
+        return;
+      }
+      if(e.target.closest("[data-escalate-ceo]")){
+        var btn=e.target.closest("[data-escalate-ceo]");
+        var taskId=btn.getAttribute("data-escalate-ceo");
+        document.querySelectorAll(".st-dropdown.open").forEach(function(d){d.classList.remove("open");});
+        var modal=document.getElementById("escalateCeoModal");
+        var reasonInput=document.getElementById("escalateReasonInput");
+        var confirmBtn=document.getElementById("escalateConfirmBtn");
+        reasonInput.value="";
+        modal.style.display="flex";
+        reasonInput.focus();
+        confirmBtn.onclick=async function(){
+          var reason=reasonInput.value.trim();
+          if(!reason){reasonInput.style.borderColor="#dc2626";return;}
+          modal.style.display="none";
+          try{
+            var r=await fetch("/api/admin/task?id="+encodeURIComponent(taskId),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"escalated",escalated_to:"CEO",escalated_reason:reason,escalated_at:new Date().toISOString()})});
+            var d=await r.json().catch(function(){return {};});
+            if(d.ok){toast("Escalated to CEO","#dc2626");loadAll();}else{toast("Failed to escalate","#dc2626");}
+          }catch(err){toast("Failed to escalate","#dc2626");}
+        };
         return;
       }
       /* Set waiting status from dropdown */
@@ -4944,5 +4977,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.resolveIncomingQuestion = resolveIncomingQuestion;
 })();
 </script>
+<div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
+    <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
+    <p style="font-size:0.85rem;color:#666;margin:0 0 12px;">This task will appear on the CEO dashboard for a decision. Provide a reason:</p>
+    <textarea id="escalateReasonInput" rows="4" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:0.9rem;resize:vertical;box-sizing:border-box;" placeholder="Why does this need CEO attention?"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+      <button class="btn" onclick="document.getElementById('escalateCeoModal').style.display='none';">Cancel</button>
+      <button class="btn red" id="escalateConfirmBtn">Escalate</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
