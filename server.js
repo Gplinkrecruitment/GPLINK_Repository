@@ -26977,7 +26977,7 @@ Return ONLY valid JSON with no markdown formatting:
       supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,phone')
     ]);
 
-    var cases = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
+    var allCasesRaw = (casesRes.ok && Array.isArray(casesRes.data)) ? casesRes.data : [];
     var tasks = (tasksRes.ok && Array.isArray(tasksRes.data)) ? tasksRes.data : [];
     var tickets = (ticketsRes.ok && Array.isArray(ticketsRes.data)) ? ticketsRes.data : [];
     var apps = (appsRes.ok && Array.isArray(appsRes.data)) ? appsRes.data : [];
@@ -26996,7 +26996,16 @@ Return ONLY valid JSON with no markdown formatting:
 
     var now = Date.now();
     var DAY_MS = 86400000;
+    var SIX_MONTHS_MS = 180 * DAY_MS;
     var weekAgo = new Date(now - 7 * DAY_MS).toISOString();
+
+    // Filter out withdrawn and 6-month inactive cases from all metrics
+    var cases = allCasesRaw.filter(function(c) {
+      if (c.status === 'withdrawn') return false;
+      var lastAct = c.last_gp_activity_at ? new Date(c.last_gp_activity_at).getTime() : (c.updated_at ? new Date(c.updated_at).getTime() : new Date(c.created_at).getTime());
+      if ((now - lastAct) > SIX_MONTHS_MS) return false;
+      return true;
+    });
 
     // KPI
     var SECURED_STATUSES = new Set(['hired', 'secured', 'placement_secured', 'offer_accepted', 'contract_signed']);
@@ -27027,16 +27036,22 @@ Return ONLY valid JSON with no markdown formatting:
       };
     });
 
-    // Pipeline
-    var STAGES = ['myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement', 'complete'];
-    var pipeline = {};
-    for (var si = 0; si < STAGES.length; si++) pipeline[STAGES[si]] = { count: 0, blocked: 0 };
+    // Pipeline — user-facing funnel order, excluding visa (deferred) and complete (shown in completions)
+    var FUNNEL_STAGES = ['career', 'myintealth', 'amc', 'ahpra', 'pbs', 'commencement'];
+    var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement' };
+    var pipeline = [];
+    var pipelineCounts = {};
+    for (var si = 0; si < FUNNEL_STAGES.length; si++) pipelineCounts[FUNNEL_STAGES[si]] = { count: 0, blocked: 0 };
     for (var ci2 = 0; ci2 < cases.length; ci2++) {
       var s = cases[ci2].stage || 'myintealth';
-      if (pipeline[s]) {
-        pipeline[s].count++;
-        if (cases[ci2].status === 'blocked' || cases[ci2].blocker_status) pipeline[s].blocked++;
+      if (s === 'visa') s = 'pbs'; // visa deferred — roll into PBS
+      if (pipelineCounts[s]) {
+        pipelineCounts[s].count++;
+        if (cases[ci2].status === 'blocked' || cases[ci2].blocker_status) pipelineCounts[s].blocked++;
       }
+    }
+    for (var fi = 0; fi < FUNNEL_STAGES.length; fi++) {
+      pipeline.push({ key: FUNNEL_STAGES[fi], label: STAGE_LABELS[FUNNEL_STAGES[fi]], count: pipelineCounts[FUNNEL_STAGES[fi]].count, blocked: pipelineCounts[FUNNEL_STAGES[fi]].blocked });
     }
 
     // Blockers

@@ -904,9 +904,9 @@
     var refreshLabelTimerId = null;
     var activeDrilldown = null; // { section, param, cardEl }
 
-    var STAGES = ['myintealth', 'amc', 'career', 'ahpra', 'visa', 'pbs', 'commencement', 'complete'];
-    var STAGE_LABELS = { myintealth: 'MyIntealth', amc: 'AMC', career: 'Career', ahpra: 'AHPRA', visa: 'Visa', pbs: 'PBS', commencement: 'Commence', complete: 'Complete' };
-    var STAGE_COLORS = { myintealth: 'blue', amc: 'purple', career: 'amber', ahpra: 'green', visa: 'red', pbs: 'blue', commencement: 'purple', complete: 'green' };
+    var STAGES = ['career', 'myintealth', 'amc', 'ahpra', 'pbs', 'commencement'];
+    var STAGE_LABELS = { career: 'Secure Placement', myintealth: 'MyIntealth', amc: 'AMC Portfolio', ahpra: 'AHPRA Registration', pbs: 'PBS & Medicare', commencement: 'Commencement', complete: 'Complete', visa: 'Visa' };
+    var STAGE_COLORS = { career: 'amber', myintealth: 'blue', amc: 'purple', ahpra: 'green', pbs: 'blue', commencement: 'purple', complete: 'green', visa: 'red' };
 
     /* ── Utilities ── */
     function esc(s) {
@@ -1157,20 +1157,20 @@
     /* ── Pipeline Funnel ── */
     function renderPipelineSection(pipeline) {
       if (!pipeline) return '';
+      // pipeline is now an array: [{key, label, count, blocked}, ...]
+      var stages = Array.isArray(pipeline) ? pipeline : [];
       var maxCount = 1;
-      for (var i = 0; i < STAGES.length; i++) {
-        var s = pipeline[STAGES[i]];
-        if (s && s.count > maxCount) maxCount = s.count;
+      for (var i = 0; i < stages.length; i++) {
+        if (stages[i].count > maxCount) maxCount = stages[i].count;
       }
       var rows = '';
-      for (var j = 0; j < STAGES.length; j++) {
-        var stage = STAGES[j];
-        var sd = pipeline[stage] || { count: 0, blocked: 0 };
+      for (var j = 0; j < stages.length; j++) {
+        var sd = stages[j];
         var pct = maxCount > 0 ? Math.max(2, Math.round(sd.count / maxCount * 100)) : 2;
         if (sd.count === 0) pct = 0;
-        var barColor = STAGE_COLORS[stage] || 'blue';
-        rows += '<div class="funnel-row" data-drilldown="pipeline" data-param="stage=' + stage + '">';
-        rows += '<span class="funnel-label">' + esc(STAGE_LABELS[stage] || stage) + '</span>';
+        var barColor = STAGE_COLORS[sd.key] || 'blue';
+        rows += '<div class="funnel-row" data-drilldown="pipeline" data-param="stage=' + sd.key + '">';
+        rows += '<span class="funnel-label">' + esc(sd.label || STAGE_LABELS[sd.key] || sd.key) + '</span>';
         rows += '<div class="funnel-bar-wrap"><div class="funnel-bar ' + barColor + '" style="width:' + pct + '%"></div></div>';
         rows += '<span class="funnel-count">' + sd.count + '</span>';
         rows += '<span class="funnel-blocked">' + (sd.blocked > 0 ? sd.blocked + '&#x1F6D1;' : '') + '</span>';
