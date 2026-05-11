@@ -3011,19 +3011,35 @@ async function handleDoubleTickWebhook(req, res) {
       }
     }
 
-    // Resolve GP by phone — use fuzzy last-9-digit match across both phone columns.
-    // Phones are stored in varied formats: phone_number='406281243' (no leading 0, no country code),
-    // phone='+61 406281243' (country code + space + number). Exact eq. matching fails because
-    // DoubleTick sends E.164 format (+61406281243) which matches neither stored format.
+    // Resolve GP by phone — try exact match first (fast), then fuzzy suffix match (flexible)
+    const normalizedPhone = normalizePhone(fromPhone);
+    const localPhone = normalizedPhone.startsWith('+61')
+      ? '0' + normalizedPhone.slice(3)
+      : (fromPhone.startsWith('61') && fromPhone.length === 11 ? '0' + fromPhone.slice(2) : null);
     const phoneDigits = fromPhone.replace(/[^0-9]/g, '');
+    const bareNumber = phoneDigits.length > 9 ? phoneDigits.slice(-9) : phoneDigits; // e.g. 406281243
     let gpProfile = null;
-    if (isSupabaseDbConfigured() && phoneDigits.length >= 9) {
-      const suffix = phoneDigits.slice(-9);
-      const r = await supabaseDbRequest(
-        'user_profiles',
-        'select=user_id,first_name,last_name,email,phone_number,phone&or=(phone.ilike.*' + suffix + ',phone_number.ilike.*' + suffix + ')&limit=1'
-      );
-      if (r.ok && Array.isArray(r.data) && r.data.length > 0) { gpProfile = r.data[0]; }
+    if (isSupabaseDbConfigured()) {
+      // Try exact match on multiple formats (handles most stored formats)
+      for (const pv of [...new Set([normalizedPhone, fromPhone, localPhone, bareNumber, '0' + bareNumber].filter(Boolean))]) {
+        for (const col of ['phone_number', 'phone']) {
+          const r = await supabaseDbRequest(
+            'user_profiles',
+            'select=user_id,first_name,last_name,email,phone_number,phone&' + col + '=eq.' + encodeURIComponent(pv) + '&limit=1'
+          );
+          if (r.ok && Array.isArray(r.data) && r.data.length > 0) { gpProfile = r.data[0]; break; }
+        }
+        if (gpProfile) break;
+      }
+      // Fallback: fuzzy suffix match (handles spaces, formatting differences)
+      if (!gpProfile && phoneDigits.length >= 9) {
+        const suffix = phoneDigits.slice(-9);
+        const r = await supabaseDbRequest(
+          'user_profiles',
+          'select=user_id,first_name,last_name,email,phone_number,phone&or=(phone.ilike.*' + suffix + ',phone_number.ilike.*' + suffix + ')&limit=1'
+        );
+        if (r.ok && Array.isArray(r.data) && r.data.length > 0) { gpProfile = r.data[0]; }
+      }
     }
 
     // Find the most recent active registration case for this GP
