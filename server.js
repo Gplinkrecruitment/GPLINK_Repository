@@ -3042,15 +3042,9 @@ async function handleDoubleTickWebhook(req, res) {
       if (activeCase) console.log('[doubletick-webhook] Created registration case for', gpProfile.user_id);
     }
 
-    if (!activeCase) {
-      console.warn('[doubletick-webhook] No GP profile or case for phone:', fromPhone, '— message stored in doubletick_messages but no task created');
-      sendJson(res, 200, { ok: true, action: 'no_active_case' });
-      return;
-    }
-
     const gpName = gpProfile
       ? [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim()
-      : '';
+      : (contactName || '');
 
     // Check for pending nudges — if GP is replying after a nudge, dismiss it and tag the task
     let isNudgeReply = false;
@@ -3075,20 +3069,28 @@ async function handleDoubleTickWebhook(req, res) {
     }
 
     // Stage label map for human-readable VA task titles (DoubleTick webhook help tasks)
-    const _dtStageLabel = ({ myintealth: 'MyIntealth', amc: 'AMC', career: 'Career', ahpra: 'AHPRA', visa: 'Visa', pbs: 'PBS', commencement: 'Commencement' })[activeCase.stage] || (activeCase.stage || 'Registration');
+    const _dtStageLabel = activeCase
+      ? (({ myintealth: 'MyIntealth', amc: 'AMC', career: 'Career', ahpra: 'AHPRA', visa: 'Visa', pbs: 'PBS', commencement: 'Commencement' })[activeCase.stage] || (activeCase.stage || 'Registration'))
+      : 'New enquiry';
     const taskTitle = isNudgeReply
       ? 'Reply to nudge — ' + _dtStageLabel
-      : 'GP requested WhatsApp help — ' + _dtStageLabel;
+      : activeCase
+        ? 'GP requested WhatsApp help — ' + _dtStageLabel
+        : 'WhatsApp enquiry from ' + (gpName || fromPhone);
+    // For unregistered contacts, include phone + contact name in description so VA can respond
+    const taskDescription = activeCase
+      ? messageBody.slice(0, 500)
+      : (gpName ? gpName + ' (' + fromPhone + ')' : fromPhone) + '\n\n' + messageBody.slice(0, 500);
     const taskPayload = {
-      case_id: activeCase.id,
+      case_id: activeCase ? activeCase.id : null,
       task_type: 'whatsapp_help',
       title: taskTitle,
-      description: messageBody.slice(0, 500),
+      description: taskDescription,
       priority: 'high',
       status: 'open',
       source_trigger: 'doubletick_webhook',
-      related_stage: activeCase.stage || '',
-      related_substage: activeCase.substage || '',
+      related_stage: activeCase ? (activeCase.stage || '') : '',
+      related_substage: activeCase ? (activeCase.substage || '') : '',
       doubletick_conversation_url: conversationUrl || null,
       doubletick_message_id: messageId || null
     };
