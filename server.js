@@ -27327,7 +27327,7 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html' || pathname === '/pages/admin-visa.html' || pathname === '/pages/admin-pbs.html') && !isAllowedAdminHost(req)) {
+  if ((pathname === '/pages/admin.html' || pathname === '/pages/admin-signin.html' || pathname === '/pages/admin-visa.html' || pathname === '/pages/admin-pbs.html' || pathname === '/pages/ceo-dashboard.html') && !isAllowedAdminHost(req)) {
     res.writeHead(404);
     res.end('Not found');
     return;
@@ -27371,7 +27371,7 @@ async function handleRequest(req, res) {
     clearAdminSession(res);
   }
 
-  if (pathname === '/pages/admin.html') {
+  if (pathname === '/pages/admin.html' || pathname === '/pages/ceo-dashboard.html') {
     if (!adminSession) {
       res.writeHead(302, { Location: '/pages/admin-signin.html' });
       res.end();
