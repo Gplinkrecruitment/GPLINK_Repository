@@ -4027,7 +4027,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h+='</div>';
         h+='<div class="support-expand-actions">';
         var _dtLink=item.doubletick_url||item.whatsapp_link||"";
-        if(_dtLink.indexOf("doubletick.io/conversations/")>-1)h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">WhatsApp</a>';
+        if(item.source==="whatsapp"&&_dtLink)h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">Open Chat</a>';
+        else if(_dtLink.indexOf("doubletick.io/conversations/")>-1)h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">Open Chat</a>';
         else if(item.gp_email)h+='<a class="btn" href="mailto:'+esc(item.gp_email)+'" target="_blank" rel="noopener">Email GP</a>';
         if(item.status!=="closed"){
           h+='<button class="btn primary sm" data-support-resolve="'+esc(item.id)+'" data-support-kind="'+esc(item.kind)+'">Resolve & Close</button>';

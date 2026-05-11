@@ -3112,6 +3112,17 @@ async function handleDoubleTickWebhook(req, res) {
     };
 
     if (isSupabaseDbConfigured()) {
+      // If no conversation URL from the payload, fetch it from DoubleTick embed API
+      if (!taskPayload.doubletick_conversation_url && DOUBLETICK_API_KEY) {
+        try {
+          const dtResult = await fetchDoubleTickCustomerId(fromPhone);
+          if (dtResult.url) {
+            const webUrl = embedUrlToWebUrl(dtResult.url);
+            taskPayload.doubletick_conversation_url = webUrl || dtResult.url;
+          }
+        } catch (e) { console.warn('[doubletick-webhook] Failed to fetch conversation URL:', e.message); }
+      }
+
       const tRes = await supabaseDbRequest(
         'registration_tasks',
         '',
@@ -23179,6 +23190,34 @@ Return ONLY valid JSON with no markdown formatting:
     if (userIds.length > 0) {
       const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone_number,phone&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
       if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(p => { profileMap[p.user_id] = p; });
+    }
+
+    // Resolve DoubleTick conversation URLs for WhatsApp tasks that don't have one
+    if (DOUBLETICK_API_KEY) {
+      const waMissing = items.filter(i => i.source === 'whatsapp' && !i.doubletick_url);
+      for (const item of waMissing) {
+        try {
+          // For registered GPs, use their phone from profile
+          const p = profileMap[item.user_id] || {};
+          const gpPhone = p.phone || p.phone_number || '';
+          // For unregistered contacts, extract phone from description (format: "Name (phone)\n\nmessage")
+          const descPhone = !gpPhone && item.body ? (item.body.match(/\((\+?\d[\d\s\-]+)\)/) || [])[1] || '' : '';
+          const resolvePhone = gpPhone || descPhone;
+          if (resolvePhone) {
+            const dtResult = await fetchDoubleTickCustomerId(resolvePhone);
+            if (dtResult.url) {
+              const webUrl = embedUrlToWebUrl(dtResult.url);
+              item.doubletick_url = webUrl || dtResult.url;
+              // Persist to task so we don't fetch again next time
+              if (item.kind === 'task') {
+                supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(item.id), {
+                  method: 'PATCH', body: { doubletick_conversation_url: item.doubletick_url }
+                }).catch(() => {});
+              }
+            }
+          }
+        } catch (e) { /* best-effort */ }
+      }
     }
 
     const enriched = items.map(item => {
