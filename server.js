@@ -16082,6 +16082,65 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Interview reminder cron — sends reminder emails for interviews scheduled tomorrow
+  if (req.method === 'GET' && pathname === '/api/cron/interview-reminders') {
+    var irCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var irCronAuth = req.headers['authorization'] || '';
+    if (!irCronSecret || irCronAuth !== 'Bearer ' + irCronSecret) {
+      sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+      return;
+    }
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 200, { ok: true, message: 'Not configured', sent: 0 });
+      return;
+    }
+    try {
+      // Find interviews scheduled for tomorrow (AEST = UTC+10/+11)
+      var irNow = new Date();
+      var irTomorrow = new Date(irNow);
+      irTomorrow.setDate(irTomorrow.getDate() + 1);
+      var irDayStart = irTomorrow.toISOString().split('T')[0] + 'T00:00:00Z';
+      var irDayEnd = irTomorrow.toISOString().split('T')[0] + 'T23:59:59Z';
+
+      var irRes = await supabaseDbRequest('career_interviews',
+        'select=id,application_id,scheduled_at,format,duration_minutes,interviewer_name,zoom_join_url,reminder_sent' +
+        '&status=eq.scheduled&scheduled_at=gte.' + encodeURIComponent(irDayStart) +
+        '&scheduled_at=lte.' + encodeURIComponent(irDayEnd) +
+        '&reminder_sent=not.is.true&limit=50');
+      var irInterviews = irRes.ok && Array.isArray(irRes.data) ? irRes.data : [];
+      var irSent = 0;
+      for (var irInterview of irInterviews) {
+        try {
+          // Find the GP's userId from the application
+          var irAppRes = await supabaseDbRequest('gp_applications',
+            'select=user_id,practice_name,location_label&id=eq.' + encodeURIComponent(irInterview.application_id) + '&limit=1');
+          var irApp = irAppRes.ok && Array.isArray(irAppRes.data) && irAppRes.data[0] ? irAppRes.data[0] : null;
+          if (!irApp || !irApp.user_id) continue;
+
+          await sendInterviewReminderEmail(irApp.user_id, {
+            practiceName: irApp.practice_name || irApp.location_label || '',
+            scheduledAt: irInterview.scheduled_at,
+            format: irInterview.format || '',
+            zoomJoinUrl: irInterview.zoom_join_url || ''
+          });
+
+          // Mark reminder as sent to avoid duplicates
+          await supabaseDbRequest('career_interviews', 'id=eq.' + encodeURIComponent(irInterview.id), {
+            method: 'PATCH', body: { reminder_sent: true }
+          });
+          irSent++;
+        } catch (irErr) {
+          console.error('[InterviewReminder] Error for interview', irInterview.id, ':', irErr.message);
+        }
+      }
+      sendJson(res, 200, { ok: true, checked: irInterviews.length, sent: irSent });
+    } catch (err) {
+      console.error('[Cron] Interview reminders failed:', err);
+      sendJson(res, 500, { ok: false, error: err.message });
+    }
+    return;
+  }
+
   if (!enforceMutationOrigin(req, res)) return;
 
   // Zoho Sign OAuth callback — redirect from Zoho lands on app domain, must be before admin host guard
@@ -23586,6 +23645,54 @@ Return ONLY valid JSON with no markdown formatting:
       ...SECURITY_HEADERS
     });
     res.end();
+    return;
+  }
+
+  // ── Send preview of all email templates to a given address ──
+  if (pathname === '/api/admin/email-preview' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isEmailConfigured()) { sendJson(res, 503, { ok: false, message: 'Resend not configured.' }); return; }
+    let epBody;
+    try { epBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const epTo = String(epBody.to || '').trim();
+    if (!epTo || !isValidEmail(epTo)) { sendJson(res, 400, { ok: false, message: 'Valid "to" email required.' }); return; }
+
+    const templates = [
+      { name: 'Welcome', subject: 'Welcome to GP Link', title: 'Welcome to GP Link, Dr Sarah!', body: 'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Your dedicated support expert Hazel is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.', ctaText: 'Get Started', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: 'Questions? Reply to this email or message Hazel on WhatsApp.' },
+      { name: 'Email Verification', subject: 'Verify your GP Link account', title: 'Verify your email', body: 'Thanks for signing up to GP Link! Please click the button below to verify your email address and activate your account.', ctaText: 'Verify Email', ctaUrl: 'https://app.mygplink.com.au', footer: 'If you didn\'t create a GP Link account, you can safely ignore this email. This link expires in 24 hours.' },
+      { name: 'Onboarding Complete', subject: 'Profile Complete — GP Link', title: 'Your profile is complete, Dr Sarah!', body: 'Great work! Your GP Link profile is now set up. The next step is MyIntealth — this is where your qualification verification begins.\n\nHead to your dashboard to get started.', ctaText: 'Start MyIntealth', ctaUrl: 'https://app.mygplink.com.au/pages/myintealth.html', footer: '' },
+      { name: 'MyIntealth Complete', subject: 'MyIntealth Complete — GP Link', title: 'MyIntealth is done, Dr Sarah!', body: 'Congratulations on completing your MyIntealth verification! You\'re making excellent progress.\n\nYour next step is AMC (Australian Medical Council). This is where your qualifications get formally assessed for practise in Australia.', ctaText: 'Start AMC', ctaUrl: 'https://app.mygplink.com.au/pages/amc.html', footer: '' },
+      { name: 'AMC Complete', subject: 'AMC Complete — GP Link', title: 'AMC verification complete, Dr Sarah!', body: 'Your AMC qualifications have been verified — fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.', ctaText: 'Browse Positions', ctaUrl: 'https://app.mygplink.com.au/pages/career.html', footer: '' },
+      { name: 'AHPRA Unlocked', subject: 'AHPRA Registration Unlocked — GP Link', title: 'Your AHPRA step is now available, Dr Sarah!', body: 'Great news — your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.', ctaText: 'Start AHPRA', ctaUrl: 'https://app.mygplink.com.au/pages/ahpra.html', footer: 'Questions? Message your support expert Hazel on WhatsApp or reply to this email.' },
+      { name: 'AHPRA Complete', subject: 'AHPRA Complete — GP Link', title: 'AHPRA registration complete, Dr Sarah!', body: 'Your AHPRA registration has been processed — you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.', ctaText: 'View Dashboard', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: '' },
+      { name: 'Application Submitted', subject: 'Application Submitted — GP Link', title: 'Application Submitted', body: 'Your application for the Greenfield Medical Centre — Melbourne role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.', ctaText: 'View Your Applications', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications', footer: 'You\'re receiving this because you applied for a role on GP Link.' },
+      { name: 'Interview Scheduled', subject: 'Interview Scheduled — GP Link', title: 'Interview Scheduled', body: 'Great news! An interview has been scheduled for Greenfield Medical Centre — Melbourne.<br><br><strong>Interview Details:</strong><br>Date: Monday, 19 May 2026<br>Time: 10:00 AM<br>Duration: 30 minutes<br>Interviewer: Dr James Chen<br>Format: Video Call (Zoom)', ctaText: 'Join Video Interview', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
+      { name: 'Interview Reminder', subject: 'Interview Tomorrow — GP Link', title: 'Interview reminder, Dr Sarah', body: 'Just a friendly reminder — you have an interview scheduled for tomorrow.<br><br><strong>Interview Details:</strong><br>Practice: Greenfield Medical Centre — Melbourne<br>Date: Tuesday, 20 May 2026<br>Time: 10:00 AM<br>Format: Video Call (Zoom)<br><br>Your Zoom meeting link is included in the button below.', ctaText: 'Join Video Interview', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications', footer: 'Make sure you\'re in a quiet place with stable internet. Good luck!' },
+      { name: 'Offer Pending', subject: 'Offer Pending — GP Link', title: 'Offer Pending', body: 'Exciting news! An offer is pending for Greenfield Medical Centre — Melbourne. Our team will be in touch with the details.', ctaText: 'View Application', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
+      { name: 'Placement Secured', subject: 'Placement Secured! — GP Link', title: 'Congratulations!', body: 'Your placement at Greenfield Medical Centre — Melbourne has been secured. Visit your dashboard to see your placement details, start date, and next steps.', ctaText: 'View Your Placement', ctaUrl: 'https://app.mygplink.com.au/pages/career.html#secured', footer: '' },
+      { name: 'Practice Pack Docs Needed', subject: 'Documents Needed — GP Link', title: 'Time to prepare your practice pack, Dr Sarah', body: 'Now that your placement at Greenfield Medical Centre is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice — we\'ll keep you updated as each one progresses.', ctaText: 'View Documents', ctaUrl: 'https://app.mygplink.com.au/pages/my-documents.html', footer: 'If you have questions about any document, message Hazel on WhatsApp.' },
+      { name: 'Stalled Reminder', subject: 'Need a hand? — GP Link', title: 'How are you going, Dr Sarah?', body: 'We noticed you haven\'t made progress on AMC recently. No rush — but if you\'re stuck or have questions, we\'re here to help.\n\nYour support expert Hazel can assist you with anything you need. Just reply to this email or message her on WhatsApp.', ctaText: 'Continue AMC', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: 'If you\'re waiting on something external (like a verification), no action needed — we\'ll follow up when there\'s an update.' },
+      { name: 'Document Approved', subject: 'Document Approved — GP Link', title: 'Your document has been approved!', body: 'Good news, Dr Sarah — your MRCGP Certificate has been reviewed and approved.\n\nHead to your dashboard to see your updated progress.', ctaText: 'View Dashboard', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: '' },
+      { name: 'Document Revision', subject: 'Revision Needed — GP Link', title: 'A document needs your attention', body: 'Dr Sarah, the Section G Form from Greenfield Medical Centre requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.', ctaText: 'View Details', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: 'If you have questions about what\'s needed, message your support expert Hazel on WhatsApp.' },
+      { name: 'Support Ticket Reply', subject: 'New Reply — GP Link', title: 'You have a new reply, Dr Sarah', body: 'Your support team has replied to your request: "Need help with MyIntealth account setup".\n\nCheck your messages to read the full response and continue the conversation.', ctaText: 'View Messages', ctaUrl: 'https://app.mygplink.com.au/pages/messages.html', footer: 'Need more help? Reply directly in the app or message Hazel on WhatsApp.' },
+      { name: 'Account Activated', subject: 'Account Activated — GP Link', title: 'Your account is ready, Dr Sarah!', body: 'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.', ctaText: 'Go to Dashboard', ctaUrl: 'https://app.mygplink.com.au/pages/index.html', footer: '' },
+      { name: 'Password Reset', subject: 'Reset your GP Link password', title: 'Reset your password', body: 'We received a request to reset your GP Link password. Click the button below to set a new password.', ctaText: 'Reset Password', ctaUrl: 'https://app.mygplink.com.au', footer: 'If you didn\'t request a password reset, you can safely ignore this email. This link expires in 1 hour.' }
+    ];
+
+    var epResults = [];
+    for (var i = 0; i < templates.length; i++) {
+      var tpl = templates[i];
+      var epSubject = '[Preview ' + (i + 1) + '/' + templates.length + '] ' + tpl.name + ' — ' + tpl.subject;
+      var epResult = await sendEmail({
+        to: epTo,
+        subject: epSubject,
+        html: buildCareerEmailHtml({ title: tpl.title, body: tpl.body, ctaText: tpl.ctaText, ctaUrl: tpl.ctaUrl, footer: tpl.footer })
+      });
+      epResults.push({ name: tpl.name, ok: epResult.ok, error: epResult.error || null });
+    }
+    sendJson(res, 200, { ok: true, sent: epResults.filter(function (r) { return r.ok; }).length, total: templates.length, results: epResults });
     return;
   }
 
