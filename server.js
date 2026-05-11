@@ -23651,8 +23651,12 @@ Return ONLY valid JSON with no markdown formatting:
   // ── Send preview of all email templates to a given address ──
   if (pathname === '/api/admin/email-preview' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    const adminCtx = requireAdminSession(req, res);
-    if (!adminCtx) return;
+    // Allow admin session OR cron secret auth
+    var epCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var epAuth = req.headers['authorization'] || '';
+    var epAdminOk = !!getAdminSession(req);
+    var epCronOk = epCronSecret && epAuth === 'Bearer ' + epCronSecret;
+    if (!epAdminOk && !epCronOk) { sendJson(res, 401, { ok: false, message: 'Admin session or cron secret required.' }); return; }
     if (!isEmailConfigured()) { sendJson(res, 503, { ok: false, message: 'Resend not configured.' }); return; }
     let epBody;
     try { epBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
