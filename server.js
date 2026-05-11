@@ -23679,6 +23679,7 @@ Return ONLY valid JSON with no markdown formatting:
       var osSubject = '[Preview ' + (oi + 1) + '/' + osTemplates.length + '] ' + osTpl.name + ' \u2014 ' + osTpl.subject;
       var osResult = await sendEmail({ to: osTo, subject: osSubject, html: buildCareerEmailHtml({ title: osTpl.title, body: osTpl.body, ctaText: osTpl.ctaText, ctaUrl: osTpl.ctaUrl, footer: osTpl.footer }) });
       osResults.push({ name: osTpl.name, ok: osResult.ok, error: osResult.error || null });
+      if (oi < osTemplates.length - 1) await new Promise(function (r) { setTimeout(r, 1200); });
     }
     sendJson(res, 200, { ok: true, sent: osResults.filter(function (r) { return r.ok; }).length, total: osTemplates.length, results: osResults });
     return;
