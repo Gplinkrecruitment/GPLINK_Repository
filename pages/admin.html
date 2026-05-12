@@ -789,6 +789,42 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .gp-subtab .subtab-count{background:var(--bg3);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px}
 .gp-subtab.active .subtab-count{background:var(--blue);color:#fff}
 
+.tech-subnav{display:flex;gap:4px;padding:12px 16px;border-bottom:1px solid #e5e7eb;}
+.tech-subnav-btn{padding:6px 16px;border-radius:6px;border:1px solid #d1d5db;background:#fff;font-size:0.8rem;cursor:pointer;color:#374151;}
+.tech-subnav-btn.active{background:#2563eb;color:#fff;border-color:#2563eb;}
+.tech-subnav-btn:hover:not(.active){background:#f3f4f6;}
+.tech-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:16px;}
+.tech-card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;position:relative;}
+.tech-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.tech-card-name{font-weight:600;font-size:0.95rem;}
+.tech-status{padding:3px 10px;border-radius:12px;font-size:0.7rem;font-weight:600;text-transform:uppercase;}
+.tech-status.connected{background:#dcfce7;color:#16a34a;}
+.tech-status.disconnected{background:#fee2e2;color:#dc2626;}
+.tech-status.degraded{background:#fef3c7;color:#b45309;}
+.tech-detail{font-size:0.8rem;color:#6b7280;margin:3px 0;}
+.tech-detail b{color:#374151;}
+.tech-reconnect{margin-top:10px;padding:5px 14px;border-radius:6px;border:1px solid #2563eb;background:transparent;color:#2563eb;font-size:0.75rem;cursor:pointer;}
+.tech-reconnect:hover{background:#2563eb;color:#fff;}
+.tech-bug-list{padding:16px;}
+.tech-bug-row{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:8px;}
+.tech-bug-header{display:flex;justify-content:space-between;align-items:center;}
+.tech-bug-title{font-weight:600;font-size:0.85rem;}
+.tech-bug-meta{font-size:0.75rem;color:#6b7280;margin-top:4px;}
+.tech-bug-desc{font-size:0.8rem;color:#4b5563;margin-top:8px;display:none;}
+.tech-bug-row.expanded .tech-bug-desc{display:block;}
+.tech-bug-actions{display:flex;gap:6px;margin-top:8px;}
+.tech-bug-actions .btn{font-size:0.7rem;padding:3px 10px;}
+.tech-severity{padding:2px 8px;border-radius:10px;font-size:0.65rem;font-weight:700;text-transform:uppercase;}
+.tech-severity.critical{background:#fee2e2;color:#dc2626;}
+.tech-severity.high{background:#fef3c7;color:#b45309;}
+.tech-severity.medium{background:#dbeafe;color:#2563eb;}
+.tech-severity.low{background:#f3f4f6;color:#6b7280;}
+.tech-filter-bar{display:flex;gap:6px;padding:12px 16px;align-items:center;}
+.tech-filter-btn{padding:4px 12px;border-radius:6px;border:1px solid #d1d5db;background:#fff;font-size:0.75rem;cursor:pointer;}
+.tech-filter-btn.active{background:#2563eb;color:#fff;border-color:#2563eb;}
+.tech-summary-strip{display:flex;gap:12px;padding:8px 16px;font-size:0.8rem;color:#6b7280;}
+.tech-summary-strip b{color:#374151;}
+
   </style>
 </head>
 <body>
@@ -823,6 +859,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="medicalcentres">Medical Centres</div>
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="tools">Ops Queue</div>
+    <div class="view-tab" data-view="technical" id="technicalTab" style="display:none">Technical</div>
   </div>
   <div class="layout" id="mainLayout">
     <div class="list-panel">
@@ -3361,6 +3398,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }else if(view==="ceo-home"){
         var iframe=document.getElementById("ceoHomeIframe");
         if(iframe&&!iframe.src.includes("ceo-dashboard.html")){iframe.src="/pages/ceo-dashboard.html";}
+      }else if(view==="technical"){
+        loadTechnicalPanel();
       }
     });
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
@@ -4208,7 +4247,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","ceoHomePanel":"ceo-home"};
+    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","ceoHomePanel":"ceo-home","technicalPanel":"technical"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   function vaHidePanels(){
@@ -5001,6 +5040,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(saWrap)saWrap.style.display="";
       var ceoTab=document.getElementById("ceoHomeTab");
       if(ceoTab)ceoTab.style.display="";
+      var techTab=document.getElementById("technicalTab");
+      if(techTab)techTab.style.display="";
     }
     loadAll();
     S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll();},15000);
@@ -5008,6 +5049,182 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("caseList").innerHTML=`<div class="empty">${esc(err.message||"Cannot verify session.")}</div>`;
   });
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll();});
+
+  // ── Technical Hub ──
+  var techState={view:'integrations',integrations:null,systemBugs:null,clientErrors:null};
+
+  document.getElementById("technicalPanel").addEventListener("click",function(e){
+    var subBtn=e.target.closest("[data-tech-view]");
+    if(subBtn){
+      var tv=subBtn.getAttribute("data-tech-view");
+      techState.view=tv;
+      document.querySelectorAll(".tech-subnav-btn").forEach(function(b){b.classList.toggle("active",b.getAttribute("data-tech-view")===tv);});
+      document.getElementById("techIntegrationsPanel").style.display=(tv==="integrations"?"block":"none");
+      document.getElementById("techSystemBugsPanel").style.display=(tv==="system-bugs"?"block":"none");
+      document.getElementById("techUserBugsPanel").style.display=(tv==="user-bugs"?"block":"none");
+      if(tv==="integrations")loadIntegrations();
+      else if(tv==="system-bugs")loadSystemBugs();
+      else if(tv==="user-bugs")loadUserBugs();
+      return;
+    }
+    // Bug row expand
+    var bugRow=e.target.closest(".tech-bug-row");
+    if(bugRow&&!e.target.closest(".btn")){bugRow.classList.toggle("expanded");}
+    // Bug actions
+    var ackBtn=e.target.closest("[data-bug-action]");
+    if(ackBtn){
+      var bugId=ackBtn.getAttribute("data-bug-id");
+      var action=ackBtn.getAttribute("data-bug-action");
+      var endpoint=ackBtn.getAttribute("data-bug-type")==="client"?"/api/ceo/technical/client-errors/":"/api/ceo/technical/system-bugs/";
+      fetch(endpoint+encodeURIComponent(bugId),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:action})}).then(function(r){return r.json();}).then(function(d){
+        if(d.ok){toast(action+" successfully","green");if(ackBtn.getAttribute("data-bug-type")==="client")loadUserBugs();else loadSystemBugs();}else{toast("Failed: "+(d.message||""),"red");}
+      }).catch(function(){toast("Network error","red");});
+      return;
+    }
+    // Reconnect
+    var reconBtn=e.target.closest("[data-reconnect]");
+    if(reconBtn){
+      var key=reconBtn.getAttribute("data-reconnect");
+      reconBtn.textContent="Reconnecting...";
+      reconBtn.disabled=true;
+      fetch("/api/ceo/integrations/"+encodeURIComponent(key)+"/reconnect",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"}}).then(function(r){return r.json();}).then(function(d){
+        if(d.ok){
+          if(d.url){window.open(d.url,"_blank");toast("OAuth window opened","green");}
+          else{toast("Reconnected successfully","green");}
+          setTimeout(loadIntegrations,2000);
+        }else{toast("Failed: "+(d.message||""),"red");}
+        reconBtn.textContent="Reconnect";reconBtn.disabled=false;
+      }).catch(function(){toast("Network error","red");reconBtn.textContent="Reconnect";reconBtn.disabled=false;});
+      return;
+    }
+    // Filter buttons
+    var filterBtn=e.target.closest(".tech-filter-btn");
+    if(filterBtn){
+      var panel=filterBtn.closest("#techSystemBugsPanel,#techUserBugsPanel");
+      if(panel)panel.querySelectorAll(".tech-filter-btn").forEach(function(b){b.classList.toggle("active",b===filterBtn);});
+      var filterVal=filterBtn.getAttribute("data-filter");
+      if(filterBtn.closest("#techSystemBugsPanel"))loadSystemBugs(filterVal);
+      else loadUserBugs(filterVal);
+      return;
+    }
+  });
+
+  function loadTechnicalPanel(){
+    if(techState.view==="integrations")loadIntegrations();
+    else if(techState.view==="system-bugs")loadSystemBugs();
+    else loadUserBugs();
+  }
+
+  async function loadIntegrations(){
+    var el=document.getElementById("techIntegrationsPanel");
+    el.innerHTML='<div style="padding:24px;color:#999;">Loading integrations...</div>';
+    try{
+      var r=await fetch("/api/ceo/integrations",{credentials:"same-origin"});
+      var d=await r.json();
+      if(!d.ok||!d.integrations){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load integrations.</div>';return;}
+      var html='<div class="tech-cards">';
+      for(var i=0;i<d.integrations.length;i++){
+        var int=d.integrations[i];
+        html+='<div class="tech-card">';
+        html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(int.name)+'</span><span class="tech-status '+esc(int.status)+'">'+esc(int.status)+'</span></div>';
+        var det=int.details||{};
+        var keys=Object.keys(det);
+        for(var k=0;k<keys.length;k++){
+          var val=det[keys[k]];
+          if(val===null||val===undefined)val='—';
+          if(typeof val==="boolean")val=val?'Yes':'No';
+          var label=keys[k].replace(/_/g,' ');
+          html+='<div class="tech-detail"><b>'+esc(label)+':</b> '+esc(String(val))+'</div>';
+        }
+        if(int.can_reconnect){
+          html+='<button class="tech-reconnect" data-reconnect="'+esc(int.key)+'">Reconnect</button>';
+        }
+        html+='</div>';
+      }
+      html+='</div>';
+      el.innerHTML=html;
+    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
+  }
+
+  async function loadSystemBugs(status){
+    status=status||'open';
+    var el=document.getElementById("techSystemBugsPanel");
+    el.innerHTML='<div style="padding:24px;color:#999;">Loading system bugs...</div>';
+    try{
+      var r=await fetch("/api/ceo/technical/system-bugs?status="+encodeURIComponent(status),{credentials:"same-origin"});
+      var d=await r.json();
+      if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load.</div>';return;}
+      var s=d.summary||{};
+      var html='<div class="tech-summary-strip"><b>'+s.open+'</b> open &nbsp; <b>'+s.acknowledged+'</b> acknowledged &nbsp; <b>'+(s.critical||0)+'</b> critical &nbsp; <b>'+(s.high||0)+'</b> high</div>';
+      html+='<div class="tech-filter-bar">';
+      var filters=['open','acknowledged','fixed','dismissed','all'];
+      for(var fi=0;fi<filters.length;fi++){
+        html+='<button class="tech-filter-btn'+(filters[fi]===status?' active':'')+'" data-filter="'+filters[fi]+'">'+filters[fi].charAt(0).toUpperCase()+filters[fi].slice(1)+'</button>';
+      }
+      html+='</div>';
+      html+='<div class="tech-bug-list">';
+      var bugs=d.bugs||[];
+      if(bugs.length===0){html+='<div style="padding:16px;color:#999;font-size:0.85rem;">No bugs found. The AI scanner runs daily at 2am UTC.</div>';}
+      for(var bi=0;bi<bugs.length;bi++){
+        var b=bugs[bi];
+        html+='<div class="tech-bug-row">';
+        html+='<div class="tech-bug-header"><span class="tech-bug-title"><span class="tech-severity '+esc(b.severity)+'">'+esc(b.severity)+'</span> '+esc(b.title)+'</span><span style="font-size:0.7rem;color:#999;">'+esc(b.file_path)+(b.line_number?':'+b.line_number:'')+'</span></div>';
+        html+='<div class="tech-bug-meta">'+esc(b.category)+' · '+esc(b.scan_type)+' scan · '+fmtD(b.created_at)+'</div>';
+        html+='<div class="tech-bug-desc"><p>'+esc(b.description||'')+'</p>';
+        if(b.suggestion)html+='<p style="color:#2563eb;"><b>Suggestion:</b> '+esc(b.suggestion)+'</p>';
+        if(b.status==='open'){
+          html+='<div class="tech-bug-actions"><button class="btn" data-bug-action="acknowledged" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Acknowledge</button><button class="btn green" data-bug-action="fixed" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Mark Fixed</button><button class="btn" data-bug-action="dismissed" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Dismiss</button></div>';
+        }else if(b.status==='acknowledged'){
+          html+='<div class="tech-bug-actions"><button class="btn green" data-bug-action="fixed" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Mark Fixed</button><button class="btn" data-bug-action="dismissed" data-bug-id="'+esc(b.id)+'" data-bug-type="system">Dismiss</button></div>';
+        }
+        html+='</div>';
+        html+='</div>';
+      }
+      html+='</div>';
+      el.innerHTML=html;
+    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
+  }
+
+  async function loadUserBugs(status){
+    status=status||'open';
+    var el=document.getElementById("techUserBugsPanel");
+    el.innerHTML='<div style="padding:24px;color:#999;">Loading user bugs...</div>';
+    try{
+      var r=await fetch("/api/ceo/technical/client-errors?status="+encodeURIComponent(status),{credentials:"same-origin"});
+      var d=await r.json();
+      if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load.</div>';return;}
+      var s=d.summary||{};
+      var html='<div class="tech-summary-strip"><b>'+s.open+'</b> open &nbsp; <b>'+s.investigating+'</b> investigating &nbsp; <b>'+(s.total_occurrences_24h||0)+'</b> occurrences (24h)</div>';
+      html+='<div class="tech-filter-bar">';
+      var filters=['open','investigating','resolved','ignored','all'];
+      for(var fi=0;fi<filters.length;fi++){
+        html+='<button class="tech-filter-btn'+(filters[fi]===status?' active':'')+'" data-filter="'+filters[fi]+'">'+filters[fi].charAt(0).toUpperCase()+filters[fi].slice(1)+'</button>';
+      }
+      html+='</div>';
+      html+='<div class="tech-bug-list">';
+      var errors=d.errors||[];
+      if(errors.length===0){html+='<div style="padding:16px;color:#999;font-size:0.85rem;">No user errors captured yet. Errors are reported automatically from all pages.</div>';}
+      for(var ei=0;ei<errors.length;ei++){
+        var e=errors[ei];
+        html+='<div class="tech-bug-row">';
+        html+='<div class="tech-bug-header"><span class="tech-bug-title">'+esc(e.error_message||'Unknown error')+'</span><span style="font-size:0.7rem;color:#999;">'+esc(e.occurrence_count||1)+'x</span></div>';
+        html+='<div class="tech-bug-meta">'+esc(e.page_url||'unknown page')+' · first: '+fmtD(e.first_seen_at)+' · last: '+fmtD(e.last_seen_at)+(e.user_email?' · '+esc(e.user_email):'')+'</div>';
+        html+='<div class="tech-bug-desc">';
+        if(e.error_stack)html+='<pre style="font-size:0.7rem;overflow-x:auto;background:#f9fafb;padding:8px;border-radius:6px;max-height:120px;">'+esc(e.error_stack)+'</pre>';
+        if(e.user_context)html+='<p><b>User said:</b> '+esc(e.user_context)+'</p>';
+        html+='<p style="font-size:0.75rem;color:#999;">Browser: '+esc(e.user_agent||e.browser_info||'unknown')+'</p>';
+        if(e.status==='open'){
+          html+='<div class="tech-bug-actions"><button class="btn" data-bug-action="investigating" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Investigate</button><button class="btn green" data-bug-action="resolved" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Resolve</button><button class="btn" data-bug-action="ignored" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Ignore</button></div>';
+        }else if(e.status==='investigating'){
+          html+='<div class="tech-bug-actions"><button class="btn green" data-bug-action="resolved" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Resolve</button><button class="btn" data-bug-action="ignored" data-bug-id="'+esc(e.id)+'" data-bug-type="client">Ignore</button></div>';
+        }
+        html+='</div>';
+        html+='</div>';
+      }
+      html+='</div>';
+      el.innerHTML=html;
+    }catch(err){el.innerHTML='<div style="padding:24px;color:#dc2626;">Error: '+esc(err.message)+'</div>';}
+  }
 
   // Expose functions used by inline onclick handlers (IIFE escape)
   window.setupGmailWatch = setupGmailWatch;
@@ -5109,6 +5326,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 })();
 </script>
 <div id="ceoHomePanel" style="display:none;position:relative;width:100%;height:calc(100vh - 100px);"><iframe id="ceoHomeIframe" style="width:100%;height:100%;border:none;background:#0f1117;" src="about:blank"></iframe></div>
+<div id="technicalPanel" style="display:none">
+  <div class="tech-subnav">
+    <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
+    <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
+    <button class="tech-subnav-btn" data-tech-view="user-bugs">User Bugs</button>
+  </div>
+  <div id="techIntegrationsPanel"></div>
+  <div id="techSystemBugsPanel" style="display:none"></div>
+  <div id="techUserBugsPanel" style="display:none"></div>
+</div>
 <div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
     <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
