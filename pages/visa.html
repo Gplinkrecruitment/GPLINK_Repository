@@ -142,21 +142,9 @@
       padding: var(--sp-6) var(--sp-4) 120px;
     }
 
-    /* ---- PATHWAY CARD ---- */
-    .pathway-card {
-      background: var(--surface-raised);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: var(--sp-6) var(--sp-5);
-      margin-bottom: var(--sp-4);
-      position: relative;
-      overflow: hidden;
-    }
-    .pathway-card::before {
-      content: "";
-      position: absolute; top: 0; left: 0; right: 0;
-      height: 3px;
-      background: linear-gradient(90deg, #1a56db, #7c3aed);
+    /* ---- PATHWAY SECTION ---- */
+    .pathway-section {
+      margin-bottom: var(--sp-6);
     }
     .pathway-card-title {
       font-size: 17px; font-weight: 800;
@@ -186,8 +174,25 @@
       top: 24px;
       bottom: 24px;
       width: 2px;
-      background: linear-gradient(180deg, var(--accent), #7c3aed);
+      background: #d1d5db;
       border-radius: 2px;
+    }
+    .pathway-steps::after {
+      content: "";
+      position: absolute;
+      left: 7px;
+      top: 24px;
+      width: 10px;
+      height: 40px;
+      border-radius: 5px;
+      background: radial-gradient(ellipse, rgba(26, 86, 219, 0.55), transparent 70%);
+      filter: blur(3px);
+      animation: glow-travel 3s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes glow-travel {
+      0%, 100% { top: 24px; opacity: 0.3; }
+      50% { top: calc(100% - 64px); opacity: 1; }
     }
     .pathway-step {
       position: relative;
@@ -204,17 +209,13 @@
       color: #fff;
       z-index: 1;
     }
-    .pathway-step:first-child .pathway-step-dot {
+    .pathway-step-dot {
       background: var(--accent);
-      box-shadow: 0 3px 10px -3px rgba(26, 86, 219, 0.5);
-    }
-    .pathway-step:nth-child(2) .pathway-step-dot {
-      background: linear-gradient(135deg, #4f46e5, #7c3aed);
-      box-shadow: 0 3px 10px -3px rgba(124, 58, 237, 0.5);
+      box-shadow: 0 3px 10px -3px rgba(26, 86, 219, 0.45);
     }
     .pathway-step:last-child .pathway-step-dot {
       background: var(--success);
-      box-shadow: 0 3px 10px -3px rgba(13, 124, 95, 0.5);
+      box-shadow: 0 3px 10px -3px rgba(13, 124, 95, 0.45);
     }
     .pathway-step-title {
       font-size: 15px; font-weight: 700;
@@ -359,7 +360,8 @@
 
     /* ---- RESPONSIVE ---- */
     @media (min-width: 768px) {
-      .content-area { padding-left: var(--sp-7); padding-right: var(--sp-7); }
+      .hero-compact { display: none; }
+      .content-area { padding-left: var(--sp-7); padding-right: var(--sp-7); padding-top: var(--sp-8); }
     }
     @media (max-width: 480px) {
       .step-title { font-size: 19px; }
@@ -402,8 +404,8 @@
     <!-- MAIN CONTENT -->
     <div class="content-area">
 
-      <!-- PATHWAY CARD -->
-      <div class="pathway-card">
+      <!-- PATHWAY SECTION -->
+      <div class="pathway-section">
         <h2 class="pathway-card-title">Your Pathway to Permanent Residency</h2>
         <p class="pathway-card-desc">As a GP placed through GP Link, your most direct pathway to permanent residency is through the Subclass 482 temporary visa followed by the Subclass 186 permanent visa. Your GP Link agent will guide you through each stage.</p>
 
@@ -413,7 +415,7 @@
             <div class="pathway-step-dot">1</div>
             <div class="pathway-step-sub">Temporary Skill Shortage</div>
             <div class="pathway-step-title">Subclass 482 Visa</div>
-            <div class="pathway-step-desc">Your sponsoring practice nominates you for a temporary work visa. This allows you to live and work in Australia for up to 4 years while you build towards permanent residency.</div>
+            <div class="pathway-step-desc">Your sponsoring practice nominates you for a temporary work visa. You will be on this visa for 2 years while you build towards permanent residency.</div>
           </div>
 
           <!-- Step 2: 186 -->
