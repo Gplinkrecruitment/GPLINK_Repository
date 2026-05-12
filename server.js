@@ -3167,7 +3167,8 @@ async function handleDoubleTickWebhook(req, res) {
       related_stage: activeCase ? (activeCase.stage || '') : '',
       related_substage: activeCase ? (activeCase.substage || '') : '',
       doubletick_conversation_url: conversationUrl || null,
-      doubletick_message_id: messageId || null
+      doubletick_message_id: messageId || null,
+      due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
     };
 
     if (isSupabaseDbConfigured()) {
@@ -5016,11 +5017,29 @@ async function _ensureRegCase(userId) {
   return ins.ok && Array.isArray(ins.data) && ins.data.length > 0 ? ins.data[0] : null;
 }
 
+// Auto-assign due_date based on task type when not explicitly set
+function _autoAssignDueDate(payload) {
+  if (payload.due_date) return; // already set explicitly
+  var now = new Date();
+  var type = payload.task_type || '';
+  // Support / help tasks: 24h SLA
+  if (type === 'whatsapp_help' || type === 'blocker' || type === 'qualification_help' || type === 'nudge_reply') {
+    payload.due_date = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    return;
+  }
+  // Practice pack tasks: 10-day SLA
+  if (type === 'practice_pack_child') {
+    payload.due_date = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString();
+    return;
+  }
+}
+
 async function _createRegTask(caseId, data) {
   if (!isSupabaseDbConfigured()) return null;
   const actor = data._actor || 'system';
   const payload = { case_id: caseId, domain: 'registration' };
   for (const [k, v] of Object.entries(data)) { if (k !== '_actor') payload[k] = v; }
+  _autoAssignDueDate(payload);
   const r = await supabaseDbRequest('registration_tasks', '', {
     method: 'POST', headers: { Prefer: 'return=representation' }, body: [payload]
   });

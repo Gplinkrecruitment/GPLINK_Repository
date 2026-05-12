@@ -3212,15 +3212,30 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       S.opsTasksAll=(sd.ok&&Array.isArray(sd.tasks))?sd.tasks:S.opsTasks;
     }catch{}
     S.opsLoading=false;
+    // Apply client-side time-urgent filter if activated via KPI card click
+    if(S._opsUrgentFilter){var now=new Date();S.opsTasks=S.opsTasks.filter(t=>isTaskTimeUrgent(t,now));S._opsUrgentFilter=false;}
     renderOpsStats();
     renderOpsTable();
   }
 
+  // Time-based urgency: task is urgent when past its urgency threshold
+  // Support tasks (whatsapp_help, blocker): urgent after 12h (50% of 24h SLA)
+  // Practice pack tasks (practice_pack_child): urgent after 7d (70% of 10d SLA)
+  function isTaskTimeUrgent(t,now){
+    if(t.status==="completed"||t.status==="cancelled")return false;
+    if(t.priority==="urgent")return true;
+    if(!t.due_date||!t.created_at)return false;
+    var created=new Date(t.created_at).getTime(),due=new Date(t.due_date).getTime(),elapsed=now.getTime()-created,total=due-created;
+    if(total<=0)return false;
+    // Support tasks: urgent at 50% of SLA; practice pack: at 70%
+    var threshold=(t.task_type==="practice_pack_child")?0.7:0.5;
+    return elapsed>=total*threshold;
+  }
   function renderOpsStats(){
     const all=S.opsTasksAll||S.opsTasks;
     const now=new Date();
     const openC=all.filter(t=>t.status==="open").length;
-    const urgentC=all.filter(t=>t.priority==="urgent").length;
+    const urgentC=all.filter(t=>isTaskTimeUrgent(t,now)&&t.status!=="completed"&&t.status!=="cancelled").length;
     const overdueC=all.filter(t=>{if(!t.due_date&&!t.sla_due_date)return false;const d=new Date(t.sla_due_date||t.due_date);return d<now&&t.status!=="completed"&&t.status!=="cancelled";}).length;
     const waitGp=all.filter(t=>t.status==="waiting_on_gp").length;
     const waitPrac=all.filter(t=>t.status==="waiting_on_practice").length;
@@ -3245,15 +3260,18 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     let html="";
     S.opsTasks.forEach(t=>{
       const isOverdue=t.status!=="completed"&&t.status!=="cancelled"&&(t.due_date||t.sla_due_date)&&new Date(t.sla_due_date||t.due_date)<now;
+      const isTimeUrgent=isTaskTimeUrgent(t,now)&&!isOverdue;
       const isExpanded=S.opsExpandedId===t.id;
       var statusLabel=(t.status||"open").replace(/_/g," ");
       if(t.status==='escalated') statusLabel='\uD83D\uDEA8 Escalated';
-      html+=`<tr class="ops-row${isOverdue?" overdue":""}${isExpanded?" selected":""}" data-ops-task-id="${esc(t.id)}">
+      var priLabel=t.priority||"normal";
+      if(isTimeUrgent&&priLabel!=="urgent")priLabel="\u26A0 "+priLabel;
+      html+=`<tr class="ops-row${isOverdue?" overdue":""}${isTimeUrgent?" time-urgent":""}${isExpanded?" selected":""}" data-ops-task-id="${esc(t.id)}">
         <td>${t.case_id?`<a class="ops-gp-name ops-gp-link" data-ops-view-case="${esc(t.case_id)}">${esc(t.gp_name||"\u2014")}</a>`:`<span class="ops-gp-name">${esc(t.gp_name||"\u2014")}</span>`}</td>
         <td><span class="ops-task-title" title="${esc(t.title||"")}">${esc(t.title||"\u2014")}</span></td>
         <td><span class="ops-domain-badge ${esc(t.domain||"")}">${esc(t.domain||"\u2014")}</span></td>
         <td><span class="ops-status-pill ${esc(t.status||"")}">${esc(statusLabel)}</span>${(t.status==="waiting_on_gp"||t.status==="waiting_on_practice"||t.status==="waiting_on_external")&&t.updated_at?(()=>{const wd=Math.floor((Date.now()-new Date(t.updated_at).getTime())/86400000);return wd>0?' <span style="font-size:10px;color:'+(wd>=7?'#dc2626':'var(--muted)')+';font-weight:'+(wd>=7?'700':'500')+'">'+wd+'d</span>':'';})():''}</td>
-        <td><span class="ops-pri-pill ${esc(t.priority||"normal")}">${esc(t.priority||"normal")}</span></td>
+        <td><span class="ops-pri-pill ${isTimeUrgent?"urgent":esc(t.priority||"normal")}">${esc(priLabel)}</span></td>
         <td><span class="ops-due${isOverdue?" overdue":""}">${isOverdue?"OVERDUE \u2022 ":""}${fmtD(t.due_date||t.sla_due_date)}</span></td>
         <td class="hide-mobile"><span class="task-tag stage">${esc(t.related_stage||t.case_stage||"\u2014")}</span></td>
         <td class="hide-mobile"><span class="ops-created">${fmtR(t.created_at)}</span></td>
@@ -3809,7 +3827,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const stat=e.target.closest("[data-ops-filter]");if(!stat)return;
       const f=stat.getAttribute("data-ops-filter");
       const sel=document.getElementById("opsStatus");
-      if(f==="urgent"){sel.value="all_active";document.getElementById("opsPriority").value="urgent";}
+      if(f==="urgent"){sel.value="all_active";document.getElementById("opsPriority").value="";S._opsUrgentFilter=true;}
       else if(f==="overdue"){sel.value="all_active";document.getElementById("opsOverdue").checked=true;}
       else if(f==="needs_followup"){sel.value="needs_followup";}
       else{sel.value=f;}
