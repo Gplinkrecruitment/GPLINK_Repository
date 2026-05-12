@@ -1,0 +1,159 @@
+name: AI Code Scanner
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2am UTC
+  push:
+    branches: [main]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need HEAD~1 for diff
+
+      - name: Determine scan scope
+        id: scope
+        run: |
+          DAY_OF_WEEK=$(date +%u)
+          EVENT="${{ github.event_name }}"
+
+          if [ "$EVENT" = "push" ]; then
+            # On push: scan changed files in last commit
+            FILES=$(git diff --name-only HEAD~1 HEAD -- '*.js' '*.html' | head -5)
+            SCAN_TYPE="push"
+          elif [ "$DAY_OF_WEEK" = "7" ]; then
+            # Sunday: full scan of critical files
+            FILES="server.js js/auth-guard.js js/state-sync.js js/onboarding.js js/app-shell.js"
+            SCAN_TYPE="weekly_full"
+          else
+            # Weekday: scan files changed in last 24h
+            SINCE=$(date -d '24 hours ago' --iso-8601 2>/dev/null || date -v-24H +%Y-%m-%dT%H:%M:%S)
+            BASE=$(git log --since="$SINCE" --format='%H' | tail -1)
+            if [ -n "$BASE" ]; then
+              FILES=$(git diff --name-only "$BASE" HEAD -- '*.js' '*.html' | head -5)
+            else
+              FILES=""
+            fi
+            SCAN_TYPE="daily"
+          fi
+
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "scan_type=$SCAN_TYPE" >> $GITHUB_OUTPUT
+          echo "commit_sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+          if [ -z "$FILES" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "No files to scan"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Scanning: $FILES"
+          fi
+
+      - name: Scan files with Claude
+        if: steps.scope.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          FINDINGS="[]"
+          IFS=$'\n'
+          for FILE in ${{ steps.scope.outputs.files }}; do
+            if [ ! -f "$FILE" ]; then continue; fi
+            echo "Scanning: $FILE"
+
+            # Read file content (truncate large files to 50000 chars)
+            CONTENT=$(head -c 50000 "$FILE" | jq -Rs .)
+            FILENAME=$(echo "$FILE" | jq -Rs .)
+
+            # Build the API request
+            PROMPT="Analyze this file for security and reliability issues. File: $FILE
+
+$CONTENT
+
+Return a JSON array of findings. Each finding: {\"severity\":\"critical|high|medium|low\",\"category\":\"security|reliability\",\"line\":123,\"title\":\"Short title\",\"description\":\"Detailed description\",\"suggestion\":\"How to fix\"}. Return [] if no issues. Only flag real issues — no false positives, no style/formatting issues."
+
+            RESPONSE=$(curl -s -X POST https://api.anthropic.com/v1/messages \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: $ANTHROPIC_API_KEY" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{
+                \"model\": \"claude-sonnet-4-20250514\",
+                \"max_tokens\": 4096,
+                \"system\": \"You are a security and reliability auditor for a production Node.js web app handling GP doctor registration for migration to Australia. Analyze for: SECURITY (injection, auth bypass, exposed secrets, unsafe input, CSRF, insecure sessions) and RELIABILITY (unhandled rejections, silent error swallowing, missing null checks, race conditions, data loss). Do NOT flag: code style, missing types, performance, test coverage, docs. Return ONLY a JSON array of findings. Be precise — no false positives.\",
+                \"messages\": [{\"role\": \"user\", \"content\": $(echo "$PROMPT" | jq -Rs .)}]
+              }" 2>/dev/null)
+
+            # Extract the text content from Claude's response
+            TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text // empty' 2>/dev/null)
+
+            if [ -n "$TEXT" ]; then
+              # Extract JSON array from response (handle markdown code blocks)
+              JSON_ARRAY=$(echo "$TEXT" | sed -n '/\[/,/\]/p' | head -50)
+
+              if echo "$JSON_ARRAY" | jq '.' >/dev/null 2>&1; then
+                # Add file_path to each finding
+                ENRICHED=$(echo "$JSON_ARRAY" | jq --arg fp "$FILE" '[.[] | . + {"file_path": $fp, "line_number": (.line // null)}]')
+
+                # Merge into FINDINGS
+                FINDINGS=$(echo "$FINDINGS" "$ENRICHED" | jq -s '.[0] + .[1]')
+                COUNT=$(echo "$ENRICHED" | jq 'length')
+                echo "  Found $COUNT issues in $FILE"
+              else
+                echo "  Could not parse response for $FILE"
+              fi
+            else
+              echo "  No response for $FILE"
+            fi
+          done
+
+          echo "$FINDINGS" > /tmp/findings.json
+          COUNT=$(echo "$FINDINGS" | jq 'length')
+          echo "Total findings: $COUNT"
+
+      - name: Post findings to Technical Hub
+        if: steps.scope.outputs.skip != 'true'
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          FINDINGS=$(cat /tmp/findings.json 2>/dev/null || echo "[]")
+          COUNT=$(echo "$FINDINGS" | jq 'length')
+
+          if [ "$COUNT" = "0" ]; then
+            echo "No findings to report"
+            exit 0
+          fi
+
+          SCAN_ID="${{ steps.scope.outputs.scan_type }}-$(date +%Y-%m-%d)"
+
+          RESPONSE=$(curl -s -X POST "$APP_URL/api/ceo/technical/system-bugs/ingest" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -d "{
+              \"scan_id\": \"$SCAN_ID\",
+              \"scan_type\": \"${{ steps.scope.outputs.scan_type }}\",
+              \"commit_sha\": \"${{ steps.scope.outputs.commit_sha }}\",
+              \"findings\": $FINDINGS
+            }")
+
+          echo "Ingest response: $RESPONSE"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## AI Code Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scan type:** ${{ steps.scope.outputs.scan_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ steps.scope.outputs.commit_sha }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f /tmp/findings.json ]; then
+            COUNT=$(cat /tmp/findings.json | jq 'length')
+            echo "- **Findings:** $COUNT" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Findings:** 0 (no files scanned)" >> $GITHUB_STEP_SUMMARY
+          fi
