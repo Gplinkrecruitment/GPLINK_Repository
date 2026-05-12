@@ -23196,7 +23196,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     const [casesRes, tasksRes, ticketsRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)&order=priority.asc,created_at.asc&limit=500'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated)&order=priority.asc,created_at.asc&limit=500'),
       supabaseDbRequest('support_tickets', 'select=*&status=neq.closed&order=created_at.asc&limit=500')
     ]);
     const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
