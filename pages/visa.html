@@ -582,20 +582,34 @@
       supportModalEl.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(supportModalEl); });
     }
 
-    // Submit support ticket
+    // Submit support ticket — writes to localStorage (state-sync pushes to server)
+    // AND directly POSTs to the server as a belt-and-suspenders approach
     function createSupportTicket(category, title, message) {
-      var key = "gpLinkSupportCases";
+      var storageKey = "gpLinkSupportCases";
       var tickets = [];
-      try { var raw = localStorage.getItem(key); tickets = raw ? JSON.parse(raw) : []; if (!Array.isArray(tickets)) tickets = []; } catch (e) { tickets = []; }
+      try { var raw = localStorage.getItem(storageKey); tickets = raw ? JSON.parse(raw) : []; if (!Array.isArray(tickets)) tickets = []; } catch (e) { tickets = []; }
       var text = String(message || "").trim() || "Help requested from Visa page.";
       var summary = String(title || "").trim() || "Visa support request";
       var ticketCategory = String(category || "Visa").trim();
-      tickets.unshift({
+      var ticket = {
         id: "case_" + Date.now(), category: ticketCategory, title: summary,
         detail: text, status: "open", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         thread: [{ from: "me", text: text, ts: new Date().toISOString() }], unread: true
-      });
-      localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
+      };
+      tickets.unshift(ticket);
+      localStorage.setItem(storageKey, JSON.stringify(tickets.slice(0, 120)));
+
+      // Force an immediate state push so the server picks up the ticket now
+      try {
+        var payload = { state: {} };
+        var syncKeys = [storageKey, 'gp_epic_progress', 'gp_amc_progress', 'gp_ahpra_progress', 'gp_career_state', 'gp_documents_prep', 'gp_prepared_docs'];
+        syncKeys.forEach(function (k) { var v = localStorage.getItem(k); if (v !== null) payload.state[k] = v; });
+        fetch("/api/state", {
+          method: "PUT", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }).catch(function () {});
+      } catch (e) {}
     }
 
     if (supportSubmitBtn) {
