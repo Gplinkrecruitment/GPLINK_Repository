@@ -245,14 +245,14 @@
     .tut-caret { transform: rotate(180deg); }
     .tut-toggle.collapsed .tut-caret { transform: rotate(0deg); }
     .tut-video-wrap {
-      max-height: 800px; overflow: hidden;
+      max-height: 2000px; overflow: hidden;
       transition: max-height .35s ease, margin .2s ease;
       margin-bottom: var(--sp-6);
     }
     .tut-video-wrap.collapsed { max-height: 0; margin-bottom: 0; }
     .tut-video {
       width: 100%; border-radius: 12px;
-      background: #000; display: block;
+      background: #000;
     }
 
     /* ---- WARNING ---- */
@@ -979,7 +979,7 @@
         <span class="tut-caret">&#9662;</span>
       </button>
       <div class="tut-video-wrap" id="tutorialCard">
-        <video class="tut-video" id="tutorialVideo" controls playsinline preload="metadata" controlsList="nodownload">
+        <video class="tut-video" id="tutorialVideo" controls playsinline preload="metadata">
           <source id="tutorialSource" src="/media/videos/myintealth-tutorial-1.mp4" type="video/mp4" />
           Your browser does not support the video tag.
         </video>
