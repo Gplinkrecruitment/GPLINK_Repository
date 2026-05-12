@@ -213,23 +213,18 @@
       box-shadow: 0 3px 10px -3px rgba(26, 86, 219, 0.45);
     }
 
-    /* ---- TIME LABELS (left of timeline) ---- */
-    .pathway-time {
+    /* ---- TIME LABELS (left of timeline, below each step) ---- */
+    .pathway-time-label {
       position: absolute;
       left: -64px;
-      top: 50%;
-      transform: translateY(-50%);
+      bottom: -6px;
       width: 52px;
       text-align: right;
       font-size: 11px;
       font-weight: 600;
-      color: var(--ink-muted);
+      color: var(--accent);
       line-height: 1.3;
-    }
-    .pathway-time-connector {
-      position: relative;
-      height: 0;
-      padding: 0;
+      opacity: 0.7;
     }
     .pathway-step-title {
       font-size: 15px; font-weight: 700;
@@ -336,7 +331,7 @@
       .step-title { font-size: 19px; }
       .pathway-card-title { font-size: 16px; }
       .pathway-steps { margin-left: 56px; }
-      .pathway-time { left: -56px; width: 44px; font-size: 10px; }
+      .pathway-time-label { left: -56px; width: 44px; font-size: 10px; }
     }
   </style>
 </head>
@@ -386,42 +381,21 @@
             <div class="pathway-step-sub">Temporary Skill Shortage</div>
             <div class="pathway-step-title">Subclass 482 Visa</div>
             <div class="pathway-step-desc">Your sponsoring practice nominates you for a temporary work visa. You will be on this visa for 2 years while you build towards permanent residency.</div>
+            <div class="pathway-time-label">2 years</div>
           </div>
 
-          <!-- Time between 482 and 186 -->
-          <div class="pathway-time-connector">
-            <div class="pathway-time">2 years</div>
-          </div>
-
-          <!-- Step 2: 186 -->
+          <!-- Step 2: 186 (Permanent Residency) -->
           <div class="pathway-step">
             <div class="pathway-step-dot">2</div>
-            <div class="pathway-step-sub">Transitional Stream</div>
+            <div class="pathway-step-sub">Permanent Residency &middot; Transitional Stream</div>
             <div class="pathway-step-title">Subclass 186 Visa</div>
-            <div class="pathway-step-desc">After working with your sponsor on the 482 visa, you become eligible for permanent residency through the Transitional Stream. Your sponsor nominates you and you apply for the 186 visa.</div>
+            <div class="pathway-step-desc">After 2 years with your sponsor on the 482 visa, you become eligible for permanent residency. Your sponsor nominates you and you apply for the 186 visa through the Transitional Stream, granting full work rights and Medicare access.</div>
+            <div class="pathway-time-label">1 year</div>
           </div>
 
-          <!-- Time between 186 and PR -->
-          <div class="pathway-time-connector">
-            <div class="pathway-time">3&ndash;6 months</div>
-          </div>
-
-          <!-- Step 3: Permanent Residency -->
+          <!-- Step 3: Citizenship -->
           <div class="pathway-step">
             <div class="pathway-step-dot">3</div>
-            <div class="pathway-step-sub">Permanent Visa</div>
-            <div class="pathway-step-title">Permanent Residency</div>
-            <div class="pathway-step-desc">With a granted 186 visa, you gain permanent residency in Australia with full work rights and Medicare access.</div>
-          </div>
-
-          <!-- Time between PR and Citizenship -->
-          <div class="pathway-time-connector">
-            <div class="pathway-time">1 year</div>
-          </div>
-
-          <!-- Step 4: Citizenship -->
-          <div class="pathway-step">
-            <div class="pathway-step-dot">4</div>
             <div class="pathway-step-sub">Final Destination</div>
             <div class="pathway-step-title">Australian Citizenship</div>
             <div class="pathway-step-desc">After holding permanent residency for at least 1 year, you become eligible to apply for Australian citizenship.</div>
