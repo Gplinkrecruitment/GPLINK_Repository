@@ -327,8 +327,7 @@
       font-weight: 600;
       cursor: pointer;
       transition: transform .15s ease, background .15s ease, border-color .15s ease;
-      margin-top: 0;
-      margin-bottom: 8px;
+      margin-top: 8px;
     }
     .step-info-download:hover {
       transform: translateY(-1px);
@@ -1599,9 +1598,8 @@
 
       // Info rows
       const doNow = meta.doNow;
-      const shouldPulseDownload = key === "upload_qualifications" && !progress.downloadedOnboardingDocs;
       const downloadBtnHtml = key === "upload_qualifications"
-        ? `<button class="step-info-download ${shouldPulseDownload ? "cta-pulse-dark" : ""}" id="downloadMyDocumentsBtn" type="button"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download my documents</button>`
+        ? `<button class="step-info-download" id="downloadMyDocumentsBtn" type="button"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download my documents</button>`
         : '';
 
       const actionRowClass = key === "upload_qualifications" ? ' info-row-action' : '';
@@ -1618,10 +1616,10 @@
           <div class="action-card-body">
             <div class="action-card-label">Your Action</div>
             <div class="action-card-text">${doNow}</div>
-            ${downloadBtnHtml}
             <div class="action-card-meta">
               <div class="action-card-time"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${meta.time}</div>
             </div>
+            ${downloadBtnHtml}
             ${actionBtnHtml}
           </div>
         </div>
