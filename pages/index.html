@@ -877,8 +877,7 @@
         })
         .catch(function () {});
     })();
-    // Visa step hidden from the v1 user flow — see docs/deferred-visa-application.md
-    const TOTAL_STEPS = 5;
+    const TOTAL_STEPS = 6;
     const EPIC_KEY = "gp_epic_progress";
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
@@ -1344,7 +1343,7 @@
           supervisedReady === UK_SUPERVISED_KEYS.length
         : false;
 
-      // Visa step deferred from v1 flow — see docs/deferred-visa-application.md
+      // Visa case tracking managed server-side
       const pbsDone = false;
 
       const completedSteps = [careerSecured, epicDone, amcDone, ahpraDone, pbsDone].filter(Boolean).length;
@@ -1411,11 +1410,11 @@
         { key: "ahpra", title: "AHPRA Registration", sub: ahpraSubText, detail: "Prepare and submit your specialist registration application with AHPRA.", done: snap.ahpraDone, locked: false, href: "ahpra.html" }
       ];
 
-      // Visa step hidden from v1 — see docs/deferred-visa-application.md
       // Your Practice step hidden once placement is secured
       const allSteps = [
         !snap.careerSecured ? { key: "career", title: "Your Practice", sub: "View your placement", detail: "View your secured practice placement details, contact information, and area lifestyle information.", done: false, locked: false, href: "career.html" } : null,
         { key: "registration", title: "Registration", sub: regAllDone ? "All steps completed" : `${regCompletedCount}/3 steps completed`, detail: "", done: regAllDone, locked: false, href: "", isSectionHead: true, subs: regSubs },
+        { key: "visa", title: "Visa Application", sub: "Your pathway to permanent residency", detail: "Information about your Subclass 482 and 186 visa pathway to permanent residency.", done: false, locked: false, href: "visa.html" },
         { key: "pbs", title: "PBS & Medicare", sub: snap.pbsDone ? "Approved" : "Provider & prescriber numbers", detail: "Apply for your Medicare provider number and PBS prescriber number.", done: snap.pbsDone, locked: !bypassAll && !snap.ahpraDone, href: "pbs.html" }
       ];
       const steps = allSteps.filter(Boolean).map((s, i) => ({ ...s, num: i + 1 }));
@@ -1524,7 +1523,6 @@
     function getRegistrationRows() {
       const snap = getProgressSnapshot();
       const bypassAll = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
-      // Visa row intentionally removed for v1 — see docs/deferred-visa-application.md
       // AHPRA always navigable — gate page inside ahpra.html handles placement-required messaging
       var ahpraStatusHint = snap.ahpraDone ? "Completed"
         : !snap.careerSecured ? "Secure a placement to continue"
@@ -1565,8 +1563,17 @@
           done: snap.ahpraDone,
           href: "ahpra.html"
         }),
+        buildRegistrationRow("visa", {
+          title: "5. Visa Application",
+          sub: "Your pathway to permanent residency.",
+          mobileDetail: "Information about your 482 and 186 visa pathway.",
+          mobileStatus: "View pathway",
+          locked: false,
+          done: false,
+          href: "visa.html"
+        }),
         buildRegistrationRow("pbs", {
-          title: "5. PBS & Medicare",
+          title: "6. PBS & Medicare",
           sub: "Apply for Medicare provider and PBS prescriber numbers.",
           mobileDetail: "Medicare and PBS registration for prescribing authority.",
           mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",

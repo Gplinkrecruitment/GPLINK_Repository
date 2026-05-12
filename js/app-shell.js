@@ -398,10 +398,6 @@
     var snap = getProgressSnapshot();
     var bypassLocks = !!BYPASS_LOCK_EMAILS[getCurrentUserEmail()];
 
-    // NOTE: Visa step is intentionally hidden from the user-facing registration
-    // journey for the v1 release. Backend + pages/visa.html remain in place so
-    // the feature can be re-enabled later. See docs/deferred-visa-application.md
-    // for restoration steps.
     // AHPRA is always navigable — the gate page inside ahpra.html handles
     // the placement-required messaging when career is not yet secured.
     var ahpraStatusHint = snap.ahpraDone ? "Completed"
@@ -444,8 +440,17 @@
         done: snap.ahpraDone,
         href: "/pages/ahpra.html"
       }),
+      buildRegistrationRow("visa", {
+        title: "5. Visa Application",
+        sub: "Your pathway to permanent residency.",
+        mobileDetail: "Information about your 482 and 186 visa pathway.",
+        mobileStatus: "View pathway",
+        locked: false,
+        done: false,
+        href: "/pages/visa.html"
+      }),
       buildRegistrationRow("pbs", {
-        title: "5. PBS & Medicare",
+        title: "6. PBS & Medicare",
         sub: "Apply for Medicare provider number and PBS prescriber number.",
         mobileDetail: "Medicare and PBS registration for prescribing authority.",
         mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
