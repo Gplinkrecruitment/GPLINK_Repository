@@ -27137,13 +27137,14 @@ Return ONLY valid JSON with no markdown formatting:
       completed_gps: completedCases.length
     };
 
-    // Escalations — check both: tasks with status='escalated' (post-migration) AND
-    // tasks with recent 'escalation' timeline events (pre-migration fallback where status='blocked')
+    // Escalations — search ALL tasks (not just filtered) since escalations must always be visible
+    // Check both: tasks with status='escalated' (post-migration) AND timeline fallback (pre-migration)
+    var allCaseMap = {};
+    for (var acmi = 0; acmi < allCasesRaw.length; acmi++) { allCaseMap[allCasesRaw[acmi].id] = allCasesRaw[acmi]; }
     var escalationTaskIds = new Set();
-    var escalations = filteredTasks.filter(function(t) { return t.status === 'escalated' && t.escalated_to; }).map(function(t) {
+    var escalations = tasks.filter(function(t) { return t.status === 'escalated'; }).map(function(t) {
       escalationTaskIds.add(t.id);
-      var c = null;
-      for (var ci = 0; ci < cases.length; ci++) { if (cases[ci].id === t.case_id) { c = cases[ci]; break; } }
+      var c = allCaseMap[t.case_id] || null;
       return {
         task_id: t.id, case_id: t.case_id, user_id: c ? c.user_id : null,
         gp_name: c ? ceoGpName(c.user_id) : 'Unknown', gp_email: c ? ceoGpEmail(c.user_id) : '',
@@ -27151,29 +27152,29 @@ Return ONLY valid JSON with no markdown formatting:
         escalated_at: t.escalated_at, stage: t.related_stage || (c ? c.stage : ''), priority: t.priority
       };
     });
-    // Fallback: find unresolved escalation timeline events for tasks not already captured above
-    var escTimelineRes = await supabaseDbRequest('task_timeline', 'select=task_id,case_id,detail,actor,created_at&event_type=eq.escalation&order=created_at.desc&limit=50');
+    // Fallback: find unresolved escalation timeline events for tasks not already captured
+    var escTimelineRes = await supabaseDbRequest('task_timeline', 'select=task_id,case_id,detail,actor,created_at,title&event_type=eq.escalation&order=created_at.desc&limit=50');
     var escTimelineEvents = (escTimelineRes.ok && Array.isArray(escTimelineRes.data)) ? escTimelineRes.data : [];
-    // Check which escalation events have NOT been resolved (no subsequent 'escalation' event with 'resolved' title)
+    // Identify resolved escalations (CEO resolved it — title contains 'resolved')
     var resolvedTaskIds = new Set();
     for (var eti = 0; eti < escTimelineEvents.length; eti++) {
       var ev = escTimelineEvents[eti];
-      if (ev.detail && (String(ev.detail).indexOf('resolved') > -1 || String(ev.detail).indexOf('CEO resolved') > -1)) {
+      var evTitle = String(ev.title || '').toLowerCase();
+      var evDetail = String(ev.detail || '').toLowerCase();
+      if (evTitle.indexOf('resolved') > -1 || evDetail.indexOf('resolved') > -1) {
         resolvedTaskIds.add(ev.task_id);
       }
     }
     for (var eti2 = 0; eti2 < escTimelineEvents.length; eti2++) {
       var ev2 = escTimelineEvents[eti2];
       if (!ev2.task_id || escalationTaskIds.has(ev2.task_id) || resolvedTaskIds.has(ev2.task_id)) continue;
-      // Find the task in filteredTasks
+      // Search ALL tasks, not just filtered ones — escalations are always visible
       var escTask = null;
-      for (var eft = 0; eft < filteredTasks.length; eft++) { if (filteredTasks[eft].id === ev2.task_id) { escTask = filteredTasks[eft]; break; } }
+      for (var eft = 0; eft < tasks.length; eft++) { if (tasks[eft].id === ev2.task_id) { escTask = tasks[eft]; break; } }
       if (!escTask) continue;
-      // Only include if task is still open/blocked (not completed/cancelled)
       if (escTask.status === 'completed' || escTask.status === 'cancelled') continue;
       escalationTaskIds.add(ev2.task_id);
-      var escCase = null;
-      for (var ecc = 0; ecc < cases.length; ecc++) { if (cases[ecc].id === escTask.case_id) { escCase = cases[ecc]; break; } }
+      var escCase = allCaseMap[escTask.case_id] || null;
       escalations.push({
         task_id: escTask.id, case_id: escTask.case_id, user_id: escCase ? escCase.user_id : null,
         gp_name: escCase ? ceoGpName(escCase.user_id) : 'Unknown', gp_email: escCase ? ceoGpEmail(escCase.user_id) : '',
