@@ -27137,8 +27137,11 @@ Return ONLY valid JSON with no markdown formatting:
       completed_gps: completedCases.length
     };
 
-    // Escalations
+    // Escalations — check both: tasks with status='escalated' (post-migration) AND
+    // tasks with recent 'escalation' timeline events (pre-migration fallback where status='blocked')
+    var escalationTaskIds = new Set();
     var escalations = filteredTasks.filter(function(t) { return t.status === 'escalated' && t.escalated_to; }).map(function(t) {
+      escalationTaskIds.add(t.id);
       var c = null;
       for (var ci = 0; ci < cases.length; ci++) { if (cases[ci].id === t.case_id) { c = cases[ci]; break; } }
       return {
@@ -27148,6 +27151,36 @@ Return ONLY valid JSON with no markdown formatting:
         escalated_at: t.escalated_at, stage: t.related_stage || (c ? c.stage : ''), priority: t.priority
       };
     });
+    // Fallback: find unresolved escalation timeline events for tasks not already captured above
+    var escTimelineRes = await supabaseDbRequest('task_timeline', 'select=task_id,case_id,detail,actor,created_at&event_type=eq.escalation&order=created_at.desc&limit=50');
+    var escTimelineEvents = (escTimelineRes.ok && Array.isArray(escTimelineRes.data)) ? escTimelineRes.data : [];
+    // Check which escalation events have NOT been resolved (no subsequent 'escalation' event with 'resolved' title)
+    var resolvedTaskIds = new Set();
+    for (var eti = 0; eti < escTimelineEvents.length; eti++) {
+      var ev = escTimelineEvents[eti];
+      if (ev.detail && (String(ev.detail).indexOf('resolved') > -1 || String(ev.detail).indexOf('CEO resolved') > -1)) {
+        resolvedTaskIds.add(ev.task_id);
+      }
+    }
+    for (var eti2 = 0; eti2 < escTimelineEvents.length; eti2++) {
+      var ev2 = escTimelineEvents[eti2];
+      if (!ev2.task_id || escalationTaskIds.has(ev2.task_id) || resolvedTaskIds.has(ev2.task_id)) continue;
+      // Find the task in filteredTasks
+      var escTask = null;
+      for (var eft = 0; eft < filteredTasks.length; eft++) { if (filteredTasks[eft].id === ev2.task_id) { escTask = filteredTasks[eft]; break; } }
+      if (!escTask) continue;
+      // Only include if task is still open/blocked (not completed/cancelled)
+      if (escTask.status === 'completed' || escTask.status === 'cancelled') continue;
+      escalationTaskIds.add(ev2.task_id);
+      var escCase = null;
+      for (var ecc = 0; ecc < cases.length; ecc++) { if (cases[ecc].id === escTask.case_id) { escCase = cases[ecc]; break; } }
+      escalations.push({
+        task_id: escTask.id, case_id: escTask.case_id, user_id: escCase ? escCase.user_id : null,
+        gp_name: escCase ? ceoGpName(escCase.user_id) : 'Unknown', gp_email: escCase ? ceoGpEmail(escCase.user_id) : '',
+        title: escTask.title, reason: ev2.detail || '', escalated_by: ev2.actor || 'VA',
+        escalated_at: ev2.created_at, stage: escTask.related_stage || (escCase ? escCase.stage : ''), priority: escTask.priority
+      });
+    }
 
     // Pipeline — user-facing funnel order, excluding visa (deferred) and complete (shown in completions)
     // Database stage progression order (for cumulative): myintealth(0) → amc(1) → career(2) → ahpra(3) → pbs(4) → commencement(5) → complete(6)
