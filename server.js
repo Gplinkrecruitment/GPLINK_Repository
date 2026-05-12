@@ -227,7 +227,7 @@ const SUPER_ADMIN_EMAILS = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean)
 );
-const CEO_EMAIL = 'khaleedmahmoud1211@gmail.com';
+const CEO_EMAIL = String(process.env.CEO_EMAIL || 'khaleedmahmoud1211@gmail.com').trim().toLowerCase();
 let _domainApiAccessTokenCache = new Map();
 
 // ── Google Drive integration ──
@@ -381,7 +381,8 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
 }
 
 // ── Gmail integration (Phase 1b) ──
-const MONITORED_VA_EMAILS = ['hazel@mygplink.com.au'];
+const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
+  .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 const GOOGLE_PUBSUB_TOPIC = String(process.env.GOOGLE_PUBSUB_TOPIC || '').trim();
 const GMAIL_WEBHOOK_SECRET = String(process.env.GMAIL_WEBHOOK_SECRET || '').trim();
 
@@ -525,7 +526,7 @@ var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
 var { triageEmailWithSonnet } = require('./lib/email-triage.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
-  var budgetOk = checkAnthropicBudget();
+  var budgetOk = await checkAnthropicBudget();
   if (!budgetOk) {
     console.error('[Gmail AI] Daily Anthropic budget exceeded, skipping AI match');
     return { matches: [], is_relevant: false, summary: 'Budget exceeded' };
@@ -931,7 +932,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
 
       } else if (filterResult.track === 'triage') {
         // Triage track: classify non-attachment emails with AI
-        var budgetOk = checkAnthropicBudget();
+        var budgetOk = await checkAnthropicBudget();
         if (!budgetOk) {
           console.error('[Gmail] Daily Anthropic budget exceeded, skipping triage for', currentMsgId);
           await supabaseDbRequest('processed_gmail_messages', '', {
@@ -1929,11 +1930,41 @@ function saveDbState() {
   fs.renameSync(tmpPath, DB_FILE_PATH);
 }
 
-// WARNING: In-memory only — resets on serverless cold start (Vercel).
-// For production hardening, persist daily spend to Supabase (e.g. ai_spend_tracking table).
+// AI daily spend — persisted to Supabase runtime_kv so it survives cold starts.
+// Falls back to in-memory tracking if Supabase is unavailable.
 let anthropicDailySpend = { date: '', totalCostUsd: 0, callCount: 0 };
+let _aiSpendHydrated = false; // true once we've loaded today's spend from DB
 
-function checkAnthropicBudget() {
+async function _hydrateAiSpend() {
+  if (_aiSpendHydrated) return;
+  _aiSpendHydrated = true;
+  if (!isSupabaseDbConfigured()) return;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await supabaseDbRequest('runtime_kv', 'key=eq.ai_daily_spend&select=value');
+    if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
+      const stored = typeof res.data[0].value === 'string' ? JSON.parse(res.data[0].value) : res.data[0].value;
+      if (stored && stored.date === today) {
+        anthropicDailySpend = { date: today, totalCostUsd: Number(stored.totalCostUsd) || 0, callCount: Number(stored.callCount) || 0 };
+      }
+    }
+  } catch (err) {
+    console.error('[AI Spend] Failed to hydrate from DB:', err.message);
+  }
+}
+
+function _persistAiSpend() {
+  if (!isSupabaseDbConfigured()) return;
+  const payload = JSON.stringify(anthropicDailySpend);
+  supabaseDbRequest('runtime_kv', 'on_conflict=key', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify({ key: 'ai_daily_spend', value: payload })
+  }).catch(err => console.error('[AI Spend] Failed to persist:', err.message));
+}
+
+async function checkAnthropicBudget() {
+  await _hydrateAiSpend();
   const today = new Date().toISOString().slice(0, 10);
   if (anthropicDailySpend.date !== today) {
     anthropicDailySpend = { date: today, totalCostUsd: 0, callCount: 0 };
@@ -1950,6 +1981,7 @@ function recordAnthropicSpend(inputTokens, outputTokens, cacheReadTokens = 0, ca
   const cost = (inputTokens / 1000000) * 3 + (outputTokens / 1000000) * 15 + (cacheReadTokens / 1000000) * 0.30 + (cacheWriteTokens / 1000000) * 3.75 + 0.01;
   anthropicDailySpend.totalCostUsd += cost;
   anthropicDailySpend.callCount++;
+  _persistAiSpend();
 }
 
 // Per-user rate limiting for AI verification: max 10 calls per user per day
@@ -2792,7 +2824,7 @@ async function classifyDoubleTickMessage(messageBody, fromPhone) {
 
   // Skip AI if not configured, over global budget, or over per-phone budget
   // Default to TRUE (treat as help request) — missing a message is worse than a false positive
-  if (!ANTHROPIC_API_KEY || !checkAnthropicBudget() || !checkDtPhoneBudget(fromPhone)) {
+  if (!ANTHROPIC_API_KEY || !(await checkAnthropicBudget()) || !checkDtPhoneBudget(fromPhone)) {
     return true;
   }
 
@@ -5475,7 +5507,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           // Send WhatsApp template + email only if not already sent for this case
           if (!(await _hasDoubleTickBeenSent(caseId, 'AMC stage'))) {
             if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'amc', _gpFirstName);
-            sendMyintealthCompleteEmail(userId).catch(() => {});
+            sendMyintealthCompleteEmail(userId).catch(err => console.error('[Email] MyIntealth complete failed:', err.message));
             await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
           }
         }
@@ -5500,7 +5532,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
             // Check if GP already has a secured placement to send the right email variant
             var _amcCareerSecured = nxt.career.career_secured === true || nxt.career.secured === true;
             if (!_amcCareerSecured && Array.isArray(nxt.career.applications)) { _amcCareerSecured = nxt.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
-            sendAmcCompleteEmail(userId, _amcCareerSecured).catch(() => {});
+            sendAmcCompleteEmail(userId, _amcCareerSecured).catch(err => console.error('[Email] AMC complete failed:', err.message));
             await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
           }
         }
@@ -5526,7 +5558,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       // Notify GP about practice pack docs needed
       const _securedApp = Array.isArray(nxt.career.applications) ? nxt.career.applications.find(function (a) { return a && a.isPlacementSecured; }) : null;
       const _practiceName = _securedApp && _securedApp.placement ? (_securedApp.placement.practiceName || _securedApp.placement.practice_name || '') : '';
-      sendPracticePackEmail(userId, _practiceName).catch(() => {});
+      sendPracticePackEmail(userId, _practiceName).catch(err => console.error('[Email] Practice pack failed:', err.message));
 
       // Auto-send SPPA-00 if Zoho Sign is connected + practice contact email is present
       try {
@@ -5638,7 +5670,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       // Send WhatsApp template + email only if not already sent for this case
       if (!(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
         if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
-        sendAhpraUnlockedEmail(userId).catch(() => {});
+        sendAhpraUnlockedEmail(userId).catch(err => console.error('[Email] AHPRA unlocked failed:', err.message));
         await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
       }
     }
@@ -5671,7 +5703,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           // Send WhatsApp template + email only if not already sent for this case
           if (!(await _hasDoubleTickBeenSent(caseId, 'Visa stage'))) {
             if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName);
-            sendAhpraCompleteEmail(userId).catch(() => {});
+            sendAhpraCompleteEmail(userId).catch(err => console.error('[Email] AHPRA complete failed:', err.message));
             await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
           }
         }
@@ -11670,7 +11702,7 @@ function heuristicExtractCareerContractTerms(textValue) {
 }
 
 async function extractCareerContractTermsWithAi(fileName, fileBuffer, mimeType, extractedText = '') {
-  if (!ANTHROPIC_API_KEY || !checkAnthropicBudget()) return null;
+  if (!ANTHROPIC_API_KEY || !(await checkAnthropicBudget())) return null;
   if (!fileBuffer || !Buffer.isBuffer(fileBuffer) || fileBuffer.length === 0) return null;
 
   const resolvedMime = String(mimeType || '').trim().toLowerCase();
@@ -15855,7 +15887,7 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'GET' && pathname === '/api/cron/gmail-diagnostic') {
     var gdCronSecret = String(process.env.CRON_SECRET || '').trim();
     var gdAuth = req.headers['authorization'] || '';
-    if (gdCronSecret && gdAuth !== 'Bearer ' + gdCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!gdCronSecret || gdAuth !== 'Bearer ' + gdCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var diag = { steps: [] };
     try {
       // Step 1: Check env vars
@@ -15928,7 +15960,7 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'GET' && pathname === '/api/cron/process-gmail') {
     var pgCronSecret = String(process.env.CRON_SECRET || '').trim();
     var pgAuth = req.headers['authorization'] || '';
-    if (pgCronSecret && pgAuth !== 'Bearer ' + pgCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
+    if (!pgCronSecret || pgAuth !== 'Bearer ' + pgCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var pgResults = [];
     for (var pgEmail of MONITORED_VA_EMAILS) {
       try {
@@ -15946,7 +15978,7 @@ async function handleApi(req, res, pathname) {
   if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
     var cronSecret = String(process.env.CRON_SECRET || '').trim();
     var authHeader = req.headers['authorization'] || '';
-    if (cronSecret && authHeader !== 'Bearer ' + cronSecret) {
+    if (!cronSecret || authHeader !== 'Bearer ' + cronSecret) {
       sendJson(res, 401, { error: 'Unauthorized' });
       return;
     }
@@ -16001,7 +16033,7 @@ async function handleApi(req, res, pathname) {
       var rfResults = [];
 
       for (var rfTask of rfTasks) {
-        if (!checkAnthropicBudget()) {
+        if (!(await checkAnthropicBudget())) {
           rfResults.push({ task_id: rfTask.id, status: 'skipped', reason: 'budget_exceeded' });
           continue;
         }
@@ -16656,7 +16688,7 @@ async function handleApi(req, res, pathname) {
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
     if (!loginResult.ok) {
       // Email confirmation required — send via Resend for reliable delivery
-      await sendEmailConfirmationViaResend(email).catch(() => {});
+      await sendEmailConfirmationViaResend(email).catch(err => console.error('[Email] Confirmation failed:', err.message));
       sendJson(res, 200, {
         ok: true,
         requiresConfirmation: true,
@@ -16719,7 +16751,7 @@ async function handleApi(req, res, pathname) {
       // Send welcome email on first login (confirmed_at exists but last_sign_in was null before this login)
       const supaUserId = sessionProfile.supabaseUserId;
       if (supaUserId && loginUser.email_confirmed_at && !loginUser.last_sign_in_at) {
-        sendWelcomeEmail(supaUserId).catch(() => {});
+        sendWelcomeEmail(supaUserId).catch(err => console.error('[Email] Welcome failed:', err.message));
       }
       const bootstrapResult = resolveFastAuthBootstrap(email, {
         sessionUserId: supaUserId,
@@ -19493,7 +19525,7 @@ async function handleApi(req, res, pathname) {
           current.account_status = 'under_review';
         }
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
-        sendOnboardingCompleteEmail(userId).catch(() => {});
+        sendOnboardingCompleteEmail(userId).catch(err => console.error('[Email] Onboarding complete failed:', err.message));
 
         // Also update user profile with onboarding data
         const profileUpdate = {};
@@ -19557,7 +19589,7 @@ async function handleApi(req, res, pathname) {
       return;
     }
 
-    if (!checkAnthropicBudget()) {
+    if (!(await checkAnthropicBudget())) {
       sendJson(res, 200, { ok: false, queued: true, message: 'Verification capacity reached. Your documents will be reviewed within 24 hours.' });
       return;
     }
@@ -19778,7 +19810,7 @@ Verify this document.`;
       return;
     }
 
-    if (!checkAnthropicBudget()) {
+    if (!(await checkAnthropicBudget())) {
       sendJson(res, 200, { ok: false, queued: true, message: 'Verification capacity reached. Your document will be reviewed manually within 24 hours.' });
       return;
     }
@@ -19935,7 +19967,7 @@ Check this document for certification markings.`;
       return;
     }
 
-    if (!checkAnthropicBudget()) {
+    if (!(await checkAnthropicBudget())) {
       sendJson(res, 200, { ok: false, message: 'Verification capacity reached. Please try again later.' });
       return;
     }
@@ -20150,7 +20182,7 @@ Classify this document.`;
     // Send account activated email when status changes to active
     if (status === 'active') {
       const activatedUserId = await getSupabaseUserIdByEmail(targetEmail);
-      if (activatedUserId) sendAccountActivatedEmail(activatedUserId).catch(() => {});
+      if (activatedUserId) sendAccountActivatedEmail(activatedUserId).catch(err => console.error('[Email] Account activated failed:', err.message));
     }
 
     // If setting to under_review, auto-revert to active after 5 minutes
@@ -20183,7 +20215,7 @@ Classify this document.`;
       return;
     }
 
-    if (!checkAnthropicBudget()) {
+    if (!(await checkAnthropicBudget())) {
       sendJson(res, 200, { ok: false, message: 'Verification capacity reached. Please try again later.' });
       return;
     }
@@ -20755,7 +20787,7 @@ Return ONLY valid JSON with no markdown formatting:
     // Send email notification to GP about the reply
     const replyUserId = await getSupabaseUserIdByEmail(candidateEmail);
     if (replyUserId) {
-      sendTicketReplyEmail(replyUserId, updatedTicket.title || '').catch(() => {});
+      sendTicketReplyEmail(replyUserId, updatedTicket.title || '').catch(err => console.error('[Email] Ticket reply failed:', err.message));
     }
 
     sendJson(res, 200, { ok: true, ticket: updatedTicket });
@@ -22025,7 +22057,7 @@ Return ONLY valid JSON with no markdown formatting:
     const incoming = sanitizeUserStateInput(body);
 
     // ── AHPRA locking: block AHPRA progress unless career is secured ──
-    const BYPASS_LOCK_EMAILS = new Set(['hello@mygplink.com.au']);
+    const BYPASS_LOCK_EMAILS = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
     if (incoming.gp_ahpra_progress && typeof incoming.gp_ahpra_progress === 'object' && !BYPASS_LOCK_EMAILS.has(email)) {
       // Need to check current state for career_secured
       const preCheckRemote = isSupabaseDbConfigured() ? await getSupabaseUserStateByEmail(email) : null;
@@ -22624,7 +22656,7 @@ Return ONLY valid JSON with no markdown formatting:
     const text = body && typeof body.text === 'string' ? body.text.trim() : '';
     if (!text) { sendJson(res, 200, { ok: true, followup: null }); return; }
 
-    if (!checkAnthropicBudget()) { sendJson(res, 200, { ok: true, followup: null, reason: 'budget_exceeded' }); return; }
+    if (!(await checkAnthropicBudget())) { sendJson(res, 200, { ok: true, followup: null, reason: 'budget_exceeded' }); return; }
 
     try {
       const today = new Date().toISOString().split('T')[0];
@@ -22796,24 +22828,24 @@ Return ONLY valid JSON with no markdown formatting:
       patch.completed_at = new Date().toISOString();
       patch.completed_by = adminCtx.email;
     }
-    // Auto-set escalation fields when status is 'escalated'
-    if (patch.status === 'escalated' && patch.escalated_to) {
-      if (!patch.escalated_at) patch.escalated_at = new Date().toISOString();
-    }
-    // Only clear escalation fields if explicitly de-escalating (don't inject null columns on every update)
-    if (patch.escalated_to === '' || patch.escalated_to === 'clear') {
-      patch.escalated_to = null;
-      patch.escalated_at = null;
-    }
-    // Remove escalation fields from patch if not explicitly set (prevents errors if columns don't exist yet)
-    if (patch.escalated_to === undefined) delete patch.escalated_to;
-    if (patch.escalated_reason === undefined) delete patch.escalated_reason;
-    if (patch.escalated_at === undefined) delete patch.escalated_at;
-    const r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    // Separate escalation fields from main patch — columns may not exist if migration not applied yet
+    var isEscalating = (patch.status === 'escalated');
+    var escalationReason = patch.escalated_reason || null;
+    var escalationFields = {};
+    if (patch.escalated_to !== undefined) escalationFields.escalated_to = patch.escalated_to;
+    if (patch.escalated_reason !== undefined) escalationFields.escalated_reason = patch.escalated_reason;
+    if (patch.escalated_at !== undefined) escalationFields.escalated_at = patch.escalated_at;
+    else if (isEscalating) escalationFields.escalated_at = new Date().toISOString();
+    delete patch.escalated_to; delete patch.escalated_reason; delete patch.escalated_at;
+    // PATCH main fields; if 'escalated' status rejected by constraint, fall back to 'blocked'
+    var r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok && isEscalating) { patch.status = 'blocked'; r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch }); }
     if (!r.ok) { console.error('[ADMIN] Task update failed:', r.status, JSON.stringify(r.data)); sendJson(res, 502, { ok: false, message: 'Failed to update task.', detail: typeof r.data === 'object' ? (r.data.message || r.data.msg || JSON.stringify(r.data)) : String(r.data || ''), httpStatus: r.status }); return; }
+    // Try escalation columns separately — silent fail if columns don't exist yet
+    if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function() {}); }
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     // Timeline
-    const evType = patch.status === 'completed' ? 'completed' : patch.status === 'cancelled' ? 'cancelled' : patch.status === 'escalated' ? 'escalation' : patch.priority ? 'priority_change' : 'status_change';
+    var evType = isEscalating ? 'escalation' : patch.status === 'completed' ? 'completed' : patch.status === 'cancelled' ? 'cancelled' : patch.priority ? 'priority_change' : 'status_change';
     if (updated) {
       await _logCaseEvent(updated.case_id, taskId, evType, 'Task updated: ' + Object.keys(patch).join(', '), JSON.stringify(patch), adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
@@ -23778,7 +23810,7 @@ Return ONLY valid JSON with no markdown formatting:
         related_substage: c.substage || null,
         _actor: 'system'
       });
-      sendStalledReminderEmail(c.user_id, c.stage).catch(() => {});
+      sendStalledReminderEmail(c.user_id, c.stage).catch(err => console.error('[Email] Stalled reminder failed:', err.message));
       created++;
     }
     invalidateAdminDashboardCache();
@@ -24219,7 +24251,7 @@ Return ONLY valid JSON with no markdown formatting:
       title: docLabel + ' verified',
       detail: 'Your document has been reviewed and verified. You can download it from My Documents.'
     });
-    sendDocumentApprovedEmail(userId, docLabel).catch(() => {});
+    sendDocumentApprovedEmail(userId, docLabel).catch(err => console.error('[Email] Document approved failed:', err.message));
 
     sendJson(res, 200, { ok: true, message: 'Document approved.' });
     return;
@@ -24603,7 +24635,7 @@ Return ONLY valid JSON with no markdown formatting:
 
       await _logCaseEvent(task.case_id, taskId, 'revision_requested', 'Revision requested — draft created for ' + practiceEmail, 'Document: ' + fileName, adminCtx.email);
       var revDocLabel = getDocumentLabelForKey(task.related_document_key) || task.related_document_key || 'document';
-      sendDocumentRevisionEmail(userId, revDocLabel, practiceName).catch(() => {});
+      sendDocumentRevisionEmail(userId, revDocLabel, practiceName).catch(err => console.error('[Email] Document revision failed:', err.message));
       sendJson(res, 200, { ok: true, draft_url: draftUrl });
     } catch (gmailErr) {
       console.error('[RequestRevision] Gmail draft error:', gmailErr.message);
@@ -24812,9 +24844,10 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
-  // TEMP: Seed onboarding data for a test user
+  // Seed onboarding data for a test user (super-admin only)
   if (pathname === '/api/admin/seed-onboarding' && req.method === 'POST') {
-    const adminCtx = requireAdminSession(req, res);
+    if (NODE_ENV === 'production') { sendJson(res, 403, { ok: false, message: 'Not available in production.' }); return; }
+    const adminCtx = requireSuperAdminSession(req, res);
     if (!adminCtx) return;
     let body;
     try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
@@ -25003,7 +25036,7 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    const BYPASS_LOCK_EMAILS_REG = new Set(['hello@mygplink.com.au']);
+    const BYPASS_LOCK_EMAILS_REG = new Set(String(process.env.BYPASS_LOCK_EMAILS || 'hello@mygplink.com.au').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
     const bypassAll = BYPASS_LOCK_EMAILS_REG.has(email);
     const steps = {
       career: { accessible: true, completed: careerSecured },
