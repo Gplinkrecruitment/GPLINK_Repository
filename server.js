@@ -139,7 +139,8 @@ const DOUBLETICK_STAGE_MESSAGES = {
   amc: 'Hi {{name}}, you\'ve moved on to the AMC step! 🎉 You\'ll need to create your AMC portfolio and upload your credentials. If you need any help at any point, just reply to this message and we\'ll get a team member to assist you right away.',
   career: 'Hi {{name}}, your AMC step is complete — now it\'s time for the Career & Documents stage! 🎉 We\'ll help you find and secure a placement. If you need any help, just reply to this message.',
   ahpra: 'Hi {{name}}, great progress — you\'ve unlocked the AHPRA step! 🎉 This involves registering with the Australian Health Practitioner Regulation Agency. If you need any help, just reply to this message.',
-  visa: 'Hi {{name}}, you\'re onto the Visa stage! 🎉 We\'ll guide you through the visa application process. If you need any help, just reply to this message.'
+  visa: 'Hi {{name}}, you\'re onto the Visa stage! 🎉 We\'ll guide you through the visa application process. If you need any help, just reply to this message.',
+  support_ticket_received: 'Hi {{name}}, we\'ve received your support request. One of our registration support agents will be in touch shortly via email or WhatsApp to help resolve this for you.'
 };
 const CAREER_HERO_IMAGE_VERSION = 4;
 const CAREER_HERO_LOOKUP_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -5742,6 +5743,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       for (const ticket of nxt.tickets) {
         if (ticket && ticket.id && !prevTids.has(ticket.id) && ticket.status !== 'closed') {
           await _createRegTask(caseId, { task_type: 'blocker', title: 'Support ticket: ' + (ticket.title || 'New request'), priority: ticket.priority === 'urgent' ? 'urgent' : 'high', source_trigger: 'ticket_created', related_stage: derivedStage, related_ticket_id: ticket.id, _actor: 'system' });
+          // Send WhatsApp confirmation to the GP
+          if (_gpPhone) {
+            sendDoubleTickTemplate(_gpPhone, 'support_ticket_received', _gpFirstName).catch(function (err) {
+              console.error('[SupportTickets] WhatsApp confirmation failed:', err && err.message);
+            });
+          }
         }
         // Dual-write (idempotent) into support_tickets so VA dashboard + closed tab work against a real table
         if (ticket && ticket.id) {
@@ -23531,9 +23538,9 @@ Return ONLY valid JSON with no markdown formatting:
       if (pRes.ok && Array.isArray(pRes.data)) pRes.data.forEach(p => { profileMap[p.user_id] = p; });
     }
 
-    // Resolve DoubleTick conversation URLs for WhatsApp tasks that don't have one
+    // Resolve DoubleTick conversation URLs for ALL items that don't have one
     if (DOUBLETICK_API_KEY) {
-      const waMissing = items.filter(i => i.source === 'whatsapp' && !i.doubletick_url);
+      const waMissing = items.filter(i => !i.doubletick_url);
       for (const item of waMissing) {
         try {
           // For registered GPs, use their phone from profile

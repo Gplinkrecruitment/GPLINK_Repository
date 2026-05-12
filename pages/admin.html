@@ -1048,8 +1048,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ${(tk.gp_phone||tk.gp_email)?'<div class="task-gp-meta">'+(tk.gp_phone?'<span>'+esc(tk.gp_phone)+'</span>':'')+(tk.gp_email?'<span>'+esc(tk.gp_email)+'</span>':'')+'</div>':''}
       <div class="todo-detail">${esc(tk.category||"")} • opened ${fmtR(tk.created_at)}</div>
       <div class="todo-actions">
-        ${(tk.whatsapp_link||"").indexOf("doubletick.io/conversations/")>-1
-          ?'<a class="btn dt" href="'+safeUrl(tk.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'
+        ${(tk.doubletick_url||tk.whatsapp_link||"").indexOf("doubletick.io")>-1
+          ?'<a class="btn dt" href="'+safeUrl(tk.doubletick_url||tk.whatsapp_link)+'" target="_blank" rel="noopener">Open Chat</a>'
           :tk.gp_email?'<a class="btn" href="mailto:'+esc(tk.gp_email)+'" target="_blank" rel="noopener">Email GP</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
         <button class="btn primary sm" data-close-ticket="${esc(tk.id)}">Resolve & Close</button>
@@ -4190,9 +4190,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h+='</div>';
         h+='<div class="support-expand-actions">';
         var _dtLink=item.doubletick_url||item.whatsapp_link||"";
-        if(item.source==="whatsapp"&&_dtLink)h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">Open Chat</a>';
-        else if(_dtLink.indexOf("doubletick.io/conversations/")>-1)h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">Open Chat</a>';
-        else if(item.gp_email)h+='<a class="btn" href="mailto:'+esc(item.gp_email)+'" target="_blank" rel="noopener">Email GP</a>';
+        if(_dtLink&&_dtLink.indexOf("doubletick.io")>-1)h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">Open Chat</a>';
+        if(item.gp_email)h+='<a class="btn" href="mailto:'+esc(item.gp_email)+'" target="_blank" rel="noopener">Email GP</a>';
         if(item.status!=="closed"){
           h+='<button class="btn primary sm" data-support-resolve="'+esc(item.id)+'" data-support-kind="'+esc(item.kind)+'">Resolve & Close</button>';
         }else{
