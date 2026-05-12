@@ -2142,35 +2142,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return html;
   }
 
-  function renderGpDocumentsPane(c){
-    const cache=S.va.gpDetailCache[c.user_id]||{};
-    const snap=cache.quals;
-    if(!snap){loadGpDocuments(c.user_id,c.id);return '<div class="empty">Loading documents\u2026</div>';}
-    let h='';
-    const approved=Array.isArray(snap.approved)?snap.approved:[];const pending=Array.isArray(snap.uploaded_unverified)?snap.uploaded_unverified:[];const missing=Array.isArray(snap.missing)?snap.missing:[];
-    h+='<div class="inbox-section-title">Approved <span class="count">'+approved.length+'</span></div>';
-    if(!approved.length)h+='<div class="empty">None approved yet.</div>';
-    else h+=approved.map(d=>'<div class="todo-card"><div class="todo-title">'+esc(d.label||d.key)+'</div><div class="todo-detail">'+esc(d.file_name||"")+'</div><div class="todo-actions"><a class="btn sm" target="_blank" rel="noopener" href="/api/admin/va/user-document-download?user_id='+encodeURIComponent(c.user_id)+'&country='+encodeURIComponent(d.country||snap.country||"")+'&key='+encodeURIComponent(d.key)+'">View</a></div></div>').join("");
-    h+='<div class="inbox-section-title">Pending <span class="count">'+pending.length+'</span></div>';
-    if(!pending.length)h+='<div class="empty">Nothing awaiting verification.</div>';
-    else h+=pending.map(d=>'<div class="todo-card"><div class="todo-title">'+esc(d.label||d.key)+' <span class="todo-stage">'+esc(d.status||"pending")+'</span></div><div class="todo-detail">'+esc(d.file_name||"")+'</div></div>').join("");
-    h+='<div class="inbox-section-title">Missing <span class="count">'+missing.length+'</span></div>';
-    if(!missing.length)h+='<div class="empty">All required docs accounted for.</div>';
-    else h+=missing.map(d=>'<div class="todo-card"><div class="todo-title">'+esc(d.label||d.key)+' <span class="todo-stage" style="background:var(--red,#ef4444);color:#fff">Missing</span></div></div>').join("");
-    return h;
-  }
-  async function loadGpDocuments(userId,caseId){
-    try{
-      const r=await fetch("/api/admin/va/user-qualifications?user_id="+encodeURIComponent(userId),{credentials:"same-origin"});
-      const d=await r.json().catch(()=>({}));
-      if(d&&d.ok){
-        S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
-        S.va.gpDetailCache[userId].quals=d.snapshot||d;
-        if(S.view==="gps"&&S.selectedCaseId===caseId)renderDetail();
-      }
-    }catch(err){console.error("[VA] loadGpDocuments failed",err);}
-  }
-
   function renderJourneyRail(c){
     const gp=findGp(c);
     if(typeof buildJourney!=="function")return '';
