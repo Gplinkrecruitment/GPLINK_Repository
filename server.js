@@ -60,11 +60,10 @@ const ZOHO_RECRUIT_ACCOUNTS_SERVER = String(process.env.ZOHO_RECRUIT_ACCOUNTS_SE
 const ZOHO_RECRUIT_REDIRECT_URI = String(process.env.ZOHO_RECRUIT_REDIRECT_URI || '').trim();
 const ZOHO_RECRUIT_SUBMIT_TO_CLIENT_TEMPLATE_ID = String(process.env.ZOHO_RECRUIT_SUBMIT_TO_CLIENT_TEMPLATE_ID || '').trim();
 const REQUIRED_ZOHO_RECRUIT_SCOPES = Object.freeze([
-  'ZohoRecruit.modules.all'
-]);
-const OPTIONAL_ZOHO_RECRUIT_SCOPES = Object.freeze([
+  'ZohoRecruit.modules.all',
   'ZohoRecruit.search.READ'
 ]);
+const OPTIONAL_ZOHO_RECRUIT_SCOPES = Object.freeze([]);
 const ZOHO_RECRUIT_SCOPES = String(process.env.ZOHO_RECRUIT_SCOPES || '').trim();
 const ZOHO_RECRUIT_SYNC_PAGE_SIZE = Number(process.env.ZOHO_RECRUIT_SYNC_PAGE_SIZE || 200);
 const ZOHO_RECRUIT_SYNC_MAX_PAGES = Number(process.env.ZOHO_RECRUIT_SYNC_MAX_PAGES || 25);
@@ -18274,12 +18273,14 @@ async function handleApi(req, res, pathname) {
       ? (getSessionSupabaseUserId(callbackSession) || '')
       : '';
     const connectedAt = new Date().toISOString();
+    var grantedScopesParsed = exchanged.data && exchanged.data.scope ? parseZohoRecruitScopes(exchanged.data.scope) : [];
+    var storedScopes = grantedScopesParsed.length > 0 ? grantedScopesParsed : getZohoRecruitScopes();
     await upsertZohoRecruitConnection({
       status: 'connected',
       accountsServer: callbackAccountsServer,
       apiDomain: normalizeUrlBase(exchanged.data && exchanged.data.api_domain, ''),
       refreshToken: exchanged.data && exchanged.data.refresh_token ? String(exchanged.data.refresh_token) : '',
-      scopes: parseZohoRecruitScopes(exchanged.data && exchanged.data.scope ? exchanged.data.scope : getZohoRecruitScopes()),
+      scopes: storedScopes,
       connectedByUserId: callbackUserId,
       connectedEmail: statePayload.email,
       tokenLastRefreshedAt: connectedAt,
