@@ -213,16 +213,20 @@
       box-shadow: 0 3px 10px -3px rgba(26, 86, 219, 0.45);
     }
 
-    /* ---- TIME LABELS (left of timeline, below each step) ---- */
+    /* ---- TIME LABELS (between steps, left of timeline) ---- */
     .pathway-time-label {
+      position: relative;
+      padding: var(--sp-2) 0;
+    }
+    .pathway-time-label span {
       position: absolute;
-      right: calc(100% + 22px);
-      bottom: -4px;
+      right: calc(100% + 8px);
+      top: 50%;
+      transform: translateY(-50%);
       white-space: nowrap;
       font-size: 11px;
       font-weight: 600;
       color: var(--accent);
-      line-height: 1.3;
       opacity: 0.7;
     }
     .pathway-step-title {
@@ -310,6 +314,58 @@
       color: var(--ink);
     }
 
+    /* ---- MODAL ---- */
+    .modal {
+      position: fixed; inset: 0;
+      background: rgba(242, 244, 248, 0.34);
+      -webkit-backdrop-filter: blur(16px) saturate(1.05);
+      backdrop-filter: blur(16px) saturate(1.05);
+      z-index: 9999;
+      display: grid; place-items: center;
+      padding: var(--sp-4);
+      opacity: 0; pointer-events: none;
+      transition: opacity .25s ease;
+    }
+    .modal.show { opacity: 1; pointer-events: auto; }
+    .modal-card {
+      width: min(480px, 100%); background: var(--surface-raised);
+      border-radius: var(--radius); border: 1px solid var(--border);
+      padding: var(--sp-6);
+      display: grid; gap: var(--sp-4);
+      box-shadow: 0 24px 64px -16px rgba(12, 18, 34, 0.18);
+      transform: translateY(12px) scale(0.97); opacity: 0;
+      transition: transform .32s cubic-bezier(.22,.9,.18,1.02), opacity .32s ease;
+    }
+    .modal.show .modal-card { transform: translateY(0) scale(1); opacity: 1; }
+    .modal-card h4 { font-size: 18px; font-weight: 700; }
+    .modal-card p { font-size: 13px; color: var(--ink-soft); line-height: 1.5; font-weight: 500; }
+    .modal-card textarea {
+      width: 100%; min-height: 90px; border-radius: var(--radius);
+      border: 1px solid var(--border); padding: 12px;
+      font-family: var(--font-body); font-size: 13px;
+      color: var(--ink); resize: vertical;
+    }
+    .modal-card textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .input {
+      width: 100%; padding: 10px 12px; border-radius: var(--radius);
+      border: 1px solid var(--border); font-family: var(--font-body);
+      font-size: 13px; color: var(--ink); background: var(--surface-raised);
+    }
+    .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    select.input { -webkit-appearance: none; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237c849b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
+    }
+    .btn-modern {
+      padding: 10px 20px; border-radius: var(--radius); border: none;
+      font-family: var(--font-body); font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: background .15s, border-color .15s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #1444b0; }
+    .btn-outline { background: none; border: 1px solid var(--border); color: var(--ink); }
+    .btn-outline:hover { border-color: var(--ink-muted); }
+
     /* ---- TOAST ---- */
     .toast {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -354,9 +410,6 @@
               <span data-inbox-alert hidden class="hero-badge" aria-hidden="true">!</span>
               <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             </button>
-            <a class="hero-icon-btn" href="/pages/account.html" aria-label="Account">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
-            </a>
           </div>
         </div>
         <div class="step-eyebrow">Step 5</div>
@@ -380,8 +433,9 @@
             <div class="pathway-step-sub">Temporary Skill Shortage</div>
             <div class="pathway-step-title">Subclass 482 Visa</div>
             <div class="pathway-step-desc">Your sponsoring practice nominates you for a temporary work visa. You will be on this visa for 2 years while you build towards permanent residency.</div>
-            <div class="pathway-time-label">2 years</div>
           </div>
+
+          <div class="pathway-time-label"><span>2 years</span></div>
 
           <!-- Step 2: 186 (Permanent Residency) -->
           <div class="pathway-step">
@@ -389,8 +443,9 @@
             <div class="pathway-step-sub">Permanent Residency &middot; Transitional Stream</div>
             <div class="pathway-step-title">Subclass 186 Visa</div>
             <div class="pathway-step-desc">After 2 years with your sponsor on the 482 visa, you become eligible for permanent residency. Your sponsor nominates you and you apply for the 186 visa through the Transitional Stream, granting full work rights and Medicare access.</div>
-            <div class="pathway-time-label">4 years</div>
           </div>
+
+          <div class="pathway-time-label"><span>4 years</span></div>
 
           <!-- Step 3: Citizenship -->
           <div class="pathway-step">
@@ -415,6 +470,35 @@
       <!-- ALTERNATIVE PATHWAY (inline support text) -->
       <div class="alt-line">Interested in a different visa pathway? <button class="alt-link" id="altPathwayBtn" type="button">Speak to our team</button></div>
 
+    </div>
+  </div>
+
+  <!-- SUPPORT MODAL -->
+  <div class="modal" id="supportModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="supportTitle">
+      <h4 id="supportTitle">New support case</h4>
+      <p>Create a support case about your visa pathway. GP Link will follow up with next actions.</p>
+      <div style="display:grid; gap:10px;">
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          What is this about?
+          <select id="supportCategory" class="input">
+            <option value="Visa">Visa</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          Brief summary
+          <input id="supportSummary" class="input" type="text" maxlength="120" value="Alternative visa pathway enquiry" />
+        </label>
+        <label style="display:grid; gap:6px; font-size:13px; font-weight:700; color:#0f172a;">
+          Describe the issue
+          <textarea id="supportMessage" placeholder="Tell us about your situation — e.g. you already hold a different visa, are not interested in permanent residency, or would like to explore alternative options."></textarea>
+        </label>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-modern btn-primary" id="supportSubmitBtn" type="button">Submit request</button>
+        <button class="btn-modern btn-outline" id="supportCloseBtn" type="button">Close</button>
+      </div>
     </div>
   </div>
 
@@ -459,39 +543,73 @@
       setTimeout(function () { t.classList.remove("show"); setTimeout(function () { t.remove(); }, 300); }, 2500);
     }
 
-    // ── Alternative pathway button ──
+    // ── Support modal ──
+    var supportModalEl = document.getElementById("supportModal");
+    var supportCategoryEl = document.getElementById("supportCategory");
+    var supportSummaryEl = document.getElementById("supportSummary");
+    var supportMessageEl = document.getElementById("supportMessage");
+    var supportSubmitBtn = document.getElementById("supportSubmitBtn");
+    var supportCloseBtn = document.getElementById("supportCloseBtn");
+
+    function openModal(el) {
+      if (!el) return;
+      el.classList.add("show");
+      el.setAttribute("aria-hidden", "false");
+      var first = el.querySelector("textarea, input, select");
+      if (first) first.focus();
+    }
+    function closeModal(el) {
+      if (!el) return;
+      el.classList.remove("show");
+      el.setAttribute("aria-hidden", "true");
+    }
+
+    // "Speak to our team" opens modal
     var altBtn = document.getElementById("altPathwayBtn");
     if (altBtn) {
       altBtn.addEventListener("click", function () {
-        var email = getPageUserEmail();
-        var name = getPageUserName();
+        if (supportCategoryEl) supportCategoryEl.value = "Visa";
+        if (supportSummaryEl) supportSummaryEl.value = "Alternative visa pathway enquiry";
+        if (supportMessageEl) { supportMessageEl.value = ""; }
+        openModal(supportModalEl);
+      });
+    }
 
-        fetch("/api/support/ticket", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            subject: "Alternative visa pathway enquiry",
-            message: name + " (" + email + ") is interested in discussing an alternative visa pathway or is not interested in permanent residency.",
-            category: "visa",
-            priority: "normal"
-          })
-        })
-        .then(function (res) { return res.json(); })
-        .then(function (data) {
-          if (data.ok) {
-            showToast("We've notified our team. Someone will be in touch shortly.");
-            altBtn.disabled = true;
-            altBtn.textContent = "Request sent";
-          } else {
-            showToast(data.message || "Something went wrong. Please try again.");
-          }
-        })
-        .catch(function () {
-          // Fallback: open email
-          window.location.href = "mailto:support@gplink.com.au?subject=Alternative%20visa%20pathway%20enquiry&body=Hi%20GP%20Link%2C%0A%0AI%20would%20like%20to%20discuss%20an%20alternative%20visa%20pathway.%0A%0AName%3A%20" + encodeURIComponent(name) + "%0AEmail%3A%20" + encodeURIComponent(email);
-          showToast("Opening your email client...");
-        });
+    // Close modal
+    if (supportCloseBtn) supportCloseBtn.addEventListener("click", function () { closeModal(supportModalEl); });
+    if (supportModalEl) {
+      supportModalEl.addEventListener("click", function (e) { if (e.target === supportModalEl) closeModal(supportModalEl); });
+      supportModalEl.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(supportModalEl); });
+    }
+
+    // Submit support ticket
+    function createSupportTicket(category, title, message) {
+      var key = "gpLinkSupportCases";
+      var tickets = [];
+      try { var raw = localStorage.getItem(key); tickets = raw ? JSON.parse(raw) : []; if (!Array.isArray(tickets)) tickets = []; } catch (e) { tickets = []; }
+      var text = String(message || "").trim() || "Help requested from Visa page.";
+      var summary = String(title || "").trim() || "Visa support request";
+      var ticketCategory = String(category || "Visa").trim();
+      tickets.unshift({
+        id: "case_" + Date.now(), category: ticketCategory, title: summary,
+        detail: text, status: "open", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        thread: [{ from: "me", text: text, ts: new Date().toISOString() }], unread: true
+      });
+      localStorage.setItem(key, JSON.stringify(tickets.slice(0, 120)));
+    }
+
+    if (supportSubmitBtn) {
+      supportSubmitBtn.addEventListener("click", function () {
+        var cat = supportCategoryEl ? supportCategoryEl.value : "Visa";
+        var summary = supportSummaryEl ? supportSummaryEl.value.trim() : "";
+        var msg = supportMessageEl ? supportMessageEl.value.trim() : "";
+        if (!summary && !msg) { showToast("Please describe your request."); return; }
+        createSupportTicket(cat, summary, msg);
+        if (supportCategoryEl) supportCategoryEl.value = "Visa";
+        if (supportSummaryEl) supportSummaryEl.value = "";
+        if (supportMessageEl) supportMessageEl.value = "";
+        closeModal(supportModalEl);
+        showToast("Support request submitted");
       });
     }
   })();
