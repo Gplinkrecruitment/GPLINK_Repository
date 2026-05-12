@@ -22857,7 +22857,10 @@ Return ONLY valid JSON with no markdown formatting:
     var isEscalating = (patch.status === 'escalated');
     var escalationReason = patch.escalated_reason || null;
     var escalationFields = {};
-    if (patch.escalated_to !== undefined) escalationFields.escalated_to = patch.escalated_to;
+    // escalated_to is UUID FK — only include if it looks like a valid UUID, skip plain strings like "CEO"
+    if (patch.escalated_to !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(patch.escalated_to)) {
+      escalationFields.escalated_to = patch.escalated_to;
+    }
     if (patch.escalated_reason !== undefined) escalationFields.escalated_reason = patch.escalated_reason;
     if (patch.escalated_at !== undefined) escalationFields.escalated_at = patch.escalated_at;
     else if (isEscalating) escalationFields.escalated_at = new Date().toISOString();
@@ -22867,7 +22870,7 @@ Return ONLY valid JSON with no markdown formatting:
     if (!r.ok && isEscalating) { patch.status = 'blocked'; r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch }); }
     if (!r.ok) { console.error('[ADMIN] Task update failed:', r.status, JSON.stringify(r.data)); sendJson(res, 502, { ok: false, message: 'Failed to update task.', detail: typeof r.data === 'object' ? (r.data.message || r.data.msg || JSON.stringify(r.data)) : String(r.data || ''), httpStatus: r.status }); return; }
     // Try escalation columns separately — silent fail if columns don't exist yet
-    if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function() {}); }
+    if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function(err) { console.error('[ADMIN] Escalation fields PATCH failed:', err.message, JSON.stringify(escalationFields)); }); }
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     // Timeline
     var evType = isEscalating ? 'escalation' : patch.status === 'completed' ? 'completed' : patch.status === 'cancelled' ? 'cancelled' : patch.priority ? 'priority_change' : 'status_change';

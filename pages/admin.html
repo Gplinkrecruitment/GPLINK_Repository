@@ -194,6 +194,7 @@
     .ops-status-pill.waiting_on_external{background:#fffbeb;color:#b45309}
     .ops-stat .ops-stat-val.purple{color:#7c3aed}
     .ops-status-pill.blocked{background:#fef2f2;color:#dc2626}
+    .ops-status-pill.escalated{background:#f5f3ff;color:#7c3aed;font-weight:700}
     .ops-status-pill.completed{background:#ecfdf5;color:#166534}
     .ops-status-pill.cancelled{background:#f1f5f9;color:#64748b}
     .ops-pri-pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800}
@@ -835,6 +836,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <option value="waiting_on_practice">Waiting on Practice</option>
           <option value="waiting_on_external">Waiting on External</option>
           <option value="blocked">Blocked</option>
+          <option value="escalated">Escalated</option>
           <option value="needs_followup">Needs Follow-up (7+ days)</option>
           <option value="completed">Completed</option>
         </select>
@@ -1371,7 +1373,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   /* ══ Data Loading ══ */
   async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin.html";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
   async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.cases=d.cases;}catch{}}
-  async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
+  async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
   async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
   async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch{}}
   async function loadAgentStatus(force){
@@ -3097,12 +3099,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     let url="/api/admin/ops/queue?limit=200";
     if(domain)url+="&domain="+encodeURIComponent(domain);
     if(status&&status!=="all_active"&&status!=="needs_followup")url+="&status="+encodeURIComponent(status);
-    if(status==="all_active")url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked";
+    if(status==="all_active")url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated";
     if(status==="needs_followup")url+="&status=waiting_on_gp,waiting_on_practice,waiting_on_external&stale_days=7";
     if(priority)url+="&priority="+encodeURIComponent(priority);
     if(overdue)url+="&overdue=true";
     // Always fetch all active tasks for stats counters (parallel with filtered fetch)
-    const statsUrl="/api/admin/ops/queue?limit=500&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked";
+    const statsUrl="/api/admin/ops/queue?limit=500&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated";
     try{
       const [r,sr]=await Promise.all([
         fetch(url,{credentials:"same-origin"}),
@@ -3126,6 +3128,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const overdueC=all.filter(t=>{if(!t.due_date&&!t.sla_due_date)return false;const d=new Date(t.sla_due_date||t.due_date);return d<now&&t.status!=="completed"&&t.status!=="cancelled";}).length;
     const waitGp=all.filter(t=>t.status==="waiting_on_gp").length;
     const waitPrac=all.filter(t=>t.status==="waiting_on_practice").length;
+    const blockedC=all.filter(t=>t.status==="blocked").length;
+    const escalatedC=all.filter(t=>t.status==="escalated").length;
     const needsFollowUp=all.filter(t=>(t.status==="waiting_on_gp"||t.status==="waiting_on_practice"||t.status==="waiting_on_external")&&t.updated_at&&Math.floor((now.getTime()-new Date(t.updated_at).getTime())/86400000)>=7).length;
     document.getElementById("opsStats").innerHTML=
       `<div class="ops-stat" data-ops-filter="open" title="Filter to open tasks"><div class="ops-stat-val blue">${openC}</div><div class="ops-stat-label">Open Tasks</div></div>`+
@@ -3133,6 +3137,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       `<div class="ops-stat" data-ops-filter="overdue" title="Filter to overdue tasks"><div class="ops-stat-val ${overdueC?"red":""}">${overdueC}</div><div class="ops-stat-label">Overdue</div></div>`+
       `<div class="ops-stat" data-ops-filter="waiting_on_gp" title="Filter to waiting on GP"><div class="ops-stat-val amber">${waitGp}</div><div class="ops-stat-label">Waiting on GP</div></div>`+
       `<div class="ops-stat" data-ops-filter="waiting_on_practice" title="Filter to waiting on practice"><div class="ops-stat-val amber">${waitPrac}</div><div class="ops-stat-label">Waiting on Practice</div></div>`+
+      `<div class="ops-stat" data-ops-filter="blocked" title="Filter to blocked tasks"><div class="ops-stat-val ${blockedC?"red":""}">${blockedC}</div><div class="ops-stat-label">Blocked</div></div>`+
+      `<div class="ops-stat" data-ops-filter="escalated" title="Filter to escalated tasks"><div class="ops-stat-val ${escalatedC?"purple":""}">${escalatedC}</div><div class="ops-stat-label">Escalated</div></div>`+
       `<div class="ops-stat" data-ops-filter="needs_followup" title="Filter to needs follow-up"><div class="ops-stat-val ${needsFollowUp?"purple":""}">${needsFollowUp}</div><div class="ops-stat-label">Needs Follow-up</div></div>`;
   }
 
@@ -3164,7 +3170,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             <div class="ops-detail-info-item"><strong>Created</strong>${fmtD(t.created_at)}</div>
           </div>
           <div class="case-field"><label>Status</label><select data-ops-field="status" data-ops-id="${esc(t.id)}">
-            ${["open","in_progress","waiting_on_gp","waiting_on_practice","waiting_on_external","blocked","completed","cancelled"].map(s=>`<option value="${s}" ${t.status===s?"selected":""}>${s.replace(/_/g," ")}</option>`).join("")}
+            ${["open","in_progress","waiting_on_gp","waiting_on_practice","waiting_on_external","blocked","escalated","completed","cancelled"].map(s=>`<option value="${s}" ${t.status===s?"selected":""}>${s.replace(/_/g," ")}</option>`).join("")}
           </select></div>
           <div class="case-field"><label>Priority</label><select data-ops-field="priority" data-ops-id="${esc(t.id)}">
             ${["urgent","high","normal","low"].map(p=>`<option value="${p}" ${t.priority===p?"selected":""}>${p}</option>`).join("")}
