@@ -327,7 +327,8 @@
       font-weight: 600;
       cursor: pointer;
       transition: transform .15s ease, background .15s ease, border-color .15s ease;
-      margin-top: var(--sp-2);
+      margin-top: 0;
+      margin-bottom: 8px;
     }
     .step-info-download:hover {
       transform: translateY(-1px);
@@ -1617,9 +1618,9 @@
           <div class="action-card-body">
             <div class="action-card-label">Your Action</div>
             <div class="action-card-text">${doNow}</div>
+            ${downloadBtnHtml}
             <div class="action-card-meta">
               <div class="action-card-time"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${meta.time}</div>
-              ${downloadBtnHtml}
             </div>
             ${actionBtnHtml}
           </div>
