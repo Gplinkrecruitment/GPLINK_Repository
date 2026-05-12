@@ -27132,6 +27132,51 @@ Return ONLY valid JSON with no markdown formatting:
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // ERROR REPORTING ENDPOINT (public — no auth required)
+  // ═══════════════════════════════════════════════════════════════════
+
+  if (pathname === '/api/errors/report' && req.method === 'POST') {
+    var errAllowed = await checkRateLimitWindow('error_report:' + getClientIp(req), 10, 60000);
+    if (!errAllowed) { sendJson(res, 429, { ok: false, message: 'Rate limit exceeded.' }); return; }
+
+    var errBody;
+    try { errBody = await readJsonBody(req); } catch (e) { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+
+    var errHash = crypto.createHash('sha256').update((errBody.message || '') + '|' + (errBody.url || '')).digest('hex');
+
+    if (isSupabaseDbConfigured()) {
+      var existingRes = await supabaseDbRequest('client_errors', 'select=id,occurrence_count,user_context&error_hash=eq.' + encodeURIComponent(errHash) + '&limit=1');
+      if (existingRes.ok && Array.isArray(existingRes.data) && existingRes.data.length > 0) {
+        var existingRow = existingRes.data[0];
+        var patchPayload = {
+          occurrence_count: (existingRow.occurrence_count || 1) + 1,
+          last_seen_at: new Date().toISOString()
+        };
+        if (errBody.context && (!existingRow.user_context || existingRow.user_context.indexOf(String(errBody.context)) === -1)) {
+          patchPayload.user_context = (existingRow.user_context ? existingRow.user_context + '\n' : '') + String(errBody.context).slice(0, 1000);
+        }
+        await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(existingRow.id), { method: 'PATCH', body: patchPayload });
+      } else {
+        var insertRow = {
+          error_message: String(errBody.message || '').slice(0, 500),
+          error_stack: String(errBody.stack || '').slice(0, 4000),
+          page_url: String(errBody.url || '').slice(0, 500),
+          user_email: errBody.email ? String(errBody.email).slice(0, 200) : null,
+          user_agent: String(errBody.userAgent || '').slice(0, 500),
+          browser_info: String(errBody.userAgent || '').slice(0, 500),
+          error_hash: errHash,
+          user_context: errBody.context ? String(errBody.context).slice(0, 1000) : null,
+          occurrence_count: 1
+        };
+        await supabaseDbRequest('client_errors', '', { method: 'POST', body: [insertRow] });
+      }
+    }
+
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // CEO DASHBOARD ENDPOINTS
   // ═══════════════════════════════════════════════════════════════════
 
