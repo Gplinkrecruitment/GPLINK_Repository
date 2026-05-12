@@ -216,10 +216,9 @@
     /* ---- TIME LABELS (left of timeline, below each step) ---- */
     .pathway-time-label {
       position: absolute;
-      left: -64px;
-      bottom: -6px;
-      width: 52px;
-      text-align: right;
+      right: calc(100% + 22px);
+      bottom: -4px;
+      white-space: nowrap;
       font-size: 11px;
       font-weight: 600;
       color: var(--accent);
@@ -331,7 +330,7 @@
       .step-title { font-size: 19px; }
       .pathway-card-title { font-size: 16px; }
       .pathway-steps { margin-left: 56px; }
-      .pathway-time-label { left: -56px; width: 44px; font-size: 10px; }
+      .pathway-time-label { font-size: 10px; }
     }
   </style>
 </head>
@@ -390,7 +389,7 @@
             <div class="pathway-step-sub">Permanent Residency &middot; Transitional Stream</div>
             <div class="pathway-step-title">Subclass 186 Visa</div>
             <div class="pathway-step-desc">After 2 years with your sponsor on the 482 visa, you become eligible for permanent residency. Your sponsor nominates you and you apply for the 186 visa through the Transitional Stream, granting full work rights and Medicare access.</div>
-            <div class="pathway-time-label">1 year</div>
+            <div class="pathway-time-label">4 years</div>
           </div>
 
           <!-- Step 3: Citizenship -->
@@ -398,7 +397,7 @@
             <div class="pathway-step-dot">3</div>
             <div class="pathway-step-sub">Final Destination</div>
             <div class="pathway-step-title">Australian Citizenship</div>
-            <div class="pathway-step-desc">After holding permanent residency for at least 1 year, you become eligible to apply for Australian citizenship.</div>
+            <div class="pathway-step-desc">After holding permanent residency for 4 years, you become eligible to apply for Australian citizenship.</div>
           </div>
         </div>
       </div>
