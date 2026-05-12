@@ -166,6 +166,7 @@
       gap: 0;
       position: relative;
       padding-left: 28px;
+      margin-left: 64px;
     }
     .pathway-steps::before {
       content: "";
@@ -208,14 +209,27 @@
       font-size: 11px; font-weight: 800;
       color: #fff;
       z-index: 1;
-    }
-    .pathway-step-dot {
       background: var(--accent);
       box-shadow: 0 3px 10px -3px rgba(26, 86, 219, 0.45);
     }
-    .pathway-step:last-child .pathway-step-dot {
-      background: var(--success);
-      box-shadow: 0 3px 10px -3px rgba(13, 124, 95, 0.45);
+
+    /* ---- TIME LABELS (left of timeline) ---- */
+    .pathway-time {
+      position: absolute;
+      left: -64px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 52px;
+      text-align: right;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      line-height: 1.3;
+    }
+    .pathway-time-connector {
+      position: relative;
+      height: 0;
+      padding: 0;
     }
     .pathway-step-title {
       font-size: 15px; font-weight: 700;
@@ -281,70 +295,25 @@
       color: var(--ink);
     }
 
-    /* ---- ALTERNATIVE PATHWAY CARD ---- */
-    .alt-card {
-      background: var(--surface-raised);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: var(--sp-5);
-      margin-bottom: var(--sp-4);
+    /* ---- ALTERNATIVE PATHWAY (small inline text) ---- */
+    .alt-line {
+      display: block; text-align: center;
+      font-size: 12px; color: var(--ink-muted); line-height: 1.6;
+      margin-top: var(--sp-4);
     }
-    .alt-card-inner {
-      display: flex;
-      align-items: center;
-      gap: var(--sp-4);
-    }
-    .alt-card-icon {
-      width: 44px; height: 44px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, #f0f4ff, #e8ecff);
-      display: grid; place-items: center;
-      color: var(--accent);
-      flex-shrink: 0;
-    }
-    .alt-card-icon svg {
-      width: 22px; height: 22px;
-      stroke: currentColor; fill: none;
-      stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .alt-card-body {
-      flex: 1;
-      min-width: 0;
-    }
-    .alt-card-title {
-      font-size: 14px; font-weight: 700;
-      color: var(--ink);
-      margin-bottom: 2px;
-    }
-    .alt-card-desc {
-      font-size: 13px; font-weight: 500;
+    .alt-link {
+      display: inline;
+      font-size: 12px; font-weight: 600;
       color: var(--ink-muted);
-      line-height: 1.5;
-    }
-    .alt-card-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      margin-top: var(--sp-3);
-      padding: 10px 20px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--ink);
+      background: none; border: none;
       cursor: pointer;
       font-family: var(--font-body);
-      transition: background .15s, border-color .15s;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      transition: color .15s;
     }
-    .alt-card-btn:hover {
-      background: #e8ecf2;
-      border-color: #cbd0d8;
-    }
-    .alt-card-btn svg {
-      width: 15px; height: 15px;
-      stroke: currentColor; fill: none;
-      stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    .alt-link:hover {
+      color: var(--ink);
     }
 
     /* ---- TOAST ---- */
@@ -366,7 +335,8 @@
     @media (max-width: 480px) {
       .step-title { font-size: 19px; }
       .pathway-card-title { font-size: 16px; }
-      .alt-card-inner { flex-direction: column; align-items: flex-start; text-align: left; }
+      .pathway-steps { margin-left: 56px; }
+      .pathway-time { left: -56px; width: 44px; font-size: 10px; }
     }
   </style>
 </head>
@@ -407,7 +377,7 @@
       <!-- PATHWAY SECTION -->
       <div class="pathway-section">
         <h2 class="pathway-card-title">Your Pathway to Permanent Residency</h2>
-        <p class="pathway-card-desc">As a GP placed through GP Link, your most direct pathway to permanent residency is through the Subclass 482 temporary visa followed by the Subclass 186 permanent visa. Your GP Link agent will guide you through each stage.</p>
+        <p class="pathway-card-desc">Based on our team's review of your CV and current GMC registration, the most streamlined pathway to permanent residency for you is through the Subclass 482 temporary visa followed by the Subclass 186 permanent visa. Your GP Link agent will guide you through each stage.</p>
 
         <div class="pathway-steps">
           <!-- Step 1: 482 -->
@@ -418,6 +388,11 @@
             <div class="pathway-step-desc">Your sponsoring practice nominates you for a temporary work visa. You will be on this visa for 2 years while you build towards permanent residency.</div>
           </div>
 
+          <!-- Time between 482 and 186 -->
+          <div class="pathway-time-connector">
+            <div class="pathway-time">2 years</div>
+          </div>
+
           <!-- Step 2: 186 -->
           <div class="pathway-step">
             <div class="pathway-step-dot">2</div>
@@ -426,14 +401,30 @@
             <div class="pathway-step-desc">After working with your sponsor on the 482 visa, you become eligible for permanent residency through the Transitional Stream. Your sponsor nominates you and you apply for the 186 visa.</div>
           </div>
 
-          <!-- Destination -->
+          <!-- Time between 186 and PR -->
+          <div class="pathway-time-connector">
+            <div class="pathway-time">3&ndash;6 months</div>
+          </div>
+
+          <!-- Step 3: Permanent Residency -->
           <div class="pathway-step">
-            <div class="pathway-step-dot">
-              <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"><path d="M20 6L9 17l-5-5"/></svg>
-            </div>
-            <div class="pathway-step-sub">Destination</div>
+            <div class="pathway-step-dot">3</div>
+            <div class="pathway-step-sub">Permanent Visa</div>
             <div class="pathway-step-title">Permanent Residency</div>
-            <div class="pathway-step-desc">With a granted 186 visa, you gain permanent residency in Australia with full work rights, Medicare access, and a pathway to citizenship.</div>
+            <div class="pathway-step-desc">With a granted 186 visa, you gain permanent residency in Australia with full work rights and Medicare access.</div>
+          </div>
+
+          <!-- Time between PR and Citizenship -->
+          <div class="pathway-time-connector">
+            <div class="pathway-time">1 year</div>
+          </div>
+
+          <!-- Step 4: Citizenship -->
+          <div class="pathway-step">
+            <div class="pathway-step-dot">4</div>
+            <div class="pathway-step-sub">Final Destination</div>
+            <div class="pathway-step-title">Australian Citizenship</div>
+            <div class="pathway-step-desc">After holding permanent residency for at least 1 year, you become eligible to apply for Australian citizenship.</div>
           </div>
         </div>
       </div>
@@ -448,22 +439,8 @@
         </div>
       </div>
 
-      <!-- ALTERNATIVE PATHWAY -->
-      <div class="alt-card">
-        <div class="alt-card-inner">
-          <div class="alt-card-icon">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          </div>
-          <div class="alt-card-body">
-            <div class="alt-card-title">Interested in a different visa pathway?</div>
-            <div class="alt-card-desc">If you already hold a different visa, are not interested in permanent residency, or would like to explore alternative options, our team can help.</div>
-            <button class="alt-card-btn" id="altPathwayBtn" type="button">
-              <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              Speak to our team
-            </button>
-          </div>
-        </div>
-      </div>
+      <!-- ALTERNATIVE PATHWAY (inline support text) -->
+      <div class="alt-line">Interested in a different visa pathway? <button class="alt-link" id="altPathwayBtn" type="button">Speak to our team</button></div>
 
     </div>
   </div>
