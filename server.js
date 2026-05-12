@@ -261,7 +261,7 @@ async function getGoogleDriveClient() {
     GOOGLE_SERVICE_ACCOUNT_EMAIL,
     null,
     GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-    ['https://www.googleapis.com/auth/drive.file']
+    ['https://www.googleapis.com/auth/drive']
   );
   _googleDriveClient = google.drive({ version: 'v3', auth });
   return _googleDriveClient;
@@ -22714,6 +22714,67 @@ Return ONLY valid JSON with no markdown formatting:
     } catch (err) {
       console.error('[AI] Note follow-up parse failed:', err.message);
       sendJson(res, 200, { ok: true, followup: null });
+    }
+    return;
+  }
+
+  // ── List files in GP's Google Drive folder ──
+  if (pathname === '/api/admin/drive/files' && req.method === 'GET') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isGoogleDriveConfigured()) { sendJson(res, 200, { ok: true, files: [], message: 'Google Drive not configured.' }); return; }
+    const caseId = url.searchParams.get('case_id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
+    try {
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      const folderId = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0].google_drive_folder_id : null;
+      if (!folderId) { sendJson(res, 200, { ok: true, files: [] }); return; }
+      const drive = await getGoogleDriveClient();
+      const listRes = await drive.files.list({
+        q: "'" + folderId + "' in parents and trashed = false",
+        fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink,webContentLink)',
+        orderBy: 'modifiedTime desc',
+        pageSize: 100
+      });
+      sendJson(res, 200, { ok: true, files: listRes.data.files || [] });
+    } catch (err) {
+      console.error('[Drive] list files error:', err.message);
+      sendJson(res, 500, { ok: false, message: 'Failed to list files.' });
+    }
+    return;
+  }
+
+  // ── Upload file to GP's Google Drive folder ──
+  if (pathname === '/api/admin/drive/upload' && req.method === 'POST') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    if (!isGoogleDriveConfigured()) { sendJson(res, 503, { ok: false, message: 'Google Drive not configured.' }); return; }
+    const caseId = url.searchParams.get('case_id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false, message: 'Invalid body.' }); return; }
+    const fileName = body && typeof body.fileName === 'string' ? body.fileName.trim() : '';
+    const fileData = body && typeof body.fileData === 'string' ? body.fileData : '';
+    const mimeType = body && typeof body.mimeType === 'string' ? body.mimeType : 'application/octet-stream';
+    if (!fileName || !fileData) { sendJson(res, 400, { ok: false, message: 'Missing fileName or fileData.' }); return; }
+    try {
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id,gp_name,gp_email&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      const caseRow = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+      let folderId = caseRow ? caseRow.google_drive_folder_id : null;
+      if (!folderId) {
+        const nameParts = (caseRow && caseRow.gp_name ? caseRow.gp_name : 'Unknown').split(' ');
+        folderId = await ensureGPDriveFolder(caseId, nameParts[0] || '', nameParts.slice(1).join(' ') || '');
+      }
+      if (!folderId) { sendJson(res, 500, { ok: false, message: 'Could not create Drive folder.' }); return; }
+      const base64Match = fileData.match(/^data:[^;]*;base64,(.*)$/);
+      const raw = base64Match ? base64Match[1] : fileData;
+      const buffer = Buffer.from(raw, 'base64');
+      const result = await uploadToGoogleDrive(folderId, fileName, buffer, mimeType);
+      if (!result) { sendJson(res, 500, { ok: false, message: 'Upload failed.' }); return; }
+      await _logCaseEvent(caseId, null, 'document_uploaded', 'Document uploaded: ' + fileName, null, adminCtx.email);
+      sendJson(res, 200, { ok: true, file: result });
+    } catch (err) {
+      console.error('[Drive] upload error:', err.message);
+      sendJson(res, 500, { ok: false, message: 'Upload failed.' });
     }
     return;
   }
