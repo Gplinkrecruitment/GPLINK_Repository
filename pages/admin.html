@@ -911,7 +911,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <option value="low">Low</option>
         </select>
         <label class="ops-cb"><input type="checkbox" id="opsOverdue" /> Overdue only</label>
-        <button class="btn sm" id="opsSlaBtn">Run SLA Check</button>
         <button class="btn sm primary" id="opsRefreshBtn">Refresh</button>
       </div>
       <div class="ops-table-wrap">
@@ -3331,18 +3330,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch(e){showOpsToast(e.message||"Network error","red");}
   }
 
-  async function runSlaCheck(){
-    const btn=document.getElementById("opsSlaBtn");btn.disabled=true;btn.textContent="Running...";
-    try{
-      const r=await fetch("/api/admin/sla/check",{method:"POST",credentials:"same-origin"});
-      const d=await r.json().catch(()=>({}));
-      if(d.ok)showOpsToast("SLA check complete"+(d.created?" \u2022 "+d.created+" tasks created":""));
-      else showOpsToast(d.error||"SLA check failed","red");
-    }catch(e){showOpsToast(e.message||"Network error","red");}
-    btn.disabled=false;btn.textContent="Run SLA Check";
-    loadOpsQueue();
-  }
-
   function showOpsToast(msg,color){
     // Reuse existing showToast if available, otherwise create inline toast
     if(typeof showToast==="function"){showToast(msg);return;}
@@ -3821,7 +3808,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("opsStatus").addEventListener("change",()=>loadOpsQueue());
     document.getElementById("opsPriority").addEventListener("change",()=>loadOpsQueue());
     document.getElementById("opsOverdue").addEventListener("change",()=>loadOpsQueue());
-    document.getElementById("opsSlaBtn").addEventListener("click",runSlaCheck);
     document.getElementById("opsRefreshBtn").addEventListener("click",()=>loadOpsQueue());
     document.getElementById("opsStats").addEventListener("click",e=>{
       const stat=e.target.closest("[data-ops-filter]");if(!stat)return;
