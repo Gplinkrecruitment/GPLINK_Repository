@@ -553,6 +553,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .blocker-row-main{flex:1;min-width:0}
 .blocker-row-name{font-weight:700}
 .blocker-row-reason{font-size:12px;color:var(--muted,#9aa3b2);margin-top:2px}
+.note-card{background:var(--bg2,#171a22);border:1px solid var(--border,#2a2f3a);border-left:3px solid var(--amber,#f59e0b);border-radius:8px;padding:12px 14px;margin-bottom:8px}
+.note-card-text{font-size:13px;line-height:1.5;color:var(--text,#e6e9f0);white-space:pre-wrap}
+.note-card-meta{font-size:11px;color:var(--muted,#9aa3b2);margin-top:6px}
     /* ── Practice Pack Document Actions ── */
     .doc-task-actions{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
     .doc-task-actions .btn-action{padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none;color:#fff;transition:opacity .15s}
@@ -2194,17 +2197,22 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const timeline=cache.timeline;
     if(!timeline)loadGpTimeline(c.user_id,c.id);
     const tickets=(S.va.dashboard&&S.va.dashboard.open_tickets)?S.va.dashboard.open_tickets.filter(t=>t.user_id===c.user_id):[];
+    const notes=timeline?timeline.filter(ev=>ev.event_type==='note'):[];
+    const otherEvents=timeline?timeline.filter(ev=>ev.event_type!=='note'):[];
     let h='';
     h+='<div class="inbox-section-title">Add a note</div>';
     h+='<textarea id="gpNoteInput" placeholder="Type a note\u2026" style="width:100%;min-height:60px;padding:8px;background:var(--bg2,#171a22);border:1px solid var(--border,#2a2f3a);border-radius:6px;color:var(--text,#e6e9f0);font-family:inherit;font-size:13px"></textarea>';
     h+='<button class="btn primary sm" data-add-note="'+esc(c.id)+'" style="margin-top:6px">Add note</button>';
+    h+='<div class="inbox-section-title">Notes <span class="count">'+notes.length+'</span></div>';
+    if(!notes.length)h+='<div class="empty">No notes yet.</div>';
+    else h+=notes.map(function(ev){return '<div class="note-card"><div class="note-card-text">'+esc(ev.detail||ev.title||"")+'</div><div class="note-card-meta">'+esc(ev.actor||"")+' \u2022 '+fmtR(ev.created_at)+'</div></div>';}).join("");
     h+='<div class="inbox-section-title">Support tickets <span class="count">'+tickets.length+'</span></div>';
     if(!tickets.length)h+='<div class="empty">No open tickets.</div>';
     else h+=tickets.map(ticketCard).join("");
     h+='<div class="inbox-section-title">Timeline</div>';
     if(!timeline)h+='<div class="empty">Loading\u2026</div>';
-    else if(!timeline.length)h+='<div class="empty">No activity yet.</div>';
-    else h+=timeline.map(ev=>'<div class="todo-card" data-timeline-row="'+esc(ev.id||"")+'"><div class="todo-title">'+esc(ev.title||ev.event_type||"event")+'</div>'+(ev.detail?'<div class="todo-detail">'+esc(ev.detail)+'</div>':'')+'<div class="todo-detail" style="font-size:11px;color:var(--muted,#9aa3b2)">'+esc(ev.actor||"")+' \u2022 '+fmtR(ev.created_at)+'</div></div>').join("");
+    else if(!otherEvents.length)h+='<div class="empty">No activity yet.</div>';
+    else h+=otherEvents.map(ev=>'<div class="todo-card" data-timeline-row="'+esc(ev.id||"")+'"><div class="todo-title">'+esc(ev.title||ev.event_type||"event")+'</div>'+(ev.detail?'<div class="todo-detail">'+esc(ev.detail)+'</div>':'')+'<div class="todo-detail" style="font-size:11px;color:var(--muted,#9aa3b2)">'+esc(ev.actor||"")+' \u2022 '+fmtR(ev.created_at)+'</div></div>').join("");
     return h;
   }
   async function loadGpTimeline(userId,caseId){
