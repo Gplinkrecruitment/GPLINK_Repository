@@ -15917,7 +15917,7 @@ async function handleApi(req, res, pathname) {
 
   // Gmail pipeline diagnostic — tests every step (admin session or cron secret)
   if (req.method === 'GET' && pathname === '/api/cron/gmail-diagnostic') {
-    var gdCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var gdCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
     var gdAuth = req.headers['authorization'] || '';
     if (!gdCronSecret || gdAuth !== 'Bearer ' + gdCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var diag = { steps: [] };
@@ -15990,7 +15990,7 @@ async function handleApi(req, res, pathname) {
 
   // Cron: poll Gmail for new emails (fallback when Pub/Sub push doesn't fire)
   if (req.method === 'GET' && pathname === '/api/cron/process-gmail') {
-    var pgCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var pgCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
     var pgAuth = req.headers['authorization'] || '';
     if (!pgCronSecret || pgAuth !== 'Bearer ' + pgCronSecret) { sendJson(res, 401, { error: 'Unauthorized' }); return; }
     var pgResults = [];
@@ -16008,7 +16008,7 @@ async function handleApi(req, res, pathname) {
 
   // Cron: renew Gmail watch (before same-origin — called by Vercel cron)
   if (req.method === 'GET' && pathname === '/api/cron/renew-gmail-watch') {
-    var cronSecret = String(process.env.CRON_SECRET || '').trim();
+    var cronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
     var authHeader = req.headers['authorization'] || '';
     if (!cronSecret || authHeader !== 'Bearer ' + cronSecret) {
       sendJson(res, 401, { error: 'Unauthorized' });
@@ -28018,7 +28018,7 @@ Return ONLY valid JSON with no markdown formatting:
 
   if (pathname === '/api/ceo/technical/system-bugs/ingest' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    var cronSecret = String(process.env.CRON_SECRET || '').trim();
+    var cronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
     var authHeader = req.headers['authorization'] || '';
     if (!cronSecret || authHeader !== 'Bearer ' + cronSecret) { sendJson(res, 401, { ok: false, message: 'Unauthorized.' }); return; }
     var body; try { body = await readJsonBody(req); } catch(e) { sendJson(res, 400, { ok: false }); return; }
