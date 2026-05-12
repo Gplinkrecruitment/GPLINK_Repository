@@ -685,7 +685,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
     ? stateRes.data[0].history_id
     : null;
 
-  // First run — store the current historyId and return
+  // First run — store historyId, then fall through to fetch recent messages
   if (!storedHistoryId) {
     console.log('[Gmail] First run for', emailAddress, '— storing historyId:', notifiedHistoryId);
     await supabaseDbRequest('gmail_watch_state', '', {
@@ -693,11 +693,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       body: { email_address: emailAddress, history_id: notifiedHistoryId, updated_at: new Date().toISOString() },
       headers: { 'Prefer': 'resolution=merge-duplicates' }
     });
-    return;
+    storedHistoryId = notifiedHistoryId;
   }
 
   // Fetch history since stored historyId
   var historyResponse;
+  var usedFallbackList = false;
   try {
     historyResponse = await gmail.users.history.list({
       userId: emailAddress,
@@ -706,16 +707,30 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       labelId: 'INBOX'
     });
   } catch (histErr) {
-    // historyId too old — reset
+    // historyId too old — reset and fetch recent inbox messages directly as fallback
     if (histErr.code === 404 || (histErr.response && histErr.response.status === 404)) {
-      console.warn('[Gmail] historyId too old for', emailAddress, '— resetting to', notifiedHistoryId);
+      console.warn('[Gmail] historyId too old for', emailAddress, '— resetting to', notifiedHistoryId, 'and fetching recent inbox');
       await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(emailAddress), {
         method: 'PATCH',
         body: { history_id: notifiedHistoryId, updated_at: new Date().toISOString() }
       });
-      return;
+      // Fallback: fetch last 5 inbox messages directly so we don't lose this notification
+      try {
+        var recentList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 5 });
+        if (recentList.data && Array.isArray(recentList.data.messages)) {
+          historyResponse = { data: { history: [{ messagesAdded: recentList.data.messages.map(function(m) { return { message: m }; }) }], historyId: notifiedHistoryId } };
+          usedFallbackList = true;
+          console.log('[Gmail] Fallback: found', recentList.data.messages.length, 'recent messages to process');
+        } else {
+          return;
+        }
+      } catch (fallbackErr) {
+        console.error('[Gmail] Fallback message list also failed:', fallbackErr.message);
+        return;
+      }
+    } else {
+      throw histErr;
     }
-    throw histErr;
   }
 
   var historyList = (historyResponse.data && historyResponse.data.history) || [];
@@ -969,27 +984,37 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           );
         }
 
-        // Create a registration_task so it shows up in the VA's task list for this GP
+        // Create a registration_task so it shows up in the VA's task list
+        // If AI matched a GP, link to their case. Otherwise assign to any active case so it's still visible.
+        var gpCase = null;
         if (triageResult.matched_gp_user_id) {
           var caseRes = await supabaseDbRequest('registration_cases',
             'select=id,stage&user_id=eq.' + encodeURIComponent(triageResult.matched_gp_user_id) + '&limit=1');
-          var gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
-          if (gpCase) {
-            var isAhpra = emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au');
-            await _createRegTask(gpCase.id, {
-              task_type: 'email_triage',
-              title: (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
-              description: triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' — ' + (emailMeta.subject || '')),
-              priority: triageResult.urgency === 'urgent' ? 'urgent' : triageResult.urgency === 'high' ? 'high' : 'normal',
-              source_trigger: 'gmail_triage',
-              related_stage: isAhpra ? 'ahpra' : (gpCase.stage || ''),
-              gmail_message_id: currentMsgId,
-              email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
-              email_sender: emailMeta.sender || '',
-              gmail_thread_id: emailMeta.threadId || '',
-              _actor: 'system'
-            });
-          }
+          gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+        }
+        // Fallback: if no matched GP or no case, use the first active case so the task still appears in queue
+        if (!gpCase) {
+          var fallbackCaseRes = await supabaseDbRequest('registration_cases', 'select=id,stage&status=eq.active&order=updated_at.desc&limit=1');
+          gpCase = fallbackCaseRes.ok && Array.isArray(fallbackCaseRes.data) && fallbackCaseRes.data[0] ? fallbackCaseRes.data[0] : null;
+        }
+        if (gpCase) {
+          var isAhpra = emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au');
+          var unmatchedPrefix = triageResult.matched_gp_user_id ? '' : '\u2753 Unmatched — ';
+          await _createRegTask(gpCase.id, {
+            task_type: 'email_triage',
+            title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
+            description: (triageResult.matched_gp_user_id ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' — ' + (emailMeta.subject || ''))),
+            priority: triageResult.urgency === 'urgent' ? 'urgent' : triageResult.urgency === 'high' ? 'high' : 'normal',
+            source_trigger: 'gmail_triage',
+            related_stage: isAhpra ? 'ahpra' : (gpCase.stage || ''),
+            gmail_message_id: currentMsgId,
+            email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
+            email_sender: emailMeta.sender || '',
+            gmail_thread_id: emailMeta.threadId || '',
+            _actor: 'system'
+          });
+        } else {
+          console.warn('[Gmail] No active case found to assign email task to — email only in incoming_email_todos');
         }
 
         // Insert into incoming_email_todos
