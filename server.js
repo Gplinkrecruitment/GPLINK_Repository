@@ -22847,7 +22847,9 @@ Return ONLY valid JSON with no markdown formatting:
     // Timeline
     var evType = isEscalating ? 'escalation' : patch.status === 'completed' ? 'completed' : patch.status === 'cancelled' ? 'cancelled' : patch.priority ? 'priority_change' : 'status_change';
     if (updated) {
-      await _logCaseEvent(updated.case_id, taskId, evType, 'Task updated: ' + Object.keys(patch).join(', '), JSON.stringify(patch), adminCtx.email);
+      var evTitle = isEscalating ? 'Escalated to CEO' : 'Task updated: ' + Object.keys(patch).join(', ');
+      var evDetail = isEscalating ? (escalationReason || 'No reason provided') : JSON.stringify(patch);
+      await _logCaseEvent(updated.case_id, taskId, evType, evTitle, evDetail, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(updated.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
     }
     sendJson(res, 200, { ok: true, task: updated });
