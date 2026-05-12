@@ -27859,6 +27859,275 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── CEO TECHNICAL HUB ENDPOINTS ──
+
+  if (pathname === '/api/ceo/integrations' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+
+    // Parallel fetches
+    var [gmailWatchRes, zrConn, zsConn, processedCountRes] = await Promise.all([
+      supabaseDbRequest('gmail_watch_state', 'select=*&email_address=eq.hazel@mygplink.com.au&limit=1'),
+      getZohoRecruitConnection(),
+      getZohoSignConnection(),
+      supabaseDbRequest('processed_gmail_messages', 'select=id&created_at=gte.' + new Date(Date.now() - 86400000).toISOString() + '&limit=500')
+    ]);
+
+    // Hydrate Anthropic spend
+    await _hydrateAiSpend();
+    var today = new Date().toISOString().slice(0, 10);
+    if (anthropicDailySpend.date !== today) anthropicDailySpend = { date: today, totalCostUsd: 0, callCount: 0 };
+
+    var gmailWatch = gmailWatchRes.ok && Array.isArray(gmailWatchRes.data) && gmailWatchRes.data[0] ? gmailWatchRes.data[0] : null;
+    var gmailConfigured = isGmailConfigured();
+    var gmailClientError = _gmailClientErrors['hazel@mygplink.com.au'] || null;
+    var processedCount24h = processedCountRes.ok && Array.isArray(processedCountRes.data) ? processedCountRes.data.length : 0;
+
+    var integrations = [];
+
+    // Gmail
+    var gmailStatus = 'disconnected';
+    if (gmailConfigured && gmailWatch && !gmailClientError) {
+      var watchExpiry = gmailWatch.watch_expiry ? new Date(gmailWatch.watch_expiry) : null;
+      gmailStatus = (watchExpiry && watchExpiry.getTime() > Date.now()) ? 'connected' : 'degraded';
+    } else if (gmailConfigured) { gmailStatus = 'degraded'; }
+    integrations.push({
+      key: 'gmail', name: 'Gmail (Auto-Parse)', status: gmailStatus,
+      details: {
+        monitored_email: 'hazel@mygplink.com.au',
+        watch_expiry: gmailWatch ? gmailWatch.watch_expiry : null,
+        watch_active: gmailWatch ? !!(gmailWatch.watch_expiry && new Date(gmailWatch.watch_expiry).getTime() > Date.now()) : false,
+        last_history_id: gmailWatch ? gmailWatch.history_id : null,
+        processed_count_24h: processedCount24h,
+        client_error: gmailClientError,
+        configured: gmailConfigured
+      },
+      can_reconnect: true, reconnect_action: 'setup_watch'
+    });
+
+    // Zoho Recruit
+    var zrStatus = 'disconnected';
+    if (zrConn && zrConn.status === 'active') zrStatus = 'connected';
+    else if (zrConn) zrStatus = 'degraded';
+    var roleCountRes = await supabaseDbRequest('career_roles', 'select=id&is_active=eq.true&limit=500');
+    var roleCount = roleCountRes.ok && Array.isArray(roleCountRes.data) ? roleCountRes.data.length : 0;
+    integrations.push({
+      key: 'zoho_recruit', name: 'Zoho Recruit', status: zrStatus,
+      details: {
+        connected_email: zrConn ? zrConn.connectedEmail : null,
+        last_sync_at: zrConn ? zrConn.lastSyncAt : null,
+        last_sync_status: zrConn ? zrConn.lastSyncStatus : null,
+        last_sync_error: zrConn ? zrConn.lastSyncError : null,
+        role_count: roleCount,
+        needs_reconnect: zrConn ? !!zrConn.needsReconnect : true
+      },
+      can_reconnect: true, reconnect_action: 'oauth_redirect'
+    });
+
+    // Zoho Sign
+    var zsStatus = 'disconnected';
+    if (zsConn && zsConn.refreshToken) zsStatus = 'connected';
+    else if (zsConn) zsStatus = 'degraded';
+    integrations.push({
+      key: 'zoho_sign', name: 'Zoho Sign', status: zsStatus,
+      details: {
+        connected_email: zsConn ? zsConn.connectedEmail : null,
+        org_name: zsConn ? zsConn.orgName : null,
+        token_expires_at: zsConn ? zsConn.tokenExpiresAt : null,
+        webhook_registered: zsConn ? !!zsConn.webhookSecret : false,
+        template_configured: zsConn ? !!zsConn.templateId : false
+      },
+      can_reconnect: true, reconnect_action: 'oauth_redirect'
+    });
+
+    // Supabase
+    var sbPingOk = false;
+    var sbPingMs = 0;
+    var sbStart = Date.now();
+    var sbTest = await supabaseDbRequest('registration_cases', 'select=id&limit=1');
+    sbPingMs = Date.now() - sbStart;
+    sbPingOk = sbTest.ok;
+    integrations.push({
+      key: 'supabase', name: 'Supabase (Database)', status: sbPingOk ? 'connected' : 'degraded',
+      details: { url_configured: !!SUPABASE_URL, service_role_configured: !!SUPABASE_SERVICE_ROLE_KEY, ping_ok: sbPingOk, ping_ms: sbPingMs },
+      can_reconnect: false, reconnect_action: null
+    });
+
+    // Anthropic AI
+    var aiStatus = ANTHROPIC_API_KEY ? 'connected' : 'disconnected';
+    var budgetPct = ANTHROPIC_DAILY_LIMIT_USD > 0 ? Math.round((1 - anthropicDailySpend.totalCostUsd / ANTHROPIC_DAILY_LIMIT_USD) * 1000) / 10 : 100;
+    if (budgetPct < 10 && aiStatus === 'connected') aiStatus = 'degraded';
+    integrations.push({
+      key: 'anthropic', name: 'Anthropic AI', status: aiStatus,
+      details: { api_key_configured: !!ANTHROPIC_API_KEY, daily_spend_usd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, daily_limit_usd: ANTHROPIC_DAILY_LIMIT_USD, daily_call_count: anthropicDailySpend.callCount, budget_remaining_pct: budgetPct },
+      can_reconnect: false, reconnect_action: null
+    });
+
+    // DoubleTick
+    var dtStatus = (DOUBLETICK_API_KEY && DOUBLETICK_WEBHOOK_SECRET) ? 'connected' : DOUBLETICK_API_KEY ? 'degraded' : 'disconnected';
+    integrations.push({
+      key: 'doubletick', name: 'DoubleTick (WhatsApp)', status: dtStatus,
+      details: { api_key_configured: !!DOUBLETICK_API_KEY, webhook_secret_configured: !!DOUBLETICK_WEBHOOK_SECRET },
+      can_reconnect: false, reconnect_action: null
+    });
+
+    // Google Drive
+    var gdStatus = isGoogleDriveConfigured() ? 'connected' : 'disconnected';
+    integrations.push({
+      key: 'google_drive', name: 'Google Drive', status: gdStatus,
+      details: { service_account_configured: !!GOOGLE_SERVICE_ACCOUNT_EMAIL, root_folder_configured: !!GOOGLE_DRIVE_ROOT_FOLDER_ID },
+      can_reconnect: false, reconnect_action: null
+    });
+
+    sendJson(res, 200, { ok: true, integrations: integrations });
+    return;
+  }
+
+  var ceoReconnectMatch = pathname.match(/^\/api\/ceo\/integrations\/([a-z_]+)\/reconnect$/);
+  if (ceoReconnectMatch && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+    var intKey = ceoReconnectMatch[1];
+
+    if (intKey === 'gmail') {
+      var results = [];
+      for (var vi = 0; vi < MONITORED_VA_EMAILS.length; vi++) {
+        var wr = await setupGmailWatch(MONITORED_VA_EMAILS[vi]);
+        results.push({ email: MONITORED_VA_EMAILS[vi], success: !!(wr && wr.ok), expiry: wr && wr.ok ? wr.expiry : null, error: wr && !wr.ok ? wr.error : null });
+      }
+      sendJson(res, 200, { ok: true, action: 'watch_renewed', results: results });
+      return;
+    }
+
+    if (intKey === 'zoho_recruit') {
+      if (!isZohoRecruitConfigured()) { sendJson(res, 400, { ok: false, message: 'Zoho Recruit not configured.' }); return; }
+      sendJson(res, 200, { ok: true, action: 'oauth_redirect', url: '/pages/admin.html?tab=tools' });
+      return;
+    }
+
+    if (intKey === 'zoho_sign') {
+      sendJson(res, 200, { ok: true, action: 'oauth_redirect', url: '/pages/admin.html?tab=tools' });
+      return;
+    }
+
+    sendJson(res, 400, { ok: false, message: 'Reconnect not supported for: ' + intKey });
+    return;
+  }
+
+  if (pathname === '/api/ceo/technical/system-bugs/ingest' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var cronSecret = String(process.env.CRON_SECRET || '').trim();
+    var authHeader = req.headers['authorization'] || '';
+    if (!cronSecret || authHeader !== 'Bearer ' + cronSecret) { sendJson(res, 401, { ok: false, message: 'Unauthorized.' }); return; }
+    var body; try { body = await readJsonBody(req); } catch(e) { sendJson(res, 400, { ok: false }); return; }
+    if (!body || !body.scan_id || !Array.isArray(body.findings)) { sendJson(res, 400, { ok: false, message: 'scan_id and findings array required.' }); return; }
+    var inserted = 0; var skipped = 0;
+    for (var fi = 0; fi < body.findings.length; fi++) {
+      var f = body.findings[fi];
+      if (!f.title || !f.file_path) { skipped++; continue; }
+      // Dedup: check if same file+line+title already open
+      var dedupQuery = 'select=id&file_path=eq.' + encodeURIComponent(f.file_path) + '&title=eq.' + encodeURIComponent(f.title) + '&status=in.(open,acknowledged)&limit=1';
+      if (f.line_number) dedupQuery += '&line_number=eq.' + f.line_number;
+      var existing = await supabaseDbRequest('system_bugs', dedupQuery);
+      if (existing.ok && Array.isArray(existing.data) && existing.data.length > 0) { skipped++; continue; }
+      await supabaseDbRequest('system_bugs', '', {
+        method: 'POST',
+        body: [{
+          scan_id: body.scan_id,
+          severity: f.severity || 'medium',
+          category: f.category || 'reliability',
+          file_path: f.file_path,
+          line_number: f.line_number || null,
+          title: f.title,
+          description: f.description || '',
+          suggestion: f.suggestion || null,
+          scan_type: body.scan_type || 'daily',
+          commit_sha: body.commit_sha || null
+        }]
+      });
+      inserted++;
+    }
+    sendJson(res, 200, { ok: true, inserted: inserted, skipped: skipped });
+    return;
+  }
+
+  if (pathname === '/api/ceo/technical/system-bugs' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+    var sbStatus = url.searchParams.get('status') || 'open';
+    var sbQuery = sbStatus === 'all' ? 'select=*&order=created_at.desc&limit=200' : 'select=*&status=eq.' + encodeURIComponent(sbStatus) + '&order=severity.asc,created_at.desc&limit=200';
+    var sbRes = await supabaseDbRequest('system_bugs', sbQuery);
+    var bugs = (sbRes.ok && Array.isArray(sbRes.data)) ? sbRes.data : [];
+    // Summary
+    var summary = { open: 0, acknowledged: 0, critical: 0, high: 0, medium: 0, low: 0 };
+    var allBugsRes = await supabaseDbRequest('system_bugs', 'select=status,severity&limit=500');
+    var allBugs = (allBugsRes.ok && Array.isArray(allBugsRes.data)) ? allBugsRes.data : [];
+    for (var sbi = 0; sbi < allBugs.length; sbi++) {
+      if (allBugs[sbi].status === 'open') { summary.open++; if (summary[allBugs[sbi].severity] !== undefined) summary[allBugs[sbi].severity]++; }
+      if (allBugs[sbi].status === 'acknowledged') summary.acknowledged++;
+    }
+    sendJson(res, 200, { ok: true, bugs: bugs, summary: summary });
+    return;
+  }
+
+  var sbUpdateMatch = pathname.match(/^\/api\/ceo\/technical\/system-bugs\/([^/]+)$/);
+  if (sbUpdateMatch && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+    var bugId = decodeURIComponent(sbUpdateMatch[1]);
+    var body; try { body = await readJsonBody(req); } catch(e) { sendJson(res, 400, { ok: false }); return; }
+    var newStatus = body && body.status;
+    if (!newStatus || ['acknowledged', 'fixed', 'dismissed'].indexOf(newStatus) === -1) { sendJson(res, 400, { ok: false, message: 'status must be acknowledged, fixed, or dismissed.' }); return; }
+    var patch = { status: newStatus };
+    if (newStatus === 'fixed' || newStatus === 'dismissed') { patch.resolved_by = ceoCtx.email; patch.resolved_at = new Date().toISOString(); }
+    var r = await supabaseDbRequest('system_bugs', 'id=eq.' + encodeURIComponent(bugId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
+    sendJson(res, 200, { ok: true, bug: r.data && r.data[0] ? r.data[0] : null });
+    return;
+  }
+
+  if (pathname === '/api/ceo/technical/client-errors' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+    var ceStatus = url.searchParams.get('status') || 'open';
+    var ceQuery = ceStatus === 'all' ? 'select=*&order=last_seen_at.desc&limit=200' : 'select=*&status=eq.' + encodeURIComponent(ceStatus) + '&order=last_seen_at.desc&limit=200';
+    var ceRes = await supabaseDbRequest('client_errors', ceQuery);
+    var errors = (ceRes.ok && Array.isArray(ceRes.data)) ? ceRes.data : [];
+    var ceSummaryRes = await supabaseDbRequest('client_errors', 'select=status,occurrence_count,last_seen_at&limit=500');
+    var ceAll = (ceSummaryRes.ok && Array.isArray(ceSummaryRes.data)) ? ceSummaryRes.data : [];
+    var ceSummary = { open: 0, investigating: 0, total_occurrences_24h: 0 };
+    var dayAgo = new Date(Date.now() - 86400000).toISOString();
+    for (var cei = 0; cei < ceAll.length; cei++) {
+      if (ceAll[cei].status === 'open') ceSummary.open++;
+      if (ceAll[cei].status === 'investigating') ceSummary.investigating++;
+      if (ceAll[cei].last_seen_at && ceAll[cei].last_seen_at >= dayAgo) ceSummary.total_occurrences_24h += (ceAll[cei].occurrence_count || 1);
+    }
+    sendJson(res, 200, { ok: true, errors: errors, summary: ceSummary });
+    return;
+  }
+
+  var ceUpdateMatch = pathname.match(/^\/api\/ceo\/technical\/client-errors\/([^/]+)$/);
+  if (ceUpdateMatch && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ceoCtx = requireCeoSession(req, res);
+    if (!ceoCtx) return;
+    var errorId = decodeURIComponent(ceUpdateMatch[1]);
+    var body; try { body = await readJsonBody(req); } catch(e) { sendJson(res, 400, { ok: false }); return; }
+    var newStatus = body && body.status;
+    if (!newStatus || ['investigating', 'resolved', 'ignored'].indexOf(newStatus) === -1) { sendJson(res, 400, { ok: false, message: 'status must be investigating, resolved, or ignored.' }); return; }
+    var patch = { status: newStatus };
+    if (newStatus === 'resolved' || newStatus === 'ignored') { patch.resolved_by = ceoCtx.email; patch.resolved_at = new Date().toISOString(); }
+    var r = await supabaseDbRequest('client_errors', 'id=eq.' + encodeURIComponent(errorId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    if (!r.ok) { sendJson(res, 502, { ok: false, message: 'Failed to update.' }); return; }
+    sendJson(res, 200, { ok: true, error: r.data && r.data[0] ? r.data[0] : null });
+    return;
+  }
+
   sendJson(res, 404, { ok: false, message: 'Not found' });
 }
 
