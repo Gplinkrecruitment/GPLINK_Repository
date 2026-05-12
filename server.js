@@ -22800,11 +22800,15 @@ Return ONLY valid JSON with no markdown formatting:
     if (patch.status === 'escalated' && patch.escalated_to) {
       if (!patch.escalated_at) patch.escalated_at = new Date().toISOString();
     }
-    // Clear escalation fields when status changes away from 'escalated'
-    if (patch.status && patch.status !== 'escalated' && !patch.escalated_to) {
+    // Only clear escalation fields if explicitly de-escalating (don't inject null columns on every update)
+    if (patch.escalated_to === '' || patch.escalated_to === 'clear') {
       patch.escalated_to = null;
       patch.escalated_at = null;
     }
+    // Remove escalation fields from patch if not explicitly set (prevents errors if columns don't exist yet)
+    if (patch.escalated_to === undefined) delete patch.escalated_to;
+    if (patch.escalated_reason === undefined) delete patch.escalated_reason;
+    if (patch.escalated_at === undefined) delete patch.escalated_at;
     const r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { console.error('[ADMIN] Task update failed:', r.status, JSON.stringify(r.data)); sendJson(res, 502, { ok: false, message: 'Failed to update task.', detail: typeof r.data === 'object' ? (r.data.message || r.data.msg || JSON.stringify(r.data)) : String(r.data || ''), httpStatus: r.status }); return; }
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
