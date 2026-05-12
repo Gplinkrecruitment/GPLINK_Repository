@@ -8629,7 +8629,7 @@ function mapZohoConnectionRow(row) {
     accountsServer: typeof row.accounts_server === 'string' ? row.accounts_server : getZohoRecruitAccountsServer(),
     apiDomain: typeof row.api_domain === 'string' ? row.api_domain : '',
     refreshToken: typeof row.refresh_token === 'string' ? row.refresh_token : '',
-    scopes: parseZohoRecruitScopes(Array.isArray(row.scopes) ? row.scopes : []),
+    scopes: (Array.isArray(row.scopes) && row.scopes.length > 0) ? parseZohoRecruitScopes(row.scopes) : getZohoRecruitScopes(),
     connectedByUserId: typeof row.connected_by_user_id === 'string' ? row.connected_by_user_id : '',
     connectedEmail: typeof row.connected_email === 'string' ? row.connected_email : '',
     tokenLastRefreshedAt: typeof row.token_last_refreshed_at === 'string' ? row.token_last_refreshed_at : null,
@@ -18559,7 +18559,9 @@ async function handleApi(req, res, pathname) {
       accountsServer: callbackAccountsServer,
       apiDomain: normalizeUrlBase(exchanged.data && exchanged.data.api_domain, ''),
       refreshToken: exchanged.data && exchanged.data.refresh_token ? String(exchanged.data.refresh_token) : '',
-      scopes: parseZohoRecruitScopes(exchanged.data && exchanged.data.scope ? exchanged.data.scope : getZohoRecruitScopes()),
+      scopes: (exchanged.data && exchanged.data.scope ? parseZohoRecruitScopes(exchanged.data.scope) : []).length > 0
+        ? parseZohoRecruitScopes(exchanged.data.scope)
+        : getZohoRecruitScopes(),
       connectedByUserId: adminUserId,
       connectedEmail: adminCtx.email,
       tokenLastRefreshedAt: connectedAt,
