@@ -3,15 +3,13 @@
  * Caches app shell and career data for offline access.
  */
 
-var CACHE_NAME = "gp-link-v1";
+var CACHE_NAME = "gp-link-v2";
 var RUNTIME_CACHE = "gp-link-runtime-v1";
 
-// App shell — core files to cache on install
+// App shell — core files to cache on install.
+// HTML pages are excluded: the server rewrites supported paths to serve
+// app-shell.html, so caching them stores the wrong content.
 var APP_SHELL = [
-  "/pages/career.html",
-  "/pages/job.html",
-  "/pages/application-detail.html",
-  "/pages/app-shell.html",
   "/js/auth-guard.js",
   "/js/state-sync.js",
   "/js/updates-sync.js",

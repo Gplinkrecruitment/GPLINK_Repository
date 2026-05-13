@@ -1289,9 +1289,24 @@
     var initialRoute = resolveInitialRoute();
     navigateTo(initialRoute, { historyMode: "replace", animate: false });
 
+    // Calculate frame offsets immediately, then again after RAF in case
+    // layout has shifted. Also listen for the brand logo image to load
+    // since its height affects the topbar measurement.
+    updateFrameOffsets();
     window.requestAnimationFrame(function () {
       handleResize();
     });
+
+    var brandImg = desktopHostEl && desktopHostEl.querySelector(".brand-logo img");
+    if (brandImg) {
+      if (brandImg.complete) {
+        updateFrameOffsets();
+      } else {
+        brandImg.addEventListener("load", function () {
+          updateFrameOffsets();
+        }, { once: true });
+      }
+    }
   }
 
   // Register message listener immediately so child iframes can hide
