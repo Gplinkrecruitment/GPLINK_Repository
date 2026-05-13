@@ -1296,23 +1296,27 @@
     var initialRoute = resolveInitialRoute();
     navigateTo(initialRoute, { historyMode: "replace", animate: false });
 
-    // Calculate frame offsets immediately, then again after RAF in case
-    // layout has shifted. Also listen for the brand logo image to load
-    // since its height affects the topbar measurement.
+    // Recalculate frame offsets whenever the topbar's size changes.
+    // This handles ALL sources of layout shift: logo image loading,
+    // Google Font swaps, zoom level changes, and window resizes.
+    var topbarEl = desktopHostEl && desktopHostEl.querySelector(".topbar");
+    if (topbarEl && typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(function () {
+        updateFrameOffsets();
+        if (activeDesktopItem) moveNavGlass(activeDesktopItem, false);
+        if (activeMobileTab) moveMobileGlass(activeMobileTab, false);
+      }).observe(topbarEl);
+    }
+
     updateFrameOffsets();
     window.requestAnimationFrame(function () {
       handleResize();
     });
 
-    var brandImg = desktopHostEl && desktopHostEl.querySelector(".brand-logo img");
-    if (brandImg) {
-      if (brandImg.complete) {
-        updateFrameOffsets();
-      } else {
-        brandImg.addEventListener("load", function () {
-          updateFrameOffsets();
-        }, { once: true });
-      }
+    // Fallback for browsers without ResizeObserver: recalculate after
+    // fonts finish loading (font swap changes topbar text metrics).
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () { updateFrameOffsets(); });
     }
   }
 
