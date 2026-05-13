@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>GP Link</title>
+  <script>
+  // CRITICAL: runs before any rendering — force iframes and frame stack
+  // invisible until app-shell.js explicitly reveals them after content loads.
+  (function(){var s=document.createElement('style');s.id='gp-shell-preload-guard';s.textContent='.app-shell-frame-stack,.app-shell-frame{visibility:hidden!important;opacity:0!important;pointer-events:none!important}.app-shell-loader{background:#f0f4fa!important}';(document.head||document.documentElement).appendChild(s)})();
+  </script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
   <script src="../js/qualification-scan.js?v=20260331c" defer></script>

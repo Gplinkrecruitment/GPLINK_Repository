@@ -628,6 +628,13 @@
   function setLoading(loading) {
     document.body.classList.toggle("app-shell-loading", !!loading);
     if (loaderEl) loaderEl.hidden = !loading;
+    // Remove the preload guard when first content is ready.
+    // The guard was injected as an inline script in <head> to hide iframes
+    // before any CSS/body rendering could occur.
+    if (!loading) {
+      var guard = document.getElementById("gp-shell-preload-guard");
+      if (guard) guard.parentNode.removeChild(guard);
+    }
   }
 
   function clearDesktopRegistrationCloseTimer() {
