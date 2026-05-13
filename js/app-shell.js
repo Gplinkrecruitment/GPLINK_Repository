@@ -58,7 +58,7 @@
   };
 
   var frameEls = Array.prototype.slice.call(document.querySelectorAll(".app-shell-frame"));
-  var loaderEl = document.getElementById("appShellLoader");
+  var loaderEl = null; // loader element removed from HTML
   var desktopNavEl = document.querySelector(".nav-menu");
   var mobileNavEl = document.querySelector(".mobile-nav");
   var navGlassEl = document.getElementById("navGlass");

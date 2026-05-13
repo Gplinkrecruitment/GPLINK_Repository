@@ -8,7 +8,7 @@
   <script>
   // CRITICAL: runs before any rendering — force iframes and frame stack
   // invisible until app-shell.js explicitly reveals them after content loads.
-  (function(){var s=document.createElement('style');s.id='gp-shell-preload-guard';s.textContent='.app-shell-frame-stack,.app-shell-frame{visibility:hidden!important;opacity:0!important;pointer-events:none!important}.app-shell-loader{background:#f0f4fa!important}';(document.head||document.documentElement).appendChild(s)})();
+  (function(){var s=document.createElement('style');s.id='gp-shell-preload-guard';s.textContent='.app-shell-frame-stack,.app-shell-frame{visibility:hidden!important;opacity:0!important;pointer-events:none!important}';(document.head||document.documentElement).appendChild(s)})();
   </script>
   <script src="../js/updates-sync.js?v=20260309c" defer></script>
   <script src="../js/qualification-camera.js?v=20260310a" defer></script>
@@ -374,36 +374,9 @@
       z-index: 1;
     }
 
-    .app-shell-loader {
-      position: fixed;
-      inset: var(--gp-frame-top) 0 0;
-      display: grid;
-      place-items: center;
-      background: #f0f4fa;
-      color: var(--muted);
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: .01em;
-      z-index: 3;
-    }
-
-    .app-shell-loading .app-shell-loader {
-      display: grid;
-      opacity: 0;
-      animation: shellLoaderAppear 0s 0.4s forwards;
-    }
-
-    @keyframes shellLoaderAppear {
-      to { opacity: 1; }
-    }
-
     .app-shell-loading .app-shell-frame {
       visibility: hidden !important;
       opacity: 0 !important;
-    }
-
-    .app-shell-loader[hidden] {
-      display: none;
     }
 
     .mobile-nav {
@@ -774,7 +747,6 @@
     </div>
   </div>
 
-  <div class="app-shell-loader" id="appShellLoader">Loading page…</div>
   <div class="app-shell-frame-stack" id="appShellFrameStack" aria-live="polite">
     <iframe id="appShellFramePrimary" class="app-shell-frame" title="GP Link content" allow="camera; microphone; clipboard-write"></iframe>
     <iframe id="appShellFrameSecondary" class="app-shell-frame" title="GP Link preloaded content" allow="camera; microphone; clipboard-write" aria-hidden="true" tabindex="-1"></iframe>
