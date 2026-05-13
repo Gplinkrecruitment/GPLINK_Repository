@@ -1926,6 +1926,7 @@
           window.setTimeout(() => {
             const link = document.createElement("a");
             link.href = buildOnboardingDownloadUrl(country, key);
+            link.target = "_blank";
             link.rel = "noopener";
             link.style.display = "none";
             document.body.appendChild(link);
