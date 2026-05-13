@@ -1038,6 +1038,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       <div id="modalBody"></div>
     </div>
   </div>
+<div id="ceoHomePanel" style="display:none;position:relative;width:100%;height:calc(100vh - 100px);"><iframe id="ceoHomeIframe" style="width:100%;height:100%;border:none;background:#0f1117;" src="about:blank"></iframe></div>
+<div id="technicalPanel" style="display:none">
+  <div class="tech-subnav">
+    <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
+    <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
+    <button class="tech-subnav-btn" data-tech-view="user-bugs">User Bugs</button>
+  </div>
+  <div id="techIntegrationsPanel"></div>
+  <div id="techSystemBugsPanel" style="display:none"></div>
+  <div id="techUserBugsPanel" style="display:none"></div>
+</div>
+<div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
+    <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
+    <p style="font-size:0.85rem;color:#666;margin:0 0 12px;">This task will appear on the CEO dashboard for a decision. Provide a reason:</p>
+    <textarea id="escalateReasonInput" rows="4" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:0.9rem;resize:vertical;box-sizing:border-box;" placeholder="Why does this need CEO attention?"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+      <button class="btn" onclick="document.getElementById('escalateCeoModal').style.display='none';">Cancel</button>
+      <button class="btn red" id="escalateConfirmBtn">Escalate</button>
+    </div>
+  </div>
+</div>
 <script>
 (function(){
   "use strict";
@@ -5331,27 +5353,5 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.resolveIncomingQuestion = resolveIncomingQuestion;
 })();
 </script>
-<div id="ceoHomePanel" style="display:none;position:relative;width:100%;height:calc(100vh - 100px);"><iframe id="ceoHomeIframe" style="width:100%;height:100%;border:none;background:#0f1117;" src="about:blank"></iframe></div>
-<div id="technicalPanel" style="display:none">
-  <div class="tech-subnav">
-    <button class="tech-subnav-btn active" data-tech-view="integrations">Integrations</button>
-    <button class="tech-subnav-btn" data-tech-view="system-bugs">System Bugs</button>
-    <button class="tech-subnav-btn" data-tech-view="user-bugs">User Bugs</button>
-  </div>
-  <div id="techIntegrationsPanel"></div>
-  <div id="techSystemBugsPanel" style="display:none"></div>
-  <div id="techUserBugsPanel" style="display:none"></div>
-</div>
-<div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
-    <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
-    <p style="font-size:0.85rem;color:#666;margin:0 0 12px;">This task will appear on the CEO dashboard for a decision. Provide a reason:</p>
-    <textarea id="escalateReasonInput" rows="4" style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:8px;font-size:0.9rem;resize:vertical;box-sizing:border-box;" placeholder="Why does this need CEO attention?"></textarea>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
-      <button class="btn" onclick="document.getElementById('escalateCeoModal').style.display='none';">Cancel</button>
-      <button class="btn red" id="escalateConfirmBtn">Escalate</button>
-    </div>
-  </div>
-</div>
 </body>
 </html>
