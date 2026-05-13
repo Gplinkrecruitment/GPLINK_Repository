@@ -1191,14 +1191,13 @@
     const AMC_SIGNUP_URL = "https://account.amc.org.au/sign_up";
 
     // Internal stages (keep qualifications_verified for backward compat)
-    const STAGES = ["create_portfolio", "upload_credentials", "waiting_verification", "qualifications_verified"];
+    const STAGES = ["create_portfolio", "upload_credentials", "qualifications_verified"];
 
-    // Visible tabs (3 steps)
-    const TAB_STAGES = ["create_portfolio", "upload_credentials", "waiting_verification"];
+    // Visible tabs (2 steps)
+    const TAB_STAGES = ["create_portfolio", "upload_credentials"];
     const TAB_LABELS = {
       create_portfolio: "Account",
-      upload_credentials: "Credentials",
-      waiting_verification: "Verification"
+      upload_credentials: "Establishment"
     };
 
     const stageMeta = {
@@ -1214,24 +1213,13 @@
         ctaType: "open_signup"
       },
       upload_credentials: {
-        label: "Credentials",
-        full: "Upload AMC Credentials",
-        short: "Upload your specialist qualifications as AMC credentials.",
-        doNow: "Upload your qualifications in AMC Candidate Portfolio.",
+        label: "Establishment",
+        full: "Establish Your AMC Account",
+        short: "Complete your AMC Candidate Portfolio setup and add your credentials.",
+        doNow: "Establish your AMC Candidate Portfolio, upload your qualifications, and enter your AMC number.",
         time: "10-20 minutes",
-        support: "We review uploaded credentials before final verification.",
-        next: "AMC will then verify and confirm credential status.",
-        cta: "Open AMC",
-        ctaType: "open"
-      },
-      waiting_verification: {
-        label: "Verification",
-        full: "Awaiting AMC Verification",
-        short: "AMC is reviewing and confirming your uploaded credentials.",
-        doNow: "No action required right now. AMC is reviewing your credentials.",
-        time: "1-3 weeks typically",
-        support: "We monitor and escalate if review is delayed.",
-        next: "Once verified, proceed to AHPRA registration.",
+        support: "We help ensure your AMC account is established correctly.",
+        next: "Once established, proceed to AHPRA registration.",
         cta: "Open AMC",
         ctaType: "open"
       },
@@ -1250,15 +1238,14 @@
 
     const stageRouteMap = {
       create_portfolio: "account",
-      upload_credentials: "upload",
-      waiting_verification: "verify",
+      upload_credentials: "establishment",
       qualifications_verified: "complete"
     };
     const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([k, v]) => [v, k]));
 
     const tutorialByStage = {
-      create_portfolio: { text: "Create your AMC Candidate Portfolio account by following this walkthrough.", src: "/media/videos/amc-tutorial-1.mp4" },
-      upload_credentials: { text: "Upload your AMC credentials by following this walkthrough.", src: "/media/videos/amc-tutorial-2.mp4" }
+      create_portfolio: { text: "Create your AMC Candidate Portfolio account by following this walkthrough.", src: "/media/videos/amc-tutorial-1.mp4", type: "video" },
+      upload_credentials: { text: "Reference: AMC credentials page where you add your qualifications.", src: "/media/images/amc-credentials-reference.png", type: "image" }
     };
 
     // ─── STATE MANAGEMENT ────────────────────────────────────────
@@ -1306,7 +1293,7 @@
     function defaultProgress() {
       return {
         stage: "create_portfolio",
-        completed: { create_portfolio: false, upload_credentials: false, waiting_verification: false, qualifications_verified: false },
+        completed: { create_portfolio: false, upload_credentials: false, qualifications_verified: false },
         updatedAt: new Date().toISOString()
       };
     }
@@ -1369,9 +1356,9 @@
       return "current";
     }
 
-    // Get the active tab stage (maps qualifications_verified back to waiting_verification for display)
+    // Get the active tab stage (maps qualifications_verified back to upload_credentials for display)
     function activeTabStage(progress) {
-      if (progress.stage === "qualifications_verified") return "waiting_verification";
+      if (progress.stage === "qualifications_verified") return "upload_credentials";
       return progress.stage;
     }
 
@@ -1385,7 +1372,7 @@
     function pickTabFromRoute(progress) {
       const routeStage = stageFromRoute(window.location.pathname);
       if (!routeStage) return null;
-      const viewStage = routeStage === "qualifications_verified" ? "waiting_verification" : routeStage;
+      const viewStage = routeStage === "qualifications_verified" ? "upload_credentials" : routeStage;
       if (!TAB_STAGES.includes(viewStage)) return null;
       return stageStatus(progress, viewStage) === "locked" ? null : viewStage;
     }
@@ -1468,7 +1455,7 @@
 
     function getCurrentSupportContext() {
       const key = currentTabKey || activeTabStage(loadProgress());
-      const effectiveKey = key === "waiting_verification" && loadProgress().completed.qualifications_verified ? "qualifications_verified" : key;
+      const effectiveKey = key === "upload_credentials" && loadProgress().completed.qualifications_verified ? "qualifications_verified" : key;
       const meta = stageMeta[effectiveKey] || stageMeta[key] || stageMeta.create_portfolio;
       return {
         category: "AMC",
@@ -1507,8 +1494,8 @@
     function markStageComplete(progress, key) {
       if (progress.stage !== key) return;
 
-      // Require AMC number before completing waiting_verification
-      if (key === "waiting_verification" && (!progress.amcNumber || progress.amcNumber.length !== 7)) {
+      // Require AMC number before completing upload_credentials (establishment)
+      if (key === "upload_credentials" && (!progress.amcNumber || progress.amcNumber.length !== 7)) {
         showToast("Enter your 7-digit AMC number before marking this step complete");
         var amcInput = document.getElementById('amcNumberInput');
         if (amcInput) amcInput.focus();
@@ -1517,15 +1504,15 @@
 
       progress.completed[key] = true;
 
-      // When completing waiting_verification, also complete qualifications_verified
-      if (key === "waiting_verification") {
+      // When completing upload_credentials, also complete qualifications_verified
+      if (key === "upload_credentials") {
         progress.completed.qualifications_verified = true;
         progress.stage = "qualifications_verified";
         saveProgress(progress, true);
         syncRouteForStage(progress.stage);
         currentTabKey = activeTabStage(progress);
         renderPage(progress);
-        showToast("Qualifications marked complete");
+        showToast("AMC account established");
         return;
       }
 
@@ -1557,7 +1544,7 @@
       const previous = TAB_STAGES[tabIdx - 1];
       progress.completed[key] = false;
       progress.completed[previous] = false;
-      if (key === "waiting_verification") progress.completed.qualifications_verified = false;
+      if (key === "upload_credentials") progress.completed.qualifications_verified = false;
       progress.stage = previous;
       saveProgress(progress, true);
       syncRouteForStage(previous);
@@ -1651,13 +1638,12 @@
     // ─── RENDER: STEP CONTENT ───────────────────────────────────
     function renderStepContent(progress) {
       const key = currentTabKey;
-      const effectiveKey = (key === "waiting_verification" && progress.completed.qualifications_verified) ? "qualifications_verified" : key;
+      const effectiveKey = (key === "upload_credentials" && progress.completed.qualifications_verified) ? "qualifications_verified" : key;
       const meta = stageMeta[effectiveKey];
       if (!meta) return;
       const status = stageStatus(progress, key);
       const isDone = status === "done";
       const isCurrent = status === "current";
-      const isWaiting = key === "waiting_verification" && isCurrent;
       const isAction = key === "upload_credentials" && isCurrent;
       const allDone = STAGES.every(k => progress.completed[k]);
 
@@ -1673,12 +1659,8 @@
       const warning = document.getElementById("stepWarning");
       if (isAction) {
         warning.classList.remove("hidden");
-        document.getElementById("stepWarningTitle").textContent = "Documents need uploading";
-        document.getElementById("stepWarningText").textContent = "Upload your specialist qualifications in AMC Candidate Portfolio and ensure details are complete.";
-      } else if (isWaiting) {
-        warning.classList.remove("hidden");
-        document.getElementById("stepWarningTitle").textContent = "No action needed";
-        document.getElementById("stepWarningText").textContent = "AMC is currently reviewing your credentials. This typically takes 1-3 weeks.";
+        document.getElementById("stepWarningTitle").textContent = "Account setup required";
+        document.getElementById("stepWarningText").textContent = "Complete your AMC Candidate Portfolio setup, upload your qualifications, and enter your AMC number below.";
       } else {
         warning.classList.add("hidden");
       }
@@ -1689,12 +1671,12 @@
       let actionBtnHtml = '';
       if (effectiveKey === "qualifications_verified") {
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-      } else if (isCurrent && !isWaiting) {
+      } else if (isCurrent) {
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 
       var amcNumberHtml = '';
-      if (key === 'waiting_verification' && isCurrent) {
+      if (key === 'upload_credentials' && isCurrent) {
         var savedAmcNumber = progress.amcNumber || '';
         amcNumberHtml = `
         <div class="action-card" style="margin-top:12px;">
@@ -1725,7 +1707,7 @@
       `;
 
       // Wire AMC number input
-      if (key === 'waiting_verification' && isCurrent) {
+      if (key === 'upload_credentials' && isCurrent) {
         var amcInput = document.getElementById('amcNumberInput');
         var amcSaveBtn = document.getElementById('amcNumberSaveBtn');
         var amcStatus = document.getElementById('amcNumberStatus');
@@ -1864,12 +1846,28 @@
       }
       if (wrapEl) wrapEl.classList.remove("open");
 
-      if (tutorialDescEl) tutorialDescEl.textContent = "Watch: " + config.text + " (2 min)";
-      if (tutorialSourceEl) {
-        const currentSrc = tutorialSourceEl.getAttribute("src");
-        if (currentSrc !== config.src) {
-          tutorialSourceEl.src = config.src;
-          if (tutorialVideoEl) tutorialVideoEl.load();
+      if (config.type === "image") {
+        if (tutorialDescEl) tutorialDescEl.textContent = config.text;
+        // Replace video with image
+        var wrapContent = document.getElementById("tutorialCard");
+        if (wrapContent) {
+          wrapContent.innerHTML = '<img src="' + config.src + '" alt="AMC credentials reference" style="width:100%;border-radius:12px;display:block;" />';
+        }
+      } else {
+        if (tutorialDescEl) tutorialDescEl.textContent = "Watch: " + config.text + " (2 min)";
+        // Ensure video element exists
+        var wrapContent = document.getElementById("tutorialCard");
+        if (wrapContent && !wrapContent.querySelector("video")) {
+          wrapContent.innerHTML = '<video class="tut-video" id="tutorialVideo" controls playsinline preload="metadata"><source id="tutorialSource" src="" type="video/mp4" />Your browser does not support the video tag.</video>';
+        }
+        var vidEl = document.getElementById("tutorialVideo");
+        var srcEl = document.getElementById("tutorialSource");
+        if (srcEl) {
+          const currentSrc = srcEl.getAttribute("src");
+          if (currentSrc !== config.src) {
+            srcEl.src = config.src;
+            if (vidEl) vidEl.load();
+          }
         }
       }
     }
@@ -2016,7 +2014,7 @@
         }),
         buildRegistrationRow("amc", {
           title: "2. AMC Portfolio",
-          sub: "Create AMC candidate portfolio and upload credentials.",
+          sub: "Create and establish your AMC candidate portfolio.",
           locked: !epicDone,
           done: amcDone,
           href: "amc.html"
