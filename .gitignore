@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+.env.vercel
 .vercel
 node_modules
 .next
@@ -20,3 +21,4 @@ backups/
 # Generated archives
 *.zip
 agents-output/
+.superpowers/
