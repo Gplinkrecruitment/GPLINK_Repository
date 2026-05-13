@@ -389,6 +389,12 @@
 
     .app-shell-loading .app-shell-loader {
       display: grid;
+      opacity: 0;
+      animation: shellLoaderAppear 0s 0.4s forwards;
+    }
+
+    @keyframes shellLoaderAppear {
+      to { opacity: 1; }
     }
 
     .app-shell-loading .app-shell-frame {
