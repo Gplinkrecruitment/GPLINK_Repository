@@ -15604,12 +15604,14 @@ async function sendGpNotificationEmail(userId, subject, title, body, ctaText, ct
   if (!isEmailConfigured()) return;
   const gp = await getGpEmailContext(userId);
   if (!gp || !gp.email) return;
-  const personalBody = body.replace(/\{\{name\}\}/g, gp.firstName || 'there');
+  const nameVal = gp.firstName || 'there';
+  const personalTitle = title.replace(/\{\{name\}\}/g, nameVal);
+  const personalBody = body.replace(/\{\{name\}\}/g, nameVal);
   await sendEmail({
     to: gp.email,
-    subject: subject,
+    subject: subject.replace(/\{\{name\}\}/g, nameVal),
     html: buildCareerEmailHtml({
-      title: title,
+      title: personalTitle,
       body: personalBody,
       ctaText: ctaText || 'Go to Dashboard',
       ctaUrl: ctaUrl || 'https://app.mygplink.com.au/pages/index.html',
