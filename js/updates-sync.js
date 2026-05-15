@@ -143,7 +143,10 @@
         title: item.title,
         kind: item.type === "action" ? "action" : "update",
         unread: readState[id] !== true,
-        target: item.type === "action" ? "/pages/messages.html#tab-action" : "/pages/messages.html#tab-updates",
+        target: item.type === "action" && item.nudgeId
+          ? "/pages/messages.html#chat-" + encodeURIComponent(item.nudgeId)
+          : item.type === "action" ? "/pages/messages.html#tab-action"
+          : "/pages/messages.html#tab-updates",
       });
     });
 
@@ -436,7 +439,7 @@
         const title = typeof n.title === "string" && n.title.trim() ? n.title.trim() : "Check-in from Hazel";
         const msg = typeof n.message === "string" && n.message.trim() ? n.message.trim() : "Are you having trouble with your current step? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.";
         const ts = typeof n.created_at === "string" ? n.created_at : new Date().toISOString();
-        updates.unshift({ type: "action", title: title, detail: msg, ts: ts });
+        updates.unshift({ type: "action", title: title, detail: msg, ts: ts, nudgeId: n.id });
         seen[n.id] = ts;
         changed = true;
       });
