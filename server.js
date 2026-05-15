@@ -3927,8 +3927,10 @@ function requireSuperAdminSession(req, res) {
 function requireCeoSession(req, res) {
   var adminCtx = requireAdminSession(req, res);
   if (!adminCtx) return null;
-  if (adminCtx.email.toLowerCase() !== CEO_EMAIL) {
-    sendJson(res, 403, { ok: false, message: 'CEO access required.' });
+  var isCeo = CEO_EMAIL && adminCtx.email.toLowerCase() === CEO_EMAIL;
+  var isSuperAdmin = adminCtx.role === 'super_admin';
+  if (!isCeo && !isSuperAdmin) {
+    sendJson(res, 403, { ok: false, message: 'Super admin access required.' });
     return null;
   }
   return adminCtx;
