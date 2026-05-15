@@ -1608,7 +1608,7 @@
 
       let actionBtnHtml = '';
       if (effectiveKey === "verification_issued") {
-        actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
+        // No CTA button on the complete stage — user navigates via shell/sidebar
       } else if (isCurrent && key !== "upload_qualifications") {
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
@@ -1683,23 +1683,9 @@
       // Wire buttons
       const openBtn = document.getElementById("actionOpenBtn");
       if (openBtn) {
-        if (effectiveKey === "verification_issued") {
-          openBtn.classList.add("cta-pulse");
-          if (!openBtn.querySelector(".cta-cursor")) {
-            const hint = document.createElement("span");
-            hint.className = "cta-cursor";
-            hint.textContent = "Click Here";
-            openBtn.appendChild(hint);
-          }
-        }
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") openMyIntealthExternal();
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
-          else if (meta.ctaType === "amc") {
-            const target = "/pages/amc.html";
-            if (window.location.pathname !== target) window.location.assign(target);
-            else window.location.reload();
-          }
         });
       }
 
