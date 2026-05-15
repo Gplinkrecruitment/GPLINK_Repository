@@ -5,6 +5,10 @@ on:
     - cron: '0 2 * * *'  # Daily at 2am UTC
   push:
     branches: [main]
+    paths:
+      - '**.js'
+      - '**.html'
+      - 'server.js'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:

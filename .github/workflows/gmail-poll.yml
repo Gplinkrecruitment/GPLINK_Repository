@@ -10,5 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Poll Gmail for new emails
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -sf "https://app.mygplink.com.au/api/cron/process-gmail" || echo "Poll failed"
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::warning::CRON_SECRET not set — skipping"
+            exit 0
+          fi
+          curl -sf -H "Authorization: Bearer $CRON_SECRET" \
+            "https://app.mygplink.com.au/api/cron/process-gmail" || echo "Poll failed"
