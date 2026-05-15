@@ -6,8 +6,9 @@
   var APP_SHELL_PATH = "/pages/app-shell.html";
   var EMBED_PARAM = "gp_shell";
   var EMBED_VALUE = "embedded";
+  var STATIC_PARAM = "gp_shell_static";
   var EMBED_STYLE_ID = "gp-shell-embedded-style";
-  var EMBEDDED_CHROME_HIDE_CSS = "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav,html.gp-shell-embedded .nav-menu,html.gp-shell-embedded .brand-logo{display:none!important;}";
+  var EMBEDDED_CHROME_HIDE_CSS = "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav,html.gp-shell-embedded .nav-menu,html.gp-shell-embedded .brand-logo,html.gp-shell-embedded .app-shell-desktop,html.gp-shell-embedded #appShellDesktop{display:none!important;}";
   var PAGE_PATHS = {
     "/pages/index.html": true,
     "/pages/myinthealth.html": true,
@@ -61,6 +62,7 @@
   function cleanRoute(input) {
     var url = input instanceof URL ? new URL(input.toString()) : new URL(String(input || window.location.href), window.location.origin);
     url.searchParams.delete(EMBED_PARAM);
+    url.searchParams.delete(STATIC_PARAM);
     return url.pathname + url.search + url.hash;
   }
 

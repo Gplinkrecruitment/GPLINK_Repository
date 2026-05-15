@@ -5,6 +5,8 @@
 
   var EMBED_PARAM = "gp_shell";
   var EMBED_VALUE = "embedded";
+  var STATIC_PARAM = "gp_shell_static";
+  var STATIC_VALUE = "1";
   var DEFAULT_ROUTE = "/pages/index.html";
   var REGISTRATION_ENTRY_ROUTE = "/pages/myinthealth.html";
   var REGISTRATION_INTRO_ROUTE = "/pages/registration-intro.html";
@@ -101,7 +103,7 @@
   var mobileSheetStartY = 0;
   var mobileSheetDeltaY = 0;
   var mobileSheetDragging = false;
-  var EMBEDDED_CHROME_HIDE_CSS = "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav,html.gp-shell-embedded .nav-menu,html.gp-shell-embedded .brand-logo{display:none!important;}";
+  var EMBEDDED_CHROME_HIDE_CSS = "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav,html.gp-shell-embedded .nav-menu,html.gp-shell-embedded .brand-logo,html.gp-shell-embedded .app-shell-desktop,html.gp-shell-embedded #appShellDesktop{display:none!important;}";
   var EPIC_STAGE_LABELS = {
     create_account: "Create your MyIntealth account",
     upload_qualifications: "Upload your specialist qualifications",
@@ -152,6 +154,7 @@
   function routeFromUrl(input) {
     var url = input instanceof URL ? new URL(input.toString()) : new URL(String(input || DEFAULT_ROUTE), window.location.href);
     url.searchParams.delete(EMBED_PARAM);
+    url.searchParams.delete(STATIC_PARAM);
     return url.pathname + url.search + url.hash;
   }
 
@@ -173,6 +176,7 @@
       if (url.origin !== window.location.origin) return null;
       if (!isSupportedPath(url.pathname)) return null;
       url.searchParams.delete(EMBED_PARAM);
+      url.searchParams.delete(STATIC_PARAM);
       return url;
     } catch (err) {
       return null;
@@ -183,7 +187,27 @@
     var routeUrl = toRouteUrl(input);
     if (!routeUrl) return "";
     routeUrl.searchParams.set(EMBED_PARAM, EMBED_VALUE);
+    routeUrl.searchParams.set(STATIC_PARAM, STATIC_VALUE);
     return routeUrl.pathname + routeUrl.search + routeUrl.hash;
+  }
+
+  function escapeNestedShell() {
+    if (window.self === window.top) return false;
+
+    var currentUrl = new URL(window.location.href);
+    var routed = currentUrl.searchParams.get("route");
+    var routeUrl = toRouteUrl(routed || currentUrl);
+    if (!routeUrl) return false;
+
+    routeUrl.searchParams.set(EMBED_PARAM, EMBED_VALUE);
+    routeUrl.searchParams.set(STATIC_PARAM, STATIC_VALUE);
+    var target = routeUrl.pathname + routeUrl.search + routeUrl.hash;
+    var current = currentUrl.pathname + currentUrl.search + currentUrl.hash;
+    if (target === current) return false;
+
+    document.documentElement.classList.add("gp-shell-embedded");
+    window.location.replace(target);
+    return true;
   }
 
   function getFrameState(frame) {
@@ -1341,6 +1365,8 @@
   // Register message listener immediately so child iframes can hide
   // chrome even before init() runs (e.g. on first page load).
   window.addEventListener("message", handleMessage);
+
+  if (escapeNestedShell()) return;
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init, { once: true });
