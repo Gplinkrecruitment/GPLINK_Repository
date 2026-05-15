@@ -800,6 +800,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .tech-card-name{font-weight:600;font-size:0.95rem;}
 .tech-status{padding:3px 10px;border-radius:12px;font-size:0.7rem;font-weight:600;text-transform:uppercase;}
 .tech-status.connected{background:#dcfce7;color:#16a34a;}
+.tech-status.configured{background:#dbeafe;color:#2563eb;}
 .tech-status.disconnected{background:#fee2e2;color:#dc2626;}
 .tech-status.degraded{background:#fef3c7;color:#b45309;}
 .tech-detail{font-size:0.8rem;color:#6b7280;margin:3px 0;}
@@ -4461,15 +4462,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var connectBtn = document.getElementById('zs-connect-btn');
       var disconnectBtn = document.getElementById('zs-disconnect-btn');
       if (!chip) return;
-      if (data && data.connected) {
-        chip.textContent = 'Connected';
-        chip.className = 'status-chip connected';
+      if (data && (data.connected || data.tokenExpired)) {
+        chip.textContent = data.connected ? 'Connected' : 'Token Expired';
+        chip.className = data.connected ? 'status-chip connected' : 'status-chip disconnected';
         connectedBox.style.display = '';
         disconnectedBox.style.display = 'none';
-        connectBtn.style.display = 'none';
+        connectBtn.style.display = data.connected ? 'none' : '';
         disconnectBtn.style.display = '';
         var syncBtn = document.getElementById('zs-sync-btn');
-        if (syncBtn) syncBtn.style.display = '';
+        if (syncBtn) syncBtn.style.display = data.connected ? '' : 'none';
         document.getElementById('zs-org-name').textContent = data.orgName || '\u2014';
         document.getElementById('zs-connected-email').textContent = data.connectedEmail || '\u2014';
         document.getElementById('zs-token-exp').textContent = data.tokenExpiresAt ? new Date(data.tokenExpiresAt).toLocaleString() : '\u2014';
@@ -5153,7 +5154,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       for(var i=0;i<d.integrations.length;i++){
         var int=d.integrations[i];
         html+='<div class="tech-card">';
-        var statusLabel=int.status==='degraded'?'Needs Attention':int.status;
+        var statusLabel=int.status==='degraded'?'Needs Attention':int.status==='configured'?'Configured':int.status;
         html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(int.name)+'</span><span class="tech-status '+esc(int.status)+'">'+esc(statusLabel)+'</span></div>';
         var det=int.details||{};
         var keys=Object.keys(det);

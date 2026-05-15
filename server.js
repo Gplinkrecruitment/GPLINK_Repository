@@ -17140,7 +17140,7 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 200, {
         ok: true,
         source: rows.length ? 'supabase' : ((connection && connection.refreshToken) ? 'supabase-empty' : 'fallback'),
-        connected: !!(connection && connection.refreshToken),
+        connected: !!(connection && connection.status === 'active'),
         lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
         roles: rows.map(mapCareerRoleRowToClient)
       });
@@ -18187,7 +18187,7 @@ async function handleApi(req, res, pathname) {
       needsReconnect: scopeStatus.needsReconnect,
       cronConfigured: !!ZOHO_RECRUIT_SYNC_CRON_SECRET,
       cronPath: '/api/integrations/zoho-recruit/cron-sync',
-      connected: !!(connection && connection.refreshToken),
+      connected: !!(connection && connection.status === 'active'),
       connection: sanitizeConnectionForResponse(connection),
       roleCount: roles.length
     });
@@ -18469,7 +18469,7 @@ async function handleApi(req, res, pathname) {
       webhookConfigured: !!ZOHO_RECRUIT_WEBHOOK_SECRET,
       webhookPath: '/api/webhooks/zoho-recruit',
       webhookUrl: ZOHO_RECRUIT_WEBHOOK_SECRET ? ('https://' + (req.headers.host || 'app.mygplink.com.au') + '/api/webhooks/zoho-recruit?secret=' + encodeURIComponent(ZOHO_RECRUIT_WEBHOOK_SECRET)) : '',
-      connected: !!(connection && connection.refreshToken),
+      connected: !!(connection && connection.status === 'active'),
       connection: sanitizeConnectionForResponse(connection),
       roleCount: roles.length
     });
@@ -18847,10 +18847,13 @@ async function handleApi(req, res, pathname) {
     if (!admin) return;
     const c = await getZohoSignConnection();
     if (!c) { sendJson(res, 200, { ok: true, connected: false }); return; }
+    var zsTokenExp = c.tokenExpiresAt ? Date.parse(c.tokenExpiresAt) : 0;
+    var zsIsConnected = !!(c.refreshToken && c.status !== 'error' && zsTokenExp && zsTokenExp > Date.now());
     sendJson(res, 200, {
       ok: true,
-      connected: c.status === 'connected',
+      connected: zsIsConnected,
       status: c.status,
+      tokenExpired: !!(zsTokenExp && zsTokenExp <= Date.now()),
       connectedEmail: c.connectedEmail,
       orgName: c.orgName,
       tokenExpiresAt: c.tokenExpiresAt,
@@ -27992,26 +27995,26 @@ Return ONLY valid JSON with no markdown formatting:
       can_reconnect: false, reconnect_action: null
     });
 
-    // Anthropic AI
-    var aiStatus = ANTHROPIC_API_KEY ? 'connected' : 'disconnected';
+    // Anthropic AI — env-var check only, no live API validation
+    var aiStatus = ANTHROPIC_API_KEY ? 'configured' : 'disconnected';
     var budgetPct = ANTHROPIC_DAILY_LIMIT_USD > 0 ? Math.round((1 - anthropicDailySpend.totalCostUsd / ANTHROPIC_DAILY_LIMIT_USD) * 1000) / 10 : 100;
-    if (budgetPct < 10 && aiStatus === 'connected') aiStatus = 'degraded';
+    if (budgetPct < 10 && aiStatus === 'configured') aiStatus = 'degraded';
     integrations.push({
       key: 'anthropic', name: 'Anthropic AI', status: aiStatus,
       details: { api_key_configured: !!ANTHROPIC_API_KEY, daily_spend_usd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, daily_limit_usd: ANTHROPIC_DAILY_LIMIT_USD, daily_call_count: anthropicDailySpend.callCount, budget_remaining_pct: budgetPct },
       can_reconnect: false, reconnect_action: null
     });
 
-    // DoubleTick
-    var dtStatus = (DOUBLETICK_API_KEY && DOUBLETICK_WEBHOOK_SECRET) ? 'connected' : DOUBLETICK_API_KEY ? 'degraded' : 'disconnected';
+    // DoubleTick — env-var check only, no live API validation
+    var dtStatus = (DOUBLETICK_API_KEY && DOUBLETICK_WEBHOOK_SECRET) ? 'configured' : DOUBLETICK_API_KEY ? 'degraded' : 'disconnected';
     integrations.push({
       key: 'doubletick', name: 'DoubleTick (WhatsApp)', status: dtStatus,
       details: { api_key_configured: !!DOUBLETICK_API_KEY, webhook_secret_configured: !!DOUBLETICK_WEBHOOK_SECRET },
       can_reconnect: false, reconnect_action: null
     });
 
-    // Google Drive
-    var gdStatus = isGoogleDriveConfigured() ? 'connected' : 'disconnected';
+    // Google Drive — env-var check only, no live API validation
+    var gdStatus = isGoogleDriveConfigured() ? 'configured' : 'disconnected';
     integrations.push({
       key: 'google_drive', name: 'Google Drive', status: gdStatus,
       details: { service_account_configured: !!GOOGLE_SERVICE_ACCOUNT_EMAIL, root_folder_configured: !!GOOGLE_DRIVE_ROOT_FOLDER_ID },
