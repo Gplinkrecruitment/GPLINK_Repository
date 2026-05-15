@@ -1193,7 +1193,8 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf'
 };
 
 function isCompressibleType(ext) {
@@ -2380,6 +2381,7 @@ function crossCheckDocumentName(docName, profileName, verifiedNames) {
     const profileMatch = matchNames(docName, profileName);
     if (profileMatch === 'mismatch') return { match: 'mismatch', matchedAgainst: 'profile' };
     if (profileMatch !== 'unknown') return { match: profileMatch, matchedAgainst: 'profile' };
+    return { match: 'unknown', matchedAgainst: 'profile' };
   }
 
   // Check against previously verified document names
@@ -21128,8 +21130,8 @@ Return ONLY valid JSON with no markdown formatting:
       const tokenHash = hashToken(rawToken);
       dbState.passwordResetTokens[tokenHash] = {
         email,
-        createdAt: now(),
-        expiresAt: now() + 20 * 60 * 1000,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 20 * 60 * 1000,
         used: false
       };
       saveDbState();
