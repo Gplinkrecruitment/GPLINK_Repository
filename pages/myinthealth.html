@@ -1442,7 +1442,7 @@
         saveProgress(progress, true);
         syncRouteForStage(progress.stage);
         currentTabKey = activeTabStage(progress);
-        window.location.assign("/pages/amc.html");
+        shellNavigate("/pages/amc.html");
         return;
       }
 
@@ -2198,6 +2198,16 @@
       });
     }
 
+    function shellNavigate(href) {
+      try {
+        if (window.self !== window.top) {
+          window.parent.postMessage({ type: "gp-shell-route", href: href }, window.location.origin);
+          return;
+        }
+      } catch (e) {}
+      window.location.replace(href);
+    }
+
     function redirectToAllowedStage() {
       if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
       const epic = parseStorage(STORAGE_KEY);
@@ -2209,14 +2219,14 @@
 
       if (!epicDone || isRegistrationReturnAllowed("myinthealth")) return false;
       if (!amcDone) {
-        window.location.replace("/pages/amc.html");
+        shellNavigate("/pages/amc.html");
         return true;
       }
       if (!ahpraDone) {
-        window.location.replace("/pages/ahpra.html");
+        shellNavigate("/pages/ahpra.html");
         return true;
       }
-      window.location.replace("/pages/index.html");
+      shellNavigate("/pages/index.html");
       return true;
     }
 

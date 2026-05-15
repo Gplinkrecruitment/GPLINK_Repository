@@ -4161,9 +4161,7 @@
           }
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
           else if (meta.ctaType === "home") {
-            const target = "/pages/index.html";
-            if (window.location.pathname !== target) window.location.assign(target);
-            else window.location.reload();
+            shellNavigate("/pages/index.html");
           }
         });
       }
@@ -4675,6 +4673,16 @@
       });
     }
 
+    function shellNavigate(href) {
+      try {
+        if (window.self !== window.top) {
+          window.parent.postMessage({ type: "gp-shell-route", href: href }, window.location.origin);
+          return;
+        }
+      } catch (e) {}
+      window.location.replace(href);
+    }
+
     function redirectToAllowedStage() {
       if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
       // No longer redirects for missing EPIC/AMC — the placement gate handles messaging.
@@ -4682,7 +4690,7 @@
       const ahpra = parseStorage(STORAGE_KEY);
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.awaiting_outcome === true);
       if (!ahpraDone || isRegistrationReturnAllowed("ahpra")) return false;
-      window.location.replace("/pages/index.html");
+      shellNavigate("/pages/index.html");
       return true;
     }
 

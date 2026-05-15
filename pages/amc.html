@@ -1753,7 +1753,7 @@
           if (meta.ctaType === "open") window.location.assign(AMC_URL);
           else if (meta.ctaType === "open_signup") window.location.assign(AMC_SIGNUP_URL);
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
-          else if (meta.ctaType === "ahpra") window.location.href = "/pages/ahpra.html";
+          else if (meta.ctaType === "ahpra") shellNavigate("/pages/ahpra.html");
         });
       }
 
@@ -2212,6 +2212,16 @@
       });
     }
 
+    function shellNavigate(href) {
+      try {
+        if (window.self !== window.top) {
+          window.parent.postMessage({ type: "gp-shell-route", href: href }, window.location.origin);
+          return;
+        }
+      } catch (e) {}
+      window.location.replace(href);
+    }
+
     function redirectToAllowedStage() {
       if (BYPASS_LOCK_EMAILS[getPageUserEmail()]) return false;
       const epic = parseStorage(EPIC_KEY);
@@ -2221,15 +2231,15 @@
       const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
       if (!epicDone) {
-        window.location.replace("/pages/myinthealth.html");
+        shellNavigate("/pages/myinthealth.html");
         return true;
       }
       if (!amcDone || isRegistrationReturnAllowed("amc")) return false;
       if (!ahpraDone) {
-        window.location.replace("/pages/ahpra.html");
+        shellNavigate("/pages/ahpra.html");
         return true;
       }
-      window.location.replace("/pages/index.html");
+      shellNavigate("/pages/index.html");
       return true;
     }
 
