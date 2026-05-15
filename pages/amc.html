@@ -1200,6 +1200,16 @@
       upload_credentials: "Establishment"
     };
 
+    function getQualLabel() {
+      try {
+        var raw = localStorage.getItem("gp_selected_country");
+        var country = raw ? JSON.parse(raw) : "";
+        if (country === "Ireland") return "MICGP";
+        if (country === "New Zealand") return "FRNZCGP";
+      } catch (e) {}
+      return "MRCGP";
+    }
+
     const stageMeta = {
       create_portfolio: {
         label: "Account",
@@ -1215,8 +1225,8 @@
       upload_credentials: {
         label: "Establishment",
         full: "Establish Your AMC Account",
-        short: "Complete your AMC Candidate Portfolio setup and add your credentials.",
-        doNow: "Establish your AMC Candidate Portfolio and upload your qualifications.",
+        short: "Complete your AMC Candidate Portfolio setup and upload your primary medical degree and " + getQualLabel() + ".",
+        doNow: "Establish your AMC Candidate Portfolio and upload your primary medical degree and " + getQualLabel() + ".",
         time: "10-20 minutes",
         support: "We help ensure your AMC account is established correctly.",
         next: "Once established, proceed to AHPRA registration.",
