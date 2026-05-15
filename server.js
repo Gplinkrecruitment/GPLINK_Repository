@@ -3136,7 +3136,7 @@ async function handleDoubleTickWebhook(req, res) {
       ? [(gpProfile.first_name || ''), (gpProfile.last_name || '')].join(' ').trim()
       : (contactName || '');
 
-    // Check for pending nudges — if GP is replying after a nudge, dismiss it and tag the task
+    // Check for pending nudges — if GP is replying after a nudge, activate the chat and record the reply
     let isNudgeReply = false;
     if (gpProfile && isSupabaseDbConfigured()) {
       const nudgeRes = await supabaseDbRequest(
@@ -3146,15 +3146,19 @@ async function handleDoubleTickWebhook(req, res) {
       const pendingNudges = nudgeRes.ok && Array.isArray(nudgeRes.data) ? nudgeRes.data : [];
       if (pendingNudges.length > 0) {
         isNudgeReply = true;
-        // Dismiss all pending nudges for this GP
+        // Activate all pending nudges as chat threads and insert the WhatsApp reply as a message
         for (const n of pendingNudges) {
           await supabaseDbRequest('user_nudges', 'id=eq.' + encodeURIComponent(n.id), {
             method: 'PATCH',
             headers: { Prefer: 'return=minimal' },
-            body: { status: 'read', read_at: new Date().toISOString() }
+            body: { status: 'active', read_at: new Date().toISOString() }
+          });
+          await supabaseDbRequest('nudge_chat_messages', '', {
+            method: 'POST',
+            body: [{ nudge_id: n.id, sender_type: 'user', sender_email: '', message: messageBody || '(WhatsApp reply)' }]
           });
         }
-        console.log('[doubletick-webhook] Dismissed', pendingNudges.length, 'pending nudge(s) for', gpProfile.user_id);
+        console.log('[doubletick-webhook] Activated', pendingNudges.length, 'nudge chat(s) for', gpProfile.user_id);
       }
     }
 
@@ -23772,23 +23776,6 @@ Return ONLY valid JSON with no markdown formatting:
       if (dtResult && dtResult.ok) channels.push('whatsapp');
     }
 
-    // Send nudge email via Resend
-    if (gpEmail && isEmailConfigured()) {
-      const nudgeReplyUrl = APP_BASE_URL + '/pages/messages.html#tab-action';
-      const emailResult = await sendEmail({
-        to: gpEmail,
-        subject: 'GP Link — ' + title,
-        html: buildCareerEmailHtml({
-          title: title,
-          body: message,
-          ctaText: 'View & Reply',
-          ctaUrl: nudgeReplyUrl,
-          footer: 'This nudge was sent by the GP Link team to help you with your registration. If you have any questions, click the button above to reply directly.'
-        })
-      }).catch(() => ({ ok: false }));
-      if (emailResult && emailResult.ok) channels.push('email');
-    }
-
     const insertRes = await supabaseDbRequest('user_nudges', '', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
@@ -23801,12 +23788,42 @@ Return ONLY valid JSON with no markdown formatting:
         message: message,
         whatsapp_number: HAZEL_WHATSAPP_NUMBER,
         delivered_channels: channels,
-        status: 'pending',
+        status: 'active',
         created_by: adminCtx.email
       }]
     });
     const nudge = insertRes.ok && Array.isArray(insertRes.data) && insertRes.data[0] ? insertRes.data[0] : null;
     if (!nudge) { sendJson(res, 502, { ok: false, message: 'Failed to create nudge.' }); return; }
+
+    // Create the initial chat message from admin
+    if (nudge && nudge.id) {
+      await supabaseDbRequest('nudge_chat_messages', '', {
+        method: 'POST',
+        body: [{ nudge_id: nudge.id, sender_type: 'admin', sender_email: adminCtx.email, message: message }]
+      });
+    }
+
+    // Send nudge email via Resend (uses nudge ID for direct chat link)
+    if (gpEmail && isEmailConfigured()) {
+      const nudgeReplyUrl = APP_BASE_URL + '/pages/messages.html#chat-' + encodeURIComponent(nudge.id);
+      const emailResult = await sendEmail({
+        to: gpEmail,
+        subject: 'GP Link — ' + title,
+        html: buildCareerEmailHtml({
+          title: title,
+          body: message,
+          ctaText: 'View & Reply',
+          ctaUrl: nudgeReplyUrl,
+          footer: 'This nudge was sent by the GP Link team to help you with your registration. If you have any questions, click the button above to reply directly.'
+        })
+      }).catch(() => ({ ok: false }));
+      if (emailResult && emailResult.ok) {
+        channels.push('email');
+        await supabaseDbRequest('user_nudges', 'id=eq.' + encodeURIComponent(nudge.id), {
+          method: 'PATCH', body: { delivered_channels: channels }
+        });
+      }
+    }
     // Log to case timeline
     const channelLabel = channels.filter(c => c !== 'in_app').length > 0
       ? ' (' + channels.join(' + ') + ')'
@@ -23816,6 +23833,142 @@ Return ONLY valid JSON with no markdown formatting:
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(regCase.id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
     }
     sendJson(res, 200, { ok: true, nudge: nudge, whatsapp_link: whatsappLink, whatsapp_sent: channels.includes('whatsapp'), email_sent: channels.includes('email') });
+    return;
+  }
+
+  // ── Admin: list all active+closed nudge chat threads ──
+  if (pathname === '/api/admin/va/nudge-chats' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const nRes = await supabaseDbRequest('user_nudges',
+      'select=*&status=in.(active,closed)&order=created_at.desc&limit=100');
+    const chats = nRes.ok && Array.isArray(nRes.data) ? nRes.data : [];
+    // Batch-lookup GP names from user_profiles
+    const userIds = [...new Set(chats.map(c => c.user_id).filter(Boolean))];
+    const profileMap = {};
+    if (userIds.length > 0) {
+      const pRes = await supabaseDbRequest('user_profiles',
+        'select=user_id,first_name,last_name,email&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      if (pRes.ok && Array.isArray(pRes.data)) {
+        for (const p of pRes.data) { profileMap[p.user_id] = p; }
+      }
+    }
+    // Enrich each chat with last_message + unread_count + gp_name
+    for (const chat of chats) {
+      const prof = profileMap[chat.user_id] || {};
+      chat.gp_name = [(prof.first_name || ''), (prof.last_name || '')].join(' ').trim() || prof.email || '';
+      chat.gp_email = prof.email || '';
+      // Last message
+      const lmRes = await supabaseDbRequest('nudge_chat_messages',
+        'select=*&nudge_id=eq.' + encodeURIComponent(chat.id) + '&order=created_at.desc&limit=1');
+      chat.last_message = lmRes.ok && Array.isArray(lmRes.data) && lmRes.data[0] ? lmRes.data[0] : null;
+      // Unread count: user messages after last admin message
+      let unread = 0;
+      const allMsgs = await supabaseDbRequest('nudge_chat_messages',
+        'select=sender_type,created_at&nudge_id=eq.' + encodeURIComponent(chat.id) + '&order=created_at.asc');
+      if (allMsgs.ok && Array.isArray(allMsgs.data)) {
+        let lastAdminTime = null;
+        for (const m of allMsgs.data) {
+          if (m.sender_type === 'admin') lastAdminTime = m.created_at;
+        }
+        for (const m of allMsgs.data) {
+          if (m.sender_type === 'user' && (!lastAdminTime || m.created_at > lastAdminTime)) unread++;
+        }
+      }
+      chat.unread_count = unread;
+    }
+    sendJson(res, 200, { ok: true, chats: chats });
+    return;
+  }
+
+  // ── Admin: get specific nudge chat thread with all messages ──
+  const adminChatDetailMatch = pathname.match(/^\/api\/admin\/va\/nudge-chats\/([^/]+)$/);
+  if (adminChatDetailMatch && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const chatId = decodeURIComponent(adminChatDetailMatch[1] || '');
+    const nRes = await supabaseDbRequest('user_nudges', 'select=*&id=eq.' + encodeURIComponent(chatId) + '&limit=1');
+    const chat = nRes.ok && Array.isArray(nRes.data) && nRes.data[0] ? nRes.data[0] : null;
+    if (!chat) { sendJson(res, 404, { ok: false, message: 'Chat not found.' }); return; }
+    // GP profile
+    const pRes = await supabaseDbRequest('user_profiles',
+      'select=user_id,first_name,last_name,email&user_id=eq.' + encodeURIComponent(chat.user_id) + '&limit=1');
+    const profile = pRes.ok && Array.isArray(pRes.data) && pRes.data[0] ? pRes.data[0] : {};
+    chat.gp_name = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || profile.email || '';
+    chat.gp_email = profile.email || '';
+    // All messages
+    const mRes = await supabaseDbRequest('nudge_chat_messages',
+      'select=*&nudge_id=eq.' + encodeURIComponent(chatId) + '&order=created_at.asc');
+    const messages = mRes.ok && Array.isArray(mRes.data) ? mRes.data : [];
+    sendJson(res, 200, { ok: true, chat: chat, messages: messages });
+    return;
+  }
+
+  // ── Admin: reply to a nudge chat ──
+  const adminChatReplyMatch = pathname.match(/^\/api\/admin\/va\/nudge-chats\/([^/]+)\/reply$/);
+  if (adminChatReplyMatch && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const chatId = decodeURIComponent(adminChatReplyMatch[1] || '');
+    const replyMessage = sanitizeUserString(body && body.message, 2000);
+    if (!replyMessage) { sendJson(res, 400, { ok: false, message: 'message required.' }); return; }
+    // Fetch nudge
+    const nRes = await supabaseDbRequest('user_nudges', 'select=*&id=eq.' + encodeURIComponent(chatId) + '&limit=1');
+    const chat = nRes.ok && Array.isArray(nRes.data) && nRes.data[0] ? nRes.data[0] : null;
+    if (!chat) { sendJson(res, 404, { ok: false, message: 'Chat not found.' }); return; }
+    // If chat was closed, reopen it
+    if (chat.status === 'closed') {
+      await supabaseDbRequest('user_nudges', 'id=eq.' + encodeURIComponent(chatId), {
+        method: 'PATCH', body: { status: 'active' }
+      });
+    }
+    // Insert message
+    const msgRes = await supabaseDbRequest('nudge_chat_messages', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [{ nudge_id: chatId, sender_type: 'admin', sender_email: adminCtx.email, message: replyMessage }]
+    });
+    const msg = msgRes.ok && Array.isArray(msgRes.data) && msgRes.data[0] ? msgRes.data[0] : null;
+    // Send email notification to GP
+    const pRes = await supabaseDbRequest('user_profiles',
+      'select=email,first_name&user_id=eq.' + encodeURIComponent(chat.user_id) + '&limit=1');
+    const gpProf = pRes.ok && Array.isArray(pRes.data) && pRes.data[0] ? pRes.data[0] : {};
+    if (gpProf.email && isEmailConfigured()) {
+      const chatReplyUrl = APP_BASE_URL + '/pages/messages.html#chat-' + encodeURIComponent(chatId);
+      await sendEmail({
+        to: gpProf.email,
+        subject: 'GP Link — New message from your registration team',
+        html: buildCareerEmailHtml({
+          title: 'New message about: ' + (chat.title || 'Your registration'),
+          body: replyMessage,
+          ctaText: 'View & Reply',
+          ctaUrl: chatReplyUrl,
+          footer: 'This message was sent by the GP Link team. Click the button above to reply.'
+        })
+      }).catch(() => null);
+    }
+    sendJson(res, 200, { ok: true, message: msg });
+    return;
+  }
+
+  // ── Admin: close a nudge chat ──
+  const adminChatCloseMatch = pathname.match(/^\/api\/admin\/va\/nudge-chats\/([^/]+)\/close$/);
+  if (adminChatCloseMatch && req.method === 'PUT') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const chatId = decodeURIComponent(adminChatCloseMatch[1] || '');
+    const patchRes = await supabaseDbRequest('user_nudges', 'id=eq.' + encodeURIComponent(chatId), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: { status: 'closed' }
+    });
+    const updated = patchRes.ok && Array.isArray(patchRes.data) && patchRes.data[0] ? patchRes.data[0] : null;
+    sendJson(res, 200, { ok: true, chat: updated });
     return;
   }
 
@@ -24956,6 +25109,96 @@ Return ONLY valid JSON with no markdown formatting:
       'id=eq.' + encodeURIComponent(id),
       { method: 'PATCH', body: { resolved_at: new Date().toISOString(), resolved_by: adminUserId } });
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  // ══════ User-facing nudge chat endpoints ══════
+
+  // ── List my active+closed nudge chats with last message preview ──
+  if (pathname === '/api/user/nudge-chats' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 200, { ok: true, chats: [] }); return; }
+    const email = getSessionEmail(session);
+    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    if (!userId) { sendJson(res, 200, { ok: true, chats: [] }); return; }
+    const nRes = await supabaseDbRequest('user_nudges',
+      'select=*&status=in.(active,closed)&user_id=eq.' + encodeURIComponent(userId) + '&order=created_at.desc&limit=50');
+    const chats = nRes.ok && Array.isArray(nRes.data) ? nRes.data : [];
+    for (const chat of chats) {
+      // Last message
+      const lmRes = await supabaseDbRequest('nudge_chat_messages',
+        'select=*&nudge_id=eq.' + encodeURIComponent(chat.id) + '&order=created_at.desc&limit=1');
+      chat.last_message = lmRes.ok && Array.isArray(lmRes.data) && lmRes.data[0] ? lmRes.data[0] : null;
+      // Unread count: admin messages after user's last message
+      let unread = 0;
+      const allMsgs = await supabaseDbRequest('nudge_chat_messages',
+        'select=sender_type,created_at&nudge_id=eq.' + encodeURIComponent(chat.id) + '&order=created_at.asc');
+      if (allMsgs.ok && Array.isArray(allMsgs.data)) {
+        let lastUserTime = null;
+        for (const m of allMsgs.data) {
+          if (m.sender_type === 'user') lastUserTime = m.created_at;
+        }
+        for (const m of allMsgs.data) {
+          if (m.sender_type === 'admin' && (!lastUserTime || m.created_at > lastUserTime)) unread++;
+        }
+      }
+      chat.unread_count = unread;
+    }
+    sendJson(res, 200, { ok: true, chats: chats });
+    return;
+  }
+
+  // ── Get specific nudge chat with all messages ──
+  const userChatDetailMatch = pathname.match(/^\/api\/user\/nudge-chats\/([^/]+)$/);
+  if (userChatDetailMatch && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 404, { ok: false, message: 'Not found.' }); return; }
+    const email = getSessionEmail(session);
+    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    if (!userId) { sendJson(res, 400, { ok: false }); return; }
+    const chatId = decodeURIComponent(userChatDetailMatch[1] || '');
+    // Verify nudge belongs to this user
+    const nRes = await supabaseDbRequest('user_nudges',
+      'select=*&id=eq.' + encodeURIComponent(chatId) + '&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const chat = nRes.ok && Array.isArray(nRes.data) && nRes.data[0] ? nRes.data[0] : null;
+    if (!chat) { sendJson(res, 404, { ok: false, message: 'Chat not found.' }); return; }
+    // All messages
+    const mRes = await supabaseDbRequest('nudge_chat_messages',
+      'select=*&nudge_id=eq.' + encodeURIComponent(chatId) + '&order=created_at.asc');
+    const messages = mRes.ok && Array.isArray(mRes.data) ? mRes.data : [];
+    sendJson(res, 200, { ok: true, chat: chat, messages: messages });
+    return;
+  }
+
+  // ── User replies to a nudge chat ──
+  const userChatReplyMatch = pathname.match(/^\/api\/user\/nudge-chats\/([^/]+)\/reply$/);
+  if (userChatReplyMatch && req.method === 'POST') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const email = getSessionEmail(session);
+    const userId = email ? await getSupabaseUserIdByEmail(email) : null;
+    if (!userId) { sendJson(res, 400, { ok: false }); return; }
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const chatId = decodeURIComponent(userChatReplyMatch[1] || '');
+    const replyMessage = sanitizeUserString(body && body.message, 2000);
+    if (!replyMessage) { sendJson(res, 400, { ok: false, message: 'message required.' }); return; }
+    // Verify chat belongs to user and is not closed
+    const nRes = await supabaseDbRequest('user_nudges',
+      'select=*&id=eq.' + encodeURIComponent(chatId) + '&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const chat = nRes.ok && Array.isArray(nRes.data) && nRes.data[0] ? nRes.data[0] : null;
+    if (!chat) { sendJson(res, 404, { ok: false, message: 'Chat not found.' }); return; }
+    if (chat.status === 'closed') { sendJson(res, 400, { ok: false, message: 'This conversation has been closed.' }); return; }
+    // Insert message
+    const msgRes = await supabaseDbRequest('nudge_chat_messages', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: [{ nudge_id: chatId, sender_type: 'user', sender_email: email, message: replyMessage }]
+    });
+    const msg = msgRes.ok && Array.isArray(msgRes.data) && msgRes.data[0] ? msgRes.data[0] : null;
+    sendJson(res, 200, { ok: true, message: msg });
     return;
   }
 
