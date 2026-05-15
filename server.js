@@ -27945,12 +27945,76 @@ Return ONLY valid JSON with no markdown formatting:
       can_reconnect: true, reconnect_action: 'setup_watch'
     });
 
-    // Zoho Recruit
-    var zrStatus = 'disconnected';
-    if (zrConn && zrConn.status === 'active') zrStatus = 'connected';
-    else if (zrConn) zrStatus = 'degraded';
-    var roleCountRes = await supabaseDbRequest('career_roles', 'select=id&is_active=eq.true&limit=500');
+    // ── LIVE HEALTH CHECKS (all in parallel, 5s timeout each) ──
+    async function pingWithTimeout(fn, timeoutMs) {
+      var start = Date.now();
+      try {
+        var ctrl = new AbortController();
+        var timer = setTimeout(function () { ctrl.abort(); }, timeoutMs || 5000);
+        var result = await fn(ctrl.signal);
+        clearTimeout(timer);
+        return { ok: true, ms: Date.now() - start, error: null, extra: result || {} };
+      } catch (err) {
+        return { ok: false, ms: Date.now() - start, error: String(err && err.message || err).slice(0, 200), extra: {} };
+      }
+    }
+
+    var [roleCountRes, zrPing, zsPing, aiPing, dtPing, gdPing] = await Promise.all([
+      supabaseDbRequest('career_roles', 'select=id&is_active=eq.true&limit=500'),
+
+      // Zoho Recruit: try token refresh + live API call
+      zrConn && zrConn.refreshToken ? pingWithTimeout(async function () {
+        var zoho = await getZohoRecruitAccessTokenAndDomain();
+        if (!zoho || !zoho.accessToken) throw new Error('Token refresh failed');
+        var test = await zohoRecruitApiGet(zoho.apiDomain, 'JobOpenings', zoho.accessToken, { per_page: 1 });
+        if (!test.ok) throw new Error('API call failed: ' + (test.status || 'unknown'));
+        return { token_refreshed: true };
+      }) : Promise.resolve({ ok: false, ms: 0, error: 'No refresh token', extra: {} }),
+
+      // Zoho Sign: try token refresh + live API call
+      zsConn && zsConn.refreshToken ? pingWithTimeout(async function () {
+        var zsValid = await getValidZohoSignAccessToken();
+        if (!zsValid.ok) throw new Error('Token refresh failed');
+        return { token_expires_at: zsValid.connection ? zsValid.connection.tokenExpiresAt : null };
+      }) : Promise.resolve({ ok: false, ms: 0, error: 'No refresh token', extra: {} }),
+
+      // Anthropic AI: verify API key with models endpoint
+      ANTHROPIC_API_KEY ? pingWithTimeout(async function (signal) {
+        var r = await fetch('https://api.anthropic.com/v1/models?limit=1', {
+          method: 'GET', signal: signal,
+          headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' }
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return {};
+      }) : Promise.resolve({ ok: false, ms: 0, error: 'No API key', extra: {} }),
+
+      // DoubleTick: verify API key with a read-only call
+      DOUBLETICK_API_KEY ? pingWithTimeout(async function (signal) {
+        var r = await fetch(DOUBLETICK_BASE_URL + '/me', {
+          method: 'GET', signal: signal,
+          headers: { 'Authorization': DOUBLETICK_API_KEY, 'Content-Type': 'application/json' }
+        });
+        if (r.status === 401 || r.status === 403) throw new Error('Invalid API key (HTTP ' + r.status + ')');
+        return {};
+      }) : Promise.resolve({ ok: false, ms: 0, error: 'No API key', extra: {} }),
+
+      // Google Drive: verify service account can access root folder
+      isGoogleDriveConfigured() ? pingWithTimeout(async function () {
+        var drive = await getGoogleDriveClient();
+        if (!drive) throw new Error('Drive client init failed');
+        var res = await drive.files.get({ fileId: GOOGLE_DRIVE_ROOT_FOLDER_ID, fields: 'id,name' });
+        return { root_folder_name: res.data ? res.data.name : null };
+      }) : Promise.resolve({ ok: false, ms: 0, error: 'Not configured', extra: {} })
+    ]);
+
     var roleCount = roleCountRes.ok && Array.isArray(roleCountRes.data) ? roleCountRes.data.length : 0;
+
+    // Zoho Recruit — live-verified
+    var zrStatus = 'disconnected';
+    if (zrConn && zrPing.ok) zrStatus = 'connected';
+    else if (zrConn) zrStatus = 'degraded';
+    // Re-read connection after potential token refresh
+    if (zrPing.ok && zrConn) { var zrRefreshed = await getZohoRecruitConnection(); if (zrRefreshed) zrConn = zrRefreshed; }
     integrations.push({
       key: 'zoho_recruit', name: 'Zoho Recruit', status: zrStatus,
       details: {
@@ -27959,17 +28023,18 @@ Return ONLY valid JSON with no markdown formatting:
         last_sync_status: zrConn ? zrConn.lastSyncStatus : null,
         last_sync_error: zrConn ? zrConn.lastSyncError : null,
         role_count: roleCount,
-        needs_reconnect: zrConn ? !!zrConn.needsReconnect : true
+        needs_reconnect: zrConn ? !!zrConn.needsReconnect : true,
+        ping_ok: zrPing.ok, ping_ms: zrPing.ms, ping_error: zrPing.error
       },
       can_reconnect: true, reconnect_action: 'oauth_redirect'
     });
 
-    // Zoho Sign
+    // Zoho Sign — live-verified
     var zsStatus = 'disconnected';
-    if (zsConn && zsConn.refreshToken && zsConn.status !== 'error') {
-      var zsTokenExpMs = zsConn.tokenExpiresAt ? Date.parse(zsConn.tokenExpiresAt) : 0;
-      zsStatus = (zsTokenExpMs && zsTokenExpMs > Date.now()) ? 'connected' : 'degraded';
-    } else if (zsConn) { zsStatus = 'degraded'; }
+    if (zsConn && zsPing.ok) zsStatus = 'connected';
+    else if (zsConn) zsStatus = 'degraded';
+    // Re-read connection after potential token refresh
+    if (zsPing.ok && zsConn) { var zsRefreshed = await getZohoSignConnection(); if (zsRefreshed) zsConn = zsRefreshed; }
     integrations.push({
       key: 'zoho_sign', name: 'Zoho Sign', status: zsStatus,
       details: {
@@ -27977,12 +28042,13 @@ Return ONLY valid JSON with no markdown formatting:
         org_name: zsConn ? zsConn.orgName : null,
         token_expires_at: zsConn ? zsConn.tokenExpiresAt : null,
         webhook_registered: zsConn ? !!zsConn.webhookSecret : false,
-        template_configured: zsConn ? !!zsConn.templateId : false
+        template_configured: zsConn ? !!zsConn.templateId : false,
+        ping_ok: zsPing.ok, ping_ms: zsPing.ms, ping_error: zsPing.error
       },
       can_reconnect: true, reconnect_action: 'oauth_redirect'
     });
 
-    // Supabase
+    // Supabase — already live-verified
     var sbPingOk = false;
     var sbPingMs = 0;
     var sbStart = Date.now();
@@ -27995,29 +28061,36 @@ Return ONLY valid JSON with no markdown formatting:
       can_reconnect: false, reconnect_action: null
     });
 
-    // Anthropic AI — env-var check only, no live API validation
-    var aiStatus = ANTHROPIC_API_KEY ? 'configured' : 'disconnected';
+    // Anthropic AI — live-verified via /v1/models
+    var aiStatus = 'disconnected';
+    if (aiPing.ok) aiStatus = 'connected';
+    else if (ANTHROPIC_API_KEY) aiStatus = 'degraded';
     var budgetPct = ANTHROPIC_DAILY_LIMIT_USD > 0 ? Math.round((1 - anthropicDailySpend.totalCostUsd / ANTHROPIC_DAILY_LIMIT_USD) * 1000) / 10 : 100;
-    if (budgetPct < 10 && aiStatus === 'configured') aiStatus = 'degraded';
+    if (budgetPct < 10 && aiStatus === 'connected') aiStatus = 'degraded';
     integrations.push({
       key: 'anthropic', name: 'Anthropic AI', status: aiStatus,
-      details: { api_key_configured: !!ANTHROPIC_API_KEY, daily_spend_usd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, daily_limit_usd: ANTHROPIC_DAILY_LIMIT_USD, daily_call_count: anthropicDailySpend.callCount, budget_remaining_pct: budgetPct },
+      details: { api_key_configured: !!ANTHROPIC_API_KEY, daily_spend_usd: Math.round(anthropicDailySpend.totalCostUsd * 100) / 100, daily_limit_usd: ANTHROPIC_DAILY_LIMIT_USD, daily_call_count: anthropicDailySpend.callCount, budget_remaining_pct: budgetPct, ping_ok: aiPing.ok, ping_ms: aiPing.ms, ping_error: aiPing.error },
       can_reconnect: false, reconnect_action: null
     });
 
-    // DoubleTick — env-var check only, no live API validation
-    var dtStatus = (DOUBLETICK_API_KEY && DOUBLETICK_WEBHOOK_SECRET) ? 'configured' : DOUBLETICK_API_KEY ? 'degraded' : 'disconnected';
+    // DoubleTick — live-verified via /me
+    var dtStatus = 'disconnected';
+    if (dtPing.ok && DOUBLETICK_WEBHOOK_SECRET) dtStatus = 'connected';
+    else if (dtPing.ok) dtStatus = 'degraded';
+    else if (DOUBLETICK_API_KEY) dtStatus = 'degraded';
     integrations.push({
       key: 'doubletick', name: 'DoubleTick (WhatsApp)', status: dtStatus,
-      details: { api_key_configured: !!DOUBLETICK_API_KEY, webhook_secret_configured: !!DOUBLETICK_WEBHOOK_SECRET },
+      details: { api_key_configured: !!DOUBLETICK_API_KEY, webhook_secret_configured: !!DOUBLETICK_WEBHOOK_SECRET, ping_ok: dtPing.ok, ping_ms: dtPing.ms, ping_error: dtPing.error },
       can_reconnect: false, reconnect_action: null
     });
 
-    // Google Drive — env-var check only, no live API validation
-    var gdStatus = isGoogleDriveConfigured() ? 'configured' : 'disconnected';
+    // Google Drive — live-verified via files.get on root folder
+    var gdStatus = 'disconnected';
+    if (gdPing.ok) gdStatus = 'connected';
+    else if (isGoogleDriveConfigured()) gdStatus = 'degraded';
     integrations.push({
       key: 'google_drive', name: 'Google Drive', status: gdStatus,
-      details: { service_account_configured: !!GOOGLE_SERVICE_ACCOUNT_EMAIL, root_folder_configured: !!GOOGLE_DRIVE_ROOT_FOLDER_ID },
+      details: { service_account_configured: !!GOOGLE_SERVICE_ACCOUNT_EMAIL, root_folder_configured: !!GOOGLE_DRIVE_ROOT_FOLDER_ID, root_folder_name: gdPing.extra.root_folder_name || null, ping_ok: gdPing.ok, ping_ms: gdPing.ms, ping_error: gdPing.error },
       can_reconnect: false, reconnect_action: null
     });
 
