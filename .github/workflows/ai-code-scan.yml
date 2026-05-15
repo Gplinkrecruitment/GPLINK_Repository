@@ -80,7 +80,7 @@ jobs:
 
 $CONTENT
 
-Return a JSON array of findings. Each finding: {\"severity\":\"critical|high|medium|low\",\"category\":\"security|reliability\",\"line\":123,\"title\":\"Short title\",\"description\":\"Detailed description\",\"suggestion\":\"How to fix\"}. Return [] if no issues. Only flag real issues — no false positives, no style/formatting issues."
+Return a JSON array of findings. Each finding: {\"severity\":\"critical|high|medium|low\",\"category\":\"security|reliability\",\"line\":123,\"title\":\"Short title\",\"description\":\"Detailed description\",\"suggestion\":\"How to fix\"}. Return [] if no issues. Only flag real issues - no false positives, no style/formatting issues."
 
             RESPONSE=$(curl -s -X POST https://api.anthropic.com/v1/messages \
               -H "Content-Type: application/json" \
@@ -89,7 +89,7 @@ Return a JSON array of findings. Each finding: {\"severity\":\"critical|high|med
               -d "{
                 \"model\": \"claude-sonnet-4-20250514\",
                 \"max_tokens\": 4096,
-                \"system\": \"You are a security and reliability auditor for a production Node.js web app handling GP doctor registration for migration to Australia. Analyze for: SECURITY (injection, auth bypass, exposed secrets, unsafe input, CSRF, insecure sessions) and RELIABILITY (unhandled rejections, silent error swallowing, missing null checks, race conditions, data loss). Do NOT flag: code style, missing types, performance, test coverage, docs. Return ONLY a JSON array of findings. Be precise — no false positives.\",
+                \"system\": \"You are a security and reliability auditor for a production Node.js web app handling GP doctor registration for migration to Australia. Analyze for: SECURITY (injection, auth bypass, exposed secrets, unsafe input, CSRF, insecure sessions) and RELIABILITY (unhandled rejections, silent error swallowing, missing null checks, race conditions, data loss). Do NOT flag: code style, missing types, performance, test coverage, docs. Return ONLY a JSON array of findings. Be precise - no false positives.\",
                 \"messages\": [{\"role\": \"user\", \"content\": $(echo "$PROMPT" | jq -Rs .)}]
               }" 2>/dev/null)
 
