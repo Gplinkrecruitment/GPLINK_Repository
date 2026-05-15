@@ -4755,10 +4755,72 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(d.email_sent)parts.push("Email");
           toast("Nudge sent via "+parts.join(" + "));
           closeModal();
+          if(d.nudge&&d.nudge.id){setTimeout(function(){openNudgeChatModal(d.nudge.id);},400);}
         }
         else{toast((d&&d.message)||"Failed to send nudge","red");}
       }catch{toast("Network error","red");}
     };
+  }
+
+  async function openNudgeChatModal(chatId){
+    document.getElementById("modalTitle").textContent="Nudge Chat";
+    document.getElementById("modalBody").innerHTML='<div style="text-align:center;padding:20px;color:#64748b">Loading...</div>';
+    document.getElementById("modalOverlay").classList.add("open");
+    try{
+      const r=await fetch("/api/admin/va/nudge-chats/"+encodeURIComponent(chatId),{credentials:"same-origin"});
+      const d=await r.json();
+      if(!d||!d.ok){document.getElementById("modalBody").innerHTML='<div style="color:#ef4444;padding:20px">Failed to load chat.</div>';return;}
+      const chat=d.chat;
+      const msgs=d.messages||[];
+      document.getElementById("modalTitle").textContent="Chat with "+(chat.gp_name||"GP")+(chat.status==="closed"?" (Closed)":"");
+      let html='<div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;padding:4px 0" id="adminChatThread">';
+      msgs.forEach(function(m){
+        const isAdmin=m.sender_type==="admin";
+        html+='<div style="padding:8px 12px;border-radius:10px;max-width:85%;'
+          +(isAdmin?'background:#eff6ff;align-self:flex-end;margin-left:auto;border-bottom-right-radius:3px;':'background:#f1f5f9;align-self:flex-start;border-bottom-left-radius:3px;')
+          +'">';
+        html+='<div style="font-size:10px;font-weight:700;color:'+(isAdmin?'#1d4ed8':'#7c3aed')+'">'+(isAdmin?'You (Admin)':'GP')+'</div>';
+        html+='<div style="font-size:12px;line-height:1.4;margin:2px 0;white-space:pre-wrap">'+esc(m.message||"")+'</div>';
+        html+='<div style="font-size:10px;color:#64748b">'+new Date(m.created_at||Date.now()).toLocaleString()+'</div>';
+        html+='</div>';
+      });
+      html+='</div>';
+      html+='<textarea id="adminChatReplyInput" class="textarea" placeholder="Type your reply..." style="margin-top:8px"></textarea>';
+      html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">';
+      html+='<button class="btn primary" id="adminChatSendBtn">Send Reply</button>';
+      if(chat.status!=="closed"){
+        html+='<button class="btn amber" id="adminChatCloseBtn">Close Chat</button>';
+      }else{
+        html+='<span style="font-size:12px;color:#64748b;align-self:center">Chat is closed. Sending a reply will reopen it.</span>';
+      }
+      html+='<button class="btn" data-close-modal>Cancel</button>';
+      html+='</div>';
+      document.getElementById("modalBody").innerHTML=html;
+      var threadEl=document.getElementById("adminChatThread");
+      if(threadEl)threadEl.scrollTop=threadEl.scrollHeight;
+      document.getElementById("adminChatSendBtn").addEventListener("click",async function(){
+        var txt=(document.getElementById("adminChatReplyInput").value||"").trim();
+        if(!txt)return;
+        var btn=document.getElementById("adminChatSendBtn");
+        btn.disabled=true;btn.textContent="Sending...";
+        try{
+          await fetch("/api/admin/va/nudge-chats/"+encodeURIComponent(chatId)+"/reply",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:txt})});
+          toast("Reply sent");
+          await openNudgeChatModal(chatId);
+        }catch{toast("Failed to send","red");btn.disabled=false;btn.textContent="Send Reply";}
+      });
+      var closeBtn=document.getElementById("adminChatCloseBtn");
+      if(closeBtn){
+        closeBtn.addEventListener("click",async function(){
+          closeBtn.disabled=true;
+          try{
+            await fetch("/api/admin/va/nudge-chats/"+encodeURIComponent(chatId)+"/close",{method:"PUT",credentials:"same-origin"});
+            toast("Chat closed");
+            closeModal();
+          }catch{toast("Failed to close","red");closeBtn.disabled=false;}
+        });
+      }
+    }catch{document.getElementById("modalBody").innerHTML='<div style="color:#ef4444;padding:20px">Network error.</div>';}
   }
 
   function runGlobalSearch(q){
