@@ -1633,7 +1633,13 @@
         method: 'POST',
         body: { user_id: userId, message: msg || undefined }
       }).then(function(d) {
-        if (d.ok) { showToast('Nudge sent', 'success'); closeModal(); }
+        if (d.ok) {
+          var parts = ['In-app'];
+          if (d.whatsapp_sent) parts.push('WhatsApp');
+          if (d.email_sent) parts.push('Email');
+          showToast('Nudge sent via ' + parts.join(' + '), 'success');
+          closeModal();
+        }
         else { showToast('Failed: ' + (d.message || ''), 'error'); btn.disabled = false; }
       }).catch(function(e) { showToast('Error: ' + e.message, 'error'); btn.disabled = false; });
     }

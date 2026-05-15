@@ -4749,7 +4749,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       try{
         const r=await fetch("/api/admin/va/nudge",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({user_id:userId,stage:stageV,substage:substageV,message:messageV})});
         const d=await r.json().catch(()=>({}));
-        if(d&&d.ok){toast("Nudge sent");closeModal();}
+        if(d&&d.ok){
+          const parts=["In-app"];
+          if(d.whatsapp_sent)parts.push("WhatsApp");
+          if(d.email_sent)parts.push("Email");
+          toast("Nudge sent via "+parts.join(" + "));
+          closeModal();
+        }
         else{toast((d&&d.message)||"Failed to send nudge","red");}
       }catch{toast("Network error","red");}
     };
