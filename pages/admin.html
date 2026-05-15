@@ -5154,8 +5154,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     el.innerHTML='<div style="padding:24px;color:#999;">Loading integrations...</div>';
     try{
       var r=await fetch("/api/ceo/integrations",{credentials:"same-origin"});
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin.html" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
       var d=await r.json();
-      if(!d.ok||!d.integrations){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load integrations.</div>';return;}
+      if(!d.ok||!d.integrations){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load integrations: '+(d.message||'Unknown error')+'</div>';return;}
       var html='<div class="tech-cards">';
       for(var i=0;i<d.integrations.length;i++){
         var int=d.integrations[i];
@@ -5187,8 +5188,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     el.innerHTML='<div style="padding:24px;color:#999;">Loading system bugs...</div>';
     try{
       var r=await fetch("/api/ceo/technical/system-bugs?status="+encodeURIComponent(status),{credentials:"same-origin"});
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin.html" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
       var d=await r.json();
-      if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load.</div>';return;}
+      if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load: '+(d.message||'Unknown error')+'</div>';return;}
       var s=d.summary||{};
       var html='<div class="tech-summary-strip"><b>'+s.open+'</b> open &nbsp; <b>'+s.acknowledged+'</b> acknowledged &nbsp; <b>'+(s.critical||0)+'</b> critical &nbsp; <b>'+(s.high||0)+'</b> high</div>';
       html+='<div class="tech-filter-bar">';
@@ -5226,8 +5228,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     el.innerHTML='<div style="padding:24px;color:#999;">Loading user bugs...</div>';
     try{
       var r=await fetch("/api/ceo/technical/client-errors?status="+encodeURIComponent(status),{credentials:"same-origin"});
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin.html" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
       var d=await r.json();
-      if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load.</div>';return;}
+      if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load: '+(d.message||'Unknown error')+'</div>';return;}
       var s=d.summary||{};
       var html='<div class="tech-summary-strip"><b>'+s.open+'</b> open &nbsp; <b>'+s.investigating+'</b> investigating &nbsp; <b>'+(s.total_occurrences_24h||0)+'</b> occurrences (24h)</div>';
       html+='<div class="tech-filter-bar">';
