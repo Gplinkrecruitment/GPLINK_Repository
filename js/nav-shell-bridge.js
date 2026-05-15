@@ -7,6 +7,7 @@
   var EMBED_PARAM = "gp_shell";
   var EMBED_VALUE = "embedded";
   var EMBED_STYLE_ID = "gp-shell-embedded-style";
+  var EMBEDDED_CHROME_HIDE_CSS = "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav,html.gp-shell-embedded .nav-menu,html.gp-shell-embedded .brand-logo{display:none!important;}";
   var PAGE_PATHS = {
     "/pages/index.html": true,
     "/pages/myinthealth.html": true,
@@ -88,7 +89,7 @@
     var bottomClearance = getParentMobileNavClearance();
     style.textContent = [
       ":root{--gp-shell-bottom-clearance:" + bottomClearance + "px;}",
-      "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav{display:none!important;}",
+      EMBEDDED_CHROME_HIDE_CSS,
       "html.gp-shell-embedded .dash-wrap{padding-bottom:32px!important;}",
       "html.gp-shell-embedded body{margin:0!important;overflow-x:hidden;padding-bottom:" + bottomClearance + "px!important;}"
     ].join("");

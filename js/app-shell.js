@@ -38,7 +38,10 @@
     "/pages/account.html": true,
     "/pages/registration-intro.html": true,
     "/pages/application-detail.html": true,
-    "/pages/job.html": true
+    "/pages/job.html": true,
+    "/pages/interview-prep.html": true,
+    "/pages/offer-review.html": true,
+    "/pages/area-guide.html": true
   };
   var NAV_GROUPS = {
     "/pages/index.html": { desktop: "home", mobile: "/pages/index.html" },
@@ -53,6 +56,9 @@
     "/pages/career.html": { desktop: "career", mobile: "/pages/career.html" },
     "/pages/application-detail.html": { desktop: "career", mobile: "/pages/career.html" },
     "/pages/job.html": { desktop: "career", mobile: "/pages/career.html" },
+    "/pages/interview-prep.html": { desktop: "career", mobile: "/pages/career.html" },
+    "/pages/offer-review.html": { desktop: "career", mobile: "/pages/career.html" },
+    "/pages/area-guide.html": { desktop: "career", mobile: "/pages/career.html" },
     "/pages/messages.html": { desktop: "support", mobile: "/pages/messages.html" },
     "/pages/account.html": { desktop: "account", mobile: "/pages/account.html" }
   };
@@ -95,6 +101,7 @@
   var mobileSheetStartY = 0;
   var mobileSheetDeltaY = 0;
   var mobileSheetDragging = false;
+  var EMBEDDED_CHROME_HIDE_CSS = "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav,html.gp-shell-embedded .nav-menu,html.gp-shell-embedded .brand-logo{display:none!important;}";
   var EPIC_STAGE_LABELS = {
     create_account: "Create your MyIntealth account",
     upload_qualifications: "Upload your specialist qualifications",
@@ -834,7 +841,7 @@
     var bottomClearance = getMobileNavClearance();
     style.textContent = [
       ":root{--gp-shell-bottom-clearance:" + bottomClearance + "px;}",
-      "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav{display:none!important;}",
+      EMBEDDED_CHROME_HIDE_CSS,
       "html.gp-shell-embedded .dash-wrap{padding-bottom:32px!important;}",
       "html.gp-shell-embedded body{overflow-x:hidden;padding-bottom:" + bottomClearance + "px!important;}"
     ].join("");
@@ -1234,8 +1241,19 @@
     routeUrl = toRouteUrl(event.data.href);
     if (!routeUrl) return;
     route = routeFromUrl(routeUrl);
-    if (pendingNavigation && route !== currentRoute) return;
+    if (pendingNavigation && route !== currentRoute && !routesShareSupportedPage(pendingNavigation.route, route)) return;
+    try {
+      if (activeFrameEl && activeFrameEl.contentDocument) {
+        enforceEmbeddedChrome(activeFrameEl.contentDocument);
+      }
+    } catch (err) {}
     syncFromChildRoute(routeUrl, event.data.title);
+    if (pendingNavigation && (pendingNavigation.route === route || routesShareSupportedPage(pendingNavigation.route, route))) {
+      pendingNavigation = null;
+    }
+    setLoading(false);
+    updateFrameOffsets();
+    scheduleRouteWarmup(route);
   }
 
   function handlePopState(event) {
