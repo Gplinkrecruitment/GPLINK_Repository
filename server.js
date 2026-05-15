@@ -1203,6 +1203,7 @@ function isCompressibleType(ext) {
 
 const APP_SHELL_EMBED_PARAM = 'gp_shell';
 const APP_SHELL_EMBED_VALUE = 'embedded';
+const APP_SHELL_STATIC_PARAM = 'gp_shell_static';
 const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/index.html',
   '/pages/myinthealth.html',
@@ -3580,6 +3581,7 @@ function isAppShellSupportedPath(pathname) {
 function shouldServeAppShell(requestUrl, pathname) {
   if (!isAppShellSupportedPath(pathname)) return false;
   if (pathname === '/pages/app-shell.html') return false;
+  if (requestUrl.searchParams.get(APP_SHELL_STATIC_PARAM) === '1') return false;
   return requestUrl.searchParams.get(APP_SHELL_EMBED_PARAM) !== APP_SHELL_EMBED_VALUE;
 }
 
@@ -27961,8 +27963,10 @@ Return ONLY valid JSON with no markdown formatting:
 
     // Zoho Sign
     var zsStatus = 'disconnected';
-    if (zsConn && zsConn.refreshToken) zsStatus = 'connected';
-    else if (zsConn) zsStatus = 'degraded';
+    if (zsConn && zsConn.refreshToken && zsConn.status !== 'error') {
+      var zsTokenExpMs = zsConn.tokenExpiresAt ? Date.parse(zsConn.tokenExpiresAt) : 0;
+      zsStatus = (zsTokenExpMs && zsTokenExpMs > Date.now()) ? 'connected' : 'degraded';
+    } else if (zsConn) { zsStatus = 'degraded'; }
     integrations.push({
       key: 'zoho_sign', name: 'Zoho Sign', status: zsStatus,
       details: {
@@ -28040,13 +28044,17 @@ Return ONLY valid JSON with no markdown formatting:
       var zrConn2 = await getZohoRecruitConnection();
       if (zrConn2 && zrConn2.refreshToken) {
         var refreshed = await refreshZohoRecruitAccessToken(zrConn2);
-        if (refreshed.ok) {
+        // Verify the token was actually obtained — don't trust HTTP status alone
+        var zrAfter = await getZohoRecruitConnection();
+        var zrTokenExpiry = zrAfter && zrAfter.tokenLastRefreshedAt ? Date.parse(zrAfter.tokenLastRefreshedAt) : 0;
+        if (refreshed.ok && refreshed.data && refreshed.data.access_token && zrTokenExpiry > Date.now() - 60000) {
           await upsertZohoRecruitConnection({ status: 'active', needsReconnect: false });
           sendJson(res, 200, { ok: true, action: 'token_refreshed' });
           return;
         }
       }
-      sendJson(res, 200, { ok: false, message: 'Token refresh failed. Please reconnect via the Zoho Recruit card on the Integrations tab (GPs > Integrations).' });
+      var zrErr = 'Token refresh failed.';
+      sendJson(res, 200, { ok: false, message: zrErr + ' Please reconnect via the Zoho Recruit card on the Integrations tab (GPs > Integrations).' });
       return;
     }
 
@@ -28054,12 +28062,16 @@ Return ONLY valid JSON with no markdown formatting:
       var zsConn2 = await getZohoSignConnection();
       if (zsConn2 && zsConn2.refreshToken) {
         var zsRefreshed = await refreshZohoSignAccessToken(zsConn2);
-        if (zsRefreshed.ok) {
-          sendJson(res, 200, { ok: true, action: 'token_refreshed' });
+        // Verify the token was actually obtained — don't trust HTTP status alone
+        var zsAfter = await getZohoSignConnection();
+        var zsNewExpiry = zsAfter && zsAfter.tokenExpiresAt ? Date.parse(zsAfter.tokenExpiresAt) : 0;
+        if (zsRefreshed.ok && zsRefreshed.data && zsRefreshed.data.access_token && zsNewExpiry > Date.now()) {
+          sendJson(res, 200, { ok: true, action: 'token_refreshed', token_expires_at: zsAfter.tokenExpiresAt });
           return;
         }
       }
-      sendJson(res, 200, { ok: false, message: 'Token refresh failed. Please reconnect via the Zoho Sign card on the Integrations tab (GPs > Integrations).' });
+      var zsErr = 'Token refresh failed.';
+      sendJson(res, 200, { ok: false, message: zsErr + ' Please reconnect via the Zoho Sign card on the Integrations tab (GPs > Integrations).' });
       return;
     }
 
