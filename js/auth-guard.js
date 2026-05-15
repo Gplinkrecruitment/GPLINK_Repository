@@ -113,7 +113,12 @@
               localStorage.removeItem("gp_account_under_review");
             }
           })
-          .catch(() => {});
+          .catch((err) => {
+            console.warn("[AuthGuard] Could not check account status, defaulting to restricted:", err);
+            // Default to restricted state on network failure for safety
+            try { localStorage.setItem("gp_account_under_review", "true"); } catch (e) {}
+            enforceRestrictedUI();
+          });
       }
 
       return;
