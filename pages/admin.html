@@ -5117,10 +5117,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       reconBtn.disabled=true;
       fetch("/api/ceo/integrations/"+encodeURIComponent(key)+"/reconnect",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"}}).then(function(r){return r.json();}).then(function(d){
         if(d.ok){
-          if(d.url){window.open(d.url,"_blank");toast("OAuth window opened","green");}
-          else{toast("Reconnected successfully","green");}
+          toast("Reconnected successfully","green");
           setTimeout(loadIntegrations,2000);
-        }else{toast("Failed: "+(d.message||""),"red");}
+        }else{toast(d.message||"Reconnect failed","red");}
         reconBtn.textContent="Reconnect";reconBtn.disabled=false;
       }).catch(function(){toast("Network error","red");reconBtn.textContent="Reconnect";reconBtn.disabled=false;});
       return;
@@ -5154,7 +5153,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       for(var i=0;i<d.integrations.length;i++){
         var int=d.integrations[i];
         html+='<div class="tech-card">';
-        html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(int.name)+'</span><span class="tech-status '+esc(int.status)+'">'+esc(int.status)+'</span></div>';
+        var statusLabel=int.status==='degraded'?'Needs Attention':int.status;
+        html+='<div class="tech-card-header"><span class="tech-card-name">'+esc(int.name)+'</span><span class="tech-status '+esc(int.status)+'">'+esc(statusLabel)+'</span></div>';
         var det=int.details||{};
         var keys=Object.keys(det);
         for(var k=0;k<keys.length;k++){

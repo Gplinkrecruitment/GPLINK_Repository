@@ -1210,9 +1210,17 @@ const APP_SHELL_SUPPORTED_PATHS = new Set([
   '/pages/ahpra.html',
   '/pages/my-documents.html',
   '/pages/career.html',
+  '/pages/visa.html',
+  '/pages/pbs.html',
+  '/pages/commencement.html',
   '/pages/messages.html',
   '/pages/account.html',
-  '/pages/registration-intro.html'
+  '/pages/registration-intro.html',
+  '/pages/application-detail.html',
+  '/pages/job.html',
+  '/pages/interview-prep.html',
+  '/pages/offer-review.html',
+  '/pages/area-guide.html'
 ]);
 
 const USER_STATE_KEYS = [
@@ -28029,12 +28037,29 @@ Return ONLY valid JSON with no markdown formatting:
 
     if (intKey === 'zoho_recruit') {
       if (!isZohoRecruitConfigured()) { sendJson(res, 400, { ok: false, message: 'Zoho Recruit not configured.' }); return; }
-      sendJson(res, 200, { ok: true, action: 'oauth_redirect', url: '/pages/admin.html?tab=tools' });
+      var zrConn2 = await getZohoRecruitConnection();
+      if (zrConn2 && zrConn2.refreshToken) {
+        var refreshed = await refreshZohoRecruitAccessToken(zrConn2);
+        if (refreshed.ok) {
+          await upsertZohoRecruitConnection({ status: 'active', needsReconnect: false });
+          sendJson(res, 200, { ok: true, action: 'token_refreshed' });
+          return;
+        }
+      }
+      sendJson(res, 200, { ok: false, message: 'Token refresh failed. Please reconnect via the Zoho Recruit card on the Integrations tab (GPs > Integrations).' });
       return;
     }
 
     if (intKey === 'zoho_sign') {
-      sendJson(res, 200, { ok: true, action: 'oauth_redirect', url: '/pages/admin.html?tab=tools' });
+      var zsConn2 = await getZohoSignConnection();
+      if (zsConn2 && zsConn2.refreshToken) {
+        var zsRefreshed = await refreshZohoSignAccessToken(zsConn2);
+        if (zsRefreshed.ok) {
+          sendJson(res, 200, { ok: true, action: 'token_refreshed' });
+          return;
+        }
+      }
+      sendJson(res, 200, { ok: false, message: 'Token refresh failed. Please reconnect via the Zoho Sign card on the Integrations tab (GPs > Integrations).' });
       return;
     }
 
