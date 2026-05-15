@@ -96,7 +96,7 @@
     .catch(function (err) {
       console.error("[QualCamera] Camera access denied:", err);
       closeCamera();
-      if (onCapture) onCapture(null, "Camera access denied. Please allow camera permissions or upload a file instead.");
+      if (onCapture) onCapture(null, "Camera access was denied. To enable it, go to your browser settings and allow camera access for this site, or use the file upload option instead.");
     });
   }
 
