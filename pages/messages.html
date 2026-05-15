@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Support - GP Link</title>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
-  <script src="/js/nav-shell-bridge.js?v=20260516a"></script>
-  <script src="../js/auth-guard.js?v=20260516a" defer></script>
-  <script src="../js/state-sync.js?v=20260516a" defer></script>
-  <script src="../js/updates-sync.js?v=20260516a" defer></script>
-  <script src="../js/qualification-camera.js?v=20260516a" defer></script>
-  <script src="../js/qualification-scan.js?v=20260516a" defer></script>
-  <script src="../js/account-dropdown.js?v=20260516a" defer></script>
+  <script src="/js/nav-shell-bridge.js?v=20260516b"></script>
+  <script src="../js/auth-guard.js?v=20260516b" defer></script>
+  <script src="../js/state-sync.js?v=20260516b" defer></script>
+  <script src="../js/updates-sync.js?v=20260516b" defer></script>
+  <script src="../js/qualification-camera.js?v=20260516b" defer></script>
+  <script src="../js/qualification-scan.js?v=20260516b" defer></script>
+  <script src="../js/account-dropdown.js?v=20260516b" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
@@ -443,14 +443,60 @@
 
     .legal-footer { text-align: center; font-size: 12px; color: var(--muted); margin: 14px 0 8px; line-height: 1.45; }
     .legal-footer a { color: #334155; text-decoration: underline; }
+
+    /* ─── CHAT LIST ─── */
+    .chat-card {
+      background: var(--panel);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      margin: 0 16px 10px;
+      box-shadow: var(--shadow-soft);
+      cursor: pointer;
+      transition: transform .12s ease;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .chat-card:active { transform: scale(.98); }
+    .chat-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #7c3aed, #a78bfa);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 15px; flex-shrink: 0;
+    }
+    .chat-card-body { flex: 1; min-width: 0; }
+    .chat-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .chat-card-title { font-weight: 700; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-card-time { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .chat-card-preview { font-size: 13px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-card-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; border-radius: 9px; background: #7c3aed; color: #fff; font-size: 10px; font-weight: 700; padding: 0 5px; margin-left: 8px; }
+    .chat-card.closed { opacity: 0.55; }
+    .chat-card.closed .chat-avatar { background: linear-gradient(135deg, #94a3b8, #cbd5e1); }
+
+    /* ─── CHAT BUBBLES ─── */
+    .msg-bubble { padding: 10px 14px; border-radius: 14px; margin-bottom: 8px; max-width: 82%; }
+    .msg-them { background: #eff6ff; align-self: flex-start; border-bottom-left-radius: 4px; }
+    .msg-me { background: #7c3aed; color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; margin-left: auto; }
+    .msg-sender { font-size: 11px; font-weight: 700; margin-bottom: 2px; }
+    .msg-them .msg-sender { color: var(--blue2); }
+    .msg-me .msg-sender { color: rgba(255,255,255,.7); }
+    .msg-text { font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+    .msg-time { font-size: 10px; margin-top: 4px; }
+    .msg-them .msg-time { color: var(--muted); }
+    .msg-me .msg-time { color: rgba(255,255,255,.6); }
+    #chatThread { display: flex; flex-direction: column; gap: 4px; padding: 8px 16px; overflow-y: auto; flex: 1; }
   </style>
 </head>
 <body>
-<script src="/js/error-reporter.js?v=20260516a"></script>
+<script src="/js/error-reporter.js?v=20260516b"></script>
   <div class="app-shell">
     <!-- ═══ BOTTOM TABS (Support / FAQ switcher) ═══ -->
     <nav class="bottom-tabs" id="bottomTabs">
-      <button class="bottom-tab active" type="button" data-view="viewMyTickets">
+      <button class="bottom-tab active" type="button" data-view="viewChats">
+        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <span>Chats</span>
+      </button>
+      <button class="bottom-tab" type="button" data-view="viewMyTickets">
         <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span>Support</span>
       </button>
@@ -460,8 +506,22 @@
       </button>
     </nav>
 
+    <!-- ═══ VIEW: CHATS ═══ -->
+    <div class="view active" id="viewChats">
+      <header class="view-header">
+        <div class="view-header-left">
+          <h1 class="view-title">Chats</h1>
+        </div>
+      </header>
+      <div class="chat-list" id="chatList">
+        <div class="empty-state" id="chatEmptyState">
+          <p style="color:var(--muted);font-size:14px;text-align:center;padding:40px 20px">No chats yet. Your GP Link advisor will reach out when there's something to discuss.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- ═══ VIEW: MY TICKETS ═══ -->
-    <div class="view active" id="viewMyTickets">
+    <div class="view" id="viewMyTickets">
       <header class="view-header">
         <div class="view-header-left">
           <h1 class="view-title">Support</h1>
@@ -589,6 +649,28 @@
         </div>
         <div class="resolve-row" id="resolveRow">
           <button class="resolve-btn" id="resolveBtn" type="button">Mark Resolved</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SLIDE: CHAT DETAIL ═══ -->
+  <div class="slide-view" id="slideChatDetail">
+    <div class="slide-inner">
+      <header class="detail-header">
+        <button class="icon-btn" type="button" id="chatDetailBack" aria-label="Back">
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h2 class="detail-title" id="chatDetailTitle">Chat</h2>
+        <span class="badge badge-status" id="chatDetailStatus">Active</span>
+      </header>
+      <div class="thread-container" id="chatThread"></div>
+      <div class="reply-bar" id="chatReplyBar">
+        <div class="reply-input-wrap">
+          <textarea id="chatReplyInput" rows="1" placeholder="Type your reply..." maxlength="2000"></textarea>
+          <button class="send-btn" id="chatSendReplyBtn" type="button" aria-label="Send">
+            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
         </div>
       </div>
     </div>
@@ -750,7 +832,7 @@
     const fabEl = document.getElementById("fabCreateTicket");
     const ctaCreateEl = document.getElementById("ctaCreateTicket");
     const bottomTabs = [...document.querySelectorAll(".bottom-tab")];
-    const views = { viewMyTickets: document.getElementById("viewMyTickets"), viewHelpCenter: document.getElementById("viewHelpCenter") };
+    const views = { viewChats: document.getElementById("viewChats"), viewMyTickets: document.getElementById("viewMyTickets"), viewHelpCenter: document.getElementById("viewHelpCenter") };
     const slideNewTicket = document.getElementById("slideNewTicket");
     const newTicketBackBtn = document.getElementById("newTicketBack");
     const newCategoryEl = document.getElementById("newCategory");
@@ -1206,8 +1288,9 @@
         }catch(e){}
       }
       else if(h==="#new-ticket"){switchView("viewMyTickets");openNewTicket();var urlCat=new URLSearchParams(window.location.search).get("category");if(urlCat&&newCategoryEl){newCategoryEl.value=urlCat;}}
+      else if(h.startsWith("#chat-")){const id=decodeURIComponent(h.replace("#chat-",""));switchView("viewChats");if(id)setTimeout(()=>openChatDetail(id),200);}
       else if(h.startsWith("#ticket-")){const id=decodeURIComponent(h.replace("#ticket-",""));switchView("viewMyTickets");if(id)setTimeout(()=>openTicketDetail(id),100);}
-      else switchView("viewMyTickets");
+      else switchView("viewChats");
     }
 
     /* ═══ EXPOSED API ═══ */
@@ -1219,6 +1302,119 @@
       markCaseRead:(caseId)=>{markCaseRead(caseId);renderTicketList();return loadSupportCases().find(c=>c.id===caseId)||null;}
     };
 
+    /* ═══ NUDGE CHATS ═══ */
+    let nudgeChats = [];
+    let selectedChatId = null;
+
+    async function loadNudgeChats() {
+      try {
+        const r = await fetch("/api/user/nudge-chats", { credentials: "same-origin" });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d && d.ok && Array.isArray(d.chats)) nudgeChats = d.chats;
+      } catch {}
+      renderChatList();
+    }
+
+    function renderChatList() {
+      const listEl = document.getElementById("chatList");
+      const emptyEl = document.getElementById("chatEmptyState");
+      if (!nudgeChats.length) {
+        listEl.innerHTML = "";
+        listEl.appendChild(emptyEl);
+        emptyEl.style.display = "";
+        return;
+      }
+      emptyEl.style.display = "none";
+      listEl.innerHTML = nudgeChats.map(function(c) {
+        const lm = c.last_message;
+        const preview = lm ? escapeHtml(lm.message || "").slice(0, 80) : escapeHtml(c.message || "").slice(0, 80);
+        const ts = lm ? formatTs(lm.created_at) : formatTs(c.created_at);
+        const sender = lm && lm.sender_type === "user" ? "You: " : "GP Link: ";
+        const badge = c.unread_count > 0 ? '<span class="chat-card-badge">' + c.unread_count + '</span>' : '';
+        const closedCls = c.status === "closed" ? " closed" : "";
+        return '<div class="chat-card' + closedCls + '" data-chat-id="' + escapeHtml(c.id) + '">'
+          + '<div class="chat-avatar">GL</div>'
+          + '<div class="chat-card-body">'
+          + '<div class="chat-card-top"><span class="chat-card-title">' + escapeHtml(c.title) + badge + '</span><span class="chat-card-time">' + ts + '</span></div>'
+          + '<div class="chat-card-preview">' + sender + preview + '</div>'
+          + '</div></div>';
+      }).join("");
+    }
+
+    async function openChatDetail(chatId) {
+      selectedChatId = chatId;
+      const slide = document.getElementById("slideChatDetail");
+      slide.style.display = "";
+      slide.classList.add("active");
+      document.getElementById("chatDetailTitle").textContent = "Chat";
+      document.getElementById("chatDetailStatus").textContent = "Loading...";
+      document.getElementById("chatThread").innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px">Loading...</p>';
+      document.getElementById("chatReplyBar").style.display = "none";
+      try {
+        const r = await fetch("/api/user/nudge-chats/" + encodeURIComponent(chatId), { credentials: "same-origin" });
+        const d = await r.json();
+        if (!d || !d.ok) { document.getElementById("chatThread").innerHTML = '<p style="color:var(--red);text-align:center;padding:20px">Failed to load chat.</p>'; return; }
+        const chat = d.chat;
+        const messages = d.messages || [];
+        document.getElementById("chatDetailTitle").textContent = chat.title || "Chat";
+        document.getElementById("chatDetailStatus").textContent = chat.status === "closed" ? "Closed" : "Active";
+        document.getElementById("chatDetailStatus").className = "badge badge-status " + (chat.status === "closed" ? "closed" : "in-progress");
+        const threadEl = document.getElementById("chatThread");
+        if (!messages.length) {
+          threadEl.innerHTML = '<p style="color:var(--muted);text-align:center;padding:20px">No messages yet.</p>';
+        } else {
+          threadEl.innerHTML = messages.map(function(m) {
+            const isMe = m.sender_type === "user";
+            return '<div class="msg-bubble ' + (isMe ? "msg-me" : "msg-them") + '">'
+              + '<div class="msg-sender">' + (isMe ? "You" : "GP Link Team") + '</div>'
+              + '<div class="msg-text">' + escapeHtml(m.message || "") + '</div>'
+              + '<div class="msg-time">' + formatTs(m.created_at) + '</div>'
+              + '</div>';
+          }).join("");
+          threadEl.scrollTop = threadEl.scrollHeight;
+        }
+        document.getElementById("chatReplyBar").style.display = chat.status === "closed" ? "none" : "";
+      } catch {
+        document.getElementById("chatThread").innerHTML = '<p style="color:var(--red);text-align:center;padding:20px">Network error.</p>';
+      }
+    }
+
+    function closeChatDetail() {
+      selectedChatId = null;
+      var slide = document.getElementById("slideChatDetail");
+      slide.classList.remove("active");
+    }
+
+    document.getElementById("chatList").addEventListener("click", function(e) {
+      var card = e.target.closest("[data-chat-id]");
+      if (card) openChatDetail(card.getAttribute("data-chat-id"));
+    });
+
+    document.getElementById("chatDetailBack").addEventListener("click", closeChatDetail);
+
+    document.getElementById("chatSendReplyBtn").addEventListener("click", async function() {
+      var input = document.getElementById("chatReplyInput");
+      var text = (input.value || "").trim();
+      if (!text || !selectedChatId) return;
+      var btn = document.getElementById("chatSendReplyBtn");
+      btn.disabled = true;
+      try {
+        var r = await fetch("/api/user/nudge-chats/" + encodeURIComponent(selectedChatId) + "/reply", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text })
+        });
+        var d = await r.json();
+        if (d && d.ok) {
+          input.value = "";
+          await openChatDetail(selectedChatId);
+          await loadNudgeChats();
+        }
+      } catch {}
+      btn.disabled = false;
+    });
+
     /* ═══ INIT ═══ */
     function init(){
       syncMessageDatabase();
@@ -1226,6 +1422,7 @@
       renderHelpCenter();
       applyHashRouting();
       mergeServerTickets().then(()=>renderTicketList());
+      loadNudgeChats();
       if(typeof window.refreshInboxBadges==="function") window.refreshInboxBadges();
     }
     if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init,{once:true});
