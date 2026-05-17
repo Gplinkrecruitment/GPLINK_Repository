@@ -16105,6 +16105,24 @@ async function handleApi(req, res, pathname) {
         }
       }
 
+      // Step 4b: List recent messages across ALL labels to check for spam/filtering
+      if (gmail) {
+        try {
+          var allMsgs = await gmail.users.messages.list({ userId: 'hazel@mygplink.com.au', maxResults: 5 });
+          var recentMsgs = [];
+          if (allMsgs.data && Array.isArray(allMsgs.data.messages)) {
+            for (var rm of allMsgs.data.messages.slice(0, 5)) {
+              var rmFull = await gmail.users.messages.get({ userId: 'hazel@mygplink.com.au', id: rm.id, format: 'metadata', metadataHeaders: ['Subject', 'From', 'Date'] });
+              var rmHeaders = rmFull.data.payload ? rmFull.data.payload.headers || [] : [];
+              var rmSubject = (rmHeaders.find(function(h){return h.name==='Subject'})||{}).value||'';
+              var rmFrom = (rmHeaders.find(function(h){return h.name==='From'})||{}).value||'';
+              recentMsgs.push({ id: rm.id, subject: rmSubject, from: rmFrom, labels: rmFull.data.labelIds || [] });
+            }
+          }
+          diag.steps.push({ step: 'recent_messages_all_labels', count: recentMsgs.length, messages: recentMsgs });
+        } catch (rmErr) { diag.steps.push({ step: 'recent_messages_all_labels', error: rmErr.message }); }
+      }
+
       // Step 5: Check placed GPs for triage
       var placedGPs = await getPlacedGPsForTriage();
       diag.steps.push({ step: 'placed_gps', count: placedGPs.length, gps: placedGPs.map(function(g) { return { name: g.gp_name, practice: g.practice_name, emails: g.contact_emails }; }) });
