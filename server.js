@@ -16100,8 +16100,17 @@ async function handleApi(req, res, pathname) {
         // Check DB again after processing
         var todosRes2 = await supabaseDbRequest('incoming_email_todos', 'select=id,sender_email,subject&order=created_at.desc&limit=5');
         var processedRes2 = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id,sender,subject,result&order=processed_at.desc&limit=5');
-        var emailTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,title,email_sender,status,created_at&task_type=eq.email_triage&source_trigger=eq.gmail_triage&order=created_at.desc&limit=10');
-        diag.steps.push({ step: 'db_after_process', todos: todosRes2.ok ? todosRes2.data : [], processed: processedRes2.ok ? processedRes2.data : [], email_triage_tasks: emailTasksRes.ok ? emailTasksRes.data : [] });
+        // Query email_triage tasks - try without email_sender first to isolate column issues
+        var emailTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,title,status,task_type,source_trigger,case_id,created_at&task_type=eq.email_triage&order=created_at.desc&limit=10');
+        // Also try a broader query to see ALL email_triage tasks regardless of source_trigger
+        var emailTasksAnyRes = await supabaseDbRequest('registration_tasks', 'select=id,title,task_type,source_trigger,created_at&task_type=eq.email_triage&order=created_at.desc&limit=10');
+        diag.steps.push({
+          step: 'db_after_process',
+          todos: todosRes2.ok ? todosRes2.data : { error: todosRes2.data },
+          processed: processedRes2.ok ? processedRes2.data : { error: processedRes2.data },
+          email_triage_tasks: emailTasksRes.ok ? emailTasksRes.data : { error: emailTasksRes.data },
+          email_triage_any: emailTasksAnyRes.ok ? emailTasksAnyRes.data : { error: emailTasksAnyRes.data }
+        });
       }
 
     } catch (diagErr) {
