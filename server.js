@@ -14374,12 +14374,23 @@ async function buildCareerPlacementPayload({
     profile
   }).catch(function (e) { console.error('[buildPlacement] lifestyle failed:', e && e.message); return null; });
 
+  const contractAttachmentId = contractTerms && contractTerms.status === 'ready' && contractTerms.attachmentId
+    ? contractTerms.attachmentId
+    : '';
+  const contractFileName = contractTerms && contractTerms.fileName ? contractTerms.fileName : '';
+  const contractApplicationId = sanitizeZohoText(applicationRecord && applicationRecord.id) || '';
+  const contractUrl = contractAttachmentId && contractApplicationId
+    ? `/api/career/contract?applicationId=${encodeURIComponent(contractApplicationId)}&attachmentId=${encodeURIComponent(contractAttachmentId)}`
+    : '';
+
   return {
     practiceName,
     roleTitle,
     location,
     statusLabel: 'Placement confirmed',
     startDateIso: resolvedStartDateIso,
+    contractUrl,
+    contractFileName,
     quickStats: [
       { label: 'Billing', value: billingLabel.replace(/\s+Billing$/i, '') || billingLabel },
       { label: 'Split', value: splitDisplay },
@@ -17764,6 +17775,46 @@ async function handleApi(req, res, pathname) {
     }
 
     sendJson(res, 200, { ok: true, applications: enriched });
+    return;
+  }
+
+  if (pathname === '/api/career/contract' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const applicationId = String(parsedUrl.query.applicationId || '').trim();
+    const attachmentId = String(parsedUrl.query.attachmentId || '').trim();
+    if (!applicationId || !attachmentId) {
+      sendJson(res, 400, { ok: false, message: 'Missing applicationId or attachmentId.' });
+      return;
+    }
+    // Verify the user owns this application
+    const appResult = await supabaseDbRequest(
+      'gp_applications',
+      `select=id,user_id&user_id=eq.${encodeURIComponent(userId)}&zoho_application_id=eq.${encodeURIComponent(applicationId)}&limit=1`
+    );
+    if (!appResult.ok || !Array.isArray(appResult.data) || appResult.data.length === 0) {
+      sendJson(res, 403, { ok: false, message: 'Application not found or access denied.' });
+      return;
+    }
+    const zoho = isZohoRecruitConfigured() ? await getZohoRecruitAccessTokenAndDomain() : null;
+    if (!zoho) { sendJson(res, 502, { ok: false, message: 'Zoho Recruit not configured.' }); return; }
+    const downloaded = await downloadZohoRecruitApplicationAttachment(zoho, applicationId, attachmentId);
+    if (!downloaded || !downloaded.buffer || downloaded.buffer.length === 0) {
+      sendJson(res, 404, { ok: false, message: 'Contract file not found.' });
+      return;
+    }
+    const fileName = downloaded.fileName || 'contract.pdf';
+    const mimeType = downloaded.mimeType || 'application/pdf';
+    res.writeHead(200, {
+      'Content-Type': mimeType,
+      'Content-Disposition': `attachment; filename="${fileName.replace(/"/g, '\\"')}"`,
+      'Content-Length': downloaded.buffer.length
+    });
+    res.end(downloaded.buffer);
     return;
   }
 

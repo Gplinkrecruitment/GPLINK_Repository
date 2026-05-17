@@ -9574,6 +9574,7 @@
           whatsapp: practiceContactPayload.whatsapp || SECURED_PLACEMENT.practiceContact.whatsapp
         },
         contractUrl: placementPayload.contractUrl || SECURED_PLACEMENT.contractUrl || "",
+        contractFileName: placementPayload.contractFileName || "",
         compensation: {
           range: compensationPayload.range || SECURED_PLACEMENT.compensation.range,
           unit: compensationPayload.unit || SECURED_PLACEMENT.compensation.unit,
@@ -10224,6 +10225,10 @@
         if (placement.contractUrl) {
           securedContractLinkEl.href = placement.contractUrl;
           securedContractLinkEl.hidden = false;
+          const subEl = securedContractLinkEl.querySelector(".placement-contract-sub");
+          if (subEl && placement.contractFileName) {
+            subEl.textContent = placement.contractFileName;
+          }
         } else {
           securedContractLinkEl.hidden = true;
         }
