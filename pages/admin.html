@@ -2292,6 +2292,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h+='<label class="btn primary sm drive-upload-btn">Choose file\u2026<input type="file" data-drive-upload="'+esc(c.id)+'" style="position:absolute;inset:0;opacity:0;cursor:pointer" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.heic,.txt,.csv"></label>';
     h+='<span class="drive-upload-status" id="driveUploadStatus"></span>';
     h+='</div>';
+    h+='<div id="driveFilesList">';
+    h+=renderDriveFilesList(files);
+    h+='</div>';
+    return h;
+  }
+  function renderDriveFilesList(files){
+    let h='';
     h+='<div class="inbox-section-title">Documents'+(files?' <span class="count">'+files.length+'</span>':'')+'</div>';
     if(!files)h+='<div class="empty">Loading\u2026</div>';
     else if(!files.length)h+='<div class="empty">No documents yet.</div>';
@@ -2333,7 +2340,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const d=await r.json().catch(()=>({}));
       S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
       S.va.gpDetailCache[userId].driveFiles=d&&d.ok&&Array.isArray(d.files)?d.files:[];
-      if(S.view==="gps"&&S.selectedCaseId===caseId&&S.gpsProfileTab==="documents")renderDetail();
+      var listEl=document.getElementById("driveFilesList");
+      if(listEl&&S.view==="gps"&&S.selectedCaseId===caseId&&S.gpsProfileTab==="documents"){
+        listEl.innerHTML=renderDriveFilesList(S.va.gpDetailCache[userId].driveFiles);
+      }
     }catch(err){console.error("[VA] loadGpDriveFiles failed",err);}
   }
 
@@ -3811,9 +3821,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           const d=await r.json().catch(()=>({}));
           if(d&&d.ok){
             if(status)status.textContent="\u2713 Uploaded";
+            uploadInput.value="";
             const c=S.cases.find(x=>x.id===caseId);
-            if(c&&S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].driveFiles;
-            renderDetail();
+            if(c){
+              if(S.va.gpDetailCache[c.user_id])delete S.va.gpDetailCache[c.user_id].driveFiles;
+              loadGpDriveFiles(c.user_id,caseId);
+            }
           }else{
             if(status)status.textContent="\u2717 "+(d.message||"Upload failed");
           }
