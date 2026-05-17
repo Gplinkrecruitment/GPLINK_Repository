@@ -82,6 +82,7 @@
   sessionPromise.then((session) => {
     if (session && session.ok) {
       window.gpSessionProfile = session.profile || window.gpSessionProfile || null;
+      showImpersonationBanner(session.profile);
       if (window.gpSessionProfile) {
         safeSessionSet(SESSION_PROFILE_CACHE_KEY, JSON.stringify(window.gpSessionProfile));
       }
@@ -140,6 +141,24 @@
     if (FULL_ACCESS_EMAILS[getBypassEmail()]) return;
     document.addEventListener("DOMContentLoaded", injectRestrictionUI);
     if (document.readyState !== "loading") injectRestrictionUI();
+  }
+
+  function showImpersonationBanner(profile) {
+    var impBy = profile && profile._impersonatedBy;
+    if (!impBy) return;
+    var gpName = ((profile.firstName || '') + ' ' + (profile.lastName || '')).trim() || profile.email || 'Unknown GP';
+    var bar = document.createElement('div');
+    bar.id = 'gp-impersonation-banner';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#d97706;color:#fff;display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 16px;font:600 13px/1.3 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25)';
+    bar.innerHTML = '<span>Viewing as <strong>' + gpName.replace(/</g, '&lt;') + '</strong></span>'
+      + '<button id="gp-impersonation-exit" style="background:#fff;color:#d97706;border:none;border-radius:4px;padding:4px 12px;font:600 12px/1 system-ui,sans-serif;cursor:pointer">Exit</button>';
+    document.body.appendChild(bar);
+    document.documentElement.style.setProperty('--gp-impersonation-offset', '40px');
+    document.body.style.paddingTop = '40px';
+    document.getElementById('gp-impersonation-exit').addEventListener('click', function () {
+      fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+        .finally(function () { window.close(); });
+    });
   }
 
   var restrictionInjected = false;
