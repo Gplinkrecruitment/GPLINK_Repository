@@ -22856,6 +22856,48 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Google Drive health check (admin only) ──
+  if (pathname === '/api/admin/drive/health' && req.method === 'GET') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const checks = {
+      configured: isGoogleDriveConfigured(),
+      email: GOOGLE_SERVICE_ACCOUNT_EMAIL || null,
+      rootFolder: GOOGLE_DRIVE_ROOT_FOLDER_ID || null,
+      keyPresent: !!GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+      keyLength: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.length : 0,
+      keyStartsWith: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.substring(0, 30) : null
+    };
+    if (!checks.configured) { sendJson(res, 200, { ok: false, checks, error: 'Google Drive not configured — missing env var(s)' }); return; }
+    try {
+      const drive = await getGoogleDriveClient();
+      const testRes = await drive.files.list({ q: "'" + GOOGLE_DRIVE_ROOT_FOLDER_ID + "' in parents and trashed = false", fields: 'files(id,name)', pageSize: 1 });
+      checks.canListRoot = true;
+      checks.rootFileCount = testRes.data.files ? testRes.data.files.length : 0;
+    } catch (err) {
+      checks.canListRoot = false;
+      checks.listError = err.message;
+      checks.listErrorCode = err.code;
+      checks.listErrorStatus = err.status;
+    }
+    try {
+      const drive = await getGoogleDriveClient();
+      const folder = await drive.files.create({ requestBody: { name: '_health_check_' + Date.now(), mimeType: 'application/vnd.google-apps.folder', parents: [GOOGLE_DRIVE_ROOT_FOLDER_ID] }, fields: 'id,name' });
+      checks.canCreateFolder = true;
+      checks.testFolderId = folder.data.id;
+      await drive.files.delete({ fileId: folder.data.id });
+      checks.cleanedUp = true;
+    } catch (err) {
+      checks.canCreateFolder = false;
+      checks.createError = err.message;
+      checks.createErrorCode = err.code;
+      checks.createErrorStatus = err.status;
+      checks.createErrorDetails = err.errors || [];
+    }
+    sendJson(res, 200, { ok: checks.canCreateFolder, checks });
+    return;
+  }
+
   // ── List files in GP's Google Drive folder ──
   if (pathname === '/api/admin/drive/files' && req.method === 'GET') {
     const adminCtx = requireAdminSession(req, res);
