@@ -16078,8 +16078,19 @@ async function handleApi(req, res, pathname) {
       var processedRes = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id&limit=1');
       diag.steps.push({ step: 'db_records', todos_exist: todosRes.ok && Array.isArray(todosRes.data) && todosRes.data.length > 0, processed_exist: processedRes.ok && Array.isArray(processedRes.data) && processedRes.data.length > 0 });
 
-      // Step 7: If ?process=true, actually process the emails
-      if (url.searchParams.get('process') === 'true') {
+      // Step 7: If ?reprocess=true, clear dedup records and reset historyId so emails get re-processed
+      if (url.searchParams.get('reprocess') === 'true') {
+        var delRes = await supabaseDbRequest('processed_gmail_messages', 'gmail_message_id=not.is.null', { method: 'DELETE', headers: { Prefer: 'return=representation' } });
+        var deletedCount = delRes.ok && Array.isArray(delRes.data) ? delRes.data.length : 0;
+        // Reset historyId to force fallback fetch of recent messages
+        await supabaseDbRequest('gmail_watch_state', 'email_address=eq.hazel@mygplink.com.au', {
+          method: 'PATCH', body: { history_id: '1', updated_at: new Date().toISOString() }
+        });
+        diag.steps.push({ step: 'reprocess_clear', deleted_processed: deletedCount, history_reset: true });
+      }
+
+      // Step 8: If ?process=true or ?reprocess=true, actually process the emails
+      if (url.searchParams.get('process') === 'true' || url.searchParams.get('reprocess') === 'true') {
         try {
           await processGmailNotification('hazel@mygplink.com.au', null);
           diag.steps.push({ step: 'process', success: true });
@@ -16089,7 +16100,8 @@ async function handleApi(req, res, pathname) {
         // Check DB again after processing
         var todosRes2 = await supabaseDbRequest('incoming_email_todos', 'select=id,sender_email,subject&order=created_at.desc&limit=5');
         var processedRes2 = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id,sender,subject,result&order=processed_at.desc&limit=5');
-        diag.steps.push({ step: 'db_after_process', todos: todosRes2.ok ? todosRes2.data : [], processed: processedRes2.ok ? processedRes2.data : [] });
+        var emailTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,title,email_sender,status,created_at&task_type=eq.email_triage&source_trigger=eq.gmail_triage&order=created_at.desc&limit=10');
+        diag.steps.push({ step: 'db_after_process', todos: todosRes2.ok ? todosRes2.data : [], processed: processedRes2.ok ? processedRes2.data : [], email_triage_tasks: emailTasksRes.ok ? emailTasksRes.data : [] });
       }
 
     } catch (diagErr) {
