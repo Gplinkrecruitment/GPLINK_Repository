@@ -1066,7 +1066,7 @@
     const AMC_KEY = "gp_amc_progress";
     const AHPRA_KEY = "gp_ahpra_progress";
     const REGISTRATION_RETURN_KEY = "gp_registration_return_overrides";
-    const BYPASS_LOCK_EMAILS = { "hello@mygplink.com.au": true };
+    const BYPASS_LOCK_EMAILS = { "hello@mygplink.com.au": true, "smithmiller1234@gmail.com": true };
     function getPageUserEmail() {
       try { var c = localStorage.getItem("gp_session_profile_cache"); if (c) { var p = JSON.parse(c); if (p && p.email) return String(p.email).trim().toLowerCase(); } } catch (e) {}
       try { return String(sessionStorage.getItem("gp_session_profile_cache") ? JSON.parse(sessionStorage.getItem("gp_session_profile_cache")).email : "").trim().toLowerCase(); } catch (e) {}
