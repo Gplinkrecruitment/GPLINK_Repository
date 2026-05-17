@@ -16104,6 +16104,22 @@ async function handleApi(req, res, pathname) {
         var emailTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,title,status,task_type,source_trigger,case_id,created_at&task_type=eq.email_triage&order=created_at.desc&limit=10');
         // Also try a broader query to see ALL email_triage tasks regardless of source_trigger
         var emailTasksAnyRes = await supabaseDbRequest('registration_tasks', 'select=id,title,task_type,source_trigger,created_at&task_type=eq.email_triage&order=created_at.desc&limit=10');
+        // Direct INSERT test: try creating a minimal email_triage task to verify schema
+        var testTaskInsert = await supabaseDbRequest('registration_tasks', '', {
+          method: 'POST', headers: { Prefer: 'return=representation' },
+          body: [{ task_type: 'email_triage', title: 'DIAG TEST — safe to delete', description: 'Diagnostic test task', source_trigger: 'gmail_triage', priority: 'normal', status: 'open', domain: 'registration' }]
+        });
+        diag.steps.push({
+          step: 'direct_insert_test',
+          ok: testTaskInsert.ok,
+          data: testTaskInsert.data,
+          status: testTaskInsert.status
+        });
+        // Clean up the test task if it was created
+        if (testTaskInsert.ok && Array.isArray(testTaskInsert.data) && testTaskInsert.data[0]) {
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(testTaskInsert.data[0].id), { method: 'DELETE' });
+        }
+
         diag.steps.push({
           step: 'db_after_process',
           todos: todosRes2.ok ? todosRes2.data : { error: todosRes2.data },
