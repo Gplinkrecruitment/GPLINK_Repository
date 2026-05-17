@@ -3751,6 +3751,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         const overlay=document.createElement("div");
         overlay.className="drive-overlay";
         overlay.innerHTML='<div class="drive-overlay-bar"><div class="drive-overlay-name">'+esc(name)+'</div><div class="drive-overlay-actions"><a class="drive-overlay-open" href="'+esc(link)+'" target="_blank" rel="noopener">Open in Drive</a><button class="drive-overlay-close" data-drive-overlay-close>Close</button></div></div><div class="drive-overlay-body">'+bodyContent+'</div>';
+        overlay.addEventListener("click",function(ev){if(ev.target.closest("[data-drive-overlay-close]"))overlay.remove();});
         document.body.appendChild(overlay);
         return;
       }
