@@ -22894,12 +22894,19 @@ Return ONLY valid JSON with no markdown formatting:
     const mimeType = body && typeof body.mimeType === 'string' ? body.mimeType : 'application/octet-stream';
     if (!fileName || !fileData) { sendJson(res, 400, { ok: false, message: 'Missing fileName or fileData.' }); return; }
     try {
-      const caseRes = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id,gp_name,gp_email&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=google_drive_folder_id,user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
       const caseRow = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
       let folderId = caseRow ? caseRow.google_drive_folder_id : null;
       if (!folderId) {
-        const nameParts = (caseRow && caseRow.gp_name ? caseRow.gp_name : 'Unknown').split(' ');
-        folderId = await ensureGPDriveFolder(caseId, nameParts[0] || '', nameParts.slice(1).join(' ') || '');
+        let firstName = '', lastName = '';
+        if (caseRow && caseRow.user_id) {
+          const profRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name&user_id=eq.' + encodeURIComponent(caseRow.user_id) + '&limit=1');
+          if (profRes.ok && Array.isArray(profRes.data) && profRes.data[0]) {
+            firstName = profRes.data[0].first_name || '';
+            lastName = profRes.data[0].last_name || '';
+          }
+        }
+        folderId = await ensureGPDriveFolder(caseId, firstName || 'Unknown', lastName);
       }
       if (!folderId) { sendJson(res, 500, { ok: false, message: 'Could not create Drive folder.' }); return; }
       const base64Match = fileData.match(/^data:[^;]*;base64,(.*)$/);
@@ -22910,8 +22917,8 @@ Return ONLY valid JSON with no markdown formatting:
       await _logCaseEvent(caseId, null, 'document_uploaded', 'Document uploaded: ' + fileName, null, adminCtx.email);
       sendJson(res, 200, { ok: true, file: result });
     } catch (err) {
-      console.error('[Drive] upload error:', err.message);
-      sendJson(res, 500, { ok: false, message: 'Upload failed.' });
+      console.error('[Drive] upload error:', err.message, err.code, err.status);
+      sendJson(res, 500, { ok: false, message: 'Upload failed: ' + (err.message || 'unknown error') });
     }
     return;
   }
