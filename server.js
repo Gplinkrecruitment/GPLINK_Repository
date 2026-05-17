@@ -23032,10 +23032,9 @@ Return ONLY valid JSON with no markdown formatting:
     const checks = {
       configured: isGoogleDriveConfigured(),
       email: GOOGLE_SERVICE_ACCOUNT_EMAIL || null,
+      impersonating: GOOGLE_DRIVE_IMPERSONATE_EMAIL || 'NOT SET — uploads will fail with quota error',
       rootFolder: GOOGLE_DRIVE_ROOT_FOLDER_ID || null,
-      keyPresent: !!GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-      keyLength: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.length : 0,
-      keyStartsWith: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.substring(0, 30) : null
+      keyPresent: !!GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
     };
     if (!checks.configured) { sendJson(res, 200, { ok: false, checks, error: 'Google Drive not configured — missing env var(s)' }); return; }
     _googleDriveClient = null;
@@ -23043,28 +23042,28 @@ Return ONLY valid JSON with no markdown formatting:
       const drive = await getGoogleDriveClient();
       const testRes = await drive.files.list({ q: "'" + GOOGLE_DRIVE_ROOT_FOLDER_ID + "' in parents and trashed = false", fields: 'files(id,name)', pageSize: 1 });
       checks.canListRoot = true;
-      checks.rootFileCount = testRes.data.files ? testRes.data.files.length : 0;
     } catch (err) {
       checks.canListRoot = false;
       checks.listError = err.message;
-      checks.listErrorCode = err.code;
-      checks.listErrorStatus = err.status;
     }
     try {
       const drive = await getGoogleDriveClient();
-      const folder = await drive.files.create({ requestBody: { name: '_health_check_' + Date.now(), mimeType: 'application/vnd.google-apps.folder', parents: [GOOGLE_DRIVE_ROOT_FOLDER_ID] }, fields: 'id,name' });
-      checks.canCreateFolder = true;
-      checks.testFolderId = folder.data.id;
-      await drive.files.delete({ fileId: folder.data.id });
+      const { Readable } = require('stream');
+      const testBuf = Buffer.from('health check test file');
+      const file = await drive.files.create({
+        requestBody: { name: '_health_test_' + Date.now() + '.txt', parents: [GOOGLE_DRIVE_ROOT_FOLDER_ID] },
+        media: { mimeType: 'text/plain', body: Readable.from(testBuf) },
+        fields: 'id,name'
+      });
+      checks.canUploadFile = true;
+      checks.testFileId = file.data.id;
+      await drive.files.delete({ fileId: file.data.id });
       checks.cleanedUp = true;
     } catch (err) {
-      checks.canCreateFolder = false;
-      checks.createError = err.message;
-      checks.createErrorCode = err.code;
-      checks.createErrorStatus = err.status;
-      checks.createErrorDetails = err.errors || [];
+      checks.canUploadFile = false;
+      checks.uploadError = err.message;
     }
-    sendJson(res, 200, { ok: checks.canCreateFolder, checks });
+    sendJson(res, 200, { ok: !!checks.canUploadFile, checks });
     return;
   }
 
