@@ -423,6 +423,7 @@
     .support-source-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.02em}
     .support-source-badge.whatsapp{background:#dcfce7;color:#15803d}
     .support-source-badge.in-app{background:#dbeafe;color:#1d4ed8}
+    .support-source-badge.email{background:#fef3c7;color:#92400e}
     .support-priority-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
     .support-priority-dot.urgent{background:#ef4444}
     .support-priority-dot.high{background:#f59e0b}
@@ -4212,7 +4213,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
 
     let h='<div class="support-filters">';
-    h+='<span class="support-filter-label">Channel:</span><div class="support-filter-group">'+filterBtn("source","all","All")+filterBtn("source","whatsapp","WhatsApp")+filterBtn("source","manual","In-App")+'</div>';
+    h+='<span class="support-filter-label">Channel:</span><div class="support-filter-group">'+filterBtn("source","all","All")+filterBtn("source","email","Email")+filterBtn("source","whatsapp","WhatsApp")+filterBtn("source","manual","In-App")+'</div>';
     h+='<div class="support-filter-divider"></div>';
     h+='<span class="support-filter-label">Status:</span><div class="support-filter-group">'+filterBtn("status","open","Open")+filterBtn("status","closed","Closed")+filterBtn("status","all","All")+'</div>';
     h+='<div class="support-count">'+items.length+' item'+(items.length!==1?'s':'')+'</div>';
@@ -4229,7 +4230,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     for(const item of items){
       const isExpanded=S.va.supportExpandedId===item.id;
-      const srcBadge=item.source==="whatsapp"
+      const srcBadge=item.source==="email"
+        ?'<span class="support-source-badge email">Email</span>'
+        :item.source==="whatsapp"
         ?'<span class="support-source-badge whatsapp">WhatsApp</span>'
         :'<span class="support-source-badge in-app">In-App</span>';
       const priDot='<span class="support-priority-dot '+esc(item.priority||"normal")+'"></span>'+esc(item.priority||"normal");
@@ -4251,6 +4254,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h+='<tr class="support-expand"><td colspan="7">';
         h+='<div class="support-expand-body">'+esc(item.body||"No message body.")+'</div>';
         h+='<div class="support-expand-meta">';
+        if(item.email_sender)h+='<span>From: '+esc(item.email_sender)+'</span>';
         if(item.gp_email)h+='<span>Email: '+esc(item.gp_email)+'</span>';
         if(item.gp_phone)h+='<span>Phone: '+esc(item.gp_phone)+'</span>';
         if(item.category)h+='<span>Category: '+esc(item.category)+'</span>';

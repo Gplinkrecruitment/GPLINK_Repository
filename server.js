@@ -23699,7 +23699,41 @@ Return ONLY valid JSON with no markdown formatting:
       }
     }
 
-    // ── 3. Enrich with GP profile data ───────────────────────────────────
+    // ── 3. Email triage tasks (source = "email") ──────────────────────
+    if (sourceFilter === 'all' || sourceFilter === 'email') {
+      const emStatusClause = statusFilter === 'all'
+        ? ''
+        : statusFilter === 'closed'
+          ? '&status=in.(completed,cancelled)'
+          : '&status=in.(open,in_progress,waiting)';
+      const emQuery = 'select=*&task_type=eq.email_triage&source_trigger=eq.gmail_triage' + emStatusClause + '&order=created_at.desc&limit=500';
+      const emRes = await supabaseDbRequest('registration_tasks', emQuery);
+      const emTasks = emRes.ok && Array.isArray(emRes.data) ? emRes.data : [];
+      for (const t of emTasks) {
+        items.push({
+          id: t.id,
+          kind: 'task',
+          source: 'email',
+          user_id: null,
+          case_id: t.case_id || null,
+          title: t.title || 'Email enquiry',
+          body: t.description || '',
+          category: null,
+          stage: t.related_stage || '',
+          priority: t.priority || 'normal',
+          status: t.status === 'completed' || t.status === 'cancelled' ? 'closed' : t.status || 'open',
+          email_sender: t.email_sender || '',
+          gmail_message_id: t.gmail_message_id || '',
+          doubletick_url: null,
+          resolved_at: t.completed_at || null,
+          resolved_by: t.completed_by || null,
+          created_at: t.created_at,
+          updated_at: t.updated_at
+        });
+      }
+    }
+
+    // ── 4. Enrich with GP profile data ───────────────────────────────────
     const caseIds = [...new Set(items.filter(i => i.case_id && !i.user_id).map(i => i.case_id))];
     let caseUserMap = {};
     if (caseIds.length > 0) {
@@ -23856,7 +23890,7 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
-  // ── PUT /api/admin/va/support/task/:id — resolve a whatsapp_help task ──
+  // ── PUT /api/admin/va/support/task/:id — resolve a support task (whatsapp_help or email_triage) ──
   const supportTaskMatch = pathname.match(/^\/api\/admin\/va\/support\/task\/([^/]+)$/);
   if (supportTaskMatch && req.method === 'PUT') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
@@ -23869,7 +23903,7 @@ Return ONLY valid JSON with no markdown formatting:
     const patch = { status: nextStatus, updated_at: new Date().toISOString() };
     if (nextStatus === 'completed') { patch.completed_at = new Date().toISOString(); patch.completed_by = adminCtx.email; }
     else { patch.completed_at = null; patch.completed_by = null; }
-    const r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId) + '&task_type=eq.whatsapp_help', { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
+    const r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId) + '&task_type=in.(whatsapp_help,email_triage)', { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     if (!updated) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
     invalidateAdminDashboardCache();
