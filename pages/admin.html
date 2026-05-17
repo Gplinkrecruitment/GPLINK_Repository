@@ -860,7 +860,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   <div class="view-tabs">
     <div class="view-tab" data-view="ceo-home" id="ceoHomeTab" style="display:none">Home Dashboard</div>
     <div class="view-tab active" data-view="gps">GPs</div>
-    <div class="view-tab" data-view="medicalcentres">Medical Centres</div>
+    <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
     <div class="view-tab" data-view="support">Support</div>
     <div class="view-tab" data-view="tools">Ops Queue</div>
     <div class="view-tab" data-view="technical" id="technicalTab" style="display:none">Technical</div>
@@ -5138,6 +5138,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(saWrap)saWrap.style.display="";
       var ceoTab=document.getElementById("ceoHomeTab");
       if(ceoTab)ceoTab.style.display="";
+      var mcTab=document.getElementById("medicalCentresTab");
+      if(mcTab)mcTab.style.display="";
       var techTab=document.getElementById("technicalTab");
       if(techTab)techTab.style.display="";
     }
