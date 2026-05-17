@@ -2,14 +2,14 @@ name: AI Code Scanner
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # Daily at 2am UTC
+    - cron: '0 2 * * *'
   push:
     branches: [main]
     paths:
       - '**.js'
       - '**.html'
       - 'server.js'
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   scan:
@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # Need HEAD~1 for diff
+          fetch-depth: 2
 
       - name: Determine scan scope
         id: scope
@@ -27,15 +27,12 @@ jobs:
           EVENT="${{ github.event_name }}"
 
           if [ "$EVENT" = "push" ]; then
-            # On push: scan changed files in last commit
             FILES=$(git diff --name-only HEAD~1 HEAD -- '*.js' '*.html' | head -5)
             SCAN_TYPE="push"
           elif [ "$DAY_OF_WEEK" = "7" ]; then
-            # Sunday: full scan of critical files
             FILES="server.js js/auth-guard.js js/state-sync.js js/onboarding.js js/app-shell.js"
             SCAN_TYPE="weekly_full"
           else
-            # Weekday: scan files changed in last 24h
             SINCE=$(date -d '24 hours ago' --iso-8601 2>/dev/null || date -v-24H +%Y-%m-%dT%H:%M:%S)
             BASE=$(git log --since="$SINCE" --format='%H' | tail -1)
             if [ -n "$BASE" ]; then
@@ -71,16 +68,14 @@ jobs:
             if [ ! -f "$FILE" ]; then continue; fi
             echo "Scanning: $FILE"
 
-            # Read file content (truncate large files to 50000 chars)
             CONTENT=$(head -c 50000 "$FILE" | jq -Rs .)
             FILENAME=$(echo "$FILE" | jq -Rs .)
 
-            # Build the API request
             PROMPT="Analyze this file for security and reliability issues. File: $FILE
 
-$CONTENT
+          $CONTENT
 
-Return a JSON array of findings. Each finding: {\"severity\":\"critical|high|medium|low\",\"category\":\"security|reliability\",\"line\":123,\"title\":\"Short title\",\"description\":\"Detailed description\",\"suggestion\":\"How to fix\"}. Return [] if no issues. Only flag real issues - no false positives, no style/formatting issues."
+          Return a JSON array of findings. Each finding: {\"severity\":\"critical|high|medium|low\",\"category\":\"security|reliability\",\"line\":123,\"title\":\"Short title\",\"description\":\"Detailed description\",\"suggestion\":\"How to fix\"}. Return [] if no issues. Only flag real issues - no false positives, no style/formatting issues."
 
             RESPONSE=$(curl -s -X POST https://api.anthropic.com/v1/messages \
               -H "Content-Type: application/json" \
@@ -89,22 +84,17 @@ Return a JSON array of findings. Each finding: {\"severity\":\"critical|high|med
               -d "{
                 \"model\": \"claude-sonnet-4-20250514\",
                 \"max_tokens\": 4096,
-                \"system\": \"You are a security and reliability auditor for a production Node.js web app handling GP doctor registration for migration to Australia. Analyze for: SECURITY (injection, auth bypass, exposed secrets, unsafe input, CSRF, insecure sessions) and RELIABILITY (unhandled rejections, silent error swallowing, missing null checks, race conditions, data loss). Do NOT flag: code style, missing types, performance, test coverage, docs. Return ONLY a JSON array of findings. Be precise - no false positives.\",
+                \"system\": \"You are a security and reliability auditor for a production Node.js web app. Analyze for: SECURITY (injection, auth bypass, exposed secrets, unsafe input) and RELIABILITY (unhandled rejections, silent error swallowing, missing null checks, race conditions). Do NOT flag: code style, missing types, performance, test coverage, docs. Return ONLY a JSON array of findings. Be precise - no false positives.\",
                 \"messages\": [{\"role\": \"user\", \"content\": $(echo "$PROMPT" | jq -Rs .)}]
               }" 2>/dev/null)
 
-            # Extract the text content from Claude's response
             TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text // empty' 2>/dev/null)
 
             if [ -n "$TEXT" ]; then
-              # Extract JSON array from response (handle markdown code blocks)
               JSON_ARRAY=$(echo "$TEXT" | sed -n '/\[/,/\]/p' | head -50)
 
               if echo "$JSON_ARRAY" | jq '.' >/dev/null 2>&1; then
-                # Add file_path to each finding
                 ENRICHED=$(echo "$JSON_ARRAY" | jq --arg fp "$FILE" '[.[] | . + {"file_path": $fp, "line_number": (.line // null)}]')
-
-                # Merge into FINDINGS
                 FINDINGS=$(echo "$FINDINGS" "$ENRICHED" | jq -s '.[0] + .[1]')
                 COUNT=$(echo "$ENRICHED" | jq 'length')
                 echo "  Found $COUNT issues in $FILE"
