@@ -4824,7 +4824,7 @@
     function showSecuredPage() {
       hidePlacementGate();
       const initialProgress = loadProgress();
-      if (!isIntroDismissed()) {
+      if (!isIntroDismissed() && !BYPASS_LOCK_EMAILS[getPageUserEmail()]) {
         if (introEl.style.display !== "none") return;
         showIntroScreen();
         return;
