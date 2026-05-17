@@ -21411,6 +21411,71 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Admin impersonate: view the app as a GP ──
+  if (pathname === '/api/admin/impersonate' && req.method === 'GET') {
+    const admin = requireAdminSession(req, res);
+    if (!admin) return;
+
+    const targetUserId = url.searchParams.get('user_id');
+    if (!targetUserId) {
+      sendJson(res, 400, { ok: false, message: 'Missing user_id parameter.' });
+      return;
+    }
+
+    try {
+      let gpProfile = null;
+
+      if (isSupabaseDbConfigured()) {
+        const profileRes = await supabaseDbRequest(
+          'user_profiles',
+          'select=user_id,first_name,last_name,email,country_dial,phone_number,registration_country&user_id=eq.' +
+            encodeURIComponent(targetUserId) + '&limit=1'
+        );
+        if (profileRes.ok && Array.isArray(profileRes.data) && profileRes.data.length > 0) {
+          const row = profileRes.data[0];
+          gpProfile = {
+            firstName: row.first_name || '',
+            lastName: row.last_name || '',
+            email: (row.email || '').trim().toLowerCase(),
+            supabaseUserId: row.user_id || '',
+            countryDial: row.country_dial || '',
+            phoneNumber: row.phone_number || '',
+            registrationCountry: row.registration_country || ''
+          };
+        }
+      } else {
+        // Local DB fallback: scan dbState.users for matching supabaseUserId
+        for (const key of Object.keys(dbState.users)) {
+          const u = dbState.users[key];
+          if (u && u.supabaseUserId === targetUserId) {
+            gpProfile = getSessionProfileFromUser(key);
+            break;
+          }
+        }
+      }
+
+      if (!gpProfile || !gpProfile.email) {
+        sendJson(res, 404, { ok: false, message: 'GP user not found.' });
+        return;
+      }
+
+      // Set GP session with impersonation marker
+      gpProfile._impersonatedBy = admin.email;
+      setSession(res, gpProfile);
+
+      console.log('[admin-impersonate] %s (%s) impersonating GP %s <%s>',
+        admin.email, admin.role, targetUserId, gpProfile.email);
+
+      // Redirect to the GP's dashboard
+      res.writeHead(302, { Location: buildAbsoluteReturnUrl(req, '/pages/index.html') });
+      res.end();
+    } catch (err) {
+      console.error('[admin-impersonate] error:', err && err.message);
+      sendJson(res, 500, { ok: false, message: 'Impersonation failed.' });
+    }
+    return;
+  }
+
   if (pathname === '/api/admin/auth/session' && req.method === 'GET') {
     const hostScope = getAdminHostScope(req);
     const hostLabel = getAdminHostLabel(hostScope);
