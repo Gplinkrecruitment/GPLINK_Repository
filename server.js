@@ -268,6 +268,7 @@ async function getGoogleDriveClient() {
     GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
     ['https://www.googleapis.com/auth/drive']
   );
+  await auth.authorize();
   _googleDriveClient = google.drive({ version: 'v3', auth });
   return _googleDriveClient;
 }
@@ -22869,6 +22870,7 @@ Return ONLY valid JSON with no markdown formatting:
       keyStartsWith: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ? GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.substring(0, 30) : null
     };
     if (!checks.configured) { sendJson(res, 200, { ok: false, checks, error: 'Google Drive not configured — missing env var(s)' }); return; }
+    _googleDriveClient = null;
     try {
       const drive = await getGoogleDriveClient();
       const testRes = await drive.files.list({ q: "'" + GOOGLE_DRIVE_ROOT_FOLDER_ID + "' in parents and trashed = false", fields: 'files(id,name)', pageSize: 1 });
