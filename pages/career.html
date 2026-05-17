@@ -4629,6 +4629,63 @@
       margin-left: 6px;
     }
 
+    .placement-contract-card {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 20px;
+      background: var(--panel, #fff);
+      border: 1px solid var(--line, #e2e8f0);
+      border-radius: 20px;
+      text-decoration: none;
+      color: var(--text, #0f172a);
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    .placement-contract-card:hover {
+      border-color: rgba(37, 99, 235, 0.28);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08);
+    }
+    .placement-contract-icon {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      background: rgba(37, 99, 235, 0.08);
+      color: #2563eb;
+      flex-shrink: 0;
+    }
+    .placement-contract-icon svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .placement-contract-copy {
+      min-width: 0;
+    }
+    .placement-contract-title {
+      font-size: 14px;
+      font-weight: 800;
+      margin: 0;
+    }
+    .placement-contract-sub {
+      font-size: 12px;
+      color: var(--muted, #64748b);
+      margin-top: 2px;
+    }
+    .placement-contract-arrow {
+      width: 16px;
+      height: 16px;
+      opacity: 0.4;
+      flex-shrink: 0;
+    }
+
     .placement-dock-actions {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -5354,6 +5411,7 @@
     body.career-mode-secured {
       background: #ffffff !important;
       min-height: 100vh;
+      overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior-y: contain;
       color: #0f172a;
@@ -5408,9 +5466,11 @@
 
     body.career-mode-secured .secured-grid {
       max-width: 480px;
+      width: 100%;
       margin: 0 auto;
       gap: 20px;
       padding: 0 12px;
+      box-sizing: border-box;
     }
 
     body.career-mode-secured .placement-hero-card,
@@ -5848,11 +5908,6 @@
 
       body.career-mode-secured .mobile-nav {
         display: grid !important;
-      }
-
-      body.career-mode-secured .placement-primary-grid {
-        width: calc(100vw - 24px);
-        margin-left: calc(50% - 50vw + 12px);
       }
 
       html.gp-shell-embedded body.career-mode-secured .shell {
@@ -6513,6 +6568,17 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;margin-left:auto;opacity:0.4;"><path d="m9 18 6-6-6-6"/></svg>
           </a>
 
+          <a class="placement-contract-card" id="securedContractLink" href="#" target="_top" download hidden>
+            <div class="placement-contract-icon">
+              <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            </div>
+            <div class="placement-contract-copy">
+              <p class="placement-contract-title">Download Your Contract</p>
+              <p class="placement-contract-sub">Placement agreement — PDF</p>
+            </div>
+            <svg class="placement-contract-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </a>
+
           <div class="placement-primary-grid">
             <!-- Lifestyle Planning: vaulted for later release -->
             <section class="practice-lifestyle-module" aria-labelledby="practiceLifestyleHeading" style="display:none;">
@@ -6524,34 +6590,6 @@
               <div class="practice-lifestyle-explorer" id="securedLifestyleExplorer"></div>
             </section>
 
-            <article class="placement-broker-card">
-              <div class="placement-card-head">
-                <div>
-                  <span class="detail-label">Your GP broker</span>
-                  <h3 class="card-title" id="securedBrokerName">Hazel Ramirez</h3>
-                  <p class="application-sub" id="securedBrokerRole">Your GP Link placement agent</p>
-                </div>
-                <span class="placement-broker-presence" id="securedBrokerPresence">Last active 2 days ago</span>
-              </div>
-              <div class="placement-broker-profile">
-                <div class="placement-broker-avatar" id="securedBrokerInitials">HR</div>
-                <p class="role-summary" id="securedBrokerNote">I’ll coordinate registration timing, contract questions and your relocation handover with the practice.</p>
-              </div>
-              <div class="placement-broker-actions">
-                <a class="placement-contact-btn" id="securedBrokerCallLink" href="tel:+61432555018" target="_top">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.64 2.6a2 2 0 0 1-.45 2.11L8 9.91a16 16 0 0 0 6.09 6.09l1.48-1.3a2 2 0 0 1 2.11-.45c.83.31 1.7.52 2.6.64A2 2 0 0 1 22 16.92z"></path></svg>
-                  <span>Call</span>
-                </a>
-                <a class="placement-contact-btn" id="securedBrokerEmailLink" href="mailto:hazel@mygplink.com.au" target="_top">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z"></path><path d="m4 7 8 6 8-6"></path></svg>
-                  <span>Email</span>
-                </a>
-                <a class="placement-contact-btn placement-contact-btn-whatsapp" id="securedBrokerWhatsAppLink" href="https://wa.me/61494291968" target="_blank" rel="noreferrer">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-11.72 7.05L4 20l1.52-4.06A8 8 0 1 1 20 11.5Z"></path><path d="M9.8 9.4c.2-.4.4-.4.6-.4h.5c.2 0 .4 0 .5.4l.4 1c.1.2.1.4 0 .5l-.3.5c-.1.1-.2.3 0 .5.3.6 1 1.6 2.3 2.2.2.1.4.1.5 0l.5-.3c.1-.1.3-.1.5 0l1 .4c.3.1.4.3.4.5v.5c0 .2 0 .4-.4.6-.4.2-1.1.4-1.8.2-1-.2-2.3-.8-3.6-2.1-1.4-1.3-2-2.6-2.1-3.6-.2-.7 0-1.4.3-1.9Z"></path></svg>
-                  <span>WhatsApp</span>
-                </a>
-              </div>
-            </article>
           </div>
 
           <div class="placement-secondary-grid">
@@ -6591,21 +6629,6 @@
       </section>
     </main>
 
-    <aside class="placement-dock" id="placementDock" aria-label="Placement contact">
-      <div class="placement-dock-card">
-        <div class="placement-dock-copy">
-          <div class="placement-dock-avatar" id="placementDockInitials">HR</div>
-          <div class="placement-dock-text">
-            <strong id="placementDockTitle">Hazel Ramirez — Your GP Link Agent</strong>
-            <span id="placementDockStatus">Online now</span>
-          </div>
-        </div>
-        <div class="placement-dock-actions">
-          <a class="placement-dock-btn" id="placementDockChatBtn" href="messages.html">Chat</a>
-          <a class="placement-dock-btn placement-dock-btn-whatsapp" id="placementDockWhatsAppLink" href="https://wa.me/61494291968" target="_blank" rel="noreferrer">WhatsApp</a>
-        </div>
-      </div>
-    </aside>
   </div>
 
   <div class="modal" id="roleModal" aria-hidden="true">
@@ -6826,18 +6849,7 @@
         email: "practice@murrumbidgeemedical.com.au",
         whatsapp: "+61400000000"
       },
-      broker: {
-        name: "Hazel Ramirez",
-        initials: "HR",
-        role: "Your GP Link placement agent",
-        presence: "Last active 2 days ago",
-        note: "I’ll coordinate registration timing, contract questions and your relocation handover with the practice.",
-        phone: "+61 432 555 018",
-        email: "hazel@mygplink.com.au",
-        whatsapp: "+61494291968",
-        dockTitle: "Hazel Ramirez — Your GP Link Agent",
-        dockStatus: "Online now"
-      },
+      contractUrl: "",
         compensation: {
           range: "$2,500-$3,500",
           unit: "Per Day",
@@ -7594,29 +7606,18 @@
     const securedLifestyleExplorerEl = document.getElementById("securedLifestyleExplorer");
     const securedChecklistProgressEl = document.getElementById("securedChecklistProgress");
     const securedChecklistListEl = document.getElementById("securedChecklistList");
-    const securedBrokerNameEl = document.getElementById("securedBrokerName");
-    const securedBrokerRoleEl = document.getElementById("securedBrokerRole");
-    const securedBrokerPresenceEl = document.getElementById("securedBrokerPresence");
-    const securedBrokerInitialsEl = document.getElementById("securedBrokerInitials");
-    const securedBrokerNoteEl = document.getElementById("securedBrokerNote");
-    const securedBrokerCallLinkEl = document.getElementById("securedBrokerCallLink");
-    const securedBrokerEmailLinkEl = document.getElementById("securedBrokerEmailLink");
-    const securedBrokerWhatsAppLinkEl = document.getElementById("securedBrokerWhatsAppLink");
     const securedSalaryRangeEl = document.getElementById("securedSalaryRange");
     const securedSalaryUnitEl = document.getElementById("securedSalaryUnit");
     const securedOfferNoteEl = document.getElementById("securedOfferNote");
     const securedOfferFactsEl = document.getElementById("securedOfferFacts");
     const securedStatusListEl = document.getElementById("securedStatusList");
+    const securedContractLinkEl = document.getElementById("securedContractLink");
     const securedNextStepTextEl = document.getElementById("securedNextStepText");
     const securedContinueBtnEl = document.getElementById("securedContinueBtn");
     const securedApplicationsBtnEl = document.getElementById("securedApplicationsBtn");
     const securedLoadingStateEl = document.getElementById("securedLoadingState");
     const securedLoadingTitleEl = document.getElementById("securedLoadingTitle");
     const securedLoadingCopyEl = document.getElementById("securedLoadingCopy");
-    const placementDockInitialsEl = document.getElementById("placementDockInitials");
-    const placementDockTitleEl = document.getElementById("placementDockTitle");
-    const placementDockStatusEl = document.getElementById("placementDockStatus");
-    const placementDockWhatsAppLinkEl = document.getElementById("placementDockWhatsAppLink");
     const toastEl = document.getElementById("careerToast");
     let roleModalMapVisible = false;
     let currentChecklistOpenKey = "";
@@ -9526,7 +9527,6 @@
       const practiceContactPayload = placementPayload.practiceContact && typeof placementPayload.practiceContact === "object"
         ? placementPayload.practiceContact
         : {};
-      const brokerPayload = placementPayload.broker && typeof placementPayload.broker === "object" ? placementPayload.broker : {};
       const compensationPayload = placementPayload.compensation && typeof placementPayload.compensation === "object"
         ? placementPayload.compensation
         : {};
@@ -9573,18 +9573,7 @@
           email: practiceContactPayload.email || SECURED_PLACEMENT.practiceContact.email,
           whatsapp: practiceContactPayload.whatsapp || SECURED_PLACEMENT.practiceContact.whatsapp
         },
-        broker: {
-          name: brokerPayload.name || SECURED_PLACEMENT.broker.name,
-          initials: brokerPayload.initials || SECURED_PLACEMENT.broker.initials,
-          role: brokerPayload.role || SECURED_PLACEMENT.broker.role,
-          presence: brokerPayload.presence || SECURED_PLACEMENT.broker.presence,
-          note: brokerPayload.note || SECURED_PLACEMENT.broker.note,
-          phone: brokerPayload.phone || SECURED_PLACEMENT.broker.phone,
-          email: brokerPayload.email || SECURED_PLACEMENT.broker.email,
-          whatsapp: brokerPayload.whatsapp || SECURED_PLACEMENT.broker.whatsapp,
-          dockTitle: brokerPayload.dockTitle || SECURED_PLACEMENT.broker.dockTitle,
-          dockStatus: brokerPayload.dockStatus || SECURED_PLACEMENT.broker.dockStatus
-        },
+        contractUrl: placementPayload.contractUrl || SECURED_PLACEMENT.contractUrl || "",
         compensation: {
           range: compensationPayload.range || SECURED_PLACEMENT.compensation.range,
           unit: compensationPayload.unit || SECURED_PLACEMENT.compensation.unit,
@@ -10231,15 +10220,14 @@
       renderPracticeLifestyleExplorer(placement.lifestyle);
       renderPlacementChecklist(placement.checklist);
 
-      var broker = placement.broker || {};
-      if (securedBrokerNameEl) securedBrokerNameEl.textContent = broker.name || "";
-      if (securedBrokerRoleEl) securedBrokerRoleEl.textContent = broker.role || "";
-      if (securedBrokerPresenceEl) securedBrokerPresenceEl.textContent = broker.presence || "";
-      if (securedBrokerInitialsEl) securedBrokerInitialsEl.textContent = broker.initials || "";
-      if (securedBrokerNoteEl) securedBrokerNoteEl.textContent = broker.note || "";
-      if (securedBrokerCallLinkEl) securedBrokerCallLinkEl.href = broker.phone ? "tel:" + broker.phone.replace(/\s+/g, "") : "#";
-      if (securedBrokerEmailLinkEl) securedBrokerEmailLinkEl.href = broker.email ? "mailto:" + broker.email : "#";
-      if (securedBrokerWhatsAppLinkEl) securedBrokerWhatsAppLinkEl.href = buildWhatsAppHref(broker.whatsapp);
+      if (securedContractLinkEl) {
+        if (placement.contractUrl) {
+          securedContractLinkEl.href = placement.contractUrl;
+          securedContractLinkEl.hidden = false;
+        } else {
+          securedContractLinkEl.hidden = true;
+        }
+      }
 
       securedSalaryRangeEl.textContent = placement.compensation.range;
       securedSalaryUnitEl.textContent = placement.compensation.unit;
@@ -10265,10 +10253,6 @@
       securedContinueBtnEl.textContent = placement.nextStep.label;
       securedContinueBtnEl.dataset.href = placement.nextStep.href || "";
 
-      if (placementDockInitialsEl) placementDockInitialsEl.textContent = broker.initials || "";
-      if (placementDockTitleEl) placementDockTitleEl.textContent = broker.dockTitle || "";
-      if (placementDockStatusEl) placementDockStatusEl.textContent = broker.dockStatus || "";
-      if (placementDockWhatsAppLinkEl) placementDockWhatsAppLinkEl.href = buildWhatsAppHref(broker.whatsapp);
     }
 
     async function renderRoleModal(roleId) {
@@ -10506,20 +10490,6 @@
       const href = securedContinueBtnEl.dataset.href || "myinthealth.html";
       window.location.href = href;
     });
-
-    const placementDockChatBtn = document.getElementById("placementDockChatBtn");
-    if (placementDockChatBtn) {
-      placementDockChatBtn.addEventListener("click", (e) => {
-        if (document.documentElement.classList.contains("gp-shell-embedded") && window.parent !== window) {
-          e.preventDefault();
-          try {
-            window.parent.postMessage({ type: "gp-shell-route", href: "/pages/messages.html", title: "Support" }, window.location.origin);
-          } catch (err) {
-            window.location.href = "messages.html";
-          }
-        }
-      });
-    }
 
     document.addEventListener("click", (event) => {
       if (
