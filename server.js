@@ -252,6 +252,7 @@ function normalizeServiceAccountKey(raw) {
 }
 const GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = normalizeServiceAccountKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
 const GOOGLE_DRIVE_ROOT_FOLDER_ID = String(process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '').trim();
+const GOOGLE_DRIVE_IMPERSONATE_EMAIL = String(process.env.GOOGLE_DRIVE_IMPERSONATE_EMAIL || '').trim();
 
 function isGoogleDriveConfigured() {
   return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_DRIVE_ROOT_FOLDER_ID);
@@ -262,11 +263,13 @@ async function getGoogleDriveClient() {
   if (_googleDriveClient) return _googleDriveClient;
   if (!isGoogleDriveConfigured()) return null;
   const { google } = require('googleapis');
-  const auth = new google.auth.JWT({
+  const jwtOpts = {
     email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
     key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
     scopes: ['https://www.googleapis.com/auth/drive']
-  });
+  };
+  if (GOOGLE_DRIVE_IMPERSONATE_EMAIL) jwtOpts.subject = GOOGLE_DRIVE_IMPERSONATE_EMAIL;
+  const auth = new google.auth.JWT(jwtOpts);
   await auth.authorize();
   _googleDriveClient = google.drive({ version: 'v3', auth });
   return _googleDriveClient;
@@ -16106,14 +16109,25 @@ async function handleApi(req, res, pathname) {
             if (currentEndpoint === correctEndpoint) {
               diag.steps.push({ step: 'fix_subscription', status: 'already_correct', endpoint: currentEndpoint });
             } else {
-              // Update the push endpoint
-              var updateResp = await fetch('https://pubsub.googleapis.com/v1/' + subName + '?updateMask=pushConfig', {
-                method: 'PATCH',
+              // Use modifyPushConfig API (more reliable than PATCH)
+              var updateResp = await fetch('https://pubsub.googleapis.com/v1/' + subName + ':modifyPushConfig', {
+                method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + pubsubToken, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pushConfig: { pushEndpoint: correctEndpoint } })
               });
-              var updateData = updateResp.ok ? await updateResp.json() : await updateResp.text();
-              diag.steps.push({ step: 'fix_subscription', status: updateResp.ok ? 'updated' : 'failed', old_endpoint: currentEndpoint, new_endpoint: correctEndpoint, response_status: updateResp.status, detail: updateResp.ok ? null : updateData });
+              var updateOk = updateResp.ok || updateResp.status === 200 || updateResp.status === 204;
+              var updateData = updateOk ? 'success' : await updateResp.text();
+              // If subscription doesn't exist, try creating it
+              if (!getSubResp.ok && updateResp.status === 404) {
+                var createResp = await fetch('https://pubsub.googleapis.com/v1/' + subName, {
+                  method: 'PUT',
+                  headers: { 'Authorization': 'Bearer ' + pubsubToken, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ topic: GOOGLE_PUBSUB_TOPIC, pushConfig: { pushEndpoint: correctEndpoint }, ackDeadlineSeconds: 60 })
+                });
+                updateOk = createResp.ok;
+                updateData = updateOk ? 'created' : await createResp.text();
+              }
+              diag.steps.push({ step: 'fix_subscription', status: updateOk ? 'updated' : 'failed', old_endpoint: currentEndpoint, new_endpoint: correctEndpoint, response_status: updateResp.status, detail: updateData });
             }
           } else {
             diag.steps.push({ step: 'fix_subscription', status: 'error', message: 'Could not parse project from GOOGLE_PUBSUB_TOPIC' });
