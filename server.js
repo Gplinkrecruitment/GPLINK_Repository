@@ -691,7 +691,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
     : null;
 
   // First run — store historyId, then fall through to fetch recent messages
-  if (!storedHistoryId) {
+  if (!storedHistoryId && notifiedHistoryId) {
     console.log('[Gmail] First run for', emailAddress, '— storing historyId:', notifiedHistoryId);
     await supabaseDbRequest('gmail_watch_state', '', {
       method: 'POST',
@@ -704,6 +704,26 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
   // Fetch history since stored historyId
   var historyResponse;
   var usedFallbackList = false;
+
+  // If no valid historyId (e.g. cron call before watch is set up), skip history.list
+  // and go straight to fetching recent messages
+  if (!storedHistoryId) {
+    console.log('[Gmail] No stored historyId for', emailAddress, '— fetching recent inbox messages directly');
+    try {
+      var directList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 5 });
+      if (directList.data && Array.isArray(directList.data.messages) && directList.data.messages.length > 0) {
+        historyResponse = { data: { history: [{ messagesAdded: directList.data.messages.map(function(m) { return { message: m }; }) }] } };
+        usedFallbackList = true;
+        console.log('[Gmail] Direct fetch: found', directList.data.messages.length, 'recent messages to process');
+      } else {
+        console.log('[Gmail] No messages in inbox for', emailAddress);
+        return;
+      }
+    } catch (directErr) {
+      console.error('[Gmail] Direct message list failed for', emailAddress, ':', directErr.message);
+      return;
+    }
+  } else {
   try {
     historyResponse = await gmail.users.history.list({
       userId: emailAddress,
@@ -717,13 +737,13 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       console.warn('[Gmail] historyId too old for', emailAddress, '— resetting to', notifiedHistoryId, 'and fetching recent inbox');
       await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(emailAddress), {
         method: 'PATCH',
-        body: { history_id: notifiedHistoryId, updated_at: new Date().toISOString() }
+        body: { history_id: notifiedHistoryId || storedHistoryId, updated_at: new Date().toISOString() }
       });
       // Fallback: fetch last 5 inbox messages directly so we don't lose this notification
       try {
         var recentList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 5 });
         if (recentList.data && Array.isArray(recentList.data.messages)) {
-          historyResponse = { data: { history: [{ messagesAdded: recentList.data.messages.map(function(m) { return { message: m }; }) }], historyId: notifiedHistoryId } };
+          historyResponse = { data: { history: [{ messagesAdded: recentList.data.messages.map(function(m) { return { message: m }; }) }], historyId: notifiedHistoryId || storedHistoryId } };
           usedFallbackList = true;
           console.log('[Gmail] Fallback: found', recentList.data.messages.length, 'recent messages to process');
         } else {
@@ -737,11 +757,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
       throw histErr;
     }
   }
+  }
 
   var historyList = (historyResponse.data && historyResponse.data.history) || [];
   var newHistoryId = (historyResponse.data && historyResponse.data.historyId)
     ? String(historyResponse.data.historyId)
-    : notifiedHistoryId;
+    : (notifiedHistoryId || storedHistoryId);
 
   // Collect unique message IDs from history
   var messageIds = [];
@@ -1064,12 +1085,14 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
     }
   }
 
-  // Update stored historyId
-  await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(emailAddress), {
-    method: 'PATCH',
-    body: { history_id: newHistoryId, updated_at: new Date().toISOString() }
-  });
-  console.log('[Gmail] Updated historyId for', emailAddress, 'to', newHistoryId);
+  // Update stored historyId (only if we have a valid one — never store null)
+  if (newHistoryId) {
+    await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(emailAddress), {
+      method: 'PATCH',
+      body: { history_id: newHistoryId, updated_at: new Date().toISOString() }
+    });
+    console.log('[Gmail] Updated historyId for', emailAddress, 'to', newHistoryId);
+  }
 }
 
 async function setupGmailWatch(userEmail) {
