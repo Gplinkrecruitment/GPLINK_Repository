@@ -89,6 +89,30 @@
     "/pages/messages.html",
     "/pages/account.html"
   ];
+  var IDLE_PREFETCH_ORDER = [
+    "/pages/index.html",
+    "/pages/myinthealth.html",
+    "/pages/amc.html",
+    "/pages/ahpra.html",
+    "/pages/my-documents.html",
+    "/pages/career.html",
+    "/pages/job.html",
+    "/pages/application-detail.html",
+    "/pages/messages.html",
+    "/pages/account.html",
+    "/pages/pbs.html",
+    "/pages/commencement.html",
+    "/pages/interview-prep.html",
+    "/pages/offer-review.html",
+    "/pages/area-guide.html",
+    "/pages/registration-intro.html"
+  ];
+  var SAFE_ROUTE_DATA_PREFETCH = {
+    "/pages/index.html": ["/api/media-config"],
+    "/pages/career.html": ["/api/career/roles"],
+    "/pages/job.html": ["/api/career/roles"],
+    "/pages/area-guide.html": ["/api/career/roles"]
+  };
   var currentRoute = "";
   var activeFrameEl = document.querySelector(".app-shell-frame.is-active") || frameEls[0] || null;
   var activeDesktopItem = null;
@@ -98,6 +122,9 @@
   var mobileGlassInitialized = false;
   var pendingNavigation = null;
   var warmRouteTimer = 0;
+  var idlePrefetchStarted = false;
+  var prefetchedRoutes = Object.create(null);
+  var warmedFetchUrls = Object.create(null);
   var desktopRegistrationCloseTimer = 0;
   var mobileRegistrationSheetOpen = false;
   var mobileSheetStartY = 0;
@@ -292,6 +319,80 @@
     });
 
     return candidates;
+  }
+
+  function scheduleIdle(fn, timeout) {
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(fn, { timeout: timeout || 1800 });
+      return;
+    }
+    window.setTimeout(fn, 90);
+  }
+
+  function getIdlePrefetchOrder() {
+    var ordered = [];
+    IDLE_PREFETCH_ORDER.forEach(function (route) {
+      if (PAGE_PATHS[route] && ordered.indexOf(route) === -1) ordered.push(route);
+    });
+    Object.keys(PAGE_PATHS).forEach(function (route) {
+      if (ordered.indexOf(route) === -1) ordered.push(route);
+    });
+    return ordered;
+  }
+
+  function warmUrlsWithPerf(urls) {
+    if (!Array.isArray(urls) || !urls.length) return;
+    if (window.gpPerfCache && typeof window.gpPerfCache.warmUrls === "function") {
+      window.gpPerfCache.warmUrls(urls);
+    }
+  }
+
+  function prefetchRouteDocument(pathname) {
+    var embeddedRoute = toEmbeddedRoute(pathname);
+    var linkId = "";
+    var link = null;
+
+    if (!embeddedRoute || prefetchedRoutes[embeddedRoute]) return;
+    prefetchedRoutes[embeddedRoute] = true;
+
+    linkId = "gp-prefetch-" + pathname.replace(/[^a-z0-9]/gi, "-");
+    if (!document.getElementById(linkId)) {
+      link = document.createElement("link");
+      link.id = linkId;
+      link.rel = "prefetch";
+      link.as = "document";
+      link.href = embeddedRoute;
+      document.head.appendChild(link);
+    }
+
+    warmUrlsWithPerf([embeddedRoute]);
+  }
+
+  function warmSafeRouteData(input) {
+    var routeUrl = toRouteUrl(input);
+    var pathname = routeUrl ? resolveSupportedPath(routeUrl.pathname) : resolveSupportedPath(String(input || ""));
+    var urls = SAFE_ROUTE_DATA_PREFETCH[pathname] || [];
+    var fresh = [];
+
+    urls.forEach(function (url) {
+      if (!url || warmedFetchUrls[url]) return;
+      warmedFetchUrls[url] = true;
+      fresh.push(url);
+    });
+
+    if (!fresh.length) return;
+    if (window.gpPerfCache && typeof window.gpPerfCache.warmFetch === "function") {
+      window.gpPerfCache.warmFetch(fresh);
+      return;
+    }
+
+    scheduleIdle(function () {
+      fresh.forEach(function (url) {
+        try {
+          window.fetch(url, { credentials: "same-origin", cache: "force-cache" }).catch(function () {});
+        } catch (err) {}
+      });
+    }, 2200);
   }
 
   function resolveRouteUrlForNavigation(input) {
@@ -954,18 +1055,24 @@
   }
 
   function prefetchSupportedRoutes() {
-    Object.keys(PAGE_PATHS).forEach(function (pathname) {
-      var embeddedRoute = toEmbeddedRoute(pathname);
-      if (!embeddedRoute) return;
-      var linkId = "gp-prefetch-" + pathname.replace(/[^a-z0-9]/gi, "-");
-      if (document.getElementById(linkId)) return;
-      var link = document.createElement("link");
-      link.id = linkId;
-      link.rel = "prefetch";
-      link.as = "document";
-      link.href = embeddedRoute;
-      document.head.appendChild(link);
-    });
+    var routes = getIdlePrefetchOrder();
+    var index = 0;
+
+    if (idlePrefetchStarted) return;
+    idlePrefetchStarted = true;
+
+    function pump(deadline) {
+      var started = Date.now();
+      while (index < routes.length) {
+        prefetchRouteDocument(routes[index]);
+        index += 1;
+        if (deadline && !deadline.didTimeout && typeof deadline.timeRemaining === "function" && deadline.timeRemaining() < 8) break;
+        if (!deadline && Date.now() - started > 24) break;
+      }
+      if (index < routes.length) scheduleIdle(pump, 2600);
+    }
+
+    scheduleIdle(pump, 1600);
   }
 
   function warmRoute(input) {
@@ -979,6 +1086,8 @@
     route = routeFromUrl(routeUrl);
     embeddedRoute = toEmbeddedRoute(routeUrl);
     if (!embeddedRoute || route === currentRoute || findLoadedFrameForRoute(route)) return;
+    prefetchRouteDocument(routeUrl.pathname);
+    warmSafeRouteData(routeUrl);
 
     warmFrame = getInactiveFrame();
     warmState = getFrameState(warmFrame);
@@ -992,6 +1101,8 @@
   function scheduleRouteWarmup(route) {
     var candidates = getWarmRouteCandidates(route);
     clearTimeout(warmRouteTimer);
+    prefetchRouteDocument(getResolvedRoutePath(route) || route);
+    warmSafeRouteData(route);
     warmRouteTimer = window.setTimeout(function () {
       for (var i = 0; i < candidates.length; i += 1) {
         var before = getInactiveFrame();
@@ -1332,11 +1443,11 @@
     document.addEventListener("keydown", handleKeydown);
 
     handleDesktopHoverEvents();
-    prefetchSupportedRoutes();
     activateFrame(activeFrameEl);
 
     var initialRoute = resolveInitialRoute();
     navigateTo(initialRoute, { historyMode: "replace", animate: false });
+    prefetchSupportedRoutes();
 
     // Recalculate frame offsets whenever the topbar's size changes.
     // This handles ALL sources of layout shift: logo image loading,

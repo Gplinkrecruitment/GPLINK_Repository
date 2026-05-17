@@ -45,7 +45,7 @@
       }
     })();
   </script>
-  <script src="../js/native-bridge.js?v=20260516a"></script>
+  <script src="../js/native-bridge.js?v=20260517a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260516a"></script>
   <script src="../js/auth-guard.js?v=20260516a" defer></script>
@@ -7233,8 +7233,11 @@
     ]);
 
     const ROLE_PREVIEW_SESSION_KEY = "gp_role_preview";
-    let roleData = clone(FALLBACK_ROLE_DATA);
-    let careerDataSource = "fallback";
+    const ROLE_LIST_CACHE_KEY = "gp_career_roles_cache";
+    const ROLE_LIST_CACHE_TTL_MS = 10 * 60 * 1000;
+    const cachedRoleData = readCachedCareerRoles();
+    let roleData = cachedRoleData || clone(FALLBACK_ROLE_DATA);
+    let careerDataSource = cachedRoleData ? "api" : "fallback";
     const roleDetailCache = new Map();
 
     function escapeHtml(value) {
@@ -7427,6 +7430,32 @@
 
     function clone(value) {
       return JSON.parse(JSON.stringify(value));
+    }
+
+    function readCachedCareerRoles() {
+      try {
+        const raw = localStorage.getItem(ROLE_LIST_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const fetchedAt = Date.parse(parsed && parsed.fetchedAt);
+        const roles = Array.isArray(parsed && parsed.roles) ? parsed.roles.filter((role) => role && role.id) : [];
+        if (!roles.length || !Number.isFinite(fetchedAt)) return null;
+        if (Date.now() - fetchedAt > ROLE_LIST_CACHE_TTL_MS) return null;
+        return roles;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function writeCachedCareerRoles(roles) {
+      try {
+        const safeRoles = Array.isArray(roles) ? roles.filter((role) => role && role.id) : [];
+        if (!safeRoles.length) return;
+        localStorage.setItem(ROLE_LIST_CACHE_KEY, JSON.stringify({
+          fetchedAt: new Date().toISOString(),
+          roles: safeRoles
+        }));
+      } catch (err) {}
     }
 
     function normalizeCareerState(raw, context = {}) {
@@ -10022,7 +10051,7 @@
       try {
         const response = await fetch("/api/career/roles", { credentials: "same-origin" });
         if (!response.ok) {
-          showRolesError("Could not load roles — please refresh the page.");
+          if (careerDataSource === "fallback") showRolesError("Could not load roles — please refresh the page.");
           return;
         }
         const payload = await response.json().catch(() => null);
@@ -10035,6 +10064,7 @@
         if (payload.source === "zoho-live" || payload.source === "supabase" || payload.source === "supabase-empty") {
           roleDetailCache.clear();
           roleData = remoteRoles;
+          writeCachedCareerRoles(remoteRoles);
           careerDataSource = "api";
           careerState = normalizeCareerState(parseStorage(CAREER_STATE_KEY), { dataSource: careerDataSource, roles: roleData });
           persistCareerState();
@@ -10042,7 +10072,7 @@
           if (shouldRender && handleRequestedRoleRedirect()) return;
         }
       } catch (err) {
-        showRolesError("Network error — please check your connection and refresh.");
+        if (careerDataSource === "fallback") showRolesError("Network error — please check your connection and refresh.");
       }
     }
 

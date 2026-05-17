@@ -1198,6 +1198,10 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.avif': 'image/avif',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
   '.ico': 'image/x-icon',
   '.pdf': 'application/pdf'
 };
@@ -2432,12 +2436,19 @@ const SECURITY_HEADERS = {
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
     "frame-src 'self' *.google.com",
-    "worker-src blob:",
+    "worker-src 'self' blob:",
     "frame-ancestors 'self'",
     "base-uri 'self'",
     "form-action 'self'"
   ].join('; '),
   'X-Permitted-Cross-Domain-Policies': 'none'
+};
+
+const PUBLIC_CONFIG_CACHE_HEADERS = {
+  'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400'
+};
+const PRIVATE_METADATA_CACHE_HEADERS = {
+  'Cache-Control': 'private, max-age=60, stale-while-revalidate=300'
 };
 
 function sendJson(res, status, data, headers = {}) {
@@ -3661,6 +3672,24 @@ function sanitizeFilePath(pathname) {
   return resolved;
 }
 
+function getStaticCompressionEncoding(req) {
+  const value = String(req.headers['accept-encoding'] || '').toLowerCase();
+  if (value.includes('br')) return 'br';
+  if (value.includes('gzip')) return 'gzip';
+  return '';
+}
+
+function createStaticCompressionStream(encoding) {
+  if (encoding === 'br' && zlib.createBrotliCompress) {
+    return zlib.createBrotliCompress({
+      params: {
+        [zlib.constants.BROTLI_PARAM_QUALITY]: 4
+      }
+    });
+  }
+  return zlib.createGzip({ level: 6 });
+}
+
 function serveStatic(req, res, pathname) {
   const filePath = sanitizeFilePath(pathname);
   if (!filePath) {
@@ -3743,17 +3772,17 @@ function serveStatic(req, res, pathname) {
       return;
     }
 
-    const acceptsGzip = typeof req.headers['accept-encoding'] === 'string' && req.headers['accept-encoding'].includes('gzip');
-    const shouldGzip = !pathname.startsWith('/media/') && !range && acceptsGzip && isCompressibleType(ext) && stat.size > 1024;
+    const compressionEncoding = getStaticCompressionEncoding(req);
+    const shouldCompress = !pathname.startsWith('/media/') && !range && compressionEncoding && isCompressibleType(ext) && stat.size > 1024;
 
-    if (shouldGzip) {
+    if (shouldCompress) {
       delete headers['Content-Length'];
-      headers['Content-Encoding'] = 'gzip';
+      headers['Content-Encoding'] = compressionEncoding;
       res.writeHead(200, headers);
 
       const stream = fs.createReadStream(filePath);
-      const gzip = zlib.createGzip({ level: 6 });
-      stream.pipe(gzip).pipe(res);
+      const compressed = createStaticCompressionStream(compressionEncoding);
+      stream.pipe(compressed).pipe(res);
       stream.on('error', () => {
         res.writeHead(500);
         res.end('Server error');
@@ -17051,7 +17080,7 @@ async function handleApi(req, res, pathname) {
       heroMobileWebm: HERO_MOBILE_WEBM_URL || ''
     };
 
-    sendJson(res, 200, { ok: true, media });
+    sendJson(res, 200, { ok: true, media }, PUBLIC_CONFIG_CACHE_HEADERS);
     return;
   }
 
@@ -17074,7 +17103,7 @@ async function handleApi(req, res, pathname) {
         ok: true,
         source: 'zoho-live',
         roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), _zohoRolesCache.roles)
-      });
+      }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
 
@@ -17088,7 +17117,7 @@ async function handleApi(req, res, pathname) {
             ok: true,
             source: 'zoho-live',
             roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), cachedRoles)
-          });
+          }, PRIVATE_METADATA_CACHE_HEADERS);
           return;
         }
       } catch {
@@ -17134,7 +17163,7 @@ async function handleApi(req, res, pathname) {
             ok: true,
             source: 'zoho-live',
             roles: mergeCareerRoleClientLists(manualRows.map(mapCareerRoleRowToClient), allRoles)
-          });
+          }, PRIVATE_METADATA_CACHE_HEADERS);
           return;
         }
       } catch {
@@ -17154,11 +17183,11 @@ async function handleApi(req, res, pathname) {
         connected: !!(connection && connection.status === 'active'),
         lastSyncAt: connection && connection.lastSyncAt ? connection.lastSyncAt : null,
         roles: rows.map(mapCareerRoleRowToClient)
-      });
+      }, PRIVATE_METADATA_CACHE_HEADERS);
       return;
     }
 
-    sendJson(res, 200, { ok: true, source: 'fallback', roles: [] });
+    sendJson(res, 200, { ok: true, source: 'fallback', roles: [] }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
@@ -17189,7 +17218,7 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, {
       ok: true,
       role: mapCareerRoleDetailToClient(heroReadyRow || aiReadyRow || billingReadyRow || existingRow)
-    });
+    }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
@@ -17212,7 +17241,7 @@ async function handleApi(req, res, pathname) {
           heroImageSourceUrl: mappedRole && mappedRole.heroImageSourceUrl ? mappedRole.heroImageSourceUrl : '',
           heroImageCredit: mappedRole && mappedRole.heroImageCredit ? mappedRole.heroImageCredit : '',
           status: mappedRole && mappedRole.heroImageUrl ? 'success' : 'unavailable'
-        });
+        }, PRIVATE_METADATA_CACHE_HEADERS);
         return;
       }
     }
@@ -17234,7 +17263,7 @@ async function handleApi(req, res, pathname) {
       heroImageSourceUrl: resolved.heroImageSourceUrl,
       heroImageCredit: resolved.heroImageCredit,
       status: resolved.heroImageStatus
-    });
+    }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 

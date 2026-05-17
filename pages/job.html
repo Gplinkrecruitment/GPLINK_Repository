@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Role Details - GP Link</title>
-  <script src="../js/native-bridge.js?v=20260516a"></script>
+  <script src="../js/native-bridge.js?v=20260517a"></script>
   <script>try{if(window.self!==window.top){var d=document.documentElement;d.classList.add('gp-shell-embedded');var s=document.createElement('style');s.id='gp-embed-early';s.textContent='.gp-shell-embedded .desktop-topbar,.gp-shell-embedded .topbar,.gp-shell-embedded .mobile-nav,.gp-shell-embedded .nav-menu,.gp-shell-embedded .brand-logo,.gp-shell-embedded .app-shell-desktop,.gp-shell-embedded #appShellDesktop{display:none!important}';(document.head||d).appendChild(s)}}catch(e){document.documentElement.classList.add('gp-shell-embedded')}</script>
   <script src="/js/nav-shell-bridge.js?v=20260516a" defer></script>
   <script src="../js/auth-guard.js?v=20260516a" defer></script>
@@ -1084,9 +1084,58 @@
 
   const CAREER_STATE_KEY = "gp_career_state";
   const ROLE_PREVIEW_SESSION_KEY = "gp_role_preview";
+  const ROLE_LIST_CACHE_KEY = "gp_career_roles_cache";
+  const ROLE_DETAIL_CACHE_PREFIX = "gp_career_role_detail:";
+  const ROLE_CACHE_TTL_MS = 10 * 60 * 1000;
 
   function parseStorage(key) {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
+  }
+
+  function readCachedRoles() {
+    try {
+      const raw = localStorage.getItem(ROLE_LIST_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      const fetchedAt = Date.parse(parsed && parsed.fetchedAt);
+      const roles = Array.isArray(parsed && parsed.roles) ? parsed.roles.filter((role) => role && role.id) : [];
+      if (!roles.length || !Number.isFinite(fetchedAt)) return [];
+      return Date.now() - fetchedAt <= ROLE_CACHE_TTL_MS ? roles : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function writeCachedRoles(roles) {
+    try {
+      const safeRoles = Array.isArray(roles) ? roles.filter((role) => role && role.id) : [];
+      if (!safeRoles.length) return;
+      localStorage.setItem(ROLE_LIST_CACHE_KEY, JSON.stringify({
+        fetchedAt: new Date().toISOString(),
+        roles: safeRoles
+      }));
+    } catch (err) {}
+  }
+
+  function readCachedRoleDetail(roleId) {
+    try {
+      const raw = localStorage.getItem(ROLE_DETAIL_CACHE_PREFIX + roleId);
+      const parsed = raw ? JSON.parse(raw) : null;
+      const fetchedAt = Date.parse(parsed && parsed.fetchedAt);
+      if (!parsed || !parsed.role || !Number.isFinite(fetchedAt)) return null;
+      return Date.now() - fetchedAt <= ROLE_CACHE_TTL_MS ? parsed.role : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function writeCachedRoleDetail(roleId, role) {
+    if (!roleId || !role || !role.id) return;
+    try {
+      localStorage.setItem(ROLE_DETAIL_CACHE_PREFIX + roleId, JSON.stringify({
+        fetchedAt: new Date().toISOString(),
+        role: role
+      }));
+    } catch (err) {}
   }
 
   function escapeHtml(value) {
@@ -1504,12 +1553,15 @@
 
   /* ── Fetch role ── */
   async function loadRolePreview(roleId) {
+    const cached = readCachedRoles().find((role) => role && role.id === roleId);
+    if (cached) return cached;
     try {
       const res = await fetch("/api/career/roles", { credentials: "same-origin" });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data || data.ok !== true || !Array.isArray(data.roles)) {
         return null;
       }
+      writeCachedRoles(data.roles);
       return data.roles.find((role) => role && role.id === roleId) || null;
     } catch (err) {
       return null;
@@ -1517,6 +1569,8 @@
   }
 
   async function loadRoleDetail(roleId, timeoutMs) {
+    const cached = readCachedRoleDetail(roleId);
+    if (cached) return cached;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -1528,6 +1582,7 @@
       if (!res.ok || !data || data.ok !== true || !data.role) {
         return null;
       }
+      writeCachedRoleDetail(roleId, data.role);
       return data.role;
     } catch (err) {
       return null;

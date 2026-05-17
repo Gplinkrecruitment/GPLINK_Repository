@@ -125,7 +125,27 @@
   /* ── Service worker registration ── */
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () {
-      navigator.serviceWorker.register("/sw.js").catch(function () {});
+      if (window.gpPerfCache && typeof window.gpPerfCache.register === "function") {
+        window.gpPerfCache.register();
+        return;
+      }
+      navigator.serviceWorker.register("/sw.js").then(function (registration) {
+        var target = navigator.serviceWorker.controller || registration.active || registration.waiting || registration.installing;
+        if (target && typeof target.postMessage === "function") {
+          target.postMessage({
+            type: "GP_CACHE_URLS",
+            urls: [
+              "/pages/index.html?gp_shell=embedded&gp_shell_static=1",
+              "/js/native-bridge.js?v=20260517a",
+              "/js/nav-shell-bridge.js?v=20260516a",
+              "/js/auth-guard.js?v=20260516a",
+              "/js/state-sync.js?v=20260516a",
+              "/js/updates-sync.js?v=20260516a",
+              "/js/account-dropdown.js?v=20260516a"
+            ]
+          });
+        }
+      }).catch(function () {});
     });
   }
 
