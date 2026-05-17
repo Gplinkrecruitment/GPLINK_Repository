@@ -286,7 +286,7 @@ async function createGoogleDriveFolder(folderName, parentFolderId) {
     });
     return res.data;
   } catch (err) {
-    console.error('[GoogleDrive] createFolder error:', err.message);
+    console.error('[GoogleDrive] createFolder error:', err.message, err.code, err.status, JSON.stringify(err.errors || []));
     return null;
   }
 }
@@ -309,7 +309,7 @@ async function uploadToGoogleDrive(folderId, fileName, buffer, mimeType) {
     });
     return res.data;
   } catch (err) {
-    console.error('[GoogleDrive] upload error:', err.message);
+    console.error('[GoogleDrive] upload error:', err.message, err.code, err.status, JSON.stringify(err.errors || []));
     return null;
   }
 }
