@@ -120,12 +120,6 @@
       transition: color .18s ease, font-weight .18s ease;
     }
 
-    .nav-dropdown {
-      position: relative;
-      display: inline-flex;
-      flex-direction: column;
-      align-items: stretch;
-    }
 
     .nav-link,
     .account-pill {
@@ -149,10 +143,6 @@
       cursor: pointer;
     }
 
-    .nav-dropdown-trigger {
-      position: relative;
-      z-index: 2;
-    }
 
     .nav-link.active,
     .account-pill.active {
@@ -214,133 +204,6 @@
       pointer-events: none;
       transition: left .34s cubic-bezier(.22,.9,.18,1.05), top .34s cubic-bezier(.22,.9,.18,1.05), width .34s cubic-bezier(.22,.9,.18,1.05), height .34s cubic-bezier(.22,.9,.18,1.05), opacity .18s ease;
       z-index: 1;
-    }
-
-    .nav-glass.engulf {
-      background: rgba(37, 99, 235, 0.1);
-    }
-
-    .reg-dropdown {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 50%;
-      width: min(540px, 78vw);
-      padding: 14px;
-      border-radius: 18px;
-      border: 1px solid #e8edf5;
-      background: #ffffff;
-      box-shadow: 0 20px 40px -16px rgba(15, 23, 42, 0.18);
-      opacity: 0;
-      pointer-events: none;
-      visibility: hidden;
-      transform: translate(-50%, 6px);
-      transform-origin: top center;
-      transition:
-        opacity .16s ease,
-        transform .16s ease,
-        visibility .16s ease;
-      z-index: 20;
-    }
-
-    .nav-dropdown.is-open .reg-dropdown {
-      opacity: 1;
-      pointer-events: auto;
-      visibility: visible;
-      transform: translate(-50%, 0);
-    }
-
-    .reg-head {
-      margin: 0 0 10px;
-      font-size: 14px;
-      font-weight: 800;
-    }
-
-    .reg-table {
-      display: grid;
-      gap: 8px;
-    }
-
-    .reg-row {
-      position: relative;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      align-items: center;
-      gap: 10px;
-      overflow: hidden;
-      padding: 10px 12px;
-      border: 1px solid #e8edf5;
-      border-radius: 14px;
-      background: #fafbfd;
-    }
-
-    .reg-name {
-      font-size: 13px;
-      font-weight: 700;
-    }
-
-    .reg-sub {
-      margin-top: 2px;
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--muted);
-    }
-
-    .reg-row.done {
-      border-color: #bfdbfe;
-      background: #eff6ff;
-    }
-
-    .reg-row.done .reg-name {
-      color: #1d4ed8;
-    }
-
-    .reg-row.done .reg-sub {
-      color: #64748b;
-    }
-
-    .reg-btn {
-      padding: 8px 14px;
-      border: 1px solid #bfdbfe;
-      border-radius: 10px;
-      background: #eff6ff;
-      color: var(--blue);
-      font-size: 12px;
-      font-weight: 700;
-      white-space: nowrap;
-      text-decoration: none;
-      transition: all .15s ease;
-    }
-
-    .reg-btn:hover {
-      background: #dbeafe;
-    }
-
-    .reg-btn.done {
-      border-color: #bfdbfe;
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-
-    .reg-btn.locked {
-      border-color: #e2e8f0;
-      background: #f1f5f9;
-      color: #64748b;
-    }
-
-    .reg-row.locked-row {
-      opacity: 0.7;
-    }
-
-    .reg-row.locked-row .reg-name {
-      color: #94a3b8;
-    }
-
-    .reg-locked-hint {
-      font-size: 10px;
-      font-weight: 600;
-      color: #94a3b8;
-      font-style: italic;
-      margin-top: 2px;
     }
 
     .app-shell-frame-stack {
@@ -731,16 +594,10 @@
               <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.8V21h14V9.8"></path></svg>
               <span>Home</span>
             </a>
-            <div class="nav-dropdown" data-dropdown="registration">
-              <button class="nav-link nav-item nav-dropdown-trigger" id="registrationMenuBtn" data-nav="registration" type="button" aria-expanded="false" aria-haspopup="true">
-                <svg class="nav-icon" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
-                <span>Registration</span>
-              </button>
-              <div class="reg-dropdown">
-                <div class="reg-head">Registration Progress</div>
-                <div class="reg-table" id="regTable"></div>
-              </div>
-            </div>
+            <a class="nav-link nav-item" href="/pages/index.html" data-route="/pages/index.html" data-nav="registration">
+              <svg class="nav-icon" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
+              <span>Registration</span>
+            </a>
             <a class="nav-link nav-item" href="/pages/my-documents.html" data-route="/pages/my-documents.html" data-nav="documents">
               <svg class="nav-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
               <span>My Documents</span>

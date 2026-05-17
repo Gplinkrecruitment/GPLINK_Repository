@@ -72,9 +72,6 @@
   var navGlassEl = document.getElementById("navGlass");
   var mobileNavGlassEl = document.getElementById("mobileNavGlass");
   var desktopHostEl = document.getElementById("appShellDesktop");
-  var desktopRegistrationDropdownEl = document.querySelector('[data-dropdown="registration"]');
-  var desktopRegistrationTriggerEl = desktopRegistrationDropdownEl ? desktopRegistrationDropdownEl.querySelector('[data-nav="registration"]') : null;
-  var registrationRowsEl = document.getElementById("regTable");
   var mobileRegistrationToggleEl = document.querySelector("[data-mobile-registration-toggle]");
   var mobileRegBackdropEl = document.getElementById("mobileRegBackdrop");
   var mobileRegSheetEl = document.getElementById("mobileRegSheet");
@@ -125,7 +122,6 @@
   var idlePrefetchStarted = false;
   var prefetchedRoutes = Object.create(null);
   var warmedFetchUrls = Object.create(null);
-  var desktopRegistrationCloseTimer = 0;
   var mobileRegistrationSheetOpen = false;
   var mobileSheetStartY = 0;
   var mobileSheetDeltaY = 0;
@@ -615,7 +611,6 @@
   function renderRegistrationRows() {
     var rows = getRegistrationRows();
 
-    if (registrationRowsEl) registrationRowsEl.innerHTML = "";
     if (mobileRegTableEl) mobileRegTableEl.innerHTML = "";
 
     rows.forEach(function (row) {
@@ -630,7 +625,6 @@
         "</div>"
       ].join("");
       rowEl.appendChild(buildRegistrationAction(row));
-      if (registrationRowsEl) registrationRowsEl.appendChild(rowEl);
     });
 
     if (!mobileRegTableEl) return;
@@ -767,28 +761,6 @@
       var guard = document.getElementById("gp-shell-preload-guard");
       if (guard) guard.parentNode.removeChild(guard);
     }
-  }
-
-  function clearDesktopRegistrationCloseTimer() {
-    if (!desktopRegistrationCloseTimer) return;
-    window.clearTimeout(desktopRegistrationCloseTimer);
-    desktopRegistrationCloseTimer = 0;
-  }
-
-  function setDesktopRegistrationOpen(open) {
-    if (!desktopRegistrationDropdownEl || !desktopRegistrationTriggerEl) return;
-    if (open) clearDesktopRegistrationCloseTimer();
-    if (open) renderRegistrationRows();
-    desktopRegistrationDropdownEl.classList.toggle("is-open", !!open);
-    desktopRegistrationTriggerEl.setAttribute("aria-expanded", open ? "true" : "false");
-    if (navGlassEl) navGlassEl.classList.toggle("engulf", !!open);
-  }
-
-  function scheduleDesktopRegistrationClose() {
-    clearDesktopRegistrationCloseTimer();
-    desktopRegistrationCloseTimer = window.setTimeout(function () {
-      setDesktopRegistrationOpen(false);
-    }, 140);
   }
 
   function openMobileRegistrationSheet() {
@@ -986,7 +958,6 @@
       return;
     }
 
-    setDesktopRegistrationOpen(false);
     closeMobileRegistrationSheet();
 
     var route = routeFromUrl(routeUrl);
@@ -1120,21 +1091,12 @@
   function handleDocumentClick(event) {
     var clickTarget = getEventElement(event.target);
     var mobileToggle = null;
-    var desktopToggle = null;
     var link = null;
     var routeUrl = null;
 
     if (!clickTarget) return;
 
-    desktopToggle = clickTarget.closest("#registrationMenuBtn");
     mobileToggle = clickTarget.closest("[data-mobile-registration-toggle]");
-
-    if (desktopToggle && desktopNavEl && isVisible(desktopNavEl)) {
-      event.preventDefault();
-      setDesktopRegistrationOpen(!desktopRegistrationDropdownEl.classList.contains("is-open"));
-      moveNavGlass(desktopRegistrationTriggerEl, true);
-      return;
-    }
 
     if (mobileToggle && mobileNavEl && isVisible(mobileNavEl)) {
       event.preventDefault();
@@ -1144,10 +1106,6 @@
         openMobileRegistrationSheet();
       }
       return;
-    }
-
-    if (!desktopRegistrationDropdownEl || !desktopRegistrationDropdownEl.contains(clickTarget)) {
-      setDesktopRegistrationOpen(false);
     }
 
     if (event.defaultPrevented) return;
@@ -1183,39 +1141,14 @@
   function handleDesktopHoverEvents() {
     if (!desktopNavEl) return;
 
-    if (desktopRegistrationDropdownEl && desktopRegistrationTriggerEl) {
-      desktopRegistrationDropdownEl.addEventListener("mouseenter", function () {
-        clearDesktopRegistrationCloseTimer();
-        setDesktopRegistrationOpen(true);
-        moveNavGlass(desktopRegistrationTriggerEl, true);
-      });
-      desktopRegistrationDropdownEl.addEventListener("mouseleave", function () {
-        scheduleDesktopRegistrationClose();
-      });
-      desktopRegistrationDropdownEl.addEventListener("focusin", function () {
-        clearDesktopRegistrationCloseTimer();
-        setDesktopRegistrationOpen(true);
-        moveNavGlass(desktopRegistrationTriggerEl, true);
-      });
-      desktopRegistrationDropdownEl.addEventListener("focusout", function () {
-        window.setTimeout(function () {
-          if (!desktopRegistrationDropdownEl.contains(document.activeElement)) {
-            scheduleDesktopRegistrationClose();
-          }
-        }, 0);
-      });
-    }
-
     getDesktopItems().forEach(function (item) {
       item.addEventListener("mouseenter", function () {
         hoveredDesktopItem = item;
         moveNavGlass(item, true);
-        if (item !== desktopRegistrationTriggerEl) setDesktopRegistrationOpen(false);
       });
       item.addEventListener("focus", function () {
         hoveredDesktopItem = item;
         moveNavGlass(item, true);
-        if (item !== desktopRegistrationTriggerEl) setDesktopRegistrationOpen(false);
       });
     });
 
@@ -1228,14 +1161,12 @@
 
     desktopNavEl.addEventListener("mouseleave", function () {
       hoveredDesktopItem = null;
-      scheduleDesktopRegistrationClose();
       if (activeDesktopItem) moveNavGlass(activeDesktopItem, true);
     });
   }
 
   function handleKeydown(event) {
     if (event.key !== "Escape") return;
-    setDesktopRegistrationOpen(false);
     closeMobileRegistrationSheet();
   }
 
@@ -1292,9 +1223,6 @@
         // Ignore same-origin race conditions during frame resize.
       }
     });
-    if (desktopNavEl && !isVisible(desktopNavEl)) {
-      setDesktopRegistrationOpen(false);
-    }
     if (mobileNavEl && !isVisible(mobileNavEl)) {
       closeMobileRegistrationSheet();
     }
