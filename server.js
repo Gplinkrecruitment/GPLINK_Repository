@@ -16099,32 +16099,12 @@ async function handleApi(req, res, pathname) {
         // Check DB again after processing
         var todosRes2 = await supabaseDbRequest('incoming_email_todos', 'select=id,sender_email,subject&order=created_at.desc&limit=5');
         var processedRes2 = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id,sender,subject,result&order=processed_at.desc&limit=5');
-        // Query email_triage tasks - try without email_sender first to isolate column issues
-        var emailTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,title,status,task_type,source_trigger,case_id,created_at&task_type=eq.email_triage&order=created_at.desc&limit=10');
-        // Also try a broader query to see ALL email_triage tasks regardless of source_trigger
-        var emailTasksAnyRes = await supabaseDbRequest('registration_tasks', 'select=id,title,task_type,source_trigger,created_at&task_type=eq.email_triage&order=created_at.desc&limit=10');
-        // Direct INSERT test: try creating a minimal email_triage task to verify schema
-        var testTaskInsert = await supabaseDbRequest('registration_tasks', '', {
-          method: 'POST', headers: { Prefer: 'return=representation' },
-          body: [{ task_type: 'email_triage', title: 'DIAG TEST — safe to delete', description: 'Diagnostic test task', source_trigger: 'gmail_triage', priority: 'normal', status: 'open' }]
-        });
-        diag.steps.push({
-          step: 'direct_insert_test',
-          ok: testTaskInsert.ok,
-          data: testTaskInsert.data,
-          status: testTaskInsert.status
-        });
-        // Clean up the test task if it was created
-        if (testTaskInsert.ok && Array.isArray(testTaskInsert.data) && testTaskInsert.data[0]) {
-          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(testTaskInsert.data[0].id), { method: 'DELETE' });
-        }
-
+        var emailTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,title,email_sender,status,created_at&task_type=eq.email_triage&source_trigger=eq.gmail_triage&order=created_at.desc&limit=10');
         diag.steps.push({
           step: 'db_after_process',
-          todos: todosRes2.ok ? todosRes2.data : { error: todosRes2.data },
-          processed: processedRes2.ok ? processedRes2.data : { error: processedRes2.data },
-          email_triage_tasks: emailTasksRes.ok ? emailTasksRes.data : { error: emailTasksRes.data },
-          email_triage_any: emailTasksAnyRes.ok ? emailTasksAnyRes.data : { error: emailTasksAnyRes.data }
+          todos: todosRes2.ok ? todosRes2.data : [],
+          processed: processedRes2.ok ? processedRes2.data : [],
+          email_triage_tasks: emailTasksRes.ok ? emailTasksRes.data : []
         });
       }
 
