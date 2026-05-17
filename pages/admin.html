@@ -2209,7 +2209,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(typeof buildJourney!=="function")return '';
     const journey=gp?buildJourney(gp,c):[];
     if(!journey.length)return '';
-    const steps=journey.filter(s=>s.key!=="visa");
+    const steps=journey;
     let html='<div class="journey-rail">';
     steps.forEach((step,idx)=>{
       const cls=step.status==="done"?"done":step.status==="current"?"current":step.status==="locked"?"locked":"pending";
