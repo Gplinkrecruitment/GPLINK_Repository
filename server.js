@@ -15995,6 +15995,11 @@ async function handleApi(req, res, pathname) {
   }
 
   // Gmail Pub/Sub webhook — external origin, must be before same-origin enforcement
+  // Handle HEAD/GET for Pub/Sub subscription verification
+  if ((req.method === 'HEAD' || req.method === 'GET') && pathname === '/api/webhooks/gmail') {
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   if (req.method === 'POST' && pathname === '/api/webhooks/gmail') {
     // Process synchronously before responding — Vercel kills the function after res.end()
     try {
@@ -16077,7 +16082,48 @@ async function handleApi(req, res, pathname) {
       var processedRes = await supabaseDbRequest('processed_gmail_messages', 'select=gmail_message_id&limit=1');
       diag.steps.push({ step: 'db_records', todos_exist: todosRes.ok && Array.isArray(todosRes.data) && todosRes.data.length > 0, processed_exist: processedRes.ok && Array.isArray(processedRes.data) && processedRes.data.length > 0 });
 
-      // Step 7: If ?reprocess=true, clear dedup records and reset historyId so emails get re-processed
+      // Step 7: If ?fix_subscription=true, update Pub/Sub push endpoint to correct domain
+      if (url.searchParams.get('fix_subscription') === 'true' && GOOGLE_PUBSUB_TOPIC) {
+        try {
+          var { google: gapis } = require('googleapis');
+          var pubsubAuth = new gapis.auth.GoogleAuth({
+            credentials: { client_email: GOOGLE_SERVICE_ACCOUNT_EMAIL, private_key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY },
+            scopes: ['https://www.googleapis.com/auth/pubsub']
+          });
+          var pubsubToken = await pubsubAuth.getAccessToken();
+          // Extract project from topic: projects/{project}/topics/{topic}
+          var topicParts = GOOGLE_PUBSUB_TOPIC.match(/^projects\/([^/]+)\/topics\/([^/]+)$/);
+          if (topicParts) {
+            var projectId = topicParts[1];
+            var subName = 'projects/' + projectId + '/subscriptions/gmail-push-sub';
+            var correctEndpoint = 'https://app.mygplink.com.au/api/webhooks/gmail';
+            // First GET current subscription to see the current push endpoint
+            var getSubResp = await fetch('https://pubsub.googleapis.com/v1/' + subName, {
+              headers: { 'Authorization': 'Bearer ' + pubsubToken }
+            });
+            var currentSub = getSubResp.ok ? await getSubResp.json() : null;
+            var currentEndpoint = currentSub && currentSub.pushConfig ? currentSub.pushConfig.pushEndpoint : null;
+            if (currentEndpoint === correctEndpoint) {
+              diag.steps.push({ step: 'fix_subscription', status: 'already_correct', endpoint: currentEndpoint });
+            } else {
+              // Update the push endpoint
+              var updateResp = await fetch('https://pubsub.googleapis.com/v1/' + subName + '?updateMask=pushConfig', {
+                method: 'PATCH',
+                headers: { 'Authorization': 'Bearer ' + pubsubToken, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pushConfig: { pushEndpoint: correctEndpoint } })
+              });
+              var updateData = updateResp.ok ? await updateResp.json() : await updateResp.text();
+              diag.steps.push({ step: 'fix_subscription', status: updateResp.ok ? 'updated' : 'failed', old_endpoint: currentEndpoint, new_endpoint: correctEndpoint, response_status: updateResp.status, detail: updateResp.ok ? null : updateData });
+            }
+          } else {
+            diag.steps.push({ step: 'fix_subscription', status: 'error', message: 'Could not parse project from GOOGLE_PUBSUB_TOPIC' });
+          }
+        } catch (subErr) {
+          diag.steps.push({ step: 'fix_subscription', status: 'error', message: subErr.message });
+        }
+      }
+
+      // Step 8: If ?reprocess=true, clear dedup records and reset historyId so emails get re-processed
       if (url.searchParams.get('reprocess') === 'true') {
         var delRes = await supabaseDbRequest('processed_gmail_messages', 'gmail_message_id=not.is.null', { method: 'DELETE', headers: { Prefer: 'return=representation' } });
         var deletedCount = delRes.ok && Array.isArray(delRes.data) ? delRes.data.length : 0;
