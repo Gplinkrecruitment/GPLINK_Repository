@@ -17785,8 +17785,9 @@ async function handleApi(req, res, pathname) {
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
-    const applicationId = String(parsedUrl.query.applicationId || '').trim();
-    const attachmentId = String(parsedUrl.query.attachmentId || '').trim();
+    const contractParams = new URL(req.url, 'http://x').searchParams;
+    const applicationId = String(contractParams.get('applicationId') || '').trim();
+    const attachmentId = String(contractParams.get('attachmentId') || '').trim();
     if (!applicationId || !attachmentId) {
       sendJson(res, 400, { ok: false, message: 'Missing applicationId or attachmentId.' });
       return;
