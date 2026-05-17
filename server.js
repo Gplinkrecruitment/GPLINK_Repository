@@ -287,20 +287,13 @@ async function createGoogleDriveFolder(folderName, parentFolderId) {
       },
       fields: 'id,name,webViewLink'
     });
-    // Share folder with domain so all admins can access
+    // Make folder accessible by anyone with the link
     try {
       await drive.permissions.create({
         fileId: res.data.id,
-        requestBody: { role: 'writer', type: 'domain', domain: 'mygplink.com.au' }
+        requestBody: { role: 'reader', type: 'anyone' }
       });
-    } catch (shareErr) {
-      try {
-        await drive.permissions.create({
-          fileId: res.data.id,
-          requestBody: { role: 'writer', type: 'anyone' }
-        });
-      } catch (e) { console.error('[GoogleDrive] folder share error:', e.message); }
-    }
+    } catch (e) { console.error('[GoogleDrive] folder share error:', e.message); }
     return res.data;
   } catch (err) {
     console.error('[GoogleDrive] createFolder error:', err.message, err.code, err.status, JSON.stringify(err.errors || []));
@@ -323,21 +316,13 @@ async function uploadToGoogleDrive(folderId, fileName, buffer, mimeType) {
       },
       fields: 'id,name,webViewLink'
     });
-    // Share with anyone in the domain so all admins can view
+    // Make file viewable by anyone with the link so admin preview works
     try {
       await drive.permissions.create({
         fileId: res.data.id,
-        requestBody: { role: 'reader', type: 'domain', domain: 'mygplink.com.au' }
+        requestBody: { role: 'reader', type: 'anyone' }
       });
-    } catch (shareErr) {
-      // Fallback: share with anyone who has the link
-      try {
-        await drive.permissions.create({
-          fileId: res.data.id,
-          requestBody: { role: 'reader', type: 'anyone' }
-        });
-      } catch (e) { console.error('[GoogleDrive] share error:', e.message); }
-    }
+    } catch (e) { console.error('[GoogleDrive] share error:', e.message); }
     return res.data;
   } catch (err) {
     console.error('[GoogleDrive] upload error:', err.message);

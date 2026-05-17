@@ -3739,12 +3739,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         const name=dpc.getAttribute("data-drive-name")||"Document";
         const mime=dpc.getAttribute("data-drive-mime")||"";
         const link=dpc.getAttribute("data-drive-link")||"";
-        if(!link)return;
+        const fileId=dpc.getAttribute("data-drive-preview")||"";
+        if(!fileId)return;
+        var previewUrl="https://drive.google.com/file/d/"+encodeURIComponent(fileId)+"/preview";
         let bodyContent;
         if(mime.indexOf("image")>-1){
-          bodyContent='<img src="'+esc(link)+'" alt="'+esc(name)+'">';
+          bodyContent='<img src="'+esc(link||previewUrl)+'" alt="'+esc(name)+'">';
         }else{
-          bodyContent='<iframe src="'+esc(link)+'"></iframe>';
+          bodyContent='<iframe src="'+esc(previewUrl)+'" allow="autoplay"></iframe>';
         }
         const overlay=document.createElement("div");
         overlay.className="drive-overlay";
