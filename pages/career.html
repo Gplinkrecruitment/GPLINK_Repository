@@ -10177,14 +10177,14 @@
       renderPlacementChecklist(placement.checklist);
 
       var broker = placement.broker || {};
-      securedBrokerNameEl.textContent = broker.name || "";
-      securedBrokerRoleEl.textContent = broker.role || "";
-      securedBrokerPresenceEl.textContent = broker.presence || "";
-      securedBrokerInitialsEl.textContent = broker.initials || "";
-      securedBrokerNoteEl.textContent = broker.note || "";
-      securedBrokerCallLinkEl.href = broker.phone ? "tel:" + broker.phone.replace(/\s+/g, "") : "#";
-      securedBrokerEmailLinkEl.href = broker.email ? "mailto:" + broker.email : "#";
-      securedBrokerWhatsAppLinkEl.href = buildWhatsAppHref(broker.whatsapp);
+      if (securedBrokerNameEl) securedBrokerNameEl.textContent = broker.name || "";
+      if (securedBrokerRoleEl) securedBrokerRoleEl.textContent = broker.role || "";
+      if (securedBrokerPresenceEl) securedBrokerPresenceEl.textContent = broker.presence || "";
+      if (securedBrokerInitialsEl) securedBrokerInitialsEl.textContent = broker.initials || "";
+      if (securedBrokerNoteEl) securedBrokerNoteEl.textContent = broker.note || "";
+      if (securedBrokerCallLinkEl) securedBrokerCallLinkEl.href = broker.phone ? "tel:" + broker.phone.replace(/\s+/g, "") : "#";
+      if (securedBrokerEmailLinkEl) securedBrokerEmailLinkEl.href = broker.email ? "mailto:" + broker.email : "#";
+      if (securedBrokerWhatsAppLinkEl) securedBrokerWhatsAppLinkEl.href = buildWhatsAppHref(broker.whatsapp);
 
       securedSalaryRangeEl.textContent = placement.compensation.range;
       securedSalaryUnitEl.textContent = placement.compensation.unit;
@@ -10210,10 +10210,10 @@
       securedContinueBtnEl.textContent = placement.nextStep.label;
       securedContinueBtnEl.dataset.href = placement.nextStep.href || "";
 
-      placementDockInitialsEl.textContent = broker.initials || "";
-      placementDockTitleEl.textContent = broker.dockTitle || "";
-      placementDockStatusEl.textContent = broker.dockStatus || "";
-      placementDockWhatsAppLinkEl.href = buildWhatsAppHref(broker.whatsapp);
+      if (placementDockInitialsEl) placementDockInitialsEl.textContent = broker.initials || "";
+      if (placementDockTitleEl) placementDockTitleEl.textContent = broker.dockTitle || "";
+      if (placementDockStatusEl) placementDockStatusEl.textContent = broker.dockStatus || "";
+      if (placementDockWhatsAppLinkEl) placementDockWhatsAppLinkEl.href = buildWhatsAppHref(broker.whatsapp);
     }
 
     async function renderRoleModal(roleId) {
