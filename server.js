@@ -1010,37 +1010,39 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           );
         }
 
-        // Create a registration_task so it shows up in the VA's task list
-        // If AI matched a GP, link to their case. Otherwise assign to any active case so it's still visible.
+        // Create a registration_task so it shows up in the VA's Support tab
+        // If AI matched a GP, link to their case. Otherwise try any active case. If none, still create task with null case_id.
         var gpCase = null;
         if (triageResult.matched_gp_user_id) {
           var caseRes = await supabaseDbRequest('registration_cases',
             'select=id,stage&user_id=eq.' + encodeURIComponent(triageResult.matched_gp_user_id) + '&limit=1');
           gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
         }
-        // Fallback: if no matched GP or no case, use the first active case so the task still appears in queue
+        // Fallback: if no matched GP or no case, use the first active case
         if (!gpCase) {
           var fallbackCaseRes = await supabaseDbRequest('registration_cases', 'select=id,stage&status=eq.active&order=updated_at.desc&limit=1');
           gpCase = fallbackCaseRes.ok && Array.isArray(fallbackCaseRes.data) && fallbackCaseRes.data[0] ? fallbackCaseRes.data[0] : null;
         }
-        if (gpCase) {
-          var isAhpra = emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au');
-          var unmatchedPrefix = triageResult.matched_gp_user_id ? '' : '\u2753 Unmatched — ';
-          await _createRegTask(gpCase.id, {
-            task_type: 'email_triage',
-            title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
-            description: (triageResult.matched_gp_user_id ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' — ' + (emailMeta.subject || ''))),
-            priority: triageResult.urgency === 'urgent' ? 'urgent' : triageResult.urgency === 'high' ? 'high' : 'normal',
-            source_trigger: 'gmail_triage',
-            related_stage: isAhpra ? 'ahpra' : (gpCase.stage || ''),
-            gmail_message_id: currentMsgId,
-            email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
-            email_sender: emailMeta.sender || '',
-            gmail_thread_id: emailMeta.threadId || '',
-            _actor: 'system'
-          });
+        // Always create the task — case_id can be null (schema allows it)
+        var isAhpra = emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au');
+        var unmatchedPrefix = triageResult.matched_gp_user_id ? '' : '\u2753 Unmatched — ';
+        var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
+          task_type: 'email_triage',
+          title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
+          description: (triageResult.matched_gp_user_id ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' — ' + (emailMeta.subject || ''))),
+          priority: triageResult.urgency === 'urgent' ? 'urgent' : triageResult.urgency === 'high' ? 'high' : 'normal',
+          source_trigger: 'gmail_triage',
+          related_stage: isAhpra ? 'ahpra' : (gpCase ? gpCase.stage || '' : ''),
+          gmail_message_id: currentMsgId,
+          email_body_snippet: (emailMeta.bodyText || '').substring(0, 2000),
+          email_sender: emailMeta.sender || '',
+          gmail_thread_id: emailMeta.threadId || '',
+          _actor: 'system'
+        });
+        if (!taskResult) {
+          console.error('[Gmail] Failed to create email_triage task for message', currentMsgId);
         } else {
-          console.warn('[Gmail] No active case found to assign email task to — email only in incoming_email_todos');
+          console.log('[Gmail] Created email_triage task', taskResult.id, 'for message', currentMsgId, gpCase ? '(case ' + gpCase.id + ')' : '(no case)');
         }
 
         // Insert into incoming_email_todos
@@ -5097,7 +5099,7 @@ function _autoAssignDueDate(payload) {
   var now = new Date();
   var type = payload.task_type || '';
   // Support / help tasks: 24h SLA
-  if (type === 'whatsapp_help' || type === 'blocker' || type === 'qualification_help' || type === 'nudge_reply') {
+  if (type === 'whatsapp_help' || type === 'email_triage' || type === 'blocker' || type === 'qualification_help' || type === 'nudge_reply') {
     payload.due_date = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
     return;
   }
@@ -16000,7 +16002,10 @@ async function handleApi(req, res, pathname) {
       var gmailBody = await readJsonBody(req);
       var pubsubData = parseGmailPubSubMessage(gmailBody);
       if (pubsubData && pubsubData.emailAddress) {
+        console.log('[Gmail webhook] Received notification for', pubsubData.emailAddress, 'historyId:', pubsubData.historyId);
         await processGmailNotification(pubsubData.emailAddress, pubsubData.historyId);
+      } else {
+        console.warn('[Gmail webhook] Failed to parse Pub/Sub message — body keys:', gmailBody ? Object.keys(gmailBody).join(',') : 'null');
       }
     } catch (whErr) {
       console.error('[Gmail webhook] processing error:', whErr.message);
