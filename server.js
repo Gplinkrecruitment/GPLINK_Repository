@@ -302,7 +302,7 @@ async function uploadToGoogleDrive(folderId, fileName, buffer, mimeType) {
       },
       media: {
         mimeType: mimeType || 'application/pdf',
-        body: buffer
+        body: require('stream').Readable.from(buffer)
       },
       fields: 'id,name,webViewLink'
     });
