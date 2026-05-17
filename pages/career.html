@@ -10176,14 +10176,15 @@
       renderPracticeLifestyleExplorer(placement.lifestyle);
       renderPlacementChecklist(placement.checklist);
 
-      securedBrokerNameEl.textContent = placement.broker.name;
-      securedBrokerRoleEl.textContent = placement.broker.role;
-      securedBrokerPresenceEl.textContent = placement.broker.presence;
-      securedBrokerInitialsEl.textContent = placement.broker.initials;
-      securedBrokerNoteEl.textContent = placement.broker.note;
-      securedBrokerCallLinkEl.href = placement.broker.phone ? "tel:" + placement.broker.phone.replace(/\s+/g, "") : "#";
-      securedBrokerEmailLinkEl.href = placement.broker.email ? "mailto:" + placement.broker.email : "#";
-      securedBrokerWhatsAppLinkEl.href = buildWhatsAppHref(placement.broker.whatsapp);
+      var broker = placement.broker || {};
+      securedBrokerNameEl.textContent = broker.name || "";
+      securedBrokerRoleEl.textContent = broker.role || "";
+      securedBrokerPresenceEl.textContent = broker.presence || "";
+      securedBrokerInitialsEl.textContent = broker.initials || "";
+      securedBrokerNoteEl.textContent = broker.note || "";
+      securedBrokerCallLinkEl.href = broker.phone ? "tel:" + broker.phone.replace(/\s+/g, "") : "#";
+      securedBrokerEmailLinkEl.href = broker.email ? "mailto:" + broker.email : "#";
+      securedBrokerWhatsAppLinkEl.href = buildWhatsAppHref(broker.whatsapp);
 
       securedSalaryRangeEl.textContent = placement.compensation.range;
       securedSalaryUnitEl.textContent = placement.compensation.unit;
@@ -10209,10 +10210,10 @@
       securedContinueBtnEl.textContent = placement.nextStep.label;
       securedContinueBtnEl.dataset.href = placement.nextStep.href || "";
 
-      placementDockInitialsEl.textContent = placement.broker.initials;
-      placementDockTitleEl.textContent = placement.broker.dockTitle;
-      placementDockStatusEl.textContent = placement.broker.dockStatus;
-      placementDockWhatsAppLinkEl.href = buildWhatsAppHref(placement.broker.whatsapp);
+      placementDockInitialsEl.textContent = broker.initials || "";
+      placementDockTitleEl.textContent = broker.dockTitle || "";
+      placementDockStatusEl.textContent = broker.dockStatus || "";
+      placementDockWhatsAppLinkEl.href = buildWhatsAppHref(broker.whatsapp);
     }
 
     async function renderRoleModal(roleId) {

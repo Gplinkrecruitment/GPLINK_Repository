@@ -1640,6 +1640,15 @@
       }
     };
 
+    function parseStorage(key) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
     const CAREER_STATE_KEY = "gp_career_state";
     const PROFILE_CACHE_KEY = "gp_profile_cache";
     const CAREER_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
