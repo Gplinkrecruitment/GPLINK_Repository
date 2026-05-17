@@ -293,8 +293,7 @@ async function createGoogleDriveFolder(folderName, parentFolderId) {
 
 async function uploadToGoogleDrive(folderId, fileName, buffer, mimeType) {
   const drive = await getGoogleDriveClient();
-  if (!drive) return null;
-  const { Readable } = require('stream');
+  if (!drive) throw new Error('Google Drive client not available');
   try {
     const res = await drive.files.create({
       requestBody: {
@@ -303,14 +302,14 @@ async function uploadToGoogleDrive(folderId, fileName, buffer, mimeType) {
       },
       media: {
         mimeType: mimeType || 'application/pdf',
-        body: Readable.from(buffer)
+        body: buffer
       },
       fields: 'id,name,webViewLink'
     });
     return res.data;
   } catch (err) {
-    console.error('[GoogleDrive] upload error:', err.message, err.code, err.status, JSON.stringify(err.errors || []));
-    return null;
+    console.error('[GoogleDrive] upload error:', err.message);
+    throw err;
   }
 }
 
@@ -5113,7 +5112,7 @@ function _autoAssignDueDate(payload) {
 async function _createRegTask(caseId, data) {
   if (!isSupabaseDbConfigured()) return null;
   const actor = data._actor || 'system';
-  const payload = { case_id: caseId, domain: 'registration' };
+  const payload = { case_id: caseId };
   for (const [k, v] of Object.entries(data)) { if (k !== '_actor') payload[k] = v; }
   _autoAssignDueDate(payload);
   const r = await supabaseDbRequest('registration_tasks', '', {
@@ -16107,7 +16106,7 @@ async function handleApi(req, res, pathname) {
         // Direct INSERT test: try creating a minimal email_triage task to verify schema
         var testTaskInsert = await supabaseDbRequest('registration_tasks', '', {
           method: 'POST', headers: { Prefer: 'return=representation' },
-          body: [{ task_type: 'email_triage', title: 'DIAG TEST — safe to delete', description: 'Diagnostic test task', source_trigger: 'gmail_triage', priority: 'normal', status: 'open', domain: 'registration' }]
+          body: [{ task_type: 'email_triage', title: 'DIAG TEST — safe to delete', description: 'Diagnostic test task', source_trigger: 'gmail_triage', priority: 'normal', status: 'open' }]
         });
         diag.steps.push({
           step: 'direct_insert_test',
@@ -23022,7 +23021,6 @@ Return ONLY valid JSON with no markdown formatting:
       const raw = base64Match ? base64Match[1] : fileData;
       const buffer = Buffer.from(raw, 'base64');
       const result = await uploadToGoogleDrive(folderId, fileName, buffer, mimeType);
-      if (!result) { sendJson(res, 500, { ok: false, message: 'Upload failed.' }); return; }
       await _logCaseEvent(caseId, null, 'document_uploaded', 'Document uploaded: ' + fileName, null, adminCtx.email);
       sendJson(res, 200, { ok: true, file: result });
     } catch (err) {
