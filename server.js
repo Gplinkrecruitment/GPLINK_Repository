@@ -262,12 +262,11 @@ async function getGoogleDriveClient() {
   if (_googleDriveClient) return _googleDriveClient;
   if (!isGoogleDriveConfigured()) return null;
   const { google } = require('googleapis');
-  const auth = new google.auth.JWT(
-    GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    null,
-    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
-    ['https://www.googleapis.com/auth/drive']
-  );
+  const auth = new google.auth.JWT({
+    email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    scopes: ['https://www.googleapis.com/auth/drive']
+  });
   await auth.authorize();
   _googleDriveClient = google.drive({ version: 'v3', auth });
   return _googleDriveClient;
