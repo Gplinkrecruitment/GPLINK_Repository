@@ -9658,6 +9658,113 @@ async function handleZohoRecruitWebhook(req, res) {
   sendJson(res, 200, { ok: true, synced: result.ok, roles: result.syncedRoleCount || 0 });
 }
 
+// ── Zoho Recruit "Candidate Hired" Webhook ──
+// Fires when a candidate's application status changes to "Hired" in Zoho Recruit.
+// Sends a congratulatory email encouraging signup to the GP Link app.
+async function handleZohoRecruitCandidateHiredWebhook(req, res) {
+  if (!ZOHO_RECRUIT_WEBHOOK_SECRET) {
+    sendJson(res, 503, { ok: false, error: 'Webhook not configured' });
+    return;
+  }
+
+  const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const querySecret = reqUrl.searchParams.get('secret') || '';
+  if (!querySecret || !timingSafeEqualStrings(querySecret, ZOHO_RECRUIT_WEBHOOK_SECRET)) {
+    sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (e) {
+    console.error('[ZohoRecruit candidate-hired] Failed to parse body:', e && e.message);
+    sendJson(res, 400, { ok: false, error: 'Invalid JSON body' });
+    return;
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    sendJson(res, 400, { ok: false, error: 'Empty payload' });
+    return;
+  }
+
+  console.log('[ZohoRecruit candidate-hired] Received webhook payload keys:', Object.keys(payload).join(', '));
+
+  // Extract candidate data — Zoho webhooks can send data in various formats:
+  // 1. Flat object with field names directly
+  // 2. Nested under "data" array (API-style)
+  // 3. Custom parameter mappings from workflow rules
+  const record = (Array.isArray(payload.data) && payload.data[0]) ? payload.data[0] : payload;
+
+  // Candidate name — try multiple field paths
+  const firstName = sanitizeZohoText(
+    record.First_Name || record.first_name ||
+    record.Candidate_First_Name || record.candidate_first_name || ''
+  );
+  const lastName = sanitizeZohoText(
+    record.Last_Name || record.last_name ||
+    record.Candidate_Last_Name || record.candidate_last_name || ''
+  );
+  // Zoho lookup fields can be objects with a "name" property
+  const candidateNameLookup = record.Candidate_Name || record.candidate_name;
+  let candidateDisplayName = '';
+  if (firstName) {
+    candidateDisplayName = firstName;
+  } else if (candidateNameLookup && typeof candidateNameLookup === 'object' && candidateNameLookup.name) {
+    candidateDisplayName = String(candidateNameLookup.name).split(' ')[0];
+  } else if (typeof candidateNameLookup === 'string' && candidateNameLookup.trim()) {
+    candidateDisplayName = candidateNameLookup.trim().split(' ')[0];
+  }
+
+  // Candidate email
+  const candidateEmail = sanitizeZohoText(
+    record.Email || record.email ||
+    record.Candidate_Email || record.candidate_email ||
+    record.App_Email || record.app_email || ''
+  ).toLowerCase();
+
+  // Practice / job info
+  const jobLookup = record.Job_Opening_Name || record.job_opening_name || record.Job_Opening || record.job_opening;
+  let practiceName = sanitizeZohoText(
+    record.Client_Name || record.client_name ||
+    record.Practice_Name || record.practice_name ||
+    record.Account_Name || record.account_name || ''
+  );
+  if (!practiceName && jobLookup) {
+    if (typeof jobLookup === 'object' && jobLookup.name) {
+      practiceName = String(jobLookup.name);
+    } else if (typeof jobLookup === 'string') {
+      practiceName = jobLookup.trim();
+    }
+  }
+  const jobTitle = sanitizeZohoText(
+    record.Posting_Title || record.posting_title ||
+    record.Job_Title || record.job_title || ''
+  );
+  const location = sanitizeZohoText(
+    record.City || record.city ||
+    record.Location || record.location || ''
+  );
+
+  if (!candidateEmail) {
+    console.warn('[ZohoRecruit candidate-hired] No candidate email found in payload');
+    sendJson(res, 400, { ok: false, error: 'No candidate email in payload' });
+    return;
+  }
+
+  console.log('[ZohoRecruit candidate-hired] Sending hired email to:', candidateEmail, '| Name:', candidateDisplayName || '(unknown)', '| Practice:', practiceName || '(unknown)');
+
+  const emailResult = await sendCandidateHiredEmail(candidateEmail, candidateDisplayName, practiceName, jobTitle, location);
+
+  if (emailResult && emailResult.ok) {
+    console.log('[ZohoRecruit candidate-hired] Email sent successfully to', candidateEmail);
+  } else {
+    console.error('[ZohoRecruit candidate-hired] Email failed:', emailResult && emailResult.error);
+  }
+
+  sendJson(res, 200, { ok: true, emailSent: !!(emailResult && emailResult.ok), candidate: candidateEmail });
+}
+
 
 async function markCareerRolesInactive(provider, inactiveIds) {
   const ids = Array.isArray(inactiveIds) ? inactiveIds.filter(Boolean) : [];
@@ -15920,6 +16027,29 @@ async function sendPracticePackEmail(userId, practiceName) {
   );
 }
 
+// 14. Candidate Hired Email — sent to Zoho Recruit candidates when status changes to "Hired"
+// This goes to candidates who may NOT have a GP Link account yet, so it uses sendEmail() directly.
+async function sendCandidateHiredEmail(candidateEmail, candidateFirstName, practiceName, jobTitle, location) {
+  if (!isEmailConfigured() || !candidateEmail) return { ok: false, error: 'Email not configured or no recipient' };
+  const name = candidateFirstName || 'Doctor';
+  const practiceNote = practiceName ? ' at ' + practiceName : '';
+  const locationNote = location ? ' in ' + location : '';
+  const roleNote = jobTitle || 'General Practitioner';
+  return sendEmail({
+    to: candidateEmail,
+    subject: 'Congratulations on Your Placement! — GP Link',
+    html: buildCareerEmailHtml({
+      title: 'Congratulations, Dr ' + name + '!',
+      body: 'We\'re thrilled to let you know that your placement' + practiceNote + locationNote + ' has been confirmed. This is a huge milestone in your journey to practising medicine in Australia — well done!\n\n'
+        + 'To get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step — from qualification verification through to AHPRA registration and your practice pack.\n\n'
+        + 'Your dedicated support expert Hazel is ready to help you with anything you need along the way.',
+      ctaText: 'Sign Up to GP Link',
+      ctaUrl: APP_BASE_URL + '/pages/signin.html',
+      footer: 'Questions about getting started? Reply to this email or reach out to your support expert Hazel on WhatsApp.'
+    })
+  });
+}
+
 /* ───────── Push notifications via FCM ───────── */
 
 async function sendPushNotification(userId, { title, body, data }) {
@@ -16044,6 +16174,12 @@ async function handleApi(req, res, pathname) {
   // Zoho Recruit webhook — external origin, must be before same-origin enforcement
   if (req.method === 'POST' && pathname === '/api/webhooks/zoho-recruit') {
     await handleZohoRecruitWebhook(req, res);
+    return;
+  }
+
+  // Zoho Recruit "Candidate Hired" webhook — sends congratulatory email to newly hired candidate
+  if (req.method === 'POST' && pathname === '/api/webhooks/zoho-recruit/candidate-hired') {
+    await handleZohoRecruitCandidateHiredWebhook(req, res);
     return;
   }
 
@@ -18697,6 +18833,7 @@ async function handleApi(req, res, pathname) {
       webhookConfigured: !!ZOHO_RECRUIT_WEBHOOK_SECRET,
       webhookPath: '/api/webhooks/zoho-recruit',
       webhookUrl: ZOHO_RECRUIT_WEBHOOK_SECRET ? ('https://' + (req.headers.host || 'app.mygplink.com.au') + '/api/webhooks/zoho-recruit?secret=' + encodeURIComponent(ZOHO_RECRUIT_WEBHOOK_SECRET)) : '',
+      candidateHiredWebhookUrl: ZOHO_RECRUIT_WEBHOOK_SECRET ? ('https://' + (req.headers.host || 'app.mygplink.com.au') + '/api/webhooks/zoho-recruit/candidate-hired?secret=' + encodeURIComponent(ZOHO_RECRUIT_WEBHOOK_SECRET)) : '',
       connected: !!(connection && connection.status === 'active'),
       connection: sanitizeConnectionForResponse(connection),
       roleCount: roles.length
@@ -24433,7 +24570,8 @@ Return ONLY valid JSON with no markdown formatting:
       { name: 'Document Revision', subject: 'Revision Needed — GP Link', title: 'A document needs your attention', body: 'Dr Sarah, the Section G Form from Greenfield Medical Centre requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.', ctaText: 'View Details', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you have questions about what\'s needed, message your support expert Hazel on WhatsApp.' },
       { name: 'Support Ticket Reply', subject: 'New Reply — GP Link', title: 'You have a new reply, Dr Sarah', body: 'Your support team has replied to your request: "Need help with MyIntealth account setup".\n\nCheck your messages to read the full response and continue the conversation.', ctaText: 'View Messages', ctaUrl: APP_BASE_URL + '/pages/messages.html', footer: 'Need more help? Reply directly in the app or message Hazel on WhatsApp.' },
       { name: 'Account Activated', subject: 'Account Activated — GP Link', title: 'Your account is ready, Dr Sarah!', body: 'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.', ctaText: 'Go to Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
-      { name: 'Password Reset', subject: 'Reset your GP Link password', title: 'Reset your password', body: 'We received a request to reset your GP Link password. Click the button below to set a new password.', ctaText: 'Reset Password', ctaUrl: APP_BASE_URL, footer: 'If you didn\'t request a password reset, you can safely ignore this email. This link expires in 1 hour.' }
+      { name: 'Password Reset', subject: 'Reset your GP Link password', title: 'Reset your password', body: 'We received a request to reset your GP Link password. Click the button below to set a new password.', ctaText: 'Reset Password', ctaUrl: APP_BASE_URL, footer: 'If you didn\'t request a password reset, you can safely ignore this email. This link expires in 1 hour.' },
+      { name: 'Candidate Hired', subject: 'Congratulations on Your Placement! — GP Link', title: 'Congratulations, Dr Sarah!', body: 'We\'re thrilled to let you know that your placement at Greenfield Medical Centre in Melbourne has been confirmed. This is a huge milestone in your journey to practising medicine in Australia — well done!\n\nTo get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step — from qualification verification through to AHPRA registration and your practice pack.\n\nYour dedicated support expert Hazel is ready to help you with anything you need along the way.', ctaText: 'Sign Up to GP Link', ctaUrl: APP_BASE_URL + '/pages/signin.html', footer: 'Questions about getting started? Reply to this email or reach out to your support expert Hazel on WhatsApp.' }
     ];
 
     var epResults = [];
