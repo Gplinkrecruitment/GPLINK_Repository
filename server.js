@@ -454,6 +454,148 @@ async function getGmailClient(userEmail) {
   }
 }
 
+// ── Gmail send helper ──
+async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attachments, threadId, inReplyTo }) {
+  try {
+    var gmail = await getGmailClient(from);
+    if (!gmail) return { ok: false, error: 'Gmail client not available for ' + from };
+
+    var boundary = 'gplink_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    var hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    var hasHtml = !!(bodyHtml && bodyHtml.trim());
+    var hasText = !!(bodyText && bodyText.trim());
+
+    // Build headers
+    var headers = [];
+    headers.push('From: ' + from);
+    headers.push('To: ' + to);
+    if (cc) headers.push('Cc: ' + cc);
+    headers.push('Subject: ' + subject);
+    headers.push('MIME-Version: 1.0');
+    if (inReplyTo) {
+      headers.push('In-Reply-To: ' + inReplyTo);
+      headers.push('References: ' + inReplyTo);
+    }
+
+    var rawParts = [];
+
+    if (hasAttachments) {
+      // multipart/mixed with nested multipart/alternative for body
+      headers.push('Content-Type: multipart/mixed; boundary="' + boundary + '"');
+      rawParts.push(headers.join('\r\n') + '\r\n\r\n');
+
+      if (hasHtml && hasText) {
+        var altBoundary = 'gplink_alt_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        rawParts.push('--' + boundary + '\r\n');
+        rawParts.push('Content-Type: multipart/alternative; boundary="' + altBoundary + '"\r\n\r\n');
+        rawParts.push('--' + altBoundary + '\r\n');
+        rawParts.push('Content-Type: text/plain; charset="UTF-8"\r\n\r\n');
+        rawParts.push(bodyText + '\r\n');
+        rawParts.push('--' + altBoundary + '\r\n');
+        rawParts.push('Content-Type: text/html; charset="UTF-8"\r\n\r\n');
+        rawParts.push(bodyHtml + '\r\n');
+        rawParts.push('--' + altBoundary + '--\r\n');
+      } else if (hasHtml) {
+        rawParts.push('--' + boundary + '\r\n');
+        rawParts.push('Content-Type: text/html; charset="UTF-8"\r\n\r\n');
+        rawParts.push(bodyHtml + '\r\n');
+      } else {
+        rawParts.push('--' + boundary + '\r\n');
+        rawParts.push('Content-Type: text/plain; charset="UTF-8"\r\n\r\n');
+        rawParts.push((bodyText || '') + '\r\n');
+      }
+
+      // Attachments
+      for (var ai = 0; ai < attachments.length; ai++) {
+        var att = attachments[ai];
+        rawParts.push('--' + boundary + '\r\n');
+        rawParts.push('Content-Type: ' + (att.mimeType || 'application/octet-stream') + '; name="' + (att.filename || 'attachment') + '"\r\n');
+        rawParts.push('Content-Disposition: attachment; filename="' + (att.filename || 'attachment') + '"\r\n');
+        rawParts.push('Content-Transfer-Encoding: base64\r\n\r\n');
+        rawParts.push(att.content + '\r\n');
+      }
+      rawParts.push('--' + boundary + '--');
+    } else if (hasHtml && hasText) {
+      // multipart/alternative (no attachments)
+      headers.push('Content-Type: multipart/alternative; boundary="' + boundary + '"');
+      rawParts.push(headers.join('\r\n') + '\r\n\r\n');
+      rawParts.push('--' + boundary + '\r\n');
+      rawParts.push('Content-Type: text/plain; charset="UTF-8"\r\n\r\n');
+      rawParts.push(bodyText + '\r\n');
+      rawParts.push('--' + boundary + '\r\n');
+      rawParts.push('Content-Type: text/html; charset="UTF-8"\r\n\r\n');
+      rawParts.push(bodyHtml + '\r\n');
+      rawParts.push('--' + boundary + '--');
+    } else if (hasHtml) {
+      headers.push('Content-Type: text/html; charset="UTF-8"');
+      rawParts.push(headers.join('\r\n') + '\r\n\r\n');
+      rawParts.push(bodyHtml);
+    } else {
+      headers.push('Content-Type: text/plain; charset="UTF-8"');
+      rawParts.push(headers.join('\r\n') + '\r\n\r\n');
+      rawParts.push(bodyText || '');
+    }
+
+    var rawMessage = rawParts.join('');
+    var rawBase64 = Buffer.from(rawMessage).toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    var sendBody = { raw: rawBase64 };
+    if (threadId) sendBody.threadId = threadId;
+
+    var result = await gmail.users.messages.send({
+      userId: from,
+      requestBody: sendBody
+    });
+
+    var gmailMessageId = result.data && result.data.id ? result.data.id : '';
+    var resultThreadId = result.data && result.data.threadId ? result.data.threadId : (threadId || '');
+    console.log('[Gmail] Email sent from', from, 'to', to, '— messageId:', gmailMessageId, 'threadId:', resultThreadId);
+    return { ok: true, gmailMessageId: gmailMessageId, threadId: resultThreadId };
+  } catch (err) {
+    var detail = err && err.message ? err.message : String(err);
+    if (err && err.response && err.response.data) detail = JSON.stringify(err.response.data);
+    console.error('[Gmail] sendGmailEmail failed:', detail);
+    return { ok: false, error: detail };
+  }
+}
+
+// ── Fetch attachment as base64 ──
+async function fetchAttachmentAsBase64(url, filename) {
+  try {
+    // Google Drive file — extract file ID and download via Drive API
+    var driveMatch = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([a-zA-Z0-9_-]+)/);
+    if (!driveMatch) driveMatch = url.match(/^([a-zA-Z0-9_-]{20,})$/); // bare file ID
+    if (driveMatch) {
+      var fileId = driveMatch[1];
+      var drive = await getGoogleDriveClient();
+      if (!drive) throw new Error('Google Drive client not available');
+
+      // Get file metadata for mime type and name
+      var metaRes = await drive.files.get({ fileId: fileId, fields: 'name,mimeType' });
+      var fileMime = metaRes.data && metaRes.data.mimeType ? metaRes.data.mimeType : 'application/octet-stream';
+      var fileName = filename || (metaRes.data && metaRes.data.name ? metaRes.data.name : 'attachment');
+
+      var fileRes = await drive.files.get({ fileId: fileId, alt: 'media' }, { responseType: 'arraybuffer' });
+      var fileContent = Buffer.from(fileRes.data).toString('base64');
+      return { filename: fileName, mimeType: fileMime, content: fileContent };
+    }
+
+    // Regular HTTP URL
+    var resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' fetching ' + url);
+    var buf = Buffer.from(await resp.arrayBuffer());
+    var contentType = resp.headers.get('content-type') || 'application/octet-stream';
+    // Strip charset etc from content-type
+    var mimeOnly = contentType.split(';')[0].trim();
+    var inferredName = filename || url.split('/').pop().split('?')[0] || 'attachment';
+    return { filename: inferredName, mimeType: mimeOnly, content: buf.toString('base64') };
+  } catch (err) {
+    console.error('[fetchAttachmentAsBase64] Error:', err.message);
+    throw err;
+  }
+}
+
 function parseGmailPubSubMessage(body) {
   try {
     if (!body || !body.message || !body.message.data) return null;
@@ -18798,6 +18940,106 @@ async function handleApi(req, res, pathname) {
       });
     }
     sendJson(res, 200, { ok: true, results: gmailSetupResults });
+    return;
+  }
+
+  // ── Send email via Gmail API ──
+  if (req.method === 'POST' && pathname === '/api/admin/email/send') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    var body = await readJsonBody(req);
+    var emailTo = String(body.to || '').trim();
+    var emailCc = body.cc ? String(body.cc).trim() : null;
+    var emailSubject = String(body.subject || '').trim();
+    var emailBodyHtml = body.bodyHtml ? String(body.bodyHtml) : null;
+    var emailBodyText = body.bodyText ? String(body.bodyText) : null;
+    var emailAttachments = Array.isArray(body.attachments) ? body.attachments : [];
+    var emailThreadId = body.threadId ? String(body.threadId).trim() : null;
+    var emailInReplyTo = body.inReplyTo ? String(body.inReplyTo).trim() : null;
+    var emailTaskId = body.taskId ? String(body.taskId).trim() : null;
+    var emailCaseId = body.caseId ? String(body.caseId).trim() : null;
+
+    // Validate required fields
+    if (!emailTo) { sendJson(res, 400, { ok: false, message: 'to is required.' }); return; }
+    if (!emailSubject) { sendJson(res, 400, { ok: false, message: 'subject is required.' }); return; }
+    if (!emailBodyHtml && !emailBodyText) { sendJson(res, 400, { ok: false, message: 'bodyHtml or bodyText is required.' }); return; }
+
+    // Fetch attachments
+    var resolvedAttachments = [];
+    for (var ati = 0; ati < emailAttachments.length; ati++) {
+      var att = emailAttachments[ati];
+      if (!att.url) continue;
+      try {
+        var fetched = await fetchAttachmentAsBase64(att.url, att.filename || null);
+        resolvedAttachments.push(fetched);
+      } catch (fetchErr) {
+        console.error('[AdminEmailSend] Attachment fetch failed:', att.url, fetchErr.message);
+        sendJson(res, 400, { ok: false, message: 'Failed to fetch attachment: ' + (att.filename || att.url) + ' — ' + fetchErr.message });
+        return;
+      }
+    }
+
+    // Determine sender
+    var senderEmail = MONITORED_VA_EMAILS[0];
+    if (!senderEmail) { sendJson(res, 503, { ok: false, message: 'No VA email configured.' }); return; }
+
+    // Send via Gmail
+    var sendResult = await sendGmailEmail({
+      from: senderEmail,
+      to: emailTo,
+      cc: emailCc,
+      subject: emailSubject,
+      bodyHtml: emailBodyHtml,
+      bodyText: emailBodyText,
+      attachments: resolvedAttachments.length > 0 ? resolvedAttachments : null,
+      threadId: emailThreadId,
+      inReplyTo: emailInReplyTo
+    });
+
+    if (!sendResult.ok) {
+      sendJson(res, 500, { ok: false, message: 'Gmail send failed: ' + sendResult.error });
+      return;
+    }
+
+    // Log to task_messages if taskId provided
+    if (emailTaskId) {
+      try {
+        var msgRecord = {
+          task_id: emailTaskId,
+          case_id: emailCaseId || null,
+          direction: 'outbound',
+          channel: 'email',
+          sender: senderEmail,
+          recipient: emailTo,
+          subject: emailSubject,
+          body_text: emailBodyText || null,
+          body_html: emailBodyHtml || null,
+          gmail_message_id: sendResult.gmailMessageId || null,
+          gmail_thread_id: sendResult.threadId || null,
+          attachments: JSON.stringify(resolvedAttachments.map(function(a) { return a.filename; }))
+        };
+        await supabaseDbRequest('task_messages', '', {
+          method: 'POST',
+          body: [msgRecord]
+        });
+      } catch (msgErr) {
+        console.error('[AdminEmailSend] task_messages insert failed:', msgErr.message);
+        // Don't fail the whole request — email was already sent
+      }
+
+      // Log timeline event
+      if (emailCaseId) {
+        try {
+          await _logCaseEvent(emailCaseId, emailTaskId, 'email_sent', 'Email sent to ' + emailTo + ' — ' + emailSubject, null, adminCtx.email);
+        } catch (tlErr) {
+          console.error('[AdminEmailSend] Timeline log failed:', tlErr.message);
+        }
+      }
+    }
+
+    sendJson(res, 200, { ok: true, gmailMessageId: sendResult.gmailMessageId, threadId: sendResult.threadId });
     return;
   }
 
