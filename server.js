@@ -676,6 +676,68 @@ function extractAhpraOfficerInfo(emailMeta) {
   };
 }
 
+async function extractAhpraActionItems(emailMeta) {
+  if (!process.env.ANTHROPIC_API_KEY) return { deadline: null, items: [] };
+  var budgetOk = await checkAnthropicBudget();
+  if (!budgetOk) {
+    console.log('[AHPRA] Skipping action item extraction — daily budget exceeded');
+    return { deadline: null, items: [] };
+  }
+  var prompt = [
+    'You are analyzing an email from an AHPRA (Australian Health Practitioner Regulation Agency) officer to a GP registration support team.',
+    'Extract each individual document or information request from this email.',
+    'Also extract any deadline mentioned (e.g. "no later than 29 August 2025").',
+    'For each action item, determine who needs to act:',
+    '- "gp" if the GP needs to provide a personal document (e.g. certified copies of their qualifications)',
+    '- "practice" if the practice/employer needs to provide something (e.g. letter from practice owner)',
+    '- "hazel" if the support team needs to create/revise a document (e.g. revise supervision plan)',
+    'Return strict JSON only. Format: {"deadline": "YYYY-MM-DD" or null, "items": [{"title": "short action title", "description": "what is needed", "owner": "gp|practice|hazel"}]}',
+    '',
+    'Email subject: ' + String(emailMeta.subject || '').slice(0, 500),
+    'Email from: ' + String(emailMeta.sender || '').slice(0, 200),
+    'Email body: ' + String(emailMeta.bodyText || '').slice(0, 8000)
+  ].join('\n');
+
+  try {
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 30000);
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        temperature: 0,
+        system: 'Extract action items from AHPRA officer emails. Return JSON only.',
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    clearTimeout(timeout);
+    var data = await res.json();
+    // Track spend
+    if (data.usage) {
+      recordAnthropicSpend(
+        data.usage.input_tokens || 0,
+        data.usage.output_tokens || 0,
+        data.usage.cache_read_input_tokens || 0,
+        data.usage.cache_creation_input_tokens || 0
+      );
+    }
+    var text = data.content && data.content[0] ? data.content[0].text : '';
+    var jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return { deadline: null, items: [] };
+    return JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    console.error('[AHPRA] Action item extraction failed:', err.message);
+    return { deadline: null, items: [] };
+  }
+}
+
 var GMAIL_DOCUMENT_EXTENSIONS = /\.(pdf|doc|docx|jpg|jpeg|png)$/i;
 var GMAIL_NOREPLY_PATTERNS = /^(noreply|no-reply|donotreply|do-not-reply|newsletter|marketing|mailer-daemon|postmaster)@/i;
 
@@ -1317,7 +1379,76 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
         }
 
-        // Always create the task — case_id can be null (schema allows it)
+        // AHPRA action item extraction: if AHPRA email matched to a GP case, extract individual action items
+        var ahpraActionItemsCreated = false;
+        if (isAhpra && gpCase) {
+          try {
+            var ahpraExtraction = await extractAhpraActionItems(emailMeta);
+            var extractedItems = (ahpraExtraction && Array.isArray(ahpraExtraction.items)) ? ahpraExtraction.items : [];
+            if (extractedItems.length > 0) {
+              // Calculate due date: min(10 days from now, extracted deadline)
+              var tenDaysOut = new Date();
+              tenDaysOut.setDate(tenDaysOut.getDate() + 10);
+              var ahpraDueDate = tenDaysOut.toISOString().slice(0, 10);
+              var extractedDeadline = ahpraExtraction.deadline || null;
+              if (extractedDeadline && /^\d{4}-\d{2}-\d{2}$/.test(extractedDeadline)) {
+                var deadlineDate = new Date(extractedDeadline + 'T00:00:00Z');
+                if (!isNaN(deadlineDate.getTime()) && deadlineDate < tenDaysOut) {
+                  ahpraDueDate = extractedDeadline;
+                }
+              }
+
+              for (var ai = 0; ai < extractedItems.length; ai++) {
+                var item = extractedItems[ai];
+                var itemTitle = String(item.title || 'AHPRA action item').slice(0, 200);
+                var itemDesc = String(item.description || '').slice(0, 2000);
+                var itemOwner = (item.owner === 'gp' || item.owner === 'practice' || item.owner === 'hazel') ? item.owner : 'hazel';
+
+                // Create ahpra_action_item task
+                var actionTask = await _createRegTask(gpCase.id, {
+                  task_type: 'ahpra_action_item',
+                  title: itemTitle,
+                  description: '[Owner: ' + itemOwner + '] ' + itemDesc,
+                  priority: 'high',
+                  due_date: ahpraDueDate,
+                  source_trigger: 'ahpra_officer_email',
+                  related_stage: 'ahpra',
+                  source_gmail_message_id: currentMsgId,
+                  gmail_thread_id: emailMeta.threadId || '',
+                  ahpra_deadline: extractedDeadline,
+                  _actor: 'system'
+                });
+
+                // Create task_messages record for the original officer email linked to this task
+                if (actionTask && actionTask.id) {
+                  await supabaseDbRequest('task_messages', '', {
+                    method: 'POST',
+                    body: [{
+                      task_id: actionTask.id,
+                      direction: 'inbound',
+                      channel: 'email',
+                      sender: emailMeta.sender || '',
+                      subject: emailMeta.subject || '',
+                      body_text: (emailMeta.bodyText || '').substring(0, 4000),
+                      gmail_message_id: currentMsgId,
+                      gmail_thread_id: emailMeta.threadId || '',
+                      is_document_delivery: false,
+                      created_at: new Date().toISOString()
+                    }]
+                  });
+                }
+              }
+
+              ahpraActionItemsCreated = true;
+              console.log('[AHPRA] Created ' + extractedItems.length + ' action item tasks for case ' + gpCase.id);
+            }
+          } catch (ahpraExtErr) {
+            console.error('[AHPRA] Action item extraction error, falling through to email_triage:', ahpraExtErr.message);
+          }
+        }
+
+        // Create email_triage task — skip if AHPRA action items were already created
+        if (!ahpraActionItemsCreated) {
         var ahpraMatched = isAhpra && gpCase && ahpraMatchMethod;
         var unmatchedPrefix = (triageResult.matched_gp_user_id || ahpraMatched) ? '' : '\u2753 Unmatched — ';
         var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
@@ -1337,6 +1468,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           console.error('[Gmail] Failed to create email_triage task for message', currentMsgId);
         } else {
           console.log('[Gmail] Created email_triage task', taskResult.id, 'for message', currentMsgId, gpCase ? '(case ' + gpCase.id + ')' : '(no case)');
+        }
         }
 
         // Insert into incoming_email_todos
