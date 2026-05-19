@@ -5684,7 +5684,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     if (!prevSecured && nextSecured) {
       const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.career&status=in.(open,in_progress,waiting)');
       if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
-      await _createRegTask(caseId, { task_type: 'verify', title: 'Verify secured placement with practice', priority: 'high', source_trigger: 'career_secured', related_stage: 'career', _actor: 'system' });
+      if (!(await _hasOpenTask(caseId, 'career', 'verify'))) {
+        await _createRegTask(caseId, { task_type: 'verify', title: 'Verify secured placement with practice', priority: 'high', source_trigger: 'career_secured', related_stage: 'career', _actor: 'system' });
+      }
       if (!(await _hasOpenTask(caseId, 'career', 'practice_pack_child'))) {
         const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };
         for (const dk of Object.keys(packLabels)) {

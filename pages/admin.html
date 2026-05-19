@@ -2055,31 +2055,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const stageIdx=STAGE_ORDER.indexOf(group.stage);
       const currentIdx=STAGE_ORDER.indexOf(currentStage);
       const isCurrentOrPast=group.stage==="other"||stageIdx<=currentIdx||currentIdx===-1;
-      const isLocked=!isCurrentOrPast&&stageIdx>currentIdx&&currentIdx!==-1;
+      const isFuture=!isCurrentOrPast&&stageIdx>currentIdx&&currentIdx!==-1;
 
-      html+='<div class="stage-group'+(isLocked?' locked':'')+'">';
+      html+='<div class="stage-group">';
       html+='<div class="stage-group-header">';
-      html+='<div class="sg-dot '+(isLocked?'locked':'active')+'"></div>';
-      html+='<div class="sg-label '+(isLocked?'locked':'active')+'">'+esc(label)+'</div>';
+      html+='<div class="sg-dot '+(isFuture?'locked':'active')+'"></div>';
+      html+='<div class="sg-label '+(isFuture?'locked':'active')+'">'+esc(label)+'</div>';
       html+='<div class="sg-count">'+group.tasks.length+' task'+(group.tasks.length===1?'':'s')+'</div>';
 
-      if(isLocked){
-        const unlockStage=STEPS.find(s=>s.key===currentStage);
-        html+='<div class="sg-lock-badge">\uD83D\uDD12 Unlocks after '+esc(unlockStage?unlockStage.label:currentStage)+'</div>';
+      if(isFuture){
+        html+='<div class="sg-lock-badge">Upcoming</div>';
       }
-      if(!isLocked&&group.stage===currentStage){
+      if(!isFuture&&group.stage===currentStage){
         html+='<div class="sg-lock-badge" style="background:#eff6ff;color:var(--blue)">Current stage</div>';
       }
       html+='</div>';
-
-      if(isLocked){
-        var lockedTasks=group.tasks.filter(t=>t.task_type!=='email_triage');
-        var emailTasks=group.tasks.filter(t=>t.task_type==='email_triage');
-        if(lockedTasks.length)html+='<div class="stage-task" style="opacity:.35;pointer-events:none"><div class="st-body"><div style="font-size:11px;color:var(--muted)">'+lockedTasks.map(t=>esc(t.title)).join(' \u2022 ')+'</div></div></div>';
-        // Email tasks are never locked — fall through to normal rendering
-        if(!emailTasks.length){html+='</div>';return;}
-        group.tasks=emailTasks;
-      }
       {
         group.tasks.forEach(t=>{
           const guided=getGuidedAction(t);
