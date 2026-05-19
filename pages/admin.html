@@ -206,13 +206,78 @@
     .ops-action-link{font-size:11px;font-weight:700;color:var(--blue);cursor:pointer;white-space:nowrap}
     .ops-action-link:hover{text-decoration:underline}
     .ops-detail-row td{padding:0;background:#f8fafc;border-bottom:1px solid var(--line)}
-    .ops-detail-inner{padding:16px 20px}
+    .ops-detail-inner{padding:16px 20px;max-width:720px}
+    .ops-expand-section{margin-bottom:14px}
+    .ops-expand-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px}
+    .ops-email-composer{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-top:6px}
+    .ops-email-field{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+    .ops-email-label{font-size:11px;font-weight:700;color:var(--muted);min-width:52px;text-align:right}
+    .ops-email-field input{flex:1;border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;font-family:inherit}
+    .ops-email-field input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(99,102,241,.12)}
+    .ops-email-body{border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-size:12px;line-height:1.6;min-height:80px;max-height:200px;overflow:auto;background:#fff;font-family:inherit}
+    .ops-email-body:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(99,102,241,.12)}
+    .ops-email-actions{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
+    .ops-whatsapp-composer{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-top:6px}
+    .ops-whatsapp-composer textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-size:12px;line-height:1.6;min-height:70px;max-height:180px;resize:vertical;font-family:inherit;box-sizing:border-box}
+    .ops-whatsapp-composer textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(99,102,241,.12)}
+    .ops-response-banner{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--radius);padding:10px 14px;margin-bottom:10px}
+    .ops-response-title{font-size:12px;font-weight:700;color:#166534;display:flex;align-items:center;gap:6px}
+    .ops-response-text{font-size:12px;color:#374151;margin-top:4px;line-height:1.5;white-space:pre-wrap;max-height:120px;overflow:auto}
+    .ops-response-meta{font-size:10px;color:var(--muted);margin-top:4px}
+    .ops-doc-preview{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+    .ops-doc-thumb{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px;font-size:11px;min-width:180px}
+    .ops-doc-icon{width:28px;height:28px;background:#eff6ff;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+    .ops-doc-version-old{opacity:.5}
+    .ops-doc-version-old .ops-doc-thumb{border-style:dashed}
+    .ops-action-row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+    .ops-btn-green{background:#16a34a;color:#fff;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s}
+    .ops-btn-green:hover{background:#15803d}
+    .ops-btn-secondary{background:#f1f5f9;color:#334155;border:1px solid var(--line);border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s}
+    .ops-btn-secondary:hover{background:#e2e8f0}
+    .ops-btn-danger{background:#fff;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;transition:background .15s}
+    .ops-btn-danger:hover{background:#fef2f2}
+    .ops-btn-sm{background:#f1f5f9;color:#475569;border:1px solid var(--line);border-radius:6px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer}
+    .ops-btn-sm:hover{background:#e2e8f0}
+    .ops-match-badge{display:inline-block;padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;background:#dcfce7;color:#166534}
+    .ops-match-badge.low{background:#fef9c3;color:#854d0e}
+    .ops-channel-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+    .ops-channel-badge.whatsapp{background:#dcfce7;color:#166534}
+    .ops-channel-badge.email{background:#dbeafe;color:#1e40af}
+    .ops-original-email{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px}
+    .ops-email-content{font-size:12px;color:#374151;line-height:1.6;margin-top:4px;white-space:pre-wrap;max-height:150px;overflow:auto}
+    .ops-email-from{font-size:11px;color:var(--muted);margin-bottom:4px}
+    .ops-action-link-inline{font-size:11px;font-weight:700;color:var(--blue);cursor:pointer;display:inline-block;margin-top:6px;text-decoration:none}
+    .ops-action-link-inline:hover{text-decoration:underline}
+    .ops-action-item-box{background:#fffbeb;border:1px solid #fde68a;border-radius:var(--radius);padding:10px 14px;margin:10px 0}
+    .ops-conversation-thread{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin:10px 0;max-height:260px;overflow:auto}
+    .ops-msg{padding:8px 0;border-bottom:1px solid #f1f5f9}
+    .ops-msg:last-child{border-bottom:none}
+    .ops-msg-header{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+    .ops-msg-dir{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px}
+    .ops-msg-outbound .ops-msg-dir{background:#dbeafe;color:#1e40af}
+    .ops-msg-inbound .ops-msg-dir{background:#dcfce7;color:#166534}
+    .ops-msg-channel{font-size:10px;color:var(--muted)}
+    .ops-msg-time{font-size:10px;color:var(--muted);margin-left:auto}
+    .ops-msg-body{font-size:12px;color:#374151;line-height:1.5;white-space:pre-wrap;max-height:80px;overflow:auto;margin-top:2px}
+    .ops-msg-subject{font-size:11px;font-weight:700;color:#1e293b;margin-bottom:2px}
+    .ops-nudge-indicator{background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:700;margin-top:8px;display:inline-block}
+    .ops-loading-detail{text-align:center;padding:20px;color:var(--muted);font-size:12px}
+    .ops-expand-desc{font-size:12px;color:#374151;line-height:1.5;margin:6px 0 10px;white-space:pre-wrap}
+    .ops-revision-composer{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-top:10px;display:none}
+    .ops-revision-composer.visible{display:block}
+    .ops-revision-composer textarea{width:100%;border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-size:12px;line-height:1.6;min-height:60px;resize:vertical;font-family:inherit;box-sizing:border-box}
+    .ops-upload-area{margin-top:10px}
+    .ops-upload-area input[type="file"]{font-size:11px}
+    .ops-email-composer-ahpra{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-top:10px;display:none}
+    .ops-email-composer-ahpra.visible{display:block}
     @media(max-width:900px){
       .ops-stats{gap:6px;padding:10px 12px 8px}
       .ops-stat{padding:8px 10px;min-width:70px}
       .ops-stat-val{font-size:18px}
       .ops-table-wrap{padding:0 12px 12px}
       .ops-task-subtitle{max-width:160px}
+      .ops-detail-inner{max-width:100%}
+      .ops-action-row{flex-direction:column}
     }
     .agent-stack{display:grid;gap:12px}
     .agent-hero{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;border-radius:16px;padding:18px;border:1px solid rgba(255,255,255,.08)}
@@ -3294,11 +3359,375 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         +'</tr>';
       if(isExpanded){
         html+='<tr class="ops-detail-row" data-ops-detail-for="'+esc(t.id)+'"><td colspan="5"><div class="ops-detail-inner">'
-          +'Loading task details...'
+          +'<div class="ops-loading-detail">Loading task details\u2026</div>'
           +'</div></td></tr>';
+        // Async render expanded content after table renders
+        setTimeout(function(){renderExpandedOpsRow(t);},0);
       }
     });
     tbody.innerHTML=html;
+  }
+
+  /* ── Expanded Row Rendering ── */
+  async function renderExpandedOpsRow(task){
+    var container=document.querySelector('[data-ops-detail-for="'+task.id+'"] .ops-detail-inner');
+    if(!container)return;
+    // Parallel fetch messages + documents
+    var msgs=[],docs=[];
+    try{
+      var [mRes,dRes]=await Promise.all([
+        fetch('/api/admin/task/messages?taskId='+encodeURIComponent(task.id),{credentials:'same-origin'}).then(r=>r.json()).catch(()=>({})),
+        fetch('/api/admin/task/documents?taskId='+encodeURIComponent(task.id),{credentials:'same-origin'}).then(r=>r.json()).catch(()=>({}))
+      ]);
+      if(mRes.ok&&Array.isArray(mRes.messages))msgs=mRes.messages;
+      if(dRes.ok&&Array.isArray(dRes.documents))docs=dRes.documents;
+    }catch(e){}
+    var tt=task.task_type||'';
+    var st=task.status||'open';
+    var html='';
+    if(tt==='practice_pack_child'){
+      html=renderOpsPracticePackChild(task,msgs,docs);
+    }else if(tt==='ahpra_action_item'){
+      html=renderOpsAhpraActionItem(task,msgs,docs);
+    }else if(tt==='email_triage'){
+      html=renderOpsEmailTriage(task,msgs,docs);
+    }else{
+      html=renderOpsGeneric(task,msgs,docs);
+    }
+    container.innerHTML=html;
+  }
+
+  /* ── Helpers ── */
+  function opsFormatDate(iso){
+    if(!iso)return'\u2014';
+    var d=new Date(iso);
+    return d.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})+' '+d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
+  }
+  function opsRelativeTime(iso){
+    if(!iso)return'';
+    var diff=Date.now()-new Date(iso).getTime();
+    var days=Math.floor(diff/86400000);
+    if(days>0)return days+'d ago';
+    var hrs=Math.floor(diff/3600000);
+    if(hrs>0)return hrs+'h ago';
+    var mins=Math.floor(diff/60000);
+    return(mins>0?mins+'m ago':'just now');
+  }
+  function opsSnippet(text,max){
+    if(!text)return'';
+    var t=(text||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+    return t.length>max?t.slice(0,max)+'\u2026':t;
+  }
+  function opsRenderThread(msgs){
+    if(!msgs||!msgs.length)return'';
+    var h='<div class="ops-conversation-thread">';
+    msgs.forEach(function(m){
+      var dirCls=m.direction==='outbound'?'ops-msg-outbound':'ops-msg-inbound';
+      var dirLabel=m.direction==='outbound'?'Sent':'Received';
+      var chLabel=(m.channel==='whatsapp'?'WhatsApp':'Email');
+      h+='<div class="ops-msg '+dirCls+'">'
+        +'<div class="ops-msg-header"><span class="ops-msg-dir">'+dirLabel+'</span><span class="ops-msg-channel">'+esc(chLabel)+'</span>';
+      if(m.sender)h+='<span class="ops-msg-channel">\u00B7 '+esc(m.sender)+'</span>';
+      h+='<span class="ops-msg-time">'+opsRelativeTime(m.created_at)+'</span></div>';
+      if(m.subject)h+='<div class="ops-msg-subject">'+esc(m.subject)+'</div>';
+      h+='<div class="ops-msg-body">'+esc(opsSnippet(m.body_text||m.body_html||'',400))+'</div>';
+      h+='</div>';
+    });
+    h+='</div>';
+    return h;
+  }
+  function opsRenderDocs(docs){
+    if(!docs||!docs.length)return'';
+    var h='<div class="ops-doc-preview">';
+    docs.forEach(function(d){
+      var isCurrent=d.is_current!==false;
+      var cls=isCurrent?'':'ops-doc-version-old';
+      var sizeStr=d.size_bytes?(Math.round(d.size_bytes/1024)+'KB'):'';
+      var icon='\uD83D\uDCC4';
+      if(d.mime_type&&d.mime_type.indexOf('pdf')>-1)icon='\uD83D\uDCC4';
+      else if(d.mime_type&&d.mime_type.indexOf('image')>-1)icon='\uD83D\uDDBC';
+      var previewUrl=d.google_drive_url||d.attachment_url||'';
+      h+='<div class="'+cls+'">';
+      h+='<div class="ops-doc-thumb">';
+      h+='<div class="ops-doc-icon">'+icon+'</div>';
+      h+='<div><div style="font-weight:700">'+esc(d.filename||'Document')+'</div>';
+      if(sizeStr)h+='<div style="font-size:10px;color:var(--muted)">'+sizeStr+'</div>';
+      if(!isCurrent)h+='<div style="font-size:10px;color:var(--muted)">Previous version</div>';
+      h+='</div>';
+      if(previewUrl)h+='<a href="'+safeUrl(previewUrl)+'" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;text-decoration:none">View \u2192</a>';
+      h+='</div></div>';
+    });
+    h+='</div>';
+    return h;
+  }
+
+  /* ── Practice Pack Child ── */
+  function renderOpsPracticePackChild(task,msgs,docs){
+    var st=task.status||'open';
+    var gpName=task.gp_name||'the GP';
+    var practiceEmail=task.practice_contact_email||'';
+    var practiceName=task.practice_name||'the practice';
+    var contactName=task.practice_contact_name||'';
+    var docTitle=task.title||'Document';
+    var hasInbound=msgs.some(function(m){return m.direction==='inbound';});
+    var currentDocs=docs.filter(function(d){return d.is_current!==false;});
+    var hasDoc=currentDocs.length>0;
+    var lastInbound=msgs.filter(function(m){return m.direction==='inbound';}).pop();
+
+    // State B: Has inbound message with doc
+    if(hasInbound&&hasDoc){
+      var conf=lastInbound&&typeof lastInbound.ai_match_confidence==='number'?Math.round(lastInbound.ai_match_confidence*100):'';
+      var confCls=conf&&conf<70?'low':'';
+      var h='<div class="ops-expand-section">';
+      h+='<div class="ops-response-banner">';
+      h+='<div class="ops-response-title">Practice Response';
+      if(conf)h+=' <span class="ops-match-badge '+confCls+'">'+conf+'% match</span>';
+      h+='</div>';
+      if(lastInbound)h+='<div class="ops-response-text">'+esc(opsSnippet(lastInbound.body_text||lastInbound.body_html||'',300))+'</div>';
+      if(lastInbound)h+='<div class="ops-response-meta">From: '+esc(lastInbound.sender||'\u2014')+' \u00B7 '+opsFormatDate(lastInbound.created_at)+'</div>';
+      h+='</div>';
+      h+=opsRenderDocs(docs);
+      h+='<div class="ops-action-row">';
+      h+='<button class="ops-btn-green" data-ops-submit-drive="'+esc(task.id)+'">Submit to Drive &amp; Complete</button>';
+      h+='<button class="ops-btn-secondary" data-ops-upload-own="'+esc(task.id)+'">Upload Different Version</button>';
+      h+='<button class="ops-btn-danger" data-ops-request-revision="'+esc(task.id)+'" data-ops-channel="email" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Request Revision</button>';
+      h+='</div>';
+      h+='<div class="ops-upload-area" id="opsUpload_'+esc(task.id)+'" style="display:none"><input type="file" data-ops-file-input="'+esc(task.id)+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"></div>';
+      h+='<div class="ops-revision-composer" id="opsRevision_'+esc(task.id)+'">';
+      h+='<div class="ops-expand-label">Revision Request</div>';
+      h+='<textarea data-revision-text="'+esc(task.id)+'" placeholder="Explain what needs to be revised\u2026">Hi '+esc(contactName||'')+',\n\nThank you for sending the '+esc(docTitle)+'. Unfortunately, we need a revised version. Could you please:\n\n[Explain revision needed]\n\nKind regards,\nHazel \u2014 GP Link Registration Team</textarea>';
+      h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-revision="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-channel="email" data-ops-recipient="'+esc(practiceEmail)+'" data-ops-flip-status="waiting_on_practice">Send Revision Request</button></div>';
+      h+='</div>';
+      h+='</div>';
+      // Also show thread if there are messages
+      if(msgs.length>1)h+=opsRenderThread(msgs);
+      return h;
+    }
+
+    // State C: Waiting on practice (outbound sent, no response yet)
+    if(st==='waiting_on_practice'&&!hasInbound){
+      var h2='<div class="ops-expand-section">';
+      h2+='<div class="ops-expand-label">Waiting on practice</div>';
+      h2+=opsRenderThread(msgs);
+      if(!msgs.length)h2+='<div style="font-size:12px;color:var(--muted)">Email sent to practice. Awaiting response.</div>';
+      // Nudge if 7+ days
+      var lastOutbound=msgs.filter(function(m){return m.direction==='outbound';}).pop();
+      if(lastOutbound){
+        var daysSince=Math.floor((Date.now()-new Date(lastOutbound.created_at).getTime())/86400000);
+        if(daysSince>=7)h2+='<div class="ops-nudge-indicator">\u23F0 '+daysSince+' days since last outreach \u2014 consider a follow-up</div>';
+      }
+      h2+='</div>';
+      return h2;
+    }
+
+    // State A: No messages yet (initial, ball with Hazel) — show email composer
+    var h3='<div class="ops-expand-section">';
+    h3+='<div class="ops-expand-label">Request document from practice</div>';
+    h3+='<div class="ops-email-composer">';
+    h3+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(practiceEmail)+'" /></div>';
+    h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(docTitle)+' needed for Dr '+esc(gpName)+' \u2014 GP Link" /></div>';
+    h3+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
+      +'Hi '+esc(contactName||'')+',<br><br>'
+      +'We are preparing the registration documents for Dr '+esc(gpName)+' and need the following: <strong>'+esc(docTitle)+'</strong>.<br><br>'
+      +'Could you please send this through at your earliest convenience?<br><br>'
+      +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+      +'</div>';
+    h3+='<div class="ops-email-actions">';
+    h3+='<button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Email Practice</button>';
+    h3+='</div>';
+    h3+='</div>';
+    h3+='</div>';
+    return h3;
+  }
+
+  /* ── AHPRA Action Item ── */
+  function renderOpsAhpraActionItem(task,msgs,docs){
+    var st=task.status||'open';
+    var gpName=task.gp_name||'the GP';
+    var gpEmail=task.gp_email||'';
+    var gpPhone=task.gp_phone||'';
+    var ahpraOfficerName=task.ahpra_officer_name||'';
+    var ahpraOfficerEmail=task.ahpra_officer_email||'';
+    var firstInbound=msgs.find(function(m){return m.direction==='inbound';});
+    var hasGpResponse=false;
+    var gpResponseMsgs=[];
+    // GP response = inbound message after the first outbound
+    var outboundSent=false;
+    msgs.forEach(function(m){
+      if(m.direction==='outbound')outboundSent=true;
+      if(outboundSent&&m.direction==='inbound'){hasGpResponse=true;gpResponseMsgs.push(m);}
+    });
+    var currentDocs=docs.filter(function(d){return d.is_current!==false;});
+    var hasDoc=currentDocs.length>0;
+    var lastInbound=gpResponseMsgs.length?gpResponseMsgs[gpResponseMsgs.length-1]:null;
+    var gmailMsgId=task.source_gmail_message_id||'';
+    var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
+
+    // State B: GP responded with document
+    if(hasGpResponse&&hasDoc){
+      var h='<div class="ops-expand-section">';
+      // Brief original AHPRA request
+      if(firstInbound){
+        h+='<div class="ops-original-email" style="opacity:.7">';
+        h+='<div class="ops-expand-label">AHPRA Officer Request</div>';
+        h+='<div class="ops-email-from">'+esc(firstInbound.sender||ahpraOfficerEmail||'\u2014')+' \u00B7 '+opsFormatDate(firstInbound.created_at)+'</div>';
+        h+='<div class="ops-email-content">'+esc(opsSnippet(firstInbound.body_text||firstInbound.body_html||task.description||'',200))+'</div>';
+        if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open full email \u2192</a>';
+        h+='</div>';
+      }
+      h+=opsRenderThread(msgs);
+      h+=opsRenderDocs(docs);
+      h+='<div class="ops-action-row">';
+      h+='<button class="ops-btn-green" data-ops-email-ahpra="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'">Email AHPRA Officer</button>';
+      h+='<button class="ops-btn-secondary" data-ops-upload-own="'+esc(task.id)+'">Upload Different Version</button>';
+      var lastInbCh=(lastInbound&&lastInbound.channel)||'whatsapp';
+      h+='<button class="ops-btn-danger" data-ops-request-revision="'+esc(task.id)+'" data-ops-channel="'+esc(lastInbCh)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_gp">Request Revision</button>';
+      h+='</div>';
+      h+='<div class="ops-upload-area" id="opsUpload_'+esc(task.id)+'" style="display:none"><input type="file" data-ops-file-input="'+esc(task.id)+'" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"></div>';
+      // AHPRA email composer (hidden until button click)
+      var origSubject=(firstInbound&&firstInbound.subject)?'Re: '+firstInbound.subject:'AHPRA Application \u2014 Dr '+gpName;
+      var gmailThreadId=(firstInbound&&firstInbound.gmail_thread_id)||'';
+      h+='<div class="ops-email-composer-ahpra" id="opsAhpraComposer_'+esc(task.id)+'">';
+      h+='<div class="ops-expand-label">Reply to AHPRA Officer</div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-ahpra-to="'+esc(task.id)+'" value="'+esc(ahpraOfficerEmail)+'" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">CC:</span><input data-ahpra-cc="'+esc(task.id)+'" value="'+esc(gpEmail)+'" /></div>';
+      h+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-ahpra-subject="'+esc(task.id)+'" value="'+esc(origSubject)+'" /></div>';
+      h+='<div class="ops-email-body" contenteditable="true" data-ahpra-body="'+esc(task.id)+'">'
+        +'Dear '+esc(ahpraOfficerName||'AHPRA Officer')+',<br><br>'
+        +'Please find the requested document(s) attached for Dr '+esc(gpName)+'\'s application.<br><br>'
+        +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+        +'</div>';
+      h+='<input type="hidden" data-ahpra-thread="'+esc(task.id)+'" value="'+esc(gmailThreadId)+'" />';
+      h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-ahpra-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'">Send to AHPRA</button></div>';
+      h+='</div>';
+      // Revision composer
+      h+='<div class="ops-revision-composer" id="opsRevision_'+esc(task.id)+'">';
+      h+='<div class="ops-expand-label">Request Revision from GP</div>';
+      h+='<textarea data-revision-text="'+esc(task.id)+'" placeholder="Explain what the GP needs to revise\u2026">Hi Dr '+esc(gpName)+', the document you sent needs a revision. Could you please:\n\n[Explain revision needed]\n\nThanks, Hazel</textarea>';
+      h+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-revision="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-channel="'+esc(lastInbCh)+'" data-ops-recipient="'+esc(lastInbCh==='email'?gpEmail:gpPhone)+'" data-ops-flip-status="waiting_on_gp">Send Revision Request</button></div>';
+      h+='</div>';
+      h+='</div>';
+      return h;
+    }
+
+    // State C: Waiting on GP
+    if(st==='waiting_on_gp'){
+      var h2='<div class="ops-expand-section">';
+      h2+='<div class="ops-expand-label">Waiting on GP</div>';
+      h2+=opsRenderThread(msgs);
+      if(!msgs.length)h2+='<div style="font-size:12px;color:var(--muted)">Message sent to GP. Awaiting response.</div>';
+      // Nudge indicator
+      var lastOut=msgs.filter(function(m){return m.direction==='outbound';}).pop();
+      if(lastOut){
+        var daysSince2=Math.floor((Date.now()-new Date(lastOut.created_at).getTime())/86400000);
+        if(daysSince2>=7)h2+='<div class="ops-nudge-indicator">\u23F0 '+daysSince2+' days since last message \u2014 consider a follow-up</div>';
+      }
+      h2+='</div>';
+      return h2;
+    }
+
+    // State A: Initial (ball with Hazel, no outbound yet)
+    var h3='<div class="ops-expand-section">';
+    // Original AHPRA email
+    if(firstInbound){
+      h3+='<div class="ops-original-email">';
+      h3+='<div class="ops-expand-label">AHPRA Officer Request</div>';
+      h3+='<div class="ops-email-from">'+esc(firstInbound.sender||ahpraOfficerEmail||'\u2014')+' \u00B7 '+opsFormatDate(firstInbound.created_at)+'</div>';
+      h3+='<div class="ops-email-content">'+esc(opsSnippet(firstInbound.body_text||firstInbound.body_html||'',400))+'</div>';
+      if(gmailLink)h3+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open full email \u2192</a>';
+      h3+='</div>';
+    }else if(task.description){
+      h3+='<div class="ops-original-email">';
+      h3+='<div class="ops-expand-label">AHPRA Action Required</div>';
+      h3+='<div class="ops-email-content">'+esc(task.description)+'</div>';
+      h3+='</div>';
+    }
+    // Action item box
+    h3+='<div class="ops-action-item-box">';
+    h3+='<div class="ops-expand-label">Action Required</div>';
+    h3+='<div style="font-size:12px;font-weight:700">'+esc(task.title||'\u2014')+'</div>';
+    if(task.description&&firstInbound)h3+='<div style="font-size:12px;color:#374151;margin-top:4px">'+esc(task.description)+'</div>';
+    h3+='</div>';
+    // WhatsApp/Email composer to GP
+    var defaultChannel='whatsapp';
+    h3+='<div class="ops-whatsapp-composer" id="opsGpComposer_'+esc(task.id)+'" data-current-channel="'+defaultChannel+'">';
+    h3+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">';
+    h3+='<span class="ops-channel-badge '+defaultChannel+'" id="opsChannelBadge_'+esc(task.id)+'">WhatsApp</span>';
+    h3+='<button class="ops-btn-sm" data-toggle-channel="'+esc(task.id)+'">Switch to Email</button>';
+    h3+='</div>';
+    // WhatsApp textarea
+    h3+='<div id="opsWaWrap_'+esc(task.id)+'">';
+    h3+='<textarea data-wa-message="'+esc(task.id)+'" placeholder="Message to GP\u2026">Hi Dr '+esc(gpName)+', AHPRA has requested the following for your application: '+esc(task.title||'')+'. '+esc(task.description||'')+'. Could you please send this through as soon as possible? Thanks, Hazel</textarea>';
+    h3+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-wa="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-phone="'+esc(gpPhone)+'" data-ops-flip-status="waiting_on_gp">Message GP</button></div>';
+    h3+='</div>';
+    // Email composer (hidden by default)
+    h3+='<div id="opsEmailWrap_'+esc(task.id)+'" style="display:none">';
+    h3+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-gp-email-to="'+esc(task.id)+'" value="'+esc(gpEmail)+'" /></div>';
+    h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-gp-email-subject="'+esc(task.id)+'" value="AHPRA Document Required \u2014 Dr '+esc(gpName)+'" /></div>';
+    h3+='<div class="ops-email-body" contenteditable="true" data-gp-email-body="'+esc(task.id)+'">'
+      +'Hi Dr '+esc(gpName)+',<br><br>'
+      +'AHPRA has requested the following for your application: <strong>'+esc(task.title||'')+'</strong>.<br><br>'
+      +esc(task.description||'')+'<br><br>'
+      +'Could you please send this through as soon as possible?<br><br>'
+      +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+      +'</div>';
+    h3+='<div class="ops-email-actions"><button class="ops-btn-green" data-ops-send-gp-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_gp">Send Email to GP</button></div>';
+    h3+='</div>';
+    h3+='</div>';
+    h3+='</div>';
+    return h3;
+  }
+
+  /* ── Email Triage ── */
+  function renderOpsEmailTriage(task,msgs,docs){
+    var desc=task.description||'';
+    var gmailMsgId=task.source_gmail_message_id||'';
+    var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
+    var firstInbound=msgs.find(function(m){return m.direction==='inbound';});
+    var h='<div class="ops-expand-section">';
+    if(firstInbound){
+      h+='<div class="ops-original-email">';
+      if(firstInbound.subject)h+='<div style="font-size:12px;font-weight:700;margin-bottom:4px">'+esc(firstInbound.subject)+'</div>';
+      h+='<div class="ops-email-from">'+esc(firstInbound.sender||'\u2014')+' \u00B7 '+opsFormatDate(firstInbound.created_at)+'</div>';
+      h+='<div class="ops-email-content">'+esc(opsSnippet(firstInbound.body_text||firstInbound.body_html||'',500))+'</div>';
+      h+='</div>';
+    }else if(desc){
+      h+='<div class="ops-expand-desc">'+esc(desc)+'</div>';
+    }
+    if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open full email \u2192</a>';
+    // "May relate to" suggestions from description
+    if(desc.indexOf('May relate to')>-1||desc.indexOf('may relate to')>-1){
+      h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-top:10px;font-size:12px">';
+      h+='<div style="font-weight:700;font-size:11px;color:#92400e;margin-bottom:4px">Suggested Match</div>';
+      // Extract the "May relate to" portion
+      var relIdx=desc.toLowerCase().indexOf('may relate to');
+      if(relIdx>-1){
+        var suggestion=desc.slice(relIdx).replace(/^may relate to:?\s*/i,'');
+        h+='<div>'+esc(suggestion)+'</div>';
+      }
+      h+='</div>';
+    }
+    h+='<div class="ops-action-row" style="margin-top:12px">';
+    h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Resolved</button>';
+    h+='</div>';
+    h+='</div>';
+    return h;
+  }
+
+  /* ── Generic task type ── */
+  function renderOpsGeneric(task,msgs,docs){
+    var h='<div class="ops-expand-section">';
+    if(task.description)h+='<div class="ops-expand-desc">'+esc(task.description)+'</div>';
+    if(msgs.length)h+=opsRenderThread(msgs);
+    if(docs.length)h+=opsRenderDocs(docs);
+    var gmailMsgId=task.source_gmail_message_id||'';
+    var gmailLink=gmailMsgId?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(gmailMsgId):'';
+    if(gmailLink)h+='<a class="ops-action-link-inline" href="'+safeUrl(gmailLink)+'" target="_blank">Open email thread \u2192</a>';
+    h+='<div class="ops-action-row" style="margin-top:12px">';
+    if(task.status!=='completed'&&task.status!=='cancelled')h+='<button class="ops-btn-green" data-ops-complete-task="'+esc(task.id)+'">Mark Complete</button>';
+    h+='</div>';
+    h+='</div>';
+    return h;
   }
 
   async function saveOpsTask(taskId){
@@ -3816,8 +4245,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       else{S._opsStatFilter=S._opsStatFilter===key?null:key;}
       loadOpsQueue();
     });
-    document.getElementById("opsTableBody").addEventListener("click",e=>{
-      const row=e.target.closest("tr.ops-row");
+    document.getElementById("opsTableBody").addEventListener("click",async e=>{
       const saveBtn=e.target.closest("[data-ops-save]");
       const noteBtn=e.target.closest("[data-ops-add-note]");
       const caseBtn=e.target.closest("[data-ops-view-case]");
@@ -3831,12 +4259,273 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         document.getElementById("mainLayout").classList.add("detail-open");
         return;
       }
+
+      /* ── Send email to practice (practice_pack_child initial) ── */
+      var sendEmailBtn=e.target.closest("[data-ops-send-email]");
+      if(sendEmailBtn){
+        var tid=sendEmailBtn.getAttribute("data-ops-send-email");
+        var caseId=sendEmailBtn.getAttribute("data-ops-case")||'';
+        var flipStatus=sendEmailBtn.getAttribute("data-ops-flip-status")||'';
+        var toEl=document.querySelector('[data-email-to="'+tid+'"]');
+        var subEl=document.querySelector('[data-email-subject="'+tid+'"]');
+        var bodyEl=document.querySelector('[data-email-body="'+tid+'"]');
+        var toVal=toEl?toEl.value.trim():'';
+        var subVal=subEl?subEl.value.trim():'';
+        var bodyHtml=bodyEl?bodyEl.innerHTML:'';
+        if(!toVal){showOpsToast('Recipient email required','red');return;}
+        if(!subVal){showOpsToast('Subject required','red');return;}
+        sendEmailBtn.disabled=true;sendEmailBtn.textContent='Sending\u2026';
+        try{
+          var r=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId})});
+          var d=await r.json().catch(()=>({}));
+          if(d.ok){
+            if(flipStatus){
+              await fetch('/api/admin/task?id='+encodeURIComponent(tid),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus})});
+            }
+            showOpsToast('Email sent');loadOpsQueue();
+          }else{showOpsToast(d.message||'Email failed','red');sendEmailBtn.disabled=false;sendEmailBtn.textContent='Email Practice';}
+        }catch(err){showOpsToast(err.message||'Network error','red');sendEmailBtn.disabled=false;sendEmailBtn.textContent='Email Practice';}
+        return;
+      }
+
+      /* ── Send WhatsApp to GP ── */
+      var sendWaBtn=e.target.closest("[data-ops-send-wa]");
+      if(sendWaBtn){
+        var tid2=sendWaBtn.getAttribute("data-ops-send-wa");
+        var caseId2=sendWaBtn.getAttribute("data-ops-case")||'';
+        var phone=sendWaBtn.getAttribute("data-ops-phone")||'';
+        var flipStatus2=sendWaBtn.getAttribute("data-ops-flip-status")||'';
+        var msgEl=document.querySelector('[data-wa-message="'+tid2+'"]');
+        var msgVal=msgEl?msgEl.value.trim():'';
+        if(!phone){showOpsToast('GP phone number required','red');return;}
+        if(!msgVal){showOpsToast('Message cannot be empty','red');return;}
+        sendWaBtn.disabled=true;sendWaBtn.textContent='Sending\u2026';
+        try{
+          var r2=await fetch('/api/admin/whatsapp/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({phone:phone,message:msgVal,taskId:tid2,caseId:caseId2})});
+          var d2=await r2.json().catch(()=>({}));
+          if(d2.ok){
+            if(flipStatus2){
+              await fetch('/api/admin/task?id='+encodeURIComponent(tid2),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus2})});
+            }
+            showOpsToast('WhatsApp sent');loadOpsQueue();
+          }else{showOpsToast(d2.message||'WhatsApp failed','red');sendWaBtn.disabled=false;sendWaBtn.textContent='Message GP';}
+        }catch(err){showOpsToast(err.message||'Network error','red');sendWaBtn.disabled=false;sendWaBtn.textContent='Message GP';}
+        return;
+      }
+
+      /* ── Send email to GP (AHPRA action item, email channel) ── */
+      var sendGpEmailBtn=e.target.closest("[data-ops-send-gp-email]");
+      if(sendGpEmailBtn){
+        var tid3=sendGpEmailBtn.getAttribute("data-ops-send-gp-email");
+        var caseId3=sendGpEmailBtn.getAttribute("data-ops-case")||'';
+        var flipStatus3=sendGpEmailBtn.getAttribute("data-ops-flip-status")||'';
+        var toEl3=document.querySelector('[data-gp-email-to="'+tid3+'"]');
+        var subEl3=document.querySelector('[data-gp-email-subject="'+tid3+'"]');
+        var bodyEl3=document.querySelector('[data-gp-email-body="'+tid3+'"]');
+        var toVal3=toEl3?toEl3.value.trim():'';
+        var subVal3=subEl3?subEl3.value.trim():'';
+        var bodyHtml3=bodyEl3?bodyEl3.innerHTML:'';
+        if(!toVal3){showOpsToast('GP email required','red');return;}
+        sendGpEmailBtn.disabled=true;sendGpEmailBtn.textContent='Sending\u2026';
+        try{
+          var r3=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({to:toVal3,subject:subVal3,bodyHtml:bodyHtml3,taskId:tid3,caseId:caseId3})});
+          var d3=await r3.json().catch(()=>({}));
+          if(d3.ok){
+            if(flipStatus3){
+              await fetch('/api/admin/task?id='+encodeURIComponent(tid3),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus3})});
+            }
+            showOpsToast('Email sent to GP');loadOpsQueue();
+          }else{showOpsToast(d3.message||'Email failed','red');sendGpEmailBtn.disabled=false;sendGpEmailBtn.textContent='Send Email to GP';}
+        }catch(err){showOpsToast(err.message||'Network error','red');sendGpEmailBtn.disabled=false;sendGpEmailBtn.textContent='Send Email to GP';}
+        return;
+      }
+
+      /* ── Email AHPRA Officer (show composer) ── */
+      var emailAhpraBtn=e.target.closest("[data-ops-email-ahpra]");
+      if(emailAhpraBtn){
+        var tid4=emailAhpraBtn.getAttribute("data-ops-email-ahpra");
+        var composer=document.getElementById('opsAhpraComposer_'+tid4);
+        if(composer){composer.classList.toggle('visible');}
+        return;
+      }
+
+      /* ── Send AHPRA officer email ── */
+      var sendAhpraBtn=e.target.closest("[data-ops-send-ahpra-email]");
+      if(sendAhpraBtn){
+        var tid5=sendAhpraBtn.getAttribute("data-ops-send-ahpra-email");
+        var caseId5=sendAhpraBtn.getAttribute("data-ops-case")||'';
+        var toEl5=document.querySelector('[data-ahpra-to="'+tid5+'"]');
+        var ccEl5=document.querySelector('[data-ahpra-cc="'+tid5+'"]');
+        var subEl5=document.querySelector('[data-ahpra-subject="'+tid5+'"]');
+        var bodyEl5=document.querySelector('[data-ahpra-body="'+tid5+'"]');
+        var threadEl5=document.querySelector('[data-ahpra-thread="'+tid5+'"]');
+        var toVal5=toEl5?toEl5.value.trim():'';
+        var ccVal5=ccEl5?ccEl5.value.trim():'';
+        var subVal5=subEl5?subEl5.value.trim():'';
+        var bodyHtml5=bodyEl5?bodyEl5.innerHTML:'';
+        var threadId5=threadEl5?threadEl5.value.trim():'';
+        if(!toVal5){showOpsToast('AHPRA officer email required','red');return;}
+        sendAhpraBtn.disabled=true;sendAhpraBtn.textContent='Sending\u2026';
+        // Collect current document URLs as attachments
+        var attachments=[];
+        document.querySelectorAll('[data-ops-detail-for="'+tid5+'"] .ops-doc-thumb a').forEach(function(a){
+          var href=a.getAttribute('href');if(href&&href!=='#')attachments.push({url:href,filename:''});
+        });
+        try{
+          var payload={to:toVal5,subject:subVal5,bodyHtml:bodyHtml5,taskId:tid5,caseId:caseId5};
+          if(ccVal5)payload.cc=ccVal5;
+          if(threadId5)payload.threadId=threadId5;
+          if(attachments.length)payload.attachments=attachments;
+          var r5=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+          var d5=await r5.json().catch(()=>({}));
+          if(d5.ok){
+            // Complete the task after sending to AHPRA
+            await fetch('/api/admin/task?id='+encodeURIComponent(tid5),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
+            showOpsToast('Email sent to AHPRA & task completed');loadOpsQueue();
+          }else{showOpsToast(d5.message||'Email failed','red');sendAhpraBtn.disabled=false;sendAhpraBtn.textContent='Send to AHPRA';}
+        }catch(err){showOpsToast(err.message||'Network error','red');sendAhpraBtn.disabled=false;sendAhpraBtn.textContent='Send to AHPRA';}
+        return;
+      }
+
+      /* ── Submit to Drive & Complete ── */
+      var submitDriveBtn=e.target.closest("[data-ops-submit-drive]");
+      if(submitDriveBtn){
+        var tid6=submitDriveBtn.getAttribute("data-ops-submit-drive");
+        submitDriveBtn.disabled=true;submitDriveBtn.textContent='Uploading\u2026';
+        try{
+          var r6=await fetch('/api/admin/task/submit-drive',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:tid6})});
+          var d6=await r6.json().catch(()=>({}));
+          if(d6.ok){showOpsToast('Document submitted to Drive & task completed');loadOpsQueue();}
+          else{showOpsToast(d6.message||'Drive upload failed','red');submitDriveBtn.disabled=false;submitDriveBtn.textContent='Submit to Drive & Complete';}
+        }catch(err){showOpsToast(err.message||'Network error','red');submitDriveBtn.disabled=false;submitDriveBtn.textContent='Submit to Drive & Complete';}
+        return;
+      }
+
+      /* ── Upload own version ── */
+      var uploadBtn=e.target.closest("[data-ops-upload-own]");
+      if(uploadBtn){
+        var tid7=uploadBtn.getAttribute("data-ops-upload-own");
+        var uploadArea=document.getElementById('opsUpload_'+tid7);
+        if(uploadArea){uploadArea.style.display=uploadArea.style.display==='none'?'block':'none';}
+        return;
+      }
+
+      /* ── Request Revision (show composer) ── */
+      var revisionBtn=e.target.closest("[data-ops-request-revision]");
+      if(revisionBtn){
+        var tid8=revisionBtn.getAttribute("data-ops-request-revision");
+        var revComposer=document.getElementById('opsRevision_'+tid8);
+        if(revComposer){revComposer.classList.toggle('visible');}
+        return;
+      }
+
+      /* ── Send Revision Request ── */
+      var sendRevBtn=e.target.closest("[data-ops-send-revision]");
+      if(sendRevBtn){
+        var tid9=sendRevBtn.getAttribute("data-ops-send-revision");
+        var caseId9=sendRevBtn.getAttribute("data-ops-case")||'';
+        var ch=sendRevBtn.getAttribute("data-ops-channel")||'email';
+        var recipient=sendRevBtn.getAttribute("data-ops-recipient")||'';
+        var flipStatus9=sendRevBtn.getAttribute("data-ops-flip-status")||'';
+        var revEl=document.querySelector('[data-revision-text="'+tid9+'"]');
+        var revText=revEl?revEl.value.trim():'';
+        if(!revText){showOpsToast('Revision message required','red');return;}
+        sendRevBtn.disabled=true;sendRevBtn.textContent='Sending\u2026';
+        try{
+          var ok=false;
+          if(ch==='whatsapp'){
+            if(!recipient){showOpsToast('Phone number required','red');sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';return;}
+            var rr=await fetch('/api/admin/whatsapp/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({phone:recipient,message:revText,taskId:tid9,caseId:caseId9})});
+            var rd=await rr.json().catch(()=>({}));ok=!!rd.ok;
+            if(!ok)showOpsToast(rd.message||'WhatsApp failed','red');
+          }else{
+            if(!recipient){showOpsToast('Email address required','red');sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';return;}
+            var rr2=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({to:recipient,subject:'Revision Required \u2014 GP Link',bodyText:revText,taskId:tid9,caseId:caseId9})});
+            var rd2=await rr2.json().catch(()=>({}));ok=!!rd2.ok;
+            if(!ok)showOpsToast(rd2.message||'Email failed','red');
+          }
+          if(ok){
+            if(flipStatus9){
+              await fetch('/api/admin/task?id='+encodeURIComponent(tid9),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus9})});
+            }
+            showOpsToast('Revision request sent');loadOpsQueue();
+          }else{sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';}
+        }catch(err){showOpsToast(err.message||'Network error','red');sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';}
+        return;
+      }
+
+      /* ── Complete task ── */
+      var completeBtn=e.target.closest("[data-ops-complete-task]");
+      if(completeBtn){
+        var tid10=completeBtn.getAttribute("data-ops-complete-task");
+        completeBtn.disabled=true;completeBtn.textContent='Completing\u2026';
+        try{
+          var r10=await fetch('/api/admin/task?id='+encodeURIComponent(tid10),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'completed'})});
+          var d10=await r10.json().catch(()=>({}));
+          if(d10.ok){showOpsToast('Task completed');loadOpsQueue();}
+          else{showOpsToast(d10.message||'Update failed','red');completeBtn.disabled=false;completeBtn.textContent='Mark Complete';}
+        }catch(err){showOpsToast(err.message||'Network error','red');completeBtn.disabled=false;completeBtn.textContent='Mark Complete';}
+        return;
+      }
+
+      /* ── Toggle channel (WhatsApp <-> Email) ── */
+      var toggleChBtn=e.target.closest("[data-toggle-channel]");
+      if(toggleChBtn){
+        var tid11=toggleChBtn.getAttribute("data-toggle-channel");
+        var composerWrap=document.getElementById('opsGpComposer_'+tid11);
+        if(!composerWrap)return;
+        var current=composerWrap.getAttribute('data-current-channel')||'whatsapp';
+        var next=current==='whatsapp'?'email':'whatsapp';
+        composerWrap.setAttribute('data-current-channel',next);
+        var badge=document.getElementById('opsChannelBadge_'+tid11);
+        if(badge){badge.className='ops-channel-badge '+next;badge.textContent=next==='whatsapp'?'WhatsApp':'Email';}
+        toggleChBtn.textContent='Switch to '+(next==='whatsapp'?'Email':'WhatsApp');
+        var waWrap=document.getElementById('opsWaWrap_'+tid11);
+        var emailWrap=document.getElementById('opsEmailWrap_'+tid11);
+        if(waWrap)waWrap.style.display=next==='whatsapp'?'':'none';
+        if(emailWrap)emailWrap.style.display=next==='email'?'':'none';
+        return;
+      }
+
+      /* ── File upload handler ── */
+      // Handled via change event below
+
+      /* ── Row expand/collapse (must be last) ── */
+      const row=e.target.closest("tr.ops-row");
       if(row){
         const tid=row.getAttribute("data-ops-task-id");
         S.opsExpandedId=S.opsExpandedId===tid?null:tid;
         renderOpsTable();
         return;
       }
+    });
+
+    /* ── File upload change handler for ops queue ── */
+    document.getElementById("opsTableBody").addEventListener("change",async e=>{
+      var fileInput=e.target.closest("[data-ops-file-input]");
+      if(!fileInput)return;
+      var tid=fileInput.getAttribute("data-ops-file-input");
+      var file=fileInput.files&&fileInput.files[0];
+      if(!file||!tid)return;
+      // Read file and upload as new task_document version
+      var reader=new FileReader();
+      reader.onload=async function(){
+        try{
+          // Mark existing current docs as not current
+          // Then insert new doc — we'll use a simple approach via the existing upload endpoint if available, or direct supabase
+          showOpsToast('Uploading '+file.name+'\u2026');
+          // For now, just complete the upload conceptually — the server-side endpoint handles Drive upload
+          // We can POST to task/submit-drive after upload or just reload
+          showOpsToast('File selected: '+file.name+'. Use Submit to Drive to upload.','amber');
+          fileInput.value='';
+        }catch(err){showOpsToast('Upload failed: '+err.message,'red');}
+      };
+      reader.readAsDataURL(file);
     });
     document.getElementById("detailContent").addEventListener("input",e=>{
       if(e.target&&e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";}

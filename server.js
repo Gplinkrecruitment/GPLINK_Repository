@@ -24355,6 +24355,98 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Get task messages (conversation thread) ──
+  if (pathname === '/api/admin/task/messages' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const taskId = url.searchParams.get('taskId');
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing taskId.' }); return; }
+    const msgs = await supabaseDbRequest('task_messages',
+      'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&order=created_at.asc');
+    if (!msgs.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load messages.' }); return; }
+    sendJson(res, 200, { ok: true, messages: Array.isArray(msgs.data) ? msgs.data : [] });
+    return;
+  }
+
+  // ── Get task documents (attached files/versions) ──
+  if (pathname === '/api/admin/task/documents' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const taskId = url.searchParams.get('taskId');
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'Missing taskId.' }); return; }
+    const docs = await supabaseDbRequest('task_documents',
+      'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&order=version.desc,created_at.desc');
+    if (!docs.ok) { sendJson(res, 502, { ok: false, message: 'Failed to load documents.' }); return; }
+    sendJson(res, 200, { ok: true, documents: Array.isArray(docs.data) ? docs.data : [] });
+    return;
+  }
+
+  // ── Submit task document to GP's Google Drive folder ──
+  if (pathname === '/api/admin/task/submit-drive' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const taskId = body && body.taskId ? String(body.taskId).trim() : '';
+    if (!taskId) { sendJson(res, 400, { ok: false, message: 'taskId required.' }); return; }
+
+    try {
+      // 1. Load task
+      const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+      const task = taskRes.ok && Array.isArray(taskRes.data) && taskRes.data.length > 0 ? taskRes.data[0] : null;
+      if (!task) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
+
+      // 2. Load current document
+      const docRes = await supabaseDbRequest('task_documents', 'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&limit=1');
+      const doc = docRes.ok && Array.isArray(docRes.data) && docRes.data.length > 0 ? docRes.data[0] : null;
+      if (!doc) { sendJson(res, 404, { ok: false, message: 'No current document found for this task.' }); return; }
+
+      // 3. Find GP's Drive folder
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=user_id,google_drive_folder_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
+      const regCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data.length > 0 ? caseRes.data[0] : null;
+      const folderId = regCase ? regCase.google_drive_folder_id : null;
+
+      if (!folderId) { sendJson(res, 400, { ok: false, message: 'GP does not have a Google Drive folder configured.' }); return; }
+
+      // 4. Download the document content
+      let fileBuffer, mimeType = doc.mime_type || 'application/pdf';
+      const sourceUrl = doc.google_drive_url || doc.attachment_url;
+      if (doc.google_drive_file_id) {
+        // Download from Drive directly using the googleapis client
+        const drive = await getGoogleDriveClient();
+        if (!drive) { sendJson(res, 503, { ok: false, message: 'Google Drive client not available.' }); return; }
+        const dlResp = await drive.files.get({ fileId: doc.google_drive_file_id, alt: 'media' }, { responseType: 'arraybuffer' });
+        fileBuffer = Buffer.from(dlResp.data);
+      } else if (sourceUrl) {
+        const dlResp = await fetch(sourceUrl);
+        if (!dlResp.ok) { sendJson(res, 502, { ok: false, message: 'Failed to download document from URL.' }); return; }
+        fileBuffer = Buffer.from(await dlResp.arrayBuffer());
+      } else {
+        sendJson(res, 400, { ok: false, message: 'Document has no downloadable source.' }); return;
+      }
+
+      // 5. Upload to GP's Drive folder
+      const driveFile = await uploadToGoogleDrive(folderId, doc.filename, fileBuffer, mimeType);
+
+      // 6. Complete the task
+      await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
+        method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email }
+      });
+
+      // 7. Log timeline event
+      await _logCaseEvent(task.case_id, taskId, 'completed', 'Document submitted to Drive: ' + doc.filename, null, adminCtx.email);
+      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(task.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
+
+      sendJson(res, 200, { ok: true, driveFileId: driveFile ? driveFile.id : null });
+    } catch (err) {
+      console.error('[AdminSubmitDrive] Error:', err.message);
+      sendJson(res, 500, { ok: false, message: 'Drive upload failed: ' + err.message });
+    }
+    return;
+  }
+
   // ── Email triage: suggest reply via AI ──
   if (pathname === '/api/admin/email-triage/suggest-reply' && req.method === 'POST') {
     var adminCtx = requireAdminSession(req, res);
@@ -28230,7 +28322,13 @@ Return ONLY valid JSON with no markdown formatting:
         case_stage: c.stage || '',
         case_status: c.status || '',
         practice_name: c.practice_name || '',
-        sponsor_name: c.sponsor_name || ''
+        sponsor_name: c.sponsor_name || '',
+        practice_contact_name: c.practice_contact || '',
+        practice_contact_email: c.practice_contact_email || '',
+        ahpra_officer_name: c.ahpra_officer_name || '',
+        ahpra_officer_email: c.ahpra_officer_email || '',
+        ahpra_application_number: c.ahpra_application_number || '',
+        google_drive_folder_id: c.google_drive_folder_id || ''
       });
     });
     sendJson(res, 200, { ok: true, tasks: enriched });
