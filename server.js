@@ -5261,9 +5261,9 @@ function _autoAssignDueDate(payload) {
     payload.due_date = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
     return;
   }
-  // Practice pack tasks: 10-day SLA
+  // Practice pack tasks: 4-week SLA
   if (type === 'practice_pack_child') {
-    payload.due_date = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString();
+    payload.due_date = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000).toISOString();
     return;
   }
 }
@@ -5777,9 +5777,6 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const epicLabels = { account_establishment: 'Verify account establishment documents', upload_qualifications: 'Review uploaded qualification documents', verification_issued: 'Confirm EPIC verification issued' };
     for (const key of ['account_establishment', 'upload_qualifications', 'verification_issued']) {
       if (!pc[key] && nc[key] === true) {
-        if (!(await _hasOpenTask(caseId, 'myintealth', 'verify'))) {
-          await _createRegTask(caseId, { task_type: 'verify', title: epicLabels[key], priority: key === 'upload_qualifications' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'myintealth', related_substage: key, _actor: 'system' });
-        }
         if (key === 'verification_issued') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.myintealth&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
@@ -5799,9 +5796,6 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const amcLabels = { upload_credentials: 'Review AMC credentials uploaded', waiting_verification: 'Monitor AMC verification progress', qualifications_verified: 'Confirm AMC qualifications verified' };
     for (const key of ['upload_credentials', 'waiting_verification', 'qualifications_verified']) {
       if (!pac[key] && nac[key] === true) {
-        if (!(await _hasOpenTask(caseId, 'amc', 'verify'))) {
-          await _createRegTask(caseId, { task_type: 'verify', title: amcLabels[key], priority: key === 'upload_credentials' ? 'high' : 'normal', source_trigger: 'gp_state_change', related_stage: 'amc', related_substage: key, _actor: 'system' });
-        }
         if (key === 'qualifications_verified') {
           const ot = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.amc&status=in.(open,in_progress,waiting)');
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
@@ -5828,8 +5822,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
       if (!(await _hasOpenTask(caseId, 'career', 'practice_pack_child'))) {
         const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };
+        const deferredKeys = new Set(['sppa_00', 'section_g']);
         for (const dk of Object.keys(packLabels)) {
-          await _createRegTask(caseId, { task_type: 'practice_pack_child', title: packLabels[dk], source_trigger: 'career_secured', related_stage: 'career', related_document_key: dk, _actor: 'system' });
+          const taskData = { task_type: 'practice_pack_child', title: packLabels[dk], source_trigger: 'career_secured', related_stage: 'career', related_document_key: dk, _actor: 'system' };
+          if (deferredKeys.has(dk)) taskData.status = 'deferred';
+          await _createRegTask(caseId, taskData);
         }
       }
 
@@ -5868,7 +5865,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           if (_fs.existsSync(sectionGPath)) {
             const sectionGBuffer = _fs.readFileSync(sectionGPath);
             await deliverToMyDocuments(userId, caseId, 'section_g', 'Section G.pdf', sectionGBuffer, 'application/pdf');
-            const sgTask = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.section_g&status=in.(open,in_progress,waiting)&limit=1');
+            const sgTask = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.section_g&status=in.(open,in_progress,waiting,deferred)&limit=1');
             if (sgTask.ok && Array.isArray(sgTask.data) && sgTask.data[0]) {
               await _completeRegTask(sgTask.data[0].id, caseId, 'system');
             }
@@ -5950,6 +5947,20 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
         sendAhpraUnlockedEmail(userId).catch(err => console.error('[Email] AHPRA unlocked failed:', err.message));
         await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
+      }
+
+      // Auto-complete Section G when GP reaches AHPRA
+      try {
+        const sgTasks = await supabaseDbRequest('registration_tasks',
+          'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.section_g&task_type=eq.practice_pack_child&status=in.(open,in_progress,waiting,deferred)&limit=1');
+        if (sgTasks.ok && Array.isArray(sgTasks.data)) {
+          for (const t of sgTasks.data) {
+            await _completeRegTask(t.id, caseId, 'system');
+            await _logCaseEvent(caseId, t.id, 'completed', 'Section G auto-delivered to GP', null, 'system');
+          }
+        }
+      } catch (sgAutoErr) {
+        console.error('[PracticePack] Section G AHPRA auto-complete error:', sgAutoErr.message);
       }
     }
 
@@ -20294,6 +20305,34 @@ async function handleApi(req, res, pathname) {
         await upsertSupabaseUserState(userId, current, new Date().toISOString());
         sendOnboardingCompleteEmail(userId).catch(err => console.error('[Email] Onboarding complete failed:', err.message));
 
+        // Create flagged_doc tasks for any docs flagged during qualification verification
+        if (body.accountReviewFlag && body.qualDocs && typeof body.qualDocs === 'object') {
+          try {
+            const regCase = await _ensureRegCase(userId);
+            if (regCase) {
+              for (const [docKey, docInfo] of Object.entries(body.qualDocs)) {
+                if (docInfo && (docInfo.status === 'manual_review' || docInfo.status === 'failed' || docInfo.status === 'support_requested')) {
+                  const docLabel = (docInfo.scanResult && docInfo.scanResult.documentType) || docKey.replace(/_/g, ' ');
+                  const flagReason = (docInfo.scanResult && Array.isArray(docInfo.scanResult.issues) && docInfo.scanResult.issues.length > 0)
+                    ? docInfo.scanResult.issues.join('; ')
+                    : (docInfo.status === 'support_requested' ? 'GP requested manual review support' : 'Max retries exceeded or verification failed');
+                  await _createRegTask(regCase.id, {
+                    task_type: 'flagged_doc',
+                    title: 'Review flagged qualification: ' + docLabel,
+                    description: 'AI flagged this document for manual review. Reason: ' + flagReason,
+                    priority: 'high',
+                    source_trigger: 'qualification_scan',
+                    related_stage: 'myintealth',
+                    _actor: 'system'
+                  });
+                }
+              }
+            }
+          } catch (flagErr) {
+            console.error('[Onboarding] flagged_doc task creation error:', flagErr.message);
+          }
+        }
+
         // Also update user profile with onboarding data
         const profileUpdate = {};
         if (body.country) profileUpdate.qualification_country = body.country === 'OTHER' ? body.countryOther : body.country;
@@ -24029,12 +24068,7 @@ Return ONLY valid JSON with no markdown formatting:
         await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(regCase.id), { method: 'PATCH', body: { stage: stage } });
         updated++;
       }
-      // Create kickoff task if none exist for current stage
-      const existingTasks = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(regCase.id) + '&related_stage=eq.' + encodeURIComponent(stage) + '&limit=1');
-      if (existingTasks.ok && Array.isArray(existingTasks.data) && existingTasks.data.length === 0) {
-        await _createRegTask(regCase.id, { task_type: 'kickoff', title: 'Review ' + stage + ' stage progress', source_trigger: 'sync', related_stage: stage, _actor: adminCtx.email });
-        created++;
-      }
+      // (kickoff tasks removed — ops queue tracks stage progress via real tasks)
     }
     invalidateAdminDashboardCache();
     sendJson(res, 200, { ok: true, synced: states.length, created: created, updated: updated, skipped: skipped });
@@ -27653,7 +27687,7 @@ Return ONLY valid JSON with no markdown formatting:
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
     const domainFilter = url.searchParams.get('domain') || '';
-    const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked';
+    const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated';
     const priorityFilter = url.searchParams.get('priority') || '';
     const assigneeFilter = url.searchParams.get('assignee') || '';
     const overdueOnly = url.searchParams.get('overdue') === 'true';
