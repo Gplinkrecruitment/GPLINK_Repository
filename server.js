@@ -5211,43 +5211,43 @@ const HAZEL_WHATSAPP_NUMBER = String(process.env.HAZEL_WHATSAPP_NUMBER || '+6149
 const NUDGE_TEMPLATES = {
   'myintealth:create_account': {
     title: 'Need a hand creating your MyIntealth account?',
-    body: 'Are you having trouble creating your MyIntealth account? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Are you having trouble creating your MyIntealth account? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   'myintealth:account_establishment': {
     title: 'Trouble establishing your MyIntealth account?',
-    body: 'Are you having trouble establishing your MyIntealth account? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Are you having trouble establishing your MyIntealth account? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   'myintealth:upload_qualifications': {
     title: 'Stuck uploading your qualifications?',
-    body: 'Are you having trouble uploading your qualification documents? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Are you having trouble uploading your qualification documents? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   'myintealth:verification_issued': {
     title: 'Waiting on EPIC verification?',
-    body: 'Still waiting on EPIC verification? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Still waiting on EPIC verification? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   'myintealth': {
     title: 'Need help with MyIntealth?',
-    body: 'Are you having trouble with your MyIntealth step? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Are you having trouble with your MyIntealth step? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   'amc:create_portfolio': {
     title: 'Need help creating your AMC portfolio?',
-    body: 'Are you having trouble creating your AMC portfolio? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Are you having trouble creating your AMC portfolio? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   'amc:upload_credentials': {
     title: 'Stuck uploading AMC credentials?',
-    body: 'Are you having trouble uploading your AMC credentials? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Are you having trouble uploading your AMC credentials? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   'amc:waiting_verification': {
     title: 'Waiting on AMC verification?',
-    body: 'Still waiting on AMC to verify your credentials? We can help chase this up — submit a ticket or message Hazel via WhatsApp.'
+    body: 'Still waiting on AMC to verify your credentials? We can help chase this up — submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   'amc': {
     title: 'Need help with AMC?',
-    body: 'Are you having trouble with your AMC step? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Are you having trouble with your AMC step? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   },
   '_default': {
     title: 'Need a hand with your current step?',
-    body: 'Are you having trouble with your current step? Submit a ticket or message your dedicated support expert Hazel via WhatsApp.'
+    body: 'Are you having trouble with your current step? Submit a ticket or message us on WhatsApp at +61 494 391 968.'
   }
 };
 
@@ -5471,7 +5471,7 @@ async function sendDoubleTickNudge(toPhone, stage, substage, gpFirstName, custom
   // Always try direct text mode for nudges since templates may not exist yet
   const textMessage = customMessage
     ? customMessage.replace(/\{\{name\}\}/gi, name)
-    : 'Hi ' + name + ', just checking in on your progress. Need any help with your current step? Reply here or message Hazel on WhatsApp for support.';
+    : 'Hi ' + name + ', just checking in on your progress. Need any help with your current step? Reply here or message us on WhatsApp at +61 494 391 968 for support.';
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -15835,10 +15835,10 @@ async function sendWelcomeEmail(userId) {
   await sendGpNotificationEmail(userId,
     'Welcome to GP Link',
     'Welcome to GP Link, {{name}}!',
-    'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Your dedicated support expert Hazel is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.',
+    'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Our support team is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.',
     'Get Started',
     APP_BASE_URL + '/pages/index.html',
-    'Questions? Reply to this email or message Hazel on WhatsApp.'
+    'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
   );
 }
 
@@ -15923,7 +15923,7 @@ async function sendStalledReminderEmail(userId, stage) {
   await sendGpNotificationEmail(userId,
     'Need a hand? — GP Link',
     'How are you going, {{name}}?',
-    'We noticed you haven\'t made progress on ' + label + ' recently. No rush — but if you\'re stuck or have questions, we\'re here to help.\n\nYour support expert Hazel can assist you with anything you need. Just reply to this email or message her on WhatsApp.',
+    'We noticed you haven\'t made progress on ' + label + ' recently. No rush — but if you\'re stuck or have questions, we\'re here to help.\n\nOur support team can assist you with anything you need. Just reply to this email or message us on WhatsApp at +61 494 391 968.',
     'Continue ' + label,
     APP_BASE_URL + '/pages/index.html',
     'If you\'re waiting on something external (like a verification), no action needed — we\'ll follow up when there\'s an update.'
@@ -15951,7 +15951,7 @@ async function sendDocumentRevisionEmail(userId, docLabel, practiceName) {
     '{{name}}, the ' + (docLabel || 'document') + practiceNote + ' requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.',
     'View Details',
     APP_BASE_URL + '/pages/index.html',
-    'If you have questions about what\'s needed, message your support expert Hazel on WhatsApp.'
+    'If you have questions about what\'s needed, message us on WhatsApp at +61 494 391 968.'
   );
 }
 
@@ -15963,7 +15963,7 @@ async function sendAhpraUnlockedEmail(userId) {
     'Great news — your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.',
     'Start AHPRA',
     APP_BASE_URL + '/pages/ahpra.html',
-    'Questions? Message your support expert Hazel on WhatsApp or reply to this email.'
+    'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.'
   );
 }
 
@@ -15997,7 +15997,7 @@ async function sendTicketReplyEmail(userId, ticketTitle) {
     'Your support team has replied to your request' + (ticketTitle ? ': "' + ticketTitle + '"' : '') + '.\n\nCheck your messages to read the full response and continue the conversation.',
     'View Messages',
     APP_BASE_URL + '/pages/messages.html',
-    'Need more help? Reply directly in the app or message Hazel on WhatsApp.'
+    'Need more help? Reply directly in the app or message us on WhatsApp at +61 494 391 968.'
   );
 }
 
@@ -16022,7 +16022,7 @@ async function sendPracticePackEmail(userId, practiceName) {
     'Now that your placement' + practiceNote + ' is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice — we\'ll keep you updated as each one progresses.',
     'View Documents',
     APP_BASE_URL + '/pages/my-documents.html',
-    'If you have questions about any document, message Hazel on WhatsApp.'
+    'If you have questions about any document, message us on WhatsApp at +61 494 391 968.'
   );
 }
 
@@ -16040,11 +16040,10 @@ async function sendCandidateHiredEmail(candidateEmail, candidateFirstName, pract
     html: buildCareerEmailHtml({
       title: 'Congratulations, Dr ' + name + '!',
       body: 'We\'re thrilled to let you know that your placement' + practiceNote + locationNote + ' has been confirmed. This is a huge milestone in your journey to practising medicine in Australia — well done!\n\n'
-        + 'To get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step — from qualification verification through to AHPRA registration and your practice pack.\n\n'
-        + 'Your dedicated support expert Hazel is ready to help you with anything you need along the way.',
+        + 'To get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step — from qualification verification through to AHPRA registration and your practice pack.',
       ctaText: 'Sign Up to GP Link',
       ctaUrl: APP_BASE_URL + '/pages/signin.html',
-      footer: 'Questions about getting started? Reply to this email or reach out to your support expert Hazel on WhatsApp.'
+      footer: 'Questions about getting started? Reply to this email or reach out to us via WhatsApp at +61 494 391 968.'
     })
   });
 }
@@ -24551,26 +24550,26 @@ Return ONLY valid JSON with no markdown formatting:
     if (!epTo || !isValidEmail(epTo)) { sendJson(res, 400, { ok: false, message: 'Valid "to" email required.' }); return; }
 
     const templates = [
-      { name: 'Welcome', subject: 'Welcome to GP Link', title: 'Welcome to GP Link, Dr Sarah!', body: 'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Your dedicated support expert Hazel is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.', ctaText: 'Get Started', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'Questions? Reply to this email or message Hazel on WhatsApp.' },
+      { name: 'Welcome', subject: 'Welcome to GP Link', title: 'Welcome to GP Link, Dr Sarah!', body: 'Your account is verified and ready to go. GP Link is your pathway to practising medicine in Australia. Our support team is here to help you every step of the way.\n\nStart by completing your profile and then move on to the MyIntealth step.', ctaText: 'Get Started', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.' },
       { name: 'Email Verification', subject: 'Verify your GP Link account', title: 'Verify your email', body: 'Thanks for signing up to GP Link! Please click the button below to verify your email address and activate your account.', ctaText: 'Verify Email', ctaUrl: APP_BASE_URL, footer: 'If you didn\'t create a GP Link account, you can safely ignore this email. This link expires in 24 hours.' },
       { name: 'Onboarding Complete', subject: 'Profile Complete — GP Link', title: 'Your profile is complete, Dr Sarah!', body: 'Great work! Your GP Link profile is now set up. The next step is MyIntealth — this is where your qualification verification begins.\n\nHead to your dashboard to get started.', ctaText: 'Start MyIntealth', ctaUrl: APP_BASE_URL + '/pages/myintealth.html', footer: '' },
       { name: 'MyIntealth Complete', subject: 'MyIntealth Complete — GP Link', title: 'MyIntealth is done, Dr Sarah!', body: 'Congratulations on completing your MyIntealth verification! You\'re making excellent progress.\n\nYour next step is AMC (Australian Medical Council). This is where your qualifications get formally assessed for practise in Australia.', ctaText: 'Start AMC', ctaUrl: APP_BASE_URL + '/pages/amc.html', footer: '' },
       { name: 'AMC Complete', subject: 'AMC Complete — GP Link', title: 'AMC verification complete, Dr Sarah!', body: 'Your AMC qualifications have been verified — fantastic progress!\n\nNow it\'s time to explore career opportunities. Browse available positions and apply to medical centres that match your preferences.', ctaText: 'Browse Positions', ctaUrl: APP_BASE_URL + '/pages/career.html', footer: '' },
-      { name: 'AHPRA Unlocked', subject: 'AHPRA Registration Unlocked — GP Link', title: 'Your AHPRA step is now available, Dr Sarah!', body: 'Great news — your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.', ctaText: 'Start AHPRA', ctaUrl: APP_BASE_URL + '/pages/ahpra.html', footer: 'Questions? Message your support expert Hazel on WhatsApp or reply to this email.' },
+      { name: 'AHPRA Unlocked', subject: 'AHPRA Registration Unlocked — GP Link', title: 'Your AHPRA step is now available, Dr Sarah!', body: 'Great news — your career placement is secured and your qualifications are verified. You\'ve unlocked the AHPRA registration step!\n\nAHPRA (Australian Health Practitioner Regulation Agency) is a critical milestone on your path to practising in Australia. GP Link will guide you through every part of the application.', ctaText: 'Start AHPRA', ctaUrl: APP_BASE_URL + '/pages/ahpra.html', footer: 'Questions? Reply to this email or message us on WhatsApp at +61 494 391 968.' },
       { name: 'AHPRA Complete', subject: 'AHPRA Complete — GP Link', title: 'AHPRA registration complete, Dr Sarah!', body: 'Your AHPRA registration has been processed — you\'re almost there!\n\nHead to your dashboard to see your next steps and continue your journey to practising in Australia.', ctaText: 'View Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
       { name: 'Application Submitted', subject: 'Application Submitted — GP Link', title: 'Application Submitted', body: 'Your application for the Greenfield Medical Centre — Melbourne role has been submitted successfully. We\'ll review your profile and keep you updated on your application progress.', ctaText: 'View Your Applications', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you applied for a role on GP Link.' },
       { name: 'Interview Scheduled', subject: 'Interview Scheduled — GP Link', title: 'Interview Scheduled', body: 'Great news! An interview has been scheduled for Greenfield Medical Centre — Melbourne.<br><br><strong>Interview Details:</strong><br>Date: Monday, 19 May 2026<br>Time: 10:00 AM<br>Duration: 30 minutes<br>Interviewer: Dr James Chen<br>Format: Video Call (Zoom)', ctaText: 'Join Video Interview', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
       { name: 'Interview Reminder', subject: 'Interview Tomorrow — GP Link', title: 'Interview reminder, Dr Sarah', body: 'Just a friendly reminder — you have an interview scheduled for tomorrow.<br><br><strong>Interview Details:</strong><br>Practice: Greenfield Medical Centre — Melbourne<br>Date: Tuesday, 20 May 2026<br>Time: 10:00 AM<br>Format: Video Call (Zoom)<br><br>Your Zoom meeting link is included in the button below.', ctaText: 'Join Video Interview', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'Make sure you\'re in a quiet place with stable internet. Good luck!' },
       { name: 'Offer Pending', subject: 'Offer Pending — GP Link', title: 'Offer Pending', body: 'Exciting news! An offer is pending for Greenfield Medical Centre — Melbourne. Our team will be in touch with the details.', ctaText: 'View Application', ctaUrl: APP_BASE_URL + '/pages/career.html#applications', footer: 'You\'re receiving this because you have an active application on GP Link.' },
       { name: 'Placement Secured', subject: 'Placement Secured! — GP Link', title: 'Congratulations!', body: 'Your placement at Greenfield Medical Centre — Melbourne has been secured. Visit your dashboard to see your placement details, start date, and next steps.', ctaText: 'View Your Placement', ctaUrl: APP_BASE_URL + '/pages/career.html#secured', footer: '' },
-      { name: 'Practice Pack Docs Needed', subject: 'Documents Needed — GP Link', title: 'Time to prepare your practice pack, Dr Sarah', body: 'Now that your placement at Greenfield Medical Centre is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice — we\'ll keep you updated as each one progresses.', ctaText: 'View Documents', ctaUrl: APP_BASE_URL + '/pages/my-documents.html', footer: 'If you have questions about any document, message Hazel on WhatsApp.' },
-      { name: 'Stalled Reminder', subject: 'Need a hand? — GP Link', title: 'How are you going, Dr Sarah?', body: 'We noticed you haven\'t made progress on AMC recently. No rush — but if you\'re stuck or have questions, we\'re here to help.\n\nYour support expert Hazel can assist you with anything you need. Just reply to this email or message her on WhatsApp.', ctaText: 'Continue AMC', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you\'re waiting on something external (like a verification), no action needed — we\'ll follow up when there\'s an update.' },
+      { name: 'Practice Pack Docs Needed', subject: 'Documents Needed — GP Link', title: 'Time to prepare your practice pack, Dr Sarah', body: 'Now that your placement at Greenfield Medical Centre is secured, there are a few documents that need to be completed before you can start.\n\nYour practice pack includes:\n• SPPA-00 Agreement\n• Section G Form\n• Position Description\n• Offer / Contract\n• Supervisor CV\n\nSome of these will be handled by GP Link and the practice — we\'ll keep you updated as each one progresses.', ctaText: 'View Documents', ctaUrl: APP_BASE_URL + '/pages/my-documents.html', footer: 'If you have questions about any document, message us on WhatsApp at +61 494 391 968.' },
+      { name: 'Stalled Reminder', subject: 'Need a hand? — GP Link', title: 'How are you going, Dr Sarah?', body: 'We noticed you haven\'t made progress on AMC recently. No rush — but if you\'re stuck or have questions, we\'re here to help.\n\nOur support team can assist you with anything you need. Just reply to this email or message us on WhatsApp at +61 494 391 968.', ctaText: 'Continue AMC', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you\'re waiting on something external (like a verification), no action needed — we\'ll follow up when there\'s an update.' },
       { name: 'Document Approved', subject: 'Document Approved — GP Link', title: 'Your document has been approved!', body: 'Good news, Dr Sarah — your MRCGP Certificate has been reviewed and approved.\n\nHead to your dashboard to see your updated progress.', ctaText: 'View Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
-      { name: 'Document Revision', subject: 'Revision Needed — GP Link', title: 'A document needs your attention', body: 'Dr Sarah, the Section G Form from Greenfield Medical Centre requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.', ctaText: 'View Details', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you have questions about what\'s needed, message your support expert Hazel on WhatsApp.' },
-      { name: 'Support Ticket Reply', subject: 'New Reply — GP Link', title: 'You have a new reply, Dr Sarah', body: 'Your support team has replied to your request: "Need help with MyIntealth account setup".\n\nCheck your messages to read the full response and continue the conversation.', ctaText: 'View Messages', ctaUrl: APP_BASE_URL + '/pages/messages.html', footer: 'Need more help? Reply directly in the app or message Hazel on WhatsApp.' },
+      { name: 'Document Revision', subject: 'Revision Needed — GP Link', title: 'A document needs your attention', body: 'Dr Sarah, the Section G Form from Greenfield Medical Centre requires a revision before it can be processed.\n\nPlease check your dashboard for details on what needs to be updated and resubmit.', ctaText: 'View Details', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: 'If you have questions about what\'s needed, message us on WhatsApp at +61 494 391 968.' },
+      { name: 'Support Ticket Reply', subject: 'New Reply — GP Link', title: 'You have a new reply, Dr Sarah', body: 'Your support team has replied to your request: "Need help with MyIntealth account setup".\n\nCheck your messages to read the full response and continue the conversation.', ctaText: 'View Messages', ctaUrl: APP_BASE_URL + '/pages/messages.html', footer: 'Need more help? Reply directly in the app or message us on WhatsApp at +61 494 391 968.' },
       { name: 'Account Activated', subject: 'Account Activated — GP Link', title: 'Your account is ready, Dr Sarah!', body: 'Your GP Link account has been reviewed and activated. You now have full access to all registration steps.\n\nHead to your dashboard to continue your journey.', ctaText: 'Go to Dashboard', ctaUrl: APP_BASE_URL + '/pages/index.html', footer: '' },
       { name: 'Password Reset', subject: 'Reset your GP Link password', title: 'Reset your password', body: 'We received a request to reset your GP Link password. Click the button below to set a new password.', ctaText: 'Reset Password', ctaUrl: APP_BASE_URL, footer: 'If you didn\'t request a password reset, you can safely ignore this email. This link expires in 1 hour.' },
-      { name: 'Candidate Hired', subject: 'Congratulations on Your Placement! — GP Link', title: 'Congratulations, Dr Sarah!', body: 'We\'re thrilled to let you know that your placement at Greenfield Medical Centre in Melbourne has been confirmed. This is a huge milestone in your journey to practising medicine in Australia — well done!\n\nTo get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step — from qualification verification through to AHPRA registration and your practice pack.\n\nYour dedicated support expert Hazel is ready to help you with anything you need along the way.', ctaText: 'Sign Up to GP Link', ctaUrl: APP_BASE_URL + '/pages/signin.html', footer: 'Questions about getting started? Reply to this email or reach out to your support expert Hazel on WhatsApp.' }
+      { name: 'Candidate Hired', subject: 'Congratulations on Your Placement! — GP Link', title: 'Congratulations, Dr Sarah!', body: 'We\'re thrilled to let you know that your placement at Greenfield Medical Centre in Melbourne has been confirmed. This is a huge milestone in your journey to practising medicine in Australia — well done!\n\nTo get started with your registration process, sign up to the GP Link app. GP Link will guide you through every step — from qualification verification through to AHPRA registration and your practice pack.\n\nOur support team is ready to help you with anything you need along the way.', ctaText: 'Sign Up to GP Link', ctaUrl: APP_BASE_URL + '/pages/signin.html', footer: 'Questions about getting started? Reply to this email or reach out to us via WhatsApp at +61 494 391 968.' }
     ];
 
     var epResults = [];
