@@ -23975,6 +23975,25 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Full case timeline (task_timeline + task_messages merged) ──
+  if (pathname === '/api/admin/case/timeline' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing id.' }); return; }
+    const [tlRes, msgRes] = await Promise.all([
+      supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200'),
+      supabaseDbRequest('task_messages', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=200')
+    ]);
+    sendJson(res, 200, {
+      ok: true,
+      timeline: tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [],
+      messages: msgRes.ok && Array.isArray(msgRes.data) ? msgRes.data : []
+    });
+    return;
+  }
+
   // ── Update case ──
   if (pathname === '/api/admin/case' && req.method === 'PUT') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }

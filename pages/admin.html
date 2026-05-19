@@ -838,6 +838,25 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .gp-subtab .subtab-count{background:var(--bg3);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px}
 .gp-subtab.active .subtab-count{background:var(--blue);color:#fff}
 
+/* ── GP Profile Timeline ── */
+.gp-timeline{position:relative;padding-left:24px}
+.gp-timeline::before{content:'';position:absolute;left:9px;top:0;bottom:0;width:2px;background:var(--line,#2a2f3a)}
+.timeline-date-sep{position:relative;font-size:11px;font-weight:700;color:var(--muted,#9aa3b2);padding:10px 0 6px 0;text-transform:uppercase;letter-spacing:.5px}
+.timeline-date-sep::before{content:'';position:absolute;left:-19px;top:14px;width:8px;height:8px;border-radius:50%;background:var(--line,#2a2f3a)}
+.timeline-entry{position:relative;display:flex;gap:10px;align-items:flex-start;padding:6px 0}
+.timeline-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;position:relative;left:-33px;margin-right:-23px;z-index:1}
+.timeline-icon.tl-green{background:#16a34a22;color:#16a34a}
+.timeline-icon.tl-blue{background:#2563eb22;color:#2563eb}
+.timeline-icon.tl-grey{background:#6b728022;color:#6b7280}
+.timeline-icon.tl-purple{background:#7c3aed22;color:#7c3aed}
+.timeline-icon.tl-red{background:#dc262622;color:#dc2626}
+.timeline-icon.tl-teal{background:#0d948822;color:#0d9488}
+.timeline-content{flex:1;min-width:0;background:var(--bg2,#171a22);border:1px solid var(--line,#2a2f3a);border-radius:8px;padding:8px 12px}
+.timeline-title{font-size:12px;font-weight:600;color:var(--text,#e6e9f0)}
+.timeline-detail{font-size:11px;color:var(--muted,#9aa3b2);margin-top:2px;white-space:pre-wrap;max-height:60px;overflow:hidden;text-overflow:ellipsis}
+.timeline-meta{font-size:10px;color:var(--muted,#9aa3b2);margin-top:4px;opacity:.7}
+.timeline-attach{font-size:10px;color:var(--blue);margin-top:2px}
+
 .tech-subnav{display:flex;gap:4px;padding:12px 16px;border-bottom:1px solid #e5e7eb;}
 .tech-subnav-btn{padding:6px 16px;border-radius:6px;border:1px solid #d1d5db;background:#fff;font-size:0.8rem;cursor:pointer;color:#374151;}
 .tech-subnav-btn.active{background:#2563eb;color:#fff;border-color:#2563eb;}
@@ -2321,6 +2340,129 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     return h;
   }
+
+  /* ── GP Profile Timeline Tab ── */
+  function renderGpTimelinePane(c){
+    var cache=S.va.gpDetailCache[c.user_id]||{};
+    var tlData=cache.fullTimeline;
+    if(!tlData){loadGpFullTimeline(c.user_id,c.id);return '<div class="empty">Loading timeline\u2026</div>';}
+    var merged=tlData.merged;
+    if(!merged||!merged.length)return '<div class="empty">No activity recorded yet.</div>';
+    var h='<div class="gp-timeline">';
+    var lastDate='';
+    for(var i=0;i<merged.length;i++){
+      var ev=merged[i];
+      var d=new Date(ev.created_at);
+      var dateKey=d.toISOString().slice(0,10);
+      if(dateKey!==lastDate){
+        lastDate=dateKey;
+        var today=new Date().toISOString().slice(0,10);
+        var yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
+        var label=dateKey===today?'Today':dateKey===yesterday?'Yesterday':fmtD(ev.created_at);
+        h+='<div class="timeline-date-sep">'+esc(label)+'</div>';
+      }
+      var ic=tlIcon(ev);
+      h+='<div class="timeline-entry">';
+      h+='<div class="timeline-icon '+ic.cls+'">'+ic.icon+'</div>';
+      h+='<div class="timeline-content">';
+      h+='<div class="timeline-title">'+esc(ev._title)+'</div>';
+      if(ev._detail)h+='<div class="timeline-detail">'+esc(ev._detail)+'</div>';
+      if(ev._attach)h+='<div class="timeline-attach">'+esc(ev._attach)+'</div>';
+      h+='<div class="timeline-meta">'+esc(ev._actor||'')+' \u00B7 '+fmtR(ev.created_at)+'</div>';
+      h+='</div></div>';
+    }
+    h+='</div>';
+    return h;
+  }
+  function tlIcon(ev){
+    var t=ev._eventType||'';
+    if(t==='completed'||t==='created')return{cls:'tl-green',icon:'\u2713'};
+    if(t==='email_sent'||t==='outbound_email')return{cls:'tl-blue',icon:'\u2709'};
+    if(t==='whatsapp_sent'||t==='outbound_whatsapp')return{cls:'tl-green',icon:'\uD83D\uDCAC'};
+    if(t==='inbound_email'||t==='inbound_whatsapp'||t==='inbound')return{cls:'tl-teal',icon:'\uD83D\uDCE5'};
+    if(t==='status_change')return{cls:'tl-grey',icon:'\u2192'};
+    if(t==='stage_change')return{cls:'tl-purple',icon:'\u25C6'};
+    if(t==='escalation')return{cls:'tl-red',icon:'\u26A0'};
+    if(t==='note')return{cls:'tl-grey',icon:'\uD83D\uDCDD'};
+    if(t==='document_upload'||t==='document_received')return{cls:'tl-blue',icon:'\uD83D\uDCC4'};
+    return{cls:'tl-grey',icon:'\u2022'};
+  }
+  function mergeTimelineData(timeline,messages){
+    var merged=[];
+    // task_timeline entries
+    for(var i=0;i<timeline.length;i++){
+      var ev=timeline[i];
+      merged.push({
+        created_at:ev.created_at,
+        _source:'timeline',
+        _eventType:ev.event_type||'',
+        _title:ev.title||ev.event_type||'Event',
+        _detail:ev.detail||'',
+        _actor:ev.actor||'',
+        _attach:null,
+        _raw:ev
+      });
+    }
+    // task_messages entries
+    for(var j=0;j<messages.length;j++){
+      var m=messages[j];
+      var dir=m.direction||'outbound';
+      var ch=m.channel||'email';
+      var title='';
+      var evType='';
+      if(m.is_document_delivery){
+        title='Document received';evType='document_received';
+      }else if(dir==='outbound'&&ch==='email'){
+        title='Email sent'+(m.recipient?' to '+m.recipient:'');evType='outbound_email';
+      }else if(dir==='outbound'&&ch==='whatsapp'){
+        title='WhatsApp sent'+(m.recipient?' to '+m.recipient:'');evType='outbound_whatsapp';
+      }else if(dir==='inbound'&&ch==='email'){
+        title='Email received'+(m.sender?' from '+m.sender:'');evType='inbound_email';
+      }else if(dir==='inbound'&&ch==='whatsapp'){
+        title='WhatsApp received'+(m.sender?' from '+m.sender:'');evType='inbound_whatsapp';
+      }else{
+        title=(dir==='inbound'?'Received':'Sent')+' '+ch;evType=dir==='inbound'?'inbound':'outbound_email';
+      }
+      var detail='';
+      if(m.subject)detail+=m.subject;
+      if(m.body_text){
+        var snippet=m.body_text.length>120?m.body_text.slice(0,120)+'\u2026':m.body_text;
+        detail+=(detail?'\n':'')+snippet;
+      }
+      var attachInfo=null;
+      if(m.attachments){
+        var att=typeof m.attachments==='string'?JSON.parse(m.attachments||'[]'):m.attachments;
+        if(Array.isArray(att)&&att.length)attachInfo=att.length+' attachment'+(att.length>1?'s':'');
+      }
+      merged.push({
+        created_at:m.created_at,
+        _source:'message',
+        _eventType:evType,
+        _title:title,
+        _detail:detail,
+        _actor:dir==='outbound'?(m.sender||'System'):(m.sender||''),
+        _attach:attachInfo,
+        _raw:m
+      });
+    }
+    // Sort newest first
+    merged.sort(function(a,b){return new Date(b.created_at)-new Date(a.created_at);});
+    return merged;
+  }
+  async function loadGpFullTimeline(userId,caseId){
+    try{
+      var r=await fetch('/api/admin/case/timeline?id='+encodeURIComponent(caseId),{credentials:'same-origin'});
+      var d=await r.json().catch(function(){return{};});
+      if(d&&d.ok){
+        S.va.gpDetailCache[userId]=S.va.gpDetailCache[userId]||{};
+        S.va.gpDetailCache[userId].fullTimeline={
+          merged:mergeTimelineData(d.timeline||[],d.messages||[])
+        };
+        if(S.view==='gps'&&S.selectedCaseId===caseId&&S.gpsProfileTab==='timeline')renderDetail();
+      }
+    }catch(err){console.error('[VA] loadGpFullTimeline failed',err);}
+  }
+
   function driveFileIcon(mime){
     if(!mime)return '\uD83D\uDCC4';
     if(mime.indexOf('pdf')>-1)return '\uD83D\uDCC4';
@@ -2432,8 +2574,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="gp-subtab ${tab==="tasks"?"active":""}" data-gp-tab="tasks">Tasks <span class="subtab-count">${taskCount}</span></div>
         <div class="gp-subtab ${tab==="notes"?"active":""}" data-gp-tab="notes">Notes</div>
         <div class="gp-subtab ${tab==="documents"?"active":""}" data-gp-tab="documents">Documents${docCount!==null?' <span class="subtab-count">'+docCount+'</span>':''}</div>
+        <div class="gp-subtab ${tab==="timeline"?"active":""}" data-gp-tab="timeline">Timeline</div>
       </div>`;
-      const paneHtml=tab==="tasks"?renderGpTasksPane(c):tab==="notes"?renderGpNotesPane(c):renderGpDocumentsPane(c);
+      const paneHtml=tab==="tasks"?renderGpTasksPane(c):tab==="notes"?renderGpNotesPane(c):tab==="documents"?renderGpDocumentsPane(c):tab==="timeline"?renderGpTimelinePane(c):renderGpTasksPane(c);
       el.innerHTML=`
         <button class="btn sm" data-gp-back style="margin-bottom:8px;display:none">\u2190 Back</button>
         ${profileBarHtml}
