@@ -25582,8 +25582,30 @@ Return ONLY valid JSON with no markdown formatting:
       sendStalledReminderEmail(c.user_id, c.stage).catch(err => console.error('[Email] Stalled reminder failed:', err.message));
       created++;
     }
+    // Auto-escalate tasks 3+ days past due
+    let escalated = 0;
+    const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
+    const overdueRes = await supabaseDbRequest('registration_tasks',
+      'select=id,case_id,title,due_date,status&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)' +
+      '&due_date=lt.' + encodeURIComponent(threeDaysAgo) +
+      '&status=neq.escalated&limit=50');
+    if (overdueRes.ok && Array.isArray(overdueRes.data)) {
+      for (const t of overdueRes.data) {
+        if (!t.case_id) continue;
+        const daysOverdue = Math.floor((Date.now() - new Date(t.due_date).getTime()) / 86400000);
+        await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(t.id), {
+          method: 'PATCH', body: { status: 'escalated', escalated_reason: 'Auto-escalated: ' + daysOverdue + ' days overdue', escalated_at: new Date().toISOString() }
+        });
+        await _logCaseEvent(t.case_id, t.id, 'escalation', 'Task auto-escalated — ' + daysOverdue + ' days overdue', t.title, 'system');
+        escalated++;
+      }
+      if (overdueRes.data.length > 0) {
+        console.log('[WeeklySweep] Auto-escalated ' + overdueRes.data.length + ' overdue tasks');
+      }
+    }
+
     invalidateAdminDashboardCache();
-    sendJson(res, 200, { ok: true, scanned: cases.length, created: created, skipped: skipped });
+    sendJson(res, 200, { ok: true, scanned: cases.length, created: created, skipped: skipped, escalated: escalated });
     return;
   }
 
