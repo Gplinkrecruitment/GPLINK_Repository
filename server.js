@@ -657,7 +657,8 @@ function extractEmailMeta(gmailMessage) {
     cc: getHeader('Cc') || getHeader('CC') || '',
     date: getHeader('Date'),
     bodyText: bodyText.substring(0, 2000),
-    attachments: attachments
+    attachments: attachments,
+    hasAttachments: attachments.length > 0
   };
 }
 
@@ -735,6 +736,117 @@ async function extractAhpraActionItems(emailMeta) {
   } catch (err) {
     console.error('[AHPRA] Action item extraction failed:', err.message);
     return { deadline: null, items: [] };
+  }
+}
+
+// ── Response matching: link incoming messages to open tasks ──
+
+async function matchResponseToTask(caseId, emailMeta) {
+  if (!caseId || !isSupabaseDbConfigured()) return null;
+
+  // Signal 1: Thread matching via gmail_thread_id on registration_tasks
+  if (emailMeta.threadId) {
+    var threadMatch = await supabaseDbRequest('registration_tasks',
+      'select=id,task_type,title,status,gmail_thread_id&case_id=eq.' + encodeURIComponent(caseId) +
+      '&gmail_thread_id=eq.' + encodeURIComponent(emailMeta.threadId) +
+      '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=1');
+    if (threadMatch.ok && Array.isArray(threadMatch.data) && threadMatch.data.length > 0) {
+      return { task: threadMatch.data[0], confidence: 0.95, method: 'thread_match' };
+    }
+  }
+
+  // Signal 2: Thread matching via task_messages table
+  if (emailMeta.threadId) {
+    var msgMatch = await supabaseDbRequest('task_messages',
+      'select=task_id&gmail_thread_id=eq.' + encodeURIComponent(emailMeta.threadId) + '&limit=1');
+    if (msgMatch.ok && Array.isArray(msgMatch.data) && msgMatch.data.length > 0) {
+      var taskId = msgMatch.data[0].task_id;
+      var taskRes = await supabaseDbRequest('registration_tasks',
+        'select=id,task_type,title,status&id=eq.' + encodeURIComponent(taskId) +
+        '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=1');
+      if (taskRes.ok && Array.isArray(taskRes.data) && taskRes.data.length > 0) {
+        return { task: taskRes.data[0], confidence: 0.93, method: 'message_thread_match' };
+      }
+    }
+  }
+
+  // Signal 3: AI content matching against open tasks
+  var openTasks = await supabaseDbRequest('registration_tasks',
+    'select=id,task_type,title,description,status,related_document_key&case_id=eq.' + encodeURIComponent(caseId) +
+    '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=20');
+  if (!openTasks.ok || !Array.isArray(openTasks.data) || openTasks.data.length === 0) return null;
+
+  return await aiMatchResponseToTask(emailMeta, openTasks.data);
+}
+
+async function aiMatchResponseToTask(emailMeta, openTasks) {
+  if (!process.env.ANTHROPIC_API_KEY || openTasks.length === 0) return null;
+  var budgetOk = await checkAnthropicBudget();
+  if (!budgetOk) {
+    console.log('[ResponseMatch] Skipping AI matching — daily budget exceeded');
+    return null;
+  }
+  var taskList = openTasks.map(function(t) { return { id: t.id, title: t.title, type: t.task_type, doc_key: t.related_document_key }; });
+  var prompt = [
+    'An email/message was received for a GP. Match it to the most relevant open task, if any.',
+    'Open tasks: ' + JSON.stringify(taskList),
+    'Message from: ' + String(emailMeta.sender || '').slice(0, 200),
+    'Subject: ' + String(emailMeta.subject || '').slice(0, 300),
+    'Body: ' + String(emailMeta.bodyText || '').slice(0, 3000),
+    'Has attachments: ' + (emailMeta.hasAttachments ? 'yes' : 'no'),
+    '',
+    'Return JSON only: {"matched_task_id": "uuid or null", "confidence": 0.0-1.0, "is_document_delivery": true/false, "reason": "brief"}',
+    'is_document_delivery = true ONLY if the message contains or references a document/file that directly fulfils the task.',
+    'is_document_delivery = false if the message is a question, acknowledgement, status update, or conversation.',
+    'If no task matches well (confidence < 0.4), return matched_task_id: null.'
+  ].join('\n');
+
+  try {
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 20000);
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 300,
+        temperature: 0,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    clearTimeout(timeout);
+    var data = await res.json();
+    // Track spend
+    if (typeof recordAnthropicSpend === 'function' && data.usage) {
+      recordAnthropicSpend(
+        data.usage.input_tokens || 0,
+        data.usage.output_tokens || 0,
+        data.usage.cache_read_input_tokens || 0,
+        data.usage.cache_creation_input_tokens || 0
+      );
+    }
+    var text = data.content && data.content[0] ? data.content[0].text : '';
+    var jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    var result = JSON.parse(jsonMatch[0]);
+    if (!result.matched_task_id) return null;
+    var matchedTask = openTasks.find(function(t) { return t.id === result.matched_task_id; });
+    if (!matchedTask) return null;
+    return {
+      task: matchedTask,
+      confidence: result.confidence || 0.5,
+      method: 'ai_content_match',
+      isDocumentDelivery: !!result.is_document_delivery,
+      reason: result.reason || ''
+    };
+  } catch (err) {
+    console.error('[ResponseMatch] AI matching failed:', err.message);
+    return null;
   }
 }
 
@@ -1447,14 +1559,131 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
           }
         }
 
-        // Create email_triage task — skip if AHPRA action items were already created
-        if (!ahpraActionItemsCreated) {
+        // Response matching: try to link incoming message to an existing open task
+        var responseMatchedToTask = false;
+        if (gpCase && !ahpraActionItemsCreated) {
+          try {
+            var responseMatch = await matchResponseToTask(gpCase.id, emailMeta);
+            if (responseMatch && responseMatch.confidence > 0.5) {
+              var rTask = responseMatch.task;
+              var isDocDelivery = responseMatch.isDocumentDelivery || false;
+
+              // Store as task_message
+              var msgRecord = await supabaseDbRequest('task_messages', '', {
+                method: 'POST',
+                headers: { Prefer: 'return=representation' },
+                body: [{
+                  task_id: rTask.id,
+                  case_id: gpCase.id,
+                  direction: 'inbound',
+                  channel: 'email',
+                  sender: emailMeta.sender || '',
+                  subject: emailMeta.subject || '',
+                  body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                  gmail_message_id: currentMsgId,
+                  gmail_thread_id: emailMeta.threadId || '',
+                  is_document_delivery: isDocDelivery,
+                  ai_match_confidence: responseMatch.confidence,
+                  created_at: new Date().toISOString()
+                }]
+              });
+
+              if (isDocDelivery) {
+                // Document delivery: extract attachments into task_documents, flip to Hazel's ball
+                if (emailMeta.hasAttachments) {
+                  try {
+                    var vaEmail = MONITORED_VA_EMAILS[0];
+                    var respGmail = await getGmailClient(vaEmail);
+                    if (respGmail) {
+                      var respFullMsg = await respGmail.users.messages.get({ userId: vaEmail, id: currentMsgId, format: 'full' });
+                      var respParts = (respFullMsg.data.payload.parts || []).filter(function(p) { return p.filename && p.body && p.body.attachmentId; });
+                      var respMsgId = (msgRecord.ok && msgRecord.data && msgRecord.data[0]) ? msgRecord.data[0].id : null;
+                      // Mark previous docs as not current
+                      await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(rTask.id) + '&is_current=eq.true',
+                        { method: 'PATCH', body: { is_current: false } });
+                      for (var rpi = 0; rpi < respParts.length; rpi++) {
+                        var rPart = respParts[rpi];
+                        var rAtt = await respGmail.users.messages.attachments.get({ userId: vaEmail, messageId: currentMsgId, id: rPart.body.attachmentId });
+                        var rAttData = rAtt.data.data; // base64url encoded
+                        await supabaseDbRequest('task_documents', '', {
+                          method: 'POST',
+                          body: [{
+                            task_id: rTask.id,
+                            case_id: gpCase.id,
+                            message_id: respMsgId,
+                            filename: rPart.filename,
+                            mime_type: rPart.mimeType,
+                            size_bytes: rPart.body.size || 0,
+                            version: 1,
+                            is_current: true,
+                            uploaded_by: 'gp_email',
+                            attachment_url: 'data:' + (rPart.mimeType || 'application/octet-stream') + ';base64,' + rAttData
+                          }]
+                        });
+                      }
+                    }
+                  } catch (attErr) {
+                    console.error('[ResponseMatch] Attachment extraction failed:', attErr.message);
+                  }
+                }
+                // Flip task to Hazel's ball (open)
+                await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rTask.id),
+                  { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+                await _logCaseEvent(gpCase.id, rTask.id, 'status_change',
+                  'GP/practice responded with document \u2014 review needed',
+                  'Auto-matched via ' + responseMatch.method + ' (' + Math.round(responseMatch.confidence * 100) + '%)',
+                  'system');
+                console.log('[ResponseMatch] Document delivery matched to task', rTask.id, 'via', responseMatch.method, '(' + Math.round(responseMatch.confidence * 100) + '%)');
+              } else if (responseMatch.confidence >= 0.8) {
+                // High confidence conversation message — attach but don't flip ball
+                await _logCaseEvent(gpCase.id, rTask.id, 'note',
+                  'New message on task (conversation)',
+                  (emailMeta.sender || '') + ': ' + (emailMeta.subject || ''),
+                  'system');
+                console.log('[ResponseMatch] Conversation message matched to task', rTask.id, 'via', responseMatch.method, '(' + Math.round(responseMatch.confidence * 100) + '%)');
+              } else {
+                // Medium confidence (0.5-0.8) — flip to Hazel to review
+                await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rTask.id),
+                  { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+                await _logCaseEvent(gpCase.id, rTask.id, 'status_change',
+                  'GP may have responded \u2014 review needed',
+                  'Auto-matched via ' + responseMatch.method + ' (' + Math.round(responseMatch.confidence * 100) + '% confidence)',
+                  'system');
+                console.log('[ResponseMatch] Medium-confidence match to task', rTask.id, 'via', responseMatch.method, '(' + Math.round(responseMatch.confidence * 100) + '%)');
+              }
+
+              responseMatchedToTask = true;
+            }
+          } catch (respMatchErr) {
+            console.error('[ResponseMatch] Error during response matching:', respMatchErr.message);
+          }
+        }
+
+        // Create email_triage task — skip if AHPRA action items or response matching already handled
+        if (!ahpraActionItemsCreated && !responseMatchedToTask) {
         var ahpraMatched = isAhpra && gpCase && ahpraMatchMethod;
-        var unmatchedPrefix = (triageResult.matched_gp_user_id || ahpraMatched) ? '' : '\u2753 Unmatched — ';
+        var unmatchedPrefix = (triageResult.matched_gp_user_id || ahpraMatched) ? '' : '\u2753 Unmatched \u2014 ';
+
+        // "May relate to" suggestions: fetch open tasks for this GP to include in description
+        var suggestionsText = '';
+        if (gpCase) {
+          try {
+            var suggestRes = await supabaseDbRequest('registration_tasks',
+              'select=id,task_type,title&case_id=eq.' + encodeURIComponent(gpCase.id) +
+              '&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)&limit=3');
+            if (suggestRes.ok && Array.isArray(suggestRes.data) && suggestRes.data.length > 0) {
+              var suggestions = suggestRes.data.map(function(t) { return t.title + ' (' + t.task_type + ')'; }).join(', ');
+              suggestionsText = '\n\nMay relate to: ' + suggestions;
+            }
+          } catch (sugErr) {
+            // Non-critical, ignore
+          }
+        }
+
         var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
           task_type: 'email_triage',
           title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
-          description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' — ' + (emailMeta.subject || ''))),
+          description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' \u2014 ' + (emailMeta.subject || ''))) + suggestionsText,
           priority: triageResult.urgency === 'urgent' ? 'urgent' : triageResult.urgency === 'high' ? 'high' : 'normal',
           source_trigger: 'gmail_triage',
           related_stage: isAhpra ? 'ahpra' : (gpCase ? gpCase.stage || '' : ''),
