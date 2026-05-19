@@ -19043,6 +19043,97 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── WhatsApp freeform send (admin/VA) ──
+  if (req.method === 'POST' && pathname === '/api/admin/whatsapp/send') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+
+    if (!DOUBLETICK_API_KEY) {
+      sendJson(res, 503, { ok: false, message: 'DoubleTick API key not configured.' });
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    const rawPhone = String(body.phone || '').trim();
+    const message = String(body.message || '').trim();
+    const taskId = body.taskId ? String(body.taskId).trim() : null;
+    const caseId = body.caseId ? String(body.caseId).trim() : null;
+
+    if (!rawPhone) { sendJson(res, 400, { ok: false, message: 'phone is required.' }); return; }
+    if (!message) { sendJson(res, 400, { ok: false, message: 'message is required.' }); return; }
+
+    const normalizedPhone = normalizePhone(rawPhone);
+    if (!normalizedPhone) { sendJson(res, 400, { ok: false, message: 'Invalid phone number.' }); return; }
+
+    const fromNumber = String(HAZEL_WHATSAPP_NUMBER || '').replace(/[^\d]/g, '');
+
+    // Send via DoubleTick text API
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const dtResp = await fetch(DOUBLETICK_BASE_URL + '/whatsapp/message/text', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: DOUBLETICK_API_KEY },
+        body: JSON.stringify({
+          messages: [{
+            to: normalizedPhone,
+            from: fromNumber,
+            content: { text: message }
+          }]
+        })
+      });
+      clearTimeout(timeout);
+      const dtData = await dtResp.json().catch(() => ({}));
+
+      if (!dtResp.ok) {
+        console.error('[AdminWhatsAppSend] DoubleTick API error:', dtResp.status, JSON.stringify(dtData).slice(0, 500));
+        sendJson(res, 502, { ok: false, message: 'DoubleTick API returned ' + dtResp.status });
+        return;
+      }
+
+      const doubletickMessageId = (dtData && dtData.messageId) || null;
+      console.log('[AdminWhatsAppSend] Sent to', normalizedPhone, '- messageId:', doubletickMessageId);
+
+      // Log to task_messages if taskId provided
+      if (taskId && isSupabaseDbConfigured()) {
+        try {
+          await supabaseDbRequest('task_messages', '', {
+            method: 'POST',
+            body: [{
+              task_id: taskId,
+              case_id: caseId || null,
+              direction: 'outbound',
+              channel: 'whatsapp',
+              sender: HAZEL_WHATSAPP_NUMBER,
+              recipient: normalizedPhone,
+              body_text: message,
+              external_id: doubletickMessageId || null
+            }]
+          });
+        } catch (msgErr) {
+          console.error('[AdminWhatsAppSend] task_messages insert failed:', msgErr.message);
+        }
+
+        // Log timeline event if caseId also provided
+        if (caseId) {
+          try {
+            await _logCaseEvent(caseId, taskId, 'whatsapp_sent', 'WhatsApp sent to ' + normalizedPhone, null, adminCtx.email);
+          } catch (tlErr) {
+            console.error('[AdminWhatsAppSend] Timeline log failed:', tlErr.message);
+          }
+        }
+      }
+
+      sendJson(res, 200, { ok: true, doubletickMessageId: doubletickMessageId });
+      return;
+    } catch (err) {
+      console.error('[AdminWhatsAppSend] Error:', err.message);
+      sendJson(res, 500, { ok: false, message: 'WhatsApp send failed: ' + (err.message || 'Unknown error') });
+      return;
+    }
+  }
+
   if (pathname === '/api/admin/integrations/zoho-recruit/status' && req.method === 'GET') {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Zoho Recruit integration requires Supabase database configuration.' });
