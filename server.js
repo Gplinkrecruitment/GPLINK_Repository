@@ -654,9 +654,25 @@ function extractEmailMeta(gmailMessage) {
     senderName: senderName,
     subject: getHeader('Subject'),
     to: getHeader('To'),
+    cc: getHeader('Cc') || getHeader('CC') || '',
     date: getHeader('Date'),
     bodyText: bodyText.substring(0, 2000),
     attachments: attachments
+  };
+}
+
+function extractAhpraApplicationNumber(subject, bodyText) {
+  var pattern = /APP[-–—]?\s*(\d{10,13})/i;
+  var match = (subject || '').match(pattern) || (bodyText || '').match(pattern);
+  return match ? 'APP-' + match[1] : null;
+}
+
+function extractAhpraOfficerInfo(emailMeta) {
+  var sender = emailMeta.sender || '';
+  var fromMatch = sender.match(/^([^<]+)<([^>]+)>/);
+  return {
+    name: fromMatch ? fromMatch[1].trim() : sender.split('@')[0],
+    email: fromMatch ? fromMatch[2].trim().toLowerCase() : sender.trim().toLowerCase()
   };
 }
 
@@ -1171,23 +1187,143 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         // Create a registration_task so it shows up in the VA's Support tab
         // If AI matched a GP, link to their case. Otherwise try any active case. If none, still create task with null case_id.
         var gpCase = null;
-        if (triageResult.matched_gp_user_id) {
+        var isAhpra = emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au');
+        var ahpraMatchMethod = null;
+
+        // Enhanced AHPRA matching: multi-signal GP matching before falling back to AI triage
+        if (isAhpra) {
+          // Priority 1: CC email match — look for GP email addresses in CC recipients
+          if (!gpCase && emailMeta.cc) {
+            var ccAddresses = emailMeta.cc.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g) || [];
+            for (var ci = 0; ci < ccAddresses.length && !gpCase; ci++) {
+              var ccEmail = ccAddresses[ci].toLowerCase();
+              if (ccEmail.endsWith('@ahpra.gov.au') || ccEmail.endsWith('@mygplink.com.au')) continue;
+              var ccProfileRes = await supabaseDbRequest('user_profiles',
+                'select=user_id&email=eq.' + encodeURIComponent(ccEmail) + '&limit=1');
+              if (ccProfileRes.ok && Array.isArray(ccProfileRes.data) && ccProfileRes.data[0]) {
+                var ccUserId = ccProfileRes.data[0].user_id;
+                var ccCaseRes = await supabaseDbRequest('registration_cases',
+                  'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(ccUserId) + '&status=eq.active&limit=1');
+                if (ccCaseRes.ok && Array.isArray(ccCaseRes.data) && ccCaseRes.data[0]) {
+                  gpCase = ccCaseRes.data[0];
+                  ahpraMatchMethod = 'cc_email';
+                  console.log('[Gmail] AHPRA match via CC email:', ccEmail, '-> case', gpCase.id);
+                }
+              }
+            }
+          }
+
+          // Priority 2: Application number match
+          if (!gpCase) {
+            var appNum = extractAhpraApplicationNumber(emailMeta.subject, emailMeta.bodyText);
+            if (appNum) {
+              var appMatch = await supabaseDbRequest('registration_cases',
+                'select=id,stage,user_id&ahpra_application_number=eq.' + encodeURIComponent(appNum) + '&status=eq.active&limit=1');
+              if (appMatch.ok && Array.isArray(appMatch.data) && appMatch.data[0]) {
+                gpCase = appMatch.data[0];
+                ahpraMatchMethod = 'application_number';
+                console.log('[Gmail] AHPRA match via application number:', appNum, '-> case', gpCase.id);
+              }
+            }
+          }
+
+          // Priority 3: Thread match — check if this thread already has a linked task
+          if (!gpCase && emailMeta.threadId) {
+            var threadMatch = await supabaseDbRequest('registration_tasks',
+              'select=case_id&gmail_thread_id=eq.' + encodeURIComponent(emailMeta.threadId) + '&case_id=not.is.null&limit=1');
+            if (threadMatch.ok && Array.isArray(threadMatch.data) && threadMatch.data[0] && threadMatch.data[0].case_id) {
+              var threadCaseRes = await supabaseDbRequest('registration_cases',
+                'select=id,stage,user_id&id=eq.' + encodeURIComponent(threadMatch.data[0].case_id) + '&limit=1');
+              if (threadCaseRes.ok && Array.isArray(threadCaseRes.data) && threadCaseRes.data[0]) {
+                gpCase = threadCaseRes.data[0];
+                ahpraMatchMethod = 'thread_match';
+                console.log('[Gmail] AHPRA match via thread ID:', emailMeta.threadId, '-> case', gpCase.id);
+              }
+            }
+          }
+
+          // Priority 4: Officer email + GP name in body
+          if (!gpCase) {
+            var officerInfo = extractAhpraOfficerInfo(emailMeta);
+            if (officerInfo.email && officerInfo.email.endsWith('@ahpra.gov.au')) {
+              var officerCaseRes = await supabaseDbRequest('registration_cases',
+                'select=id,stage,user_id&ahpra_officer_email=eq.' + encodeURIComponent(officerInfo.email) + '&status=eq.active');
+              if (officerCaseRes.ok && Array.isArray(officerCaseRes.data) && officerCaseRes.data.length > 0) {
+                if (officerCaseRes.data.length === 1) {
+                  gpCase = officerCaseRes.data[0];
+                  ahpraMatchMethod = 'officer_email';
+                  console.log('[Gmail] AHPRA match via officer email (single case):', officerInfo.email, '-> case', gpCase.id);
+                } else {
+                  // Multiple cases for this officer — disambiguate by GP name in body
+                  var bodyLower = (emailMeta.bodyText || '').toLowerCase();
+                  for (var oci = 0; oci < officerCaseRes.data.length && !gpCase; oci++) {
+                    var oc = officerCaseRes.data[oci];
+                    if (oc.user_id) {
+                      var ocProfRes = await supabaseDbRequest('user_profiles',
+                        'select=first_name,last_name&user_id=eq.' + encodeURIComponent(oc.user_id) + '&limit=1');
+                      if (ocProfRes.ok && ocProfRes.data && ocProfRes.data[0]) {
+                        var ocProf = ocProfRes.data[0];
+                        var lastName = (ocProf.last_name || '').toLowerCase();
+                        var firstName = (ocProf.first_name || '').toLowerCase();
+                        if (lastName && bodyLower.includes(lastName) && firstName && bodyLower.includes(firstName)) {
+                          gpCase = oc;
+                          ahpraMatchMethod = 'officer_email_plus_name';
+                          console.log('[Gmail] AHPRA match via officer email + GP name in body:', officerInfo.email, '-> case', gpCase.id);
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Priority 5: Existing AI triage match (fallback for all emails including AHPRA)
+        if (!gpCase && triageResult.matched_gp_user_id) {
           var caseRes = await supabaseDbRequest('registration_cases',
-            'select=id,stage&user_id=eq.' + encodeURIComponent(triageResult.matched_gp_user_id) + '&limit=1');
+            'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(triageResult.matched_gp_user_id) + '&limit=1');
           gpCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+          if (gpCase && isAhpra) ahpraMatchMethod = 'ai_triage';
         }
         // Fallback: if no matched GP or no case, use the first active case
         if (!gpCase) {
-          var fallbackCaseRes = await supabaseDbRequest('registration_cases', 'select=id,stage&status=eq.active&order=updated_at.desc&limit=1');
+          var fallbackCaseRes = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&status=eq.active&order=updated_at.desc&limit=1');
           gpCase = fallbackCaseRes.ok && Array.isArray(fallbackCaseRes.data) && fallbackCaseRes.data[0] ? fallbackCaseRes.data[0] : null;
         }
+
+        // Store AHPRA officer metadata on the matched case (only set fields not already stored)
+        if (isAhpra && gpCase && gpCase.id) {
+          var ahpraAppNum = extractAhpraApplicationNumber(emailMeta.subject, emailMeta.bodyText);
+          var ahpraOfficer = extractAhpraOfficerInfo(emailMeta);
+          var ahpraPatch = {};
+          if (ahpraAppNum) ahpraPatch.ahpra_application_number = ahpraAppNum;
+          if (ahpraOfficer.name) ahpraPatch.ahpra_officer_name = ahpraOfficer.name;
+          if (ahpraOfficer.email && ahpraOfficer.email.endsWith('@ahpra.gov.au')) ahpraPatch.ahpra_officer_email = ahpraOfficer.email;
+          if (Object.keys(ahpraPatch).length > 0) {
+            var existingCaseRes = await supabaseDbRequest('registration_cases',
+              'select=ahpra_application_number,ahpra_officer_name,ahpra_officer_email&id=eq.' + encodeURIComponent(gpCase.id) + '&limit=1');
+            var existing = existingCaseRes.ok && existingCaseRes.data && existingCaseRes.data[0] ? existingCaseRes.data[0] : {};
+            var finalPatch = {};
+            if (ahpraPatch.ahpra_application_number && !existing.ahpra_application_number) finalPatch.ahpra_application_number = ahpraPatch.ahpra_application_number;
+            if (ahpraPatch.ahpra_officer_name && !existing.ahpra_officer_name) finalPatch.ahpra_officer_name = ahpraPatch.ahpra_officer_name;
+            if (ahpraPatch.ahpra_officer_email && !existing.ahpra_officer_email) finalPatch.ahpra_officer_email = ahpraPatch.ahpra_officer_email;
+            if (Object.keys(finalPatch).length > 0) {
+              await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(gpCase.id), {
+                method: 'PATCH', body: finalPatch
+              });
+              console.log('[Gmail] Stored AHPRA metadata on case', gpCase.id, ':', JSON.stringify(finalPatch));
+            }
+          }
+        }
+
         // Always create the task — case_id can be null (schema allows it)
-        var isAhpra = emailMeta.sender && emailMeta.sender.toLowerCase().endsWith('@ahpra.gov.au');
-        var unmatchedPrefix = triageResult.matched_gp_user_id ? '' : '\u2753 Unmatched — ';
+        var ahpraMatched = isAhpra && gpCase && ahpraMatchMethod;
+        var unmatchedPrefix = (triageResult.matched_gp_user_id || ahpraMatched) ? '' : '\u2753 Unmatched — ';
         var taskResult = await _createRegTask(gpCase ? gpCase.id : null, {
           task_type: 'email_triage',
           title: unmatchedPrefix + (isAhpra ? '\u26a0\ufe0f AHPRA: ' : '\u2709\ufe0f Email: ') + (emailMeta.subject || 'No subject'),
-          description: (triageResult.matched_gp_user_id ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' — ' + (emailMeta.subject || ''))),
+          description: ((triageResult.matched_gp_user_id || ahpraMatched) ? '' : 'AI could not match this email to a GP. Sender: ' + (emailMeta.sender || 'unknown') + '\n') + (ahpraMatchMethod ? '[Matched via ' + ahpraMatchMethod + '] ' : '') + (triageResult.summary || ('Email from ' + (emailMeta.sender || 'unknown') + ' — ' + (emailMeta.subject || ''))),
           priority: triageResult.urgency === 'urgent' ? 'urgent' : triageResult.urgency === 'high' ? 'high' : 'normal',
           source_trigger: 'gmail_triage',
           related_stage: isAhpra ? 'ahpra' : (gpCase ? gpCase.stage || '' : ''),
