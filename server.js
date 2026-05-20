@@ -19580,12 +19580,19 @@ async function handleApi(req, res, pathname) {
   }
 
   // ── Process Gmail manually (admin-authenticated, no cron secret needed) ──
+  // Bypasses historyId and directly scans recent inbox messages to catch anything missed
   if (req.method === 'POST' && pathname === '/api/admin/process-gmail') {
     var adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
     var pgResults = [];
     for (var pgEmail of MONITORED_VA_EMAILS) {
       try {
+        // Reset stored historyId to null to force a direct inbox scan
+        if (isSupabaseDbConfigured()) {
+          await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(pgEmail), {
+            method: 'PATCH', body: { history_id: null, updated_at: new Date().toISOString() }
+          });
+        }
         await processGmailNotification(pgEmail, null);
         pgResults.push({ email: pgEmail, ok: true });
       } catch (pgErr) {
