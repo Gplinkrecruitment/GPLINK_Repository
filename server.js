@@ -470,7 +470,11 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     headers.push('From: ' + from);
     headers.push('To: ' + to);
     if (cc) headers.push('Cc: ' + cc);
-    headers.push('Subject: ' + subject);
+    // RFC 2047 encode subject if it contains non-ASCII characters
+    var encodedSubject = /[^\x20-\x7E]/.test(subject)
+      ? '=?UTF-8?B?' + Buffer.from(subject, 'utf8').toString('base64') + '?='
+      : subject;
+    headers.push('Subject: ' + encodedSubject);
     headers.push('MIME-Version: 1.0');
     if (inReplyTo) {
       headers.push('In-Reply-To: ' + inReplyTo);

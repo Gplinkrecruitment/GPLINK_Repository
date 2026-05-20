@@ -3672,7 +3672,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     h3+='<div class="ops-expand-label">Request document from practice</div>';
     h3+='<div class="ops-email-composer">';
     h3+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(practiceEmail)+'" /></div>';
-    h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(docTitle)+' needed for Dr '+esc(gpName)+' \u2014 GP Link" /></div>';
+    h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(docTitle)+' needed for Dr '+esc(gpName)+' - GP Link" /></div>';
     h3+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
       +'Hi '+esc(contactName||'')+',<br><br>'
       +'We are preparing the registration documents for Dr '+esc(gpName)+' and need the following: <strong>'+esc(docTitle)+'</strong>.<br><br>'
@@ -4592,7 +4592,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }else{
             if(!recipient){showOpsToast('Email address required','red');sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';return;}
             var rr2=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({to:recipient,subject:'Revision Required \u2014 GP Link',bodyText:revText,taskId:tid9,caseId:caseId9})});
+              body:JSON.stringify({to:recipient,subject:'Revision Required - GP Link',bodyText:revText,taskId:tid9,caseId:caseId9})});
             var rd2=await rr2.json().catch(()=>({}));ok=!!rd2.ok;
             if(!ok)showOpsToast(rd2.message||'Email failed','red');
           }
