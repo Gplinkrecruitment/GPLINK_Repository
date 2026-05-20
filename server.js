@@ -19554,6 +19554,17 @@ async function handleApi(req, res, pathname) {
         // Don't fail the whole request — email was already sent
       }
 
+      // Store gmail_thread_id on the task itself for response matching
+      if (sendResult.threadId) {
+        try {
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(emailTaskId), {
+            method: 'PATCH', body: { gmail_thread_id: sendResult.threadId }
+          });
+        } catch (tErr) {
+          console.error('[AdminEmailSend] Task thread_id update failed:', tErr.message);
+        }
+      }
+
       // Log timeline event
       if (emailCaseId) {
         try {
