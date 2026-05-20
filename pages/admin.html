@@ -913,6 +913,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <button class="btn ghost" id="saToolsBtn" title="Super Admin Tools">&#9881;</button>
         <div class="sa-tools-dropdown" id="saToolsDropdown" style="display:none">
           <button class="sa-tools-item" data-sa-tool="gmail-watch">Setup Gmail Watch</button>
+          <button class="sa-tools-item" data-sa-tool="process-gmail">Process Gmail Now</button>
           <button class="sa-tools-item" data-sa-tool="zoho-recruit-sync">Sync Zoho Recruit</button>
           <button class="sa-tools-item" data-sa-tool="zoho-sign">Zoho Sign Status</button>
           <button class="sa-tools-item" data-sa-tool="ops-queue">Ops Queue</button>
@@ -4693,6 +4694,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var tool=btn.getAttribute("data-sa-tool");
       document.getElementById("saToolsDropdown").style.display="none";
       if(tool==="gmail-watch"&&typeof setupGmailWatch==="function")setupGmailWatch();
+      else if(tool==="process-gmail"){btn.textContent="Processing\u2026";btn.disabled=true;try{var r=await fetch("/api/admin/process-gmail",{method:"POST",credentials:"same-origin"});var d=await r.json().catch(function(){return{};});alert(d.ok?"Gmail processed: "+(d.results||[]).map(function(x){return x.email+" "+(x.ok?"OK":"FAIL: "+x.error);}).join(", "):"Failed: "+(d.message||"unknown error"));}catch(e){alert("Failed: "+e.message);}btn.textContent="Process Gmail Now";btn.disabled=false;}
       else if(tool==="zoho-recruit-sync"){try{await fetch("/api/admin/integrations/zoho-recruit/sync",{method:"POST",credentials:"same-origin"});alert("Zoho Recruit sync started.");}catch{alert("Sync failed.");}}
       else if(tool==="zoho-sign"&&typeof loadZohoSignStatus==="function"){loadZohoSignStatus();alert("Zoho Sign status refreshed.");}
       else if(tool==="ops-queue"&&typeof loadOpsQueue==="function")loadOpsQueue();

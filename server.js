@@ -19579,6 +19579,23 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Process Gmail manually (admin-authenticated, no cron secret needed) ──
+  if (req.method === 'POST' && pathname === '/api/admin/process-gmail') {
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var pgResults = [];
+    for (var pgEmail of MONITORED_VA_EMAILS) {
+      try {
+        await processGmailNotification(pgEmail, null);
+        pgResults.push({ email: pgEmail, ok: true });
+      } catch (pgErr) {
+        pgResults.push({ email: pgEmail, ok: false, error: pgErr.message });
+      }
+    }
+    sendJson(res, 200, { ok: true, results: pgResults });
+    return;
+  }
+
   // ── WhatsApp freeform send (admin/VA) ──
   if (req.method === 'POST' && pathname === '/api/admin/whatsapp/send') {
     const adminCtx = requireAdminSession(req, res);
