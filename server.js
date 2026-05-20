@@ -30408,7 +30408,6 @@ Return ONLY valid JSON with no markdown formatting:
       var zrConn2 = await getZohoRecruitConnection();
       if (zrConn2 && zrConn2.refreshToken) {
         var refreshed = await refreshZohoRecruitAccessToken(zrConn2);
-        // Verify the token was actually obtained — don't trust HTTP status alone
         var zrAfter = await getZohoRecruitConnection();
         var zrTokenExpiry = zrAfter && zrAfter.tokenLastRefreshedAt ? Date.parse(zrAfter.tokenLastRefreshedAt) : 0;
         if (refreshed.ok && refreshed.data && refreshed.data.access_token && zrTokenExpiry > Date.now() - 60000) {
@@ -30417,8 +30416,22 @@ Return ONLY valid JSON with no markdown formatting:
           return;
         }
       }
-      var zrErr = 'Token refresh failed.';
-      sendJson(res, 200, { ok: false, message: zrErr + ' Please reconnect via the Zoho Recruit card on the Integrations tab (GPs > Integrations).' });
+      // Token refresh failed — return OAuth URL so the frontend can redirect
+      var oauthRedirectUri = getZohoRecruitOauthRedirectUri();
+      var oauthState = await createZohoOauthState(ceoCtx.email, {
+        redirectUri: oauthRedirectUri,
+        returnUrl: buildAbsoluteReturnUrl(req, '/pages/admin.html'),
+        returnPath: '/pages/admin.html'
+      });
+      var authUrl = new URL(getZohoRecruitAccountsServer() + '/oauth/v2/auth');
+      authUrl.searchParams.set('response_type', 'code');
+      authUrl.searchParams.set('client_id', ZOHO_RECRUIT_CLIENT_ID);
+      authUrl.searchParams.set('scope', getZohoRecruitScopes().join(','));
+      authUrl.searchParams.set('redirect_uri', oauthRedirectUri);
+      authUrl.searchParams.set('access_type', 'offline');
+      authUrl.searchParams.set('prompt', 'consent');
+      authUrl.searchParams.set('state', oauthState);
+      sendJson(res, 200, { ok: false, action: 'oauth_required', oauthUrl: authUrl.toString(), message: 'Token expired. Redirecting to Zoho for re-authorization...' });
       return;
     }
 

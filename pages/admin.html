@@ -6143,6 +6143,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(d.ok){
           toast("Reconnected successfully","green");
           setTimeout(loadIntegrations,2000);
+        }else if(d.action==="oauth_required"&&d.oauthUrl){
+          toast("Redirecting to re-authorize...","blue");
+          window.location.href=d.oauthUrl;
+          return;
         }else{toast(d.message||"Reconnect failed","red");}
         reconBtn.textContent="Reconnect";reconBtn.disabled=false;
       }).catch(function(){toast("Network error","red");reconBtn.textContent="Reconnect";reconBtn.disabled=false;});
