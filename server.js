@@ -1075,7 +1075,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
   if (!storedHistoryId) {
     console.log('[Gmail] No stored historyId for', emailAddress, '— fetching recent inbox messages directly');
     try {
-      var directList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 5 });
+      var directList = await gmail.users.messages.list({ userId: emailAddress, labelIds: ['INBOX'], maxResults: 15 });
       if (directList.data && Array.isArray(directList.data.messages) && directList.data.messages.length > 0) {
         historyResponse = { data: { history: [{ messagesAdded: directList.data.messages.map(function(m) { return { message: m }; }) }] } };
         usedFallbackList = true;
@@ -19657,18 +19657,20 @@ async function handleApi(req, res, pathname) {
   }
 
   // ── Process Gmail manually (admin-authenticated, no cron secret needed) ──
-  // Deletes historyId and forces processGmailNotification to do a direct inbox scan
+  // Deletes historyId + clears recent processed_gmail_messages, then re-scans inbox
   if (req.method === 'POST' && pathname === '/api/admin/process-gmail') {
     var adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
     var pgResults = [];
     for (var pgEmail of MONITORED_VA_EMAILS) {
       try {
-        // Delete the gmail_watch_state row so processGmailNotification has no historyId
-        // and falls through to the direct inbox scan (fetches last 5 messages)
         if (isSupabaseDbConfigured()) {
+          // Delete watch state to force direct inbox scan
           await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(pgEmail), { method: 'DELETE' });
-          console.log('[Gmail Admin] Deleted gmail_watch_state for', pgEmail, 'to force direct inbox scan');
+          // Clear processed_gmail_messages from last 24h so they get re-triaged with new matching code
+          var cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          await supabaseDbRequest('processed_gmail_messages', 'email_address=eq.' + encodeURIComponent(pgEmail) + '&processed_at=gt.' + encodeURIComponent(cutoff24h), { method: 'DELETE' });
+          console.log('[Gmail Admin] Cleared watch state + recent processed messages for', pgEmail);
         }
         await processGmailNotification(pgEmail, null);
         pgResults.push({ email: pgEmail, ok: true });
