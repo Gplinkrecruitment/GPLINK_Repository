@@ -20436,13 +20436,76 @@ async function handleApi(req, res, pathname) {
     log.push('Career roles in DB: ' + roles.length);
     roles.forEach(r => log.push('  role: ' + r.provider_role_id + ' — ' + r.practice_name));
 
-    // 6. Now run the actual linkage
+    // 6. Run local linkage first (pending_hires)
     await linkUserToHiredZohoPosition(profile.user_id, targetEmail);
     log.push('linkUserToHiredZohoPosition completed');
 
-    // 7. Check result
-    const appsResult = await supabaseDbRequest('gp_applications', 'select=id,career_role_id,provider_role_id,status,zoho_application_id&user_id=eq.' + encodeURIComponent(profile.user_id));
-    log.push('gp_applications for user: ' + JSON.stringify(appsResult.data));
+    // 7. Full Zoho-enriched placement rebuild for existing gp_applications
+    const appsResult = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(profile.user_id));
+    const localApps = appsResult.ok && Array.isArray(appsResult.data) ? appsResult.data : [];
+    log.push('gp_applications for user: ' + localApps.length);
+
+    for (const app of localApps) {
+      if (!app.zoho_application_id && !app.provider_role_id) continue;
+      log.push('Enriching app ' + app.id + ' (zohoAppId: ' + (app.zoho_application_id || 'none') + ', roleId: ' + app.provider_role_id + ')');
+
+      const liveRecord = app.zoho_application_id ? await fetchZohoRecruitApplicationRecord(zoho, app.zoho_application_id).catch(() => null) : null;
+      const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+      let jobOpeningRecord = app.provider_role_id ? await fetchZohoRecruitJobOpeningRecord(zoho, app.provider_role_id).catch(() => null) : null;
+
+      // Resolve practice contacts
+      let clientId = app.zoho_client_id || '';
+      let practiceContacts = [];
+      if (!clientId && jobOpeningRecord) {
+        clientId = getZohoApplicationClientId(jobOpeningRecord) || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
+      }
+      if (clientId) {
+        practiceContacts = await fetchZohoRecruitClientContacts(zoho, clientId).catch(() => []);
+        const contact = pickZohoRecruitClientContact(practiceContacts);
+        if (contact) {
+          const contactName = buildZohoDisplayName(contact) || getZohoField(contact, ['Contact_Name', 'Name']);
+          const contactEmail = getZohoField(contact, ['Email', 'Secondary_Email']);
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app.id), {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { practice_contact_name: contactName || app.practice_contact_name, practice_contact_email: contactEmail || app.practice_contact_email || '', zoho_client_id: clientId }
+          });
+          log.push('  Updated practice contact: ' + contactName);
+        }
+      }
+
+      // Build full placement payload
+      const placement = await buildCareerPlacementPayload({
+        zoho, applicationRecord: liveRecord, roleRow, jobOpeningRecord,
+        startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Joining_Date', 'Start_Date']) : null,
+        practiceContacts, providerRoleId: app.provider_role_id, profile: { email: targetEmail, first_name: profile.first_name, last_name: profile.last_name }
+      }).catch(e => { log.push('  buildCareerPlacementPayload failed: ' + (e && e.message)); return null; });
+
+      if (placement) {
+        // Update gp_career_state with enriched placement
+        const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(profile.user_id) + '&limit=1');
+        const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+          ? stateResult.data[0].state : {};
+        const careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
+        const apps = Array.isArray(careerState.applications) ? careerState.applications : [];
+        const idx = apps.findIndex(a => a && (a.id === String(app.id) || a.provider_role_id === app.provider_role_id));
+        const enrichedApp = {
+          id: String(app.id),
+          zohoApplicationId: app.zoho_application_id || '',
+          status: app.status || 'hired',
+          isPlacementSecured: true,
+          placement: placement,
+          provider_role_id: app.provider_role_id
+        };
+        if (idx >= 0) apps[idx] = enrichedApp; else apps.push(enrichedApp);
+        careerState.applications = apps;
+        careerState.career_secured = true;
+        currentState.gp_career_state = careerState;
+        await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(profile.user_id), {
+          method: 'PATCH', body: { state: currentState }
+        });
+        log.push('  Placement enriched: ' + (placement.practiceName || 'unknown') + ' | contract: ' + (placement.contractUrl ? 'YES' : 'no') + ' | compensation: ' + (placement.compensation && placement.compensation.range || 'pending'));
+      }
+    }
 
     sendJson(res, 200, { ok: true, log });
     return;
