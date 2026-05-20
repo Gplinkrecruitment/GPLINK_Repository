@@ -20328,6 +20328,66 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Debug: manually trigger practice linkage for a specific GP email
+  if (pathname === '/api/admin/link-zoho-position' && req.method === 'POST') {
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const body = await readJsonBody(req).catch(() => ({}));
+    const targetEmail = String(body.email || '').trim().toLowerCase();
+    if (!targetEmail) { sendJson(res, 400, { ok: false, error: 'email required' }); return; }
+
+    const zoho = await getZohoRecruitAccessTokenAndDomain();
+    if (!zoho) { sendJson(res, 502, { ok: false, error: 'Zoho Recruit not connected' }); return; }
+
+    const log = [];
+    // 1. Find user
+    const profileResult = await supabaseDbRequest('user_profiles', 'select=user_id,email,zoho_candidate_id&email=eq.' + encodeURIComponent(targetEmail) + '&limit=1');
+    const profile = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0];
+    if (!profile) { sendJson(res, 404, { ok: false, error: 'No user profile for ' + targetEmail }); return; }
+    log.push('Found user: ' + profile.user_id);
+
+    // 2. Resolve candidate ID
+    const candidateResult = await ensureZohoRecruitCandidateIdForUser(profile.user_id, targetEmail);
+    log.push('Candidate result: ' + JSON.stringify(candidateResult));
+
+    // 3. Search applications
+    let zohoApps = [];
+    if (candidateResult.ok && candidateResult.zohoId) {
+      zohoApps = await searchZohoRecruitApplicationsByCandidateId(zoho, candidateResult.zohoId);
+      log.push('Search by candidate ID ' + candidateResult.zohoId + ': ' + zohoApps.length + ' apps');
+    }
+    if (!zohoApps.length) {
+      zohoApps = await searchZohoRecruitApplicationsByEmail(zoho, targetEmail);
+      log.push('Search by email: ' + zohoApps.length + ' apps');
+    }
+
+    // 4. Check each application
+    for (const app of zohoApps) {
+      const status = getZohoApplicationStatus(app);
+      const normalized = normalizeCareerApplicationStatusKey(status);
+      const isSecured = isCareerPlacementSecuredStatus(normalized);
+      const jobId = getZohoApplicationJobOpeningId(app);
+      log.push('App ' + app.id + ': status=' + status + ' normalized=' + normalized + ' secured=' + isSecured + ' jobOpeningId=' + jobId);
+    }
+
+    // 5. Check career_roles
+    const rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id,practice_name&provider=eq.zoho_recruit');
+    const roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
+    log.push('Career roles in DB: ' + roles.length);
+    roles.forEach(r => log.push('  role: ' + r.provider_role_id + ' — ' + r.practice_name));
+
+    // 6. Now run the actual linkage
+    await linkUserToHiredZohoPosition(profile.user_id, targetEmail);
+    log.push('linkUserToHiredZohoPosition completed');
+
+    // 7. Check result
+    const appsResult = await supabaseDbRequest('gp_applications', 'select=id,career_role_id,provider_role_id,status,zoho_application_id&user_id=eq.' + encodeURIComponent(profile.user_id));
+    log.push('gp_applications for user: ' + JSON.stringify(appsResult.data));
+
+    sendJson(res, 200, { ok: true, log });
+    return;
+  }
+
   if (pathname === '/api/admin/integrations/zoho-recruit/sync' && (req.method === 'POST' || req.method === 'GET')) {
     if (REQUIRE_SUPABASE_DB && !isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Zoho Recruit sync requires Supabase database configuration.' });
