@@ -6197,6 +6197,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }).catch(function(){toast("Network error","red");reconBtn.textContent="Reconnect";reconBtn.disabled=false;});
       return;
     }
+    // Sync button
+    var syncBtn=e.target.closest("[data-sync]");
+    if(syncBtn){
+      var syncKey=syncBtn.getAttribute("data-sync");
+      syncBtn.textContent="Syncing...";syncBtn.disabled=true;
+      var syncUrl=syncKey==='zoho_recruit'?'/api/admin/integrations/zoho-recruit/sync':'/api/admin/integrations/zoho-sign/sync';
+      fetch(syncUrl,{method:"POST",credentials:"same-origin"}).then(function(r){return r.json();}).then(function(d){
+        if(d.ok){toast("Sync complete: "+(d.syncedRoleCount||0)+" roles, "+(d.applicationsDiscovered||d.applicationsSynced||0)+" apps","green");}
+        else{toast(d.message||"Sync failed","red");}
+        syncBtn.textContent="Sync Now";syncBtn.disabled=false;
+        setTimeout(loadIntegrations,1500);
+      }).catch(function(){toast("Network error","red");syncBtn.textContent="Sync Now";syncBtn.disabled=false;});
+      return;
+    }
     // Filter buttons
     var filterBtn=e.target.closest(".tech-filter-btn");
     if(filterBtn){
@@ -6240,6 +6254,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         if(int.can_reconnect){
           html+='<button class="tech-reconnect" data-reconnect="'+esc(int.key)+'">Reconnect</button>';
+        }
+        if(int.key==='zoho_recruit'||int.key==='zoho_sign'){
+          html+=' <button class="tech-reconnect" data-sync="'+esc(int.key)+'">Sync Now</button>';
         }
         html+='</div>';
       }
