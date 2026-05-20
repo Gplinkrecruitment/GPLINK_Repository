@@ -20377,6 +20377,57 @@ async function handleApi(req, res, pathname) {
   }
 
   // Debug: manually trigger practice linkage for a specific GP email
+  // GET version for CLI/cron triggering with secret auth
+  if (pathname === '/api/admin/enrich-placement' && req.method === 'GET') {
+    const reqUrl2 = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
+    const secret = reqUrl2.searchParams.get('secret') || '';
+    const enrichEmail = (reqUrl2.searchParams.get('email') || '').trim().toLowerCase();
+    if (!ZOHO_RECRUIT_SYNC_CRON_SECRET || !secret || !timingSafeEqualStrings(secret, ZOHO_RECRUIT_SYNC_CRON_SECRET)) {
+      sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return;
+    }
+    if (!enrichEmail) { sendJson(res, 400, { ok: false, error: 'email param required' }); return; }
+    const zoho = await getZohoRecruitAccessTokenAndDomain();
+    if (!zoho) { sendJson(res, 502, { ok: false, error: 'Zoho Recruit not connected' }); return; }
+    const profileRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name&email=eq.' + encodeURIComponent(enrichEmail) + '&limit=1');
+    const prof = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0];
+    if (!prof) { sendJson(res, 404, { ok: false, error: 'No user for ' + enrichEmail }); return; }
+    const appsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(prof.user_id));
+    const localApps = appsRes.ok && Array.isArray(appsRes.data) ? appsRes.data : [];
+    const results = [];
+    for (const app of localApps) {
+      const liveRecord = app.zoho_application_id ? await fetchZohoRecruitApplicationRecord(zoho, app.zoho_application_id).catch(() => null) : null;
+      const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+      const jobOpeningRecord = app.provider_role_id ? await fetchZohoRecruitJobOpeningRecord(zoho, app.provider_role_id).catch(() => null) : null;
+      let clientId = app.zoho_client_id || '';
+      let practiceContacts = [];
+      if (!clientId && jobOpeningRecord) clientId = getZohoApplicationClientId(jobOpeningRecord) || getZohoLookupId(jobOpeningRecord, ['Client_Name','Client','Account_Name']);
+      if (clientId) {
+        practiceContacts = await fetchZohoRecruitClientContacts(zoho, clientId).catch(() => []);
+        const contact = pickZohoRecruitClientContact(practiceContacts);
+        if (contact) {
+          const cn = buildZohoDisplayName(contact) || getZohoField(contact, ['Contact_Name','Name']);
+          const ce = getZohoField(contact, ['Email','Secondary_Email']);
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { practice_contact_name: cn || '', practice_contact_email: ce || '', zoho_client_id: clientId } });
+        }
+      }
+      const placement = await buildCareerPlacementPayload({ zoho, applicationRecord: liveRecord, roleRow, jobOpeningRecord, startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining','Joining_Date','Start_Date']) : null, practiceContacts, providerRoleId: app.provider_role_id, profile: prof }).catch(() => null);
+      if (placement) {
+        const stR = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(prof.user_id) + '&limit=1');
+        const cs = stR.ok && Array.isArray(stR.data) && stR.data[0] && typeof stR.data[0].state === 'object' ? stR.data[0].state : {};
+        const carSt = cs.gp_career_state && typeof cs.gp_career_state === 'object' ? cs.gp_career_state : {};
+        const appsList = Array.isArray(carSt.applications) ? carSt.applications : [];
+        const idx = appsList.findIndex(a => a && (a.id === String(app.id) || a.provider_role_id === app.provider_role_id));
+        const enriched = { id: String(app.id), zohoApplicationId: app.zoho_application_id || '', status: app.status || 'hired', isPlacementSecured: true, placement, provider_role_id: app.provider_role_id };
+        if (idx >= 0) appsList[idx] = enriched; else appsList.push(enriched);
+        carSt.applications = appsList; carSt.career_secured = true; cs.gp_career_state = carSt;
+        await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(prof.user_id), { method: 'PATCH', body: { state: cs } });
+        results.push({ app: app.id, practice: placement.practiceName, contract: placement.contractUrl ? 'found' : 'none', compensation: placement.compensation && placement.compensation.range });
+      }
+    }
+    sendJson(res, 200, { ok: true, enriched: results.length, results });
+    return;
+  }
+
   if (pathname === '/api/admin/link-zoho-position' && req.method === 'POST') {
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
