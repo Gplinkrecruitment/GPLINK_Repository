@@ -19660,6 +19660,60 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Cleanup hollow/duplicate tasks (admin-authenticated, one-time use) ──
+  if (req.method === 'POST' && pathname === '/api/admin/cleanup-tasks') {
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    var cancelled = 0;
+    try {
+      // 1. Cancel all "Verify secured placement with practice" tasks
+      var verifyRes = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id&title=eq.Verify secured placement with practice&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)');
+      if (verifyRes.ok && Array.isArray(verifyRes.data)) {
+        for (var vt of verifyRes.data) {
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(vt.id), { method: 'PATCH', body: { status: 'cancelled', completed_at: new Date().toISOString() } });
+          cancelled++;
+        }
+      }
+      // 2. Cancel old verify/kickoff tasks
+      var hollowRes = await supabaseDbRequest('registration_tasks',
+        'select=id&task_type=in.(verify,kickoff)&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)');
+      if (hollowRes.ok && Array.isArray(hollowRes.data)) {
+        for (var ht of hollowRes.data) {
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(ht.id), { method: 'PATCH', body: { status: 'cancelled', completed_at: new Date().toISOString() } });
+          cancelled++;
+        }
+      }
+      // 3. Deduplicate practice_pack_child tasks — keep first, cancel rest
+      var ppRes = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,related_document_key,created_at&task_type=eq.practice_pack_child&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,deferred)&order=created_at.asc');
+      if (ppRes.ok && Array.isArray(ppRes.data)) {
+        var seen = {};
+        for (var pp of ppRes.data) {
+          var key = pp.case_id + ':' + (pp.related_document_key || pp.id);
+          if (seen[key]) {
+            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(pp.id), { method: 'PATCH', body: { status: 'cancelled', completed_at: new Date().toISOString() } });
+            cancelled++;
+          } else { seen[key] = true; }
+        }
+      }
+      // 4. Cancel "Review uploaded" tasks (old doc review tasks with no workflow)
+      var reviewRes = await supabaseDbRequest('registration_tasks',
+        'select=id&task_type=eq.review&title=like.Review uploaded*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)');
+      if (reviewRes.ok && Array.isArray(reviewRes.data)) {
+        for (var rt of reviewRes.data) {
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rt.id), { method: 'PATCH', body: { status: 'cancelled', completed_at: new Date().toISOString() } });
+          cancelled++;
+        }
+      }
+    } catch (cleanErr) {
+      sendJson(res, 500, { ok: false, message: cleanErr.message });
+      return;
+    }
+    sendJson(res, 200, { ok: true, cancelled: cancelled });
+    return;
+  }
+
   // ── WhatsApp freeform send (admin/VA) ──
   if (req.method === 'POST' && pathname === '/api/admin/whatsapp/send') {
     const adminCtx = requireAdminSession(req, res);
