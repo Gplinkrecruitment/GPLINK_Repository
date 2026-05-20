@@ -1198,6 +1198,77 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         continue;
       }
 
+      // ── Response matching FIRST (before track routing) ──
+      // If this email is a reply in a thread we're tracking, match it to the task
+      // regardless of whether it has attachments or not
+      var earlyResponseMatched = false;
+      if (emailMeta.threadId) {
+        // Find any active case for this sender (by email match)
+        var senderEmail = (emailMeta.sender || '').replace(/^.*<([^>]+)>.*$/, '$1').trim().toLowerCase();
+        var earlyGpCase = null;
+        if (senderEmail) {
+          // Check if sender matches a GP profile email
+          var profileLookup = await supabaseDbRequest('user_profiles', 'select=user_id&email=eq.' + encodeURIComponent(senderEmail) + '&limit=1');
+          if (profileLookup.ok && Array.isArray(profileLookup.data) && profileLookup.data[0]) {
+            var caseLookup = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(profileLookup.data[0].user_id) + '&status=eq.active&limit=1');
+            if (caseLookup.ok && Array.isArray(caseLookup.data) && caseLookup.data[0]) earlyGpCase = caseLookup.data[0];
+          }
+          // Also check if sender matches a practice contact email in gp_applications
+          if (!earlyGpCase) {
+            var appLookup = await supabaseDbRequest('gp_applications', 'select=user_id&practice_contact_email=eq.' + encodeURIComponent(senderEmail) + '&status=eq.hired&limit=1');
+            if (appLookup.ok && Array.isArray(appLookup.data) && appLookup.data[0]) {
+              var caseLookup2 = await supabaseDbRequest('registration_cases', 'select=id,stage,user_id&user_id=eq.' + encodeURIComponent(appLookup.data[0].user_id) + '&status=eq.active&limit=1');
+              if (caseLookup2.ok && Array.isArray(caseLookup2.data) && caseLookup2.data[0]) earlyGpCase = caseLookup2.data[0];
+            }
+          }
+        }
+        if (earlyGpCase) {
+          var earlyMatch = await matchResponseToTask(earlyGpCase.id, emailMeta);
+          if (earlyMatch && earlyMatch.confidence > 0.5) {
+            var earlyTask = earlyMatch.task;
+            var earlyIsDoc = earlyMatch.isDocumentDelivery || emailMeta.hasAttachments || false;
+            console.log('[Gmail] Early response match: message', currentMsgId, '→ task', earlyTask.id, '(' + earlyTask.title + ')', 'confidence:', earlyMatch.confidence, 'isDoc:', earlyIsDoc);
+            // Store as task_message
+            var earlyMsgRecord = await supabaseDbRequest('task_messages', '', {
+              method: 'POST', headers: { Prefer: 'return=representation' },
+              body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, direction: 'inbound', channel: 'email',
+                sender: emailMeta.sender || '', subject: emailMeta.subject || '',
+                body_text: (emailMeta.bodyText || '').substring(0, 5000),
+                gmail_message_id: currentMsgId, gmail_thread_id: emailMeta.threadId || '',
+                is_document_delivery: earlyIsDoc, ai_match_confidence: earlyMatch.confidence }]
+            });
+            // Extract attachments if document delivery
+            if (earlyIsDoc && emailMeta.attachments && emailMeta.attachments.length > 0) {
+              try {
+                var earlyMsgId = (earlyMsgRecord.ok && earlyMsgRecord.data && earlyMsgRecord.data[0]) ? earlyMsgRecord.data[0].id : null;
+                // Mark previous docs as not current
+                await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(earlyTask.id) + '&is_current=eq.true', { method: 'PATCH', body: { is_current: false } });
+                var fullMsgForAtt = await gmail.users.messages.get({ userId: emailAddress, id: currentMsgId, format: 'full' });
+                var attParts = ((fullMsgForAtt.data.payload && fullMsgForAtt.data.payload.parts) || []).filter(function(p) { return p.filename && p.body && p.body.attachmentId; });
+                for (var ap of attParts) {
+                  var attData = await gmail.users.messages.attachments.get({ userId: emailAddress, messageId: currentMsgId, id: ap.body.attachmentId });
+                  await supabaseDbRequest('task_documents', '', {
+                    method: 'POST', body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, message_id: earlyMsgId,
+                      filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.body.size || 0,
+                      version: 1, is_current: true, uploaded_by: 'email_response',
+                      attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
+                }
+              } catch (attErr) { console.error('[Gmail] Early match attachment extraction failed:', attErr.message); }
+            }
+            // Flip task status to open (Hazel's ball) for review
+            await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
+              { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
+            await _logCaseEvent(earlyGpCase.id, earlyTask.id, 'status_change',
+              (earlyIsDoc ? 'Document received — review needed' : 'New message on task'),
+              'From: ' + (emailMeta.sender || '') + ' — matched via ' + earlyMatch.method + ' (' + Math.round(earlyMatch.confidence * 100) + '%)', 'system');
+            // Mark as processed
+            await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: currentMsgId, email_address: emailAddress, sender: emailMeta.sender, subject: emailMeta.subject, result: 'response_matched', processed_at: new Date().toISOString() }] });
+            earlyResponseMatched = true;
+          }
+        }
+      }
+      if (earlyResponseMatched) continue;
+
       // Route by track: attachments (existing AI matching) or triage (email classifier)
       if (filterResult.track === 'attachments') {
       // Run AI matching
