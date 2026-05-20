@@ -1148,7 +1148,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     commencement:{gp:"Complete pre-arrival checklist, confirm arrival date.",va:"Prepare welcome pack. Coordinate with practice. Confirm all registrations complete."}
   };
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
-  function safeUrl(u,fallback){if(!u||typeof u!=="string")return fallback||"#";var t=u.trim().toLowerCase();if(t.startsWith("https://")||t.startsWith("http://")||t.startsWith("whatsapp://"))return esc(u.trim());return fallback||"#";}
+  function safeUrl(u,fallback){if(!u||typeof u!=="string")return fallback||"#";var t=u.trim().toLowerCase();if(t.startsWith("https://")||t.startsWith("http://")||t.startsWith("whatsapp://")||t.startsWith("data:"))return esc(u.trim());return fallback||"#";}
   function ticketCard(tk){
     return`<div class="todo-card ${esc(tk.priority)||"normal"}" data-todo-ticket="${esc(tk.id)}" data-user-id="${esc(tk.user_id)}">
       <div class="todo-card-top">
