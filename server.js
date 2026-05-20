@@ -10340,27 +10340,84 @@ async function handleZohoRecruitCandidateHiredWebhook(req, res) {
     return;
   }
 
+  // Read raw body — Zoho webhooks may send JSON, form-urlencoded, or plain text
   let payload;
+  let rawBody = '';
   try {
-    payload = await readJsonBody(req);
+    rawBody = await new Promise((resolve, reject) => {
+      const chunks = [];
+      let total = 0;
+      req.on('data', (chunk) => {
+        total += chunk.length;
+        if (total > MAX_JSON_BODY_BYTES) { reject(new Error('Payload too large')); req.destroy(); return; }
+        chunks.push(chunk);
+      });
+      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8').trim()));
+      req.on('error', reject);
+    });
   } catch (e) {
-    console.error('[ZohoRecruit candidate-hired] Failed to parse body:', e && e.message);
-    sendJson(res, 400, { ok: false, error: 'Invalid JSON body' });
+    console.error('[ZohoRecruit candidate-hired] Failed to read body:', e && e.message);
+    sendJson(res, 400, { ok: false, error: 'Failed to read body' });
     return;
   }
 
+  console.log('[ZohoRecruit candidate-hired] Raw body (' + rawBody.length + ' chars):', rawBody.slice(0, 500));
+
+  // Try JSON first, then form-urlencoded, then treat as raw text
+  if (rawBody.startsWith('{') || rawBody.startsWith('[')) {
+    try { payload = JSON.parse(rawBody); } catch (_) { payload = null; }
+  }
+  if (!payload && rawBody.includes('=')) {
+    try {
+      const params = new URLSearchParams(rawBody);
+      payload = {};
+      for (const [k, v] of params.entries()) payload[k] = v;
+    } catch (_) { /* ignore */ }
+  }
   if (!payload || typeof payload !== 'object') {
-    sendJson(res, 400, { ok: false, error: 'Empty payload' });
-    return;
+    // Last resort: try to extract email from raw text
+    const emailMatch = rawBody.match(/[\w.+-]+@[\w.-]+\.\w+/);
+    if (emailMatch) {
+      payload = { _raw: rawBody, Email: emailMatch[0] };
+      console.log('[ZohoRecruit candidate-hired] Extracted email from raw body:', emailMatch[0]);
+    } else {
+      console.error('[ZohoRecruit candidate-hired] Could not parse body as JSON or form-urlencoded, no email found');
+      sendJson(res, 400, { ok: false, error: 'Unparseable body with no email' });
+      return;
+    }
   }
 
-  console.log('[ZohoRecruit candidate-hired] Received webhook payload keys:', Object.keys(payload).join(', '));
+  console.log('[ZohoRecruit candidate-hired] Parsed payload keys:', Object.keys(payload).join(', '));
 
   // Extract candidate data — Zoho webhooks can send data in various formats:
   // 1. Flat object with field names directly
   // 2. Nested under "data" array (API-style)
   // 3. Custom parameter mappings from workflow rules
+  // 4. "User Defined Format" with merged template fields (e.g. Details key)
   const record = (Array.isArray(payload.data) && payload.data[0]) ? payload.data[0] : payload;
+
+  // If Zoho sent a "Details" or similar merged-template field, try to extract email from it
+  const mergedField = record.Details || record.details || record.data || '';
+  if (typeof mergedField === 'string' && mergedField.includes('@') && !record.Email && !record.email) {
+    const emailInMerged = mergedField.match(/[\w.+-]+@[\w.-]+\.\w+/);
+    if (emailInMerged) record.Email = emailInMerged[0];
+    // Try to extract name — typically first/last name appear before the email
+    const beforeEmail = mergedField.split(emailInMerged ? emailInMerged[0] : '@')[0].trim();
+    if (beforeEmail) {
+      const nameParts = beforeEmail.split(/[\s|,]+/).filter(Boolean);
+      if (nameParts.length >= 2 && !record.First_Name) {
+        record.First_Name = nameParts[0];
+        record.Last_Name = nameParts.slice(1).join(' ');
+      } else if (nameParts.length === 1 && !record.First_Name) {
+        record.First_Name = nameParts[0];
+      }
+    }
+    // Text after email is likely job title / practice
+    if (emailInMerged) {
+      const afterEmail = mergedField.slice(mergedField.indexOf(emailInMerged[0]) + emailInMerged[0].length).trim();
+      if (afterEmail && !record.Posting_Title) record.Posting_Title = afterEmail;
+    }
+  }
 
   // Candidate name — try multiple field paths
   const firstName = sanitizeZohoText(
