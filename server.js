@@ -28361,7 +28361,7 @@ Return ONLY valid JSON with no markdown formatting:
     let appMap = {};
     if (userIds.length > 0) {
       const appRes = await supabaseDbRequest('gp_applications',
-        'select=user_id,practice_contact,practice_contact_name,practice_contact_email,status&status=eq.hired&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+        'select=user_id,practice_contact_name,practice_contact_email,status&status=eq.hired&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
       if (appRes.ok && Array.isArray(appRes.data)) { appRes.data.forEach(function (a) { if (a.user_id && !appMap[a.user_id]) appMap[a.user_id] = a; }); }
     }
     const enriched = tasks.map(function (t) {
@@ -28376,7 +28376,7 @@ Return ONLY valid JSON with no markdown formatting:
         case_status: c.status || '',
         practice_name: c.practice_name || '',
         sponsor_name: c.sponsor_name || '',
-        practice_contact_name: app.practice_contact_name || app.practice_contact || c.practice_contact || '',
+        practice_contact_name: app.practice_contact_name || c.practice_contact || '',
         practice_contact_email: app.practice_contact_email || '',
         ahpra_officer_name: c.ahpra_officer_name || '',
         ahpra_officer_email: c.ahpra_officer_email || '',
