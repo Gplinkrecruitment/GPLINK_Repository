@@ -4546,7 +4546,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
         if(dataUrl.startsWith('data:')){
-          try{var resp=await fetch(dataUrl);var blob=await resp.blob();var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);}catch(err){alert('Download failed: '+err.message);}
+          try{
+            var parts=dataUrl.split(',');var mimeMatch=parts[0].match(/data:([^;]+)/);
+            var mime=mimeMatch?mimeMatch[1]:'application/octet-stream';
+            var b64=parts.slice(1).join(',').replace(/-/g,'+').replace(/_/g,'/');
+            var bin=atob(b64);var bytes=new Uint8Array(bin.length);
+            for(var bi=0;bi<bin.length;bi++)bytes[bi]=bin.charCodeAt(bi);
+            var blob=new Blob([bytes],{type:mime});
+            var url=URL.createObjectURL(blob);var a=document.createElement('a');
+            a.href=url;a.download=fname;document.body.appendChild(a);a.click();
+            document.body.removeChild(a);URL.revokeObjectURL(url);
+          }catch(err){alert('Download failed: '+err.message);}
         }else if(dataUrl){window.open(dataUrl,'_blank');}
         else{alert('No document data available');}
         return;
