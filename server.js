@@ -11644,11 +11644,35 @@ async function linkUserToHiredZohoPosition(userId, email) {
         }
       }
       if (!matchedRole) {
-        const practiceName = getZohoField(zohoApp, ['Posting_Title', 'Job_Opening_Name']);
-        if (practiceName) matchedRole = rolesByPracticeName[practiceName.toLowerCase()] || null;
+        // Try practice name matching — handle "Title || Practice Name" format from Zoho
+        const postingTitle = getZohoField(zohoApp, ['Posting_Title', 'Job_Opening_Name']) || '';
+        // Try full value first, then split by common delimiters and try each part
+        const nameCandidates = [postingTitle];
+        if (postingTitle.includes('||')) postingTitle.split('||').forEach(p => nameCandidates.push(p.trim()));
+        else if (postingTitle.includes('|')) postingTitle.split('|').forEach(p => nameCandidates.push(p.trim()));
+        else if (postingTitle.includes(' - ')) postingTitle.split(' - ').forEach(p => nameCandidates.push(p.trim()));
+        for (const candidate of nameCandidates) {
+          if (!candidate) continue;
+          matchedRole = rolesByPracticeName[candidate.toLowerCase()] || null;
+          if (matchedRole) {
+            console.log('[signup-link] Matched by practice name part:', candidate, '→ role', matchedRole.id);
+            break;
+          }
+        }
+        // Last resort: substring match against all career roles
+        if (!matchedRole && postingTitle) {
+          const lowerTitle = postingTitle.toLowerCase();
+          for (const role of roles) {
+            if (role.practice_name && lowerTitle.includes(role.practice_name.toLowerCase())) {
+              matchedRole = role;
+              console.log('[signup-link] Matched by substring:', role.practice_name, '→ role', role.id);
+              break;
+            }
+          }
+        }
       }
       if (!matchedRole) {
-        console.log('[signup-link] No career_role for job opening', jobOpeningId, '— skipping');
+        console.log('[signup-link] No career_role for job opening', jobOpeningId, '— posting title:', getZohoField(zohoApp, ['Posting_Title', 'Job_Opening_Name']), '— skipping');
         continue;
       }
 
@@ -20367,7 +20391,19 @@ async function handleApi(req, res, pathname) {
       const normalized = normalizeCareerApplicationStatusKey(status);
       const isSecured = isCareerPlacementSecuredStatus(normalized);
       const jobId = getZohoApplicationJobOpeningId(app);
-      log.push('App ' + app.id + ': status=' + status + ' normalized=' + normalized + ' secured=' + isSecured + ' jobOpeningId=' + jobId);
+      const postingTitle = getZohoField(app, ['Posting_Title', 'Job_Opening_Name']) || '';
+      log.push('App ' + app.id + ': status=' + status + ' normalized=' + normalized + ' secured=' + isSecured + ' jobOpeningId=' + (jobId || '(empty)') + ' postingTitle=' + (postingTitle || '(empty)'));
+      // Try fetching full record to get job opening ID
+      if (!jobId) {
+        const fullRec = await fetchZohoRecruitApplicationRecord(zoho, app.id);
+        if (fullRec) {
+          const fullJobId = getZohoApplicationJobOpeningId(fullRec);
+          const fullTitle = getZohoField(fullRec, ['Posting_Title', 'Job_Opening_Name']) || '';
+          log.push('  Full record: jobOpeningId=' + (fullJobId || '(empty)') + ' postingTitle=' + (fullTitle || '(empty)'));
+        } else {
+          log.push('  Full record: could not fetch');
+        }
+      }
     }
 
     // 5. Check career_roles
