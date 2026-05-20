@@ -20378,7 +20378,7 @@ async function handleApi(req, res, pathname) {
 
   // Debug: manually trigger practice linkage for a specific GP email
   // GET version for CLI/cron triggering with secret auth
-  if (pathname === '/api/admin/enrich-placement' && req.method === 'GET') {
+  if (pathname === '/api/cron/enrich-placement' && req.method === 'GET') {
     const reqUrl2 = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
     const secret = reqUrl2.searchParams.get('secret') || '';
     const enrichEmail = (reqUrl2.searchParams.get('email') || '').trim().toLowerCase();
