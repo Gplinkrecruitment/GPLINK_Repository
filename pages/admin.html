@@ -3452,12 +3452,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return '<span class="ops-due due-green">'+diff+'d left</span>';
   }
   function opsGetSubtitle(t){
-    var parts=[];
-    if(t.source_trigger)parts.push(t.source_trigger);
-    if(t.related_stage)parts.push(t.related_stage);
-    if(t.email_sender)parts.push("from "+t.email_sender);
-    if(t.case_id)parts.push(t.case_id);
-    return parts.length?parts.join(" \u00B7 "):"";
+    var tt=t.task_type||"";
+    if(tt==="practice_pack_child")return "Practice pack"+(t.practice_name?" \u00B7 "+t.practice_name:"");
+    if(tt==="ahpra_action_item")return "AHPRA officer request"+(t.ahpra_application_number?" \u00B7 "+t.ahpra_application_number:"");
+    if(tt==="email_triage")return "Email triage"+(t.email_sender?" \u00B7 from "+t.email_sender:"");
+    if(tt==="whatsapp_help")return "WhatsApp support request";
+    if(tt==="blocker")return "Support ticket";
+    if(tt==="flagged_doc")return "Flagged qualification document";
+    if(tt==="chase")return "Follow-up reminder";
+    if(t.email_sender)return "from "+t.email_sender;
+    return "";
   }
   function opsGetAction(t){
     var tt=t.task_type||"";var st=t.status||"open";

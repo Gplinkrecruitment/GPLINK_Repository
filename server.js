@@ -433,7 +433,7 @@ async function getGmailClient(userEmail) {
         client_email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
         private_key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
       },
-      scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'],
+      scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'],
       clientOptions: { subject: userEmail }
     });
     var jwtClient = await authClient.getClient();
@@ -28353,9 +28353,17 @@ Return ONLY valid JSON with no markdown formatting:
       const pRes = await supabaseDbRequest('user_profiles', 'select=user_id,first_name,last_name,email,phone,phone_number&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
     }
+    // Fetch practice contact info from gp_applications (hired placements)
+    let appMap = {};
+    if (userIds.length > 0) {
+      const appRes = await supabaseDbRequest('gp_applications',
+        'select=user_id,practice_contact_name,practice_contact_email,status&status=eq.hired&user_id=in.(' + userIds.map(encodeURIComponent).join(',') + ')');
+      if (appRes.ok && Array.isArray(appRes.data)) { appRes.data.forEach(function (a) { if (a.user_id && !appMap[a.user_id]) appMap[a.user_id] = a; }); }
+    }
     const enriched = tasks.map(function (t) {
       const c = caseMap[t.case_id] || {};
       const p = profileMap[c.user_id] || {};
+      const app = appMap[c.user_id] || {};
       return Object.assign({}, t, {
         gp_name: [(p.first_name || ''), (p.last_name || '')].join(' ').trim() || (p.email || 'Unknown'),
         gp_email: p.email || '',
@@ -28364,8 +28372,8 @@ Return ONLY valid JSON with no markdown formatting:
         case_status: c.status || '',
         practice_name: c.practice_name || '',
         sponsor_name: c.sponsor_name || '',
-        practice_contact_name: c.practice_contact || '',
-        practice_contact_email: c.practice_contact_email || '',
+        practice_contact_name: app.practice_contact_name || c.practice_contact || '',
+        practice_contact_email: app.practice_contact_email || '',
         ahpra_officer_name: c.ahpra_officer_name || '',
         ahpra_officer_email: c.ahpra_officer_email || '',
         ahpra_application_number: c.ahpra_application_number || '',
