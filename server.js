@@ -16451,7 +16451,12 @@ async function sendEmail({ to, subject, html, text }) {
         text: text || ''
       })
     });
-    if (!res.ok) return { ok: false, error: 'Resend API error: ' + res.status };
+    const resBody = await res.text().catch(() => '');
+    if (!res.ok) {
+      console.error('[sendEmail] Resend API error:', res.status, resBody.slice(0, 300));
+      return { ok: false, error: 'Resend API error: ' + res.status + ' ' + resBody.slice(0, 200) };
+    }
+    console.log('[sendEmail] Resend accepted:', to, '| response:', resBody.slice(0, 200));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
