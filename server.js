@@ -17775,14 +17775,15 @@ async function handleApi(req, res, pathname) {
     const countryDial = sanitizeUserString(body.countryDial, 10);
     const phoneNumber = sanitizeUserString(body.phoneNumber, 24);
 
-    const signupResult = await supabaseAuthRequest('signup', {
-      email,
-      password,
-      data: {
-        firstName,
-        lastName,
-        countryDial,
-        phoneNumber
+    // Use admin API to create user — prevents Supabase from sending its own
+    // default confirmation email. Only our branded GP Link email is sent.
+    const signupResult = await supabaseAuthAdminRequest('admin/users', {
+      method: 'POST',
+      body: {
+        email,
+        password,
+        email_confirm: false,
+        user_metadata: { firstName, lastName, countryDial, phoneNumber }
       }
     });
     if (!signupResult.ok) {
@@ -17791,18 +17792,25 @@ async function handleApi(req, res, pathname) {
         : signupResult.data && signupResult.data.message
           ? signupResult.data.message
           : 'Unable to create account right now.';
-      sendJson(res, signupResult.status || 400, { ok: false, message: msg });
+      const isExists = signupResult.status === 422 || (msg && /already registered|already exists|duplicate/i.test(msg));
+      if (isExists) {
+        sendJson(res, 409, { ok: false, message: 'An account with this email already exists. Please sign in instead.' });
+      } else {
+        sendJson(res, signupResult.status || 400, { ok: false, message: msg });
+      }
       return;
     }
 
-    const signupUser = signupResult.data && signupResult.data.user ? signupResult.data.user : { email };
+    const signupUser = signupResult.data || { email };
     upsertLocalUserFromSupabaseUser(signupUser);
     await ensureSupabaseUserProfile(signupUser);
 
+    // Send only our branded GP Link confirmation email
+    await sendEmailConfirmationViaResend(email).catch(err => console.error('[Email] Confirmation failed:', err.message));
+
+    // Try auto-login — will fail if email confirmation is required (expected)
     const loginResult = await supabaseAuthRequest('token?grant_type=password', { email, password });
     if (!loginResult.ok) {
-      // Email confirmation required — send via Resend for reliable delivery
-      await sendEmailConfirmationViaResend(email).catch(err => console.error('[Email] Confirmation failed:', err.message));
       sendJson(res, 200, {
         ok: true,
         requiresConfirmation: true,
