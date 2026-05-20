@@ -11721,67 +11721,106 @@ async function linkUserToHiredZohoPosition(userId, email, phone) {
     const appRow = Array.isArray(createResult.data) && createResult.data[0] ? createResult.data[0] : createResult.data;
     console.log('[signup-link] Created gp_application for', email, '→', pending.practice_name);
 
-    // 5. Populate gp_career_state with placement data from local info
+    // 5. Resolve Zoho application ID by email search, then build full placement
     const roleRow = await supabaseDbRequest('career_roles', 'select=*&id=eq.' + encodeURIComponent(careerRoleId) + '&limit=1');
     const role = roleRow.ok && Array.isArray(roleRow.data) && roleRow.data[0] ? roleRow.data[0] : {};
-    const sourcePayload = role.source_payload && typeof role.source_payload === 'object' ? role.source_payload : {};
-    const billingLabel = role.billing_model || sourcePayload.billing_model || 'Pending';
-    const compensationRange = sourcePayload.billing_range || sourcePayload.earnings || 'Pending';
-    const placement = {
-      practiceName: pending.practice_name || role.practice_name || '',
-      roleTitle: pending.job_title || role.title || '',
-      location: pending.location || [role.location_city, role.location_state].filter(Boolean).join(', ') || '',
-      statusLabel: 'Placement confirmed',
-      isPlacementSecured: true,
-      quickStats: [
-        { label: 'Billing', value: billingLabel.replace(/\s+Billing$/i, '') || billingLabel },
-        { label: 'Work Type', value: role.employment_type || 'Full time' }
-      ],
-      compensation: {
-        range: compensationRange,
-        unit: 'Per Day',
-        note: 'Expected income',
-        facts: [
-          { label: 'Billing type', value: billingLabel },
-          { label: 'Work type', value: role.employment_type || 'Full time' }
-        ]
-      },
-      story: {
-        title: (pending.location || [role.location_city, role.location_state].filter(Boolean).join(', ')).replace(/,\s*Australia\s*$/i, ''),
-        text: role.summary || 'Your medical centre placement is now secured.',
-        mapQuery: pending.location || [role.location_city, role.location_state, 'Australia'].filter(Boolean).join(', ')
-      }
-    };
+    let placement = null;
+    let zohoAppId = pending.zoho_application_id || '';
 
+    // Try full Zoho enrichment — search for the application by email to get contract, contacts, etc.
+    const zoho = isZohoRecruitConfigured() ? await getZohoRecruitAccessTokenAndDomain() : null;
+    if (zoho) {
+      // Resolve candidate ID
+      const candResult = await ensureZohoRecruitCandidateIdForUser(userId, email).catch(() => ({ ok: false }));
+
+      // Find the Zoho application by candidate ID or email
+      let zohoApps = [];
+      if (candResult.ok && candResult.zohoId) {
+        zohoApps = await searchZohoRecruitApplicationsByCandidateId(zoho, candResult.zohoId).catch(() => []);
+      }
+      if (!zohoApps.length) {
+        zohoApps = await searchZohoRecruitApplicationsByEmail(zoho, email).catch(() => []);
+      }
+      // Find the hired application
+      const hiredApp = zohoApps.find(a => isCareerPlacementSecuredStatus(normalizeCareerApplicationStatusKey(getZohoApplicationStatus(a))));
+      if (hiredApp) {
+        zohoAppId = sanitizeZohoText(hiredApp.id) || zohoAppId;
+        // Store the zoho_application_id on the gp_application
+        if (zohoAppId) {
+          await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appRow.id), {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: { zoho_application_id: zohoAppId, zoho_candidate_id: (candResult.ok && candResult.zohoId) || '' }
+          });
+        }
+      }
+
+      // Fetch full records and build placement
+      const liveRecord = zohoAppId ? await fetchZohoRecruitApplicationRecord(zoho, zohoAppId).catch(() => null) : null;
+      const jobOpeningRecord = providerRoleId ? await fetchZohoRecruitJobOpeningRecord(zoho, providerRoleId).catch(() => null) : null;
+      let clientId = '';
+      let practiceContacts = [];
+      if (jobOpeningRecord) {
+        clientId = getZohoApplicationClientId(jobOpeningRecord) || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
+      }
+      if (clientId) {
+        practiceContacts = await fetchZohoRecruitClientContacts(zoho, clientId).catch(() => []);
+        const contact = pickZohoRecruitClientContact(practiceContacts);
+        if (contact) {
+          const cn = buildZohoDisplayName(contact) || getZohoField(contact, ['Contact_Name', 'Name']);
+          const ce = getZohoField(contact, ['Email', 'Secondary_Email']);
+          if (cn) await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appRow.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { practice_contact_name: cn, practice_contact_email: ce || '', zoho_client_id: clientId } });
+        }
+      }
+      placement = await buildCareerPlacementPayload({
+        zoho, applicationRecord: liveRecord, roleRow: role, jobOpeningRecord,
+        startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Joining_Date', 'Start_Date']) : null,
+        practiceContacts, providerRoleId, profile: { email, first_name: pending.candidate_first_name, last_name: pending.candidate_last_name }
+      }).catch(e => { console.error('[signup-link] Zoho enrichment failed:', e && e.message); return null; });
+      if (placement) console.log('[signup-link] Full Zoho placement built for', email, '— contract:', placement.contractUrl ? 'YES' : 'no');
+    }
+
+    // Fallback: build basic placement from local data if Zoho enrichment failed
+    if (!placement) {
+      const sourcePayload = role.source_payload && typeof role.source_payload === 'object' ? role.source_payload : {};
+      const billingLabel = role.billing_model || sourcePayload.billing_model || 'Pending';
+      const compensationRange = sourcePayload.billing_range || sourcePayload.earnings || 'Pending';
+      placement = {
+        practiceName: pending.practice_name || role.practice_name || '',
+        roleTitle: pending.job_title || role.title || '',
+        location: pending.location || [role.location_city, role.location_state].filter(Boolean).join(', ') || '',
+        statusLabel: 'Placement confirmed',
+        isPlacementSecured: true,
+        quickStats: [
+          { label: 'Billing', value: billingLabel.replace(/\s+Billing$/i, '') || billingLabel },
+          { label: 'Work Type', value: role.employment_type || 'Full time' }
+        ],
+        compensation: { range: compensationRange, unit: 'Per Day', note: 'Expected income', facts: [{ label: 'Billing type', value: billingLabel }, { label: 'Work type', value: role.employment_type || 'Full time' }] },
+        story: { title: (pending.location || [role.location_city, role.location_state].filter(Boolean).join(', ')).replace(/,\s*Australia\s*$/i, ''), text: role.summary || 'Your medical centre placement is now secured.', mapQuery: pending.location || [role.location_city, role.location_state, 'Australia'].filter(Boolean).join(', ') }
+      };
+      console.log('[signup-link] Basic local placement built for', email, '(Zoho unavailable)');
+    }
+
+    // 6. Save career state
     const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
     const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
       ? stateResult.data[0].state : {};
     const prevState = JSON.parse(JSON.stringify(currentState));
     const careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
-    const apps = Array.isArray(careerState.applications) ? careerState.applications : [];
-    apps.push({
-      id: String(appRow.id),
-      zohoApplicationId: pending.zoho_application_id || '',
-      status: 'hired',
-      isPlacementSecured: true,
-      placement: placement,
-      provider_role_id: providerRoleId
-    });
-    careerState.applications = apps;
+    const existingApps = Array.isArray(careerState.applications) ? careerState.applications : [];
+    existingApps.push({ id: String(appRow.id), zohoApplicationId: zohoAppId, status: 'hired', isPlacementSecured: true, placement, provider_role_id: providerRoleId });
+    careerState.applications = existingApps;
     careerState.career_secured = true;
     currentState.gp_career_state = careerState;
-    await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
-      method: 'PATCH', body: { state: currentState }
-    });
-    console.log('[signup-link] Career state populated for', email, '→', pending.practice_name);
+    await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), { method: 'PATCH', body: { state: currentState } });
+    console.log('[signup-link] Career state saved for', email, '→', pending.practice_name);
 
-    // 6. Create registration case + fire task automation
+    // 7. Create registration case + fire task automation
     await _ensureRegCase(userId);
     processRegistrationTaskAutomation(userId, email, prevState, currentState).catch(err => {
       console.error('[signup-link] Task automation failed:', err && err.message);
     });
 
-    // 7. Mark career role as filled + mark pending hire as linked
+    // 8. Mark career role as filled + mark pending hire as linked
     await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(careerRoleId), {
       method: 'PATCH', headers: { Prefer: 'return=minimal' },
       body: { is_active: false, updated_at: new Date().toISOString() }
@@ -11792,11 +11831,6 @@ async function linkUserToHiredZohoPosition(userId, email, phone) {
     });
 
     console.log('[signup-link] Fully linked', email, 'to', pending.practice_name);
-
-    // 8. Optionally enrich with Zoho data in background (non-blocking)
-    if (isZohoRecruitConfigured()) {
-      ensureZohoRecruitCandidateIdForUser(userId, email).catch(() => {});
-    }
   } catch (err) {
     console.error('[signup-link] Error linking user', email, ':', err && err.message);
   }
