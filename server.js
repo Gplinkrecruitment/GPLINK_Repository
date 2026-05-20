@@ -10548,7 +10548,66 @@ async function handleZohoRecruitCandidateHiredWebhook(req, res) {
 
   console.log('[ZohoRecruit candidate-hired] Sending hired email to:', candidateEmail, '| Name:', candidateDisplayName || '(unknown)', '| Practice:', practiceName || '(unknown)');
 
-  const emailResult = await sendCandidateHiredEmail(candidateEmail, candidateDisplayName, practiceName, jobTitle, location);
+  // Store in pending_hires so the GP can be linked at signup without needing Zoho API
+  const phone = sanitizeZohoText(record.Phone || record.phone || record.Mobile || record.mobile || '');
+  const postingTitle = jobTitle || '';
+  // Extract practice name from "Title || Practice" format if not already resolved
+  let resolvedPracticeName = practiceName;
+  if (!resolvedPracticeName && postingTitle.includes('||')) {
+    resolvedPracticeName = postingTitle.split('||').pop().trim();
+  }
+  // Try to match to a career_role
+  let matchedRoleId = null;
+  let matchedProviderRoleId = null;
+  if (resolvedPracticeName) {
+    const rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id,practice_name&provider=eq.zoho_recruit');
+    const roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
+    const lowerPractice = resolvedPracticeName.toLowerCase();
+    const matched = roles.find(r => r.practice_name && r.practice_name.toLowerCase() === lowerPractice);
+    if (matched) {
+      matchedRoleId = matched.id;
+      matchedProviderRoleId = matched.provider_role_id;
+    } else {
+      // Substring match
+      for (const r of roles) {
+        if (r.practice_name && postingTitle.toLowerCase().includes(r.practice_name.toLowerCase())) {
+          matchedRoleId = r.id;
+          matchedProviderRoleId = r.provider_role_id;
+          resolvedPracticeName = r.practice_name;
+          break;
+        }
+      }
+    }
+  }
+
+  // Upsert into pending_hires (update if same email already pending)
+  const existingPending = await supabaseDbRequest('pending_hires', 'select=id&candidate_email=eq.' + encodeURIComponent(candidateEmail) + '&status=eq.pending&limit=1');
+  const pendingRow = {
+    candidate_email: candidateEmail,
+    candidate_phone: phone || null,
+    candidate_first_name: firstName || candidateDisplayName || null,
+    candidate_last_name: lastName || null,
+    provider_role_id: matchedProviderRoleId || null,
+    career_role_id: matchedRoleId || null,
+    practice_name: resolvedPracticeName || null,
+    job_title: postingTitle || null,
+    location: location || null,
+    status: 'pending',
+    updated_at: new Date().toISOString()
+  };
+  if (existingPending.ok && Array.isArray(existingPending.data) && existingPending.data[0]) {
+    await supabaseDbRequest('pending_hires', 'id=eq.' + encodeURIComponent(existingPending.data[0].id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: pendingRow
+    });
+    console.log('[ZohoRecruit candidate-hired] Updated pending_hires for', candidateEmail, '→ practice:', resolvedPracticeName || '(unknown)');
+  } else {
+    await supabaseDbRequest('pending_hires', '', {
+      method: 'POST', headers: { Prefer: 'return=minimal' }, body: pendingRow
+    });
+    console.log('[ZohoRecruit candidate-hired] Created pending_hires for', candidateEmail, '→ practice:', resolvedPracticeName || '(unknown)');
+  }
+
+  const emailResult = await sendCandidateHiredEmail(candidateEmail, candidateDisplayName, resolvedPracticeName || practiceName, jobTitle, location);
 
   if (emailResult && emailResult.ok) {
     console.log('[ZohoRecruit candidate-hired] Email sent successfully to', candidateEmail);
@@ -10556,7 +10615,7 @@ async function handleZohoRecruitCandidateHiredWebhook(req, res) {
     console.error('[ZohoRecruit candidate-hired] Email failed:', emailResult && emailResult.error);
   }
 
-  sendJson(res, 200, { ok: true, emailSent: !!(emailResult && emailResult.ok), candidate: candidateEmail });
+  sendJson(res, 200, { ok: true, emailSent: !!(emailResult && emailResult.ok), candidate: candidateEmail, pendingHireStored: true, practice: resolvedPracticeName || null });
 }
 
 
@@ -11577,208 +11636,148 @@ async function ensureZohoRecruitCandidateIdForUser(userId, email, userProfile = 
 // Searches Zoho for hired applications matching the user's email, creates
 // gp_applications + registration_case, and populates gp_career_state so the
 // admin sees the practice linkage immediately.
-async function linkUserToHiredZohoPosition(userId, email) {
-  if (!userId || !email || !isZohoRecruitConfigured()) {
-    console.log('[signup-link] Skipped — userId:', !!userId, 'email:', !!email, 'zohoConfigured:', isZohoRecruitConfigured());
-    return;
-  }
-  const zoho = await getZohoRecruitAccessTokenAndDomain();
-  if (!zoho) {
-    console.error('[signup-link] Zoho Recruit access token unavailable for', email);
-    return;
-  }
+// ── Link a user to their hired position using local pending_hires table ──
+// Primary path: checks pending_hires (populated by the Zoho webhook).
+// No Zoho API dependency — instant local DB match by email or phone.
+async function linkUserToHiredZohoPosition(userId, email, phone) {
+  if (!userId || !email || !isSupabaseDbConfigured()) return;
   console.log('[signup-link] Starting linkage for', email, '(userId:', userId, ')');
 
   try {
-    // 1. Resolve Zoho candidate ID and store on profile
-    const candidateResult = await ensureZohoRecruitCandidateIdForUser(userId, email);
-    if (!candidateResult.ok) {
-      console.log('[signup-link] Could not resolve Zoho candidate for', email, ':', candidateResult.message);
+    // 1. Check pending_hires for this email (or phone)
+    let pendingResult = await supabaseDbRequest('pending_hires',
+      'select=*&candidate_email=eq.' + encodeURIComponent(email.toLowerCase()) + '&status=eq.pending&limit=1'
+    );
+    let pending = pendingResult.ok && Array.isArray(pendingResult.data) && pendingResult.data[0];
+
+    // Fallback: match by phone if email didn't match and phone is available
+    if (!pending && phone) {
+      const cleanPhone = phone.replace(/[\s\-()]/g, '');
+      if (cleanPhone.length >= 8) {
+        pendingResult = await supabaseDbRequest('pending_hires',
+          'select=*&candidate_phone=like.*' + encodeURIComponent(cleanPhone.slice(-8)) + '&status=eq.pending&limit=1'
+        );
+        pending = pendingResult.ok && Array.isArray(pendingResult.data) && pendingResult.data[0];
+        if (pending) console.log('[signup-link] Matched by phone for', email);
+      }
+    }
+
+    if (!pending) {
+      console.log('[signup-link] No pending hire found for', email);
       return;
     }
-    console.log('[signup-link] Resolved Zoho candidate for', email, '— id:', candidateResult.zohoId);
 
-    // 2. Search for hired applications in Zoho — try by candidate ID first, then email
-    let zohoApps = [];
-    if (candidateResult.zohoId) {
-      zohoApps = await searchZohoRecruitApplicationsByCandidateId(zoho, candidateResult.zohoId);
-      console.log('[signup-link] Searched by candidate ID', candidateResult.zohoId, '— found', zohoApps.length, 'application(s)');
+    console.log('[signup-link] Found pending hire:', pending.practice_name, '| career_role_id:', pending.career_role_id, '| provider_role_id:', pending.provider_role_id);
+
+    // 2. Resolve career_role if not already matched by webhook
+    let careerRoleId = pending.career_role_id;
+    let providerRoleId = pending.provider_role_id;
+    if (!careerRoleId && pending.practice_name) {
+      const rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id,practice_name&provider=eq.zoho_recruit');
+      const roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
+      const lowerPractice = pending.practice_name.toLowerCase();
+      const matched = roles.find(r => r.practice_name && r.practice_name.toLowerCase() === lowerPractice);
+      if (matched) { careerRoleId = matched.id; providerRoleId = matched.provider_role_id; }
     }
-    if (!zohoApps.length) {
-      zohoApps = await searchZohoRecruitApplicationsByEmail(zoho, email);
-      console.log('[signup-link] Searched by email', email, '— found', zohoApps.length, 'application(s)');
-    }
-    if (!zohoApps.length) {
-      console.log('[signup-link] No Zoho applications found for', email);
+
+    if (!careerRoleId || !providerRoleId) {
+      console.log('[signup-link] Could not resolve career_role for practice:', pending.practice_name);
       return;
     }
 
-    // Build role lookup maps
-    const rolesResult = await supabaseDbRequest('career_roles', 'select=id,provider_role_id,practice_name&provider=eq.zoho_recruit');
-    const roles = rolesResult.ok && Array.isArray(rolesResult.data) ? rolesResult.data : [];
-    const rolesByProviderId = {};
-    const rolesByPracticeName = {};
-    for (var ri = 0; ri < roles.length; ri++) {
-      if (roles[ri].provider_role_id) rolesByProviderId[roles[ri].provider_role_id] = roles[ri];
-      if (roles[ri].practice_name) rolesByPracticeName[roles[ri].practice_name.toLowerCase()] = roles[ri];
+    // 3. Check if already linked
+    const existing = await supabaseDbRequest('gp_applications',
+      'select=id&user_id=eq.' + encodeURIComponent(userId) + '&provider_role_id=eq.' + encodeURIComponent(providerRoleId) + '&limit=1'
+    );
+    if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+      console.log('[signup-link] Already linked for', email);
+      // Mark pending hire as linked
+      await supabaseDbRequest('pending_hires', 'id=eq.' + encodeURIComponent(pending.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: { status: 'linked', linked_user_id: userId, linked_at: new Date().toISOString() }
+      });
+      return;
     }
 
-    let linked = 0;
-    for (const zohoApp of zohoApps) {
-      const zohoAppId = sanitizeZohoText(zohoApp.id);
-      if (!zohoAppId) continue;
-
-      const appStatus = getZohoApplicationStatus(zohoApp);
-      const normalizedStatus = normalizeCareerApplicationStatusKey(appStatus);
-      if (!isCareerPlacementSecuredStatus(normalizedStatus)) continue;
-
-      // Find matching career_role
-      let jobOpeningId = getZohoApplicationJobOpeningId(zohoApp);
-      let matchedRole = jobOpeningId ? rolesByProviderId[jobOpeningId] : null;
-
-      if (!matchedRole && zohoAppId) {
-        const fullRecord = await fetchZohoRecruitApplicationRecord(zoho, zohoAppId);
-        if (fullRecord) {
-          jobOpeningId = getZohoApplicationJobOpeningId(fullRecord);
-          matchedRole = jobOpeningId ? rolesByProviderId[jobOpeningId] : null;
-        }
+    // 4. Create gp_applications row
+    const createResult = await supabaseDbRequest('gp_applications', '', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: {
+        user_id: userId,
+        career_role_id: careerRoleId,
+        provider_role_id: providerRoleId,
+        zoho_candidate_id: pending.zoho_candidate_id || '',
+        zoho_application_id: pending.zoho_application_id || '',
+        status: 'hired',
+        applied_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }
-      if (!matchedRole) {
-        // Try practice name matching — handle "Title || Practice Name" format from Zoho
-        const postingTitle = getZohoField(zohoApp, ['Posting_Title', 'Job_Opening_Name']) || '';
-        // Try full value first, then split by common delimiters and try each part
-        const nameCandidates = [postingTitle];
-        if (postingTitle.includes('||')) postingTitle.split('||').forEach(p => nameCandidates.push(p.trim()));
-        else if (postingTitle.includes('|')) postingTitle.split('|').forEach(p => nameCandidates.push(p.trim()));
-        else if (postingTitle.includes(' - ')) postingTitle.split(' - ').forEach(p => nameCandidates.push(p.trim()));
-        for (const candidate of nameCandidates) {
-          if (!candidate) continue;
-          matchedRole = rolesByPracticeName[candidate.toLowerCase()] || null;
-          if (matchedRole) {
-            console.log('[signup-link] Matched by practice name part:', candidate, '→ role', matchedRole.id);
-            break;
-          }
-        }
-        // Last resort: substring match against all career roles
-        if (!matchedRole && postingTitle) {
-          const lowerTitle = postingTitle.toLowerCase();
-          for (const role of roles) {
-            if (role.practice_name && lowerTitle.includes(role.practice_name.toLowerCase())) {
-              matchedRole = role;
-              console.log('[signup-link] Matched by substring:', role.practice_name, '→ role', role.id);
-              break;
-            }
-          }
-        }
-      }
-      if (!matchedRole) {
-        console.log('[signup-link] No career_role for job opening', jobOpeningId, '— posting title:', getZohoField(zohoApp, ['Posting_Title', 'Job_Opening_Name']), '— skipping');
-        continue;
-      }
-
-      // Check if already linked
-      const existing = await supabaseDbRequest(
-        'gp_applications',
-        'select=id&user_id=eq.' + encodeURIComponent(userId) + '&provider_role_id=eq.' + encodeURIComponent(matchedRole.provider_role_id) + '&limit=1'
-      );
-      if (existing.ok && Array.isArray(existing.data) && existing.data[0]) continue;
-
-      const zohoCandidateId = candidateResult.zohoId || '';
-
-      // 3. Create gp_applications row directly with hired status
-      const createResult = await supabaseDbRequest('gp_applications', '', {
-        method: 'POST',
-        headers: { Prefer: 'return=representation' },
-        body: {
-          user_id: userId,
-          career_role_id: matchedRole.id,
-          provider_role_id: matchedRole.provider_role_id,
-          zoho_candidate_id: zohoCandidateId,
-          zoho_application_id: zohoAppId,
-          status: normalizedStatus,
-          applied_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
-      });
-      if (!createResult.ok) {
-        console.error('[signup-link] Failed to create gp_applications for', email, ':', createResult.data && createResult.data.message);
-        continue;
-      }
-      const appRow = Array.isArray(createResult.data) && createResult.data[0] ? createResult.data[0] : createResult.data;
-      linked++;
-      console.log('[signup-link] Linked hired application for', email, '— zohoAppId:', zohoAppId, 'role:', matchedRole.provider_role_id);
-
-      // 4. Build placement payload and populate gp_career_state
-      let jobOpeningRecord = null;
-      let clientId = '';
-      let practiceContacts = [];
-      if (matchedRole.provider_role_id) {
-        jobOpeningRecord = await fetchZohoRecruitJobOpeningRecord(zoho, matchedRole.provider_role_id);
-        if (jobOpeningRecord) {
-          clientId = getZohoApplicationClientId(jobOpeningRecord)
-            || getZohoLookupId(jobOpeningRecord, ['Client_Name', 'Client', 'Account_Name']);
-        }
-      }
-      if (clientId) {
-        practiceContacts = await fetchZohoRecruitClientContacts(zoho, clientId);
-        const contact = pickZohoRecruitClientContact(practiceContacts);
-        if (contact) {
-          const contactName = buildZohoDisplayName(contact) || getZohoField(contact, ['Contact_Name', 'Name']);
-          const contactEmail = getZohoField(contact, ['Email', 'Secondary_Email']);
-          if (contactName) await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(appRow.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { practice_contact_name: contactName, practice_contact_email: contactEmail || '', zoho_client_id: clientId } });
-        }
-      }
-
-      const liveRecord = await fetchZohoRecruitApplicationRecord(zoho, zohoAppId);
-      const profileResult = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-      const profile = profileResult.ok && Array.isArray(profileResult.data) && profileResult.data[0] ? profileResult.data[0] : {};
-      const placement = await buildCareerPlacementPayload({
-        zoho, applicationRecord: liveRecord || zohoApp, roleRow: matchedRole, jobOpeningRecord,
-        startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Joining_Date', 'Start_Date']) : null,
-        practiceContacts, providerRoleId: matchedRole.provider_role_id, profile
-      }).catch(e => { console.error('[signup-link] buildCareerPlacementPayload failed:', e && e.message); return null; });
-
-      // Update user_state with career data
-      const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
-      const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
-        ? stateResult.data[0].state : {};
-      const prevState = JSON.parse(JSON.stringify(currentState));
-      const careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
-      const apps = Array.isArray(careerState.applications) ? careerState.applications : [];
-      apps.push({
-        id: String(appRow.id),
-        zohoApplicationId: zohoAppId,
-        status: normalizedStatus,
-        isPlacementSecured: true,
-        placement: placement,
-        provider_role_id: matchedRole.provider_role_id
-      });
-      careerState.applications = apps;
-      careerState.career_secured = true;
-      currentState.gp_career_state = careerState;
-      await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
-        method: 'PATCH',
-        body: { state: currentState }
-      });
-      console.log('[signup-link] Career state populated for', email, '— practice:', matchedRole.practice_name);
-
-      // 5. Create registration case + fire task automation
-      await _ensureRegCase(userId);
-      processRegistrationTaskAutomation(userId, email, prevState, currentState).catch(err => {
-        console.error('[signup-link] Task automation failed:', err && err.message);
-      });
-
-      // Mark career role as filled
-      await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(matchedRole.id), {
-        method: 'PATCH',
-        headers: { Prefer: 'return=minimal' },
-        body: { is_active: false, updated_at: new Date().toISOString() }
-      });
+    });
+    if (!createResult.ok) {
+      console.error('[signup-link] Failed to create gp_applications:', createResult.data && createResult.data.message);
+      return;
     }
+    const appRow = Array.isArray(createResult.data) && createResult.data[0] ? createResult.data[0] : createResult.data;
+    console.log('[signup-link] Created gp_application for', email, '→', pending.practice_name);
 
-    if (linked > 0) console.log('[signup-link] Linked', linked, 'hired position(s) for', email);
+    // 5. Populate gp_career_state with placement data from local info
+    const roleRow = await supabaseDbRequest('career_roles', 'select=*&id=eq.' + encodeURIComponent(careerRoleId) + '&limit=1');
+    const role = roleRow.ok && Array.isArray(roleRow.data) && roleRow.data[0] ? roleRow.data[0] : {};
+    const placement = {
+      practiceName: pending.practice_name || role.practice_name || '',
+      roleTitle: pending.job_title || role.title || '',
+      location: pending.location || [role.location_city, role.location_state].filter(Boolean).join(', ') || '',
+      statusLabel: 'Hired',
+      isPlacementSecured: true
+    };
+
+    const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    const currentState = stateResult.ok && Array.isArray(stateResult.data) && stateResult.data[0] && typeof stateResult.data[0].state === 'object'
+      ? stateResult.data[0].state : {};
+    const prevState = JSON.parse(JSON.stringify(currentState));
+    const careerState = currentState.gp_career_state && typeof currentState.gp_career_state === 'object' ? currentState.gp_career_state : {};
+    const apps = Array.isArray(careerState.applications) ? careerState.applications : [];
+    apps.push({
+      id: String(appRow.id),
+      zohoApplicationId: pending.zoho_application_id || '',
+      status: 'hired',
+      isPlacementSecured: true,
+      placement: placement,
+      provider_role_id: providerRoleId
+    });
+    careerState.applications = apps;
+    careerState.career_secured = true;
+    currentState.gp_career_state = careerState;
+    await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
+      method: 'PATCH', body: { state: currentState }
+    });
+    console.log('[signup-link] Career state populated for', email, '→', pending.practice_name);
+
+    // 6. Create registration case + fire task automation
+    await _ensureRegCase(userId);
+    processRegistrationTaskAutomation(userId, email, prevState, currentState).catch(err => {
+      console.error('[signup-link] Task automation failed:', err && err.message);
+    });
+
+    // 7. Mark career role as filled + mark pending hire as linked
+    await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(careerRoleId), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { is_active: false, updated_at: new Date().toISOString() }
+    });
+    await supabaseDbRequest('pending_hires', 'id=eq.' + encodeURIComponent(pending.id), {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: { status: 'linked', linked_user_id: userId, linked_at: new Date().toISOString() }
+    });
+
+    console.log('[signup-link] Fully linked', email, 'to', pending.practice_name);
+
+    // 8. Optionally enrich with Zoho data in background (non-blocking)
+    if (isZohoRecruitConfigured()) {
+      ensureZohoRecruitCandidateIdForUser(userId, email).catch(() => {});
+    }
   } catch (err) {
-    console.error('[signup-link] Error linking user', email, 'to Zoho position:', err && err.message);
+    console.error('[signup-link] Error linking user', email, ':', err && err.message);
   }
 }
 
@@ -18086,9 +18085,10 @@ async function handleApi(req, res, pathname) {
     upsertLocalUserFromSupabaseUser(signupUser);
     await ensureSupabaseUserProfile(signupUser);
 
-    // Link to hired Zoho Recruit position in background (non-blocking)
+    // Link to hired position in background (checks pending_hires table)
     if (signupUserId) {
-      linkUserToHiredZohoPosition(signupUserId, email).catch(err => console.error('[signup] Zoho link failed:', err && err.message));
+      const signupPhone = (countryDial || '') + (phoneNumber || '');
+      linkUserToHiredZohoPosition(signupUserId, email, signupPhone).catch(err => console.error('[signup] Link failed:', err && err.message));
     }
 
     // Send only our branded GP Link confirmation email
