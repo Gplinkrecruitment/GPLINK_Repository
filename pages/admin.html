@@ -3654,6 +3654,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ]);
       if(mRes.ok&&Array.isArray(mRes.messages))msgs=mRes.messages;
       if(dRes.ok&&Array.isArray(dRes.documents))docs=dRes.documents;
+      // Cache docs for download handler
+      if(!S._opsDocCache)S._opsDocCache={};
+      S._opsDocCache[task.id]=docs;
     }catch(e){}
     var tt=task.task_type||'';
     var st=task.status||'open';
@@ -3727,7 +3730,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(sizeStr)h+='<div style="font-size:10px;color:var(--muted)">'+sizeStr+'</div>';
       if(!isCurrent)h+='<div style="font-size:10px;color:var(--muted)">Previous version</div>';
       h+='</div>';
-      if(previewUrl)h+='<a href="'+safeUrl(previewUrl)+'" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;text-decoration:none">View \u2192</a>';
+      if(previewUrl){
+        if(previewUrl.startsWith('data:')){
+          h+='<button data-download-doc="'+esc(d.id)+'" data-download-name="'+esc(d.filename||'document')+'" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer;text-decoration:none">Download \u2192</button>';
+        }else{
+          h+='<a href="'+safeUrl(previewUrl)+'" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;text-decoration:none">View \u2192</a>';
+        }
+      }
       h+='</div></div>';
     });
     h+='</div>';
@@ -4519,6 +4528,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       loadOpsQueue();
     });
     document.getElementById("opsTableBody").addEventListener("click",async e=>{
+      // Download document from data: URI
+      var dlBtn=e.target.closest("[data-download-doc]");
+      if(dlBtn){
+        e.stopPropagation();
+        var docId=dlBtn.getAttribute("data-download-doc");
+        var fname=dlBtn.getAttribute("data-download-name")||"document";
+        // Find the data URI from the stored documents
+        var docData=null;
+        if(S.opsTasks){
+          for(var ot of S.opsTasks){
+            if(S._opsDocCache&&S._opsDocCache[ot.id]){
+              docData=S._opsDocCache[ot.id].find(function(d){return d.id===docId;});
+              if(docData)break;
+            }
+          }
+        }
+        var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
+        if(dataUrl.startsWith('data:')){
+          try{var resp=await fetch(dataUrl);var blob=await resp.blob();var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);}catch(err){alert('Download failed: '+err.message);}
+        }else if(dataUrl){window.open(dataUrl,'_blank');}
+        else{alert('No document data available');}
+        return;
+      }
       // Let native <a target="_blank"> links open normally
       var clickedLink=e.target.closest('a[target="_blank"]');
       if(clickedLink){return;}
