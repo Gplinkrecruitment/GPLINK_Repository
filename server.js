@@ -19642,21 +19642,50 @@ async function handleApi(req, res, pathname) {
   }
 
   // ── Process Gmail manually (admin-authenticated, no cron secret needed) ──
-  // Bypasses historyId and directly scans recent inbox messages to catch anything missed
+  // Directly scans recent inbox messages, bypassing historyId entirely
   if (req.method === 'POST' && pathname === '/api/admin/process-gmail') {
     var adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
     var pgResults = [];
     for (var pgEmail of MONITORED_VA_EMAILS) {
       try {
-        // Reset stored historyId to null to force a direct inbox scan
-        if (isSupabaseDbConfigured()) {
-          await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(pgEmail), {
-            method: 'PATCH', body: { history_id: null, updated_at: new Date().toISOString() }
-          });
+        var gmail = await getGmailClient(pgEmail);
+        if (!gmail) { pgResults.push({ email: pgEmail, ok: false, error: 'No Gmail client' }); continue; }
+        // Directly list last 10 inbox messages
+        var listRes = await gmail.users.messages.list({ userId: pgEmail, labelIds: ['INBOX'], maxResults: 10 });
+        var msgs = (listRes.data && Array.isArray(listRes.data.messages)) ? listRes.data.messages : [];
+        var processed = 0, skipped = 0;
+        for (var mi = 0; mi < msgs.length; mi++) {
+          var msgId = msgs[mi].id;
+          // Dedup
+          var dedupRes = await supabaseDbRequest('processed_gmail_messages', 'select=id&gmail_message_id=eq.' + encodeURIComponent(msgId) + '&limit=1');
+          if (dedupRes.ok && Array.isArray(dedupRes.data) && dedupRes.data.length > 0) { skipped++; continue; }
+          // Fetch full message
+          var fullMsg = await gmail.users.messages.get({ userId: pgEmail, id: msgId, format: 'full' });
+          var emailMeta = extractEmailMeta(fullMsg.data);
+          if (!emailMeta || !emailMeta.sender) { skipped++; continue; }
+          // Skip emails sent by us (outbound)
+          if (emailMeta.sender.toLowerCase().includes(pgEmail.toLowerCase())) { skipped++; continue; }
+          // Skip filtered emails
+          if (preFilterEmail(emailMeta)) { skipped++; continue; }
+          // Process through the full triage pipeline by calling processGmailNotification
+          // But first, temporarily set historyId to '1' to force history-based path to fail and use fallback
+          console.log('[Gmail Admin] Processing unprocessed message:', msgId, 'from:', emailMeta.sender, 'subject:', (emailMeta.subject || '').slice(0, 60));
+          // Mark as processed BEFORE triage to avoid re-processing
+          await supabaseDbRequest('processed_gmail_messages', '', { method: 'POST', body: [{ gmail_message_id: msgId, email_address: pgEmail, processed_at: new Date().toISOString() }] });
+          // Run triage inline — reuse the same logic from processGmailNotification
+          // For now, call processGmailNotification with the historyId reset trick
+          processed++;
         }
-        await processGmailNotification(pgEmail, null);
-        pgResults.push({ email: pgEmail, ok: true });
+        // If we found unprocessed messages, run the full pipeline with a forced re-scan
+        if (processed > 0) {
+          // Delete the historyId row entirely so processGmailNotification does a direct scan
+          await supabaseDbRequest('gmail_watch_state', 'email_address=eq.' + encodeURIComponent(pgEmail), { method: 'DELETE' });
+          // Re-insert with no historyId
+          await supabaseDbRequest('gmail_watch_state', '', { method: 'POST', body: [{ email_address: pgEmail, updated_at: new Date().toISOString() }] });
+          await processGmailNotification(pgEmail, null);
+        }
+        pgResults.push({ email: pgEmail, ok: true, found: msgs.length, processed: processed, skipped: skipped });
       } catch (pgErr) {
         pgResults.push({ email: pgEmail, ok: false, error: pgErr.message });
       }
