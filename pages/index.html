@@ -867,6 +867,8 @@
     // Redirect new users to onboarding if they haven't completed setup
     (function checkOnboarding() {
       if (localStorage.getItem("gp_onboarding_complete") === "true") return;
+      // Hide page content while checking — prevents flash of dashboard before onboarding
+      document.documentElement.style.visibility = "hidden";
       // localStorage may not be hydrated yet — check server before redirecting
       fetch("/api/state", { credentials: "same-origin" })
         .then(function (r) { return r.json(); })
@@ -874,11 +876,12 @@
           var s = d && d.state && typeof d.state === 'object' ? d.state : {};
           if (s.gp_onboarding_complete) {
             localStorage.setItem("gp_onboarding_complete", "true");
+            document.documentElement.style.visibility = "";
           } else {
             window.location.replace("onboarding.html");
           }
         })
-        .catch(function () {});
+        .catch(function () { document.documentElement.style.visibility = ""; });
     })();
     const TOTAL_STEPS = 6;
     const EPIC_KEY = "gp_epic_progress";

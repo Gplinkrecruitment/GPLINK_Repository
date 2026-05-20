@@ -17827,7 +17827,7 @@ async function handleApi(req, res, pathname) {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
     });
-    sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/index.html', bootstrap });
+    sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/onboarding.html', bootstrap });
     return;
   }
 
@@ -17879,10 +17879,17 @@ async function handleApi(req, res, pathname) {
         sessionUserId: supaUserId,
         sessionProfile
       });
+      // Check onboarding status — redirect new users straight to onboarding
+      let loginRedirect = '/pages/index.html';
+      const stateCheck = await getSupabaseUserStateByEmail(email).catch(() => null);
+      const stateObj = stateCheck && stateCheck.state && typeof stateCheck.state === 'object' ? stateCheck.state : {};
+      if (!stateObj.gp_onboarding_complete) {
+        loginRedirect = '/pages/onboarding.html';
+      }
       sendJson(res, 200, {
         ok: true,
         message: 'Authenticated',
-        redirectTo: '/pages/index.html',
+        redirectTo: loginRedirect,
         bootstrap: bootstrapResult.bootstrap,
         bootstrapPending: bootstrapResult.bootstrapPending,
         sessionProfile

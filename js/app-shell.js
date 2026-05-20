@@ -963,9 +963,17 @@
 
     var route = routeFromUrl(routeUrl);
 
+    // Hide chrome completely for onboarding — it takes over the full screen
+    var isOnboarding = route && route.indexOf("/pages/onboarding.html") === 0;
+    if (isOnboarding) {
+      chromeHidden = true;
+      if (mobileNavEl) mobileNavEl.style.display = "none";
+      if (desktopHostEl) desktopHostEl.style.display = "none";
+    }
+
     // Restore chrome if a child page hid it — but only when navigating
     // away from the page that hid it
-    if (chromeHidden && currentRoute && route !== currentRoute) {
+    if (chromeHidden && !isOnboarding && currentRoute && route !== currentRoute) {
       chromeHidden = false;
       if (mobileNavEl) mobileNavEl.style.display = "";
       if (desktopHostEl) desktopHostEl.style.display = "";

@@ -976,6 +976,12 @@
   </style>
 </head>
 <body>
+<script>
+// Hide app-shell chrome (nav bars) immediately when onboarding loads
+if (window.parent && window.parent !== window) {
+  try { window.parent.postMessage({ type: "gp-shell-hide-chrome" }, window.location.origin); } catch (_) {}
+}
+</script>
 <script src="/js/error-reporter.js?v=20260516a"></script>
   <!-- loading overlay -->
   <div class="loading-overlay" id="loadingOverlay">
