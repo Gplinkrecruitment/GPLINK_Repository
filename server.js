@@ -11724,12 +11724,33 @@ async function linkUserToHiredZohoPosition(userId, email, phone) {
     // 5. Populate gp_career_state with placement data from local info
     const roleRow = await supabaseDbRequest('career_roles', 'select=*&id=eq.' + encodeURIComponent(careerRoleId) + '&limit=1');
     const role = roleRow.ok && Array.isArray(roleRow.data) && roleRow.data[0] ? roleRow.data[0] : {};
+    const sourcePayload = role.source_payload && typeof role.source_payload === 'object' ? role.source_payload : {};
+    const billingLabel = role.billing_model || sourcePayload.billing_model || 'Pending';
+    const compensationRange = sourcePayload.billing_range || sourcePayload.earnings || 'Pending';
     const placement = {
       practiceName: pending.practice_name || role.practice_name || '',
       roleTitle: pending.job_title || role.title || '',
       location: pending.location || [role.location_city, role.location_state].filter(Boolean).join(', ') || '',
-      statusLabel: 'Hired',
-      isPlacementSecured: true
+      statusLabel: 'Placement confirmed',
+      isPlacementSecured: true,
+      quickStats: [
+        { label: 'Billing', value: billingLabel.replace(/\s+Billing$/i, '') || billingLabel },
+        { label: 'Work Type', value: role.employment_type || 'Full time' }
+      ],
+      compensation: {
+        range: compensationRange,
+        unit: 'Per Day',
+        note: 'Expected income',
+        facts: [
+          { label: 'Billing type', value: billingLabel },
+          { label: 'Work type', value: role.employment_type || 'Full time' }
+        ]
+      },
+      story: {
+        title: (pending.location || [role.location_city, role.location_state].filter(Boolean).join(', ')).replace(/,\s*Australia\s*$/i, ''),
+        text: role.summary || 'Your medical centre placement is now secured.',
+        mapQuery: pending.location || [role.location_city, role.location_state, 'Australia'].filter(Boolean).join(', ')
+      }
     };
 
     const stateResult = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
@@ -15555,7 +15576,10 @@ async function buildCareerPlacementPayload({
     lifestyle,
     practiceContact,
     compensation: {
-      range: '$2,500-$3,500',
+      range: getZohoField(jobOpeningRecord, ['Salary_Range', 'Salary', 'Compensation', 'Estimated_Earnings', 'Package'])
+        || (roleRow && roleRow.source_payload && roleRow.source_payload.billing_range)
+        || (roleRow && roleRow.source_payload && roleRow.source_payload.earnings)
+        || 'Pending',
       unit: 'Per Day',
       note: 'Expected income',
       facts: [
