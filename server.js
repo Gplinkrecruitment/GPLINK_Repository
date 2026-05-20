@@ -11578,9 +11578,16 @@ async function ensureZohoRecruitCandidateIdForUser(userId, email, userProfile = 
 // gp_applications + registration_case, and populates gp_career_state so the
 // admin sees the practice linkage immediately.
 async function linkUserToHiredZohoPosition(userId, email) {
-  if (!userId || !email || !isZohoRecruitConfigured()) return;
+  if (!userId || !email || !isZohoRecruitConfigured()) {
+    console.log('[signup-link] Skipped — userId:', !!userId, 'email:', !!email, 'zohoConfigured:', isZohoRecruitConfigured());
+    return;
+  }
   const zoho = await getZohoRecruitAccessTokenAndDomain();
-  if (!zoho) return;
+  if (!zoho) {
+    console.error('[signup-link] Zoho Recruit access token unavailable for', email);
+    return;
+  }
+  console.log('[signup-link] Starting linkage for', email, '(userId:', userId, ')');
 
   try {
     // 1. Resolve Zoho candidate ID and store on profile
@@ -11591,8 +11598,16 @@ async function linkUserToHiredZohoPosition(userId, email) {
     }
     console.log('[signup-link] Resolved Zoho candidate for', email, '— id:', candidateResult.zohoId);
 
-    // 2. Search for hired applications in Zoho
-    const zohoApps = await searchZohoRecruitApplicationsByEmail(zoho, email);
+    // 2. Search for hired applications in Zoho — try by candidate ID first, then email
+    let zohoApps = [];
+    if (candidateResult.zohoId) {
+      zohoApps = await searchZohoRecruitApplicationsByCandidateId(zoho, candidateResult.zohoId);
+      console.log('[signup-link] Searched by candidate ID', candidateResult.zohoId, '— found', zohoApps.length, 'application(s)');
+    }
+    if (!zohoApps.length) {
+      zohoApps = await searchZohoRecruitApplicationsByEmail(zoho, email);
+      console.log('[signup-link] Searched by email', email, '— found', zohoApps.length, 'application(s)');
+    }
     if (!zohoApps.length) {
       console.log('[signup-link] No Zoho applications found for', email);
       return;
