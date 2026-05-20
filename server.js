@@ -464,10 +464,19 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     var hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     var hasHtml = !!(bodyHtml && bodyHtml.trim());
     var hasText = !!(bodyText && bodyText.trim());
+    // Always generate a plain-text fallback from HTML to improve deliverability
+    if (hasHtml && !hasText) {
+      bodyText = bodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/\n{3,}/g, '\n\n').trim();
+      hasText = true;
+    }
 
-    // Build headers
+    // Build headers — include all standard headers for deliverability
+    var messageId = '<gplink-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10) + '@mygplink.com.au>';
+    var dateStr = new Date().toUTCString().replace('GMT', '+0000');
+    var fromDomain = from.split('@')[1] || 'mygplink.com.au';
+
     var headers = [];
-    headers.push('From: ' + from);
+    headers.push('From: "GP Link Registration" <' + from + '>');
     headers.push('To: ' + to);
     if (cc) headers.push('Cc: ' + cc);
     // RFC 2047 encode subject if it contains non-ASCII characters
@@ -475,7 +484,11 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
       ? '=?UTF-8?B?' + Buffer.from(subject, 'utf8').toString('base64') + '?='
       : subject;
     headers.push('Subject: ' + encodedSubject);
+    headers.push('Date: ' + dateStr);
+    headers.push('Message-ID: ' + messageId);
+    headers.push('Reply-To: ' + from);
     headers.push('MIME-Version: 1.0');
+    headers.push('X-Mailer: GP-Link-Admin/1.0');
     if (inReplyTo) {
       headers.push('In-Reply-To: ' + inReplyTo);
       headers.push('References: ' + inReplyTo);
