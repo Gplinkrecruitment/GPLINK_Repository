@@ -11480,19 +11480,67 @@ async function supabaseStorageDownloadObject(bucket, objectPath) {
   }
 }
 
+// In-memory cache for Zoho access token — avoids refreshing on every API call.
+// Zoho access tokens last 3600s; we cache for 50 minutes to refresh before expiry.
+var _zohoAccessTokenCache = { accessToken: '', apiDomain: '', expiresAt: 0, connection: null };
+var _zohoRefreshInFlight = null;
+
 async function getZohoRecruitAccessTokenAndDomain() {
   if (!isZohoRecruitConfigured()) return null;
-  const connection = await getZohoRecruitConnection();
-  if (!connection || !connection.refreshToken) return null;
-  const refreshed = await refreshZohoRecruitAccessToken(connection);
-  if (!refreshed.ok) return null;
-  const accessToken = String(refreshed.data && refreshed.data.access_token ? refreshed.data.access_token : '').trim();
-  const apiDomain = normalizeUrlBase(
-    refreshed.data && refreshed.data.api_domain,
-    (connection || {}).apiDomain || ''
-  );
-  if (!accessToken || !apiDomain) return null;
-  return { accessToken, apiDomain, connection };
+
+  // Return cached token if still valid (>2 minutes remaining)
+  if (
+    _zohoAccessTokenCache.accessToken &&
+    _zohoAccessTokenCache.apiDomain &&
+    _zohoAccessTokenCache.expiresAt > Date.now() + 120000
+  ) {
+    return {
+      accessToken: _zohoAccessTokenCache.accessToken,
+      apiDomain: _zohoAccessTokenCache.apiDomain,
+      connection: _zohoAccessTokenCache.connection
+    };
+  }
+
+  // Deduplicate concurrent refresh attempts
+  if (_zohoRefreshInFlight) return _zohoRefreshInFlight;
+
+  _zohoRefreshInFlight = (async function () {
+    try {
+      var connection = await getZohoRecruitConnection();
+      if (!connection || !connection.refreshToken) return null;
+
+      // Retry up to 3 times with backoff
+      var lastError = null;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise(function (r) { setTimeout(r, 1000 * attempt); });
+        var refreshed = await refreshZohoRecruitAccessToken(connection);
+        if (refreshed.ok) {
+          var accessToken = String(refreshed.data && refreshed.data.access_token ? refreshed.data.access_token : '').trim();
+          var apiDomain = normalizeUrlBase(
+            refreshed.data && refreshed.data.api_domain,
+            (connection || {}).apiDomain || ''
+          );
+          if (!accessToken || !apiDomain) return null;
+          // Cache for 50 minutes (Zoho tokens last 60 minutes)
+          _zohoAccessTokenCache = {
+            accessToken: accessToken,
+            apiDomain: apiDomain,
+            expiresAt: Date.now() + (50 * 60 * 1000),
+            connection: connection
+          };
+          return { accessToken: accessToken, apiDomain: apiDomain, connection: connection };
+        }
+        lastError = refreshed;
+        console.error('[Zoho] Token refresh attempt', attempt + 1, 'failed:', refreshed.status, JSON.stringify(refreshed.data || {}).slice(0, 300));
+      }
+      console.error('[Zoho] All 3 refresh attempts failed. Last error:', lastError && lastError.status);
+      return null;
+    } finally {
+      _zohoRefreshInFlight = null;
+    }
+  })();
+
+  return _zohoRefreshInFlight;
 }
 
 async function createZohoRecruitCandidate(userId, email, userProfile, onboardingState) {
