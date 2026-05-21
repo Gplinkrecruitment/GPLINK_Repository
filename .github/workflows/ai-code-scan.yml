@@ -61,13 +61,13 @@ jobs:
         if: steps.scope.outputs.skip != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SCAN_FILES: ${{ steps.scope.outputs.files }}
         run: |
           FINDINGS="[]"
-          IFS=$'\n'
-          for FILE in ${{ steps.scope.outputs.files }}; do
+          while IFS= read -r FILE; do
+            [ -z "$FILE" ] && continue
             if [ ! -f "$FILE" ]; then continue; fi
             echo "Scanning: $FILE"
-
             CONTENT=$(head -c 50000 "$FILE" | jq -Rs .)
             FILENAME=$(echo "$FILE" | jq -Rs .)
 
@@ -104,7 +104,7 @@ jobs:
             else
               echo "  No response for $FILE"
             fi
-          done
+          done <<< "$SCAN_FILES"
 
           echo "$FINDINGS" > /tmp/findings.json
           COUNT=$(echo "$FINDINGS" | jq 'length')
