@@ -20240,6 +20240,23 @@ async function handleApi(req, res, pathname) {
         var resetState = typeof resetStateRes.data[0].state === 'object' ? resetStateRes.data[0].state : {};
         resetState.gp_prepared_docs = {};
         resetState.gp_ahpra_progress = {};
+
+        // Set earlier stages as completed so the journey shows correctly
+        resetState.gp_epic_progress = resetState.gp_epic_progress || {};
+        if (!resetState.gp_epic_progress.completed) resetState.gp_epic_progress.completed = {};
+        resetState.gp_epic_progress.completed.account_establishment = true;
+        resetState.gp_epic_progress.completed.upload_qualifications = true;
+        resetState.gp_epic_progress.completed.verification_issued = true;
+
+        resetState.gp_amc_progress = resetState.gp_amc_progress || {};
+        if (!resetState.gp_amc_progress.completed) resetState.gp_amc_progress.completed = {};
+        resetState.gp_amc_progress.completed.upload_credentials = true;
+        resetState.gp_amc_progress.completed.waiting_verification = true;
+        resetState.gp_amc_progress.completed.qualifications_verified = true;
+
+        resetState.gp_career_state = resetState.gp_career_state || {};
+        resetState.gp_career_state.career_secured = true;
+
         await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(resetUserId), {
           method: 'PATCH', body: { state: resetState }
         });
