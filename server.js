@@ -20487,7 +20487,7 @@ async function handleApi(req, res, pathname) {
         if (idx >= 0) appsList[idx] = enriched; else appsList.push(enriched);
         carSt.applications = appsList; carSt.career_secured = true; cs.gp_career_state = carSt;
         await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(prof.user_id), { method: 'PATCH', body: { state: cs } });
-        results.push({ app: app.id, practice: placement.practiceName, contract: placement.contractUrl ? 'found' : 'none', compensation: placement.compensation && placement.compensation.range });
+        results.push({ app: app.id, practice: placement.practiceName, contract: placement.contractUrl ? 'found' : 'none', compensation: placement.compensation && placement.compensation.range, _debug: { zoho_application_id: app.zoho_application_id || '', zoho_candidate_id: app.zoho_candidate_id || '', liveRecordFound: !!liveRecord, jobOpeningFound: !!jobOpeningRecord, split: placement.quickStats && placement.quickStats[1] && placement.quickStats[1].value, relocation: placement.quickStats && placement.quickStats[2] && placement.quickStats[2].value } });
       }
     }
     sendJson(res, 200, { ok: true, enriched: results.length, results });
