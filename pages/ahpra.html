@@ -3373,7 +3373,8 @@
 
     // ─── MARK COMPLETE / UNDO ────────────────────────────────────
     function markStageComplete(progress, key) {
-      if (progress.stage !== key) return;
+      if (stageStatus(progress, key) !== "current") return;
+      if (progress.stage !== key) progress.stage = key;
 
       progress.completed[key] = true;
 
