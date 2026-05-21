@@ -3696,8 +3696,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   function opsRenderThread(msgs){
     if(!msgs||!msgs.length)return'';
+    var sorted=msgs.slice().sort(function(a,b){return new Date(b.created_at)-new Date(a.created_at);});
     var h='<div class="ops-conversation-thread">';
-    msgs.forEach(function(m){
+    sorted.forEach(function(m){
       var dirCls=m.direction==='outbound'?'ops-msg-outbound':'ops-msg-inbound';
       var dirLabel=m.direction==='outbound'?'Sent':'Received';
       var chLabel=(m.channel==='whatsapp'?'WhatsApp':'Email');
