@@ -7913,6 +7913,13 @@ function normalizeCareerBillingLabel(value) {
   return raw;
 }
 
+function filterZeroCompensation(value) {
+  const str = String(value || '').trim();
+  if (!str) return '';
+  if (/^\$?\s*0+(\.0+)?\s*(AUD|USD|NZD)?\s*$/i.test(str)) return '';
+  return str;
+}
+
 function sanitizeHttpUrl(value) {
   const raw = sanitizeZohoText(value);
   if (!raw) return '';
@@ -11342,7 +11349,8 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
           startDateIso: getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Joining_Date', 'Start_Date']) || null,
           practiceContacts,
           providerRoleId: app.provider_role_id,
-          profile
+          profile,
+          zohoCandidateId: app.zoho_candidate_id || ''
         }).catch(function (e) { console.error('[ZohoRecruit sync] buildCareerPlacementPayload failed for user', app.user_id, ':', e && e.message); return null; });
 
         // Update gp_career_state (proceed even without full placement so task automation fires)
@@ -11774,7 +11782,8 @@ async function linkUserToHiredZohoPosition(userId, email, phone) {
       placement = await buildCareerPlacementPayload({
         zoho, applicationRecord: liveRecord, roleRow: role, jobOpeningRecord,
         startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Joining_Date', 'Start_Date']) : null,
-        practiceContacts, providerRoleId, profile: { email, first_name: pending.candidate_first_name, last_name: pending.candidate_last_name }
+        practiceContacts, providerRoleId, profile: { email, first_name: pending.candidate_first_name, last_name: pending.candidate_last_name },
+        zohoCandidateId: (candResult.ok && candResult.zohoId) || ''
       }).catch(e => { console.error('[signup-link] Zoho enrichment failed:', e && e.message); return null; });
       if (placement) console.log('[signup-link] Full Zoho placement built for', email, '— contract:', placement.contractUrl ? 'YES' : 'no');
     }
@@ -13103,7 +13112,7 @@ Rules:
   }
 }
 
-async function resolveCareerContractTerms(zoho, applicationId) {
+async function resolveCareerContractTerms(zoho, applicationId, zohoCandidateId) {
   const appId = String(applicationId || '').trim();
   if (!zoho || !appId) return null;
   const contractCacheTtlMs = 30 * 24 * 60 * 60 * 1000;
@@ -13112,8 +13121,25 @@ async function resolveCareerContractTerms(zoho, applicationId) {
   const cached = await getRuntimeKv(cacheKey);
   const cachedValue = cached && cached.value && typeof cached.value === 'object' ? cached.value : null;
 
-  const attachments = await listZohoRecruitApplicationAttachments(zoho, appId);
-  const candidates = selectZohoContractAttachmentCandidates(attachments);
+  let attachments = await listZohoRecruitApplicationAttachments(zoho, appId);
+  let candidates = selectZohoContractAttachmentCandidates(attachments);
+  let attachmentRecordModule = 'Applications';
+  let attachmentRecordId = appId;
+
+  // Fallback: check Candidate record attachments if no contract found on Application
+  const candidateIdStr = String(zohoCandidateId || '').trim();
+  if (candidates.length === 0 && candidateIdStr) {
+    const candidateAttachments = await listZohoRecruitCandidateAttachments(zoho, candidateIdStr);
+    const candidateCandidates = selectZohoContractAttachmentCandidates(candidateAttachments);
+    if (candidateCandidates.length > 0) {
+      attachments = candidateAttachments;
+      candidates = candidateCandidates;
+      attachmentRecordModule = 'Candidates';
+      attachmentRecordId = candidateIdStr;
+      console.log('[contractTerms] Found', candidateCandidates.length, 'contract candidate(s) on Candidate record', candidateIdStr, '(Application', appId, 'had none)');
+    }
+  }
+
   if (candidates.length === 0) {
     if (!cachedValue || cachedValue.status !== 'unavailable') {
       await setRuntimeKv(cacheKey, {
@@ -13149,7 +13175,7 @@ async function resolveCareerContractTerms(zoho, applicationId) {
   for (const candidate of candidates) {
     const attachmentId = getZohoAttachmentId(candidate);
     if (!attachmentId) continue;
-    const downloaded = await downloadZohoRecruitApplicationAttachment(zoho, appId, attachmentId);
+    const downloaded = await downloadZohoRecruitRecordAttachment(zoho, attachmentRecordModule, attachmentRecordId, attachmentId);
     if (!downloaded || !downloaded.buffer || downloaded.buffer.length === 0) {
       lastAttempt = {
         attachmentId,
@@ -13268,9 +13294,10 @@ function derivePlacementRoleTitle(roleRow, jobOpeningRecord, practiceName) {
   return selected;
 }
 
-function extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow) {
+function extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow, applicationRecord) {
   const roleRaw = getCareerRoleRawPayload(roleRow);
   const sourceText = [
+    getZohoField(applicationRecord, ['Offer_Details', 'Additional_Information', 'Notes', 'Comments', 'Description']),
     getZohoField(jobOpeningRecord, ['Benefit_1', 'Benefit_2', 'Benefit_3', 'Short_Intro', 'Additional_Information', 'Job_Description', 'Description']),
     getZohoField(roleRaw, ['Benefit_1', 'Benefit_2', 'Benefit_3', 'Short_Intro', 'Additional_Information', 'Job_Description', 'Description'])
   ].filter(Boolean).join(' ');
@@ -15547,7 +15574,8 @@ async function buildCareerPlacementPayload({
   startDateIso,
   practiceContacts,
   providerRoleId,
-  profile
+  profile,
+  zohoCandidateId
 }) {
   const practiceName = getZohoApplicationPracticeName(applicationRecord)
     || getZohoField(jobOpeningRecord, ['Posting_Title', 'Job_Opening_Name', 'Title'])
@@ -15555,9 +15583,10 @@ async function buildCareerPlacementPayload({
     || 'Medical Centre';
   const roleTitle = derivePlacementRoleTitle(roleRow, jobOpeningRecord, practiceName);
   const location = getZohoPlacementLocation(jobOpeningRecord, roleRow);
-  const contractTerms = applicationRecord ? await resolveCareerContractTerms(zoho, sanitizeZohoText(applicationRecord.id)).catch(function (e) { console.error('[buildPlacement] contractTerms failed:', e && e.message); return null; }) : null;
-  const fallbackTerms = extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow);
+  const contractTerms = applicationRecord ? await resolveCareerContractTerms(zoho, sanitizeZohoText(applicationRecord.id), zohoCandidateId).catch(function (e) { console.error('[buildPlacement] contractTerms failed:', e && e.message); return null; }) : null;
+  const fallbackTerms = extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow, applicationRecord);
   const billingLabel = normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
+    || normalizeCareerBillingLabel(getZohoField(applicationRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
     || normalizeCareerBillingLabel(roleRow && roleRow.billing_model)
     || 'Billing pending';
   const splitDisplay = (contractTerms && contractTerms.splitDisplay) || fallbackTerms.splitDisplay || 'Pending';
@@ -15610,9 +15639,10 @@ async function buildCareerPlacementPayload({
     lifestyle,
     practiceContact,
     compensation: {
-      range: getZohoField(jobOpeningRecord, ['Salary_Range', 'Salary', 'Compensation', 'Estimated_Earnings', 'Package'])
-        || (roleRow && roleRow.source_payload && roleRow.source_payload.billing_range)
-        || (roleRow && roleRow.source_payload && roleRow.source_payload.earnings)
+      range: filterZeroCompensation(getZohoField(jobOpeningRecord, ['Salary_Range', 'Salary', 'Compensation', 'Estimated_Earnings', 'Package']))
+        || filterZeroCompensation(getZohoField(applicationRecord, ['Offered_CTC', 'Offered_Salary', 'Expected_Salary', 'Offer_Amount', 'Salary_Range', 'Salary', 'Compensation', 'Package']))
+        || filterZeroCompensation(roleRow && roleRow.source_payload && roleRow.source_payload.billing_range)
+        || filterZeroCompensation(roleRow && roleRow.source_payload && roleRow.source_payload.earnings)
         || 'Pending',
       unit: 'Per Day',
       note: 'Expected income',
@@ -19016,7 +19046,8 @@ async function handleApi(req, res, pathname) {
             || normalizePlacementStartDate(getZohoField(jobOpeningRecord, ['Target_Date', 'Expected_Start_Date', 'Start_Date'])),
           practiceContacts,
           providerRoleId,
-          profile
+          profile,
+          zohoCandidateId: (localApp && localApp.zoho_candidate_id) || (profile && profile.zoho_candidate_id) || ''
         })
         : null;
 
@@ -19267,7 +19298,8 @@ async function handleApi(req, res, pathname) {
             || normalizePlacementStartDate(getZohoField(jobOpeningRecord, ['Target_Date', 'Expected_Start_Date', 'Start_Date'])),
           practiceContacts,
           providerRoleId,
-          profile
+          profile,
+          zohoCandidateId: appRow.zoho_candidate_id || ''
         });
       } catch {}
     }
@@ -20444,7 +20476,7 @@ async function handleApi(req, res, pathname) {
           await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { practice_contact_name: cn || '', practice_contact_email: ce || '', zoho_client_id: clientId } });
         }
       }
-      const placement = await buildCareerPlacementPayload({ zoho, applicationRecord: liveRecord, roleRow, jobOpeningRecord, startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining','Joining_Date','Start_Date']) : null, practiceContacts, providerRoleId: app.provider_role_id, profile: prof }).catch(() => null);
+      const placement = await buildCareerPlacementPayload({ zoho, applicationRecord: liveRecord, roleRow, jobOpeningRecord, startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining','Joining_Date','Start_Date']) : null, practiceContacts, providerRoleId: app.provider_role_id, profile: prof, zohoCandidateId: app.zoho_candidate_id || '' }).catch(() => null);
       if (placement) {
         const stR = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(prof.user_id) + '&limit=1');
         const cs = stR.ok && Array.isArray(stR.data) && stR.data[0] && typeof stR.data[0].state === 'object' ? stR.data[0].state : {};
@@ -20562,7 +20594,8 @@ async function handleApi(req, res, pathname) {
       const placement = await buildCareerPlacementPayload({
         zoho, applicationRecord: liveRecord, roleRow, jobOpeningRecord,
         startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining', 'Joining_Date', 'Start_Date']) : null,
-        practiceContacts, providerRoleId: app.provider_role_id, profile: { email: targetEmail, first_name: profile.first_name, last_name: profile.last_name }
+        practiceContacts, providerRoleId: app.provider_role_id, profile: { email: targetEmail, first_name: profile.first_name, last_name: profile.last_name },
+        zohoCandidateId: (candidateResult && candidateResult.zohoId) || app.zoho_candidate_id || ''
       }).catch(e => { log.push('  buildCareerPlacementPayload failed: ' + (e && e.message)); return null; });
 
       if (placement) {
