@@ -1319,6 +1319,11 @@
         enforceEmbeddedChrome(activeFrameEl.contentDocument);
       }
     } catch (err) {}
+    // If the child requested a different page, perform a real navigation
+    if (currentRoute && !routesShareSupportedPage(currentRoute, route)) {
+      navigateTo(routeUrl, { historyMode: "push" });
+      return;
+    }
     syncFromChildRoute(routeUrl, event.data.title);
     if (pendingNavigation && (pendingNavigation.route === route || routesShareSupportedPage(pendingNavigation.route, route))) {
       pendingNavigation = null;
