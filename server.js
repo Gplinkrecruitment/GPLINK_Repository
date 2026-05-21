@@ -20479,8 +20479,32 @@ async function handleApi(req, res, pathname) {
 
     const results = [];
     for (const app of localApps) {
-      const effectiveAppId = app.zoho_application_id || '';
-      const liveRecord = effectiveAppId ? await fetchZohoRecruitApplicationRecord(zoho, effectiveAppId).catch(function () { return null; }) : null;
+      let effectiveAppId = app.zoho_application_id || '';
+      let liveRecord = effectiveAppId ? await fetchZohoRecruitApplicationRecord(zoho, effectiveAppId).catch(function () { return null; }) : null;
+
+      // If direct fetch failed, try searching by candidate ID to resolve the correct API application ID
+      if (!liveRecord && app.zoho_candidate_id) {
+        const searchedApps = await searchZohoRecruitApplicationsByCandidateId(zoho, app.zoho_candidate_id).catch(function () { return []; });
+        if (!searchedApps.length) {
+          const emailSearched = await searchZohoRecruitApplicationsByEmail(zoho, enrichEmail).catch(function () { return []; });
+          searchedApps.push.apply(searchedApps, emailSearched);
+        }
+        if (searchedApps.length > 0) {
+          // Prefer hired application, fall back to first
+          var hiredApp = searchedApps.find(function (a) { return isCareerPlacementSecuredStatus(normalizeCareerApplicationStatusKey(getZohoApplicationStatus(a))); });
+          liveRecord = hiredApp || searchedApps[0];
+          var resolvedId = sanitizeZohoText(liveRecord.id);
+          if (resolvedId && resolvedId !== effectiveAppId) {
+            effectiveAppId = resolvedId;
+            await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app.id), {
+              method: 'PATCH', headers: { Prefer: 'return=minimal' },
+              body: { zoho_application_id: resolvedId, updated_at: new Date().toISOString() }
+            });
+            app.zoho_application_id = resolvedId;
+            console.log('[enrich-placement] Resolved application ID via candidate search:', resolvedId, 'for', enrichEmail);
+          }
+        }
+      }
       const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
       const jobOpeningRecord = app.provider_role_id ? await fetchZohoRecruitJobOpeningRecord(zoho, app.provider_role_id).catch(() => null) : null;
       let clientId = app.zoho_client_id || '';
