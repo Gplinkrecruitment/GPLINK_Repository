@@ -25150,14 +25150,26 @@ Return ONLY valid JSON with no markdown formatting:
 
       // 4. Download the document content
       let fileBuffer, mimeType = doc.mime_type || 'application/pdf';
-      const sourceUrl = doc.google_drive_url || doc.attachment_url;
+      const sourceUrl = doc.google_drive_url || doc.attachment_url || '';
       if (doc.google_drive_file_id) {
-        // Download from Drive directly using the googleapis client
+        // Download from Drive directly
         const drive = await getGoogleDriveClient();
         if (!drive) { sendJson(res, 503, { ok: false, message: 'Google Drive client not available.' }); return; }
         const dlResp = await drive.files.get({ fileId: doc.google_drive_file_id, alt: 'media' }, { responseType: 'arraybuffer' });
         fileBuffer = Buffer.from(dlResp.data);
-      } else if (sourceUrl) {
+      } else if (sourceUrl.startsWith('data:')) {
+        // Decode data: URI directly (base64url from Gmail needs converting)
+        const commaIdx = sourceUrl.indexOf(',');
+        if (commaIdx === -1) { sendJson(res, 400, { ok: false, message: 'Invalid data URI.' }); return; }
+        const mimeMatch = sourceUrl.substring(0, commaIdx).match(/data:([^;]+)/);
+        if (mimeMatch) mimeType = mimeMatch[1];
+        let b64 = sourceUrl.substring(commaIdx + 1);
+        // Convert base64url to standard base64
+        b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+        // Add padding if needed
+        while (b64.length % 4 !== 0) b64 += '=';
+        fileBuffer = Buffer.from(b64, 'base64');
+      } else if (sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://')) {
         const dlResp = await fetch(sourceUrl);
         if (!dlResp.ok) { sendJson(res, 502, { ok: false, message: 'Failed to download document from URL.' }); return; }
         fileBuffer = Buffer.from(await dlResp.arrayBuffer());
