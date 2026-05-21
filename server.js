@@ -5901,7 +5901,7 @@ async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor, me
 async function _hasOpenTask(caseId, stage, type) {
   if (!isSupabaseDbConfigured()) return false;
   const q = await supabaseDbRequest('registration_tasks',
-    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.' + encodeURIComponent(stage) + '&task_type=eq.' + encodeURIComponent(type) + '&status=in.(open,in_progress,waiting)&limit=1');
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.' + encodeURIComponent(stage) + '&task_type=eq.' + encodeURIComponent(type) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated,deferred,completed)&limit=1');
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
@@ -5922,7 +5922,7 @@ async function _hasDoubleTickBeenSent(caseId, stageTitle) {
 async function _hasOpenTaskForDoc(caseId, docKey) {
   if (!isSupabaseDbConfigured()) return false;
   const q = await supabaseDbRequest('registration_tasks',
-    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(docKey) + '&status=in.(open,in_progress,waiting)&limit=1');
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(docKey) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated,deferred,completed)&limit=1');
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
