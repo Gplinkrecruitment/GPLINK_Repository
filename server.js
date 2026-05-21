@@ -20245,7 +20245,25 @@ async function handleApi(req, res, pathname) {
         });
       }
 
-      // 8. Delete processed_gmail_messages for VA emails so emails can be re-processed
+      // 8. Clear Google Drive folder contents
+      if (resetCase.google_drive_folder_id && isGoogleDriveConfigured()) {
+        try {
+          var drive = await getGoogleDriveClient();
+          if (drive) {
+            var driveFiles = await drive.files.list({ q: "'" + resetCase.google_drive_folder_id + "' in parents and trashed = false", fields: 'files(id,name)', pageSize: 100 });
+            if (driveFiles.data && Array.isArray(driveFiles.data.files)) {
+              for (var df of driveFiles.data.files) {
+                await drive.files.delete({ fileId: df.id }).catch(function () {});
+              }
+              console.log('[ResetGP] Deleted', driveFiles.data.files.length, 'files from Drive folder');
+            }
+          }
+        } catch (driveErr) {
+          console.error('[ResetGP] Drive cleanup failed:', driveErr.message);
+        }
+      }
+
+      // 9. Delete processed_gmail_messages for VA emails so emails can be re-processed
       for (var resetVaEmail of MONITORED_VA_EMAILS) {
         await supabaseDbRequest('processed_gmail_messages', 'email_address=eq.' + encodeURIComponent(resetVaEmail), {
           method: 'DELETE', headers: { Prefer: 'return=minimal' }
