@@ -10327,10 +10327,8 @@ function buildCareerRoleRecordFromZoho(record, syncedAt) {
     location_state: state,
     location_country: country,
     location_label: locationLabel || buildLocationLabel([city, state, country]),
-    billing_model: billingModel,
     dpa,
     mmm: mmmText,
-    earnings_text: earningsText,
     summary,
     employment_type: employmentType,
     practice_type: practiceType,
@@ -10347,6 +10345,11 @@ function buildCareerRoleRecordFromZoho(record, syncedAt) {
     synced_at: syncedAt,
     updated_at: syncedAt
   };
+  // Only include billing_model and earnings_text when Zoho provides them,
+  // so the merge-duplicates upsert doesn't blank out manually-set overrides
+  if (billingModel) baseRow.billing_model = billingModel;
+  if (earningsText) baseRow.earnings_text = earningsText;
+
   const gpLinkMeta = buildCareerRoleGpLinkMetaFromRow(baseRow);
 
   return {
@@ -15708,6 +15711,7 @@ async function buildCareerPlacementPayload({
         || filterZeroCompensation(getZohoField(applicationRecord, ['Offered_CTC', 'Offered_Salary', 'Expected_Salary', 'Offer_Amount', 'Salary_Range', 'Salary', 'Compensation', 'Package']))
         || filterZeroCompensation(roleRow && roleRow.source_payload && roleRow.source_payload.billing_range)
         || filterZeroCompensation(roleRow && roleRow.source_payload && roleRow.source_payload.earnings)
+        || filterZeroCompensation(roleRow && roleRow.earnings_text)
         || 'Pending',
       unit: 'Per Day',
       note: 'Expected income',

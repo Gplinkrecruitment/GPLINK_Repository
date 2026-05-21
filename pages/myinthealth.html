@@ -1442,9 +1442,9 @@
         progress.completed.verification_issued = true;
         progress.stage = "verification_issued";
         saveProgress(progress, true);
-        syncRouteForStage(progress.stage);
         currentTabKey = activeTabStage(progress);
-        shellNavigate("/pages/amc.html");
+        // Navigate the top-level window to AMC so the app shell loads the new page
+        try { window.top.location.href = "/pages/amc.html"; } catch (e) { shellNavigate("/pages/amc.html"); }
         return;
       }
 
