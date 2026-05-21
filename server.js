@@ -20615,6 +20615,8 @@ async function handleApi(req, res, pathname) {
     if (!enrichEmail) { sendJson(res, 400, { ok: false, error: 'email param required' }); return; }
     const overrideAppId = (reqUrl2.searchParams.get('appId') || '').trim();
     const skipContractCache = reqUrl2.searchParams.get('nocache') === '1';
+    const overrideBilling = (reqUrl2.searchParams.get('billing') || '').trim();
+    const overrideCompensation = (reqUrl2.searchParams.get('compensation') || '').trim();
     const zoho = await getZohoRecruitAccessTokenAndDomain();
     if (!zoho) { sendJson(res, 502, { ok: false, error: 'Zoho Recruit not connected' }); return; }
     const profileRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,zoho_candidate_id&email=eq.' + encodeURIComponent(enrichEmail) + '&limit=1');
@@ -20667,7 +20669,18 @@ async function handleApi(req, res, pathname) {
           }
         }
       }
-      const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+      let roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
+      // If billing or compensation overrides provided, persist on the career_roles record
+      if (roleRow && (overrideBilling || overrideCompensation)) {
+        const rolePatch = {};
+        if (overrideBilling) rolePatch.billing_model = normalizeCareerBillingLabel(overrideBilling) || overrideBilling;
+        const existingPayload = roleRow.source_payload && typeof roleRow.source_payload === 'object' ? roleRow.source_payload : {};
+        if (overrideCompensation) existingPayload.billing_range = overrideCompensation;
+        rolePatch.source_payload = existingPayload;
+        const updated = await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(roleRow.id), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: rolePatch });
+        if (updated.ok && Array.isArray(updated.data) && updated.data[0]) roleRow = updated.data[0];
+        console.log('[enrich-placement] Updated career_roles', roleRow.id, '— billing:', rolePatch.billing_model || '(unchanged)', '| compensation:', overrideCompensation || '(unchanged)');
+      }
       const jobOpeningRecord = app.provider_role_id ? await fetchZohoRecruitJobOpeningRecord(zoho, app.provider_role_id).catch(() => null) : null;
       let clientId = app.zoho_client_id || '';
       let practiceContacts = [];
