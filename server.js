@@ -25257,32 +25257,29 @@ Return ONLY valid JSON with no markdown formatting:
       const driveFile = await uploadToGoogleDrive(folderId, doc.filename, fileBuffer, mimeType);
 
       // 6. Update GP's gp_prepared_docs state so My Documents shows "Ready"
+      // user_state table has ONE row per user with a JSONB 'state' column containing all state keys
       const docKey = task.related_document_key || '';
       if (docKey && regCase && regCase.user_id) {
         try {
-          // Build the Drive preview/download URL
           const driveUrl = driveFile && driveFile.id ? 'https://drive.google.com/file/d/' + driveFile.id + '/view' : '';
-          // Fetch current gp_prepared_docs state
-          const stateRes = await supabaseDbRequest('user_state', 'select=value&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&key=eq.gp_prepared_docs&limit=1');
-          let prepState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].value) ? stateRes.data[0].value : null;
-          if (typeof prepState === 'string') try { prepState = JSON.parse(prepState); } catch { prepState = null; }
+          // Fetch the full user state row
+          const stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
+          let fullState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].state) ? stateRes.data[0].state : {};
+          if (typeof fullState === 'string') try { fullState = JSON.parse(fullState); } catch { fullState = {}; }
+          // Update gp_prepared_docs within the state
+          let prepState = fullState.gp_prepared_docs;
           if (!prepState || typeof prepState !== 'object') prepState = { docs: {} };
           if (!prepState.docs) prepState.docs = {};
           prepState.docs[docKey] = { url: driveUrl, fileName: doc.filename || '', ready: true, uploadedAt: new Date().toISOString() };
           prepState.updatedAt = new Date().toISOString();
-          // Upsert the state
-          await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(regCase.user_id) + '&key=eq.gp_prepared_docs', {
-            method: 'PATCH', body: { value: prepState, updated_at: new Date().toISOString() }
+          fullState.gp_prepared_docs = prepState;
+          // PATCH the state column
+          await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(regCase.user_id), {
+            method: 'PATCH', body: { state: fullState, updated_at: new Date().toISOString() }
           });
-          // If PATCH didn't match (no existing row), insert
-          const checkState = await supabaseDbRequest('user_state', 'select=id&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&key=eq.gp_prepared_docs&limit=1');
-          if (!checkState.ok || !checkState.data || checkState.data.length === 0) {
-            await supabaseDbRequest('user_state', '', { method: 'POST', body: [{ user_id: regCase.user_id, key: 'gp_prepared_docs', value: prepState }] });
-          }
-          console.log('[AdminSubmitDrive] Updated gp_prepared_docs for', docKey, 'user:', regCase.user_id);
+          console.log('[AdminSubmitDrive] Updated gp_prepared_docs.' + docKey + ' for user:', regCase.user_id);
         } catch (stErr) {
           console.error('[AdminSubmitDrive] Failed to update gp_prepared_docs:', stErr.message);
-          // Non-blocking — task completion still proceeds
         }
       }
 
