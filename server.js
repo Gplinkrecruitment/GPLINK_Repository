@@ -20180,6 +20180,102 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // ── Reset GP to AHPRA stage (super admin) ──
+  if (req.method === 'POST' && pathname === '/api/admin/reset-gp') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var resetAdminCtx = requireAdminSession(req, res);
+    if (!resetAdminCtx) return;
+    var resetAdminEmail = getSessionEmail(resetAdminCtx.session);
+    if (!SUPER_ADMIN_EMAILS.has(resetAdminEmail)) { sendJson(res, 403, { ok: false, message: 'Super admin access required.' }); return; }
+
+    var resetBody = typeof req.body === 'object' && req.body ? req.body : {};
+    var resetEmail = String(resetBody.email || '').trim().toLowerCase();
+    if (!resetEmail) { sendJson(res, 400, { ok: false, message: 'email is required.' }); return; }
+
+    try {
+      // 1. Look up user by email
+      var resetProfileRes = await supabaseDbRequest('user_profiles', 'select=user_id,email&email=eq.' + encodeURIComponent(resetEmail) + '&limit=1');
+      var resetProfile = resetProfileRes.ok && Array.isArray(resetProfileRes.data) && resetProfileRes.data[0] ? resetProfileRes.data[0] : null;
+      if (!resetProfile) { sendJson(res, 404, { ok: false, message: 'User not found: ' + resetEmail }); return; }
+      var resetUserId = resetProfile.user_id;
+
+      // 2. Find their registration case
+      var resetCaseRes = await supabaseDbRequest('registration_cases', 'select=*&user_id=eq.' + encodeURIComponent(resetUserId) + '&limit=1');
+      var resetCase = resetCaseRes.ok && Array.isArray(resetCaseRes.data) && resetCaseRes.data[0] ? resetCaseRes.data[0] : null;
+      if (!resetCase) { sendJson(res, 404, { ok: false, message: 'No registration case found for ' + resetEmail }); return; }
+      var resetCaseId = resetCase.id;
+
+      // 3. Set case stage to 'ahpra'
+      await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(resetCaseId), {
+        method: 'PATCH', body: { stage: 'ahpra' }
+      });
+
+      // 4. Cancel ALL open registration_tasks for that case
+      var resetTasksRes = await supabaseDbRequest('registration_tasks',
+        'select=id&case_id=eq.' + encodeURIComponent(resetCaseId) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated,deferred)');
+      var resetCancelled = 0;
+      if (resetTasksRes.ok && Array.isArray(resetTasksRes.data)) {
+        for (var rt of resetTasksRes.data) {
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(rt.id), {
+            method: 'PATCH', body: { status: 'cancelled', completed_at: new Date().toISOString() }
+          });
+          resetCancelled++;
+        }
+      }
+
+      // 5. Delete all task_messages for that case
+      await supabaseDbRequest('task_messages', 'case_id=eq.' + encodeURIComponent(resetCaseId), {
+        method: 'DELETE', headers: { Prefer: 'return=minimal' }
+      });
+
+      // 6. Delete all task_documents for that case
+      await supabaseDbRequest('task_documents', 'case_id=eq.' + encodeURIComponent(resetCaseId), {
+        method: 'DELETE', headers: { Prefer: 'return=minimal' }
+      });
+
+      // 7. Clear gp_prepared_docs and gp_ahpra_progress from user_state
+      var resetStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(resetUserId) + '&limit=1');
+      if (resetStateRes.ok && Array.isArray(resetStateRes.data) && resetStateRes.data[0]) {
+        var resetState = typeof resetStateRes.data[0].state === 'object' ? resetStateRes.data[0].state : {};
+        resetState.gp_prepared_docs = {};
+        resetState.gp_ahpra_progress = {};
+        await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(resetUserId), {
+          method: 'PATCH', body: { state: resetState }
+        });
+      }
+
+      // 8. Delete processed_gmail_messages for VA emails so emails can be re-processed
+      for (var resetVaEmail of MONITORED_VA_EMAILS) {
+        await supabaseDbRequest('processed_gmail_messages', 'email_address=eq.' + encodeURIComponent(resetVaEmail), {
+          method: 'DELETE', headers: { Prefer: 'return=minimal' }
+        }).catch(function () {});
+      }
+
+      // 9. Create fresh practice pack tasks
+      var resetPackLabels = { position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV', sppa_00: 'SPPA-00', section_g: 'Section G' };
+      var resetDeferredKeys = new Set(['sppa_00', 'section_g']);
+      var resetCreated = 0;
+      for (var rdk of Object.keys(resetPackLabels)) {
+        var resetTaskData = { task_type: 'practice_pack_child', title: resetPackLabels[rdk], source_trigger: 'admin_reset', related_stage: 'career', related_document_key: rdk, _actor: 'system' };
+        if (resetDeferredKeys.has(rdk)) resetTaskData.status = 'deferred';
+        await _createRegTask(resetCaseId, resetTaskData);
+        resetCreated++;
+      }
+
+      // 10. Log timeline event
+      await _logCaseEvent(resetCaseId, null, 'system', 'GP reset to AHPRA stage by admin', 'Reset by ' + resetAdminEmail, resetAdminEmail);
+
+      invalidateAdminDashboardCache();
+
+      console.log('[ResetGP] Reset', resetEmail, 'to AHPRA stage. Cancelled:', resetCancelled, 'Created:', resetCreated);
+      sendJson(res, 200, { ok: true, cancelled: resetCancelled, created: resetCreated });
+    } catch (resetErr) {
+      console.error('[ResetGP] Error:', resetErr.message);
+      sendJson(res, 500, { ok: false, message: resetErr.message });
+    }
+    return;
+  }
+
   // ── WhatsApp freeform send (admin/VA) ──
   if (req.method === 'POST' && pathname === '/api/admin/whatsapp/send') {
     const adminCtx = requireAdminSession(req, res);

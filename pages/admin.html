@@ -947,6 +947,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           <button class="sa-tools-item" data-sa-tool="zoho-sign">Zoho Sign Status</button>
           <button class="sa-tools-item" data-sa-tool="ops-queue">Ops Queue</button>
           <button class="sa-tools-item" data-sa-tool="weekly-sweep">Weekly Sweep</button>
+          <button class="sa-tools-item" data-sa-tool="reset-gp">Reset GP</button>
         </div>
       </div>
       <button class="btn ghost" id="syncBtn" title="Sync cases">Sync</button>
@@ -4884,6 +4885,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       else if(tool==="zoho-sign"&&typeof loadZohoSignStatus==="function"){loadZohoSignStatus();alert("Zoho Sign status refreshed.");}
       else if(tool==="ops-queue"&&typeof loadOpsQueue==="function")loadOpsQueue();
       else if(tool==="weekly-sweep"){try{await fetch("/api/admin/va/sweep",{method:"POST",credentials:"same-origin"});alert("Sweep triggered.");}catch{alert("Sweep failed.");}}
+      else if(tool==="reset-gp"){var resetGpEmail=prompt("Enter GP email to reset to AHPRA stage:");if(!resetGpEmail)return;if(!confirm("This will cancel all tasks, delete messages/documents, and reset "+resetGpEmail+" to AHPRA stage. Continue?"))return;btn.textContent="Resetting\u2026";btn.disabled=true;try{var rg=await fetch("/api/admin/reset-gp",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:resetGpEmail})});var rgd=await rg.json().catch(function(){return{};});alert(rgd.ok?"Reset complete. Cancelled "+rgd.cancelled+" tasks, created "+rgd.created+" new tasks.":"Failed: "+(rgd.message||"unknown"));}catch(rge){alert("Failed: "+rge.message);}btn.textContent="Reset GP";btn.disabled=false;if(typeof loadOpsQueue==="function")loadOpsQueue();}
     });
   }
 
