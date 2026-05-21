@@ -20452,16 +20452,35 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 401, { ok: false, error: 'Unauthorized' }); return;
     }
     if (!enrichEmail) { sendJson(res, 400, { ok: false, error: 'email param required' }); return; }
+    const overrideAppId = (reqUrl2.searchParams.get('appId') || '').trim();
     const zoho = await getZohoRecruitAccessTokenAndDomain();
     if (!zoho) { sendJson(res, 502, { ok: false, error: 'Zoho Recruit not connected' }); return; }
-    const profileRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name&email=eq.' + encodeURIComponent(enrichEmail) + '&limit=1');
+    const profileRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,zoho_candidate_id&email=eq.' + encodeURIComponent(enrichEmail) + '&limit=1');
     const prof = profileRes.ok && Array.isArray(profileRes.data) && profileRes.data[0];
     if (!prof) { sendJson(res, 404, { ok: false, error: 'No user for ' + enrichEmail }); return; }
     const appsRes = await supabaseDbRequest('gp_applications', 'select=*&user_id=eq.' + encodeURIComponent(prof.user_id));
     const localApps = appsRes.ok && Array.isArray(appsRes.data) ? appsRes.data : [];
+
+    // If overrideAppId provided, resolve candidate ID + store on the first app record
+    if (overrideAppId && localApps.length > 0) {
+      const app0 = localApps[0];
+      if (!app0.zoho_application_id) {
+        const candResult = await ensureZohoRecruitCandidateIdForUser(prof.user_id, enrichEmail).catch(function () { return { ok: false }; });
+        const candId = (candResult && candResult.ok && candResult.zohoId) || prof.zoho_candidate_id || '';
+        await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app0.id), {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: { zoho_application_id: overrideAppId, zoho_candidate_id: candId, updated_at: new Date().toISOString() }
+        });
+        app0.zoho_application_id = overrideAppId;
+        app0.zoho_candidate_id = candId;
+        console.log('[enrich-placement] Override: stored zoho_application_id', overrideAppId, 'for', enrichEmail);
+      }
+    }
+
     const results = [];
     for (const app of localApps) {
-      const liveRecord = app.zoho_application_id ? await fetchZohoRecruitApplicationRecord(zoho, app.zoho_application_id).catch(() => null) : null;
+      const effectiveAppId = app.zoho_application_id || '';
+      const liveRecord = effectiveAppId ? await fetchZohoRecruitApplicationRecord(zoho, effectiveAppId).catch(function () { return null; }) : null;
       const roleRow = app.career_role_id ? await getCareerRoleRowById(app.career_role_id) : null;
       const jobOpeningRecord = app.provider_role_id ? await fetchZohoRecruitJobOpeningRecord(zoho, app.provider_role_id).catch(() => null) : null;
       let clientId = app.zoho_client_id || '';
