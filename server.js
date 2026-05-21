@@ -6351,10 +6351,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       const alreadySent = await _hasDoubleTickBeenSent(caseId, 'MyIntealth');
       console.log('[task-automation] DoubleTick myintealth check: nextHasEpic=', nextHasEpic, '_gpPhone=', _gpPhone, 'alreadySent=', alreadySent);
       if (!alreadySent) {
+        // Log sentinel BEFORE sending to prevent concurrent calls from racing past the guard
+        await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
         console.log('[task-automation] SENDING DoubleTick template for myintealth to', _gpPhone);
         const dtResult = await sendDoubleTickTemplate(_gpPhone, 'myintealth', _gpFirstName);
         console.log('[task-automation] DoubleTick result:', JSON.stringify(dtResult));
-        await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
       }
     }
 
@@ -6367,9 +6368,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
           // Send WhatsApp template + email only if not already sent for this case
           if (!(await _hasDoubleTickBeenSent(caseId, 'AMC stage'))) {
+            await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
             if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'amc', _gpFirstName);
             sendMyintealthCompleteEmail(userId).catch(err => console.error('[Email] MyIntealth complete failed:', err.message));
-            await _logCaseEvent(caseId, null, 'system', 'AMC stage started — WhatsApp template sent', null, 'system');
           }
         }
       }
