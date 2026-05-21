@@ -12812,8 +12812,14 @@ function normalizeContractSplitDisplay(value) {
   return source.replace(/\s+/g, ' ').trim();
 }
 
+function expandThousandsNotation(value) {
+  return String(value || '').replace(/\$\s*(\d+(?:\.\d+)?)\s*[Kk]\b/g, function (_, num) {
+    return '$' + String(Math.round(Number(num) * 1000));
+  });
+}
+
 function normalizeContractCurrencyDisplay(value) {
-  const source = String(value || '').replace(/\s+/g, ' ').trim();
+  const source = expandThousandsNotation(String(value || '')).replace(/\s+/g, ' ').trim();
   if (!source) return '';
   const match = source.match(/^\$\s*([\d,\s]+(?:\.\d{2})?)(.*)$/);
   if (!match) return source;
@@ -12835,7 +12841,7 @@ function scoreContractSplitDisplay(value) {
 }
 
 function parseContractCurrencyAmount(value) {
-  const normalized = normalizeContractCurrencyDisplay(value);
+  const normalized = normalizeContractCurrencyDisplay(expandThousandsNotation(value));
   const match = normalized.match(/(\d[\d,]*)(?:\.\d{2})?/);
   if (!match) return 0;
   const numeric = Number(match[1].replace(/,/g, ''));
@@ -12915,7 +12921,7 @@ function extractDoctorShareFromSource(sourceText) {
 }
 
 function extractRelocationPackageFromSource(sourceText) {
-  const text = stripHtml(String(sourceText || '')).replace(/\s+/g, ' ').trim();
+  const text = expandThousandsNotation(stripHtml(String(sourceText || ''))).replace(/\s+/g, ' ').trim();
   if (!text) return '';
 
   const relocationWindow = text.match(/(?:relocation(?: package| allowance| support)?|sign[-\s]?on)[\s\S]{0,320}/i);
@@ -13007,7 +13013,7 @@ function heuristicExtractCareerContractTerms(textValue) {
   if (!text) return null;
 
   const splitMatch = text.match(/(?:billing|billings|percentage|collections?|gross billings?|remuneration|split|entitled to|receive|receives)[^.%$]{0,120}?(\d{1,2}\s*\/\s*\d{1,2}|\d{1,2}(?:\.\d+)?\s*(?:%|percent|per cent))/i);
-  const relocationMatch = text.match(/(?:relocation|relocation package|relocation allowance|relocation support|sign[-\s]?on)[^$]{0,120}?(\$ ?\d[\d,\s]*(?:\.\d{2})?\s*(?:aud|australian dollars?)?)/i);
+  const relocationMatch = expandThousandsNotation(text).match(/(?:relocation|relocation package|relocation allowance|relocation support|sign[-\s]?on)[^$]{0,120}?(\$ ?\d[\d,\s]*(?:\.\d{2})?\s*(?:aud|australian dollars?)?)/i);
   const contractLengthMatch = text.match(/(?:contract(?: length)?|term|initial term|period)[^.\n]{0,80}?(\d+\s*(?:year|month)s?)/i);
 
   return {
@@ -13112,13 +13118,14 @@ Rules:
   }
 }
 
-async function resolveCareerContractTerms(zoho, applicationId, zohoCandidateId) {
+async function resolveCareerContractTerms(zoho, applicationId, zohoCandidateId, options) {
   const appId = String(applicationId || '').trim();
   if (!zoho || !appId) return null;
   const contractCacheTtlMs = 30 * 24 * 60 * 60 * 1000;
+  const skipCache = options && options.skipCache;
 
   const cacheKey = buildCareerContractCacheKey(appId);
-  const cached = await getRuntimeKv(cacheKey);
+  const cached = skipCache ? null : await getRuntimeKv(cacheKey);
   const cachedValue = cached && cached.value && typeof cached.value === 'object' ? cached.value : null;
 
   let attachments = await listZohoRecruitApplicationAttachments(zoho, appId);
@@ -15575,7 +15582,8 @@ async function buildCareerPlacementPayload({
   practiceContacts,
   providerRoleId,
   profile,
-  zohoCandidateId
+  zohoCandidateId,
+  skipContractCache
 }) {
   const practiceName = getZohoApplicationPracticeName(applicationRecord)
     || getZohoField(jobOpeningRecord, ['Posting_Title', 'Job_Opening_Name', 'Title'])
@@ -15583,7 +15591,7 @@ async function buildCareerPlacementPayload({
     || 'Medical Centre';
   const roleTitle = derivePlacementRoleTitle(roleRow, jobOpeningRecord, practiceName);
   const location = getZohoPlacementLocation(jobOpeningRecord, roleRow);
-  const contractTerms = applicationRecord ? await resolveCareerContractTerms(zoho, sanitizeZohoText(applicationRecord.id), zohoCandidateId).catch(function (e) { console.error('[buildPlacement] contractTerms failed:', e && e.message); return null; }) : null;
+  const contractTerms = applicationRecord ? await resolveCareerContractTerms(zoho, sanitizeZohoText(applicationRecord.id), zohoCandidateId, { skipCache: !!skipContractCache }).catch(function (e) { console.error('[buildPlacement] contractTerms failed:', e && e.message); return null; }) : null;
   const fallbackTerms = extractPlacementTermsFromJobOpening(jobOpeningRecord, roleRow, applicationRecord);
   const billingLabel = normalizeCareerBillingLabel(getZohoField(jobOpeningRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
     || normalizeCareerBillingLabel(getZohoField(applicationRecord, ['Billing_Model', 'Billing_Type', 'Remuneration_Model', 'Fee_Model', 'Billing']))
@@ -20453,6 +20461,7 @@ async function handleApi(req, res, pathname) {
     }
     if (!enrichEmail) { sendJson(res, 400, { ok: false, error: 'email param required' }); return; }
     const overrideAppId = (reqUrl2.searchParams.get('appId') || '').trim();
+    const skipContractCache = reqUrl2.searchParams.get('nocache') === '1';
     const zoho = await getZohoRecruitAccessTokenAndDomain();
     if (!zoho) { sendJson(res, 502, { ok: false, error: 'Zoho Recruit not connected' }); return; }
     const profileRes = await supabaseDbRequest('user_profiles', 'select=user_id,email,first_name,last_name,zoho_candidate_id&email=eq.' + encodeURIComponent(enrichEmail) + '&limit=1');
@@ -20519,7 +20528,7 @@ async function handleApi(req, res, pathname) {
           await supabaseDbRequest('gp_applications', 'id=eq.' + encodeURIComponent(app.id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: { practice_contact_name: cn || '', practice_contact_email: ce || '', zoho_client_id: clientId } });
         }
       }
-      const placement = await buildCareerPlacementPayload({ zoho, applicationRecord: liveRecord, roleRow, jobOpeningRecord, startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining','Joining_Date','Start_Date']) : null, practiceContacts, providerRoleId: app.provider_role_id, profile: prof, zohoCandidateId: app.zoho_candidate_id || '' }).catch(() => null);
+      const placement = await buildCareerPlacementPayload({ zoho, applicationRecord: liveRecord, roleRow, jobOpeningRecord, startDateIso: liveRecord ? getZohoField(liveRecord, ['Expected_Date_of_Joining','Joining_Date','Start_Date']) : null, practiceContacts, providerRoleId: app.provider_role_id, profile: prof, zohoCandidateId: app.zoho_candidate_id || '', skipContractCache: skipContractCache }).catch(() => null);
       if (placement) {
         const stR = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(prof.user_id) + '&limit=1');
         const cs = stR.ok && Array.isArray(stR.data) && stR.data[0] && typeof stR.data[0].state === 'object' ? stR.data[0].state : {};
