@@ -6387,12 +6387,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
           // Send WhatsApp template + email only if not already sent for this case
           if (!(await _hasDoubleTickBeenSent(caseId, 'Career stage'))) {
+            await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
             if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'career', _gpFirstName);
             // Check if GP already has a secured placement to send the right email variant
             var _amcCareerSecured = nxt.career.career_secured === true || nxt.career.secured === true;
             if (!_amcCareerSecured && Array.isArray(nxt.career.applications)) { _amcCareerSecured = nxt.career.applications.some(function (a) { return a && a.isPlacementSecured === true; }); }
             sendAmcCompleteEmail(userId, _amcCareerSecured).catch(err => console.error('[Email] AMC complete failed:', err.message));
-            await _logCaseEvent(caseId, null, 'system', 'Career stage started — WhatsApp template sent', null, 'system');
           }
         }
       }
@@ -6530,9 +6530,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
 
       // Send WhatsApp template + email only if not already sent for this case
       if (!(await _hasDoubleTickBeenSent(caseId, 'AHPRA stage'))) {
+        await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
         if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'ahpra', _gpFirstName);
         sendAhpraUnlockedEmail(userId).catch(err => console.error('[Email] AHPRA unlocked failed:', err.message));
-        await _logCaseEvent(caseId, null, 'system', 'AHPRA stage started — WhatsApp template sent', null, 'system');
       }
 
       // Auto-complete Section G when GP reaches AHPRA
@@ -6577,9 +6577,9 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           if (ot.ok && Array.isArray(ot.data)) { for (const t of ot.data) await _completeRegTask(t.id, caseId, 'system'); }
           // Send WhatsApp template + email only if not already sent for this case
           if (!(await _hasDoubleTickBeenSent(caseId, 'Visa stage'))) {
+            await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
             if (_gpPhone) await sendDoubleTickTemplate(_gpPhone, 'visa', _gpFirstName);
             sendAhpraCompleteEmail(userId).catch(err => console.error('[Email] AHPRA complete failed:', err.message));
-            await _logCaseEvent(caseId, null, 'system', 'Visa stage started — WhatsApp template sent', null, 'system');
           }
         }
       }
