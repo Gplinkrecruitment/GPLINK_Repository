@@ -12975,9 +12975,17 @@ function finalizeCareerContractTerms(rawTerms, extractedText) {
   const terms = rawTerms && typeof rawTerms === 'object' ? rawTerms : {};
   const derivedDoctorShare = extractDoctorShareFromSource(extractedText) || extractDoctorShareFromSource(terms.notes);
   const derivedRelocationPackage = extractRelocationPackageFromSource(extractedText) || extractRelocationPackageFromSource(terms.notes);
+  // Pick the better-scoring relocation value between derived (regex) and merged (AI+heuristic)
+  const mergedRelocation = normalizeContractCurrencyDisplay(terms.relocationPackageDisplay);
+  const finalRelocation = pickBetterContractTermValue(
+    derivedRelocationPackage,
+    mergedRelocation,
+    scoreContractRelocationDisplay,
+    normalizeContractCurrencyDisplay
+  ) || derivedRelocationPackage || mergedRelocation;
   return {
     splitDisplay: derivedDoctorShare || normalizeContractSplitDisplay(terms.splitDisplay),
-    relocationPackageDisplay: derivedRelocationPackage || normalizeContractCurrencyDisplay(terms.relocationPackageDisplay),
+    relocationPackageDisplay: finalRelocation,
     contractLengthDisplay: normalizeContractLengthDisplay(terms.contractLengthDisplay),
     notes: String(terms.notes || '').trim()
   };
