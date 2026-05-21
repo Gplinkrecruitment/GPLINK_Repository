@@ -25213,12 +25213,42 @@ Return ONLY valid JSON with no markdown formatting:
       // 5. Upload to GP's Drive folder
       const driveFile = await uploadToGoogleDrive(folderId, doc.filename, fileBuffer, mimeType);
 
-      // 6. Complete the task
+      // 6. Update GP's gp_prepared_docs state so My Documents shows "Ready"
+      const docKey = task.related_document_key || '';
+      if (docKey && regCase && regCase.user_id) {
+        try {
+          // Build the Drive preview/download URL
+          const driveUrl = driveFile && driveFile.id ? 'https://drive.google.com/file/d/' + driveFile.id + '/view' : '';
+          // Fetch current gp_prepared_docs state
+          const stateRes = await supabaseDbRequest('user_state', 'select=value&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&key=eq.gp_prepared_docs&limit=1');
+          let prepState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].value) ? stateRes.data[0].value : null;
+          if (typeof prepState === 'string') try { prepState = JSON.parse(prepState); } catch { prepState = null; }
+          if (!prepState || typeof prepState !== 'object') prepState = { docs: {} };
+          if (!prepState.docs) prepState.docs = {};
+          prepState.docs[docKey] = { url: driveUrl, fileName: doc.filename || '', ready: true, uploadedAt: new Date().toISOString() };
+          prepState.updatedAt = new Date().toISOString();
+          // Upsert the state
+          await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(regCase.user_id) + '&key=eq.gp_prepared_docs', {
+            method: 'PATCH', body: { value: prepState, updated_at: new Date().toISOString() }
+          });
+          // If PATCH didn't match (no existing row), insert
+          const checkState = await supabaseDbRequest('user_state', 'select=id&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&key=eq.gp_prepared_docs&limit=1');
+          if (!checkState.ok || !checkState.data || checkState.data.length === 0) {
+            await supabaseDbRequest('user_state', '', { method: 'POST', body: [{ user_id: regCase.user_id, key: 'gp_prepared_docs', value: prepState }] });
+          }
+          console.log('[AdminSubmitDrive] Updated gp_prepared_docs for', docKey, 'user:', regCase.user_id);
+        } catch (stErr) {
+          console.error('[AdminSubmitDrive] Failed to update gp_prepared_docs:', stErr.message);
+          // Non-blocking — task completion still proceeds
+        }
+      }
+
+      // 7. Complete the task
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
         method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email }
       });
 
-      // 7. Log timeline event
+      // 8. Log timeline event
       await _logCaseEvent(task.case_id, taskId, 'completed', 'Document submitted to Drive: ' + doc.filename, null, adminCtx.email);
       await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(task.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
 
