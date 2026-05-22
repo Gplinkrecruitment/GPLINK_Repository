@@ -10327,8 +10327,10 @@ function buildCareerRoleRecordFromZoho(record, syncedAt) {
     location_state: state,
     location_country: country,
     location_label: locationLabel || buildLocationLabel([city, state, country]),
+    billing_model: billingModel,
     dpa,
     mmm: mmmText,
+    earnings_text: earningsText,
     summary,
     employment_type: employmentType,
     practice_type: practiceType,
@@ -10345,11 +10347,6 @@ function buildCareerRoleRecordFromZoho(record, syncedAt) {
     synced_at: syncedAt,
     updated_at: syncedAt
   };
-  // Only include billing_model and earnings_text when Zoho provides them,
-  // so the merge-duplicates upsert doesn't blank out manually-set overrides
-  if (billingModel) baseRow.billing_model = billingModel;
-  if (earningsText) baseRow.earnings_text = earningsText;
-
   const gpLinkMeta = buildCareerRoleGpLinkMetaFromRow(baseRow);
 
   return {
@@ -10978,6 +10975,18 @@ async function syncZohoRecruitRoles() {
     if (!moreRecords || records.length === 0) break;
   }
 
+  // Snapshot rows with manually-set billing/earnings before upsert overwrites them
+  const manualOverrides = new Map();
+  try {
+    const existingRes = await supabaseDbRequest('career_roles',
+      'select=id,provider_role_id,billing_model,earnings_text&provider=eq.zoho_recruit&or=(billing_model.neq.,earnings_text.neq.)');
+    if (existingRes.ok && Array.isArray(existingRes.data)) {
+      for (const row of existingRes.data) {
+        if (row.billing_model || row.earnings_text) manualOverrides.set(row.provider_role_id, row);
+      }
+    }
+  } catch (e) { /* best-effort */ }
+
   for (let index = 0; index < rows.length; index += 100) {
     const chunk = rows.slice(index, index + 100);
     const ok = await upsertCareerRoleBatch(chunk);
@@ -10989,6 +10998,20 @@ async function syncZohoRecruitRoles() {
         lastSyncError: 'Failed to store synced Zoho Recruit roles in Supabase.'
       });
       return { ok: false, status: 502, message: 'Failed to store synced Zoho Recruit roles.' };
+    }
+  }
+
+  // Restore manually-set billing/earnings that the Zoho upsert may have blanked
+  for (const [providerRoleId, saved] of manualOverrides) {
+    const zohoRow = rows.find(r => r.provider_role_id === providerRoleId);
+    if (!zohoRow) continue;
+    const patch = {};
+    if (saved.billing_model && !zohoRow.billing_model) patch.billing_model = saved.billing_model;
+    if (saved.earnings_text && !zohoRow.earnings_text) patch.earnings_text = saved.earnings_text;
+    if (Object.keys(patch).length > 0) {
+      await supabaseDbRequest('career_roles', 'id=eq.' + encodeURIComponent(saved.id), {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: patch
+      }).catch(() => {});
     }
   }
 
