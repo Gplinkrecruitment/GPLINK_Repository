@@ -25184,6 +25184,163 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  /* ── Admin: Categorized GP Documents ── */
+  if (pathname === '/api/admin/gp-documents' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var gdAdminCtx = requireAdminSession(req, res);
+    if (!gdAdminCtx) return;
+    var gdCaseId = url.searchParams.get('case_id');
+    if (!gdCaseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
+
+    try {
+      // 1. Get case + user info
+      var gdCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,google_drive_folder_id,stage&id=eq.' + encodeURIComponent(gdCaseId) + '&limit=1');
+      var gdCase = gdCaseRes.ok && Array.isArray(gdCaseRes.data) && gdCaseRes.data[0] ? gdCaseRes.data[0] : null;
+      if (!gdCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+      var gdUserId = gdCase.user_id;
+
+      // 2. Get user's country from state or profile
+      var gdStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
+      var gdUserState = gdStateRes.ok && Array.isArray(gdStateRes.data) && gdStateRes.data[0] && typeof gdStateRes.data[0].state === 'object' ? gdStateRes.data[0].state : {};
+      var gdProfRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
+      var gdProf = gdProfRes.ok && Array.isArray(gdProfRes.data) && gdProfRes.data[0] ? gdProfRes.data[0] : {};
+      var gdCountry = (gdProf.registration_country || gdUserState.gp_selected_country || 'uk').toLowerCase();
+
+      // 3. Build document template list for this country
+      var gdShared = GP_DOCUMENT_META.shared || [];
+      var gdCountryDocs = GP_DOCUMENT_META[gdCountry] || [];
+      var gdAllDocs = gdShared.concat(gdCountryDocs);
+
+      // 4. Get user_documents from DB
+      var gdNormalizedCountry = gdCountry.toUpperCase();
+      var gdUserDocsRes = await supabaseDbRequest('user_documents', 'select=*&user_id=eq.' + encodeURIComponent(gdUserId) + '&country_code=eq.' + encodeURIComponent(gdNormalizedCountry));
+      var gdUserDocs = gdUserDocsRes.ok && Array.isArray(gdUserDocsRes.data) ? gdUserDocsRes.data : [];
+      var gdUserDocsByKey = {};
+      gdUserDocs.forEach(function(d) { if (d && d.document_key) gdUserDocsByKey[d.document_key] = d; });
+
+      // 5. Get user_state document prep status
+      var gdDocPrep = gdUserState.gp_documents_prep || gdUserState.gp_prepared_docs || {};
+      var gdDocPrepDocs = gdDocPrep.docs || gdDocPrep || {};
+
+      // 6. Get practice_doc_ops
+      var gdPracticeOps = await _ensurePracticeDocOps(gdCaseId);
+
+      // 7. Get Drive files
+      var gdDriveFiles = [];
+      if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
+        try {
+          var gdDrive = await getGoogleDriveClient();
+          if (gdDrive) {
+            var gdDriveRes = await gdDrive.files.list({
+              q: "'" + gdCase.google_drive_folder_id + "' in parents and trashed = false",
+              fields: 'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webViewLink)',
+              orderBy: 'modifiedTime desc', pageSize: 100
+            });
+            gdDriveFiles = gdDriveRes.data.files || [];
+          }
+        } catch (gdDriveErr) { console.error('[gp-documents] Drive error:', gdDriveErr.message); }
+      }
+
+      // 8. Get task_documents with Drive file IDs for practice_pack_child tasks
+      var gdTaskDocsRes = await supabaseDbRequest('registration_tasks',
+        'select=id,related_document_key,google_drive_file_id&case_id=eq.' + encodeURIComponent(gdCaseId) + '&task_type=eq.practice_pack_child');
+      var gdTaskDocs = gdTaskDocsRes.ok && Array.isArray(gdTaskDocsRes.data) ? gdTaskDocsRes.data : [];
+      var gdDriveIdToDocKey = {};
+      gdTaskDocs.forEach(function(t) {
+        if (t.google_drive_file_id && t.related_document_key) gdDriveIdToDocKey[t.google_drive_file_id] = t.related_document_key;
+      });
+
+      // Also check task_documents table for Drive file IDs
+      var gdTaskDocFilesRes = await supabaseDbRequest('task_documents',
+        'select=google_drive_file_id,task_id&case_id=eq.' + encodeURIComponent(gdCaseId) + '&is_current=eq.true&google_drive_file_id=neq.');
+      var gdTaskDocFiles = gdTaskDocFilesRes.ok && Array.isArray(gdTaskDocFilesRes.data) ? gdTaskDocFilesRes.data : [];
+      var gdTaskIdToDocKey = {};
+      gdTaskDocs.forEach(function(t) { if (t.id && t.related_document_key) gdTaskIdToDocKey[t.id] = t.related_document_key; });
+      gdTaskDocFiles.forEach(function(td) {
+        if (td.google_drive_file_id && td.task_id && gdTaskIdToDocKey[td.task_id]) {
+          gdDriveIdToDocKey[td.google_drive_file_id] = gdTaskIdToDocKey[td.task_id];
+        }
+      });
+
+      // 9. Categorize
+      var gdMatchedDriveIds = new Set();
+      var gdDirectToAhpra = [];
+      var gdPreparedByCandidate = [];
+      var gdPreparedByGpLink = [];
+
+      // Direct to AHPRA + Prepared by Candidate
+      gdAllDocs.forEach(function(doc) {
+        var userDoc = gdUserDocsByKey[doc.key];
+        var stateDoc = gdDocPrepDocs[doc.key];
+        var status = 'pending';
+        if (userDoc) {
+          status = userDoc.status || 'uploaded';
+        } else if (stateDoc) {
+          status = stateDoc.status || (stateDoc.uploaded ? 'uploaded' : (stateDoc.requested ? 'requested' : 'pending'));
+        }
+        var entry = { key: doc.key, label: doc.label, source: doc.source, status: status };
+        if (userDoc) {
+          entry.file_name = userDoc.file_name || '';
+          entry.file_url = userDoc.file_url || '';
+          entry.updated_at = userDoc.updated_at || '';
+        }
+        if (doc.source === 'institution_docs') gdDirectToAhpra.push(entry);
+        else if (doc.source === 'prepared_by_you') gdPreparedByCandidate.push(entry);
+      });
+
+      // Prepared by GP LINK
+      var gdOpsMap = {};
+      gdPracticeOps.forEach(function(op) { if (op && op.document_key) gdOpsMap[op.document_key] = op; });
+
+      GP_LINK_DOCUMENT_META.forEach(function(doc) {
+        var ops = gdOpsMap[doc.key] || { ops_status: 'not_requested' };
+        var driveFile = null;
+        // Find matching Drive file by document key
+        for (var i = 0; i < gdDriveFiles.length; i++) {
+          if (gdDriveIdToDocKey[gdDriveFiles[i].id] === doc.key) {
+            driveFile = gdDriveFiles[i];
+            gdMatchedDriveIds.add(gdDriveFiles[i].id);
+            break;
+          }
+        }
+        // Fallback: match by filename containing the document label
+        if (!driveFile) {
+          var labelLower = doc.label.toLowerCase().replace(/[^a-z0-9]/g, '');
+          for (var j = 0; j < gdDriveFiles.length; j++) {
+            var nameLower = (gdDriveFiles[j].name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (nameLower.indexOf(labelLower) > -1 || (doc.key === 'sppa_00' && nameLower.indexOf('sppa') > -1)) {
+              driveFile = gdDriveFiles[j];
+              gdMatchedDriveIds.add(gdDriveFiles[j].id);
+              break;
+            }
+          }
+        }
+        gdPreparedByGpLink.push({
+          key: doc.key, label: doc.label,
+          ops_status: ops.ops_status || 'not_requested',
+          ops_id: ops.id || null,
+          drive_file: driveFile
+        });
+      });
+
+      // Other unmatched Drive files
+      var gdOtherFiles = gdDriveFiles.filter(function(f) { return !gdMatchedDriveIds.has(f.id); });
+
+      sendJson(res, 200, {
+        ok: true,
+        country: gdCountry,
+        directToAhpra: gdDirectToAhpra,
+        preparedByCandidate: gdPreparedByCandidate,
+        preparedByGpLink: gdPreparedByGpLink,
+        otherFiles: gdOtherFiles
+      });
+    } catch (gdErr) {
+      console.error('[gp-documents] Error:', gdErr.message);
+      sendJson(res, 500, { ok: false, message: 'Failed to load documents.' });
+    }
+    return;
+  }
+
   // ── List files in GP's Google Drive folder ──
   if (pathname === '/api/admin/drive/files' && req.method === 'GET') {
     const adminCtx = requireAdminSession(req, res);
