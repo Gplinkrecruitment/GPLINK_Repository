@@ -1347,14 +1347,33 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
         var taskInfo = (taskLookup.ok && Array.isArray(taskLookup.data) && taskLookup.data[0]) ? taskLookup.data[0] : null;
 
         if (taskInfo && taskInfo.case_id) {
-          // Upload to Google Drive
-          try {
-            var folderId = await ensureGPDriveFolder(taskInfo.case_id, null, null);
-            if (folderId && attachmentData) {
-              await uploadToGoogleDrive(folderId, attachmentMeta.filename, attachmentData, attachmentMeta.mimeType);
+          var driveUploaded = false;
+
+          // If we have a document key, deliver to user's My Documents (also handles Drive upload)
+          if (taskInfo.related_document_key && attachmentData) {
+            var caseUserRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(taskInfo.case_id) + '&limit=1');
+            var caseUserId = (caseUserRes.ok && Array.isArray(caseUserRes.data) && caseUserRes.data[0]) ? caseUserRes.data[0].user_id : null;
+            if (caseUserId) {
+              try {
+                await deliverToMyDocuments(caseUserId, taskInfo.case_id, taskInfo.related_document_key, attachmentMeta.filename, attachmentData, attachmentMeta.mimeType);
+                driveUploaded = true;
+                console.log('[Gmail] Delivered', taskInfo.related_document_key, 'to user_documents for user', caseUserId);
+              } catch (deliverErr) {
+                console.error('[Gmail] deliverToMyDocuments error:', deliverErr.message);
+              }
             }
-          } catch (driveErr) {
-            console.error('[Gmail] Drive upload error:', driveErr.message);
+          }
+
+          // Fallback: direct Drive upload if delivery didn't handle it
+          if (!driveUploaded) {
+            try {
+              var folderId = await ensureGPDriveFolder(taskInfo.case_id, null, null);
+              if (folderId && attachmentData) {
+                await uploadToGoogleDrive(folderId, attachmentMeta.filename, attachmentData, attachmentMeta.mimeType);
+              }
+            } catch (driveErr) {
+              console.error('[Gmail] Drive upload error:', driveErr.message);
+            }
           }
 
           // Log case event
