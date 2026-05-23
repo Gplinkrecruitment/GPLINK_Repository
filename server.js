@@ -20280,12 +20280,23 @@ async function handleApi(req, res, pathname) {
         method: 'DELETE', headers: { Prefer: 'return=minimal' }
       });
 
+      // 6b. Delete all user_documents for that user
+      await supabaseDbRequest('user_documents', 'user_id=eq.' + encodeURIComponent(resetUserId), {
+        method: 'DELETE', headers: { Prefer: 'return=minimal' }
+      });
+
+      // 6c. Delete all practice_doc_ops for that case
+      await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(resetCaseId), {
+        method: 'DELETE', headers: { Prefer: 'return=minimal' }
+      });
+
       // 7. Clear gp_prepared_docs and gp_ahpra_progress from user_state
       var resetStateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(resetUserId) + '&limit=1');
       if (resetStateRes.ok && Array.isArray(resetStateRes.data) && resetStateRes.data[0]) {
         var resetState = typeof resetStateRes.data[0].state === 'object' ? resetStateRes.data[0].state : {};
         resetState.gp_prepared_docs = {};
         resetState.gp_ahpra_progress = {};
+        resetState.gp_documents_prep = {};
 
         // Set earlier stages as completed so the journey shows correctly
         resetState.gp_epic_progress = resetState.gp_epic_progress || {};
