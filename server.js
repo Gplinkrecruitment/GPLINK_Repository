@@ -25197,7 +25197,10 @@ Return ONLY valid JSON with no markdown formatting:
       var gdUserState = gdStateRes.ok && Array.isArray(gdStateRes.data) && gdStateRes.data[0] && typeof gdStateRes.data[0].state === 'object' ? gdStateRes.data[0].state : {};
       var gdProfRes = await supabaseDbRequest('user_profiles', 'select=registration_country&user_id=eq.' + encodeURIComponent(gdUserId) + '&limit=1');
       var gdProf = gdProfRes.ok && Array.isArray(gdProfRes.data) && gdProfRes.data[0] ? gdProfRes.data[0] : {};
-      var gdCountry = (gdProf.registration_country || gdUserState.gp_selected_country || 'uk').toLowerCase();
+      // Normalize country — state values may be double-stringified (e.g. "\"United Kingdom\"")
+      var _gdRawCountry = gdProf.registration_country || gdUserState.gp_selected_country || 'uk';
+      if (typeof _gdRawCountry === 'string') { try { var _p = JSON.parse(_gdRawCountry); if (typeof _p === 'string') _gdRawCountry = _p; } catch(e){} }
+      var gdCountry = normalizeDocumentCountry(_gdRawCountry) || 'uk';
 
       // 3. Build document template list for this country
       var gdShared = GP_DOCUMENT_META.shared || [];
@@ -25211,8 +25214,9 @@ Return ONLY valid JSON with no markdown formatting:
       var gdUserDocsByKey = {};
       gdUserDocs.forEach(function(d) { if (d && d.document_key) gdUserDocsByKey[d.document_key] = d; });
 
-      // 5. Get user_state document prep status
-      var gdDocPrep = gdUserState.gp_documents_prep || gdUserState.gp_prepared_docs || {};
+      // 5. Get user_state document prep status (values may be stringified JSON)
+      var _gdDocPrepRaw = gdUserState.gp_documents_prep || gdUserState.gp_prepared_docs || {};
+      var gdDocPrep = typeof _gdDocPrepRaw === 'string' ? (function(){ try { return JSON.parse(_gdDocPrepRaw); } catch(e){ return {}; } })() : _gdDocPrepRaw;
       var gdDocPrepDocs = gdDocPrep.docs || gdDocPrep || {};
 
       // 6. Get practice_doc_ops
