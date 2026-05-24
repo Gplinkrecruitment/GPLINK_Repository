@@ -6458,11 +6458,12 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
     const pc = prev.epic.completed || {};
     const nc = nxt.epic.completed || {};
 
-    // ── MyIntealth welcome — send when GP has epic progress and message hasn't been sent yet ──
+    // ── MyIntealth welcome — send ONLY on transition (prev has no epic stage, next does) ──
+    const prevHasEpic = prev.epic && prev.epic.stage;
     const nextHasEpic = nxt.epic && nxt.epic.stage;
-    if (nextHasEpic && _gpPhone) {
+    if (!prevHasEpic && nextHasEpic && _gpPhone) {
       const alreadySent = await _hasDoubleTickBeenSent(caseId, 'MyIntealth');
-      console.log('[task-automation] DoubleTick myintealth check: nextHasEpic=', nextHasEpic, '_gpPhone=', _gpPhone, 'alreadySent=', alreadySent);
+      console.log('[task-automation] DoubleTick myintealth check: prevHasEpic=', prevHasEpic, 'nextHasEpic=', nextHasEpic, '_gpPhone=', _gpPhone, 'alreadySent=', alreadySent);
       if (!alreadySent) {
         // Log sentinel BEFORE sending to prevent concurrent calls from racing past the guard
         await _logCaseEvent(caseId, null, 'system', 'MyIntealth started — WhatsApp template sent', null, 'system');
