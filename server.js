@@ -419,6 +419,83 @@ async function _updatePreparedDocsState(userId, docKey, driveFileId, fileName) {
   });
 }
 
+// Fetch the offer/contract PDF from Zoho Recruit and deliver to My Documents + Drive
+async function deliverOfferContract(userId, caseId, zohoApplicationId, zohoCandidateId) {
+  if (!userId || !caseId) return null;
+  // Idempotent: skip if already delivered
+  var existingDoc = await supabaseDbRequest('user_documents',
+    'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.offer_contract&status=in.(approved,uploaded,received)&limit=1');
+  if (existingDoc.ok && Array.isArray(existingDoc.data) && existingDoc.data.length > 0) {
+    console.log('[OfferContract] Already delivered for user', userId, '— skipping');
+    return { skipped: true };
+  }
+
+  if (!isZohoRecruitConfigured()) { console.log('[OfferContract] Zoho Recruit not configured — skipping'); return null; }
+  var zoho = await getZohoRecruitAccessTokenAndDomain();
+  if (!zoho) { console.error('[OfferContract] Failed to get Zoho token'); return null; }
+
+  // 1. Find contract attachment — try Application first, fall back to Candidate
+  var attachments = [];
+  if (zohoApplicationId) {
+    attachments = await listZohoRecruitApplicationAttachments(zoho, zohoApplicationId);
+  }
+  var candidates = selectZohoContractAttachmentCandidates(attachments);
+
+  if (candidates.length === 0 && zohoCandidateId) {
+    console.log('[OfferContract] No contract on Application, trying Candidate record');
+    attachments = await listZohoRecruitCandidateAttachments(zoho, zohoCandidateId);
+    candidates = selectZohoContractAttachmentCandidates(attachments);
+  }
+
+  if (candidates.length === 0) {
+    console.log('[OfferContract] No contract attachment found for user', userId);
+    return null;
+  }
+
+  var best = candidates[0];
+  var attachmentId = getZohoAttachmentId(best);
+  var fileName = getZohoAttachmentFileName(best) || 'Offer Contract.pdf';
+
+  // 2. Download the PDF
+  var downloaded = zohoApplicationId
+    ? await downloadZohoRecruitApplicationAttachment(zoho, zohoApplicationId, attachmentId)
+    : await downloadZohoRecruitCandidateAttachment(zoho, zohoCandidateId, attachmentId);
+  if (!downloaded || !downloaded.buffer) {
+    console.error('[OfferContract] Failed to download attachment', attachmentId);
+    return null;
+  }
+
+  // 3. Deliver to user_documents + Google Drive
+  var delivery = await deliverToMyDocuments(userId, caseId, 'offer_contract', fileName, downloaded.buffer, downloaded.mimeType || 'application/pdf');
+  console.log('[OfferContract] Delivered to user_documents + Drive for user', userId);
+
+  // 4. Update gp_prepared_docs so My Documents shows "Ready"
+  var driveFileId = delivery && delivery.driveFile ? delivery.driveFile : null;
+  try { await _updatePreparedDocsState(userId, 'offer_contract', driveFileId, fileName); } catch (e) {
+    console.error('[OfferContract] gp_prepared_docs update error:', e.message);
+  }
+
+  // 5. Mark practice_doc_ops as completed
+  try {
+    await _ensurePracticeDocOps(caseId);
+    await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.offer_contract', {
+      method: 'PATCH', body: { ops_status: 'completed' }
+    });
+  } catch (e) {}
+
+  // 6. Complete the registration task if one exists
+  try {
+    var ocTask = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.offer_contract&status=in.(open,in_progress,waiting,deferred)&limit=1');
+    if (ocTask.ok && Array.isArray(ocTask.data) && ocTask.data[0]) {
+      await _completeRegTask(ocTask.data[0].id, caseId, 'system');
+    }
+  } catch (e) {}
+
+  await _logCaseEvent(caseId, null, 'system', 'Offer/contract auto-delivered from Zoho Recruit: ' + fileName, null, 'system');
+  return { delivered: true, fileName: fileName, driveFileId: driveFileId };
+}
+
 // ── Gmail integration (Phase 1b) ──
 const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
@@ -6541,34 +6618,18 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         }
       }
 
-      // Check Zoho Recruit for existing contract attachment
+      // Auto-deliver offer/contract from Zoho Recruit
       try {
         const _careerStateForOC = _parseStateVal(nxt.gp_career_state);
         const _appsForOC = Array.isArray(_careerStateForOC.applications) ? _careerStateForOC.applications : [];
         const _securedApp = _appsForOC.find(function (a) { return a && a.isPlacementSecured === true; });
-        const _appId = _securedApp ? (_securedApp.zohoApplicationId || _securedApp.applicationId || _securedApp.id) : null;
-        if (_appId && typeof listZohoRecruitApplicationAttachments === 'function') {
-          const _attachments = await listZohoRecruitApplicationAttachments(_appId);
-          if (Array.isArray(_attachments) && _attachments.length > 0) {
-            const _candidates = typeof selectZohoContractAttachmentCandidates === 'function' ? selectZohoContractAttachmentCandidates(_attachments) : _attachments;
-            if (_candidates.length > 0) {
-              const _best = _candidates[0];
-              const ocTask = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.offer_contract&status=in.(open,in_progress,waiting)&limit=1');
-              if (ocTask.ok && Array.isArray(ocTask.data) && ocTask.data[0]) {
-                await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(ocTask.data[0].id), {
-                  method: 'PATCH',
-                  body: {
-                    zoho_attachment_id: String(_best.id || ''),
-                    attachment_filename: (typeof getZohoAttachmentFileName === 'function' ? getZohoAttachmentFileName(_best) : _best.File_Name) || 'contract.pdf'
-                  }
-                });
-                await _logCaseEvent(caseId, ocTask.data[0].id, 'system', 'Contract attachment found on Zoho Recruit: ' + ((_best.File_Name || _best.file_name || 'document')), null, 'system');
-              }
-            }
-          }
+        const _ocAppId = _securedApp ? (_securedApp.zohoApplicationId || _securedApp.applicationId || '') : '';
+        const _ocCandId = _securedApp ? (_securedApp.zohoCandidateId || '') : '';
+        if (_ocAppId || _ocCandId) {
+          await deliverOfferContract(userId, caseId, _ocAppId, _ocCandId);
         }
       } catch (ocErr) {
-        console.error('[PracticePack] Offer/Contract attachment check error:', ocErr.message);
+        console.error('[PracticePack] Offer/Contract auto-delivery error:', ocErr.message);
       }
 
       // Send WhatsApp template + email only if not already sent for this case
@@ -11462,7 +11523,32 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
           processRegistrationTaskAutomation(app.user_id, gpEmail, prevState, currentState).catch(function (err) {
             console.error('[ZohoRecruit sync] Task automation failed for user', app.user_id, ':', err && err.message);
           });
+
+          // Auto-deliver offer/contract from Zoho attachment
+          (async function () {
+            try {
+              var ocCase = await _ensureRegCase(app.user_id);
+              var ocCaseId = ocCase ? ocCase.id : null;
+              if (ocCaseId) {
+                await deliverOfferContract(app.user_id, ocCaseId, app.zoho_application_id || '', app.zoho_candidate_id || '');
+              }
+            } catch (ocErr) {
+              console.error('[ZohoRecruit sync] Offer/contract delivery failed for user', app.user_id, ':', ocErr.message);
+            }
+          })();
         }
+      }
+
+      // Attempt contract delivery for any secured application (catches late Zoho uploads)
+      if (nowSecured) {
+        (async function () {
+          try {
+            var ocCase = await _ensureRegCase(app.user_id);
+            if (ocCase) await deliverOfferContract(app.user_id, ocCase.id, app.zoho_application_id || '', app.zoho_candidate_id || '');
+          } catch (e) {
+            console.error('[ZohoRecruit sync] Late contract delivery error:', e.message);
+          }
+        })();
       }
 
       // Write the status update
