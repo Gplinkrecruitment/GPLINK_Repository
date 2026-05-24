@@ -5265,7 +5265,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
      VA Dashboard rebuild — Today / Users / Tickets
      ══════════════════════════════════════════════ */
   async function loadVaDashboard(){
+    // Preserve detail cache for the currently selected GP to avoid "Loading..." flicker
+    var _preservedDetail=null;
+    if(S.selectedUserId&&S.va.gpDetailCache[S.selectedUserId]){_preservedDetail={uid:S.selectedUserId,data:S.va.gpDetailCache[S.selectedUserId]};}
     S.va.gpDetailCache={};
+    if(_preservedDetail){S.va.gpDetailCache[_preservedDetail.uid]=_preservedDetail.data;}
     try{
       const r=await fetch("/api/admin/va/dashboard",{credentials:"same-origin"});
       if(r.status===401){window.location.href="/pages/admin-signin.html";return;}
