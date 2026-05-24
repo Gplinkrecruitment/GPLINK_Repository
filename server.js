@@ -25499,6 +25499,7 @@ Return ONLY valid JSON with no markdown formatting:
           entry.file_url = userDoc.file_url || '';
           entry.updated_at = userDoc.updated_at || '';
         }
+        if (stateDoc && stateDoc.referenceNumber) entry.referenceNumber = stateDoc.referenceNumber;
         if (doc.source === 'institution_docs') gdDirectToAhpra.push(entry);
         else if (doc.source === 'prepared_by_you') gdPreparedByCandidate.push(entry);
       });

@@ -2381,7 +2381,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var done=doc.status!=='pending';
       h+='<div class="doc-checklist-item">';
       h+='<div class="doc-checklist-check'+(done?' checked':'')+'">&#10003;</div>';
-      h+='<span class="doc-checklist-label">'+esc(doc.label)+'</span>';
+      h+='<span class="doc-checklist-label">'+esc(doc.label);
+      if(doc.key==='criminal_history'&&doc.referenceNumber){
+        h+='<span style="margin-left:8px;font-size:11px;font-weight:600;color:#64748b;background:#f1f5f9;padding:2px 8px;border-radius:4px;">'+esc(doc.referenceNumber)+'</span>';
+      }
+      h+='</span>';
       h+='<span class="doc-placeholder-status s-'+(doc.status||'pending')+'">'+docStatusLabel(doc.status)+'</span>';
       h+='</div>';
     });
