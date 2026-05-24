@@ -17912,6 +17912,82 @@ async function handleApi(req, res, pathname) {
     return;
   }
 
+  // Cron: weekly sweep — chase stalled GPs and auto-escalate overdue tasks
+  if (req.method === 'GET' && pathname === '/api/cron/weekly-sweep') {
+    var wsCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var wsCronAuth = req.headers['authorization'] || '';
+    if (!wsCronSecret || wsCronAuth !== 'Bearer ' + wsCronSecret) {
+      sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+      return;
+    }
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 200, { ok: true, message: 'Not configured', scanned: 0, created: 0, escalated: 0 });
+      return;
+    }
+    try {
+      var wsNow = new Date();
+      var wsTwoWeeksAgo = new Date(wsNow.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
+      var wsSevenDaysAgo = new Date(wsNow.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      var wsCasesRes = await supabaseDbRequest('registration_cases',
+        'select=id,user_id,stage,substage,status,created_at,last_gp_activity_at' +
+        '&stage=in.(myintealth,amc)&status=in.(active,blocked)' +
+        '&created_at=lte.' + encodeURIComponent(wsTwoWeeksAgo));
+      var wsCases = wsCasesRes.ok && Array.isArray(wsCasesRes.data) ? wsCasesRes.data : [];
+
+      var wsCreated = 0, wsSkipped = 0;
+      for (var wsC of wsCases) {
+        var wsLastActivity = wsC.last_gp_activity_at || wsC.created_at;
+        if (!wsLastActivity || wsLastActivity > wsTwoWeeksAgo) { wsSkipped++; continue; }
+        var wsExisting = await supabaseDbRequest('registration_tasks',
+          'select=id,created_at&case_id=eq.' + encodeURIComponent(wsC.id) +
+          '&task_type=eq.chase&source_trigger=eq.weekly_checkin&created_at=gte.' + encodeURIComponent(wsSevenDaysAgo) + '&limit=1');
+        if (wsExisting.ok && Array.isArray(wsExisting.data) && wsExisting.data.length > 0) { wsSkipped++; continue; }
+        await _createRegTask(wsC.id, {
+          task_type: 'chase',
+          title: 'Weekly check-in \u2014 GP stalled \u226514 days on ' + wsC.stage,
+          description: 'GP has not progressed in \u226514 days. Reach out via WhatsApp or send an in-app nudge.',
+          priority: 'high',
+          source_trigger: 'weekly_checkin',
+          related_stage: wsC.stage,
+          related_substage: wsC.substage || null,
+          _actor: 'system'
+        });
+        sendStalledReminderEmail(wsC.user_id, wsC.stage).catch(function(err) { console.error('[Email] Stalled reminder failed:', err.message); });
+        wsCreated++;
+      }
+
+      var wsEscalated = 0;
+      var wsThreeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
+      var wsOverdueRes = await supabaseDbRequest('registration_tasks',
+        'select=id,case_id,title,due_date,status&status=in.(open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external)' +
+        '&due_date=lt.' + encodeURIComponent(wsThreeDaysAgo) +
+        '&status=neq.escalated&limit=50');
+      if (wsOverdueRes.ok && Array.isArray(wsOverdueRes.data)) {
+        for (var wsT of wsOverdueRes.data) {
+          if (!wsT.case_id) continue;
+          var wsDaysOverdue = Math.floor((Date.now() - new Date(wsT.due_date).getTime()) / 86400000);
+          await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(wsT.id), {
+            method: 'PATCH', body: { status: 'escalated', escalated_reason: 'Auto-escalated: ' + wsDaysOverdue + ' days overdue', escalated_at: new Date().toISOString() }
+          });
+          await _logCaseEvent(wsT.case_id, wsT.id, 'escalation', 'Task auto-escalated \u2014 ' + wsDaysOverdue + ' days overdue', wsT.title, 'system');
+          wsEscalated++;
+        }
+        if (wsOverdueRes.data.length > 0) {
+          console.log('[WeeklySweep/Cron] Auto-escalated ' + wsOverdueRes.data.length + ' overdue tasks');
+        }
+      }
+
+      invalidateAdminDashboardCache();
+      console.log('[WeeklySweep/Cron] Scanned ' + wsCases.length + ', created ' + wsCreated + ', escalated ' + wsEscalated);
+      sendJson(res, 200, { ok: true, scanned: wsCases.length, created: wsCreated, skipped: wsSkipped, escalated: wsEscalated });
+    } catch (wsErr) {
+      console.error('[Cron] Weekly sweep failed:', wsErr);
+      sendJson(res, 500, { ok: false, error: wsErr.message });
+    }
+    return;
+  }
+
   if (!enforceMutationOrigin(req, res)) return;
 
   // Zoho Sign OAuth callback — redirect from Zoho lands on app domain, must be before admin host guard
