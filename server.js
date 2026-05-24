@@ -380,7 +380,6 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
     document_key: docKey,
     file_name: fileName,
     status: 'approved',
-    reviewed_by: 'system',
     reviewed_at: new Date().toISOString()
   };
   if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
@@ -25447,7 +25446,7 @@ Return ONLY valid JSON with no markdown formatting:
           var labelLower = doc.label.toLowerCase().replace(/[^a-z0-9]/g, '');
           for (var j = 0; j < gdDriveFiles.length; j++) {
             var nameLower = (gdDriveFiles[j].name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (nameLower.indexOf(labelLower) > -1 || (doc.key === 'sppa_00' && nameLower.indexOf('sppa') > -1)) {
+            if (nameLower.indexOf(labelLower) > -1 || (doc.key === 'sppa_00' && nameLower.indexOf('sppa') > -1) || (doc.key === 'offer_contract' && /contract|agreement|offer|employment/.test(nameLower))) {
               driveFile = gdDriveFiles[j];
               gdMatchedDriveIds.add(gdDriveFiles[j].id);
               break;
