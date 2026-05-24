@@ -25524,6 +25524,31 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Re-deliver offer/contract from Zoho Recruit ──
+  if (pathname === '/api/admin/redeliver-offer-contract' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var ocAdminCtx = requireAdminSession(req, res);
+    if (!ocAdminCtx) return;
+    let ocBody; try { ocBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    var ocCaseId = ocBody && ocBody.case_id ? String(ocBody.case_id).trim() : '';
+    if (!ocCaseId) { sendJson(res, 400, { ok: false, message: 'case_id required.' }); return; }
+    try {
+      var ocCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id&id=eq.' + encodeURIComponent(ocCaseId) + '&limit=1');
+      var ocCase = ocCaseRes.ok && Array.isArray(ocCaseRes.data) && ocCaseRes.data[0] ? ocCaseRes.data[0] : null;
+      if (!ocCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+      // Find the hired application
+      var ocAppsRes = await supabaseDbRequest('gp_applications', 'select=zoho_application_id,zoho_candidate_id&user_id=eq.' + encodeURIComponent(ocCase.user_id) + '&status=eq.hired&limit=1');
+      var ocApp = ocAppsRes.ok && Array.isArray(ocAppsRes.data) && ocAppsRes.data[0] ? ocAppsRes.data[0] : null;
+      if (!ocApp) { sendJson(res, 404, { ok: false, message: 'No hired application found.' }); return; }
+      var result = await deliverOfferContract(ocCase.user_id, ocCaseId, ocApp.zoho_application_id || '', ocApp.zoho_candidate_id || '');
+      sendJson(res, 200, { ok: true, result: result });
+    } catch (ocErr) {
+      console.error('[RedeliverOfferContract] Error:', ocErr.message);
+      sendJson(res, 500, { ok: false, message: 'Re-delivery failed: ' + ocErr.message });
+    }
+    return;
+  }
+
   // ── List files in GP's Google Drive folder ──
   if (pathname === '/api/admin/drive/files' && req.method === 'GET') {
     const adminCtx = requireAdminSession(req, res);
