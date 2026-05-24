@@ -401,6 +401,24 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
   return results;
 }
 
+// Helper: update gp_prepared_docs state so My Documents shows a GP LINK doc as "Ready"
+async function _updatePreparedDocsState(userId, docKey, driveFileId, fileName) {
+  const driveUrl = driveFileId ? 'https://drive.google.com/file/d/' + driveFileId + '/view' : '';
+  const stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+  let fullState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].state) ? stateRes.data[0].state : {};
+  if (typeof fullState === 'string') try { fullState = JSON.parse(fullState); } catch { fullState = {}; }
+  let prepState = fullState.gp_prepared_docs;
+  if (typeof prepState === 'string') try { prepState = JSON.parse(prepState); } catch { prepState = {}; }
+  if (!prepState || typeof prepState !== 'object') prepState = { docs: {} };
+  if (!prepState.docs) prepState.docs = {};
+  prepState.docs[docKey] = { url: driveUrl, fileName: fileName || '', ready: true, uploadedAt: new Date().toISOString() };
+  prepState.updatedAt = new Date().toISOString();
+  fullState.gp_prepared_docs = JSON.stringify(prepState);
+  await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
+    method: 'PATCH', body: { state: fullState, updated_at: new Date().toISOString() }
+  });
+}
+
 // ── Gmail integration (Phase 1b) ──
 const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
@@ -6469,11 +6487,17 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
           const sectionGPath = _path.join(__dirname, 'documents', 'section_g.pdf');
           if (_fs.existsSync(sectionGPath)) {
             const sectionGBuffer = _fs.readFileSync(sectionGPath);
-            await deliverToMyDocuments(userId, caseId, 'section_g', 'Section G.pdf', sectionGBuffer, 'application/pdf');
+            const sgDelivery = await deliverToMyDocuments(userId, caseId, 'section_g', 'Section G.pdf', sectionGBuffer, 'application/pdf');
             const sgTask = await supabaseDbRequest('registration_tasks', 'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.section_g&status=in.(open,in_progress,waiting,deferred)&limit=1');
             if (sgTask.ok && Array.isArray(sgTask.data) && sgTask.data[0]) {
               await _completeRegTask(sgTask.data[0].id, caseId, 'system');
             }
+            // Update gp_prepared_docs so My Documents shows Section G as "Ready"
+            if (sgDelivery && sgDelivery.driveFile) {
+              try { await _updatePreparedDocsState(userId, 'section_g', sgDelivery.driveFile, 'Section G.pdf'); } catch (e) { console.error('[PracticePack] gp_prepared_docs update error:', e.message); }
+            }
+            // Mark practice_doc_ops as completed
+            try { await _ensurePracticeDocOps(caseId); await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.section_g', { method: 'PATCH', body: { ops_status: 'completed' } }); } catch (e) {}
             await _logCaseEvent(caseId, null, 'system', 'Section G auto-delivered to MyDocuments and Google Drive', null, 'system');
           }
         } catch (sgErr) {
@@ -25334,6 +25358,50 @@ Return ONLY valid JSON with no markdown formatting:
     } catch (gdErr) {
       console.error('[gp-documents] Error:', gdErr.message);
       sendJson(res, 500, { ok: false, message: 'Failed to load documents.' });
+    }
+    return;
+  }
+
+  // ── Re-deliver Section G to a GP's My Documents + Drive ──
+  if (pathname === '/api/admin/redeliver-section-g' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var sgAdminCtx = requireAdminSession(req, res);
+    if (!sgAdminCtx) return;
+    let sgBody; try { sgBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    var sgCaseId = sgBody && sgBody.case_id ? String(sgBody.case_id).trim() : '';
+    if (!sgCaseId) { sendJson(res, 400, { ok: false, message: 'case_id required.' }); return; }
+
+    try {
+      var sgCaseRes = await supabaseDbRequest('registration_cases', 'select=id,user_id,google_drive_folder_id&id=eq.' + encodeURIComponent(sgCaseId) + '&limit=1');
+      var sgCase = sgCaseRes.ok && Array.isArray(sgCaseRes.data) && sgCaseRes.data[0] ? sgCaseRes.data[0] : null;
+      if (!sgCase) { sendJson(res, 404, { ok: false, message: 'Case not found.' }); return; }
+
+      var sgPath = require('path').join(__dirname, 'documents', 'section_g.pdf');
+      if (!require('fs').existsSync(sgPath)) { sendJson(res, 404, { ok: false, message: 'Section G PDF not found on server.' }); return; }
+      var sgBuffer = require('fs').readFileSync(sgPath);
+
+      // 1. Deliver to user_documents + Drive
+      var sgResult = await deliverToMyDocuments(sgCase.user_id, sgCaseId, 'section_g', 'Section G.pdf', sgBuffer, 'application/pdf');
+
+      // 2. Update gp_prepared_docs state
+      var sgDriveId = sgResult && sgResult.driveFile ? sgResult.driveFile : null;
+      await _updatePreparedDocsState(sgCase.user_id, 'section_g', sgDriveId, 'Section G.pdf');
+
+      // 3. Update practice_doc_ops
+      try {
+        await _ensurePracticeDocOps(sgCaseId);
+        await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(sgCaseId) + '&document_key=eq.section_g', {
+          method: 'PATCH', body: { ops_status: 'completed' }
+        });
+      } catch (e) {}
+
+      // 4. Log
+      await _logCaseEvent(sgCaseId, null, 'system', 'Section G re-delivered by admin (' + sgAdminCtx.email + ')', null, sgAdminCtx.email);
+
+      sendJson(res, 200, { ok: true, driveFileId: sgDriveId, userDocId: sgResult ? sgResult.userDoc : null });
+    } catch (sgErr) {
+      console.error('[RedeliverSectionG] Error:', sgErr.message);
+      sendJson(res, 500, { ok: false, message: 'Re-delivery failed: ' + sgErr.message });
     }
     return;
   }
