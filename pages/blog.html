@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GP Link Blog</title>
+  <meta name="description" content="Insights and guidance for overseas-trained GPs considering a move to Australia." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --primary: #1a56db;
+      --primary-dark: #1e40af;
+      --navy: #0f172a;
+      --text: #1e293b;
+      --muted: #64748b;
+      --light-muted: #94a3b8;
+      --bg: #ffffff;
+      --bg-alt: #f8fafc;
+      --border: #e2e8f0;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+      --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.1);
+      --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.12);
+      --max-width: 1200px;
+      --content-width: 740px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Header */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--navy);
+      text-decoration: none;
+      letter-spacing: -0.5px;
+    }
+
+    .logo span {
+      color: var(--primary);
+    }
+
+    .header-nav a {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .header-nav a:hover {
+      color: var(--primary);
+    }
+
+    /* Hero */
+    .blog-hero {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #1a56db 100%);
+      padding: 80px 24px;
+      text-align: center;
+    }
+
+    .blog-hero h1 {
+      font-family: "Source Serif 4", Georgia, serif;
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+
+    .blog-hero p {
+      font-size: 1.125rem;
+      color: rgba(255, 255, 255, 0.75);
+      max-width: 560px;
+      margin: 0 auto;
+    }
+
+    /* Listing */
+    .blog-listing {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 60px 24px 80px;
+    }
+
+    .blog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 28px;
+    }
+
+    .blog-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      text-decoration: none;
+      color: inherit;
+      transition: box-shadow 0.25s, transform 0.25s, border-color 0.25s;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .blog-card:hover {
+      box-shadow: var(--shadow-lg);
+      transform: translateY(-3px);
+      border-color: var(--primary);
+    }
+
+    .blog-card .card-tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--primary);
+      background: rgba(26, 86, 219, 0.08);
+      padding: 4px 10px;
+      border-radius: 4px;
+      margin-bottom: 14px;
+      align-self: flex-start;
+    }
+
+    .blog-card h2 {
+      font-family: "Source Serif 4", Georgia, serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--navy);
+      margin-bottom: 10px;
+      line-height: 1.35;
+      letter-spacing: -0.3px;
+    }
+
+    .blog-card p {
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.55;
+      flex: 1;
+    }
+
+    .blog-card .read-more {
+      margin-top: 18px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--primary);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .blog-card .read-more::after {
+      content: "\2192";
+      transition: transform 0.2s;
+    }
+
+    .blog-card:hover .read-more::after {
+      transform: translateX(3px);
+    }
+
+    /* Article */
+    .article-wrapper {
+      max-width: var(--content-width);
+      margin: 0 auto;
+      padding: 60px 24px 80px;
+    }
+
+    .article-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--muted);
+      text-decoration: none;
+      margin-bottom: 32px;
+      transition: color 0.2s;
+    }
+
+    .article-back:hover {
+      color: var(--primary);
+    }
+
+    .article-back::before {
+      content: "\2190";
+    }
+
+    .article-tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--primary);
+      background: rgba(26, 86, 219, 0.08);
+      padding: 5px 12px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+
+    .article-wrapper h1 {
+      font-family: "Source Serif 4", Georgia, serif;
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      font-weight: 700;
+      color: var(--navy);
+      line-height: 1.25;
+      letter-spacing: -0.5px;
+      margin-bottom: 32px;
+    }
+
+    .article-body p {
+      font-size: 1.0625rem;
+      line-height: 1.8;
+      color: var(--text);
+      margin-bottom: 24px;
+    }
+
+    .article-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* CTA */
+    .blog-cta {
+      margin-top: 56px;
+      padding: 40px;
+      background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+      border-radius: var(--radius);
+      border: 1px solid rgba(26, 86, 219, 0.12);
+      text-align: center;
+    }
+
+    .blog-cta h3 {
+      font-family: "Source Serif 4", Georgia, serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 10px;
+    }
+
+    .blog-cta p {
+      font-size: 1rem;
+      color: var(--muted);
+      margin-bottom: 24px;
+      max-width: 480px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .cta-btn {
+      display: inline-block;
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 14px 32px;
+      border-radius: var(--radius-sm);
+      text-decoration: none;
+      transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+      box-shadow: 0 2px 8px rgba(26, 86, 219, 0.25);
+    }
+
+    .cta-btn:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(26, 86, 219, 0.35);
+    }
+
+    /* Footer */
+    .site-footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 24px;
+      text-align: center;
+      font-size: 0.8125rem;
+      color: var(--light-muted);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .blog-hero {
+        padding: 56px 20px;
+      }
+
+      .blog-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+
+      .blog-listing {
+        padding: 40px 20px 60px;
+      }
+
+      .article-wrapper {
+        padding: 40px 20px 60px;
+      }
+
+      .blog-cta {
+        padding: 28px 20px;
+      }
+
+      .blog-card {
+        padding: 22px;
+      }
+    }
+
+    /* Hidden utility */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/blog" class="logo">GP <span>Link</span></a>
+      <nav class="header-nav">
+        <a href="/pages/signin.html">Sign In</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Blog Listing View -->
+  <div id="listing-view" class="hidden">
+    <section class="blog-hero">
+      <h1>GP Link Blog</h1>
+      <p>Insights and guidance for overseas-trained GPs considering a move to Australian general practice.</p>
+    </section>
+    <main class="blog-listing">
+      <div class="blog-grid" id="blog-grid"></div>
+    </main>
+  </div>
+
+  <!-- Article View -->
+  <div id="article-view" class="hidden">
+    <main class="article-wrapper">
+      <a href="/blog" class="article-back">Back to all articles</a>
+      <div id="article-content"></div>
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    &copy; 2026 GP Link. All rights reserved.
+  </footer>
+
+  <script>
+    const BLOG_POSTS = [
+      {
+        slug: "why-uk-gps-are-moving-to-australia",
+        title: "Why More UK GPs Are Moving to Australia",
+        metaDesc: "Discover why more UK-trained GPs are choosing Australia for stronger earning potential, better lifestyle and a clearer pathway into Australian general practice.",
+        tag: "Relocation",
+        content: "More UK GPs are looking at Australia because the opportunity is no longer just theoretical. For eligible doctors, the move has become more realistic, more attractive and more achievable than it has been in years.\n\nMany GPs in the UK are highly experienced, clinically capable and deeply committed to patient care, yet they often feel limited by the structure around them. Heavy workload, increasing demand, administrative pressure and limited flexibility can make general practice feel more draining than rewarding. Australia gives many doctors the chance to practise medicine in an environment where their experience is valued and where the lifestyle outside work can be significantly better.\n\nAustralian general practice offers strong demand for quality GPs across cities, coastal towns, suburban growth areas and regional communities. Practices are actively looking for doctors who can build relationships with patients, provide continuity of care and support local communities. For UK-trained GPs, this creates a strong opening.\n\nOne of the biggest attractions is that Australian general practice can offer greater control. In many clinics, doctors work as independent contractors and earn a percentage of billings. This means income can be linked more directly to the work you do, the patient base you build and the practice you join. For motivated GPs, that can be a major shift from fixed or capped earning structures.\n\nThe lifestyle is also a major factor. Australia offers warmer weather, outdoor living, beaches, space, good schools and family-friendly communities. For doctors moving with children, the appeal is not just professional. It is about giving the whole family a different quality of life.\n\nThe Expedited Specialist Pathway has added momentum to this trend. For eligible GPs with recognised specialist qualifications, there is now a more direct registration route into Australian specialist practice. That has made the move feel less distant and more practical.\n\nThis is why now is an important time to explore the opportunity properly. Australia needs experienced GPs, and UK-trained doctors are highly regarded. The doctors who move with the right guidance, the right practice and a clear plan can position themselves strongly from the beginning.\n\nGP Link helps make that move easier. We connect overseas-trained GPs with Australian practices that are actively recruiting and serious about supporting the transition. Instead of trying to work everything out alone, you can speak with a team that understands the process, the practices and the practical steps involved.\n\nFor many UK GPs, Australia is not just another job market. It is a chance to earn well, live better and build a career in a country that genuinely needs your skills."
+      },
+      {
+        slug: "australia-offers-uk-gps-more-than-just-a-job",
+        title: "Australia Offers UK GPs More Than Just a Job",
+        metaDesc: "Australia offers UK GPs more than a new role \u2014 it offers lifestyle, income potential, flexibility and long-term opportunity.",
+        tag: "Opportunity",
+        content: "Moving to Australia as a GP is not simply about accepting a position in a different country. It is about choosing a different professional environment, a different lifestyle and a different long-term future.\n\nFor many overseas-trained GPs, Australia offers the combination they have been looking for: strong clinical demand, attractive income potential, professional flexibility and a lifestyle that supports life outside the clinic.\n\nAustralian general practice is built around community need. Across the country, practices are looking for experienced doctors who can support growing patient bases. Some clinics have full books. Others have long waiting times. Many communities simply need more GPs. This creates a strong opportunity for doctors who are ready to relocate and commit.\n\nThe opportunity is not only financial, but the financial side can be compelling. In many Australian practices, GPs are paid based on billings rather than a fixed salary. That means your earning potential can reflect your patient load, working hours, billing model and the strength of the clinic you join. In a busy practice with genuine demand, that can be a powerful advantage.\n\nAustralia also gives GPs choice. You may want to work near the beach, in a major city, in a family-focused suburb or in a regional community where demand is high. The right choice depends on your goals, but the range of options is one of Australia\u2019s biggest strengths.\n\nFor doctors moving with family, the decision often becomes even more attractive. Australia offers schooling options, outdoor living, space and a lifestyle that many families find appealing. The move can create a better balance between career, income, children, health and personal time.\n\nThe Expedited Specialist Pathway has made this opportunity more accessible for eligible GPs. Doctors with recognised qualifications may now have a clearer route to specialist registration, making Australia a more practical option than before.\n\nThis is where GP Link helps. Our role is to connect suitable overseas-trained GPs with practices that are actively looking for doctors. We help you understand which opportunities match your goals, what the practice can offer and how the move can work in real terms.\n\nA job is just one part of the decision. The right Australian opportunity can offer a new way of working, a stronger financial future and a lifestyle that feels more aligned with the reason you became a GP in the first place.\n\nAustralia offers more than a role. For the right doctor, it offers a genuine upgrade."
+      },
+      {
+        slug: "expedited-specialist-pathway-opportunity-for-gps",
+        title: "The Expedited Specialist Pathway Has Changed the Opportunity for GPs",
+        metaDesc: "The Expedited Specialist Pathway has made Australia a more accessible and attractive option for eligible overseas-trained GPs.",
+        tag: "Registration",
+        content: "For many overseas-trained GPs, Australia has always been attractive. The lifestyle, income potential and demand for doctors were already strong. What has changed is that the pathway is now clearer for eligible doctors.\n\nThe Expedited Specialist Pathway has created a more direct route for certain internationally trained specialists, including eligible GPs with recognised qualifications. This matters because uncertainty is one of the biggest reasons doctors delay the move. When the process feels unclear, it is easy to put the idea aside. When the pathway becomes more structured, Australia becomes a serious and realistic option.\n\nFor eligible GPs from countries such as the United Kingdom, Ireland and New Zealand, this pathway can make the move more achievable. It gives suitable doctors a clearer way to progress towards specialist registration in Australia and begin planning their move with greater confidence.\n\nThe impact is significant. Australian practices are actively looking for experienced GPs, and many are ready to speak with doctors who are serious about relocating. The combination of strong demand and a clearer registration pathway creates a window of opportunity.\n\nThis is especially important for doctors who want to move while demand is high and practices are motivated. A GP who is eligible, organised and ready to engage can often access stronger opportunities than someone who waits too long and only starts when their preferred location is already filled.\n\nThe pathway still requires the right process, but it should not be viewed as a reason to hesitate. It should be viewed as a reason to start. With the right guidance, the steps can be managed in a structured and practical way.\n\nGP Link helps doctors move from interest to action. We help identify suitable practices, explain the process in clear terms and connect GPs with employers that understand overseas recruitment. Our focus is to make the move feel less overwhelming and more achievable.\n\nAustralia is actively looking for quality GPs. The Expedited Specialist Pathway has made it easier for eligible doctors to explore that opportunity properly. For many overseas-trained GPs, this is the moment to take Australia seriously."
+      },
+      {
+        slug: "why-australian-practices-want-uk-trained-gps",
+        title: "Why Australian Practices Want UK-Trained GPs",
+        metaDesc: "UK-trained GPs are highly valued by Australian medical practices due to their training, experience and ability to support high-demand communities.",
+        tag: "Career",
+        content: "Australian medical practices are actively looking for experienced, reliable and patient-focused GPs. UK-trained doctors are often seen as a strong fit for exactly that reason.\n\nGeneral practice in Australia is built on continuity of care, communication, clinical judgement and the ability to manage a wide range of presentations. UK GPs usually bring strong experience in all of these areas. Many have worked in demanding environments, managed complex patients, handled high consultation volumes and developed strong communication skills across diverse patient groups.\n\nThat experience is valuable in Australia.\n\nMany Australian practices are under pressure from patient demand. Clinics in growth suburbs, coastal communities and regional centres often need more doctors to meet local demand. In some practices, patients are waiting days or weeks for appointments. In others, retiring or relocating doctors leave behind established patient bases that need to be covered.\n\nThis creates real opportunity for overseas-trained GPs who are ready to move.\n\nPractices want doctors who can settle, build trust and stay long enough to become part of the community. They are not simply looking for short-term coverage. They want clinicians who can contribute to the long-term strength of the practice.\n\nUK-trained GPs are attractive because their clinical background is usually familiar, their communication style often transfers well and their training is respected. For eligible doctors, the Expedited Specialist Pathway has made the process even more appealing by giving practices more confidence that suitable candidates can progress through registration.\n\nFor the GP, this demand creates leverage. A doctor who is serious, responsive and ready to consider the right locations may have access to strong roles with good patient demand and meaningful earning potential.\n\nGP Link helps connect UK-trained GPs with Australian practices that are actively recruiting. We understand which clinics are ready, which locations have demand and which roles are likely to suit doctors moving from overseas.\n\nIf you are a UK GP considering Australia, the demand is not theoretical. Practices are looking for doctors like you. The key is finding the right one."
+      },
+      {
+        slug: "better-lifestyle-for-gps-in-australia",
+        title: "Better Lifestyle, Better Weather, Better Balance",
+        metaDesc: "Australia offers GPs a lifestyle built around flexibility, outdoor living, family time and strong career opportunity.",
+        tag: "Lifestyle",
+        content: "One of the biggest reasons GPs consider Australia is lifestyle. The weather is warmer, the days feel more open, and life outside work can be easier to enjoy.\n\nFor many doctors, this matters. A career in medicine can be demanding anywhere in the world, but the environment around that career makes a major difference. Australia gives many GPs the chance to combine meaningful clinical work with a lifestyle that feels healthier, more flexible and more sustainable.\n\nImagine finishing work and still having time for the beach, a walk, sport, family dinner outdoors or a weekend away. For doctors moving with children, the appeal can be even stronger. Australia offers space, schools, parks, coastal towns, major cities and family-focused communities.\n\nBut the lifestyle is only part of the story. Australia is attractive because it also offers professional opportunity. Doctors are not moving only for sunshine. They are moving because practices need GPs, patient demand is strong and the right role can offer excellent earning potential.\n\nThis combination is what makes Australia different. You do not have to choose between lifestyle and career. In the right practice, you can have both.\n\nMany GPs also appreciate the flexibility of Australian general practice. Depending on the clinic, you may have more control over your sessions, working pattern, billing style and clinical focus. Some doctors want to work full-time and maximise income. Others want a balance that gives them more time with family. Australia can offer both types of opportunity.\n\nThe key is choosing the right practice and location. A coastal clinic may suit one doctor perfectly, while a busy metropolitan practice may suit another. A regional role may offer excellent demand and community connection. A suburban practice may offer the right balance of income, schooling and lifestyle.\n\nGP Link helps doctors compare these options properly. We do not just look at the job title. We look at the practice, location, demand, earning potential and lifestyle fit.\n\nFor many GPs, Australia is a chance to reset. Better weather, better balance and better opportunity can all exist in the same move. The first step is understanding which Australian role fits the life you want to build."
+      },
+      {
+        slug: "gp-earning-potential-australia",
+        title: "The Earning Potential for GPs in Australia",
+        metaDesc: "Australian general practice can offer strong earning potential for overseas-trained GPs, especially in high-demand clinics.",
+        tag: "Finance",
+        content: "Earning potential is one of the strongest reasons GPs consider Australia.\n\nAustralian general practice often works differently from the UK. Instead of a traditional fixed salary model, many GPs work as independent contractors and receive a percentage of their billings. This creates a more direct relationship between the work you do and the income you can generate.\n\nFor experienced GPs, this can be highly attractive.\n\nIn a busy clinic with strong patient demand, good systems and a supportive team, doctors can build substantial income. Your earnings may be influenced by patient numbers, consultation style, billing model, hours worked and the percentage of billings agreed with the practice.\n\nSome clinics operate as mixed billing practices, where some patients are bulk billed and others pay a private fee. Others operate with a stronger private billing structure. These models can create different earning outcomes, and choosing the right practice is essential.\n\nThe highest advertised percentage is not always the best opportunity. A clinic offering a strong percentage but limited patient demand may not produce the best result. A clinic with slightly different terms but full books, strong patient loyalty and excellent support may be far more valuable.\n\nThat is why commercial context matters.\n\nBefore choosing a role, it is important to understand how busy the practice is, how many patients are available, whether you are replacing an existing GP, what the billing model is and whether there is an initial income guarantee while you settle.\n\nAustralia can reward doctors who are committed, efficient and patient-focused. If you are willing to build a patient base and work in a high-demand clinic, the financial upside can be significant.\n\nGP Link helps overseas GPs understand the real opportunity behind each role. We look at the practice, patient demand, billing model, service fee and location so you can make a confident decision.\n\nFor many doctors, the move to Australia is not only about earning more. It is about finally working in a structure where your income can better reflect your experience and effort."
+      },
+      {
+        slug: "why-now-is-a-good-time-for-gps-to-move-to-australia",
+        title: "Why Now Is a Strong Time for GPs to Move to Australia",
+        metaDesc: "With strong demand for GPs and clearer registration options, now is a strong time for eligible doctors to consider Australia.",
+        tag: "Timing",
+        content: "Timing can make a major difference when moving countries.\n\nFor eligible GPs, now is a strong time to consider Australia because three important factors are aligning: strong demand from practices, attractive lifestyle and income opportunities, and a clearer registration route through the Expedited Specialist Pathway.\n\nAustralian practices need doctors. Many clinics are actively looking for GPs who can join their teams, support patient demand and build long-term relationships in the community. This demand exists across different types of locations, from major cities and outer suburbs to coastal towns and regional centres.\n\nAt the same time, many overseas GPs are reconsidering what they want from their career. Doctors who have spent years under pressure are looking for more flexibility, better income potential and a lifestyle that supports their family and wellbeing.\n\nAustralia answers that need better than many other destinations.\n\nThe Expedited Specialist Pathway has made the opportunity more practical for eligible doctors. Instead of viewing Australia as a complicated long-term idea, many GPs can now explore it as a genuine next step.\n\nStarting early is important. The best roles do not always stay open indefinitely. Practices with strong patient demand, good locations and supportive teams will attract interest. Doctors who engage early are better positioned to access better options, compare practices and make a decision without rushing.\n\nWaiting can create unnecessary delay. It may mean staying longer in a system you already feel ready to leave. It may also mean missing opportunities in preferred locations.\n\nGP Link helps doctors act at the right time. We connect GPs with practices that are actively recruiting now and help them understand what the move could look like.\n\nIf Australia has been in the back of your mind, this is the time to explore it seriously. The demand is there. The pathway is clearer. The opportunity is real."
+      },
+      {
+        slug: "from-nhs-to-australian-general-practice",
+        title: "From the NHS to Australian General Practice",
+        metaDesc: "Learn why many NHS GPs are considering Australian general practice for greater flexibility, autonomy and earning potential.",
+        tag: "NHS",
+        content: "Many NHS GPs are exploring Australia because they want a different way to practise medicine.\n\nThe clinical work is still general practice. You will still care for patients, manage chronic disease, deal with uncertainty, build relationships and support communities. But the structure around the work can feel very different.\n\nAustralian general practice can offer more flexibility, more autonomy and a stronger link between work and reward. Many clinics operate with a billing model where GPs receive a percentage of what they bill. For doctors who are used to a more fixed system, this can feel like a major change.\n\nIt also gives doctors more control. Depending on the practice, you may have more say over your hours, appointment structure, clinical interests and working pattern. Some GPs choose to work intensively and maximise income. Others use the flexibility to create a better family balance.\n\nFor NHS doctors who feel stretched, Australia can offer a new environment without walking away from general practice itself. You can continue doing the medicine you are trained for, but in a system that may offer more commercial opportunity and lifestyle flexibility.\n\nAustralian practices often have strong support structures, including reception teams, nurses, treatment rooms, pathology services and allied health connections. The exact setup varies, but many clinics are designed to help GPs see patients efficiently while maintaining continuity of care.\n\nThere is also strong demand. UK GPs are respected, and many practices actively want doctors with your experience. If you are eligible for the Expedited Specialist Pathway, the move may be more achievable than you think.\n\nGP Link helps NHS GPs understand the transition. We explain how Australian practices operate, what opportunities are available and which roles may suit your income, lifestyle and location goals.\n\nMoving from the NHS to Australia is not about starting again. It is about taking your experience into a market where it is needed and valued.\n\nFor many doctors, that move can change both their career and their quality of life."
+      },
+      {
+        slug: "moving-to-australia-as-a-gp-with-family",
+        title: "Moving to Australia as a GP With Your Family",
+        metaDesc: "Australia can be an attractive destination for GPs moving with family, offering lifestyle, schooling options and long-term opportunity.",
+        tag: "Family",
+        content: "For many GPs, moving to Australia is not an individual decision. It is a family decision.\n\nYou may be thinking about your spouse, children, schools, lifestyle, housing, long-term residency and whether the move will genuinely improve life for everyone involved.\n\nAustralia is attractive because it can offer both professional opportunity and family lifestyle. Many doctors move not only because they want a better role, but because they want their family to have more space, warmer weather, outdoor living and a different pace of life.\n\nFor children, Australia can offer access to schools, sport, beaches, parks and family-focused communities. For spouses or partners, the move can open new lifestyle and work opportunities depending on visa arrangements and personal circumstances.\n\nFor the GP, the appeal is that you can pursue a stronger career opportunity while also improving the environment your family lives in. That combination is powerful.\n\nThe location you choose matters. Some families prefer major cities with more infrastructure and schooling options. Others are drawn to coastal towns, quieter suburbs or regional centres where the community feel is stronger and demand for GPs may be high.\n\nThe right practice should support not only your clinical work, but your transition into Australia. A good move should make sense professionally, financially and personally.\n\nGP Link helps doctors look at the full picture. We consider the practice, earning potential, location, family needs and long-term goals. This helps you avoid choosing a role based only on one factor, such as income or geography.\n\nMoving countries is a major step, but it can also be one of the most rewarding decisions your family makes. With the right practice and the right support, Australia can offer a lifestyle that feels difficult to achieve elsewhere.\n\nFor many GP families, the move is not just about working in Australia. It is about building a better future there."
+      },
+      {
+        slug: "choosing-the-right-practice-as-an-overseas-gp",
+        title: "Why Choosing the Right Practice Matters",
+        metaDesc: "The right Australian practice can make a major difference to your income, support, lifestyle and long-term success as an overseas GP.",
+        tag: "Career",
+        content: "Choosing the right practice is one of the most important decisions you will make when moving to Australia as a GP.\n\nThe practice you join will affect your income, workload, supervision, patient base, support, contract terms, visa process, lifestyle and long-term satisfaction. This is why the decision should not be based on a single number or a location name alone.\n\nA strong Australian GP opportunity usually has several things working together: genuine patient demand, a supportive team, clear onboarding, fair commercial terms, good systems and a location that suits your life outside work.\n\nSome practices are very experienced in supporting overseas-trained doctors. They understand registration, supervision, onboarding, Medicare, provider numbers and the practical concerns doctors have when relocating. Others may be interested in recruiting but less prepared for what the process involves.\n\nThat difference matters.\n\nA well-prepared practice can help you settle faster, start work with more confidence and build your patient base more effectively. A poorly matched practice can create stress, uncertainty and delays.\n\nIncome is also closely linked to practice choice. A clinic with strong patient demand and good support can be far more valuable than a role that looks attractive on paper but does not have the patient flow to match.\n\nLocation matters too. The best role is not always in the biggest city or the most familiar suburb. Many excellent GP opportunities exist in outer metropolitan areas, coastal communities and regional centres where demand is strong and doctors are genuinely needed.\n\nGP Link helps overseas-trained GPs compare opportunities properly. We work with practices that are actively recruiting and help doctors understand what each role can realistically offer.\n\nThe right practice can set up your Australian career from day one. It can help you earn well, settle quickly and build a strong future in the country.\n\nWhen you are moving across the world, the practice you choose is not just an employer. It is the foundation of your Australian life."
+      },
+      {
+        slug: "best-locations-for-gps-moving-to-australia",
+        title: "Coastal, City or Regional: Where Should GPs Move in Australia?",
+        metaDesc: "Australia offers GPs opportunities across cities, coastal towns and regional centres, each with different lifestyle and career benefits.",
+        tag: "Location",
+        content: "One of the biggest advantages of moving to Australia as a GP is the range of locations available.\n\nYou may be drawn to a major city, a coastal lifestyle, a family-friendly suburb or a regional community with strong patient demand. Australia offers all of these options, and each can be attractive for different reasons.\n\nCity and metropolitan roles can offer convenience, schools, infrastructure, transport links and access to larger communities. For doctors who want to be close to major hospitals, universities, airports and established suburbs, this can be appealing.\n\nCoastal locations are often attractive for lifestyle reasons. Many GPs are drawn to the idea of living near the beach, spending more time outdoors and creating a better balance for their family. Coastal practices can also have strong local demand, especially in growing communities.\n\nRegional areas can offer some of the strongest opportunities. Many regional communities genuinely need more doctors, and GPs who are willing to consider these areas may find excellent patient demand, strong community connection and meaningful career satisfaction.\n\nThe best location depends on your goals. Some doctors prioritise income. Others prioritise children\u2019s schooling, lifestyle, climate, spouse opportunities or long-term settlement. The strongest move is the one that balances these priorities properly.\n\nIt is also important to understand that the most familiar location is not always the best opportunity. Many overseas GPs initially think only about Sydney, Melbourne, Brisbane or Perth. While these cities can offer good roles, some of the best GP opportunities may be in outer suburbs, coastal growth areas or regional centres.\n\nGP Link helps doctors explore the full range of options rather than limiting themselves too early. We help match your goals with practices that are actively recruiting and suitable for overseas-trained GPs.\n\nAustralia gives you choice. The right choice can shape your income, lifestyle and long-term success."
+      },
+      {
+        slug: "australian-gp-income-models",
+        title: "How Australian GP Income Models Can Reward Your Work",
+        metaDesc: "Australian GP income models can give doctors more control over earnings through billings, patient demand and practice choice.",
+        tag: "Finance",
+        content: "One of the most attractive parts of Australian general practice is the income model.\n\nIn many clinics, GPs work as independent contractors and receive a percentage of their billings. This means your earnings can be linked to the work you do, the patients you see and the practice environment you choose.\n\nFor many overseas-trained GPs, this is a major shift. Instead of feeling that your income is disconnected from your workload, Australian general practice can create a clearer relationship between effort, demand and reward.\n\nIf you join a busy clinic with strong patient demand, good support and an appropriate billing model, your earning potential can be significant. Doctors who build a loyal patient base, work efficiently and understand the Australian billing environment can do very well.\n\nThere are different billing models across Australia. Some practices are bulk billing, some are mixed billing and some are private billing. Each model has different implications for patient flow, consultation fees and income potential.\n\nMixed and private billing practices can be attractive for doctors who want stronger earning potential, but the real value depends on patient demand and clinic structure. A private billing clinic without enough patients may not be as strong as a mixed billing clinic with full books and consistent demand.\n\nThis is why GP Link focuses on the reality behind the numbers. We help doctors understand how the clinic operates, what demand looks like, what support is available and whether the role genuinely fits their goals.\n\nMany practices may also offer an initial guarantee while a GP settles in. This can provide stability during the early stage while you build confidence in the Australian system and establish your patient base.\n\nAustralia can reward doctors who are serious about building. The income model gives many GPs the opportunity to benefit from their own effort in a way that feels more direct and commercially fair.\n\nFor doctors who want stronger earning potential and more control, Australian general practice can be a very attractive move."
+      },
+      {
+        slug: "australia-needs-experienced-gps",
+        title: "Australia Needs Experienced GPs",
+        metaDesc: "Australia has strong demand for experienced GPs, creating meaningful opportunities for overseas-trained doctors.",
+        tag: "Demand",
+        content: "Australia needs experienced GPs.\n\nAcross the country, patients need access to general practice. Communities need continuity of care. Medical centres need doctors who can manage chronic disease, provide preventive care, support families and build trusted relationships over time.\n\nThis demand creates a strong opportunity for overseas-trained doctors.\n\nFor GPs from the UK, Ireland and New Zealand, Australia can be a natural fit. Your clinical training, communication skills and general practice experience are highly relevant. Many practices are actively looking for doctors who can transition into Australian general practice and contribute long term.\n\nThe need is not limited to one type of location. Demand exists in major cities, outer suburbs, regional towns and coastal communities. Some clinics need doctors because their patient base is growing. Others need replacement GPs because a long-standing doctor is retiring or relocating. In many cases, the demand is immediate.\n\nFor the right GP, this can mean stepping into a role where patients are already waiting, the practice is motivated and the opportunity to build quickly is strong.\n\nAustralia also offers variety. You can choose between different practice styles, billing models, communities and lifestyles. This gives overseas-trained GPs the chance to find a role that fits both their professional goals and personal life.\n\nThe Expedited Specialist Pathway has made the opportunity more accessible for eligible doctors. With a clearer route into specialist registration, many experienced GPs can now look at Australia with more confidence.\n\nGP Link helps connect doctors with practices where the demand is real. We focus on matching GPs with suitable opportunities rather than simply sending them generic job listings.\n\nIf you are an experienced GP considering a move, Australia is actively looking for doctors with your skills. The opportunity is not abstract. It exists now, in practices that need quality GPs and are ready to recruit."
+      },
+      {
+        slug: "life-as-a-gp-in-australia",
+        title: "What Life Can Look Like as a GP in Australia",
+        metaDesc: "Life as a GP in Australia can offer strong career opportunity, flexible work options and a better lifestyle.",
+        tag: "Lifestyle",
+        content: "Life as a GP in Australia can be very different from what many overseas doctors are used to.\n\nThe clinical work remains familiar. You are still caring for patients, managing chronic disease, dealing with acute presentations, providing preventive care and building long-term relationships. But the environment around the work can feel more flexible, more commercially rewarding and more lifestyle-friendly.\n\nIn many Australian practices, GPs have the opportunity to choose their working sessions, develop areas of interest and build a patient base in a community that needs them. Depending on the practice, you may work alongside nurses, allied health, pathology, treatment room support and experienced administrative teams.\n\nYour week may feel more within your control. Some doctors choose to work full-time and maximise income. Others design a working pattern that leaves more room for family, travel, sport or outdoor living.\n\nThe lifestyle outside work is a major part of the appeal. Australia offers beaches, national parks, outdoor dining, warm weather, sport, space and family-friendly communities. For many doctors, the change is not just professional \u2014 it is personal.\n\nIncome can also be attractive. Because many GPs earn a percentage of billings, the right practice can offer strong financial upside. If the patient demand is there and the clinic is well run, your work can translate into meaningful income.\n\nOf course, the experience depends heavily on the practice you join. A supportive clinic with genuine demand can help you settle quickly and confidently. That is why choosing the right role matters.\n\nGP Link helps doctors understand what life in Australia could look like in practical terms. We help you compare practices, locations and opportunities so you can make a decision that supports both your career and your lifestyle.\n\nFor many GPs, Australia offers the chance to keep doing meaningful medicine while building a better life around it."
+      },
+      {
+        slug: "start-your-australian-gp-journey-with-gp-link",
+        title: "Start Your Australian GP Journey With GP Link",
+        metaDesc: "GP Link helps overseas-trained GPs move to Australia by connecting them with suitable medical practices and guiding them through the process.",
+        tag: "GP Link",
+        content: "If you are a GP considering Australia, the best first step is to speak with someone who understands the process and the opportunities available.\n\nAustralia offers strong demand for experienced GPs, attractive earning potential, better lifestyle options and a clearer pathway for eligible doctors through the Expedited Specialist Pathway. But the quality of your move depends heavily on the practice you choose and the guidance you receive early.\n\nGP Link helps overseas-trained GPs connect with Australian medical practices that are actively looking for doctors.\n\nWe understand that moving countries is a major decision. You are not just choosing a job. You are choosing a practice, a community, a lifestyle, a visa pathway, a financial future and often a new life for your family.\n\nOur role is to make that decision clearer.\n\nWe help you understand which practices are recruiting, which locations may suit your goals, what the income model looks like and how the opportunity fits your situation. We also help practices understand your background so the process can move forward properly.\n\nInstead of searching through generic job ads or trying to interpret the Australian system alone, GP Link gives you a more direct way to explore genuine opportunities.\n\nThe right role can make a major difference. It can help you settle faster, earn sooner and build confidence in Australian general practice. It can also give your family a stronger foundation as you make the move.\n\nAustralia is ready for experienced GPs. Practices need doctors, communities need care and eligible overseas-trained GPs have a real opportunity to build something better.\n\nIf you are serious about exploring Australia, GP Link can help you take the next step.\n\nYour Australian GP journey can begin with one conversation."
+      }
+    ];
+
+    (function() {
+      var path = window.location.pathname;
+      var slug = null;
+
+      // Extract slug from path: /blog/some-slug
+      if (path.startsWith("/blog/")) {
+        slug = path.replace("/blog/", "").replace(/\/$/, "");
+      }
+
+      if (slug) {
+        renderArticle(slug);
+      } else {
+        renderListing();
+      }
+
+      function renderListing() {
+        document.getElementById("listing-view").classList.remove("hidden");
+        document.title = "GP Link Blog - Insights for GPs Moving to Australia";
+        setMeta("description", "Insights and guidance for overseas-trained GPs considering a move to Australian general practice.");
+
+        var grid = document.getElementById("blog-grid");
+        var html = "";
+
+        for (var i = 0; i < BLOG_POSTS.length; i++) {
+          var post = BLOG_POSTS[i];
+          var desc = post.content.split("\n\n")[0];
+          if (desc.length > 160) {
+            desc = desc.substring(0, 157) + "...";
+          }
+
+          html += '<a href="/blog/' + post.slug + '" class="blog-card">'
+            + '<span class="card-tag">' + post.tag + '</span>'
+            + '<h2>' + post.title + '</h2>'
+            + '<p>' + desc + '</p>'
+            + '<span class="read-more">Read article</span>'
+            + '</a>';
+        }
+
+        grid.innerHTML = html;
+      }
+
+      function renderArticle(articleSlug) {
+        var post = null;
+        for (var i = 0; i < BLOG_POSTS.length; i++) {
+          if (BLOG_POSTS[i].slug === articleSlug) {
+            post = BLOG_POSTS[i];
+            break;
+          }
+        }
+
+        if (!post) {
+          // Redirect to listing if slug not found
+          window.location.href = "/blog";
+          return;
+        }
+
+        document.getElementById("article-view").classList.remove("hidden");
+        document.title = post.title + " | GP Link Blog";
+        setMeta("description", post.metaDesc);
+
+        var paragraphs = post.content.split("\n\n");
+        var bodyHtml = "";
+        for (var j = 0; j < paragraphs.length; j++) {
+          bodyHtml += "<p>" + paragraphs[j] + "</p>";
+        }
+
+        var articleHtml = '<span class="article-tag">' + post.tag + '</span>'
+          + '<h1>' + post.title + '</h1>'
+          + '<div class="article-body">' + bodyHtml + '</div>'
+          + '<div class="blog-cta">'
+          + '<h3>Ready to explore your Australian opportunity?</h3>'
+          + '<p>GP Link connects qualified GPs with Australian practices that are actively recruiting. Start your journey today.</p>'
+          + '<a href="/pages/signin.html" class="cta-btn">Get Started</a>'
+          + '</div>';
+
+        document.getElementById("article-content").innerHTML = articleHtml;
+      }
+
+      function setMeta(name, content) {
+        var el = document.querySelector('meta[name="' + name + '"]');
+        if (el) {
+          el.setAttribute("content", content);
+        } else {
+          var meta = document.createElement("meta");
+          meta.name = name;
+          meta.content = content;
+          document.head.appendChild(meta);
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

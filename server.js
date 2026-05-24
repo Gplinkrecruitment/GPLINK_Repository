@@ -31328,6 +31328,16 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // Blog pages (public, no auth required)
+  if (pathname === '/blog' || pathname === '/blog/') {
+    serveStatic(req, res, '/pages/blog.html');
+    return;
+  }
+  if (pathname.startsWith('/blog/')) {
+    serveStatic(req, res, '/pages/blog.html');
+    return;
+  }
+
   if (pathname.startsWith('/api/')) {
     try {
       await handleApi(req, res, pathname);
