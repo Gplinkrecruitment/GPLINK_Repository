@@ -24089,6 +24089,38 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── GP LINK prepared docs status (authoritative server source) ──
+  if (pathname === '/api/gplink-docs-status' && req.method === 'GET') {
+    const session = requireSession(req, res);
+    if (!session) return;
+    const email = getSessionEmail(session);
+    if (!email) { sendJson(res, 400, { ok: false }); return; }
+    const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
+    if (!userId) { sendJson(res, 409, { ok: false }); return; }
+    try {
+      // Fetch user_documents for GP LINK doc keys
+      var _glDocKeys = GP_LINK_DOCUMENT_META.map(function(d) { return d.key; });
+      var _glDocsRes = await supabaseDbRequest('user_documents',
+        'select=document_key,status,file_name,file_url,google_drive_file_id,updated_at&user_id=eq.' + encodeURIComponent(userId));
+      var _glDocs = _glDocsRes.ok && Array.isArray(_glDocsRes.data) ? _glDocsRes.data : [];
+      var result = {};
+      _glDocKeys.forEach(function(key) {
+        var match = _glDocs.find(function(d) { return d.document_key === key; });
+        if (match && (match.status === 'approved' || match.status === 'uploaded' || match.status === 'received')) {
+          var dlUrl = '';
+          if (match.google_drive_file_id) dlUrl = 'https://drive.google.com/file/d/' + match.google_drive_file_id + '/view';
+          else if (match.file_url && match.file_url.startsWith('http')) dlUrl = match.file_url;
+          else dlUrl = '/documents/section_g.pdf'; // fallback for section_g
+          result[key] = { ready: true, url: dlUrl, fileName: match.file_name || '' };
+        }
+      });
+      sendJson(res, 200, { ok: true, docs: result });
+    } catch (e) {
+      sendJson(res, 500, { ok: false });
+    }
+    return;
+  }
+
   if (pathname === '/api/onboarding-documents' && req.method === 'GET') {
     if (!isSupabaseDbConfigured()) {
       sendJson(res, 503, { ok: false, message: 'Onboarding document storage requires Supabase configuration.' });

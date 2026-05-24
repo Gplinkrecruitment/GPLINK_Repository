@@ -2113,6 +2113,25 @@
         mergePreparedDocumentFiles(state, files);
         renderAll(country, state);
       }).catch(function() {});
+      // Fetch authoritative GP LINK doc status from server (overrides stale localStorage)
+      fetch("/api/gplink-docs-status", { credentials: "same-origin" })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data || !data.ok || !data.docs) return;
+          var prepared = loadPreparedDocs(country);
+          var changed = false;
+          Object.keys(data.docs).forEach(function(key) {
+            if (data.docs[key].ready && prepared.docs[key] && !prepared.docs[key].ready) {
+              prepared.docs[key] = data.docs[key];
+              changed = true;
+            }
+          });
+          if (changed) {
+            prepared.updatedAt = new Date().toISOString();
+            localStorage.setItem(PREPARED_DOCS_KEY, JSON.stringify(prepared));
+            renderAll(country, state);
+          }
+        }).catch(function() {});
 
       const cfg = getCountryConfig(country);
       var panelsWrap = document.querySelector(".doc-panels-wrap");
