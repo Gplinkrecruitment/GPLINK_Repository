@@ -2190,6 +2190,12 @@ const PREPARED_DOCUMENT_KEYS = new Set(
     .filter((item) => item && item.source === 'prepared_by_you')
     .map((item) => item.key)
 );
+const INSTITUTION_DOCUMENT_KEYS = new Set(
+  Object.values(GP_DOCUMENT_META)
+    .flatMap((items) => Array.isArray(items) ? items : [])
+    .filter((item) => item && item.source === 'institution_docs')
+    .map((item) => item.key)
+);
 const ONBOARDING_DOCUMENT_KEYS = new Set([
   'onboarding_specialist_qualification',
   'onboarding_primary_med_degree'
@@ -6654,10 +6660,11 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       }
     }
 
-    // ── Document uploads ──
+    // ── Document uploads (skip institution docs — they are status flags, not file uploads) ──
     const prevDocs = prev.docs.docs || {};
     const nextDocs = nxt.docs.docs || {};
     for (const key of Object.keys(nextDocs)) {
+      if (INSTITUTION_DOCUMENT_KEYS.has(key)) continue;
       const pv = prevDocs[key] || {};
       const nv = nextDocs[key] || {};
       if (nv.uploaded === true && !pv.uploaded) {
