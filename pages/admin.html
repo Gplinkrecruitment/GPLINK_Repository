@@ -983,10 +983,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   </div>
   <div class="view-tabs">
     <div class="view-tab" data-view="ceo-home" id="ceoHomeTab" style="display:none">Home Dashboard</div>
-    <div class="view-tab active" data-view="gps">GPs</div>
+    <div class="view-tab active" data-view="tools">Ops Queue</div>
+    <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
     <div class="view-tab" data-view="support">Support</div>
-    <div class="view-tab" data-view="tools">Ops Queue</div>
     <div class="view-tab" data-view="technical" id="technicalTab" style="display:none">Technical</div>
   </div>
   <div class="layout" id="mainLayout">
@@ -1144,7 +1144,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 (function(){
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
-    selectedCaseId:null,view:"gps",filter:"all",query:"",expanded:{},refreshTimer:null,
+    selectedCaseId:null,view:"tools",filter:"all",query:"",expanded:{},refreshTimer:null,
     mc:{centres:[],allData:[],loading:false,selectedCentre:null,subView:"overview",listView:"open",listFilters:{status:"all",billing:"",location:""}},
     opsTasks:[],opsExpandedId:null,opsLoading:false,_opsStatFilter:null,_opsCollapsed:new Set(),
     toolsSubView:"ops",gpsProfileTab:"tasks",openEmailPanels:{},
@@ -1589,7 +1589,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     await Promise.all(jobs);
     S.loading=false;
     renderAll();
-    if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();}
+    if(S.view==="tools"){vaShowPanel("tools");renderToolsPanel();}
+    else if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();}
     else if(S.view==="inbox"){vaShowPanel("inbox");renderInboxPanel();}
     else if(S.view==="tickets"){vaShowPanel("tickets");await loadVaTickets();/*TASK4 renderTicketsPanel()*/}
     if(isSA()&&S.agent.selectedRunId)loadAgentRun(S.agent.selectedRunId);
