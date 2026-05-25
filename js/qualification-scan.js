@@ -805,8 +805,8 @@
       if (name === "certdone") { closeModal(); certContext = null; return; }
       if (name === "viewdocs") {
         closeModal();
-        if (window.gpShellNavigate) window.gpShellNavigate("/pages/my-documents.html");
-        else window.location.href = "/pages/my-documents.html";
+        if (window.gpShellNavigate) window.gpShellNavigate("/pages/my-documents");
+        else window.location.href = "/pages/my-documents";
         return;
       }
       if (name === "another") { resetModal(); return; }

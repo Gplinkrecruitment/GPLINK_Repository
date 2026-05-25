@@ -1316,7 +1316,7 @@
   }
 
   document.getElementById("successContinueBtn").addEventListener("click", () => {
-    window.location.href = "/pages/index.html";
+    window.location.href = "/pages/index";
   });
 
   // ── Init ───────────────────────────────────
@@ -1324,7 +1324,7 @@
     .then((r) => r.json())
     .then((data) => {
       if (!data || !data.authenticated) {
-        window.location.replace("/pages/signin.html");
+        window.location.replace("/pages/signin");
         return;
       }
       // Store profile for name matching
@@ -1335,6 +1335,6 @@
       goToStep(currentStep);
     })
     .catch(() => {
-      window.location.replace("/pages/signin.html");
+      window.location.replace("/pages/signin");
     });
 })();

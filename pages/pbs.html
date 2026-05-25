@@ -759,7 +759,7 @@
               <span data-inbox-alert hidden class="header-badge" aria-hidden="true">!</span>
               <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             </button>
-            <a class="hero-icon-btn" href="/pages/account.html" aria-label="Account">
+            <a class="hero-icon-btn" href="/pages/account" aria-label="Account">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-3.6 5-5.5 8-5.5s6.2 1.9 8 5.5"/></svg>
             </a>
           </div>
@@ -1556,7 +1556,7 @@
       html += '<div class="sb-progress-bar"><div class="sb-progress-fill" style="width:' + pct + '%"></div></div>';
       html += '<div class="sb-progress-text">Step ' + (activeIdx + 1) + ' of ' + steps.length + ' &middot; ' + pct + '% complete</div>';
       html += '</div>';
-      html += '<a class="sb-help" href="/pages/messages.html?category=Provider#new-ticket"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> Need help? Contact support</a>';
+      html += '<a class="sb-help" href="/pages/messages?category=Provider#new-ticket"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> Need help? Contact support</a>';
 
       sb.innerHTML = html;
     }
@@ -1577,7 +1577,7 @@
     document.addEventListener("click", function(e) {
       var btn = e.target.closest("#stuckHelpBtn");
       if (btn) {
-        window.location.href = "/pages/messages.html?category=Provider#new-ticket";
+        window.location.href = "/pages/messages?category=Provider#new-ticket";
       }
     });
 

@@ -948,7 +948,7 @@
 
   <!-- Back bar -->
   <div class="back-bar">
-    <a class="back-btn" href="career.html" id="backBtn">
+    <a class="back-btn" href="career" id="backBtn">
       <svg viewBox="0 0 24 24"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg>
       Back
     </a>
@@ -992,7 +992,7 @@
     <div class="page-error" id="errorState" hidden>
       <h2 class="page-error-title">Role not found</h2>
       <p class="page-error-text" id="errorText">This role may no longer be available.</p>
-      <a class="btn-secondary" href="career.html">Browse all roles</a>
+      <a class="btn-secondary" href="career">Browse all roles</a>
     </div>
 
     <!-- Content (hidden until loaded) -->
@@ -1621,7 +1621,7 @@
           openCvModal();
         } else {
           showToast("Please upload your CV first");
-          window.location.href = "my-documents.html";
+          window.location.href = "my-documents";
         }
       } else {
         applyBtnEl.textContent = "Apply";

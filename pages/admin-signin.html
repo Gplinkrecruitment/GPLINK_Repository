@@ -212,7 +212,7 @@
         const data = await response.json().catch(() => ({}));
         applyPortalContext(data);
         if (response.ok) {
-          window.location.href = data.redirectTo || "/pages/admin.html";
+          window.location.href = data.redirectTo || "/pages/admin";
         }
       } catch (err) {
         applyPortalContext(null);
@@ -247,7 +247,7 @@
         }
         applyPortalContext(data);
         setStatus("Signed in. Redirecting...", "ok");
-        window.location.href = data.redirectTo || "/pages/admin.html";
+        window.location.href = data.redirectTo || "/pages/admin";
       } catch (err) {
         setStatus("Network error. Please try again.", "error");
       } finally {

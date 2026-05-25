@@ -135,7 +135,7 @@
           target.postMessage({
             type: "GP_CACHE_URLS",
             urls: [
-              "/pages/index.html?gp_shell=embedded&gp_shell_static=1",
+              "/pages/index?gp_shell=embedded&gp_shell_static=1",
               "/js/native-bridge.js?v=20260517a",
               "/js/nav-shell-bridge.js?v=20260516a",
               "/js/auth-guard.js?v=20260516a",

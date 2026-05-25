@@ -7,9 +7,9 @@
   var EMBED_VALUE = "embedded";
   var STATIC_PARAM = "gp_shell_static";
   var STATIC_VALUE = "1";
-  var DEFAULT_ROUTE = "/pages/index.html";
-  var REGISTRATION_ENTRY_ROUTE = "/pages/myinthealth.html";
-  var REGISTRATION_INTRO_ROUTE = "/pages/registration-intro.html";
+  var DEFAULT_ROUTE = "/pages/index";
+  var REGISTRATION_ENTRY_ROUTE = "/pages/myinthealth";
+  var REGISTRATION_INTRO_ROUTE = "/pages/registration-intro";
   var REGISTRATION_INTRO_SEEN_KEY = "gp_registration_intro_seen";
   var REGISTRATION_INTRO_BYPASS_KEY = "gp_registration_intro_bypass_once";
   var REGISTRATION_CONTINUE_PARAM = "gp_registration_continue";
@@ -28,42 +28,42 @@
     "smithmiller1234@gmail.com": true
   };
   var PAGE_PATHS = {
-    "/pages/index.html": true,
-    "/pages/myinthealth.html": true,
-    "/pages/amc.html": true,
-    "/pages/ahpra.html": true,
-    "/pages/my-documents.html": true,
-    "/pages/career.html": true,
-    "/pages/visa.html": true,
-    "/pages/pbs.html": true,
-    "/pages/commencement.html": true,
-    "/pages/messages.html": true,
-    "/pages/account.html": true,
-    "/pages/registration-intro.html": true,
-    "/pages/application-detail.html": true,
-    "/pages/job.html": true,
-    "/pages/interview-prep.html": true,
-    "/pages/offer-review.html": true,
-    "/pages/area-guide.html": true
+    "/pages/index": true,
+    "/pages/myinthealth": true,
+    "/pages/amc": true,
+    "/pages/ahpra": true,
+    "/pages/my-documents": true,
+    "/pages/career": true,
+    "/pages/visa": true,
+    "/pages/pbs": true,
+    "/pages/commencement": true,
+    "/pages/messages": true,
+    "/pages/account": true,
+    "/pages/registration-intro": true,
+    "/pages/application-detail": true,
+    "/pages/job": true,
+    "/pages/interview-prep": true,
+    "/pages/offer-review": true,
+    "/pages/area-guide": true
   };
   var NAV_GROUPS = {
-    "/pages/index.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/registration-intro.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/myinthealth.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/amc.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/ahpra.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/visa.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/pbs.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/commencement.html": { desktop: "home", mobile: "/pages/index.html" },
-    "/pages/my-documents.html": { desktop: "documents", mobile: "/pages/index.html" },
-    "/pages/career.html": { desktop: "career", mobile: "/pages/career.html" },
-    "/pages/application-detail.html": { desktop: "career", mobile: "/pages/career.html" },
-    "/pages/job.html": { desktop: "career", mobile: "/pages/career.html" },
-    "/pages/interview-prep.html": { desktop: "career", mobile: "/pages/career.html" },
-    "/pages/offer-review.html": { desktop: "career", mobile: "/pages/career.html" },
-    "/pages/area-guide.html": { desktop: "career", mobile: "/pages/career.html" },
-    "/pages/messages.html": { desktop: "support", mobile: "/pages/messages.html" },
-    "/pages/account.html": { desktop: "account", mobile: "/pages/account.html" }
+    "/pages/index": { desktop: "home", mobile: "/pages/index" },
+    "/pages/registration-intro": { desktop: "home", mobile: "/pages/index" },
+    "/pages/myinthealth": { desktop: "home", mobile: "/pages/index" },
+    "/pages/amc": { desktop: "home", mobile: "/pages/index" },
+    "/pages/ahpra": { desktop: "home", mobile: "/pages/index" },
+    "/pages/visa": { desktop: "home", mobile: "/pages/index" },
+    "/pages/pbs": { desktop: "home", mobile: "/pages/index" },
+    "/pages/commencement": { desktop: "home", mobile: "/pages/index" },
+    "/pages/my-documents": { desktop: "documents", mobile: "/pages/index" },
+    "/pages/career": { desktop: "career", mobile: "/pages/career" },
+    "/pages/application-detail": { desktop: "career", mobile: "/pages/career" },
+    "/pages/job": { desktop: "career", mobile: "/pages/career" },
+    "/pages/interview-prep": { desktop: "career", mobile: "/pages/career" },
+    "/pages/offer-review": { desktop: "career", mobile: "/pages/career" },
+    "/pages/area-guide": { desktop: "career", mobile: "/pages/career" },
+    "/pages/messages": { desktop: "support", mobile: "/pages/messages" },
+    "/pages/account": { desktop: "account", mobile: "/pages/account" }
   };
 
   var frameEls = Array.prototype.slice.call(document.querySelectorAll(".app-shell-frame"));
@@ -80,36 +80,36 @@
   var mobileRegCloseBtnEl = document.getElementById("mobileRegCloseBtn");
   var EMBED_STYLE_ID = "gp-shell-parent-embed-style";
   var WARM_ROUTE_ORDER = [
-    "/pages/index.html",
-    "/pages/myinthealth.html",
-    "/pages/my-documents.html",
-    "/pages/career.html",
-    "/pages/messages.html",
-    "/pages/account.html"
+    "/pages/index",
+    "/pages/myinthealth",
+    "/pages/my-documents",
+    "/pages/career",
+    "/pages/messages",
+    "/pages/account"
   ];
   var IDLE_PREFETCH_ORDER = [
-    "/pages/index.html",
-    "/pages/myinthealth.html",
-    "/pages/amc.html",
-    "/pages/ahpra.html",
-    "/pages/my-documents.html",
-    "/pages/career.html",
-    "/pages/job.html",
-    "/pages/application-detail.html",
-    "/pages/messages.html",
-    "/pages/account.html",
-    "/pages/pbs.html",
-    "/pages/commencement.html",
-    "/pages/interview-prep.html",
-    "/pages/offer-review.html",
-    "/pages/area-guide.html",
-    "/pages/registration-intro.html"
+    "/pages/index",
+    "/pages/myinthealth",
+    "/pages/amc",
+    "/pages/ahpra",
+    "/pages/my-documents",
+    "/pages/career",
+    "/pages/job",
+    "/pages/application-detail",
+    "/pages/messages",
+    "/pages/account",
+    "/pages/pbs",
+    "/pages/commencement",
+    "/pages/interview-prep",
+    "/pages/offer-review",
+    "/pages/area-guide",
+    "/pages/registration-intro"
   ];
   var SAFE_ROUTE_DATA_PREFETCH = {
-    "/pages/index.html": ["/api/media-config"],
-    "/pages/career.html": ["/api/career/roles"],
-    "/pages/job.html": ["/api/career/roles"],
-    "/pages/area-guide.html": ["/api/career/roles"]
+    "/pages/index": ["/api/media-config"],
+    "/pages/career": ["/api/career/roles"],
+    "/pages/job": ["/api/career/roles"],
+    "/pages/area-guide": ["/api/career/roles"]
   };
   var currentRoute = "";
   var activeFrameEl = document.querySelector(".app-shell-frame.is-active") || frameEls[0] || null;
@@ -165,9 +165,9 @@
     if (parts.length < 2 || parts[0] !== "registration") return "";
 
     var step = String(parts[1] || "").toLowerCase();
-    if (step === "myintealth" || step === "myinthealth") return "/pages/myinthealth.html";
-    if (step === "amc") return "/pages/amc.html";
-    if (step === "ahpra" || step === "specialist-registration") return "/pages/ahpra.html";
+    if (step === "myintealth" || step === "myinthealth") return "/pages/myinthealth";
+    if (step === "amc") return "/pages/amc";
+    if (step === "ahpra" || step === "specialist-registration") return "/pages/ahpra";
     return "";
   }
 
@@ -295,8 +295,8 @@
 
   function getPrimaryWarmRoute(pathname) {
     var resolved = resolveSupportedPath(pathname) || DEFAULT_ROUTE;
-    if (resolved === REGISTRATION_INTRO_ROUTE || resolved === REGISTRATION_ENTRY_ROUTE || resolved === "/pages/amc.html" || resolved === "/pages/ahpra.html") {
-      return "/pages/myinthealth.html";
+    if (resolved === REGISTRATION_INTRO_ROUTE || resolved === REGISTRATION_ENTRY_ROUTE || resolved === "/pages/amc" || resolved === "/pages/ahpra") {
+      return "/pages/myinthealth";
     }
     return resolved;
   }
@@ -541,7 +541,7 @@
         mobileDetail: "Your placed practice details and contact information.",
         mobileStatus: snap.careerSecured ? "Placement secured" : "View placement",
         done: snap.careerSecured,
-        href: "/pages/career.html"
+        href: "/pages/career"
       }),
       buildRegistrationRow("myinthealth", {
         title: "2. MyIntealth Account",
@@ -549,7 +549,7 @@
         mobileDetail: "EPIC verification is set up and moving forward.",
         mobileStatus: snap.epicDone ? "Completed" : snap.epicCurrentLabel,
         done: snap.epicDone,
-        href: "/pages/myinthealth.html?" + REGISTRATION_CONTINUE_PARAM + "=1"
+        href: "/pages/myinthealth?" + REGISTRATION_CONTINUE_PARAM + "=1"
       }),
       buildRegistrationRow("amc", {
         title: "3. AMC Portfolio",
@@ -558,7 +558,7 @@
         mobileStatus: snap.epicDone ? (snap.amcDone ? "Completed" : snap.amcCurrentLabel) : "Unlocked after MyIntealth is complete",
         locked: !bypassLocks && !snap.epicDone,
         done: snap.amcDone,
-        href: "/pages/amc.html"
+        href: "/pages/amc"
       }),
       buildRegistrationRow("ahpra", {
         title: "4. AHPRA Registration",
@@ -567,7 +567,7 @@
         mobileStatus: ahpraStatusHint,
         locked: false,
         done: snap.ahpraDone,
-        href: "/pages/ahpra.html"
+        href: "/pages/ahpra"
       }),
       buildRegistrationRow("visa", {
         title: "5. Visa Application",
@@ -576,7 +576,7 @@
         mobileStatus: "View pathway",
         locked: false,
         done: false,
-        href: "/pages/visa.html"
+        href: "/pages/visa"
       }),
       buildRegistrationRow("pbs", {
         title: "6. PBS & Medicare",
@@ -585,7 +585,7 @@
         mobileStatus: !snap.ahpraDone ? "Unlocked after AHPRA is complete" : "In progress",
         locked: !bypassLocks && !snap.ahpraDone,
         done: false,
-        href: "/pages/pbs.html"
+        href: "/pages/pbs"
       }),
     ];
   }
@@ -964,7 +964,7 @@
     var route = routeFromUrl(routeUrl);
 
     // Hide chrome completely for onboarding — it takes over the full screen
-    var isOnboarding = route && route.indexOf("/pages/onboarding.html") === 0;
+    var isOnboarding = route && route.indexOf("/pages/onboarding") === 0;
     if (isOnboarding) {
       chromeHidden = true;
       if (mobileNavEl) mobileNavEl.style.display = "none";

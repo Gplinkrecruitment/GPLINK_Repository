@@ -144,9 +144,9 @@
         kind: item.type === "action" ? "action" : "update",
         unread: readState[id] !== true,
         target: item.type === "action" && item.nudgeId
-          ? "/pages/messages.html#chat-" + encodeURIComponent(item.nudgeId)
-          : item.type === "action" ? "/pages/messages.html#tab-action"
-          : "/pages/messages.html#tab-updates",
+          ? "/pages/messages#chat-" + encodeURIComponent(item.nudgeId)
+          : item.type === "action" ? "/pages/messages#tab-action"
+          : "/pages/messages#tab-updates",
       });
     });
 
@@ -164,7 +164,7 @@
         title: typeof c.title === "string" && c.title ? c.title : "Support response",
         kind: "support",
         unread: readState[id] !== true,
-        target: c.id ? `/pages/messages.html#case-${c.id}` : "/pages/messages.html#tab-cases",
+        target: c.id ? `/pages/messages#case-${c.id}` : "/pages/messages#tab-cases",
         caseId: c.id || "",
       });
     });
@@ -351,15 +351,15 @@
         <button type="button" data-alert-close aria-label="Close alerts">&times;</button>
       </div>
       <div class="list" id="${PANEL_ID}-list"></div>
-      <a href="/pages/messages.html" class="see-all" style="display:block;text-align:center;padding:12px;font-size:13px;font-weight:700;color:#2563eb;text-decoration:none;border-top:1px solid #e8edf5;">See all</a>
+      <a href="/pages/messages" class="see-all" style="display:block;text-align:center;padding:12px;font-size:13px;font-weight:700;color:#2563eb;text-decoration:none;border-top:1px solid #e8edf5;">See all</a>
     `;
     var seeAllLink = root.querySelector(".see-all");
     if (seeAllLink) {
       seeAllLink.addEventListener("click", function (e) {
         e.preventDefault();
         closePanel();
-        if (window.gpShellNavigate) window.gpShellNavigate("/pages/messages.html");
-        else window.location.href = "/pages/messages.html";
+        if (window.gpShellNavigate) window.gpShellNavigate("/pages/messages");
+        else window.location.href = "/pages/messages";
       });
     }
     document.body.appendChild(root);

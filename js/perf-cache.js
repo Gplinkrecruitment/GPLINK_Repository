@@ -7,7 +7,7 @@
   var SW_SCOPE = "/";
   var WARM_MESSAGE = "GP_CACHE_URLS";
   var DEFAULT_WARM_URLS = [
-    "/pages/index.html?gp_shell=embedded&gp_shell_static=1",
+    "/pages/index?gp_shell=embedded&gp_shell_static=1",
     "/js/app-shell.js?v=20260517a",
     "/js/native-bridge.js?v=20260517a",
     "/js/nav-shell-bridge.js?v=20260516a",

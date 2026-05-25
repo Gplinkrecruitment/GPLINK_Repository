@@ -673,7 +673,7 @@
 
   <div class="legal">
     Trusted by GPs relocating from the UK, Ireland, and New Zealand.<br />
-    <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a><br />
+    <a href="privacy">Privacy Policy</a> · <a href="terms">Terms of Service</a><br />
     © 2026 GP Link
   </div>
 
@@ -1077,7 +1077,7 @@
         }
         const cleanUrl = `${window.location.origin}${window.location.pathname}`;
         window.history.replaceState({}, "", cleanUrl);
-        window.location.replace(result.redirectTo || "/pages/index.html");
+        window.location.replace(result.redirectTo || "/pages/index");
       } catch (err) {
         setStatus(signInStatusEl, "OAuth sign-in failed. Please try again.", "error");
       }
@@ -1232,7 +1232,7 @@
         } else {
           primeAuthSession(data.sessionProfile, payload.email);
         }
-        window.location.replace(data.redirectTo || "/pages/index.html");
+        window.location.replace(data.redirectTo || "/pages/index");
       } catch (err) {
         setStatus(signInStatusEl, "Network error. Please try again.", "error");
       } finally {

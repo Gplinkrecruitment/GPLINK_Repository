@@ -1,10 +1,10 @@
 (function () {
   const pathname = window.location.pathname;
-  const isSignInPage = pathname === "/pages/signin.html";
+  const isSignInPage = pathname === "/pages/signin";
   const isPublicPage =
     isSignInPage ||
-    pathname === "/pages/privacy.html" ||
-    pathname === "/pages/terms.html";
+    pathname === "/pages/privacy" ||
+    pathname === "/pages/terms";
   const SESSION_PROFILE_CACHE_KEY = "gp_session_profile_cache";
   const PROFILE_CACHE_KEY = "gp_profile_cache";
   const ACCOUNT_STATUS_CACHE_KEY = "gp_account_status_cache";
@@ -71,8 +71,8 @@
 
   window.gpSessionPromise = sessionPromise;
 
-  const isOnboardingPage = pathname === "/pages/onboarding.html";
-  const ALLOWED_REVIEW_PAGES = ["/pages/index.html", "/pages/account.html", "/pages/onboarding.html"];
+  const isOnboardingPage = pathname === "/pages/onboarding";
+  const ALLOWED_REVIEW_PAGES = ["/pages/index", "/pages/account", "/pages/onboarding"];
 
   // Check localStorage first for instant enforcement (no flicker)
   if (!isPublicPage && !isOnboardingPage && localStorage.getItem("gp_account_under_review") === "true") {
@@ -88,7 +88,7 @@
       }
 
       if (isSignInPage) {
-        window.location.replace("/pages/index.html");
+        window.location.replace("/pages/index");
         return;
       }
 
@@ -126,7 +126,7 @@
     }
     clearClientAuthCaches();
     if (!isPublicPage && !isOnboardingPage) {
-      window.location.replace("/pages/signin.html");
+      window.location.replace("/pages/signin");
     }
   });
 
@@ -339,7 +339,7 @@
       });
 
       // Blur dashboard content on home page
-      if (pathname === "/pages/index.html") {
+      if (pathname === "/pages/index") {
         blurDashboardContent();
       }
     }

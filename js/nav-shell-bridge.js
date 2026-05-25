@@ -3,30 +3,30 @@
 
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
-  var APP_SHELL_PATH = "/pages/app-shell.html";
+  var APP_SHELL_PATH = "/pages/app-shell";
   var EMBED_PARAM = "gp_shell";
   var EMBED_VALUE = "embedded";
   var STATIC_PARAM = "gp_shell_static";
   var EMBED_STYLE_ID = "gp-shell-embedded-style";
   var EMBEDDED_CHROME_HIDE_CSS = "html.gp-shell-embedded .desktop-topbar,html.gp-shell-embedded .topbar,html.gp-shell-embedded .mobile-nav,html.gp-shell-embedded .nav-menu,html.gp-shell-embedded .brand-logo,html.gp-shell-embedded .app-shell-desktop,html.gp-shell-embedded #appShellDesktop{display:none!important;}";
   var PAGE_PATHS = {
-    "/pages/index.html": true,
-    "/pages/myinthealth.html": true,
-    "/pages/amc.html": true,
-    "/pages/ahpra.html": true,
-    "/pages/my-documents.html": true,
-    "/pages/career.html": true,
-    "/pages/visa.html": true,
-    "/pages/pbs.html": true,
-    "/pages/commencement.html": true,
-    "/pages/messages.html": true,
-    "/pages/account.html": true,
-    "/pages/registration-intro.html": true,
-    "/pages/application-detail.html": true,
-    "/pages/job.html": true,
-    "/pages/interview-prep.html": true,
-    "/pages/offer-review.html": true,
-    "/pages/area-guide.html": true
+    "/pages/index": true,
+    "/pages/myinthealth": true,
+    "/pages/amc": true,
+    "/pages/ahpra": true,
+    "/pages/my-documents": true,
+    "/pages/career": true,
+    "/pages/visa": true,
+    "/pages/pbs": true,
+    "/pages/commencement": true,
+    "/pages/messages": true,
+    "/pages/account": true,
+    "/pages/registration-intro": true,
+    "/pages/application-detail": true,
+    "/pages/job": true,
+    "/pages/interview-prep": true,
+    "/pages/offer-review": true,
+    "/pages/area-guide": true
   };
 
   function normalizePath(pathname) {
@@ -46,12 +46,12 @@
     if (parts.length < 2 || parts[0] !== "registration") return "";
 
     var step = String(parts[1] || "").toLowerCase();
-    if (step === "myintealth" || step === "myinthealth") return "/pages/myinthealth.html";
-    if (step === "amc") return "/pages/amc.html";
-    if (step === "ahpra" || step === "specialist-registration") return "/pages/ahpra.html";
-    if (step === "visa") return "/pages/visa.html";
-    if (step === "pbs" || step === "medicare") return "/pages/pbs.html";
-    if (step === "commencement") return "/pages/commencement.html";
+    if (step === "myintealth" || step === "myinthealth") return "/pages/myinthealth";
+    if (step === "amc") return "/pages/amc";
+    if (step === "ahpra" || step === "specialist-registration") return "/pages/ahpra";
+    if (step === "visa") return "/pages/visa";
+    if (step === "pbs" || step === "medicare") return "/pages/pbs";
+    if (step === "commencement") return "/pages/commencement";
     return "";
   }
 

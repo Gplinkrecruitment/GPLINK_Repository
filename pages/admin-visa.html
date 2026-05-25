@@ -284,7 +284,7 @@
           <h1>Visa Cases</h1>
           <p>Manage GP visa applications, documents, and updates.</p>
         </div>
-        <a class="hero-back" href="/pages/admin.html">&larr; Dashboard</a>
+        <a class="hero-back" href="/pages/admin">&larr; Dashboard</a>
       </div>
     </div>
 
@@ -704,8 +704,8 @@
     // ── Auth check ──
     function checkAdmin() {
       return apiJson("/api/admin/auth/session").then(function (data) {
-        if (!data.ok) { window.location.href = "/pages/admin-signin.html"; }
-      }).catch(function () { window.location.href = "/pages/admin-signin.html"; });
+        if (!data.ok) { window.location.href = "/pages/admin-signin"; }
+      }).catch(function () { window.location.href = "/pages/admin-signin"; });
     }
 
     // ── List View ──

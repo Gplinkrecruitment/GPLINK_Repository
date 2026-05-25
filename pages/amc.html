@@ -1124,7 +1124,7 @@
 
     <div class="reg-content" style="padding-top:0;">
       <div class="footer-links">
-        <div><a href="/pages/privacy.html">Privacy Policy</a> &middot; <a href="/pages/terms.html">Terms of Service</a></div>
+        <div><a href="/pages/privacy">Privacy Policy</a> &middot; <a href="/pages/terms">Terms of Service</a></div>
         <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
       </div>
     </div>
@@ -1761,7 +1761,7 @@
           if (meta.ctaType === "open") window.location.assign(AMC_URL);
           else if (meta.ctaType === "open_signup") window.location.assign(AMC_SIGNUP_URL);
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
-          else if (meta.ctaType === "ahpra") shellNavigate("/pages/ahpra.html");
+          else if (meta.ctaType === "ahpra") shellNavigate("/pages/ahpra");
         });
       }
 
@@ -1888,7 +1888,7 @@
       html += '<div class="sb-progress-bar"><div class="sb-progress-fill" style="width:' + pct + '%"></div></div>';
       html += '<div class="sb-progress-text">Step ' + (activeIdx + 1) + ' of ' + TAB_STAGES.length + ' &middot; ' + pct + '% complete</div>';
       html += '</div>';
-      html += '<a class="sb-help" href="/pages/messages.html?category=AMC#new-ticket"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> Need help? Contact support</a>';
+      html += '<a class="sb-help" href="/pages/messages?category=AMC#new-ticket"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> Need help? Contact support</a>';
 
       sb.innerHTML = html;
 
@@ -1974,21 +1974,21 @@
           title: "1. MyIntealth Account",
           sub: "Create account and complete EPIC verification.",
           done: epicDone,
-          href: "myinthealth.html"
+          href: "myinthealth"
         }),
         buildRegistrationRow("amc", {
           title: "2. AMC Portfolio",
           sub: "Create and establish your AMC candidate portfolio.",
           locked: !epicDone,
           done: amcDone,
-          href: "amc.html"
+          href: "amc"
         }),
         buildRegistrationRow("ahpra", {
           title: "3. AHPRA Registration",
           sub: "Specialist registration submission.",
           locked: !amcDone,
           done: ahpraDone,
-          href: "ahpra.html"
+          href: "ahpra"
         })
       ];
     }
@@ -2239,15 +2239,15 @@
       const amcDone = !!(amc && amc.completed && amc.completed.qualifications_verified === true);
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.verification_issued === true);
       if (!epicDone) {
-        shellNavigate("/pages/myinthealth.html");
+        shellNavigate("/pages/myinthealth");
         return true;
       }
       if (!amcDone || isRegistrationReturnAllowed("amc")) return false;
       if (!ahpraDone) {
-        shellNavigate("/pages/ahpra.html");
+        shellNavigate("/pages/ahpra");
         return true;
       }
-      shellNavigate("/pages/index.html");
+      shellNavigate("/pages/index");
       return true;
     }
 

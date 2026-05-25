@@ -33,7 +33,7 @@
 
     var details = document.createElement("a");
     details.className = "account-nav-entry";
-    details.href = "account.html";
+    details.href = "account";
     details.textContent = "Details";
 
     var signOutBtn = document.createElement("button");
@@ -86,7 +86,7 @@
     function restoreActiveGlass() {
       var navMenu = accountLink.closest(".nav-menu");
       if (!navMenu) return;
-      var isAccountPage = /\/pages\/account\.html$/.test(window.location.pathname || "");
+      var isAccountPage = /\/pages\/account(\.html)?$/.test(window.location.pathname || "");
       if (isAccountPage) {
         moveGlassTo(accountLink, true);
         return;
@@ -172,7 +172,7 @@
       }, true);
     }
 
-    if (/\/pages\/account\.html$/.test(window.location.pathname || "")) {
+    if (/\/pages\/account(\.html)?$/.test(window.location.pathname || "")) {
       requestAnimationFrame(function () {
         moveGlassTo(accountLink, false);
       });

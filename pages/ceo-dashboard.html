@@ -1000,17 +1000,17 @@
     function checkAuth() {
       return apiFetch('/api/admin/auth/session').then(function(d) {
         if (!d.ok || !d.authenticated) {
-          if (!isEmbedded) window.location.href = '/pages/admin-signin.html';
+          if (!isEmbedded) window.location.href = '/pages/admin-signin';
           return false;
         }
         var role = (d.profile && (d.profile.role || d.profile.adminRole)) || '';
         if (role !== 'super_admin') {
-          if (!isEmbedded) window.location.href = '/pages/admin-signin.html';
+          if (!isEmbedded) window.location.href = '/pages/admin-signin';
           return false;
         }
         return true;
       }).catch(function() {
-        if (!isEmbedded) window.location.href = '/pages/admin-signin.html';
+        if (!isEmbedded) window.location.href = '/pages/admin-signin';
         return false;
       });
     }

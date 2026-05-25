@@ -1926,10 +1926,10 @@
       </div>
 
       <div class="gate-controls">
-        <a class="gate-btn gate-btn-primary" id="gateJobsBtn" href="/pages/career.html">Browse Jobs</a>
+        <a class="gate-btn gate-btn-primary" id="gateJobsBtn" href="/pages/career">Browse Jobs</a>
         <a class="gate-btn gate-btn-secondary" href="https://calendly.com/hello-mygplink/30min" target="_blank" rel="noopener noreferrer">Book a Consultation</a>
         <p class="gate-text-light">If you'd like to discuss the registration process, finding the right role, or your move to Australia, book a consultation with our team.</p>
-        <p class="gate-hint">Need help? <a href="/pages/messages.html">Contact Support</a></p>
+        <p class="gate-hint">Need help? <a href="/pages/messages">Contact Support</a></p>
       </div>
     </section>
 
@@ -2075,7 +2075,7 @@
 
     <div class="reg-content" style="padding-top:0;">
       <div class="footer-links">
-        <div><a href="/pages/privacy.html">Privacy Policy</a> &middot; <a href="/pages/terms.html">Terms of Service</a></div>
+        <div><a href="/pages/privacy">Privacy Policy</a> &middot; <a href="/pages/terms">Terms of Service</a></div>
         <div style="margin-top:4px;">&copy; 2026 GP LINK AUSTRALIA PTY LTD</div>
       </div>
     </div>
@@ -4162,7 +4162,7 @@
           }
           else if (meta.ctaType === "support") openSupportCaseModal(openBtn);
           else if (meta.ctaType === "home") {
-            shellNavigate("/pages/index.html");
+            shellNavigate("/pages/index");
           }
         });
       }
@@ -4274,7 +4274,7 @@
       html += '<div class="sb-progress-bar"><div class="sb-progress-fill" style="width:' + pct + '%"></div></div>';
       html += '<div class="sb-progress-text">Step ' + (activeIdx + 1) + ' of ' + TAB_STAGES.length + ' &middot; ' + pct + '% complete</div>';
       html += '</div>';
-      html += '<a class="sb-help" href="/pages/messages.html?category=AHPRA#new-ticket"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> Need help? Contact support</a>';
+      html += '<a class="sb-help" href="/pages/messages?category=AHPRA#new-ticket"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> Need help? Contact support</a>';
 
       sb.innerHTML = html;
 
@@ -4359,21 +4359,21 @@
           title: "1. MyIntealth Account",
           sub: "Create account and complete EPIC verification.",
           done: epicDone,
-          href: "myinthealth.html"
+          href: "myinthealth"
         }),
         buildRegistrationRow("amc", {
           title: "2. AMC Portfolio",
           sub: "Create AMC candidate portfolio and upload credentials.",
           locked: !epicDone,
           done: amcDone,
-          href: "amc.html"
+          href: "amc"
         }),
         buildRegistrationRow("ahpra", {
           title: "3. AHPRA Registration",
           sub: "Specialist registration submission.",
           locked: !amcDone,
           done: ahpraDone,
-          href: "ahpra.html"
+          href: "ahpra"
         })
       ];
     }
@@ -4691,7 +4691,7 @@
       const ahpra = parseStorage(STORAGE_KEY);
       const ahpraDone = !!(ahpra && ahpra.completed && ahpra.completed.awaiting_outcome === true);
       if (!ahpraDone || isRegistrationReturnAllowed("ahpra")) return false;
-      shellNavigate("/pages/index.html");
+      shellNavigate("/pages/index");
       return true;
     }
 
@@ -4751,7 +4751,7 @@
       gateJobsBtn.addEventListener("click", function (e) {
         if (window.parent !== window) {
           e.preventDefault();
-          window.parent.postMessage({ type: "gp-shell-route", href: "/pages/career.html", title: "My Practice" }, window.location.origin);
+          window.parent.postMessage({ type: "gp-shell-route", href: "/pages/career", title: "My Practice" }, window.location.origin);
         }
       });
     }
