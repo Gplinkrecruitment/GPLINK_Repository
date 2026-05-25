@@ -243,7 +243,6 @@
     .ball-pill.ball-gp{background:#fef3c7;color:#92400e}
     .ball-pill.ball-practice{background:#ede9fe;color:#5b21b6}
     .ball-pill.ball-ahpra{background:#d1fae5;color:#065f46}
-    .ball-pill.ball-blocked{background:#fee2e2;color:#991b1b}
     .ball-pill.ball-escalated{background:#fee2e2;color:#991b1b}
     .ops-due{font-size:11px;white-space:nowrap}
     .ops-due.due-green{color:#16a34a;font-weight:600}
@@ -1565,7 +1564,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   /* ══ Data Loading ══ */
   async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
   async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.cases=d.cases;}catch{}}
-  async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
+  async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
   async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
   async function loadPbs(){try{const r=await fetch("/api/admin/pbs/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.pbsCases=d.cases;}catch{}}
   async function loadAgentStatus(force){
@@ -2051,7 +2050,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderCaseManagementForm(c){
     return`<div class="case-mgmt">
       <div class="case-field"><label>Status</label><select data-case-field="status">
-        ${["active","on_hold","blocked","complete","withdrawn"].map(s=>`<option value="${s}" ${c.status===s?"selected":""}>${s}</option>`).join("")}
+        ${["active","on_hold","complete","withdrawn"].map(s=>`<option value="${s}" ${c.status===s?"selected":""}>${s}</option>`).join("")}
       </select></div>
       <div class="case-field"><label>Blocker</label><select data-case-field="blocker_status">
         <option value="" ${!c.blocker_status?"selected":""}>None</option>
@@ -2246,7 +2245,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
           html+='<button class="st-dropdown-item" data-case-nudge="'+esc(c.user_id||"")+'" data-nudge-stage="'+esc(c.stage||"")+'" data-nudge-substage="" data-nudge-name="'+esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())+'">\uD83D\uDCE8 Send Nudge</button>';
           html+='<div class="st-dropdown-sep"></div>';
-          html+='<button class="st-dropdown-item" data-set-waiting="'+esc(t.id)+'" data-waiting="blocked">\u26D4 Set Blocked</button>';
           html+='<button class="st-dropdown-item st-escalate-ceo" data-escalate-ceo="'+esc(t.id)+'">\uD83D\uDEA8 Escalate to CEO</button>';
           }
           html+='</div>';
@@ -3564,9 +3562,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     else if(f==="gp")url+="&status=waiting_on_gp";
     else if(f==="practice")url+="&status=waiting_on_practice";
     else if(f==="escalated")url+="&status=escalated";
-    else url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated";
+    else url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated";
     // Always fetch all active tasks for stats counters (parallel with filtered fetch)
-    var statsUrl="/api/admin/ops/queue?limit=500&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated";
+    var statsUrl="/api/admin/ops/queue?limit=500&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated";
     try{
       var [r,sr]=await Promise.all([
         fetch(url,{credentials:"same-origin"}),
@@ -3626,7 +3624,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(status==="waiting_on_gp")return {cls:"ball-gp",label:"GP"};
     if(status==="waiting_on_practice")return {cls:"ball-practice",label:"Practice"};
     if(status==="waiting_on_external")return {cls:"ball-ahpra",label:"AHPRA"};
-    if(status==="blocked")return {cls:"ball-blocked",label:"Blocked"};
     if(status==="escalated")return {cls:"ball-escalated",label:"Escalated"};
     return {cls:"ball-hazel",label:"Hazel"};
   }

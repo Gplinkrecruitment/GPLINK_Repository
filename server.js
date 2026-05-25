@@ -6020,7 +6020,7 @@ async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor, me
 async function _hasOpenTask(caseId, stage, type) {
   if (!isSupabaseDbConfigured()) return false;
   const q = await supabaseDbRequest('registration_tasks',
-    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.' + encodeURIComponent(stage) + '&task_type=eq.' + encodeURIComponent(type) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated,deferred,completed)&limit=1');
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_stage=eq.' + encodeURIComponent(stage) + '&task_type=eq.' + encodeURIComponent(type) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated,deferred,completed)&limit=1');
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
@@ -6041,7 +6041,7 @@ async function _hasDoubleTickBeenSent(caseId, stageTitle) {
 async function _hasOpenTaskForDoc(caseId, docKey) {
   if (!isSupabaseDbConfigured()) return false;
   const q = await supabaseDbRequest('registration_tasks',
-    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(docKey) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated,deferred,completed)&limit=1');
+    'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(docKey) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated,deferred,completed)&limit=1');
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
 }
 
@@ -6747,7 +6747,7 @@ const VA_TASK_TYPES_EXTENDED = [
 ];
 const VA_TASK_STATUSES_EXTENDED = [
   'open','in_progress','waiting','completed','cancelled',
-  'waiting_on_gp','waiting_on_practice','waiting_on_external','blocked'
+  'waiting_on_gp','waiting_on_practice','waiting_on_external'
 ];
 const QUESTIONNAIRE_STATUSES = ['draft','submitted','returned_for_changes','va_reviewed','ready_to_send','sent'];
 const QUESTIONNAIRE_ROUTES = ['gplink_migration_agent','practice_agent','practice_direct'];
@@ -17939,7 +17939,7 @@ async function handleApi(req, res, pathname) {
 
       var wsCasesRes = await supabaseDbRequest('registration_cases',
         'select=id,user_id,stage,substage,status,created_at,last_gp_activity_at' +
-        '&stage=in.(myintealth,amc)&status=in.(active,blocked)' +
+        '&stage=in.(myintealth,amc)&status=eq.active' +
         '&created_at=lte.' + encodeURIComponent(wsTwoWeeksAgo));
       var wsCases = wsCasesRes.ok && Array.isArray(wsCasesRes.data) ? wsCasesRes.data : [];
 
@@ -20590,7 +20590,7 @@ async function handleApi(req, res, pathname) {
 
       // 4. Cancel ALL open registration_tasks for that case
       var resetTasksRes = await supabaseDbRequest('registration_tasks',
-        'select=id&case_id=eq.' + encodeURIComponent(resetCaseId) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated,deferred)');
+        'select=id&case_id=eq.' + encodeURIComponent(resetCaseId) + '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated,deferred)');
       var resetCancelled = 0;
       if (resetTasksRes.ok && Array.isArray(resetTasksRes.data)) {
         for (var rt of resetTasksRes.data) {
@@ -25341,7 +25341,7 @@ Return ONLY valid JSON with no markdown formatting:
       if (pRes.ok && Array.isArray(pRes.data)) { pRes.data.forEach(function (p) { profileMap[p.user_id] = p; }); }
     }
     // Get open task counts per case
-    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked)');
+    const tasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,priority,status,due_date&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)');
     const tasksByCase = {};
     if (tasksRes.ok && Array.isArray(tasksRes.data)) {
       tasksRes.data.forEach(function (t) {
@@ -25985,9 +25985,8 @@ Return ONLY valid JSON with no markdown formatting:
     if (patch.escalated_at !== undefined) escalationFields.escalated_at = patch.escalated_at;
     else if (isEscalating) escalationFields.escalated_at = new Date().toISOString();
     delete patch.escalated_to; delete patch.escalated_reason; delete patch.escalated_at;
-    // PATCH main fields; if 'escalated' status rejected by constraint, fall back to 'blocked'
+    // PATCH main fields
     var r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
-    if (!r.ok && isEscalating) { patch.status = 'blocked'; r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch }); }
     if (!r.ok) { console.error('[ADMIN] Task update failed:', r.status, JSON.stringify(r.data)); sendJson(res, 502, { ok: false, message: 'Failed to update task.', detail: typeof r.data === 'object' ? (r.data.message || r.data.msg || JSON.stringify(r.data)) : String(r.data || ''), httpStatus: r.status }); return; }
     // Try escalation columns separately — silent fail if columns don't exist yet
     if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function(err) { console.error('[ADMIN] Escalation fields PATCH failed:', err.message, JSON.stringify(escalationFields)); }); }
@@ -26381,7 +26380,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     const [casesRes, tasksRes, ticketsRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated)&order=priority.asc,created_at.asc&limit=500'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=priority.asc,created_at.asc&limit=500'),
       supabaseDbRequest('support_tickets', 'select=*&status=neq.closed&order=created_at.asc&limit=500')
     ]);
     const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
@@ -27260,10 +27259,10 @@ Return ONLY valid JSON with no markdown formatting:
     const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Only in-scope stages for this run: myintealth + amc. Active or blocked cases only.
+    // Only in-scope stages for this run: myintealth + amc. Active cases only.
     const casesRes = await supabaseDbRequest('registration_cases',
       'select=id,user_id,stage,substage,status,created_at,last_gp_activity_at' +
-      '&stage=in.(myintealth,amc)&status=in.(active,blocked)' +
+      '&stage=in.(myintealth,amc)&status=eq.active' +
       '&created_at=lte.' + encodeURIComponent(twoWeeksAgo));
     const cases = casesRes.ok && Array.isArray(casesRes.data) ? casesRes.data : [];
 
@@ -30005,7 +30004,7 @@ Return ONLY valid JSON with no markdown formatting:
     const adminCtx = requireAdminSession(req, res);
     if (!adminCtx) return;
     const domainFilter = url.searchParams.get('domain') || '';
-    const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated';
+    const statusFilter = url.searchParams.get('status') || 'open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated';
     const priorityFilter = url.searchParams.get('priority') || '';
     const assigneeFilter = url.searchParams.get('assignee') || '';
     const overdueOnly = url.searchParams.get('overdue') === 'true';
@@ -30691,7 +30690,7 @@ Return ONLY valid JSON with no markdown formatting:
 
     var [casesRes, tasksRes, ticketsRes, appsRes, interviewsRes, rolesRes, profilesRes] = await Promise.all([
       supabaseDbRequest('registration_cases', 'select=*&order=updated_at.desc'),
-      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated)&order=created_at.desc&limit=1000'),
+      supabaseDbRequest('registration_tasks', 'select=*&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)&order=created_at.desc&limit=1000'),
       supabaseDbRequest('support_tickets', 'select=*&order=created_at.desc&limit=500'),
       supabaseDbRequest('gp_applications', 'select=*'),
       supabaseDbRequest('career_interviews', 'select=*&status=neq.cancelled'),
@@ -31093,7 +31092,7 @@ Return ONLY valid JSON with no markdown formatting:
       var dCaseIds = dCases.map(function(c) { return c.id; });
       var dTasks = [];
       if (dCaseIds.length > 0) {
-        var dTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + dCaseIds.join(',') + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated)');
+        var dTasksRes = await supabaseDbRequest('registration_tasks', 'select=id,case_id,status,priority,due_date,title&case_id=in.(' + dCaseIds.join(',') + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
         dTasks = (dTasksRes.ok && Array.isArray(dTasksRes.data)) ? dTasksRes.data : [];
       }
       var dTaskCountByCase = {};
@@ -31131,7 +31130,7 @@ Return ONLY valid JSON with no markdown formatting:
       var tStatusFilter = url.searchParams.get('status') || 'open';
       var tQuery = 'select=*&order=priority.asc,created_at.desc&limit=200';
       if (tStatusFilter === 'overdue') {
-        tQuery += '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked)&due_date=lt.' + new Date().toISOString().slice(0, 10);
+        tQuery += '&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external)&due_date=lt.' + new Date().toISOString().slice(0, 10);
       } else {
         tQuery += '&status=eq.' + encodeURIComponent(tStatusFilter);
       }
@@ -31249,7 +31248,7 @@ Return ONLY valid JSON with no markdown formatting:
       var vaCaseIds = vaCases.map(function(c) { return c.id; });
       var vaTasks = [];
       if (vaCaseIds.length > 0) {
-        var vaTRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=in.(' + vaCaseIds.join(',') + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated)');
+        var vaTRes = await supabaseDbRequest('registration_tasks', 'select=*&case_id=in.(' + vaCaseIds.join(',') + ')&status=in.(open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,escalated)');
         vaTasks = (vaTRes.ok && Array.isArray(vaTRes.data)) ? vaTRes.data : [];
       }
       var vaItems = vaCases.map(function(c) {
