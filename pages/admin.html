@@ -194,7 +194,7 @@
     .ops-stat[data-stat-key="hazel"].active{background:#dbeafe;border-color:#1e40af}
     .ops-stat[data-stat-key="gp"].active{background:#fffbeb;border-color:#92400e}
     .ops-stat[data-stat-key="practice"].active{background:#f5f3ff;border-color:#5b21b6}
-    .ops-stat[data-stat-key="blocked"].active{background:#f1f5f9;border-color:#475569}
+    .ops-stat[data-stat-key="escalated"].active{background:#fef2f2;border-color:#dc2626}
     .ops-stat-val{font-size:22px;font-weight:900;letter-spacing:-.02em}
     .ops-stat-val.c-blue{color:#818cf8}.ops-stat-val.c-red{color:#f87171}.ops-stat-val.c-navy{color:#1e40af}.ops-stat-val.c-amber{color:#92400e}.ops-stat-val.c-purple{color:#5b21b6}.ops-stat-val.c-grey{color:#475569}
     .ops-stat-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin-top:2px}
@@ -3563,7 +3563,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     else if(f==="hazel")url+="&status=open,in_progress";
     else if(f==="gp")url+="&status=waiting_on_gp";
     else if(f==="practice")url+="&status=waiting_on_practice";
-    else if(f==="blocked")url+="&status=blocked";
+    else if(f==="escalated")url+="&status=escalated";
     else url+="&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated";
     // Always fetch all active tasks for stats counters (parallel with filtered fetch)
     var statsUrl="/api/admin/ops/queue?limit=500&status=open,in_progress,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated";
@@ -3604,7 +3604,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var hazelC=all.filter(function(t){return t.status==="open"||t.status==="in_progress";}).length;
     var gpC=all.filter(function(t){return t.status==="waiting_on_gp";}).length;
     var pracC=all.filter(function(t){return t.status==="waiting_on_practice";}).length;
-    var blockedC=all.filter(function(t){return t.status==="blocked";}).length;
+    var escalatedC=all.filter(function(t){return t.status==="escalated";}).length;
     var af=S._opsStatFilter;
     var cards=[
       {key:"open",label:"Open",count:openC,valClass:"c-blue"},
@@ -3612,7 +3612,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       {key:"hazel",label:"Hazel\u2019s ball",count:hazelC,valClass:"c-navy"},
       {key:"gp",label:"GP\u2019s ball",count:gpC,valClass:"c-amber"},
       {key:"practice",label:"Practice",count:pracC,valClass:"c-purple"},
-      {key:"blocked",label:"Blocked",count:blockedC,valClass:"c-grey"}
+      {key:"escalated",label:"Escalated",count:escalatedC,valClass:"c-red"}
     ];
     document.getElementById("opsStats").innerHTML=cards.map(function(c){
       return '<div class="ops-stat'+(af===c.key?' active':'')+'" data-stat-key="'+c.key+'" title="Filter: '+esc(c.label)+'">'
