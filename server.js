@@ -3322,7 +3322,7 @@ const SECURITY_HEADERS = {
     `img-src 'self' data: blob:${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_IMAGE_SOURCES} https://upload.wikimedia.org https://commons.wikimedia.org https://*.wikimedia.org`,
     `connect-src 'self'${CSP_SUPABASE_ORIGIN ? ' ' + CSP_SUPABASE_ORIGIN : ''}${GOOGLE_MAPS_CSP_CONNECT_SOURCES}`,
     "media-src 'self' blob:",
-    "frame-src 'self' *.google.com",
+    "frame-src 'self' *.google.com https://scribehow.com",
     "worker-src 'self' blob:",
     "frame-ancestors 'self'",
     "base-uri 'self'",
