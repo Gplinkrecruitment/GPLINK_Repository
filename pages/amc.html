@@ -1239,24 +1239,12 @@
         next: "Once established, proceed to AHPRA registration.",
         cta: "Open AMC",
         ctaType: "open"
-      },
-      qualifications_verified: {
-        label: "Complete",
-        full: "Qualifications Verified",
-        short: "Your AMC credentials are verified. Continue to AHPRA registration.",
-        doNow: "Proceed to AHPRA specialist registration.",
-        time: "5 minutes",
-        support: "We guide your transition into AHPRA registration.",
-        next: "Start your AHPRA specialist registration submission.",
-        cta: "Go to AHPRA Registration",
-        ctaType: "ahpra"
       }
     };
 
     const stageRouteMap = {
       create_portfolio: "account",
-      upload_credentials: "establishment",
-      qualifications_verified: "complete"
+      upload_credentials: "establishment"
     };
     const routeStageMap = Object.fromEntries(Object.entries(stageRouteMap).map(([k, v]) => [v, k]));
 
@@ -1373,7 +1361,7 @@
       return "current";
     }
 
-    // Get the active tab stage (maps qualifications_verified back to upload_credentials for display)
+    // Get the active tab stage
     function activeTabStage(progress) {
       if (progress.stage === "qualifications_verified") return "upload_credentials";
       return progress.stage;
@@ -1389,7 +1377,7 @@
     function pickTabFromRoute(progress) {
       const routeStage = stageFromRoute(window.location.pathname);
       if (!routeStage) return null;
-      const viewStage = routeStage === "qualifications_verified" ? "upload_credentials" : routeStage;
+      const viewStage = routeStage;
       if (!TAB_STAGES.includes(viewStage)) return null;
       return stageStatus(progress, viewStage) === "locked" ? null : viewStage;
     }
@@ -1472,8 +1460,7 @@
 
     function getCurrentSupportContext() {
       const key = currentTabKey || activeTabStage(loadProgress());
-      const effectiveKey = key === "upload_credentials" && loadProgress().completed.qualifications_verified ? "qualifications_verified" : key;
-      const meta = stageMeta[effectiveKey] || stageMeta[key] || stageMeta.create_portfolio;
+      const meta = stageMeta[key] || stageMeta.create_portfolio;
       return {
         category: "AMC",
         stepKey: key || "create_portfolio",
@@ -1514,13 +1501,13 @@
 
       progress.completed[key] = true;
 
-      // When completing upload_credentials, also complete qualifications_verified
+      // When completing upload_credentials, also complete qualifications_verified (for cross-page compat)
       if (key === "upload_credentials") {
         progress.completed.qualifications_verified = true;
         progress.stage = "qualifications_verified";
         saveProgress(progress, true);
-        syncRouteForStage(progress.stage);
-        currentTabKey = activeTabStage(progress);
+        syncRouteForStage("upload_credentials");
+        currentTabKey = "upload_credentials";
         renderPage(progress);
         showToast("AMC account established");
         return;
@@ -1648,8 +1635,7 @@
     // ─── RENDER: STEP CONTENT ───────────────────────────────────
     function renderStepContent(progress) {
       const key = currentTabKey;
-      const effectiveKey = (key === "upload_credentials" && progress.completed.qualifications_verified) ? "qualifications_verified" : key;
-      const meta = stageMeta[effectiveKey];
+      const meta = stageMeta[key];
       if (!meta) return;
       const status = stageStatus(progress, key);
       const isDone = status === "done";
@@ -1679,9 +1665,7 @@
       const doNow = meta.doNow;
 
       let actionBtnHtml = '';
-      if (effectiveKey === "qualifications_verified") {
-        actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>`;
-      } else if (isCurrent) {
+      if (isCurrent) {
         actionBtnHtml = `<button class="btn-primary" id="actionOpenBtn" type="button">${meta.cta} <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`;
       }
 
@@ -1709,16 +1693,14 @@
 
       const markDisabled = !isCurrent || isDone;
       const markLabel = isDone ? "Completed" : "Mark Complete";
-      if (effectiveKey !== "qualifications_verified") {
-        navHtml += hasPrev
-          ? `<button class="btn-ghost" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
-          : `<span aria-hidden="true"></span>`;
+      navHtml += hasPrev
+        ? `<button class="btn-ghost" id="actionPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`
+        : `<span aria-hidden="true"></span>`;
       navHtml += `<div class="mark-complete-wrap"><button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="actionMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
       if (!isDone && isCurrent) {
         navHtml += `<span class="mark-complete-hint">Once you've finished this step, click here to move on</span>`;
       }
       navHtml += `</div>`;
-      }
       actionsEl.innerHTML = '';
       navActionsEl.innerHTML = navHtml;
 
@@ -1736,27 +1718,16 @@
       var headerActions = document.getElementById('stepHeaderActions');
       if (headerActions) {
         var hdrHtml = '';
-        if (effectiveKey !== "qualifications_verified") {
-          if (hasPrev) {
-            hdrHtml += `<button class="btn-ghost" id="headerPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
-          }
-          hdrHtml += `<button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="headerMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
+        if (hasPrev) {
+          hdrHtml += `<button class="btn-ghost" id="headerPrevBtn" type="button"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Previous</button>`;
         }
+        hdrHtml += `<button class="btn-complete ${markDisabled ? "" : "cta-pulse"}" id="headerMarkBtn" type="button" ${markDisabled ? "disabled" : ""}><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg> ${markLabel}</button>`;
         headerActions.innerHTML = hdrHtml;
       }
 
       // Wire buttons
       const openBtn = document.getElementById("actionOpenBtn");
       if (openBtn) {
-        if (effectiveKey === "qualifications_verified") {
-          openBtn.classList.add("cta-pulse");
-          if (!openBtn.querySelector(".cta-cursor")) {
-            const hint = document.createElement("span");
-            hint.className = "cta-cursor";
-            hint.textContent = "Click Here";
-            openBtn.appendChild(hint);
-          }
-        }
         openBtn.addEventListener("click", () => {
           if (meta.ctaType === "open") window.location.assign(AMC_URL);
           else if (meta.ctaType === "open_signup") window.location.assign(AMC_SIGNUP_URL);
@@ -2334,7 +2305,7 @@
 
       const routeTab = pickTabFromRoute(initialProgress);
       currentTabKey = routeTab || activeTabStage(initialProgress);
-      if (!routeTab) syncRouteForStage(initialProgress.stage, true);
+      if (!routeTab) syncRouteForStage(currentTabKey, true);
       renderPage(initialProgress);
 
       window.addEventListener("popstate", () => {
