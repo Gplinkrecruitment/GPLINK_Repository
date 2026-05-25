@@ -4282,7 +4282,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         renderToolsPanel();
       }else if(view==="ceo-home"){
         var iframe=document.getElementById("ceoHomeIframe");
-        if(iframe&&!iframe.src.includes("ceo-dashboard.html")){iframe.src="/pages/ceo-dashboard.html";}
+        if(iframe&&!iframe.src.includes("ceo-dashboard")){iframe.src="/pages/ceo-dashboard";}
       }else if(view==="technical"){
         loadTechnicalPanel();
       }else if(view==="guide"){
@@ -4338,7 +4338,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           document.querySelectorAll(".view-tab").forEach(function(t){t.classList.toggle("active",t.getAttribute("data-view")==="gps");});
           vaShowPanel("gps");renderCaseList();renderDetail();
         } else {
-          window.open("/pages/admin.html?gp="+encodeURIComponent(userId),"_blank");
+          window.open("/pages/admin?gp="+encodeURIComponent(userId),"_blank");
         }
         return;
       }
@@ -5457,6 +5457,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
   // ── Guide Tab ──────────────────────────────────────────────
+  function parseScribeEmbed(input){
+    if(!input)return'';
+    var m=input.match(/src=["']([^"']+)["']/);
+    return m?m[1]:input.trim();
+  }
   async function loadGuideData(){
     S.guide.loading=true;
     try{
@@ -5540,7 +5545,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(addItemBtn){
       var folderId=addItemBtn.getAttribute('data-add-item-folder');
       var title=prompt('Guide title:');if(!title)return;
-      var url=prompt('Scribe embed URL:');if(!url)return;
+      var raw=prompt('Paste Scribe embed code:');if(!raw)return;
+      var url=parseScribeEmbed(raw);
       fetch('/api/admin/guide/items',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({folder_id:folderId,title:title,scribe_url:url})})
         .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
       return;
@@ -5567,7 +5573,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var iid=editItemBtn.getAttribute('data-edit-item');
       var currentItem=null;(S.guide.folders||[]).forEach(function(f){(f.items||[]).forEach(function(i){if(i.id===iid)currentItem=i;});});
       var newTitle=prompt('Guide title:',currentItem?currentItem.title:'');if(!newTitle)return;
-      var newUrl=prompt('Scribe embed URL:',currentItem?currentItem.scribe_url:'');if(!newUrl)return;
+      var rawEmbed=prompt('Paste Scribe embed code:',currentItem?currentItem.scribe_url:'');if(!rawEmbed)return;
+      var newUrl=parseScribeEmbed(rawEmbed);
       fetch('/api/admin/guide/items/'+encodeURIComponent(iid),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:newTitle,scribe_url:newUrl})})
         .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
       return;
