@@ -46,6 +46,31 @@
     .view-tab{flex:1;padding:8px 0;text-align:center;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
     .view-tab.active{color:var(--blue);border-bottom-color:var(--blue)}
     .view-tab:hover{color:var(--text)}
+    .guide-wrap{display:flex;height:calc(100vh - 100px);overflow:hidden}
+    .guide-folders{flex:0 0 340px;overflow-y:auto;padding:16px;border-right:1px solid var(--line);background:#fff}
+    .guide-detail{flex:1;display:flex;flex-direction:column;background:var(--bg2)}
+    .guide-detail-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);background:#fff}
+    .guide-detail-header h3{margin:0;font-size:14px;font-weight:700}
+    .guide-detail-body{flex:1;overflow:hidden}
+    .guide-detail-body iframe{width:100%;height:100%;border:none}
+    .guide-folder{margin-bottom:8px}
+    .guide-folder-header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;color:var(--text);background:var(--bg2);transition:background .15s}
+    .guide-folder-header:hover{background:var(--bg3)}
+    .guide-folder-header.active{background:#e8f0fe;color:var(--blue)}
+    .guide-folder-count{background:var(--bg3);padding:1px 6px;border-radius:10px;font-size:10px;margin-left:auto;font-weight:700}
+    .guide-folder-header.active .guide-folder-count{background:var(--blue);color:#fff}
+    .guide-folder-items{padding:4px 0 4px 24px}
+    .guide-item{padding:8px 12px;font-size:12px;color:var(--text);border-radius:6px;cursor:pointer;margin:2px 0;border:1px solid transparent;transition:all .15s;display:flex;align-items:center;gap:4px}
+    .guide-item:hover{background:var(--bg2);border-color:var(--line)}
+    .guide-item.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .guide-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px;text-align:center;padding:40px}
+    .guide-add-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:6px;font-size:11px;font-weight:600;color:var(--blue);background:transparent;border:1px dashed var(--blue);cursor:pointer;margin-top:8px;transition:all .15s}
+    .guide-add-btn:hover{background:#e8f0fe}
+    .guide-mgmt-btn{opacity:0;padding:4px;border:none;background:transparent;cursor:pointer;font-size:12px;color:var(--muted);transition:opacity .15s;flex-shrink:0}
+    .guide-folder-header:hover .guide-mgmt-btn,.guide-item:hover .guide-mgmt-btn{opacity:1}
+    .guide-mgmt-btn:hover{color:var(--red,#e53e3e)}
+    .guide-item.active .guide-mgmt-btn{color:rgba(255,255,255,0.7)}
+    .guide-item.active .guide-mgmt-btn:hover{color:#fff}
     .filter-bar{display:flex;gap:4px;padding:8px 14px;overflow-x:auto;flex-wrap:nowrap}
     .filter-btn{padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;border:1px solid var(--line);background:#fff;color:var(--muted);cursor:pointer;white-space:nowrap}
     .filter-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
@@ -987,6 +1012,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     <div class="view-tab" data-view="gps">GPs</div>
     <div class="view-tab" data-view="medicalcentres" id="medicalCentresTab" style="display:none">Medical Centres</div>
     <div class="view-tab" data-view="support">Support</div>
+    <div class="view-tab" data-view="guide">Guide</div>
     <div class="view-tab" data-view="technical" id="technicalTab" style="display:none">Technical</div>
   </div>
   <div class="layout" id="mainLayout">
@@ -1129,6 +1155,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   <div id="techSystemBugsPanel" style="display:none"></div>
   <div id="techUserBugsPanel" style="display:none"></div>
 </div>
+<div id="guidePanel" style="display:none"></div>
 <div id="escalateCeoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:12px;padding:24px;width:400px;max-width:90vw;">
     <h3 style="margin:0 0 12px;">Escalate to CEO</h3>
@@ -1155,7 +1182,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
       draftTask:"",profile:"balanced",collaborationMode:"paired",complexity:"auto",loading:false,submitting:false,
       warnings:[],security:null,providerStatusRefreshedAt:"",error:"",
-      bridge:{connected:false,mode:"remote",baseUrl:"",error:"",status:null,candidates:["http://127.0.0.1:4317","http://localhost:4317"]}}};
+      bridge:{connected:false,mode:"remote",baseUrl:"",error:"",status:null,candidates:["http://127.0.0.1:4317","http://localhost:4317"]}},guide:{folders:null,loading:false,expandedFolderId:null,selectedItemId:null}};
   const STEPS=[
     {key:"placement",label:"Secure Placement",num:1},
     {key:"myintealth",label:"MyIntealth",num:2},
@@ -1526,7 +1553,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   /* ══ Auth ══ */
   async function loadSession(){
     try{const r=await fetch("/api/admin/auth/session",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));
-    if(!d.authenticated){window.location.href="/pages/admin-signin.html";return false;}
+    if(!d.authenticated){window.location.href="/pages/admin-signin";return false;}
     const profile=d.profile||d.session||{};
     const adminRole=profile.adminRole||profile.role||"";
     S.viewer=Object.assign({},profile,{role:adminRole,roleLabel:adminRole==="super_admin"?"Super Admin":"Admin"});
@@ -1536,7 +1563,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function toggleSaTools(){var dd=document.getElementById("saToolsDropdown");if(dd)dd.style.display=dd.style.display==="none"?"block":"none";}
 
   /* ══ Data Loading ══ */
-  async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin.html";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
+  async function loadDash(){try{const r=await fetch("/api/admin/dashboard",{credentials:"same-origin"});if(r.status===401){window.location.href="/pages/admin-signin";return;}const d=await r.json().catch(()=>({}));if(r.ok)S.dashboard=d;}catch{}}
   async function loadCases(){try{const r=await fetch("/api/admin/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.cases=d.cases;}catch{}}
   async function loadTasks(){try{const r=await fetch("/api/admin/tasks?status=open,in_progress,waiting,waiting_on_gp,waiting_on_practice,waiting_on_external,blocked,escalated",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.tasks))S.tasks=d.tasks;}catch{}}
   async function loadVisa(){try{const r=await fetch("/api/admin/visa/cases",{credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(d.ok&&Array.isArray(d.cases))S.visaCases=d.cases;}catch{}}
@@ -2309,7 +2336,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <div class="j-body"><div class="j-label">${esc(step.label)} <span class="j-badge ${esc(badge)}">${badge==="done"?"Complete":badge==="current"?"In Progress":badge==="locked"?"Locked":"Pending"}</span></div>
         ${isOpen?`${step.substeps.length?`<div class="j-subs">${step.substeps.map(s=>`<div class="j-sub"><span class="j-sub-dot ${esc(s.status)}"></span>${esc(s.label)}</div>`).join("")}</div>`:""}
         ${pb&&step.status!=="locked"?`<div class="j-playbook"><strong>GP:</strong> ${esc(pb.gp)}<br><strong>Your task:</strong> ${esc(pb.va)}</div>`:""}
-        ${step.key==="visa"?`<a class="btn sm" href="/pages/admin-visa.html">Manage Visa</a>`:step.key==="pbs"?`<a class="btn sm" href="/pages/admin-pbs.html">Manage PBS</a>`:""}`:""}
+        ${step.key==="visa"?`<a class="btn sm" href="/pages/admin-visa">Manage Visa</a>`:step.key==="pbs"?`<a class="btn sm" href="/pages/admin-pbs">Manage PBS</a>`:""}`:""}
         </div></div>`;
     });
     h+='</div>';
@@ -4258,6 +4285,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(iframe&&!iframe.src.includes("ceo-dashboard.html")){iframe.src="/pages/ceo-dashboard.html";}
       }else if(view==="technical"){
         loadTechnicalPanel();
+      }else if(view==="guide"){
+        if(!S.guide.folders)await loadGuideData();
+        renderGuidePanel();
       }
     });
     document.getElementById("filterBar").addEventListener("click",e=>{const b=e.target.closest("[data-filter]");if(!b)return;S.filter=b.getAttribute("data-filter");renderFilters();renderCaseList();});
@@ -4659,7 +4689,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     document.getElementById("sppaReviewOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("sppaReviewOverlay"))closeSppaReview();});
     document.getElementById("correctionOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("correctionOverlay"))closeCorrectionModal();});
-    document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin.html";});
+    document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
 
     /* Ops Queue bindings — stat card filter toggle */
@@ -5039,7 +5069,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     renderInterviewsPanel();
     try{
       const r=await fetch("/api/admin/career/interviews",{credentials:"same-origin"});
-      if(r.status===401){window.location.href="/pages/admin-signin.html";return;}
+      if(r.status===401){window.location.href="/pages/admin-signin";return;}
       const d=await r.json().catch(()=>({}));
       if(d&&d.ok&&Array.isArray(d.interviews)){S.interviews.list=d.interviews;}
     }catch{}
@@ -5272,7 +5302,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(_preservedDetail){S.va.gpDetailCache[_preservedDetail.uid]=_preservedDetail.data;}
     try{
       const r=await fetch("/api/admin/va/dashboard",{credentials:"same-origin"});
-      if(r.status===401){window.location.href="/pages/admin-signin.html";return;}
+      if(r.status===401){window.location.href="/pages/admin-signin";return;}
       const d=await r.json().catch(()=>({}));
       if(d&&d.ok){
         S.va.dashboard=d;
@@ -5336,7 +5366,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     try{
       const params=new URLSearchParams({source:S.va.supportSource,status:S.va.supportStatus});
       const r=await fetch("/api/admin/va/support?"+params,{credentials:"same-origin"});
-      if(r.status===401){window.location.href="/pages/admin-signin.html";return;}
+      if(r.status===401){window.location.href="/pages/admin-signin";return;}
       const d=await r.json().catch(()=>({}));
       if(d&&d.ok){S.va.supportItems=d.items||[];}
       else{S.va.supportItems=[];toast((d&&d.message)||"Failed to load support items","red");}
@@ -5423,9 +5453,135 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function vaShowPanel(which){
     document.getElementById("mainLayout").style.display=(which==="gps"?"grid":"none");
-    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","ceoHomePanel":"ceo-home","technicalPanel":"technical"};
+    const panels={"inboxPanel":"inbox","medicalCentresPanel":"medicalcentres","supportPanel":"support","toolsPanel":"tools","ceoHomePanel":"ceo-home","technicalPanel":"technical","guidePanel":"guide"};
     Object.keys(panels).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=(panels[id]===which?"block":"none");});
   }
+  // ── Guide Tab ──────────────────────────────────────────────
+  async function loadGuideData(){
+    S.guide.loading=true;
+    try{
+      var r=await fetch('/api/admin/guide/folders',{credentials:'include'});
+      var d=await r.json();
+      if(d.ok)S.guide.folders=d.folders||[];
+    }catch(e){console.error('[Guide] load error',e);}
+    S.guide.loading=false;
+  }
+  function renderGuidePanel(){
+    var el=document.getElementById('guidePanel');if(!el)return;
+    var folders=S.guide.folders||[];
+    var sa=isSA();
+    var folderListHtml=folders.map(function(f){
+      var expanded=S.guide.expandedFolderId===f.id;
+      var items=f.items||[];
+      var itemsHtml='';
+      if(expanded){
+        itemsHtml='<div class="guide-folder-items">'+
+          items.map(function(item){
+            var active=S.guide.selectedItemId===item.id;
+            return '<div class="guide-item'+(active?' active':'')+'" data-guide-item="'+item.id+'" data-scribe-url="'+item.scribe_url.replace(/"/g,'&quot;')+'" data-item-title="'+item.title.replace(/"/g,'&quot;')+'">'+
+              '<span style="flex:1">'+item.title+'</span>'+
+              (sa?'<button class="guide-mgmt-btn" data-edit-item="'+item.id+'" title="Edit">&#9998;</button><button class="guide-mgmt-btn" data-delete-item="'+item.id+'" title="Delete">&times;</button>':'')+
+            '</div>';
+          }).join('')+
+          (items.length===0?'<div style="padding:8px 12px;font-size:11px;color:var(--muted);">No guides in this folder yet</div>':'')+
+          (sa?'<button class="guide-add-btn" data-add-item-folder="'+f.id+'">+ Add Guide</button>':'')+
+        '</div>';
+      }
+      return '<div class="guide-folder">'+
+        '<div class="guide-folder-header'+(expanded?' active':'')+'" data-guide-folder="'+f.id+'">'+
+          '<span>'+(expanded?'&#9660;':'&#9654;')+'</span> &#128193; '+f.name+
+          '<span class="guide-folder-count">'+items.length+'</span>'+
+          (sa?'<button class="guide-mgmt-btn" data-edit-folder="'+f.id+'" title="Rename">&#9998;</button><button class="guide-mgmt-btn" data-delete-folder="'+f.id+'" title="Delete">&times;</button>':'')+
+        '</div>'+itemsHtml+
+      '</div>';
+    }).join('');
+    var selectedItem=null;
+    if(S.guide.selectedItemId){
+      folders.forEach(function(f){(f.items||[]).forEach(function(i){if(i.id===S.guide.selectedItemId)selectedItem=i;});});
+    }
+    var detailHtml='';
+    if(selectedItem){
+      detailHtml='<div class="guide-detail-header"><h3>'+selectedItem.title+'</h3><button onclick="S.guide.selectedItemId=null;renderGuidePanel();" style="border:none;background:transparent;cursor:pointer;font-size:18px;color:var(--muted);">&times;</button></div>'+
+        '<div class="guide-detail-body"><iframe src="'+selectedItem.scribe_url+'" allowfullscreen></iframe></div>';
+    }else{
+      detailHtml='<div class="guide-empty"><div><div style="font-size:40px;margin-bottom:8px;">&#127891;</div>Select a guide to view the tutorial</div></div>';
+    }
+    el.innerHTML='<div class="guide-wrap">'+
+      '<div class="guide-folders">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><h3 style="margin:0;font-size:15px;font-weight:700;">Guides</h3>'+
+        (sa?'<button class="guide-add-btn" data-add-folder>+ Add Folder</button>':'')+
+        '</div>'+
+        (folders.length===0?'<div class="guide-empty" style="height:auto;padding:20px;"><div>No guides yet</div></div>':folderListHtml)+
+      '</div>'+
+      '<div class="guide-detail">'+detailHtml+'</div>'+
+    '</div>';
+  }
+  // ── Guide Tab Event Handlers ──────────────────────────────
+  document.addEventListener('click',function(e){
+    var fh=e.target.closest('[data-guide-folder]');
+    if(fh&&!e.target.closest('.guide-mgmt-btn')){
+      var fid=fh.getAttribute('data-guide-folder');
+      S.guide.expandedFolderId=S.guide.expandedFolderId===fid?null:fid;
+      renderGuidePanel();return;
+    }
+    var gi=e.target.closest('[data-guide-item]');
+    if(gi&&!e.target.closest('.guide-mgmt-btn')){
+      S.guide.selectedItemId=gi.getAttribute('data-guide-item');
+      renderGuidePanel();return;
+    }
+    if(e.target.closest('[data-add-folder]')){
+      var name=prompt('Folder name:');
+      if(!name)return;
+      fetch('/api/admin/guide/folders',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})})
+        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
+      return;
+    }
+    var addItemBtn=e.target.closest('[data-add-item-folder]');
+    if(addItemBtn){
+      var folderId=addItemBtn.getAttribute('data-add-item-folder');
+      var title=prompt('Guide title:');if(!title)return;
+      var url=prompt('Scribe embed URL:');if(!url)return;
+      fetch('/api/admin/guide/items',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({folder_id:folderId,title:title,scribe_url:url})})
+        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
+      return;
+    }
+    var editFolderBtn=e.target.closest('[data-edit-folder]');
+    if(editFolderBtn){
+      var fid2=editFolderBtn.getAttribute('data-edit-folder');
+      var current=(S.guide.folders||[]).find(function(f){return f.id===fid2;});
+      var newName=prompt('Rename folder:',current?current.name:'');if(!newName)return;
+      fetch('/api/admin/guide/folders/'+encodeURIComponent(fid2),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})})
+        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
+      return;
+    }
+    var delFolderBtn=e.target.closest('[data-delete-folder]');
+    if(delFolderBtn){
+      var fid3=delFolderBtn.getAttribute('data-delete-folder');
+      if(!confirm('Delete this folder and all its guides?'))return;
+      fetch('/api/admin/guide/folders/'+encodeURIComponent(fid3),{method:'DELETE',credentials:'include'})
+        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;S.guide.selectedItemId=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
+      return;
+    }
+    var editItemBtn=e.target.closest('[data-edit-item]');
+    if(editItemBtn){
+      var iid=editItemBtn.getAttribute('data-edit-item');
+      var currentItem=null;(S.guide.folders||[]).forEach(function(f){(f.items||[]).forEach(function(i){if(i.id===iid)currentItem=i;});});
+      var newTitle=prompt('Guide title:',currentItem?currentItem.title:'');if(!newTitle)return;
+      var newUrl=prompt('Scribe embed URL:',currentItem?currentItem.scribe_url:'');if(!newUrl)return;
+      fetch('/api/admin/guide/items/'+encodeURIComponent(iid),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:newTitle,scribe_url:newUrl})})
+        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
+      return;
+    }
+    var delItemBtn=e.target.closest('[data-delete-item]');
+    if(delItemBtn){
+      var iid2=delItemBtn.getAttribute('data-delete-item');
+      if(!confirm('Delete this guide?'))return;
+      fetch('/api/admin/guide/items/'+encodeURIComponent(iid2),{method:'DELETE',credentials:'include'})
+        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;if(S.guide.selectedItemId===iid2)S.guide.selectedItemId=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
+      return;
+    }
+  });
+
   function vaHidePanels(){
     ["inboxPanel","medicalCentresPanel","supportPanel","toolsPanel"].forEach(function(id){
       var el=document.getElementById(id);if(el)el.style.display="none";
@@ -6383,7 +6539,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     el.innerHTML='<div style="padding:24px;color:#999;">Loading integrations...</div>';
     try{
       var r=await fetch("/api/ceo/integrations",{credentials:"same-origin"});
-      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin.html" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
       var d=await r.json();
       if(!d.ok||!d.integrations){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load integrations: '+(d.message||'Unknown error')+'</div>';return;}
       var html='<div class="tech-cards">';
@@ -6420,7 +6576,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     el.innerHTML='<div style="padding:24px;color:#999;">Loading system bugs...</div>';
     try{
       var r=await fetch("/api/ceo/technical/system-bugs?status="+encodeURIComponent(status),{credentials:"same-origin"});
-      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin.html" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
       var d=await r.json();
       if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load: '+(d.message||'Unknown error')+'</div>';return;}
       var s=d.summary||{};
@@ -6460,7 +6616,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     el.innerHTML='<div style="padding:24px;color:#999;">Loading user bugs...</div>';
     try{
       var r=await fetch("/api/ceo/technical/client-errors?status="+encodeURIComponent(status),{credentials:"same-origin"});
-      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin.html" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
+      if(r.status===401||r.status===403){el.innerHTML='<div style="padding:24px;color:#dc2626;">Session expired. <a href="/pages/admin-signin" style="color:#2563eb;text-decoration:underline;">Log in again</a></div>';return;}
       var d=await r.json();
       if(!d.ok){el.innerHTML='<div style="padding:24px;color:#dc2626;">Failed to load: '+(d.message||'Unknown error')+'</div>';return;}
       var s=d.summary||{};

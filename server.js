@@ -18005,13 +18005,13 @@ async function handleApi(req, res, pathname) {
     const code = qs.get('code') || '';
     const errParam = qs.get('error') || '';
     if (errParam) {
-      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=' + encodeURIComponent(errParam) });
+      res.writeHead(302, { Location: '/pages/admin?zoho-sign=error&reason=' + encodeURIComponent(errParam) });
       res.end();
       return;
     }
     const statePayload = await consumeZohoSignOauthState(state);
     if (!statePayload) {
-      res.writeHead(302, { Location: '/pages/admin.html?zoho-sign=error&reason=invalid_state' });
+      res.writeHead(302, { Location: '/pages/admin?zoho-sign=error&reason=invalid_state' });
       res.end();
       return;
     }
@@ -18025,7 +18025,7 @@ async function handleApi(req, res, pathname) {
       code
     });
     if (!tokenRes.ok || !tokenRes.data || !tokenRes.data.access_token) {
-      res.writeHead(302, { Location: adminReturnBase + '/pages/admin.html?zoho-sign=error&reason=token_exchange_failed' });
+      res.writeHead(302, { Location: adminReturnBase + '/pages/admin?zoho-sign=error&reason=token_exchange_failed' });
       res.end();
       return;
     }
@@ -18068,7 +18068,7 @@ async function handleApi(req, res, pathname) {
     try { await ensureZohoSignWebhookSecret(); } catch (e) { console.error('[ZohoSign] webhook secret generation failed:', e.message); }
     try { await fetchAndStoreZohoSignOrgInfo(); } catch (e) { console.error('[ZohoSign] org info fetch failed:', e.message); }
 
-    res.writeHead(302, { Location: adminReturnBase + '/pages/admin.html?zoho-sign=connected' });
+    res.writeHead(302, { Location: adminReturnBase + '/pages/admin?zoho-sign=connected' });
     res.end();
     return;
   }
@@ -20030,7 +20030,7 @@ async function handleApi(req, res, pathname) {
     if (!state) {
       if (authError) {
         res.writeHead(302, {
-          Location: buildAbsoluteReturnUrl(req, `/pages/account.html?zohoRecruit=error&message=${encodeURIComponent(authErrorDescription || authError)}`)
+          Location: buildAbsoluteReturnUrl(req, `/pages/account?zohoRecruit=error&message=${encodeURIComponent(authErrorDescription || authError)}`)
         });
         res.end();
         return;
@@ -20363,6 +20363,144 @@ async function handleApi(req, res, pathname) {
       }
     }
     sendJson(res, 200, { ok: true, results: pgResults });
+    return;
+  }
+
+  // ── Guide Tab API ──────────────────────────────────────────────
+  if (req.method === 'GET' && pathname === '/api/admin/guide/folders') {
+    var adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    try {
+      var foldersRes = await supabaseDbRequest('guide_folders', 'select=*&order=sort_order.asc,created_at.asc');
+      if (!foldersRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to load folders.' }); return; }
+      var itemsRes = await supabaseDbRequest('guide_items', 'select=*&order=sort_order.asc,created_at.asc');
+      var items = (itemsRes.ok && Array.isArray(itemsRes.data)) ? itemsRes.data : [];
+      var folders = (Array.isArray(foldersRes.data) ? foldersRes.data : []).map(function(f) {
+        return Object.assign({}, f, { items: items.filter(function(i) { return i.folder_id === f.id; }) });
+      });
+      sendJson(res, 200, { ok: true, folders: folders });
+    } catch (err) {
+      sendJson(res, 500, { ok: false, message: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/admin/guide/folders') {
+    var adminCtx = requireCeoSession(req, res);
+    if (!adminCtx) return;
+    try {
+      var body = await readJsonBody(req);
+      if (!body || !body.name) { sendJson(res, 400, { ok: false, message: 'name is required.' }); return; }
+      var maxRes = await supabaseDbRequest('guide_folders', 'select=sort_order&order=sort_order.desc&limit=1');
+      var nextOrder = (maxRes.ok && Array.isArray(maxRes.data) && maxRes.data.length > 0) ? maxRes.data[0].sort_order + 1 : 0;
+      var insertRes = await supabaseDbRequest('guide_folders', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: { name: body.name, sort_order: nextOrder }
+      });
+      if (!insertRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to create folder.' }); return; }
+      sendJson(res, 200, { ok: true, folder: Array.isArray(insertRes.data) ? insertRes.data[0] : insertRes.data });
+    } catch (err) {
+      sendJson(res, 500, { ok: false, message: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'PUT' && pathname.match(/^\/api\/admin\/guide\/folders\/[^/]+$/)) {
+    var adminCtx = requireCeoSession(req, res);
+    if (!adminCtx) return;
+    var folderId = pathname.split('/').pop();
+    try {
+      var body = await readJsonBody(req);
+      if (!body || !body.name) { sendJson(res, 400, { ok: false, message: 'name is required.' }); return; }
+      var updateRes = await supabaseDbRequest('guide_folders', 'id=eq.' + encodeURIComponent(folderId), {
+        method: 'PATCH',
+        body: { name: body.name }
+      });
+      if (!updateRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to update folder.' }); return; }
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      sendJson(res, 500, { ok: false, message: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'DELETE' && pathname.match(/^\/api\/admin\/guide\/folders\/[^/]+$/)) {
+    var adminCtx = requireCeoSession(req, res);
+    if (!adminCtx) return;
+    var folderId = pathname.split('/').pop();
+    try {
+      var delRes = await supabaseDbRequest('guide_folders', 'id=eq.' + encodeURIComponent(folderId), {
+        method: 'DELETE',
+        headers: { Prefer: 'return=minimal' }
+      });
+      if (!delRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to delete folder.' }); return; }
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      sendJson(res, 500, { ok: false, message: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/admin/guide/items') {
+    var adminCtx = requireCeoSession(req, res);
+    if (!adminCtx) return;
+    try {
+      var body = await readJsonBody(req);
+      if (!body || !body.folder_id || !body.title || !body.scribe_url) {
+        sendJson(res, 400, { ok: false, message: 'folder_id, title, and scribe_url are required.' }); return;
+      }
+      var maxRes = await supabaseDbRequest('guide_items', 'select=sort_order&folder_id=eq.' + encodeURIComponent(body.folder_id) + '&order=sort_order.desc&limit=1');
+      var nextOrder = (maxRes.ok && Array.isArray(maxRes.data) && maxRes.data.length > 0) ? maxRes.data[0].sort_order + 1 : 0;
+      var insertRes = await supabaseDbRequest('guide_items', '', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: { folder_id: body.folder_id, title: body.title, scribe_url: body.scribe_url, sort_order: nextOrder }
+      });
+      if (!insertRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to create guide.' }); return; }
+      sendJson(res, 200, { ok: true, item: Array.isArray(insertRes.data) ? insertRes.data[0] : insertRes.data });
+    } catch (err) {
+      sendJson(res, 500, { ok: false, message: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'PUT' && pathname.match(/^\/api\/admin\/guide\/items\/[^/]+$/)) {
+    var adminCtx = requireCeoSession(req, res);
+    if (!adminCtx) return;
+    var itemId = pathname.split('/').pop();
+    try {
+      var body = await readJsonBody(req);
+      var patch = {};
+      if (body.title) patch.title = body.title;
+      if (body.scribe_url) patch.scribe_url = body.scribe_url;
+      if (Object.keys(patch).length === 0) { sendJson(res, 400, { ok: false, message: 'Nothing to update.' }); return; }
+      var updateRes = await supabaseDbRequest('guide_items', 'id=eq.' + encodeURIComponent(itemId), {
+        method: 'PATCH',
+        body: patch
+      });
+      if (!updateRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to update guide.' }); return; }
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      sendJson(res, 500, { ok: false, message: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'DELETE' && pathname.match(/^\/api\/admin\/guide\/items\/[^/]+$/)) {
+    var adminCtx = requireCeoSession(req, res);
+    if (!adminCtx) return;
+    var itemId = pathname.split('/').pop();
+    try {
+      var delRes = await supabaseDbRequest('guide_items', 'id=eq.' + encodeURIComponent(itemId), {
+        method: 'DELETE',
+        headers: { Prefer: 'return=minimal' }
+      });
+      if (!delRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to delete guide.' }); return; }
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      sendJson(res, 500, { ok: false, message: err.message });
+    }
     return;
   }
 
@@ -20732,7 +20870,7 @@ async function handleApi(req, res, pathname) {
     if (!state) {
       if (authError) {
         res.writeHead(302, {
-          Location: buildAbsoluteReturnUrl(req, `/pages/admin.html?zohoRecruit=error&message=${encodeURIComponent(authErrorDescription || authError)}`)
+          Location: buildAbsoluteReturnUrl(req, `/pages/admin?zohoRecruit=error&message=${encodeURIComponent(authErrorDescription || authError)}`)
         });
         res.end();
         return;
@@ -22749,7 +22887,7 @@ Classify this document.`;
     }
 
     if (req.method === 'GET') {
-      res.writeHead(302, { Location: '/pages/index.html' });
+      res.writeHead(302, { Location: '/pages/index' });
       res.end();
     } else {
       sendJson(res, 200, { ok: true, accountStatus: status });
@@ -23811,7 +23949,7 @@ Return ONLY valid JSON with no markdown formatting:
         admin.email, admin.role, targetUserId, gpProfile.email);
 
       // Redirect to the GP's dashboard
-      res.writeHead(302, { Location: buildAbsoluteReturnUrl(req, '/pages/index.html') });
+      res.writeHead(302, { Location: buildAbsoluteReturnUrl(req, '/pages/index') });
       res.end();
     } catch (err) {
       console.error('[admin-impersonate] error:', err && err.message);
@@ -31614,11 +31752,28 @@ async function handleRequest(req, res) {
   cleanup();
 
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  // ── Clean URL support ──────────────────────────────────────────────
+  // Redirect /pages/foo.html → /pages/foo (301) so browsers see clean URLs.
+  // Skip non-page assets (js, css, media) and internal serveStatic calls.
+  if (url.pathname.startsWith('/pages/') && url.pathname.endsWith('.html')) {
+    const clean = url.pathname.slice(0, -5) + (url.search || '');
+    res.writeHead(301, { Location: clean });
+    res.end();
+    return;
+  }
+
   const mappedRegistrationPath = mapRegistrationPath(url.pathname);
-  const pathname = mappedRegistrationPath || url.pathname;
+  let pathname = mappedRegistrationPath || url.pathname;
+
+  // Resolve clean page URLs to their .html file internally:
+  // /pages/account → /pages/account.html (for file serving + existing checks)
+  if (pathname.startsWith('/pages/') && !path.extname(pathname)) {
+    pathname += '.html';
+  }
 
   if (pathname === '/') {
-    res.writeHead(302, { Location: '/pages/index.html' });
+    res.writeHead(302, { Location: '/pages/index' });
     res.end();
     return;
   }
@@ -31645,7 +31800,7 @@ async function handleRequest(req, res) {
 
   if (pathname === '/logout') {
     clearSession(res, req);
-    res.writeHead(302, { Location: '/pages/signin.html' });
+    res.writeHead(302, { Location: '/pages/signin' });
     res.end();
     return;
   }
@@ -31666,19 +31821,19 @@ async function handleRequest(req, res) {
     pathname === '/favicon.ico';
 
   if (shouldProtectPath(pathname) && !session) {
-    res.writeHead(302, { Location: '/pages/signin.html' });
+    res.writeHead(302, { Location: '/pages/signin' });
     res.end();
     return;
   }
 
   if (pathname === '/pages/signin.html' && session) {
-    res.writeHead(302, { Location: '/pages/index.html' });
+    res.writeHead(302, { Location: '/pages/index' });
     res.end();
     return;
   }
 
   if (AUTH_DISABLED && pathname === '/pages/signin.html') {
-    res.writeHead(302, { Location: '/pages/index.html' });
+    res.writeHead(302, { Location: '/pages/index' });
     res.end();
     return;
   }
@@ -31687,7 +31842,7 @@ async function handleRequest(req, res) {
     const adminRole = getAdminRoleFromSession(adminSession);
     const adminHostScope = getAdminHostScope(req);
     if (doesAdminRoleMatchHost(adminRole, adminHostScope)) {
-      res.writeHead(302, { Location: '/pages/admin.html' });
+      res.writeHead(302, { Location: '/pages/admin' });
       res.end();
       return;
     }
@@ -31696,7 +31851,7 @@ async function handleRequest(req, res) {
 
   if (pathname === '/pages/admin.html') {
     if (!adminSession) {
-      res.writeHead(302, { Location: '/pages/admin-signin.html' });
+      res.writeHead(302, { Location: '/pages/admin-signin' });
       res.end();
       return;
     }
@@ -31704,7 +31859,7 @@ async function handleRequest(req, res) {
     const adminHostScope = getAdminHostScope(req);
     if (!doesAdminRoleMatchHost(adminRole, adminHostScope)) {
       clearAdminSession(res);
-      res.writeHead(302, { Location: '/pages/admin-signin.html' });
+      res.writeHead(302, { Location: '/pages/admin-signin' });
       res.end();
       return;
     }
@@ -31719,7 +31874,7 @@ async function handleRequest(req, res) {
       serveStatic(req, res, pathname);
       return;
     }
-    res.writeHead(302, { Location: '/pages/signin.html' });
+    res.writeHead(302, { Location: '/pages/signin' });
     res.end();
     return;
   }
