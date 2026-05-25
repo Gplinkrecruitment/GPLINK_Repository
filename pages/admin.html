@@ -1369,7 +1369,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var pdMailto = buildMailtoLinkFE(pc.contactEmail || '',
         'Position Description Required \u2014 ' + gpName + ' at ' + (pc.practiceName || 'the practice'),
         'Hi ' + (pc.contactName || '') + ',\\n\\nWe require a position description for ' + gpName + '\\\'s Specialist Registration application with AHPRA at ' + (pc.practiceName || 'the practice') + '.\\n\\nPlease reply with the position description attached.\\n\\nKind regards,\\nGP Link Team');
-      pdHtml += '<a class="btn-action btn-mailto" href="' + pdMailto + '" onclick="markTaskWaiting(\'' + task.id + '\')">Email Practice</a>';
+      pdHtml += '<a class="btn-action btn-mailto" href="' + pdMailto + '">Email Practice</a>';
       pdHtml += '</div>';
       pdHtml += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
       if (task.status === 'waiting_on_practice') pdHtml += '<div class="doc-task-status"><span class="doc-task-badge waiting">Waiting on practice</span></div>';
@@ -1413,7 +1413,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var mailto = buildMailtoLinkFE(pc.contactEmail || '',
           'Offer/Contract Required \u2014 ' + gpName + ' at ' + (pc.practiceName || 'the practice'),
           'Hi ' + (pc.contactName || '') + ',\\n\\nWe require the completed employment agreement between ' + (pc.practiceName || 'the practice') + ' and ' + gpName + ' for the ' + (pc.roleTitle || 'General Practitioner') + ' position.\\n\\nPlease reply with the signed document attached.\\n\\nKind regards,\\nGP Link Team');
-        html += '<a class="btn-action btn-mailto" href="' + mailto + '" onclick="markTaskWaiting(\'' + task.id + '\')">Email Practice for Contract</a>';
+        html += '<a class="btn-action btn-mailto" href="' + mailto + '">Email Practice for Contract</a>';
         html += '</div>';
       }
       html += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
@@ -1458,7 +1458,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         var mailto2 = buildMailtoLinkFE(pc.contactEmail || '',
           'Supervisor CV Required \u2014 ' + gpName + ' at ' + (pc.practiceName || 'the practice'),
           'Hi ' + (pc.contactName || '') + ',\\n\\nWe require the supervising doctor\\\'s CV for ' + gpName + '\\\'s Specialist Registration application at ' + (pc.practiceName || 'the practice') + '.\\n\\nPlease reply with the supervisor\\\'s CV attached.\\n\\nKind regards,\\nGP Link Team');
-        html2 += '<a class="btn-action btn-mailto" href="' + mailto2 + '" onclick="markTaskWaiting(\'' + task.id + '\')">Email Practice for Supervisor CV</a>';
+        html2 += '<a class="btn-action btn-mailto" href="' + mailto2 + '">Email Practice for Supervisor CV</a>';
         html2 += '</div>';
       }
       html2 += '<div class="doc-task-actions"><label class="btn-action btn-upload">Upload File<input type="file" accept=".pdf,.doc,.docx" onchange="uploadTaskDoc(\'' + task.id + '\',this)"></label></div>';
@@ -4502,7 +4502,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             const bodyExtra=dk==="position_description"?" for "+gpName+"'s Specialist Registration application with AHPRA at "+(pc.practiceName||"the practice"):" for "+gpName;
             const body="Hi "+(pc.contactName||"")+",\n\nWe require the "+docLabel.toLowerCase()+bodyExtra+".\n\nPlease reply with the document attached.\n\nKind regards,\nGP Link Team";
             window.open(buildMailtoLinkFE(pc.contactEmail||"",subject,body));
-            if(typeof markTaskWaiting==="function")markTaskWaiting(taskId);
           }
         }
         else if(action==="openWhatsApp"){
