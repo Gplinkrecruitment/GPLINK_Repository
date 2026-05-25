@@ -46,15 +46,15 @@ afterAll(() => {
 });
 
 describe('clean URL routing', () => {
-  it('/pages/index.html redirects 301 to /pages/index', async () => {
+  it('/pages/index.html redirects 302 to /pages/index', async () => {
     const res = await get('/pages/index.html');
-    expect(res.status).toBe(301);
+    expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/pages/index');
   });
 
-  it('/pages/signin.html redirects 301 to /pages/signin', async () => {
+  it('/pages/signin.html redirects 302 to /pages/signin', async () => {
     const res = await get('/pages/signin.html');
-    expect(res.status).toBe(301);
+    expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/pages/signin');
   });
 
@@ -72,8 +72,21 @@ describe('clean URL routing', () => {
 
   it('/pages/account.html?q=1 preserves query on redirect', async () => {
     const res = await get('/pages/account.html?q=1');
-    expect(res.status).toBe(301);
+    expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/pages/account?q=1');
+  });
+
+  it('.html URLs with embed params are NOT redirected (iframe loads)', async () => {
+    const res = await get('/pages/index.html?gp_shell=embedded&gp_shell_static=1');
+    // Should serve the page directly, not redirect
+    expect(res.status).not.toBe(301);
+    expect(res.status).not.toBe(302);
+  });
+
+  it('.html URLs with gp_shell_static only are NOT redirected', async () => {
+    const res = await get('/pages/index.html?gp_shell_static=1');
+    expect(res.status).not.toBe(301);
+    expect(res.status).not.toBe(302);
   });
 
   it('JS files still serve normally', async () => {

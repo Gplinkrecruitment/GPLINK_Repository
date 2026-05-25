@@ -31756,11 +31756,13 @@ async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   // ── Clean URL support ──────────────────────────────────────────────
-  // Redirect /pages/foo.html → /pages/foo (301) so browsers see clean URLs.
-  // Skip non-page assets (js, css, media) and internal serveStatic calls.
-  if (url.pathname.startsWith('/pages/') && url.pathname.endsWith('.html')) {
+  // Redirect /pages/foo.html → /pages/foo so browsers see clean URLs.
+  // Skip iframe/embedded loads (they carry gp_shell or gp_shell_static params)
+  // to avoid breaking the app-shell during cache transitions.
+  if (url.pathname.startsWith('/pages/') && url.pathname.endsWith('.html') &&
+      !url.searchParams.has('gp_shell') && !url.searchParams.has('gp_shell_static')) {
     const clean = url.pathname.slice(0, -5) + (url.search || '');
-    res.writeHead(301, { Location: clean });
+    res.writeHead(302, { Location: clean });
     res.end();
     return;
   }
