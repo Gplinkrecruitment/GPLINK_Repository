@@ -26633,12 +26633,13 @@ Return ONLY valid JSON with no markdown formatting:
     const items = [];
 
     // ── 1. Support tickets (source = "manual") ───────────────────────────
+    // Only show unlinked tickets — GP-linked tickets appear as Ops Tasks under the GP profile
     if (sourceFilter === 'all' || sourceFilter === 'manual') {
       const stQuery = statusFilter === 'all'
-        ? 'select=*&order=created_at.desc&limit=500'
+        ? 'select=*&case_id=is.null&order=created_at.desc&limit=500'
         : statusFilter === 'closed'
-          ? 'select=*&status=eq.closed&order=resolved_at.desc.nullslast,updated_at.desc&limit=500'
-          : 'select=*&status=neq.closed&order=created_at.desc&limit=500';
+          ? 'select=*&case_id=is.null&status=eq.closed&order=resolved_at.desc.nullslast,updated_at.desc&limit=500'
+          : 'select=*&case_id=is.null&status=neq.closed&order=created_at.desc&limit=500';
       const stRes = await supabaseDbRequest('support_tickets', stQuery);
       const tickets = stRes.ok && Array.isArray(stRes.data) ? stRes.data : [];
       for (const tk of tickets) {
@@ -26664,13 +26665,14 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // ── 2. WhatsApp help tasks (source = "whatsapp") ─────────────────────
+    // Only show unlinked WhatsApp tasks — GP-linked ones appear as Ops Tasks
     if (sourceFilter === 'all' || sourceFilter === 'whatsapp') {
       const waStatusClause = statusFilter === 'all'
         ? ''
         : statusFilter === 'closed'
           ? '&status=in.(completed,cancelled)'
           : '&status=in.(open,in_progress,waiting)';
-      const waQuery = 'select=*&task_type=eq.whatsapp_help&source_trigger=eq.doubletick_webhook' + waStatusClause + '&order=created_at.desc&limit=500';
+      const waQuery = 'select=*&task_type=eq.whatsapp_help&source_trigger=eq.doubletick_webhook&case_id=is.null' + waStatusClause + '&order=created_at.desc&limit=500';
       const waRes = await supabaseDbRequest('registration_tasks', waQuery);
       const waTasks = waRes.ok && Array.isArray(waRes.data) ? waRes.data : [];
       for (const t of waTasks) {
@@ -26696,13 +26698,14 @@ Return ONLY valid JSON with no markdown formatting:
     }
 
     // ── 3. Email triage tasks (source = "email") ──────────────────────
+    // Only show unlinked email tasks — GP-linked ones appear as Ops Tasks
     if (sourceFilter === 'all' || sourceFilter === 'email') {
       const emStatusClause = statusFilter === 'all'
         ? ''
         : statusFilter === 'closed'
           ? '&status=in.(completed,cancelled)'
           : '&status=in.(open,in_progress,waiting)';
-      const emQuery = 'select=*&task_type=eq.email_triage&source_trigger=eq.gmail_triage' + emStatusClause + '&order=created_at.desc&limit=500';
+      const emQuery = 'select=*&task_type=eq.email_triage&source_trigger=eq.gmail_triage&case_id=is.null' + emStatusClause + '&order=created_at.desc&limit=500';
       const emRes = await supabaseDbRequest('registration_tasks', emQuery);
       const emTasks = emRes.ok && Array.isArray(emRes.data) ? emRes.data : [];
       for (const t of emTasks) {
