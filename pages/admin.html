@@ -318,14 +318,8 @@
     .ops-upload-area input[type="file"]{font-size:11px}
     .ops-email-composer-ahpra{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-top:10px;display:none}
     .ops-email-composer-ahpra.visible{display:block}
-    .gp-email-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9990;display:flex;align-items:center;justify-content:center}
-    .gp-email-modal{background:#fff;border-radius:14px;width:100%;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;margin:16px}
-    .gp-email-modal-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);background:#f8fafc}
-    .gp-email-modal-title{font-size:14px;font-weight:700;color:#1e293b}
-    .gp-email-modal-close{background:none;border:none;font-size:18px;color:#94a3b8;cursor:pointer;padding:0 4px;line-height:1}
-    .gp-email-modal-close:hover{color:#475569}
-    .gp-email-modal .ops-email-composer{padding:16px 18px}
-    .gp-email-cancel-btn{margin-right:auto}
+    .gp-task-detail{border-top:1px solid var(--line);background:#f8fafc;border-radius:0 0 10px 10px}
+    .gp-task-detail-inner{padding:2px 0 0}
     @media(max-width:900px){
       .ops-stats{gap:6px;padding:10px 12px 8px}
       .ops-stat{padding:8px 10px;min-width:70px}
@@ -2394,7 +2388,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
           html+='</div>';
           html+='<div class="st-actions">';
-          if(guided.action){
+          if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
+            html+='<button class="st-primary-btn" data-gp-expand-task="'+esc(t.id)+'">'+esc(guided.label)+'</button>';
+          } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
           }
           html+='<div style="position:relative;display:inline-block">';
@@ -2458,6 +2454,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             html+='<div class="et-resolve-error" id="et-error-'+esc(t.id)+'" style="display:none;color:#dc2626;font-size:12px;font-weight:600;background:#fef2f2;padding:6px 10px;border-radius:6px;margin-left:8px">No email reply found — please reply via Gmail before resolving.</div>';
             html+='</div>';
             html+='</div>';
+          }
+
+          // Expandable detail panel for practice_pack_child tasks
+          if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
+            html+='<div class="gp-task-detail" id="gpTaskDetail_'+esc(t.id)+'" data-gp-task-detail="'+esc(t.id)+'" style="display:none"><div class="gp-task-detail-inner"></div></div>';
           }
 
           html+='</div>';
@@ -2943,6 +2944,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         ${tabsBar}
         <div class="gp-detail-tab-pane">${paneHtml}</div>
       `;
+      // Auto-expand practice_pack_child task details on the Tasks tab
+      if(tab==='tasks'||!tab){
+        (S.tasks||[]).filter(function(t){return t.case_id===c.id&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled';}).forEach(function(t){
+          if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
+            var panel=document.getElementById('gpTaskDetail_'+t.id);
+            if(panel){panel.style.display='block';loadGpTaskDetail(t.id);}
+          }
+        });
+      }
       return;
     }
     // Non-GPs view — show default empty or existing content
@@ -4384,64 +4394,33 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   var toast = showOpsToast;
 
-  /* ── Email Practice composer modal (GP Profile tasks) ── */
-  function openEmailPracticeComposer(task,dk){
-    var existing=document.getElementById("gpEmailComposerOverlay");
-    if(existing)existing.remove();
+  /* ── Load GP Profile task detail (reuses Ops Queue renderer) ── */
+  async function loadGpTaskDetail(taskId){
+    var container=document.querySelector('[data-gp-task-detail="'+taskId+'"] .gp-task-detail-inner');
+    if(!container)return;
+    container.innerHTML='<div style="padding:12px;font-size:12px;color:var(--muted)">Loading\u2026</div>';
+    var task=(S.tasks||[]).find(function(t){return t.id===taskId;});
+    if(!task){container.innerHTML='<div style="padding:12px;color:var(--red)">Task not found</div>';return;}
     var pc=task.practice_contact||{};
-    var gpName=task.gp_name||"the GP";
-    var contactName=pc.contactName||"";
-    var contactEmail=pc.contactEmail||"";
-    var practiceName=pc.practiceName||"the practice";
-    var docLabel=dk==="offer_contract"?"Contract":dk==="position_description"?"Position Description":"Supervisor CV";
-    var docTitle=dk==="offer_contract"?"Offer/Contract":dk==="position_description"?"Position Description":"Supervisor CV";
-    var subject=docTitle+" needed for Dr "+gpName+" - GP Link";
-    var bodyHtml="Hi "+esc(contactName)+",<br><br>"
-      +"We are preparing the registration documents for Dr "+esc(gpName)+" and need the following: <strong>"+esc(docLabel)+"</strong>.<br><br>"
-      +"Could you please send this through at your earliest convenience?<br><br>"
-      +"Kind regards,<br>Hazel \u2014 GP Link Registration Team";
-
-    var overlay=document.createElement("div");
-    overlay.id="gpEmailComposerOverlay";
-    overlay.className="gp-email-overlay";
-    overlay.innerHTML='<div class="gp-email-modal">'
-      +'<div class="gp-email-modal-header"><span class="gp-email-modal-title">Email Practice \u2014 '+esc(docLabel)+'</span><button class="gp-email-modal-close" id="gpEmailClose">\u2715</button></div>'
-      +'<div class="ops-email-composer" style="border:none;margin:0">'
-      +'<div class="ops-email-field"><span class="ops-email-label">To:</span><input id="gpEmailTo" value="'+esc(contactEmail)+'" /></div>'
-      +'<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input id="gpEmailSubject" value="'+esc(subject)+'" /></div>'
-      +'<div class="ops-email-body" contenteditable="true" id="gpEmailBody">'+bodyHtml+'</div>'
-      +'<div class="ops-email-actions">'
-      +'<button class="ops-btn-secondary gp-email-cancel-btn" id="gpEmailCancel">Cancel</button>'
-      +'<button class="ops-btn-green" id="gpEmailSend">Email Practice</button>'
-      +'</div>'
-      +'</div>'
-      +'</div>';
-    document.body.appendChild(overlay);
-
-    overlay.addEventListener("click",function(ev){if(ev.target===overlay)overlay.remove();});
-    document.getElementById("gpEmailClose").addEventListener("click",function(){overlay.remove();});
-    document.getElementById("gpEmailCancel").addEventListener("click",function(){overlay.remove();});
-    document.getElementById("gpEmailSend").addEventListener("click",async function(){
-      var toVal=document.getElementById("gpEmailTo").value.trim();
-      var subVal=document.getElementById("gpEmailSubject").value.trim();
-      var bodyVal=document.getElementById("gpEmailBody").innerHTML;
-      if(!toVal){showOpsToast("Recipient email required","red");return;}
-      if(!subVal){showOpsToast("Subject required","red");return;}
-      var sendBtn=document.getElementById("gpEmailSend");
-      sendBtn.disabled=true;sendBtn.textContent="Sending\u2026";
-      try{
-        var r=await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({to:toVal,subject:subVal,bodyHtml:bodyVal,taskId:task.id,caseId:task.case_id||""})});
-        var d=await r.json().catch(function(){return {};});
-        if(d.ok){
-          await fetch("/api/admin/task?id="+encodeURIComponent(task.id),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"waiting_on_practice"})});
-          overlay.remove();
-          showOpsToast("Email sent");
-          await loadTasks();renderDetail();
-        }else{showOpsToast(d.message||"Email failed","red");sendBtn.disabled=false;sendBtn.textContent="Email Practice";}
-      }catch(err){showOpsToast(err.message||"Network error","red");sendBtn.disabled=false;sendBtn.textContent="Email Practice";}
+    var adapted=Object.assign({},task,{
+      practice_contact_email:pc.contactEmail||task.practice_contact_email||'',
+      practice_contact_name:pc.contactName||task.practice_contact_name||'',
+      practice_name:pc.practiceName||task.practice_name||''
     });
+    var msgs=[],docs=[];
+    try{
+      var [mRes,dRes]=await Promise.all([
+        fetch('/api/admin/task/messages?taskId='+encodeURIComponent(taskId),{credentials:'same-origin'}).then(function(r){return r.json();}).catch(function(){return {};}),
+        fetch('/api/admin/task/documents?taskId='+encodeURIComponent(taskId),{credentials:'same-origin'}).then(function(r){return r.json();}).catch(function(){return {};})
+      ]);
+      if(mRes.ok&&Array.isArray(mRes.messages))msgs=mRes.messages;
+      if(dRes.ok&&Array.isArray(dRes.documents))docs=dRes.documents;
+      if(!S._opsDocCache)S._opsDocCache={};
+      S._opsDocCache[taskId]=docs;
+    }catch(e){}
+    container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
   }
+
 
 
   /* ══ Events ══ */
@@ -4616,7 +4595,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       /* Toggle email triage panel */
       var etRow=e.target.closest("[data-task-row]");
-      if(etRow&&!e.target.closest("button")&&!e.target.closest("a")&&!e.target.closest(".st-dropdown")&&!e.target.closest(".et-panel")&&!e.target.closest("textarea")){
+      if(etRow&&!e.target.closest("button")&&!e.target.closest("a")&&!e.target.closest(".st-dropdown")&&!e.target.closest(".et-panel")&&!e.target.closest(".gp-task-detail")&&!e.target.closest("textarea")){
         var etTaskId=etRow.getAttribute("data-task-row");
         var panelId="et-panel-"+etTaskId;
         var panel=document.getElementById(panelId);
@@ -4719,11 +4698,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         else if(action==="previewDoc"){previewTaskDoc(taskId);}
         else if(action==="generatePD"){generatePositionDescription(taskId);}
         else if(action==="editPD"){if(typeof openPDEditor==="function")openPDEditor(taskId);}
-        else if(action==="emailPractice"){
-          if(task){
-            openEmailPracticeComposer(task,dk);
-          }
-        }
         else if(action==="openWhatsApp"){
           if(task){
             const url=task.doubletick_conversation_url||task.whatsapp_link||"";
@@ -4842,6 +4816,151 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       /* Dismiss follow-up suggestion */
       if(e.target.closest("[data-dismiss-followup]")){const div=e.target.closest(".followup-suggestion");if(div)div.remove();return;}
+
+      /* ── Expand/collapse GP Profile practice_pack_child detail panel ── */
+      var gpExpBtn=e.target.closest("[data-gp-expand-task]");
+      if(gpExpBtn){
+        var tid=gpExpBtn.getAttribute("data-gp-expand-task");
+        var panel=document.getElementById("gpTaskDetail_"+tid);
+        if(!panel)return;
+        if(panel.style.display==='none'){
+          panel.style.display='block';
+          loadGpTaskDetail(tid);
+        }else{
+          panel.style.display='none';
+        }
+        return;
+      }
+
+      /* ── Ops-style action handlers inside GP Profile detail panels ── */
+      var gpSendEmailBtn=e.target.closest("[data-ops-send-email]");
+      if(gpSendEmailBtn){
+        var tid=gpSendEmailBtn.getAttribute("data-ops-send-email");
+        var caseId=gpSendEmailBtn.getAttribute("data-ops-case")||'';
+        var flipStatus=gpSendEmailBtn.getAttribute("data-ops-flip-status")||'';
+        var toEl=document.querySelector('[data-email-to="'+tid+'"]');
+        var subEl=document.querySelector('[data-email-subject="'+tid+'"]');
+        var bodyEl=document.querySelector('[data-email-body="'+tid+'"]');
+        var toVal=toEl?toEl.value.trim():'';
+        var subVal=subEl?subEl.value.trim():'';
+        var bodyHtml=bodyEl?bodyEl.innerHTML:'';
+        if(!toVal){showOpsToast('Recipient email required','red');return;}
+        if(!subVal){showOpsToast('Subject required','red');return;}
+        gpSendEmailBtn.disabled=true;gpSendEmailBtn.textContent='Sending\u2026';
+        try{
+          var r=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId})});
+          var d=await r.json().catch(()=>({}));
+          if(d.ok){
+            if(flipStatus){
+              await fetch('/api/admin/task?id='+encodeURIComponent(tid),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus})});
+            }
+            showOpsToast('Email sent');
+            loadTasks().then(function(){renderDetail();});
+          }else{showOpsToast(d.message||'Email failed','red');gpSendEmailBtn.disabled=false;gpSendEmailBtn.textContent='Email Practice';}
+        }catch(err){showOpsToast(err.message||'Network error','red');gpSendEmailBtn.disabled=false;gpSendEmailBtn.textContent='Email Practice';}
+        return;
+      }
+
+      var gpSubmitDriveBtn=e.target.closest("[data-ops-submit-drive]");
+      if(gpSubmitDriveBtn){
+        var tid=gpSubmitDriveBtn.getAttribute("data-ops-submit-drive");
+        gpSubmitDriveBtn.disabled=true;gpSubmitDriveBtn.textContent='Uploading\u2026';
+        try{
+          var r=await fetch('/api/admin/task/submit-drive',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:tid})});
+          var d=await r.json().catch(()=>({}));
+          if(d.ok){
+            showOpsToast('Document submitted to Drive & task completed');
+            loadTasks().then(function(){renderDetail();});
+          }else{showOpsToast(d.message||'Drive upload failed','red');gpSubmitDriveBtn.disabled=false;gpSubmitDriveBtn.textContent='Submit to Drive & Complete';}
+        }catch(err){showOpsToast(err.message||'Network error','red');gpSubmitDriveBtn.disabled=false;gpSubmitDriveBtn.textContent='Submit to Drive & Complete';}
+        return;
+      }
+
+      var gpUploadBtn=e.target.closest("[data-ops-upload-own]");
+      if(gpUploadBtn){
+        var tid=gpUploadBtn.getAttribute("data-ops-upload-own");
+        var uploadArea=document.getElementById('opsUpload_'+tid);
+        if(uploadArea){uploadArea.style.display=uploadArea.style.display==='none'?'block':'none';}
+        return;
+      }
+
+      var gpRevisionBtn=e.target.closest("[data-ops-request-revision]");
+      if(gpRevisionBtn){
+        var tid=gpRevisionBtn.getAttribute("data-ops-request-revision");
+        var revComposer=document.getElementById('opsRevision_'+tid);
+        if(revComposer){revComposer.classList.toggle('visible');}
+        return;
+      }
+
+      var gpSendRevBtn=e.target.closest("[data-ops-send-revision]");
+      if(gpSendRevBtn){
+        var tid=gpSendRevBtn.getAttribute("data-ops-send-revision");
+        var caseId=gpSendRevBtn.getAttribute("data-ops-case")||'';
+        var ch=gpSendRevBtn.getAttribute("data-ops-channel")||'email';
+        var recipient=gpSendRevBtn.getAttribute("data-ops-recipient")||'';
+        var flipStatus=gpSendRevBtn.getAttribute("data-ops-flip-status")||'';
+        var revEl=document.querySelector('[data-revision-text="'+tid+'"]');
+        var revText=revEl?revEl.value.trim():'';
+        if(!revText){showOpsToast('Revision message required','red');return;}
+        gpSendRevBtn.disabled=true;gpSendRevBtn.textContent='Sending\u2026';
+        try{
+          var ok=false;
+          if(ch==='whatsapp'){
+            if(!recipient){showOpsToast('Phone number required','red');gpSendRevBtn.disabled=false;gpSendRevBtn.textContent='Send Revision Request';return;}
+            var rr=await fetch('/api/admin/whatsapp/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({phone:recipient,message:revText,taskId:tid,caseId:caseId})});
+            var rd=await rr.json().catch(()=>({}));ok=!!rd.ok;
+            if(!ok)showOpsToast(rd.message||'WhatsApp failed','red');
+          }else{
+            if(!recipient){showOpsToast('Email address required','red');gpSendRevBtn.disabled=false;gpSendRevBtn.textContent='Send Revision Request';return;}
+            var rr2=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({to:recipient,subject:'Revision Required - GP Link',bodyText:revText,taskId:tid,caseId:caseId})});
+            var rd2=await rr2.json().catch(()=>({}));ok=!!rd2.ok;
+            if(!ok)showOpsToast(rd2.message||'Email failed','red');
+          }
+          if(ok){
+            if(flipStatus){
+              await fetch('/api/admin/task?id='+encodeURIComponent(tid),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus})});
+            }
+            showOpsToast('Revision request sent');
+            loadTasks().then(function(){renderDetail();});
+          }else{gpSendRevBtn.disabled=false;gpSendRevBtn.textContent='Send Revision Request';}
+        }catch(err){showOpsToast(err.message||'Network error','red');gpSendRevBtn.disabled=false;gpSendRevBtn.textContent='Send Revision Request';}
+        return;
+      }
+
+      var gpDownloadDoc=e.target.closest("[data-download-doc]");
+      if(gpDownloadDoc){
+        e.stopPropagation();
+        var docId=gpDownloadDoc.getAttribute("data-download-doc");
+        var fname=gpDownloadDoc.getAttribute("data-download-name")||"document";
+        var docData=null;
+        var allTasks=(S.tasks||[]).concat(S.opsTasks||[]);
+        for(var ot of allTasks){
+          if(S._opsDocCache&&S._opsDocCache[ot.id]){
+            docData=S._opsDocCache[ot.id].find(function(d){return d.id===docId;});
+            if(docData)break;
+          }
+        }
+        var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
+        if(dataUrl.startsWith('data:')){
+          try{
+            var parts=dataUrl.split(',');var mimeMatch=parts[0].match(/data:([^;]+)/);
+            var mime=mimeMatch?mimeMatch[1]:'application/octet-stream';
+            var b64=parts.slice(1).join(',').replace(/-/g,'+').replace(/_/g,'/');
+            var bin=atob(b64);var bytes=new Uint8Array(bin.length);
+            for(var bi=0;bi<bin.length;bi++)bytes[bi]=bin.charCodeAt(bi);
+            var blob=new Blob([bytes],{type:mime});
+            var url=URL.createObjectURL(blob);var a=document.createElement('a');
+            a.href=url;a.download=fname;document.body.appendChild(a);a.click();
+            document.body.removeChild(a);URL.revokeObjectURL(url);
+          }catch(err){alert('Download failed: '+err.message);}
+        }else if(dataUrl){window.open(dataUrl,'_blank');}
+        else{alert('No document data available');}
+        return;
+      }
+
       const at=e.target.closest("[data-add-task]");if(at){const rc=S.cases.find(c=>c.id===S.selectedCaseId);if(rc)openAddTaskModal(rc.id);return;}
       const vt=e.target.closest("[data-view-ticket]");if(vt){openTicketModal(vt.getAttribute("data-view-ticket"),vt.getAttribute("data-email")||"");return;}
       const impBtn=e.target.closest("[data-impersonate-gp]");if(impBtn){const uid=impBtn.getAttribute("data-impersonate-gp");if(uid)window.open('/api/admin/impersonate?user_id='+encodeURIComponent(uid),'_blank');return;}
@@ -4992,6 +5111,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
               await fetch('/api/admin/task?id='+encodeURIComponent(tid),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus})});
             }
             showOpsToast('Email sent');loadOpsQueue();
+            loadTasks().then(function(){renderDetail();});
           }else{showOpsToast(d.message||'Email failed','red');sendEmailBtn.disabled=false;sendEmailBtn.textContent='Email Practice';}
         }catch(err){showOpsToast(err.message||'Network error','red');sendEmailBtn.disabled=false;sendEmailBtn.textContent='Email Practice';}
         return;
@@ -5106,7 +5226,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         try{
           var r6=await fetch('/api/admin/task/submit-drive',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({taskId:tid6})});
           var d6=await r6.json().catch(()=>({}));
-          if(d6.ok){showOpsToast('Document submitted to Drive & task completed');loadOpsQueue();}
+          if(d6.ok){showOpsToast('Document submitted to Drive & task completed');loadOpsQueue();loadTasks().then(function(){renderDetail();});}
           else{showOpsToast(d6.message||'Drive upload failed','red');submitDriveBtn.disabled=false;submitDriveBtn.textContent='Submit to Drive & Complete';}
         }catch(err){showOpsToast(err.message||'Network error','red');submitDriveBtn.disabled=false;submitDriveBtn.textContent='Submit to Drive & Complete';}
         return;
@@ -5162,6 +5282,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
               await fetch('/api/admin/task?id='+encodeURIComponent(tid9),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus9})});
             }
             showOpsToast('Revision request sent');loadOpsQueue();
+            loadTasks().then(function(){renderDetail();});
           }else{sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';}
         }catch(err){showOpsToast(err.message||'Network error','red');sendRevBtn.disabled=false;sendRevBtn.textContent='Send Revision Request';}
         return;
@@ -5253,6 +5374,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     document.getElementById("detailContent").addEventListener("change",e=>{
       if(!e.target)return;
+      /* File upload inside GP Profile task detail panels */
+      var fileInput=e.target.closest("[data-ops-file-input]");
+      if(fileInput){
+        var tid=fileInput.getAttribute("data-ops-file-input");
+        var file=fileInput.files&&fileInput.files[0];
+        if(!file||!tid)return;
+        showOpsToast('File selected: '+file.name+'. Use Submit to Drive to upload.','amber');
+        fileInput.value='';
+        return;
+      }
       if(e.target.id==="agentTaskInput"){S.agent.draftTask=e.target.value||"";refreshAgentStatus(false);return;}
       if(e.target.id==="agentProfileSelect"){S.agent.profile=e.target.value||"balanced";refreshAgentStatus(false);return;}
       if(e.target.id==="agentCollabSelect"){S.agent.collaborationMode=e.target.value||"paired";refreshAgentStatus(false);return;}
