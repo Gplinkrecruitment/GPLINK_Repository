@@ -17066,7 +17066,7 @@ async function sendEmailConfirmationViaResend(email) {
   if (!isEmailConfigured() || !SUPABASE_SERVICE_ROLE_KEY) return false;
 
   // Generate a confirmation link via Supabase Admin API
-  const redirectTo = APP_BASE_URL + '/pages/signin.html?confirmed=true';
+  const redirectTo = APP_BASE_URL + '/pages/signin?confirmed=true';
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
@@ -18505,7 +18505,7 @@ async function handleApi(req, res, pathname) {
       sessionUserId: sessionProfile.supabaseUserId,
       sessionProfile
     });
-    sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/onboarding.html', bootstrap });
+    sendJson(res, 200, { ok: true, message: 'Account created.', redirectTo: '/pages/onboarding', bootstrap });
     return;
   }
 
@@ -18592,7 +18592,7 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, {
       ok: true,
       message: 'Authenticated',
-      redirectTo: '/pages/index.html',
+      redirectTo: '/pages/index',
       bootstrap: bootstrapResult.bootstrap,
       bootstrapPending: bootstrapResult.bootstrapPending,
       sessionProfile
@@ -18664,7 +18664,7 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, {
       ok: true,
       message: 'Authenticated',
-      redirectTo: '/pages/index.html',
+      redirectTo: '/pages/index',
       bootstrap: bootstrapResult.bootstrap,
       bootstrapPending: bootstrapResult.bootstrapPending,
       sessionProfile
@@ -18761,7 +18761,7 @@ async function handleApi(req, res, pathname) {
     setSession(res, userProfile);
 
     const bootstrap = await resolveAuthBootstrap(userProfile.email, { sessionProfile: userProfile });
-    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index.html', bootstrap });
+    sendJson(res, 200, { ok: true, message: 'Authenticated', redirectTo: '/pages/index', bootstrap });
     return;
   }
 
@@ -23723,7 +23723,7 @@ Return ONLY valid JSON with no markdown formatting:
       // Send password reset via Resend for reliable delivery
       if (isEmailConfigured() && SUPABASE_SERVICE_ROLE_KEY) {
         try {
-          const redirectTo = APP_BASE_URL + '/pages/signin.html?reset=true';
+          const redirectTo = APP_BASE_URL + '/pages/signin?reset=true';
           const linkRes = await fetch(SUPABASE_URL + '/auth/v1/admin/generate_link', {
             method: 'POST',
             headers: {
@@ -23997,7 +23997,7 @@ Return ONLY valid JSON with no markdown formatting:
       hostScope,
       hostLabel,
       profile: buildAdminSessionProfile(session.userProfile, role),
-      redirectTo: '/pages/admin.html'
+      redirectTo: '/pages/admin'
     });
     return;
   }
@@ -24051,7 +24051,7 @@ Return ONLY valid JSON with no markdown formatting:
     sendJson(res, 200, {
       ok: true,
       message: 'Authenticated',
-      redirectTo: '/pages/admin.html',
+      redirectTo: '/pages/admin',
       hostScope,
       hostLabel: getAdminHostLabel(hostScope),
       profile: {
