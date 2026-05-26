@@ -26109,30 +26109,50 @@ Return ONLY valid JSON with no markdown formatting:
       // 5. Upload to GP's Drive folder
       const driveFile = await uploadToGoogleDrive(folderId, doc.filename, fileBuffer, mimeType);
 
-      // 6. Update GP's gp_prepared_docs state so My Documents shows "Ready"
-      // user_state table has ONE row per user with a JSONB 'state' column containing all state keys
+      // 6. Update user_documents so My Documents page shows "Ready" + download link
       const docKey = task.related_document_key || '';
+      const driveFileId = driveFile && driveFile.id ? driveFile.id : null;
       if (docKey && regCase && regCase.user_id) {
         try {
-          const driveUrl = driveFile && driveFile.id ? 'https://drive.google.com/file/d/' + driveFile.id + '/view' : '';
-          // Fetch the full user state row
-          const stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&limit=1');
-          let fullState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].state) ? stateRes.data[0].state : {};
-          if (typeof fullState === 'string') try { fullState = JSON.parse(fullState); } catch { fullState = {}; }
-          // Update gp_prepared_docs within the state
-          let prepState = fullState.gp_prepared_docs;
-          if (!prepState || typeof prepState !== 'object') prepState = { docs: {} };
-          if (!prepState.docs) prepState.docs = {};
-          prepState.docs[docKey] = { url: driveUrl, fileName: doc.filename || '', ready: true, uploadedAt: new Date().toISOString() };
-          prepState.updatedAt = new Date().toISOString();
-          fullState.gp_prepared_docs = prepState;
-          // PATCH the state column
-          await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(regCase.user_id), {
-            method: 'PATCH', body: { state: fullState, updated_at: new Date().toISOString() }
-          });
+          // 6a. Upsert user_documents (authoritative source for /api/gplink-docs-status)
+          const existingUD = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+          const udRecord = {
+            user_id: regCase.user_id,
+            document_key: docKey,
+            file_name: doc.filename || '',
+            status: 'approved',
+            reviewed_at: new Date().toISOString()
+          };
+          if (driveFileId) udRecord.google_drive_file_id = driveFileId;
+          if (existingUD.ok && Array.isArray(existingUD.data) && existingUD.data[0]) {
+            await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existingUD.data[0].id), { method: 'PATCH', body: udRecord });
+          } else {
+            await supabaseDbRequest('user_documents', '', { method: 'POST', body: [udRecord] });
+          }
+          console.log('[AdminSubmitDrive] Upserted user_documents.' + docKey + ' for user:', regCase.user_id);
+        } catch (udErr) {
+          console.error('[AdminSubmitDrive] Failed to upsert user_documents:', udErr.message);
+        }
+
+        // 6b. Update gp_prepared_docs in user_state (localStorage sync source)
+        try {
+          await _updatePreparedDocsState(regCase.user_id, docKey, driveFileId, doc.filename || '');
           console.log('[AdminSubmitDrive] Updated gp_prepared_docs.' + docKey + ' for user:', regCase.user_id);
         } catch (stErr) {
           console.error('[AdminSubmitDrive] Failed to update gp_prepared_docs:', stErr.message);
+        }
+      }
+
+      // 6c. Mark practice_doc_ops as completed (admin documents grid)
+      if (docKey && task.case_id) {
+        try {
+          await _ensurePracticeDocOps(task.case_id);
+          await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.' + encodeURIComponent(docKey), {
+            method: 'PATCH', body: { ops_status: 'completed' }
+          });
+          console.log('[AdminSubmitDrive] Marked practice_doc_ops.' + docKey + ' as completed for case:', task.case_id);
+        } catch (opsErr) {
+          console.error('[AdminSubmitDrive] Failed to update practice_doc_ops:', opsErr.message);
         }
       }
 
