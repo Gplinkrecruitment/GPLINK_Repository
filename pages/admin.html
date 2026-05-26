@@ -318,6 +318,14 @@
     .ops-upload-area input[type="file"]{font-size:11px}
     .ops-email-composer-ahpra{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-top:10px;display:none}
     .ops-email-composer-ahpra.visible{display:block}
+    .gp-email-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9990;display:flex;align-items:center;justify-content:center}
+    .gp-email-modal{background:#fff;border-radius:14px;width:100%;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;margin:16px}
+    .gp-email-modal-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);background:#f8fafc}
+    .gp-email-modal-title{font-size:14px;font-weight:700;color:#1e293b}
+    .gp-email-modal-close{background:none;border:none;font-size:18px;color:#94a3b8;cursor:pointer;padding:0 4px;line-height:1}
+    .gp-email-modal-close:hover{color:#475569}
+    .gp-email-modal .ops-email-composer{padding:16px 18px}
+    .gp-email-cancel-btn{margin-right:auto}
     @media(max-width:900px){
       .ops-stats{gap:6px;padding:10px 12px 8px}
       .ops-stat{padding:8px 10px;min-width:70px}
@@ -4373,6 +4381,65 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
   var toast = showOpsToast;
 
+  /* ── Email Practice composer modal (GP Profile tasks) ── */
+  function openEmailPracticeComposer(task,dk){
+    var existing=document.getElementById("gpEmailComposerOverlay");
+    if(existing)existing.remove();
+    var pc=task.practice_contact||{};
+    var gpName=task.gp_name||"the GP";
+    var contactName=pc.contactName||"";
+    var contactEmail=pc.contactEmail||"";
+    var practiceName=pc.practiceName||"the practice";
+    var docLabel=dk==="offer_contract"?"Contract":dk==="position_description"?"Position Description":"Supervisor CV";
+    var docTitle=dk==="offer_contract"?"Offer/Contract":dk==="position_description"?"Position Description":"Supervisor CV";
+    var subject=docTitle+" needed for Dr "+gpName+" - GP Link";
+    var bodyHtml="Hi "+esc(contactName)+",<br><br>"
+      +"We are preparing the registration documents for Dr "+esc(gpName)+" and need the following: <strong>"+esc(docLabel)+"</strong>.<br><br>"
+      +"Could you please send this through at your earliest convenience?<br><br>"
+      +"Kind regards,<br>Hazel \u2014 GP Link Registration Team";
+
+    var overlay=document.createElement("div");
+    overlay.id="gpEmailComposerOverlay";
+    overlay.className="gp-email-overlay";
+    overlay.innerHTML='<div class="gp-email-modal">'
+      +'<div class="gp-email-modal-header"><span class="gp-email-modal-title">Email Practice \u2014 '+esc(docLabel)+'</span><button class="gp-email-modal-close" id="gpEmailClose">\u2715</button></div>'
+      +'<div class="ops-email-composer" style="border:none;margin:0">'
+      +'<div class="ops-email-field"><span class="ops-email-label">To:</span><input id="gpEmailTo" value="'+esc(contactEmail)+'" /></div>'
+      +'<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input id="gpEmailSubject" value="'+esc(subject)+'" /></div>'
+      +'<div class="ops-email-body" contenteditable="true" id="gpEmailBody">'+bodyHtml+'</div>'
+      +'<div class="ops-email-actions">'
+      +'<button class="ops-btn-secondary gp-email-cancel-btn" id="gpEmailCancel">Cancel</button>'
+      +'<button class="ops-btn-green" id="gpEmailSend">Email Practice</button>'
+      +'</div>'
+      +'</div>'
+      +'</div>';
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener("click",function(ev){if(ev.target===overlay)overlay.remove();});
+    document.getElementById("gpEmailClose").addEventListener("click",function(){overlay.remove();});
+    document.getElementById("gpEmailCancel").addEventListener("click",function(){overlay.remove();});
+    document.getElementById("gpEmailSend").addEventListener("click",async function(){
+      var toVal=document.getElementById("gpEmailTo").value.trim();
+      var subVal=document.getElementById("gpEmailSubject").value.trim();
+      var bodyVal=document.getElementById("gpEmailBody").innerHTML;
+      if(!toVal){showOpsToast("Recipient email required","red");return;}
+      if(!subVal){showOpsToast("Subject required","red");return;}
+      var sendBtn=document.getElementById("gpEmailSend");
+      sendBtn.disabled=true;sendBtn.textContent="Sending\u2026";
+      try{
+        var r=await fetch("/api/admin/email/send",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({to:toVal,subject:subVal,bodyHtml:bodyVal,taskId:task.id,caseId:task.case_id||""})});
+        var d=await r.json().catch(function(){return {};});
+        if(d.ok){
+          await fetch("/api/admin/task?id="+encodeURIComponent(task.id),{method:"PUT",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"waiting_on_practice"})});
+          overlay.remove();
+          showOpsToast("Email sent");
+          await loadTasks();renderDetail();
+        }else{showOpsToast(d.message||"Email failed","red");sendBtn.disabled=false;sendBtn.textContent="Email Practice";}
+      }catch(err){showOpsToast(err.message||"Network error","red");sendBtn.disabled=false;sendBtn.textContent="Email Practice";}
+    });
+  }
+
 
   /* ══ Events ══ */
   function bind(){
@@ -4651,13 +4718,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         else if(action==="editPD"){if(typeof openPDEditor==="function")openPDEditor(taskId);}
         else if(action==="emailPractice"){
           if(task){
-            const pc=task.practice_contact||{};
-            const gpName=task.gp_name||"the GP";
-            const docLabel=dk==="offer_contract"?"Offer/Contract":dk==="position_description"?"Position Description":"Supervisor CV";
-            const subject=docLabel+" Required \u2014 "+gpName+" at "+(pc.practiceName||"the practice");
-            const bodyExtra=dk==="position_description"?" for "+gpName+"'s Specialist Registration application with AHPRA at "+(pc.practiceName||"the practice"):" for "+gpName;
-            const body="Hi "+(pc.contactName||"")+",\n\nWe require the "+docLabel.toLowerCase()+bodyExtra+".\n\nPlease reply with the document attached.\n\nKind regards,\nGP Link Team";
-            window.open(buildMailtoLinkFE(pc.contactEmail||"",subject,body));
+            openEmailPracticeComposer(task,dk);
           }
         }
         else if(action==="openWhatsApp"){
