@@ -25585,42 +25585,6 @@ Return ONLY valid JSON with no markdown formatting:
       // 6. Get practice_doc_ops
       var gdPracticeOps = await _ensurePracticeDocOps(gdCaseId);
 
-      // 6b. Auto-repair: backfill user_documents + practice_doc_ops for completed tasks missing records
-      try {
-        var gdOpsStatusMap = {};
-        gdPracticeOps.forEach(function(op) { if (op && op.document_key) gdOpsStatusMap[op.document_key] = op.ops_status; });
-        var gdCompletedTasksRes = await supabaseDbRequest('registration_tasks',
-          'select=id,related_document_key&case_id=eq.' + encodeURIComponent(gdCaseId) + '&task_type=eq.practice_pack_child&status=eq.completed');
-        var gdCompletedTasks = gdCompletedTasksRes.ok && Array.isArray(gdCompletedTasksRes.data) ? gdCompletedTasksRes.data : [];
-        for (var _ct = 0; _ct < gdCompletedTasks.length; _ct++) {
-          var ct = gdCompletedTasks[_ct];
-          var ctKey = ct.related_document_key;
-          if (!ctKey) continue;
-          var needsOpsRepair = gdOpsStatusMap[ctKey] && gdOpsStatusMap[ctKey] !== 'completed';
-          var needsDocRepair = !gdUserDocsByKey[ctKey];
-          if (needsOpsRepair || needsDocRepair) {
-            console.log('[GpDocs-AutoRepair] Repairing ' + ctKey + ' for case ' + gdCaseId + ' (ops:' + needsOpsRepair + ' doc:' + needsDocRepair + ')');
-            var ctDocRes = await supabaseDbRequest('task_documents', 'select=filename,google_drive_file_id&task_id=eq.' + encodeURIComponent(ct.id) + '&is_current=eq.true&limit=1');
-            var ctDoc = ctDocRes.ok && Array.isArray(ctDocRes.data) && ctDocRes.data[0] ? ctDocRes.data[0] : null;
-            if (needsDocRepair && gdUserId) {
-              var ctUdRecord = { user_id: gdUserId, document_key: ctKey, file_name: (ctDoc && ctDoc.filename) || '', status: 'approved', reviewed_at: new Date().toISOString() };
-              if (ctDoc && ctDoc.google_drive_file_id) ctUdRecord.google_drive_file_id = ctDoc.google_drive_file_id;
-              await supabaseDbRequest('user_documents', '', { method: 'POST', body: [ctUdRecord] });
-              try { await _updatePreparedDocsState(gdUserId, ctKey, ctDoc && ctDoc.google_drive_file_id, (ctDoc && ctDoc.filename) || ''); } catch(e){}
-            }
-            if (needsOpsRepair) {
-              await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(gdCaseId) + '&document_key=eq.' + encodeURIComponent(ctKey), {
-                method: 'PATCH', body: { ops_status: 'completed' }
-              });
-            }
-            // Refresh ops data after repair
-            gdPracticeOps = await _ensurePracticeDocOps(gdCaseId);
-          }
-        }
-      } catch (repairErr) {
-        console.error('[GpDocs-AutoRepair] Error:', repairErr.message);
-      }
-
       // 7. Get Drive files
       var gdDriveFiles = [];
       if (gdCase.google_drive_folder_id && isGoogleDriveConfigured()) {
@@ -26205,66 +26169,6 @@ Return ONLY valid JSON with no markdown formatting:
     } catch (err) {
       console.error('[AdminSubmitDrive] Error:', err.message);
       sendJson(res, 500, { ok: false, message: 'Drive upload failed: ' + err.message });
-    }
-    return;
-  }
-
-  // ── Repair: backfill user_documents + practice_doc_ops for already-completed submit-drive tasks ──
-  if (pathname === '/api/admin/task/repair-drive-submit' && req.method === 'POST') {
-    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    const adminCtx = requireAdminSession(req, res);
-    if (!adminCtx) return;
-    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
-    const taskId = body && body.taskId ? String(body.taskId).trim() : '';
-    if (!taskId) { sendJson(res, 400, { ok: false, message: 'taskId required.' }); return; }
-    try {
-      const taskRes = await supabaseDbRequest('registration_tasks', 'select=*&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
-      const task = taskRes.ok && Array.isArray(taskRes.data) && taskRes.data[0] ? taskRes.data[0] : null;
-      if (!task) { sendJson(res, 404, { ok: false, message: 'Task not found.' }); return; }
-      const docKey = task.related_document_key || '';
-      if (!docKey) { sendJson(res, 400, { ok: false, message: 'Task has no related_document_key.' }); return; }
-
-      const caseRes = await supabaseDbRequest('registration_cases', 'select=user_id,google_drive_folder_id&id=eq.' + encodeURIComponent(task.case_id) + '&limit=1');
-      const regCase = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
-      const userId = regCase ? regCase.user_id : null;
-
-      const docRes = await supabaseDbRequest('task_documents', 'select=*&task_id=eq.' + encodeURIComponent(taskId) + '&is_current=eq.true&limit=1');
-      const doc = docRes.ok && Array.isArray(docRes.data) && docRes.data[0] ? docRes.data[0] : null;
-
-      let driveFileId = null;
-      // Check if the file is already in Drive from a previous submission
-      if (doc && doc.google_drive_file_id) driveFileId = doc.google_drive_file_id;
-
-      const repaired = [];
-      // 1. Upsert user_documents
-      if (userId && doc) {
-        const existingUD = await supabaseDbRequest('user_documents', 'select=id&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
-        const udRecord = { user_id: userId, document_key: docKey, file_name: doc.filename || '', status: 'approved', reviewed_at: new Date().toISOString() };
-        if (driveFileId) udRecord.google_drive_file_id = driveFileId;
-        if (existingUD.ok && Array.isArray(existingUD.data) && existingUD.data[0]) {
-          await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(existingUD.data[0].id), { method: 'PATCH', body: udRecord });
-        } else {
-          await supabaseDbRequest('user_documents', '', { method: 'POST', body: [udRecord] });
-        }
-        repaired.push('user_documents');
-      }
-      // 2. Update gp_prepared_docs
-      if (userId) {
-        try { await _updatePreparedDocsState(userId, docKey, driveFileId, (doc && doc.filename) || ''); repaired.push('gp_prepared_docs'); } catch (e) {}
-      }
-      // 3. Update practice_doc_ops
-      if (task.case_id) {
-        await _ensurePracticeDocOps(task.case_id);
-        await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.' + encodeURIComponent(docKey), {
-          method: 'PATCH', body: { ops_status: 'completed' }
-        });
-        repaired.push('practice_doc_ops');
-      }
-      console.log('[RepairDriveSubmit] Repaired task', taskId, 'docKey', docKey, ':', repaired.join(', '));
-      sendJson(res, 200, { ok: true, repaired, docKey, taskId });
-    } catch (err) {
-      console.error('[RepairDriveSubmit] Error:', err.message);
-      sendJson(res, 500, { ok: false, message: err.message });
     }
     return;
   }
