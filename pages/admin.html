@@ -3413,13 +3413,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   /* ══ Task Modal ══ */
-  function openAddTaskModal(caseId){
+  function openAddTaskModal(caseId,prefill){
+    var pf=prefill||{};
     document.getElementById("modalTitle").textContent="Create Task";
     document.getElementById("modalBody").innerHTML=`
-      <div class="case-field" style="margin-bottom:8px"><label>Title</label><input id="newTaskTitle" type="text" placeholder="Task title..." style="width:100%" /></div>
-      <div class="case-field" style="margin-bottom:8px"><label>Description</label><textarea id="newTaskDesc" class="textarea" placeholder="Details..."></textarea></div>
+      <div class="case-field" style="margin-bottom:8px"><label>Title</label><input id="newTaskTitle" type="text" placeholder="Task title..." style="width:100%" value="${pf.title?pf.title.replace(/"/g,'&quot;'):''}" /></div>
+      <div class="case-field" style="margin-bottom:8px"><label>Description</label><textarea id="newTaskDesc" class="textarea" placeholder="Details...">${pf.description||''}</textarea></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-        <div class="case-field"><label>Priority</label><select id="newTaskPriority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></div>
+        <div class="case-field"><label>Type</label><select id="newTaskType"><option value="manual">Manual</option><option value="practice_pack_child"${pf.task_type==='practice_pack_child'?' selected':''}>Practice Pack Doc</option><option value="verify">Verify</option><option value="review">Review</option></select></div>
+        <div class="case-field"><label>Document Key</label><select id="newTaskDocKey"><option value="">None</option><option value="supervisor_cv"${pf.related_document_key==='supervisor_cv'?' selected':''}>Supervisor CV</option><option value="offer_contract"${pf.related_document_key==='offer_contract'?' selected':''}>Offer / Contract</option><option value="position_description"${pf.related_document_key==='position_description'?' selected':''}>Position Description</option><option value="sppa_00"${pf.related_document_key==='sppa_00'?' selected':''}>SPPA-00</option><option value="section_g"${pf.related_document_key==='section_g'?' selected':''}>Section G</option></select></div>
+        <div class="case-field"><label>Priority</label><select id="newTaskPriority"><option value="normal"${pf.priority==='normal'?' selected':''}>Normal</option><option value="high"${pf.priority==='high'?' selected':''}>High</option><option value="urgent"${pf.priority==='urgent'?' selected':''}>Urgent</option><option value="low">Low</option></select></div>
         <div class="case-field"><label>Due Date</label><input id="newTaskDue" type="date" /></div>
         <div class="case-field"><label>Stage</label><select id="newTaskStage"><option value="">Any</option>${STEPS.map(s=>`<option value="${s.key}">${s.label}</option>`).join("")}</select></div>
       </div>
@@ -3428,7 +3431,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     document.getElementById("createTaskBtn").addEventListener("click",async()=>{
       const title=document.getElementById("newTaskTitle").value.trim();if(!title){alert("Title required");return;}
       const btn=document.getElementById("createTaskBtn");btn.disabled=true;btn.textContent="Creating...";
-      try{await fetch("/api/admin/tasks",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({case_id:caseId,title,description:document.getElementById("newTaskDesc").value.trim(),priority:document.getElementById("newTaskPriority").value,due_date:document.getElementById("newTaskDue").value||null,related_stage:document.getElementById("newTaskStage").value||null})});closeModal();await loadAll(true);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Create";}
+      try{await fetch("/api/admin/tasks",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({case_id:caseId,title,description:document.getElementById("newTaskDesc").value.trim(),task_type:document.getElementById("newTaskType").value||'manual',related_document_key:document.getElementById("newTaskDocKey").value||null,priority:document.getElementById("newTaskPriority").value,due_date:document.getElementById("newTaskDue").value||null,related_stage:document.getElementById("newTaskStage").value||null})});closeModal();await loadAll(true);}catch(e){alert(e.message);btn.disabled=false;btn.textContent="Create";}
     });
   }
 
