@@ -973,6 +973,175 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .tech-summary-strip{display:flex;gap:12px;padding:8px 16px;font-size:0.8rem;color:#6b7280;}
 .tech-summary-strip b{color:#374151;}
 
+/* ══ Mobile Responsive ══ */
+@media(max-width:600px){
+  /* ── Top bar ── */
+  .top-bar{flex-direction:column;align-items:stretch;padding:10px 12px;gap:8px}
+  .top-bar-left{justify-content:space-between}
+  .top-bar h1{font-size:15px}
+  .top-search{max-width:100%;margin:0}
+  .top-search input{font-size:13px;padding:8px 10px}
+  .top-right{justify-content:flex-end;gap:6px;flex-wrap:wrap}
+  .top-right .btn.ghost{padding:5px 8px;font-size:11px}
+  .top-chips{gap:4px}
+  .chip{font-size:10px;padding:2px 7px}
+
+  /* ── View tabs ── */
+  .view-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:0 8px}
+  .view-tabs::-webkit-scrollbar{display:none}
+  .view-tab{font-size:10px;padding:8px 10px;white-space:nowrap;flex:0 0 auto}
+
+  /* ── Ops Queue ── */
+  .ops-stats{padding:8px;gap:6px}
+  .ops-stat{min-width:0;padding:6px 8px}
+  .ops-stat-val{font-size:16px}
+  .ops-stat-label{font-size:9px}
+  .ops-table-wrap{padding:0 8px 8px}
+  .ops-task-row{grid-template-columns:1fr;gap:4px;padding:10px 12px;border-left-width:3px}
+  .ops-task-cell{font-size:12px}
+  .ops-task-cell.task-col .ops-task-subtitle{max-width:100%;white-space:normal}
+  .ops-gp-header{flex-wrap:wrap;gap:4px;padding:8px 10px}
+  .ops-gp-name-header{max-width:100%;font-size:13px}
+  .ops-gp-practice{max-width:100%}
+  .ops-gp-task-count{margin-left:0}
+  .ops-detail-inner{padding:12px}
+  .ops-email-field{flex-direction:column;gap:4px}
+  .ops-email-label{text-align:left;min-width:0}
+  .ops-action-row{flex-direction:column}
+  .ops-action-row .ops-btn-green,
+  .ops-action-row .ops-btn-secondary,
+  .ops-action-row .ops-btn-danger{width:100%;justify-content:center;text-align:center}
+
+  /* ── Tools subnav ── */
+  .tools-wrap{padding:10px 12px}
+  .tools-subnav{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap;gap:4px;padding-bottom:10px}
+  .tools-subnav::-webkit-scrollbar{display:none}
+  .tools-subnav-btn{flex:0 0 auto;padding:6px 12px;font-size:12px;white-space:nowrap}
+
+  /* ── GP detail grid ── */
+  .gp-detail-grid{grid-template-columns:1fr;gap:12px}
+  .gp-detail-meta{border-right:none;border-bottom:1px solid var(--line);padding:12px}
+  .gp-detail-tabs-wrap{padding:12px}
+  .gp-detail-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap}
+  .gp-detail-tabs::-webkit-scrollbar{display:none}
+  .gp-detail-tab{white-space:nowrap;padding:8px 12px;font-size:12px;flex:0 0 auto}
+
+  /* ── Guide panel ── */
+  .guide-wrap{flex-direction:column;height:auto;max-height:calc(100vh - 100px)}
+  .guide-folders{flex:0 0 auto;max-height:35vh;overflow-y:auto;padding:12px;border-right:none;border-bottom:1px solid var(--line)}
+  .guide-detail{flex:1;min-height:300px}
+  .guide-detail-body iframe{margin-top:-40px;height:calc(100% + 40px)}
+
+  /* ── Today dashboard ── */
+  .today-wrap{padding:10px 12px}
+  .today-header h2{font-size:16px}
+  .today-metrics{grid-template-columns:repeat(2,1fr);gap:6px}
+  .today-metric{padding:8px 10px}
+  .today-metric-value{font-size:18px}
+  .today-grid{grid-template-columns:1fr}
+
+  /* ── GP cards ── */
+  .gp-grid{grid-template-columns:1fr}
+  .gp-card{padding:12px}
+  .gp-profile-header{flex-direction:column;align-items:stretch;padding:14px}
+  .gp-profile-header .d-name{font-size:18px}
+
+  /* ── Todo cards ── */
+  .todo-card{padding:12px}
+  .todo-actions .btn{padding:6px 10px;font-size:11px}
+  .gp-card-tasks-dropdown{position:static;border:1px solid var(--line);border-radius:var(--radius);margin-top:8px;box-shadow:none}
+
+  /* ── Support ── */
+  .support-wrap{padding:10px 12px}
+  .support-filters{gap:6px}
+  .support-filter-group{padding:2px}
+  .support-filter-btn{padding:5px 10px;font-size:10px}
+  .support-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .support-table thead,.support-table tbody,.support-table tr{min-width:600px}
+  .support-table th,.support-table td{padding:8px 6px;font-size:11px}
+
+  /* ── Medical Centres ── */
+  .mc-grid{grid-template-columns:1fr}
+  .medical-centres-wrap{padding:10px 12px}
+  .mc-subnav{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap}
+  .mc-subnav::-webkit-scrollbar{display:none}
+  .mc-subnav-btn{white-space:nowrap;flex:0 0 auto;padding:8px 12px;font-size:12px}
+  .mc-apps-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .mc-apps-table thead,.mc-apps-table tbody,.mc-apps-table tr{min-width:500px}
+
+  /* ── Tickets ── */
+  .tickets-wrap{padding:10px 12px}
+  .tickets-subtabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap}
+  .tickets-subtabs::-webkit-scrollbar{display:none}
+  .tickets-subtab{white-space:nowrap;flex:0 0 auto;padding:8px 10px;font-size:11px}
+
+  /* ── Interviews ── */
+  .interviews-wrap{padding:10px 12px}
+  .iv-form-grid{grid-template-columns:1fr}
+
+  /* ── Applications ── */
+  .applications-wrap{padding:10px 12px}
+  .applications-stats{gap:6px}
+  .applications-stat{min-width:60px;padding:6px 10px}
+  .applications-stat .stat-num{font-size:16px}
+  .applications-grid{grid-template-columns:1fr}
+
+  /* ── Agent ── */
+  .agent-grid,.agent-grid-3{grid-template-columns:1fr}
+  .agent-hero h2{font-size:18px}
+  .agent-form textarea{min-height:100px}
+
+  /* ── Tech Hub ── */
+  .tech-subnav{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;flex-wrap:nowrap;gap:4px}
+  .tech-subnav::-webkit-scrollbar{display:none}
+  .tech-subnav-btn{white-space:nowrap;flex:0 0 auto}
+  .tech-cards{grid-template-columns:1fr;padding:10px 12px}
+  .tech-filter-bar{flex-wrap:wrap;padding:8px 12px}
+  .tech-bug-list{padding:10px 12px}
+
+  /* ── Email Triage ── */
+  .et-ctx-grid{grid-template-columns:1fr}
+
+  /* ── Profile bar ── */
+  .profile-bar{flex-wrap:wrap;padding:10px 12px;gap:8px}
+  .profile-bar .pb-pills{width:100%;gap:4px}
+
+  /* ── Journey rail ── */
+  .journey-rail{padding:6px 10px}
+  .jr-pill{padding:3px 6px;font-size:9px}
+
+  /* ── Modals ── */
+  .modal{padding:16px;max-width:95vw}
+  .sppa-review-panel{width:98vw}
+  .correction-modal{max-width:95vw}
+  .drive-overlay-body iframe{width:96vw;height:80vh}
+
+  /* ── Misc ── */
+  .d-header-top{flex-direction:column}
+  .d-actions{width:100%}
+  .d-actions .btn{flex:1;justify-content:center;text-align:center}
+  .section{padding:10px}
+  .detail-scroll{padding:10px 12px 60px}
+  .case-mgmt{grid-template-columns:1fr}
+  .qual-section{grid-template-columns:1fr}
+  .doc-section-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .drive-files-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  .pdoc-grid{grid-template-columns:1fr}
+  .va-actions-bar{gap:6px}
+  .va-actions-bar .btn{flex:1;min-width:0;justify-content:center;font-size:11px;padding:6px 8px}
+  .doc-row{flex-direction:column;align-items:stretch;gap:6px}
+  .doc-row-actions{justify-content:flex-start}
+  .gp-subtabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .gp-subtabs::-webkit-scrollbar{display:none}
+  .gp-subtab{white-space:nowrap;flex:0 0 auto}
+  .sppa-actions{gap:4px}
+  .sppa-actions .btn-action{flex:1;text-align:center;padding:6px 8px;font-size:10px}
+  .doc-task-actions{gap:4px}
+  .doc-task-actions .btn-action{font-size:11px;padding:5px 10px}
+  .blocker-row{flex-direction:column;gap:6px}
+  .note-card{padding:10px 12px}
+}
+
   </style>
 </head>
 <body>
