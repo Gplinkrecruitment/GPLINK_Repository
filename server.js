@@ -25952,6 +25952,27 @@ Return ONLY valid JSON with no markdown formatting:
       _actor: adminCtx.email
     });
     if (!task) { sendJson(res, 502, { ok: false, message: 'Failed to create task.' }); return; }
+    // When recreating a practice_pack_child task, reset stale ops/doc data from any previous incomplete submission
+    if ((body.task_type === 'practice_pack_child') && body.related_document_key && body.case_id) {
+      try {
+        await _ensurePracticeDocOps(body.case_id);
+        await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(body.case_id) + '&document_key=eq.' + encodeURIComponent(body.related_document_key), {
+          method: 'PATCH', body: { ops_status: 'not_requested' }
+        });
+      } catch (e) {}
+      // Also remove any stale user_documents record that has no real file
+      try {
+        var cRes2 = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(body.case_id) + '&limit=1');
+        var uid2 = cRes2.ok && Array.isArray(cRes2.data) && cRes2.data[0] ? cRes2.data[0].user_id : null;
+        if (uid2) {
+          var udCheck = await supabaseDbRequest('user_documents', 'select=id,google_drive_file_id,file_url&user_id=eq.' + encodeURIComponent(uid2) + '&document_key=eq.' + encodeURIComponent(body.related_document_key) + '&limit=1');
+          var udRow = udCheck.ok && Array.isArray(udCheck.data) && udCheck.data[0] ? udCheck.data[0] : null;
+          if (udRow && !udRow.google_drive_file_id && !udRow.file_url) {
+            await supabaseDbRequest('user_documents', 'id=eq.' + encodeURIComponent(udRow.id), { method: 'DELETE' });
+          }
+        }
+      } catch (e) {}
+    }
     // Update case last_va_action_at
     await supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(body.case_id), { method: 'PATCH', body: { last_va_action_at: new Date().toISOString() } });
     sendJson(res, 201, { ok: true, task: task });
