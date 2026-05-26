@@ -20334,6 +20334,22 @@ async function handleApi(req, res, pathname) {
           console.error('[AdminEmailSend] Timeline log failed:', tlErr.message);
         }
       }
+
+      // Update practice_doc_ops when emailing practice for a document
+      if (emailCaseId) {
+        try {
+          var emailTask = await supabaseDbRequest('registration_tasks', 'select=task_type,related_document_key&id=eq.' + encodeURIComponent(emailTaskId) + '&limit=1');
+          var et = emailTask.ok && Array.isArray(emailTask.data) && emailTask.data[0] ? emailTask.data[0] : null;
+          if (et && et.task_type === 'practice_pack_child' && et.related_document_key) {
+            await _ensurePracticeDocOps(emailCaseId);
+            await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(emailCaseId) + '&document_key=eq.' + encodeURIComponent(et.related_document_key), {
+              method: 'PATCH', body: { ops_status: 'awaiting_practice' }
+            });
+          }
+        } catch (opsErr) {
+          console.error('[AdminEmailSend] practice_doc_ops update failed:', opsErr.message);
+        }
+      }
     }
 
     sendJson(res, 200, { ok: true, gmailMessageId: sendResult.gmailMessageId, threadId: sendResult.threadId });
