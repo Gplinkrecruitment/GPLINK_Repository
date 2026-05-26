@@ -26193,10 +26193,19 @@ Return ONLY valid JSON with no markdown formatting:
         }
       }
 
-      // 7. Complete the task
+      // 7. Store Drive file ID on task + task_documents so the documents grid can match it
+      var taskPatch = { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email };
+      if (driveFileId) taskPatch.google_drive_file_id = driveFileId;
       await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), {
-        method: 'PATCH', body: { status: 'completed', completed_at: new Date().toISOString(), completed_by: adminCtx.email }
+        method: 'PATCH', body: taskPatch
       });
+      if (driveFileId && doc.id) {
+        try {
+          await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(doc.id), {
+            method: 'PATCH', body: { google_drive_file_id: driveFileId }
+          });
+        } catch (e) {}
+      }
 
       // 8. Log timeline event
       await _logCaseEvent(task.case_id, taskId, 'completed', 'Document submitted to Drive: ' + doc.filename, null, adminCtx.email);
