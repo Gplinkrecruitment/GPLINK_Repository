@@ -215,6 +215,22 @@
       .form-grid { grid-template-columns: 1fr; }
       .case-table th:nth-child(4), .case-table td:nth-child(4),
       .case-table th:nth-child(5), .case-table td:nth-child(5) { display: none; }
+      .tab-bar { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; flex-wrap: nowrap; }
+      .tab-bar::-webkit-scrollbar { display: none; }
+      .tab-btn { white-space: nowrap; padding: 8px 10px; font-size: 11px; flex: 0 0 auto; }
+      body { padding: 10px; }
+      .hero h1 { font-size: 20px; }
+      .hero { padding: 14px; }
+      .hero-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+      .panel { padding: 14px; }
+      .panel-title { font-size: 14px; }
+      .detail-header { flex-direction: column; gap: 8px; }
+      .detail-header h2 { font-size: 17px; }
+      .btn-row { gap: 6px; }
+      .btn-row .btn { flex: 1; justify-content: center; text-align: center; font-size: 11px; }
+      .case-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .doc-admin-row { flex-wrap: wrap; gap: 6px; }
+      .doc-admin-actions { width: 100%; }
     }
   </style>
 </head>
