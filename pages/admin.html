@@ -2389,7 +2389,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           html+='</div>';
           html+='<div class="st-actions">';
           if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
-            html+='<button class="st-primary-btn" data-gp-expand-task="'+esc(t.id)+'">'+esc(guided.label)+'</button>';
+            // No button — detail panel auto-expands with Ops Queue content below
           } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
           }
@@ -2944,12 +2944,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         ${tabsBar}
         <div class="gp-detail-tab-pane">${paneHtml}</div>
       `;
-      // Auto-expand practice_pack_child task details on the Tasks tab
+      // Auto-expand only the FIRST practice_pack_child task detail on the Tasks tab
       if(tab==='tasks'||!tab){
+        var _autoExpanded=false;
         (S.tasks||[]).filter(function(t){return t.case_id===c.id&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled';}).forEach(function(t){
-          if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
+          if(!_autoExpanded&&t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
             var panel=document.getElementById('gpTaskDetail_'+t.id);
-            if(panel){panel.style.display='block';loadGpTaskDetail(t.id);}
+            if(panel){panel.style.display='block';loadGpTaskDetail(t.id);_autoExpanded=true;}
           }
         });
       }
