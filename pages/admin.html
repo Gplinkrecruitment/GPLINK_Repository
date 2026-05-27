@@ -1808,6 +1808,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     S.loading=false;
     /* When silent (auto-refresh), skip destructive re-render if user is interacting */
     if(silent&&isUserInteracting()){S.pendingRender=true;return;}
+    /* Silent auto-refresh: only update lightweight stats — never rebuild panels/tables
+       which would destroy expanded rows, scroll positions, and cause visible flicker */
+    if(silent){renderTopBar();renderFilters();return;}
     renderAll();
     if(S.view==="tools"){vaShowPanel("tools");renderToolsPanel();}
     else if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();}
