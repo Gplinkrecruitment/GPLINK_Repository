@@ -1347,7 +1347,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 (function(){
   "use strict";
   const S={dashboard:null,cases:[],tasks:[],visaCases:[],pbsCases:[],viewer:null,hostLabel:"",loading:false,
-    selectedCaseId:null,view:"tools",filter:"all",query:"",expanded:{},refreshTimer:null,
+    selectedCaseId:null,view:"tools",filter:"all",query:"",expanded:{},refreshTimer:null,pendingRender:false,
     mc:{centres:[],allData:[],loading:false,selectedCentre:null,subView:"overview",listView:"open",listFilters:{status:"all",billing:"",location:""}},
     opsTasks:[],opsExpandedId:null,opsLoading:false,_opsStatFilter:null,_opsCollapsed:new Set(),
     toolsSubView:"ops",gpsProfileTab:"tasks",openEmailPanels:{},
@@ -1380,6 +1380,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   };
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
   function safeUrl(u,fallback){if(!u||typeof u!=="string")return fallback||"#";var t=u.trim().toLowerCase();if(t.startsWith("https://")||t.startsWith("http://")||t.startsWith("whatsapp://")||t.startsWith("data:"))return esc(u.trim());return fallback||"#";}
+
+  /* ══ Interaction guard — prevents destructive re-renders while user is active ══ */
+  function isUserInteracting(){
+    const ae=document.activeElement;
+    if(ae&&(ae.tagName==="INPUT"||ae.tagName==="TEXTAREA"||ae.tagName==="SELECT"||ae.isContentEditable))return true;
+    if(document.getElementById("modalOverlay").classList.contains("open"))return true;
+    if(document.getElementById("sppaReviewOverlay").classList.contains("open"))return true;
+    if(document.getElementById("correctionOverlay").classList.contains("open"))return true;
+    return false;
+  }
+  function flushPendingRender(){
+    if(S.pendingRender&&!isUserInteracting()){S.pendingRender=false;renderAll();}
+  }
+  document.addEventListener("focusout",function(){setTimeout(flushPendingRender,80);},true);
+
   function ticketCard(tk){
     return`<div class="todo-card ${esc(tk.priority)||"normal"}" data-todo-ticket="${esc(tk.id)}" data-user-id="${esc(tk.user_id)}">
       <div class="todo-card-top">
@@ -1784,13 +1799,15 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch{}
     if(S.view==="agent")renderDetail();
   }
-  async function loadAll(force){
+  async function loadAll(force,silent){
     if(S.loading&&!force)return;
     S.loading=true;
     const jobs=[loadDash(),loadCases(),loadTasks(),loadVisa(),loadPbs(),loadVaDashboard(),loadUnmatchedDocuments(),loadIncomingQuestions()];
     if(isSA())jobs.push(loadAgentStatus(force));
     await Promise.all(jobs);
     S.loading=false;
+    /* When silent (auto-refresh), skip destructive re-render if user is interacting */
+    if(silent&&isUserInteracting()){S.pendingRender=true;return;}
     renderAll();
     if(S.view==="tools"){vaShowPanel("tools");renderToolsPanel();}
     else if(S.view==="gps"){vaShowPanel("gps");renderCaseList();renderDetail();}
@@ -2177,6 +2194,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     const el=document.getElementById("caseList");
     if(S.view==="queue"){renderQueueList();return;}
     if(S.view==="agent"){renderAgentRunList();return;}
+    /* Preserve scroll position across re-renders */
+    const prevScroll=el.scrollTop;
     const list=filteredCases();
     if(!list.length){el.innerHTML='<div class="empty">'+(S.cases.length||S.dashboard?"No cases match filter.":"Loading...")+'</div>';return;}
 
@@ -2206,6 +2225,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html+=onTrack.map(m=>renderCaseCard(m,false)).join("");
     }
     el.innerHTML=html;
+    el.scrollTop=prevScroll;
   }
 
   function renderQueueList(){
@@ -2894,6 +2914,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function renderDetail(){
     const el=document.getElementById("detailContent");if(!el)return;
+    const prevScroll=el.parentElement?el.parentElement.scrollTop||el.scrollTop:el.scrollTop;
     if(S.view==="agent"){renderAgentDetail();return;}
     if(S.view==="gps"){
       let c=S.cases.find(x=>x.id===S.selectedCaseId);
@@ -2964,6 +2985,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
         });
       }
+      if(el.parentElement)el.parentElement.scrollTop=prevScroll;else el.scrollTop=prevScroll;
       return;
     }
     // Non-GPs view — show default empty or existing content
@@ -2977,7 +2999,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(high.length){h+=`<div class="wq-section-title">High Priority <span class="wq-count amber">${high.length}</span></div>`;high.forEach(t=>{h+=wqItem(t);});}
         if(normal.length){h+=`<div class="wq-section-title">Normal <span class="wq-count blue">${normal.length}</span></div>`;normal.forEach(t=>{h+=wqItem(t);});}
       }
-      el.innerHTML=h;return;
+      el.innerHTML=h;if(el.parentElement)el.parentElement.scrollTop=prevScroll;else el.scrollTop=prevScroll;return;
     }
     el.innerHTML='<div class="detail-empty">Select a case from the list.</div>';
   }
@@ -3456,7 +3478,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
   }
 
-  function closeModal(){document.getElementById("modalOverlay").classList.remove("open");}
+  function closeModal(){document.getElementById("modalOverlay").classList.remove("open");setTimeout(flushPendingRender,80);}
 
   /* ══ API Actions ══ */
   async function completeTask(taskId){
@@ -6409,6 +6431,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     _sppaReviewTaskId = null;
     document.getElementById('sppaReviewOverlay').classList.remove('open');
     document.getElementById('sppaReviewIframe').src = 'about:blank';
+    setTimeout(flushPendingRender,80);
   }
 
   async function approveSppa() {
@@ -6439,6 +6462,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   function closeCorrectionModal() {
     document.getElementById('correctionOverlay').classList.remove('open');
+    setTimeout(flushPendingRender,80);
   }
 
   async function sendSppaCorrection() {
@@ -6895,11 +6919,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(techTab)techTab.style.display="";
     }
     loadAll();
-    S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll();},15000);
+    S.refreshTimer=setInterval(()=>{if(document.visibilityState!=="visible")return;loadAll(false,true);},15000);
   }).catch(err=>{
     document.getElementById("caseList").innerHTML=`<div class="empty">${esc(err.message||"Cannot verify session.")}</div>`;
   });
-  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll();});
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")loadAll(false,true);});
 
   // ── Technical Hub ──
   var techState={view:'integrations',integrations:null,systemBugs:null,clientErrors:null};
