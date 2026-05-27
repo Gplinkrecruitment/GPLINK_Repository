@@ -20252,6 +20252,48 @@ async function handleApi(req, res, pathname) {
     if (!emailSubject) { sendJson(res, 400, { ok: false, message: 'subject is required.' }); return; }
     if (!emailBodyHtml && !emailBodyText) { sendJson(res, 400, { ok: false, message: 'bodyHtml or bodyText is required.' }); return; }
 
+    // Auto-resolve threading from task when threadId not explicitly provided
+    if (!emailThreadId && emailTaskId) {
+      try {
+        var threadTaskRes = await supabaseDbRequest('registration_tasks', 'select=gmail_thread_id&id=eq.' + encodeURIComponent(emailTaskId) + '&limit=1');
+        var threadTask = threadTaskRes.ok && Array.isArray(threadTaskRes.data) && threadTaskRes.data[0] ? threadTaskRes.data[0] : null;
+        if (threadTask && threadTask.gmail_thread_id) {
+          emailThreadId = threadTask.gmail_thread_id;
+          // Fetch last message's Message-ID for In-Reply-To header + original subject for threading
+          try {
+            var tGmail = await getGmailClient(MONITORED_VA_EMAILS[0]);
+            if (tGmail) {
+              var tThread = await tGmail.users.threads.get({
+                userId: MONITORED_VA_EMAILS[0], id: emailThreadId,
+                format: 'metadata', metadataHeaders: ['Message-ID', 'Subject']
+              });
+              if (tThread.data && Array.isArray(tThread.data.messages) && tThread.data.messages.length > 0) {
+                var tLastMsg = tThread.data.messages[tThread.data.messages.length - 1];
+                if (tLastMsg.payload && Array.isArray(tLastMsg.payload.headers)) {
+                  var tMidH = tLastMsg.payload.headers.find(function (h) { return h.name === 'Message-ID'; });
+                  if (tMidH) emailInReplyTo = tMidH.value;
+                }
+                // Use the original thread subject so Gmail groups correctly
+                var tFirstMsg = tThread.data.messages[0];
+                if (tFirstMsg.payload && Array.isArray(tFirstMsg.payload.headers)) {
+                  var tSubjH = tFirstMsg.payload.headers.find(function (h) { return h.name === 'Subject'; });
+                  if (tSubjH && tSubjH.value) {
+                    var origSubj = tSubjH.value.replace(/^Re:\s*/i, '');
+                    emailSubject = 'Re: ' + origSubj;
+                  }
+                }
+              }
+            }
+          } catch (tErr) {
+            console.warn('[AdminEmailSend] Thread Message-ID lookup failed:', tErr.message);
+          }
+          console.log('[AdminEmailSend] Auto-resolved threadId=' + emailThreadId + ' inReplyTo=' + (emailInReplyTo || '(none)') + ' from task ' + emailTaskId);
+        }
+      } catch (tLookupErr) {
+        console.warn('[AdminEmailSend] Task thread lookup failed:', tLookupErr.message);
+      }
+    }
+
     // Fetch attachments
     var resolvedAttachments = [];
     for (var ati = 0; ati < emailAttachments.length; ati++) {
@@ -28195,14 +28237,55 @@ Return ONLY valid JSON with no markdown formatting:
     var practiceName = placement.practiceName || 'the practice';
     var emailSubject = 'Re: ' + docLabel + ' Required — ' + gpName + ' at ' + practiceName;
 
-    // Build RFC 2822 email with attachment
+    // Build RFC 2822 email with attachment (threaded as reply when possible)
     var vaEmail = MONITORED_VA_EMAILS[0];
     var boundary = 'boundary_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    var rawEmail = 'From: ' + vaEmail + '\r\n'
+
+    // Look up original thread to get In-Reply-To / References headers
+    var revThreadId = task.gmail_thread_id || null;
+    var revInReplyTo = '';
+    if (revThreadId) {
+      try {
+        var revGmail = await getGmailClient(vaEmail);
+        if (revGmail) {
+          var threadData = await revGmail.users.threads.get({
+            userId: vaEmail, id: revThreadId, format: 'metadata', metadataHeaders: ['Message-ID', 'Subject']
+          });
+          if (threadData.data && Array.isArray(threadData.data.messages) && threadData.data.messages.length > 0) {
+            // Use the last message's Message-ID for In-Reply-To
+            var lastMsg = threadData.data.messages[threadData.data.messages.length - 1];
+            if (lastMsg.payload && Array.isArray(lastMsg.payload.headers)) {
+              var midHeader = lastMsg.payload.headers.find(function (h) { return h.name === 'Message-ID'; });
+              if (midHeader) revInReplyTo = midHeader.value;
+            }
+            // Use the original subject from the first message to keep threading consistent
+            var firstMsg = threadData.data.messages[0];
+            if (firstMsg.payload && Array.isArray(firstMsg.payload.headers)) {
+              var subjHeader = firstMsg.payload.headers.find(function (h) { return h.name === 'Subject'; });
+              if (subjHeader && subjHeader.value) {
+                emailSubject = subjHeader.value.replace(/^Re:\s*/i, '');
+                emailSubject = 'Re: ' + emailSubject;
+              }
+            }
+          }
+        }
+      } catch (threadErr) {
+        console.warn('[RequestRevision] Thread lookup failed, sending as new thread:', threadErr.message);
+        revThreadId = null;
+      }
+    }
+
+    var rawHeaders = 'From: "GP Link Registration" <' + vaEmail + '>\r\n'
       + 'To: ' + practiceEmail + '\r\n'
       + 'Subject: ' + emailSubject + '\r\n'
-      + 'MIME-Version: 1.0\r\n'
-      + 'Content-Type: multipart/mixed; boundary="' + boundary + '"\r\n'
+      + 'MIME-Version: 1.0\r\n';
+    if (revInReplyTo) {
+      rawHeaders += 'In-Reply-To: ' + revInReplyTo + '\r\n'
+        + 'References: ' + revInReplyTo + '\r\n';
+    }
+    rawHeaders += 'Content-Type: multipart/mixed; boundary="' + boundary + '"\r\n';
+
+    var rawEmail = rawHeaders
       + '\r\n'
       + '--' + boundary + '\r\n'
       + 'Content-Type: text/plain; charset="UTF-8"\r\n'
@@ -28220,13 +28303,15 @@ Return ONLY valid JSON with no markdown formatting:
     var rawBase64 = Buffer.from(rawEmail).toString('base64')
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-    // Create Gmail draft
+    // Create Gmail draft (threaded if we have the original thread)
     try {
       var gmail = await getGmailClient(vaEmail);
       if (!gmail) { sendJson(res, 503, { ok: false, message: 'Gmail not configured.' }); return; }
+      var draftBody = { message: { raw: rawBase64 } };
+      if (revThreadId) draftBody.message.threadId = revThreadId;
       var draftRes = await gmail.users.drafts.create({
         userId: vaEmail,
-        requestBody: { message: { raw: rawBase64 } }
+        requestBody: draftBody
       });
       var draftId = draftRes.data && draftRes.data.id ? draftRes.data.id : '';
       var draftMessageId = draftRes.data && draftRes.data.message ? draftRes.data.message.id : '';
