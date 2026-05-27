@@ -320,6 +320,14 @@
     .ops-email-composer-ahpra.visible{display:block}
     .gp-task-detail{border-top:1px solid var(--line);background:#f8fafc;border-radius:0 0 10px 10px}
     .gp-task-detail-inner{padding:2px 0 0}
+    .doc-preview-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9990;display:flex;align-items:center;justify-content:center}
+    .doc-preview-modal{background:#fff;border-radius:14px;width:90vw;max-width:900px;height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden}
+    .doc-preview-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--line);background:#f8fafc;flex-shrink:0}
+    .doc-preview-title{font-size:14px;font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .doc-preview-body{flex:1;overflow:hidden}
+    .doc-preview-frame{width:100%;height:100%;border:none}
+    .doc-preview-img{max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto;padding:16px}
+    .doc-preview-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:32px}
     @media(max-width:900px){
       .ops-stats{gap:6px;padding:10px 12px 8px}
       .ops-stat{padding:8px 10px;min-width:70px}
@@ -4078,7 +4086,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h+='</div>';
       if(previewUrl){
         if(previewUrl.startsWith('data:')){
-          h+='<button data-download-doc="'+esc(d.id)+'" data-download-name="'+esc(d.filename||'document')+'" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer;text-decoration:none">Download \u2192</button>';
+          h+='<button data-preview-doc="'+esc(d.id)+'" data-preview-name="'+esc(d.filename||'document')+'" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;background:none;border:none;cursor:pointer;text-decoration:none">View \u2192</button>';
         }else{
           h+='<a href="'+safeUrl(previewUrl)+'" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:700;text-decoration:none">View \u2192</a>';
         }
@@ -4394,6 +4402,50 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     setTimeout(()=>t.remove(),2800);
   }
   var toast = showOpsToast;
+
+  /* ── Document preview modal ── */
+  function openDocPreviewModal(dataUrl,filename){
+    var existing=document.getElementById("docPreviewOverlay");
+    if(existing)existing.remove();
+    var overlay=document.createElement("div");
+    overlay.id="docPreviewOverlay";
+    overlay.className="doc-preview-overlay";
+    var blobUrl='';
+    var contentHtml='';
+    if(dataUrl.startsWith('data:')){
+      try{
+        var parts=dataUrl.split(',');var mimeMatch=parts[0].match(/data:([^;]+)/);
+        var mime=mimeMatch?mimeMatch[1]:'application/octet-stream';
+        var b64=parts.slice(1).join(',').replace(/-/g,'+').replace(/_/g,'/');
+        var bin=atob(b64);var bytes=new Uint8Array(bin.length);
+        for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+        var blob=new Blob([bytes],{type:mime});
+        blobUrl=URL.createObjectURL(blob);
+        if(mime==='application/pdf'){
+          contentHtml='<iframe src="'+blobUrl+'" class="doc-preview-frame"></iframe>';
+        }else if(mime.startsWith('image/')){
+          contentHtml='<img src="'+blobUrl+'" class="doc-preview-img" alt="'+esc(filename)+'">';
+        }else{
+          // For Word docs and other non-previewable types, use Google Docs Viewer via blob download link
+          contentHtml='<div class="doc-preview-fallback"><div style="font-size:48px;margin-bottom:16px">\uD83D\uDCC4</div><div style="font-size:16px;font-weight:700;margin-bottom:8px">'+esc(filename)+'</div><div style="color:var(--muted);margin-bottom:16px">This file type cannot be previewed inline.</div><a href="'+blobUrl+'" download="'+esc(filename)+'" class="ops-btn-green" style="text-decoration:none;display:inline-block">Download to View</a></div>';
+        }
+      }catch(err){contentHtml='<div class="doc-preview-fallback">Failed to load: '+esc(err.message)+'</div>';}
+    }else{
+      // HTTP URL — open in iframe or Google Docs Viewer
+      if(dataUrl.indexOf('drive.google.com')>-1){
+        contentHtml='<iframe src="'+esc(dataUrl.replace('/view','/preview'))+'" class="doc-preview-frame"></iframe>';
+      }else{
+        contentHtml='<iframe src="'+esc(dataUrl)+'" class="doc-preview-frame"></iframe>';
+      }
+    }
+    overlay.innerHTML='<div class="doc-preview-modal">'
+      +'<div class="doc-preview-header"><span class="doc-preview-title">'+esc(filename)+'</span><button class="gp-email-modal-close" id="docPreviewClose">\u2715</button></div>'
+      +'<div class="doc-preview-body">'+contentHtml+'</div>'
+      +'</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click",function(ev){if(ev.target===overlay){overlay.remove();if(blobUrl)URL.revokeObjectURL(blobUrl);}});
+    document.getElementById("docPreviewClose").addEventListener("click",function(){overlay.remove();if(blobUrl)URL.revokeObjectURL(blobUrl);});
+  }
 
   /* ── Load GP Profile task detail (reuses Ops Queue renderer) ── */
   async function loadGpTaskDetail(taskId){
@@ -4931,11 +4983,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         return;
       }
 
-      var gpDownloadDoc=e.target.closest("[data-download-doc]");
-      if(gpDownloadDoc){
+      var gpPreviewDoc=e.target.closest("[data-preview-doc]");
+      if(gpPreviewDoc){
         e.stopPropagation();
-        var docId=gpDownloadDoc.getAttribute("data-download-doc");
-        var fname=gpDownloadDoc.getAttribute("data-download-name")||"document";
+        var docId=gpPreviewDoc.getAttribute("data-preview-doc");
+        var fname=gpPreviewDoc.getAttribute("data-preview-name")||"document";
         var docData=null;
         var allTasks=(S.tasks||[]).concat(S.opsTasks||[]);
         for(var ot of allTasks){
@@ -4945,20 +4997,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
-        if(dataUrl.startsWith('data:')){
-          try{
-            var parts=dataUrl.split(',');var mimeMatch=parts[0].match(/data:([^;]+)/);
-            var mime=mimeMatch?mimeMatch[1]:'application/octet-stream';
-            var b64=parts.slice(1).join(',').replace(/-/g,'+').replace(/_/g,'/');
-            var bin=atob(b64);var bytes=new Uint8Array(bin.length);
-            for(var bi=0;bi<bin.length;bi++)bytes[bi]=bin.charCodeAt(bi);
-            var blob=new Blob([bytes],{type:mime});
-            var url=URL.createObjectURL(blob);var a=document.createElement('a');
-            a.href=url;a.download=fname;document.body.appendChild(a);a.click();
-            document.body.removeChild(a);URL.revokeObjectURL(url);
-          }catch(err){alert('Download failed: '+err.message);}
-        }else if(dataUrl){window.open(dataUrl,'_blank');}
-        else{alert('No document data available');}
+        if(dataUrl)openDocPreviewModal(dataUrl,fname);
+        else alert('No document data available');
         return;
       }
 
@@ -5039,12 +5079,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     document.getElementById("opsTableBody").addEventListener("click",async e=>{
       // Download document from data: URI
-      var dlBtn=e.target.closest("[data-download-doc]");
+      var dlBtn=e.target.closest("[data-preview-doc]");
       if(dlBtn){
         e.stopPropagation();
-        var docId=dlBtn.getAttribute("data-download-doc");
-        var fname=dlBtn.getAttribute("data-download-name")||"document";
-        // Find the data URI from the stored documents
+        var docId=dlBtn.getAttribute("data-preview-doc");
+        var fname=dlBtn.getAttribute("data-preview-name")||"document";
         var docData=null;
         if(S.opsTasks){
           for(var ot of S.opsTasks){
@@ -5055,20 +5094,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
-        if(dataUrl.startsWith('data:')){
-          try{
-            var parts=dataUrl.split(',');var mimeMatch=parts[0].match(/data:([^;]+)/);
-            var mime=mimeMatch?mimeMatch[1]:'application/octet-stream';
-            var b64=parts.slice(1).join(',').replace(/-/g,'+').replace(/_/g,'/');
-            var bin=atob(b64);var bytes=new Uint8Array(bin.length);
-            for(var bi=0;bi<bin.length;bi++)bytes[bi]=bin.charCodeAt(bi);
-            var blob=new Blob([bytes],{type:mime});
-            var url=URL.createObjectURL(blob);var a=document.createElement('a');
-            a.href=url;a.download=fname;document.body.appendChild(a);a.click();
-            document.body.removeChild(a);URL.revokeObjectURL(url);
-          }catch(err){alert('Download failed: '+err.message);}
-        }else if(dataUrl){window.open(dataUrl,'_blank');}
-        else{alert('No document data available');}
+        if(dataUrl)openDocPreviewModal(dataUrl,fname);
+        else alert('No document data available');
         return;
       }
       // Let native <a target="_blank"> links open normally
