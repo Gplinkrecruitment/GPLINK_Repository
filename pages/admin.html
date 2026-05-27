@@ -328,6 +328,8 @@
     .doc-preview-frame{width:100%;height:100%;border:none}
     .doc-preview-img{max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto;padding:16px}
     .doc-preview-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;padding:32px}
+    .doc-preview-docx{overflow:auto;height:100%;padding:20px 32px;background:#fff}
+    .doc-preview-docx .docx-preview-content{max-width:800px;margin:0 auto}
     @media(max-width:900px){
       .ops-stats{gap:6px;padding:10px 12px 8px}
       .ops-stat{padding:8px 10px;min-width:70px}
@@ -4404,6 +4406,29 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   var toast = showOpsToast;
 
   /* ── Document preview modal ── */
+  function _dataUriToBlob(dataUrl){
+    var parts=dataUrl.split(',');var mimeMatch=parts[0].match(/data:([^;]+)/);
+    var mime=mimeMatch?mimeMatch[1]:'application/octet-stream';
+    var b64=parts.slice(1).join(',').replace(/-/g,'+').replace(/_/g,'/');
+    var bin=atob(b64);var bytes=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+    return{blob:new Blob([bytes],{type:mime}),mime:mime,buffer:bytes};
+  }
+  function _isDocx(mime,filename){
+    return mime==='application/vnd.openxmlformats-officedocument.wordprocessingml.document'||/\.docx$/i.test(filename||'');
+  }
+  var _docxPreviewLoaded=null;
+  function _loadDocxPreview(){
+    if(_docxPreviewLoaded)return _docxPreviewLoaded;
+    _docxPreviewLoaded=new Promise(function(resolve,reject){
+      var s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/docx-preview@0.3.3/dist/docx-preview.min.js';
+      s.onload=function(){resolve(window.docx);};
+      s.onerror=function(){_docxPreviewLoaded=null;reject(new Error('Failed to load docx-preview'));};
+      document.head.appendChild(s);
+    });
+    return _docxPreviewLoaded;
+  }
   function openDocPreviewModal(dataUrl,filename,docId){
     var existing=document.getElementById("docPreviewOverlay");
     if(existing)existing.remove();
@@ -4412,24 +4437,20 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     overlay.className="doc-preview-overlay";
     var blobUrl='';
     var contentHtml='';
-    var needsSignedUrl=false;
+    var docxBlob=null;
     if(dataUrl.startsWith('data:')){
       try{
-        var parts=dataUrl.split(',');var mimeMatch=parts[0].match(/data:([^;]+)/);
-        var mime=mimeMatch?mimeMatch[1]:'application/octet-stream';
-        var b64=parts.slice(1).join(',').replace(/-/g,'+').replace(/_/g,'/');
-        var bin=atob(b64);var bytes=new Uint8Array(bin.length);
-        for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
-        var blob=new Blob([bytes],{type:mime});
-        blobUrl=URL.createObjectURL(blob);
-        if(mime==='application/pdf'){
+        var parsed=_dataUriToBlob(dataUrl);
+        blobUrl=URL.createObjectURL(parsed.blob);
+        if(parsed.mime==='application/pdf'){
           contentHtml='<iframe src="'+blobUrl+'" class="doc-preview-frame"></iframe>';
-        }else if(mime.startsWith('image/')){
+        }else if(parsed.mime.startsWith('image/')){
           contentHtml='<img src="'+blobUrl+'" class="doc-preview-img" alt="'+esc(filename)+'">';
+        }else if(_isDocx(parsed.mime,filename)){
+          docxBlob=parsed.blob;
+          contentHtml='<div id="docxRenderTarget" class="doc-preview-docx"><div class="doc-preview-fallback"><div style="font-size:14px;color:var(--muted)">Loading preview\u2026</div></div></div>';
         }else{
-          // Word docs etc — need Google Docs Viewer via signed URL
-          needsSignedUrl=true;
-          contentHtml='<div class="doc-preview-fallback"><div style="font-size:14px;color:var(--muted)">Loading preview\u2026</div></div>';
+          contentHtml='<div class="doc-preview-fallback"><div style="font-size:48px;margin-bottom:16px">\uD83D\uDCC4</div><div style="font-size:16px;font-weight:700;margin-bottom:8px">'+esc(filename)+'</div><div style="color:var(--muted);margin-bottom:16px">Preview not available for this file type.</div><a href="'+blobUrl+'" download="'+esc(filename)+'" class="ops-btn-green" style="text-decoration:none;display:inline-block">Download</a></div>';
         }
       }catch(err){contentHtml='<div class="doc-preview-fallback">Failed to load: '+esc(err.message)+'</div>';}
     }else{
@@ -4447,24 +4468,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var closeModal=function(){overlay.remove();if(blobUrl)URL.revokeObjectURL(blobUrl);};
     overlay.addEventListener("click",function(ev){if(ev.target===overlay)closeModal();});
     document.getElementById("docPreviewClose").addEventListener("click",closeModal);
-    // For non-PDF/non-image data URIs, fetch a signed URL and use Office Online viewer
-    if(needsSignedUrl&&docId){
-      fetch('/api/admin/task-document/preview-url',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({docId:docId})})
-        .then(function(r){return r.json();})
-        .then(function(d){
-          if(d.ok&&d.url){
-            var fullUrl=window.location.origin+d.url;
-            var officeUrl='https://view.officeapps.live.com/op/embed.aspx?src='+encodeURIComponent(fullUrl);
-            var body=overlay.querySelector('.doc-preview-body');
-            if(body)body.innerHTML='<iframe src="'+officeUrl+'" class="doc-preview-frame"></iframe>';
-          }else{
-            var body2=overlay.querySelector('.doc-preview-body');
-            if(body2)body2.innerHTML='<div class="doc-preview-fallback"><div style="color:var(--red)">Failed to generate preview</div></div>';
-          }
-        }).catch(function(){
-          var body3=overlay.querySelector('.doc-preview-body');
-          if(body3)body3.innerHTML='<div class="doc-preview-fallback"><div style="color:var(--red)">Preview unavailable</div></div>';
-        });
+    // Render .docx client-side
+    if(docxBlob){
+      _loadDocxPreview().then(function(docxLib){
+        var target=document.getElementById('docxRenderTarget');
+        if(!target)return;
+        return docxLib.renderAsync(docxBlob,target,null,{className:'docx-preview-content',inWrapper:false});
+      }).catch(function(err){
+        var target=document.getElementById('docxRenderTarget');
+        if(target)target.innerHTML='<div class="doc-preview-fallback"><div style="color:var(--red)">Preview failed: '+esc(err.message)+'</div><a href="'+blobUrl+'" download="'+esc(filename)+'" class="ops-btn-green" style="text-decoration:none;display:inline-block;margin-top:12px">Download Instead</a></div>';
+      });
     }
   }
 
