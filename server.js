@@ -1767,7 +1767,7 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
             var responseMatch = await matchResponseToTask(gpCase.id, emailMeta);
             if (responseMatch && responseMatch.confidence > 0.5) {
               var rTask = responseMatch.task;
-              var isDocDelivery = responseMatch.isDocumentDelivery || false;
+              var isDocDelivery = responseMatch.isDocumentDelivery || emailMeta.hasAttachments || false;
 
               // Store as task_message
               var msgRecord = await supabaseDbRequest('task_messages', '', {
