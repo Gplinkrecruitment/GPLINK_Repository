@@ -4404,7 +4404,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   var toast = showOpsToast;
 
   /* ── Document preview modal ── */
-  function openDocPreviewModal(dataUrl,filename){
+  function openDocPreviewModal(dataUrl,filename,docId){
     var existing=document.getElementById("docPreviewOverlay");
     if(existing)existing.remove();
     var overlay=document.createElement("div");
@@ -4412,6 +4412,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     overlay.className="doc-preview-overlay";
     var blobUrl='';
     var contentHtml='';
+    var needsSignedUrl=false;
     if(dataUrl.startsWith('data:')){
       try{
         var parts=dataUrl.split(',');var mimeMatch=parts[0].match(/data:([^;]+)/);
@@ -4426,12 +4427,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }else if(mime.startsWith('image/')){
           contentHtml='<img src="'+blobUrl+'" class="doc-preview-img" alt="'+esc(filename)+'">';
         }else{
-          // For Word docs and other non-previewable types, use Google Docs Viewer via blob download link
-          contentHtml='<div class="doc-preview-fallback"><div style="font-size:48px;margin-bottom:16px">\uD83D\uDCC4</div><div style="font-size:16px;font-weight:700;margin-bottom:8px">'+esc(filename)+'</div><div style="color:var(--muted);margin-bottom:16px">This file type cannot be previewed inline.</div><a href="'+blobUrl+'" download="'+esc(filename)+'" class="ops-btn-green" style="text-decoration:none;display:inline-block">Download to View</a></div>';
+          // Word docs etc — need Google Docs Viewer via signed URL
+          needsSignedUrl=true;
+          contentHtml='<div class="doc-preview-fallback"><div style="font-size:14px;color:var(--muted)">Loading preview\u2026</div></div>';
         }
       }catch(err){contentHtml='<div class="doc-preview-fallback">Failed to load: '+esc(err.message)+'</div>';}
     }else{
-      // HTTP URL — open in iframe or Google Docs Viewer
       if(dataUrl.indexOf('drive.google.com')>-1){
         contentHtml='<iframe src="'+esc(dataUrl.replace('/view','/preview'))+'" class="doc-preview-frame"></iframe>';
       }else{
@@ -4443,8 +4444,28 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       +'<div class="doc-preview-body">'+contentHtml+'</div>'
       +'</div>';
     document.body.appendChild(overlay);
-    overlay.addEventListener("click",function(ev){if(ev.target===overlay){overlay.remove();if(blobUrl)URL.revokeObjectURL(blobUrl);}});
-    document.getElementById("docPreviewClose").addEventListener("click",function(){overlay.remove();if(blobUrl)URL.revokeObjectURL(blobUrl);});
+    var closeModal=function(){overlay.remove();if(blobUrl)URL.revokeObjectURL(blobUrl);};
+    overlay.addEventListener("click",function(ev){if(ev.target===overlay)closeModal();});
+    document.getElementById("docPreviewClose").addEventListener("click",closeModal);
+    // For non-PDF/non-image data URIs, fetch a signed URL and use Google Docs Viewer
+    if(needsSignedUrl&&docId){
+      fetch('/api/admin/task-document/preview-url',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({docId:docId})})
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d.ok&&d.url){
+            var fullUrl=window.location.origin+d.url;
+            var gviewUrl='https://docs.google.com/gview?url='+encodeURIComponent(fullUrl)+'&embedded=true';
+            var body=overlay.querySelector('.doc-preview-body');
+            if(body)body.innerHTML='<iframe src="'+gviewUrl+'" class="doc-preview-frame"></iframe>';
+          }else{
+            var body2=overlay.querySelector('.doc-preview-body');
+            if(body2)body2.innerHTML='<div class="doc-preview-fallback"><div style="color:var(--red)">Failed to generate preview</div></div>';
+          }
+        }).catch(function(){
+          var body3=overlay.querySelector('.doc-preview-body');
+          if(body3)body3.innerHTML='<div class="doc-preview-fallback"><div style="color:var(--red)">Preview unavailable</div></div>';
+        });
+    }
   }
 
   /* ── Load GP Profile task detail (reuses Ops Queue renderer) ── */
@@ -4997,7 +5018,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
-        if(dataUrl)openDocPreviewModal(dataUrl,fname);
+        if(dataUrl)openDocPreviewModal(dataUrl,fname,docId);
         else alert('No document data available');
         return;
       }
@@ -5094,7 +5115,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
         }
         var dataUrl=docData&&(docData.attachment_url||docData.google_drive_url)||'';
-        if(dataUrl)openDocPreviewModal(dataUrl,fname);
+        if(dataUrl)openDocPreviewModal(dataUrl,fname,docId);
         else alert('No document data available');
         return;
       }

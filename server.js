@@ -26087,6 +26087,53 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Generate signed preview URL for a task document ──
+  if (pathname === '/api/admin/task-document/preview-url' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    let body; try { body = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    const docId = body && body.docId ? String(body.docId).trim() : '';
+    if (!docId) { sendJson(res, 400, { ok: false, message: 'docId required.' }); return; }
+    const exp = String(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const sig = crypto.createHmac('sha256', SECRET).update(docId + ':' + exp).digest('hex');
+    const previewPath = '/api/doc-preview?id=' + encodeURIComponent(docId) + '&exp=' + exp + '&sig=' + sig;
+    sendJson(res, 200, { ok: true, url: previewPath });
+    return;
+  }
+
+  // ── Public document preview (signed URL, no auth) ──
+  if (pathname === '/api/doc-preview' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { res.writeHead(503); res.end('Unavailable'); return; }
+    const docId = url.searchParams.get('id') || '';
+    const exp = url.searchParams.get('exp') || '';
+    const sig = url.searchParams.get('sig') || '';
+    if (!docId || !exp || !sig) { res.writeHead(400); res.end('Missing params'); return; }
+    if (Number(exp) < Date.now()) { res.writeHead(403); res.end('Link expired'); return; }
+    const expected = crypto.createHmac('sha256', SECRET).update(docId + ':' + exp).digest('hex');
+    if (sig !== expected) { res.writeHead(403); res.end('Invalid signature'); return; }
+    const docRes = await supabaseDbRequest('task_documents', 'select=attachment_url,mime_type,filename&id=eq.' + encodeURIComponent(docId) + '&limit=1');
+    const doc = docRes.ok && Array.isArray(docRes.data) && docRes.data[0] ? docRes.data[0] : null;
+    if (!doc || !doc.attachment_url) { res.writeHead(404); res.end('Not found'); return; }
+    const dataUrl = doc.attachment_url;
+    if (dataUrl.startsWith('data:')) {
+      const commaIdx = dataUrl.indexOf(',');
+      const mimeMatch = dataUrl.substring(0, commaIdx).match(/data:([^;]+)/);
+      const mime = mimeMatch ? mimeMatch[1] : (doc.mime_type || 'application/octet-stream');
+      let b64 = dataUrl.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4 !== 0) b64 += '=';
+      const buf = Buffer.from(b64, 'base64');
+      res.writeHead(200, { 'Content-Type': mime, 'Content-Disposition': 'inline; filename="' + (doc.filename || 'document').replace(/"/g, '') + '"', 'Content-Length': buf.length });
+      res.end(buf);
+    } else if (dataUrl.startsWith('http')) {
+      res.writeHead(302, { Location: dataUrl });
+      res.end();
+    } else {
+      res.writeHead(404); res.end('No preview available');
+    }
+    return;
+  }
+
   // ── Submit task document to GP's Google Drive folder ──
   if (pathname === '/api/admin/task/submit-drive' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
