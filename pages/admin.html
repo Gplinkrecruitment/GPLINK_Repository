@@ -1356,7 +1356,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     agent:{providers:null,runs:[],workers:[],primaryWorkerId:"",policy:null,connectCommands:null,activeRunId:"",selectedRunId:null,currentRun:null,
       draftTask:"",profile:"balanced",collaborationMode:"paired",complexity:"auto",loading:false,submitting:false,
       warnings:[],security:null,providerStatusRefreshedAt:"",error:"",
-      bridge:{connected:false,mode:"remote",baseUrl:"",error:"",status:null,candidates:["http://127.0.0.1:4317","http://localhost:4317"]}},guide:{folders:null,loading:false,expandedFolderId:null,selectedItemId:null}};
+      bridge:{connected:false,mode:"remote",baseUrl:"",error:"",status:null,candidates:["http://127.0.0.1:4317","http://localhost:4317"]}},guide:{folders:null,loading:false,expandedFolderIds:{},selectedItemId:null}};
   const STEPS=[
     {key:"placement",label:"Secure Placement",num:1},
     {key:"myintealth",label:"MyIntealth",num:2},
@@ -5867,38 +5867,55 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }catch(e){console.error('[Guide] load error',e);}
     S.guide.loading=false;
   }
+  function guideFindItem(folders,itemId){
+    var found=null;
+    (function walk(list){list.forEach(function(f){if(found)return;(f.items||[]).forEach(function(i){if(i.id===itemId)found=i;});walk(f.children||[]);});})(folders);
+    return found;
+  }
+  function guideFlatFolders(folders){
+    var out=[];
+    (function walk(list){list.forEach(function(f){out.push(f);walk(f.children||[]);});})(folders);
+    return out;
+  }
   function renderGuidePanel(){
     var el=document.getElementById('guidePanel');if(!el)return;
     var folders=S.guide.folders||[];
     var sa=isSA();
-    var folderListHtml=folders.map(function(f){
-      var expanded=S.guide.expandedFolderId===f.id;
-      var items=f.items||[];
-      var itemsHtml='';
-      if(expanded){
-        itemsHtml='<div class="guide-folder-items">'+
-          items.map(function(item){
-            var active=S.guide.selectedItemId===item.id;
-            return '<div class="guide-item'+(active?' active':'')+'" data-guide-item="'+item.id+'" data-scribe-url="'+item.scribe_url.replace(/"/g,'&quot;')+'" data-item-title="'+item.title.replace(/"/g,'&quot;')+'">'+
-              '<span style="flex:1">'+item.title+'</span>'+
-              (sa?'<button class="guide-mgmt-btn" data-edit-item="'+item.id+'" title="Edit">&#9998;</button><button class="guide-mgmt-btn" data-delete-item="'+item.id+'" title="Delete">&times;</button>':'')+
-            '</div>';
-          }).join('')+
-          (items.length===0?'<div style="padding:8px 12px;font-size:11px;color:var(--muted);">No guides in this folder yet</div>':'')+
-          (sa?'<button class="guide-add-btn" data-add-item-folder="'+f.id+'">+ Add Guide</button>':'')+
+    function renderFolderList(list,depth){
+      return list.map(function(f){
+        var expanded=!!S.guide.expandedFolderIds[f.id];
+        var items=f.items||[];
+        var children=f.children||[];
+        var totalCount=items.length;
+        children.forEach(function(c){totalCount+=(c.items||[]).length;});
+        var itemsHtml='';
+        if(expanded){
+          itemsHtml='<div class="guide-folder-items">'+
+            items.map(function(item){
+              var active=S.guide.selectedItemId===item.id;
+              return '<div class="guide-item'+(active?' active':'')+'" data-guide-item="'+item.id+'" data-scribe-url="'+item.scribe_url.replace(/"/g,'&quot;')+'" data-item-title="'+item.title.replace(/"/g,'&quot;')+'">'+
+                '<span style="flex:1">'+item.title+'</span>'+
+                (sa?'<button class="guide-mgmt-btn" data-edit-item="'+item.id+'" title="Edit">&#9998;</button><button class="guide-mgmt-btn" data-delete-item="'+item.id+'" title="Delete">&times;</button>':'')+
+              '</div>';
+            }).join('')+
+            (items.length===0&&children.length===0?'<div style="padding:8px 12px;font-size:11px;color:var(--muted);">No guides in this folder yet</div>':'')+
+            (children.length>0?renderFolderList(children,depth+1):'')+
+            (sa?'<button class="guide-add-btn" data-add-item-folder="'+f.id+'">+ Add Guide</button>':'')+
+          '</div>';
+        }
+        return '<div class="guide-folder" style="margin-left:'+(depth*16)+'px">'+
+          '<div class="guide-folder-header'+(expanded?' active':'')+'" data-guide-folder="'+f.id+'">'+
+            '<span>'+(expanded?'&#9660;':'&#9654;')+'</span> &#128193; '+f.name+
+            '<span class="guide-folder-count">'+totalCount+'</span>'+
+            (sa?'<button class="guide-mgmt-btn" data-move-folder="'+f.id+'" title="Move">&#8693;</button><button class="guide-mgmt-btn" data-edit-folder="'+f.id+'" title="Rename">&#9998;</button><button class="guide-mgmt-btn" data-delete-folder="'+f.id+'" title="Delete">&times;</button>':'')+
+          '</div>'+itemsHtml+
         '</div>';
-      }
-      return '<div class="guide-folder">'+
-        '<div class="guide-folder-header'+(expanded?' active':'')+'" data-guide-folder="'+f.id+'">'+
-          '<span>'+(expanded?'&#9660;':'&#9654;')+'</span> &#128193; '+f.name+
-          '<span class="guide-folder-count">'+items.length+'</span>'+
-          (sa?'<button class="guide-mgmt-btn" data-edit-folder="'+f.id+'" title="Rename">&#9998;</button><button class="guide-mgmt-btn" data-delete-folder="'+f.id+'" title="Delete">&times;</button>':'')+
-        '</div>'+itemsHtml+
-      '</div>';
-    }).join('');
+      }).join('');
+    }
+    var folderListHtml=renderFolderList(folders,0);
     var selectedItem=null;
     if(S.guide.selectedItemId){
-      folders.forEach(function(f){(f.items||[]).forEach(function(i){if(i.id===S.guide.selectedItemId)selectedItem=i;});});
+      selectedItem=guideFindItem(folders,S.guide.selectedItemId);
     }
     var detailHtml='';
     if(selectedItem){
@@ -5922,7 +5939,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var fh=e.target.closest('[data-guide-folder]');
     if(fh&&!e.target.closest('.guide-mgmt-btn')){
       var fid=fh.getAttribute('data-guide-folder');
-      S.guide.expandedFolderId=S.guide.expandedFolderId===fid?null:fid;
+      if(S.guide.expandedFolderIds[fid]){delete S.guide.expandedFolderIds[fid];}else{S.guide.expandedFolderIds[fid]=true;}
       renderGuidePanel();return;
     }
     var gi=e.target.closest('[data-guide-item]');
@@ -5947,10 +5964,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
       return;
     }
+    var moveFolderBtn=e.target.closest('[data-move-folder]');
+    if(moveFolderBtn){
+      var mfid=moveFolderBtn.getAttribute('data-move-folder');
+      var allFlat=guideFlatFolders(S.guide.folders||[]);
+      var self=allFlat.find(function(f){return f.id===mfid;});
+      var options=allFlat.filter(function(f){return f.id!==mfid;});
+      var msg='Move "'+((self&&self.name)||'folder')+'" into:\n\n0. Top level (no parent)\n'+options.map(function(f,i){return (i+1)+'. '+f.name;}).join('\n')+'\n\nEnter number:';
+      var choice=prompt(msg);
+      if(choice===null)return;
+      var idx=parseInt(choice,10);
+      var newParentId=null;
+      if(idx>0&&idx<=options.length){newParentId=options[idx-1].id;}
+      fetch('/api/admin/guide/folders/'+encodeURIComponent(mfid),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({parent_id:newParentId})})
+        .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
+      return;
+    }
     var editFolderBtn=e.target.closest('[data-edit-folder]');
     if(editFolderBtn){
       var fid2=editFolderBtn.getAttribute('data-edit-folder');
-      var current=(S.guide.folders||[]).find(function(f){return f.id===fid2;});
+      var current=guideFlatFolders(S.guide.folders||[]).find(function(f){return f.id===fid2;});
       var newName=prompt('Rename folder:',current?current.name:'');if(!newName)return;
       fetch('/api/admin/guide/folders/'+encodeURIComponent(fid2),{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})})
         .then(function(r){return r.json();}).then(function(d){if(d.ok){S.guide.folders=null;loadGuideData().then(renderGuidePanel);}else{alert(d.message||'Failed');}});
@@ -5967,7 +6000,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var editItemBtn=e.target.closest('[data-edit-item]');
     if(editItemBtn){
       var iid=editItemBtn.getAttribute('data-edit-item');
-      var currentItem=null;(S.guide.folders||[]).forEach(function(f){(f.items||[]).forEach(function(i){if(i.id===iid)currentItem=i;});});
+      var currentItem=guideFindItem(S.guide.folders||[],iid);
       var newTitle=prompt('Guide title:',currentItem?currentItem.title:'');if(!newTitle)return;
       var rawEmbed=prompt('Paste Scribe embed code:',currentItem?currentItem.scribe_url:'');if(!rawEmbed)return;
       var newUrl=parseScribeEmbed(rawEmbed);

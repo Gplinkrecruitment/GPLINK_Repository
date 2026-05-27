@@ -20433,10 +20433,21 @@ async function handleApi(req, res, pathname) {
       if (!foldersRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to load folders.' }); return; }
       var itemsRes = await supabaseDbRequest('guide_items', 'select=*&order=sort_order.asc,created_at.asc');
       var items = (itemsRes.ok && Array.isArray(itemsRes.data)) ? itemsRes.data : [];
-      var folders = (Array.isArray(foldersRes.data) ? foldersRes.data : []).map(function(f) {
-        return Object.assign({}, f, { items: items.filter(function(i) { return i.folder_id === f.id; }) });
+      var allFolders = (Array.isArray(foldersRes.data) ? foldersRes.data : []).map(function(f) {
+        return Object.assign({}, f, { items: items.filter(function(i) { return i.folder_id === f.id; }), children: [] });
       });
-      sendJson(res, 200, { ok: true, folders: folders });
+      // Nest child folders under their parents
+      var folderMap = {};
+      allFolders.forEach(function(f) { folderMap[f.id] = f; });
+      var topLevel = [];
+      allFolders.forEach(function(f) {
+        if (f.parent_id && folderMap[f.parent_id]) {
+          folderMap[f.parent_id].children.push(f);
+        } else {
+          topLevel.push(f);
+        }
+      });
+      sendJson(res, 200, { ok: true, folders: topLevel });
     } catch (err) {
       sendJson(res, 500, { ok: false, message: err.message });
     }
@@ -20454,7 +20465,7 @@ async function handleApi(req, res, pathname) {
       var insertRes = await supabaseDbRequest('guide_folders', '', {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
-        body: { name: body.name, sort_order: nextOrder }
+        body: { name: body.name, sort_order: nextOrder, parent_id: body.parent_id || null }
       });
       if (!insertRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to create folder.' }); return; }
       sendJson(res, 200, { ok: true, folder: Array.isArray(insertRes.data) ? insertRes.data[0] : insertRes.data });
@@ -20470,10 +20481,14 @@ async function handleApi(req, res, pathname) {
     var folderId = pathname.split('/').pop();
     try {
       var body = await readJsonBody(req);
-      if (!body || !body.name) { sendJson(res, 400, { ok: false, message: 'name is required.' }); return; }
+      if (!body) { sendJson(res, 400, { ok: false, message: 'body is required.' }); return; }
+      var patch = {};
+      if (body.name) patch.name = body.name;
+      if ('parent_id' in body) patch.parent_id = body.parent_id || null;
+      if (!Object.keys(patch).length) { sendJson(res, 400, { ok: false, message: 'name or parent_id is required.' }); return; }
       var updateRes = await supabaseDbRequest('guide_folders', 'id=eq.' + encodeURIComponent(folderId), {
         method: 'PATCH',
-        body: { name: body.name }
+        body: patch
       });
       if (!updateRes.ok) { sendJson(res, 500, { ok: false, message: 'Failed to update folder.' }); return; }
       sendJson(res, 200, { ok: true });
