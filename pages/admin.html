@@ -4447,16 +4447,16 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var closeModal=function(){overlay.remove();if(blobUrl)URL.revokeObjectURL(blobUrl);};
     overlay.addEventListener("click",function(ev){if(ev.target===overlay)closeModal();});
     document.getElementById("docPreviewClose").addEventListener("click",closeModal);
-    // For non-PDF/non-image data URIs, fetch a signed URL and use Google Docs Viewer
+    // For non-PDF/non-image data URIs, fetch a signed URL and use Office Online viewer
     if(needsSignedUrl&&docId){
       fetch('/api/admin/task-document/preview-url',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({docId:docId})})
         .then(function(r){return r.json();})
         .then(function(d){
           if(d.ok&&d.url){
             var fullUrl=window.location.origin+d.url;
-            var gviewUrl='https://docs.google.com/gview?url='+encodeURIComponent(fullUrl)+'&embedded=true';
+            var officeUrl='https://view.officeapps.live.com/op/embed.aspx?src='+encodeURIComponent(fullUrl);
             var body=overlay.querySelector('.doc-preview-body');
-            if(body)body.innerHTML='<iframe src="'+gviewUrl+'" class="doc-preview-frame"></iframe>';
+            if(body)body.innerHTML='<iframe src="'+officeUrl+'" class="doc-preview-frame"></iframe>';
           }else{
             var body2=overlay.querySelector('.doc-preview-body');
             if(body2)body2.innerHTML='<div class="doc-preview-fallback"><div style="color:var(--red)">Failed to generate preview</div></div>';
