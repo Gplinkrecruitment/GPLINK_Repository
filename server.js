@@ -26029,7 +26029,7 @@ Return ONLY valid JSON with no markdown formatting:
         },
         body: JSON.stringify({
           model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-          max_tokens: 1024,
+          max_tokens: 4096,
           temperature: 0,
           system: [{ type: 'text', text: summarySystemPrompt, cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: prompt }]
