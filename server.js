@@ -740,6 +740,120 @@ async function checkOfferContractAtOnboarding(userId) {
   }
 }
 
+async function checkZohoContractReupload(zoho, app) {
+  if (!app.user_id || !app.zoho_application_id) return;
+
+  // Find the existing offer_contract task for this user's case
+  var caseRes = await supabaseDbRequest('registration_cases',
+    'select=id&user_id=eq.' + encodeURIComponent(app.user_id) + '&limit=1');
+  var caseRow = caseRes.ok && Array.isArray(caseRes.data) && caseRes.data[0] ? caseRes.data[0] : null;
+  if (!caseRow) return;
+
+  var taskRes = await supabaseDbRequest('registration_tasks',
+    'select=id,zoho_attachment_id,status&case_id=eq.' + encodeURIComponent(caseRow.id) + '&related_document_key=eq.offer_contract&task_type=eq.practice_pack_child&limit=1');
+  var task = taskRes.ok && Array.isArray(taskRes.data) && taskRes.data[0] ? taskRes.data[0] : null;
+  if (!task) return;
+  if (task.status === 'completed' || task.status === 'cancelled') return;
+
+  // List current Zoho attachments
+  var attachments = await listZohoRecruitApplicationAttachments(
+    { connection: zoho.connection, accessToken: zoho.accessToken, apiDomain: zoho.apiDomain },
+    app.zoho_application_id
+  );
+  var candidates = selectZohoContractAttachmentCandidates(attachments);
+  if (!candidates.length) return;
+
+  var topCandidate = candidates[0];
+  var currentZohoId = topCandidate.id || '';
+  var storedZohoId = task.zoho_attachment_id || '';
+
+  if (currentZohoId === storedZohoId) return;
+
+  console.log('[ZohoSync] Contract re-upload detected for app', app.zoho_application_id, '— old:', storedZohoId, 'new:', currentZohoId);
+
+  var newBuffer = null;
+  try {
+    newBuffer = await downloadZohoRecruitApplicationAttachment(
+      { connection: zoho.connection, accessToken: zoho.accessToken, apiDomain: zoho.apiDomain },
+      app.zoho_application_id, topCandidate.id
+    );
+  } catch (e) {}
+  if (!newBuffer || newBuffer.length === 0) return;
+
+  var newMime = topCandidate.mimeType || topCandidate.content_type || 'application/pdf';
+  var newFilename = topCandidate.fileName || topCandidate.File_Name || 'contract.pdf';
+
+  var scanResult = await scanContractSignatures(newBuffer, newMime, newFilename);
+  console.log('[ZohoSync] Re-upload scan:', JSON.stringify(scanResult));
+
+  // Diff against old contract
+  var diffSummary = '';
+  var oldDocRes = await supabaseDbRequest('task_documents',
+    'select=attachment_url,mime_type&task_id=eq.' + encodeURIComponent(task.id) + '&is_current=eq.true&limit=1');
+  var oldDoc = oldDocRes.ok && Array.isArray(oldDocRes.data) && oldDocRes.data[0] ? oldDocRes.data[0] : null;
+  if (oldDoc && oldDoc.attachment_url && oldDoc.attachment_url.startsWith('data:')) {
+    try {
+      var commaIdx = oldDoc.attachment_url.indexOf(',');
+      var oldMimeMatch = oldDoc.attachment_url.substring(0, commaIdx).match(/data:([^;]+)/);
+      var oldMime = oldMimeMatch ? oldMimeMatch[1] : 'application/pdf';
+      var oldB64 = oldDoc.attachment_url.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+      while (oldB64.length % 4 !== 0) oldB64 += '=';
+      var oldBuffer = Buffer.from(oldB64, 'base64');
+      diffSummary = await diffContracts(oldBuffer, oldMime, newBuffer, newMime);
+    } catch (diffErr) {
+      console.error('[ZohoSync] Contract diff error:', diffErr.message);
+    }
+  }
+
+  var newDataUrl = 'data:' + newMime + ';base64,' + newBuffer.toString('base64');
+  var taskPatch = {
+    zoho_attachment_id: currentZohoId,
+    attachment_url: newDataUrl,
+    attachment_filename: newFilename,
+    updated_at: new Date().toISOString()
+  };
+  if (diffSummary) taskPatch.ai_match_reasoning = diffSummary;
+
+  // Mark previous task_documents as not current, insert new
+  await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(task.id) + '&is_current=eq.true',
+    { method: 'PATCH', body: { is_current: false } });
+  await supabaseDbRequest('task_documents', '', {
+    method: 'POST',
+    body: [{
+      task_id: task.id,
+      case_id: caseRow.id,
+      filename: newFilename,
+      mime_type: newMime,
+      size_bytes: newBuffer.length,
+      version: 1,
+      is_current: true,
+      uploaded_by: 'zoho_reupload',
+      attachment_url: newDataUrl
+    }]
+  });
+
+  if (scanResult.has_candidate_signature && scanResult.has_employer_signature) {
+    console.log('[ZohoSync] New contract has both signatures — auto-completing');
+    await deliverOfferContract(app.user_id, caseRow.id, app.zoho_application_id, app.zoho_candidate_id);
+    taskPatch.status = 'completed';
+    taskPatch.completed_at = new Date().toISOString();
+    taskPatch.completed_by = 'system';
+    await _logCaseEvent(caseRow.id, task.id, 'completed', 'New Zoho contract has both signatures — auto-completed', diffSummary || '', 'system');
+  } else {
+    if (task.status !== 'open' && task.status !== 'waiting_on_practice') {
+      taskPatch.status = 'open';
+    }
+    var timelineNote = 'New contract uploaded in Zoho (re-scan: ' +
+      (scanResult.has_employer_signature ? 'employer signed' : 'employer signature still missing') + ')';
+    if (diffSummary) timelineNote += ' | Changes: ' + diffSummary.slice(0, 200);
+    await _logCaseEvent(caseRow.id, task.id, 'note', timelineNote, null, 'system');
+  }
+
+  await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(task.id), {
+    method: 'PATCH', body: taskPatch
+  });
+}
+
 // ── Gmail integration (Phase 1b) ──
 const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
@@ -11679,6 +11793,15 @@ async function syncZohoRecruitApplicationStatuses(zoho) {
         app.zoho_application_id
       );
       if (!liveRecord) continue;
+
+      // Check for contract re-upload on Zoho
+      if (app.user_id) {
+        try {
+          await checkZohoContractReupload(zoho, app);
+        } catch (reupErr) {
+          console.error('[ZohoSync] Contract re-upload check failed for app', app.zoho_application_id, ':', reupErr.message);
+        }
+      }
 
       const liveStatus = normalizeCareerApplicationStatusKey(getZohoApplicationStatus(liveRecord));
       const localStatus = normalizeCareerApplicationStatusKey(app.status);
