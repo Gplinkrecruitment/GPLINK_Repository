@@ -6775,6 +6775,10 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
         const packLabels = { sppa_00: 'SPPA-00', section_g: 'Section G', position_description: 'Position Description', offer_contract: 'Offer / Contract', supervisor_cv: 'Supervisor CV' };
         const deferredKeys = new Set(['sppa_00', 'section_g']);
         for (const dk of Object.keys(packLabels)) {
+          // Skip if a task for this specific document key already exists (e.g. offer_contract from onboarding signature check)
+          var existingForKey = await supabaseDbRequest('registration_tasks',
+            'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.' + encodeURIComponent(dk) + '&status=in.(open,in_progress,waiting,waiting_on_practice,waiting_on_external,escalated,deferred,completed)&limit=1');
+          if (existingForKey.ok && Array.isArray(existingForKey.data) && existingForKey.data.length > 0) continue;
           const taskData = { task_type: 'practice_pack_child', title: packLabels[dk], source_trigger: 'career_secured', related_stage: 'career', related_document_key: dk, _actor: 'system' };
           if (deferredKeys.has(dk)) taskData.status = 'deferred';
           await _createRegTask(caseId, taskData);
