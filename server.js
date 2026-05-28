@@ -18514,7 +18514,10 @@ async function handleApi(req, res, pathname) {
             var bkQuery = 'select=*&limit=' + bkPageSize + '&offset=' + bkOffset;
             var bkRes = await supabaseDbRequest(bkTable, bkQuery);
             if (!bkRes.ok) {
-              bkErrors.push({ table: bkTable, error: 'HTTP ' + bkRes.status });
+              // 404 = table doesn't exist yet (migration not applied) — skip silently
+              if (bkRes.status !== 404) {
+                bkErrors.push({ table: bkTable, error: 'HTTP ' + bkRes.status });
+              }
               bkHasMore = false;
               break;
             }
