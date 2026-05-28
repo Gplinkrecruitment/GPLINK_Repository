@@ -914,10 +914,14 @@ async function getGmailClient(userEmail) {
   } catch (err) {
     var detail = err && err.message ? err.message : String(err);
     if (err && err.response && err.response.data) {
-      detail = JSON.stringify(err.response.data);
+      // Redact potentially sensitive fields from error response
+      var safeData = Object.assign({}, err.response.data);
+      delete safeData.access_token; delete safeData.refresh_token; delete safeData.private_key;
+      detail = JSON.stringify(safeData);
     }
     console.error('[Gmail] getGmailClient auth failed for', userEmail, ':', detail);
-    _gmailClientErrors[userEmail] = detail + ' [diag: emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasEnd=' + hasEnd + ' hasNewlines=' + hasNewlines + ' firstLine="' + firstLine + '" lastLine="' + lastLine + '"]';
+    // Diagnostic info uses boolean flags only — never log key content
+    _gmailClientErrors[userEmail] = detail + ' [diag: emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasEnd=' + hasEnd + ' hasNewlines=' + hasNewlines + ']';
     return null;
   }
 }
@@ -934,7 +938,7 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
     var hasText = !!(bodyText && bodyText.trim());
     // Always generate a plain-text fallback from HTML to improve deliverability
     if (hasHtml && !hasText) {
-      bodyText = bodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/\n{3,}/g, '\n\n').trim();
+      bodyText = bodyHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim();
       hasText = true;
     }
 
@@ -1045,6 +1049,30 @@ async function sendGmailEmail({ from, to, cc, subject, bodyHtml, bodyText, attac
   }
 }
 
+// ── URL safety helpers ──
+function isPrivateIpHostname(hostname) {
+  // Block internal/private IP ranges to prevent SSRF
+  if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|169\.254\.|localhost|::1|\[::1\])/.test(hostname)) return true;
+  if (hostname === 'metadata.google.internal') return true;
+  return false;
+}
+
+function isSafeExternalUrl(url) {
+  try {
+    var parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    if (isPrivateIpHostname(parsed.hostname)) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function isAllowedZohoDomain(hostname) {
+  // Allow only genuine Zoho domains
+  return /^[a-z0-9-]+\.zoho(\.(com|eu|in|com\.au|com\.cn|jp))?(\.[a-z]+)?$/.test(hostname);
+}
+
 // ── Fetch attachment as base64 ──
 async function fetchAttachmentAsBase64(url, filename) {
   try {
@@ -1066,7 +1094,8 @@ async function fetchAttachmentAsBase64(url, filename) {
       return { filename: fileName, mimeType: fileMime, content: fileContent };
     }
 
-    // Regular HTTP URL
+    // Regular HTTP URL — validate against SSRF
+    if (!isSafeExternalUrl(url)) throw new Error('URL blocked by SSRF protection: ' + url);
     var resp = await fetch(url);
     if (!resp.ok) throw new Error('HTTP ' + resp.status + ' fetching ' + url);
     var buf = Buffer.from(await resp.arrayBuffer());
@@ -1100,7 +1129,7 @@ function extractEmailMeta(gmailMessage) {
   var angleMatch = fromRaw.match(/<([^>]+)>/);
   if (angleMatch) {
     sender = angleMatch[1];
-    senderName = fromRaw.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
+    senderName = fromRaw.replace(/<[^>]+>/g, '').replace(/"/g, '').trim();
   }
 
   var parts = gmailMessage.payload ? gmailMessage.payload.parts || [] : [];
@@ -3878,7 +3907,7 @@ function base64UrlDecode(input) {
 
 function createSignedSessionToken(userProfile, expiresAt) {
   const payload = base64UrlEncode(JSON.stringify({ userProfile, expiresAt }));
-  const signature = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+  const signature = crypto.createHmac('sha512', SECRET).update(payload).digest('hex');
   return `${payload}.${signature}`;
 }
 
@@ -3888,9 +3917,14 @@ function parseSignedSessionToken(token) {
   if (dotIdx <= 0) return null;
   const payload = raw.slice(0, dotIdx);
   const signature = raw.slice(dotIdx + 1);
-  const expected = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
-  if (signature.length !== expected.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'))) return null;
+  // Try sha512 first (current), fall back to sha256 (legacy tokens)
+  const expected512 = crypto.createHmac('sha512', SECRET).update(payload).digest('hex');
+  let sigValid = signature.length === expected512.length && crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected512, 'utf8'));
+  if (!sigValid) {
+    const expected256 = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+    sigValid = signature.length === expected256.length && crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected256, 'utf8'));
+  }
+  if (!sigValid) return null;
 
   try {
     const parsed = JSON.parse(base64UrlDecode(payload));
@@ -3939,7 +3973,7 @@ function isStrongPassword(password) {
 function createOAuthAccessToken(userProfile) {
   const expiresAt = now() + OAUTH_ACCESS_TTL_MS;
   const payload = base64UrlEncode(JSON.stringify({ sub: userProfile.email, profile: userProfile, expiresAt, type: 'access' }));
-  const signature = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+  const signature = crypto.createHmac('sha512', SECRET).update(payload).digest('hex');
   return { token: `${payload}.${signature}`, expiresAt, expiresIn: Math.floor(OAUTH_ACCESS_TTL_MS / 1000) };
 }
 
@@ -3949,9 +3983,14 @@ function parseOAuthAccessToken(token) {
   if (dotIdx <= 0) return null;
   const payload = raw.slice(0, dotIdx);
   const signature = raw.slice(dotIdx + 1);
-  const expected = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
-  if (signature.length !== expected.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'))) return null;
+  // Try sha512 first (current), fall back to sha256 (legacy tokens)
+  const expected512 = crypto.createHmac('sha512', SECRET).update(payload).digest('hex');
+  let sigValid = signature.length === expected512.length && crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected512, 'utf8'));
+  if (!sigValid) {
+    const expected256 = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+    sigValid = signature.length === expected256.length && crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected256, 'utf8'));
+  }
+  if (!sigValid) return null;
 
   try {
     const parsed = JSON.parse(base64UrlDecode(payload));
@@ -8979,7 +9018,8 @@ function normalizeCareerHeroLookupContext(context = {}) {
   }
 
   if ((!normalized.suburb || !normalized.city) && locationText) {
-    const baseLocation = locationText.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    const safeLocationText = locationText.length > 500 ? locationText.slice(0, 500) : locationText;
+    const baseLocation = safeLocationText.replace(/\([^)]*?\)/g, ' ').replace(/\s+/g, ' ').trim();
     const parts = baseLocation.split(',').map((part) => part.trim()).filter(Boolean);
     if (!normalized.suburb && parts[0]) normalized.suburb = parts[0];
     if (!normalized.city && parts[1]) {
@@ -9702,7 +9742,7 @@ function normalizeZohoRecruitScope(scope) {
   const value = String(scope || '').trim();
   if (!value) return '';
   const compact = value.replace(/\s+/g, '').replace(/^ZohoRECRUIT/i, 'ZohoRecruit');
-  const canonicalKey = compact.toLowerCase().replace(/^zohorecruit\./, 'zohorecruit.');
+  const canonicalKey = compact.toLowerCase();
 
   if (canonicalKey === 'zohorecruit.modules.read') return 'ZohoRecruit.modules.READ';
   if (canonicalKey === 'zohorecruit.modules.all') return 'ZohoRecruit.modules.all';
@@ -9899,6 +9939,9 @@ async function consumeZohoSignOauthState(state) {
 
 async function zohoFormRequest(accountsServer, params) {
   const base = normalizeUrlBase(accountsServer, getZohoRecruitAccountsServer());
+  // Validate that the resolved base points to a genuine Zoho domain (SSRF protection)
+  try { const parsed = new URL(base); if (!isAllowedZohoDomain(parsed.hostname)) throw new Error('blocked'); }
+  catch (_) { return { ok: false, status: 400, data: { error: 'invalid_server', message: 'Accounts server must be a Zoho domain.' } }; }
   const body = new URLSearchParams();
   Object.entries(params || {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
@@ -10929,7 +10972,7 @@ async function handleZohoRecruitCandidateHiredWebhook(req, res) {
     return;
   }
 
-  console.log('[ZohoRecruit candidate-hired] Raw body (' + rawBody.length + ' chars):', rawBody.slice(0, 500));
+  console.log('[ZohoRecruit candidate-hired] Raw body (' + rawBody.length + ' chars):', String(rawBody.slice(0, 500)).replace(/[\x00-\x1F\x7F]/g, ''));
 
   // Try JSON first, then form-urlencoded, then treat as raw text
   if (rawBody.startsWith('{') || rawBody.startsWith('[')) {
@@ -12767,8 +12810,12 @@ async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, ap
 
   const bases = getZohoRecruitCandidateBases(connection, apiDomain);
   for (const base of bases) {
+    // Validate that the base URL points to a genuine Zoho domain (SSRF protection)
+    try { const parsed = new URL(base); if (!isAllowedZohoDomain(parsed.hostname)) continue; } catch (_) { continue; }
     for (const resourcePath of paths) {
-      const url = `${normalizeUrlBase(base, '')}/recruit/v2/${String(resourcePath || '').replace(/^\/+/, '')}`;
+      // Block path traversal in resource paths
+      const safePath = String(resourcePath || '').replace(/^\/+/, '').replace(/\.\./g, '');
+      const url = `${normalizeUrlBase(base, '')}/recruit/v2/${safePath}`;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
       try {
@@ -18401,7 +18448,7 @@ async function handleApi(req, res, pathname) {
 
   // ── Weekly full backup to Google Drive ──────────────────────
   if (req.method === 'GET' && pathname === '/api/cron/weekly-backup') {
-    var bkCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var bkCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
     var bkCronAuth = req.headers['authorization'] || '';
     if (!bkCronSecret || bkCronAuth !== 'Bearer ' + bkCronSecret) {
       sendJson(res, 401, { ok: false, error: 'Unauthorized' });
@@ -23592,7 +23639,8 @@ Classify this document.`;
         }
       } else {
         const dbState = loadDbState();
-        if (!dbState.userState[email]) dbState.userState[email] = {};
+        if (email === '__proto__' || email === 'constructor' || email === 'prototype') return;
+        if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
         dbState.userState[email].account_status = newStatus;
         saveDbState(dbState);
       }
