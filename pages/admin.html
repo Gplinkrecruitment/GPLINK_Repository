@@ -1596,8 +1596,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       if (task.zoho_attachment_id || task.attachment_url) {
         return '<div class="doc-task-actions">' +
-          '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review: ' + (task.attachment_filename || 'Position Description').replace(/'/g, "\\'") + '</button>' +
-          '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Submit to GP</button>' +
+          '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + escAttr(task.id) + '\')">Review: ' + esc((task.attachment_filename || 'Position Description')) + '</button>' +
+          '<button class="btn-action btn-submit" onclick="approveDocument(\'' + escAttr(task.id) + '\')">Submit to GP</button>' +
           '</div>';
       }
       var pdHtml = '<div class="doc-task-actions">';
@@ -1640,8 +1640,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html += '</div>';
       } else if (task.zoho_attachment_id || task.attachment_url) {
         html += '<div class="doc-task-actions">';
-        html += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review: ' + (task.attachment_filename || 'Contract').replace(/'/g, "\\'") + '</button>';
-        html += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Submit to GP</button>';
+        html += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + escAttr(task.id) + '\')">Review: ' + esc(task.attachment_filename || 'Contract') + '</button>';
+        html += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + escAttr(task.id) + '\')">Submit to GP</button>';
         html += '</div>';
       } else {
         html += '<div class="doc-task-actions">';
@@ -1685,8 +1685,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html2 += '</div>';
       } else if (task.attachment_url) {
         html2 += '<div class="doc-task-actions">';
-        html2 += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + task.id + '\')">Review: ' + (task.attachment_filename || 'Supervisor CV').replace(/'/g, "\\'") + '</button>';
-        html2 += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + task.id + '\')">Submit to GP</button>';
+        html2 += '<button class="btn-action btn-review" onclick="previewTaskDoc(\'' + escAttr(task.id) + '\')">Review: ' + esc(task.attachment_filename || 'Supervisor CV') + '</button>';
+        html2 += '<button class="btn-action btn-submit" onclick="approveDocument(\'' + escAttr(task.id) + '\')">Submit to GP</button>';
         html2 += '</div>';
       } else {
         html2 += '<div class="doc-task-actions">';

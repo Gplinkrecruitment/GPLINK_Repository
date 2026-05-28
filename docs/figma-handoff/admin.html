@@ -1431,7 +1431,7 @@
         const emailBtn = event.target.closest("[data-email-gp]");
         if (emailBtn) {
           const email = emailBtn.getAttribute("data-email-gp");
-          if (email) window.location.href = `mailto:${email}`;
+          if (email) window.location.href = `mailto:${encodeURIComponent(email)}`;
         }
       });
       document.addEventListener("keydown", (event) => {

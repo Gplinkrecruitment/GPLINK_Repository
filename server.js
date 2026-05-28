@@ -919,9 +919,9 @@ async function getGmailClient(userEmail) {
       delete safeData.access_token; delete safeData.refresh_token; delete safeData.private_key;
       detail = JSON.stringify(safeData);
     }
-    console.error('[Gmail] getGmailClient auth failed for', userEmail, ':', detail);
-    // Diagnostic info uses boolean flags only — never log key content
-    _gmailClientErrors[userEmail] = detail + ' [diag: emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasEnd=' + hasEnd + ' hasNewlines=' + hasNewlines + ']';
+    var safeDetail = String(detail || '').slice(0, 200);
+    console.error('[Gmail] getGmailClient auth failed for', userEmail);
+    _gmailClientErrors[userEmail] = safeDetail + ' [diag: hasBegin=' + hasBegin + ' hasEnd=' + hasEnd + ' hasNewlines=' + hasNewlines + ']';
     return null;
   }
 }
@@ -1096,7 +1096,8 @@ async function fetchAttachmentAsBase64(url, filename) {
 
     // Regular HTTP URL — validate against SSRF
     if (!isSafeExternalUrl(url)) throw new Error('URL blocked by SSRF protection: ' + url);
-    var resp = await fetch(url);
+    var validatedUrl = new URL(url).href; // Re-parse to sanitized form
+    var resp = await fetch(validatedUrl);
     if (!resp.ok) throw new Error('HTTP ' + resp.status + ' fetching ' + url);
     var buf = Buffer.from(await resp.arrayBuffer());
     var contentType = resp.headers.get('content-type') || 'application/octet-stream';
@@ -1129,7 +1130,7 @@ function extractEmailMeta(gmailMessage) {
   var angleMatch = fromRaw.match(/<([^>]+)>/);
   if (angleMatch) {
     sender = angleMatch[1];
-    senderName = fromRaw.replace(/<[^>]+>/g, '').replace(/"/g, '').trim();
+    senderName = fromRaw.replace(/<[^>]+>/g, '').replace(/[<>"'`]/g, '').trim();
   }
 
   var parts = gmailMessage.payload ? gmailMessage.payload.parts || [] : [];
@@ -3905,10 +3906,12 @@ function base64UrlDecode(input) {
   return Buffer.from(padded, 'base64').toString('utf8');
 }
 
+// HMAC token signing — NOT password hashing (passwords use scrypt, see hashPassword)
+function hmacSign(data) { return crypto.createHmac('sha512', SECRET).update(data).digest('hex'); }
+
 function createSignedSessionToken(userProfile, expiresAt) {
   const payload = base64UrlEncode(JSON.stringify({ userProfile, expiresAt }));
-  const signature = crypto.createHmac('sha512', SECRET).update(payload).digest('hex');
-  return `${payload}.${signature}`;
+  return `${payload}.${hmacSign(payload)}`;
 }
 
 function parseSignedSessionToken(token) {
@@ -3918,7 +3921,7 @@ function parseSignedSessionToken(token) {
   const payload = raw.slice(0, dotIdx);
   const signature = raw.slice(dotIdx + 1);
   // Try sha512 first (current), fall back to sha256 (legacy tokens)
-  const expected512 = crypto.createHmac('sha512', SECRET).update(payload).digest('hex');
+  const expected512 = hmacSign(payload);
   let sigValid = signature.length === expected512.length && crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected512, 'utf8'));
   if (!sigValid) {
     const expected256 = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
@@ -3973,8 +3976,7 @@ function isStrongPassword(password) {
 function createOAuthAccessToken(userProfile) {
   const expiresAt = now() + OAUTH_ACCESS_TTL_MS;
   const payload = base64UrlEncode(JSON.stringify({ sub: userProfile.email, profile: userProfile, expiresAt, type: 'access' }));
-  const signature = crypto.createHmac('sha512', SECRET).update(payload).digest('hex');
-  return { token: `${payload}.${signature}`, expiresAt, expiresIn: Math.floor(OAUTH_ACCESS_TTL_MS / 1000) };
+  return { token: `${payload}.${hmacSign(payload)}`, expiresAt, expiresIn: Math.floor(OAUTH_ACCESS_TTL_MS / 1000) };
 }
 
 function parseOAuthAccessToken(token) {
@@ -3984,7 +3986,7 @@ function parseOAuthAccessToken(token) {
   const payload = raw.slice(0, dotIdx);
   const signature = raw.slice(dotIdx + 1);
   // Try sha512 first (current), fall back to sha256 (legacy tokens)
-  const expected512 = crypto.createHmac('sha512', SECRET).update(payload).digest('hex');
+  const expected512 = hmacSign(payload);
   let sigValid = signature.length === expected512.length && crypto.timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected512, 'utf8'));
   if (!sigValid) {
     const expected256 = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
@@ -6445,7 +6447,7 @@ async function _hasDoubleTickBeenSent(caseId, stageTitle) {
   if (stageTitle === 'AHPRA stage') titles.push('AHPRA stage unlocked — WhatsApp template sent');
   const titleFilter = titles.length === 1
     ? 'title=eq.' + encodeURIComponent(titles[0])
-    : 'title=in.(' + titles.map(t => '"' + t.replace(/"/g, '\\"') + '"').join(',') + ')';
+    : 'title=in.(' + titles.map(t => '"' + t.replace(/[\\"]/g, '\\$&') + '"').join(',') + ')';
   const q = await supabaseDbRequest('task_timeline',
     'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&event_type=eq.system&' + titleFilter + '&limit=1');
   return q.ok && Array.isArray(q.data) && q.data.length > 0;
@@ -8784,10 +8786,11 @@ function buildCareerRoleSourceBundle(record, gpLinkMeta) {
 function extractWebsiteText(html) {
   const source = String(html || '');
   if (!source) return '';
-  const withoutNoise = source
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
+  const safeSource = source.length > 200000 ? source.slice(0, 200000) : source;
+  const withoutNoise = safeSource
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi, ' ');
   const chunks = [];
   const titleMatch = withoutNoise.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (titleMatch && titleMatch[1]) chunks.push(stripHtml(titleMatch[1]));
@@ -9938,10 +9941,13 @@ async function consumeZohoSignOauthState(state) {
 }
 
 async function zohoFormRequest(accountsServer, params) {
-  const base = normalizeUrlBase(accountsServer, getZohoRecruitAccountsServer());
+  const rawBase = normalizeUrlBase(accountsServer, getZohoRecruitAccountsServer());
   // Validate that the resolved base points to a genuine Zoho domain (SSRF protection)
-  try { const parsed = new URL(base); if (!isAllowedZohoDomain(parsed.hostname)) throw new Error('blocked'); }
-  catch (_) { return { ok: false, status: 400, data: { error: 'invalid_server', message: 'Accounts server must be a Zoho domain.' } }; }
+  const parsedBase = (() => { try { return new URL(rawBase); } catch (_) { return null; } })();
+  if (!parsedBase || !isAllowedZohoDomain(parsedBase.hostname)) {
+    return { ok: false, status: 400, data: { error: 'invalid_server', message: 'Accounts server must be a Zoho domain.' } };
+  }
+  const base = parsedBase.origin; // Use only the validated origin
   const body = new URLSearchParams();
   Object.entries(params || {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
@@ -10972,7 +10978,7 @@ async function handleZohoRecruitCandidateHiredWebhook(req, res) {
     return;
   }
 
-  console.log('[ZohoRecruit candidate-hired] Raw body (' + rawBody.length + ' chars):', String(rawBody.slice(0, 500)).replace(/[\x00-\x1F\x7F]/g, ''));
+  console.log('[ZohoRecruit candidate-hired] Received body (' + rawBody.length + ' chars)');
 
   // Try JSON first, then form-urlencoded, then treat as raw text
   if (rawBody.startsWith('{') || rawBody.startsWith('[')) {
@@ -12809,13 +12815,14 @@ async function downloadZohoRecruitBinaryWithVariants(connection, accessToken, ap
   if (paths.length === 0) return null;
 
   const bases = getZohoRecruitCandidateBases(connection, apiDomain);
-  for (const base of bases) {
+  for (const rawBase of bases) {
     // Validate that the base URL points to a genuine Zoho domain (SSRF protection)
-    try { const parsed = new URL(base); if (!isAllowedZohoDomain(parsed.hostname)) continue; } catch (_) { continue; }
+    let validatedOrigin;
+    try { const parsed = new URL(rawBase); if (!isAllowedZohoDomain(parsed.hostname)) continue; validatedOrigin = parsed.origin; } catch (_) { continue; }
     for (const resourcePath of paths) {
       // Block path traversal in resource paths
       const safePath = String(resourcePath || '').replace(/^\/+/, '').replace(/\.\./g, '');
-      const url = `${normalizeUrlBase(base, '')}/recruit/v2/${safePath}`;
+      const url = `${validatedOrigin}/recruit/v2/${safePath}`;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
       try {
@@ -13338,6 +13345,9 @@ function decodeXmlEntities(value) {
   return String(value || '')
     .replace(/&#xA;/gi, '\n')
     .replace(/&#x9;/gi, '\t')
+    .replace(/&#x([0-9a-f]{1,4});/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d{1,5});/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+    .replace(/&apos;/g, "'")
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&lt;/g, '<')
@@ -20202,7 +20212,7 @@ async function handleApi(req, res, pathname) {
     const mimeType = downloaded.mimeType || 'application/pdf';
     res.writeHead(200, {
       'Content-Type': mimeType,
-      'Content-Disposition': `attachment; filename="${fileName.replace(/"/g, '\\"')}"`,
+      'Content-Disposition': `attachment; filename="${fileName.replace(/["\\\r\n]/g, '_')}"`,
       'Content-Length': downloaded.buffer.length
     });
     res.end(downloaded.buffer);
@@ -29004,14 +29014,14 @@ Return ONLY valid JSON with no markdown formatting:
         doc.on('data', function (c) { chunks.push(c); });
         doc.on('end', function () { resolve(Buffer.concat(chunks)); });
 
-        const stripped = finalHtml.replace(/<[^>]*>/g, function (tag) {
+        const stripped = decodeXmlEntities(finalHtml.replace(/<[^>]*>/g, function (tag) {
           if (tag.match(/^<h2/i)) return '\n##HEADING2##';
           if (tag.match(/^<h3/i)) return '\n##HEADING3##';
           if (tag.match(/^<li/i)) return '\n• ';
           if (tag.match(/^<p/i)) return '\n';
           if (tag.match(/^<\/p|^<\/ul|^<\/ol|^<\/li|^<\/h/i)) return '\n';
           return '';
-        }).replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+        }));
 
         const lines = stripped.split('\n');
         for (const line of lines) {

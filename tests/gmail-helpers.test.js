@@ -21,7 +21,7 @@ function extractEmailMeta(gmailMessage) {
   var angleMatch = fromRaw.match(/<([^>]+)>/);
   if (angleMatch) {
     sender = angleMatch[1];
-    senderName = fromRaw.replace(/<[^>]+>/g, '').replace(/"/g, '').trim();
+    senderName = fromRaw.replace(/<[^>]+>/g, '').replace(/[<>"'`]/g, '').trim();
   }
 
   var parts = gmailMessage.payload ? gmailMessage.payload.parts || [] : [];

@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  function _esc(s){var d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
+
   const TOTAL_STEPS = 5;
   const STORAGE_KEY = "gp_onboarding";
   const MAX_RETRIES = 5;
@@ -940,7 +942,7 @@
     }
 
     list.innerHTML = rows.map((r) =>
-      `<div class="review-row"><span class="review-label">${r.label}</span><span class="review-value ${r.cls || ""}">${r.value}</span></div>`
+      `<div class="review-row"><span class="review-label">${_esc(r.label)}</span><span class="review-value ${_esc(r.cls || "")}">${_esc(r.value)}</span></div>`
     ).join("");
   }
 
