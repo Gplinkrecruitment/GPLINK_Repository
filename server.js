@@ -26062,18 +26062,25 @@ Return ONLY valid JSON with no markdown formatting:
 
       var summary;
       try {
+        // Try direct parse first
         summary = JSON.parse(rawText.trim());
       } catch (parseErr) {
+        // Try extracting JSON from markdown fences
         var jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
         if (jsonMatch) {
-          try { summary = JSON.parse(jsonMatch[1].trim()); } catch (e2) {
-            console.error('[AI Summary] Failed to parse AI response:', rawText.substring(0, 500));
-            sendJson(res, 502, { ok: false, error: 'AI returned invalid format.' });
-            return;
+          try { summary = JSON.parse(jsonMatch[1].trim()); } catch (e2) { /* fall through */ }
+        }
+        // Try extracting first { ... } block from the text
+        if (!summary) {
+          var braceStart = rawText.indexOf('{');
+          var braceEnd = rawText.lastIndexOf('}');
+          if (braceStart !== -1 && braceEnd > braceStart) {
+            try { summary = JSON.parse(rawText.substring(braceStart, braceEnd + 1)); } catch (e3) { /* fall through */ }
           }
-        } else {
-          console.error('[AI Summary] Failed to parse AI response:', rawText.substring(0, 500));
-          sendJson(res, 502, { ok: false, error: 'AI returned invalid format.' });
+        }
+        if (!summary) {
+          console.error('[AI Summary] Failed to parse AI response:', rawText.substring(0, 800));
+          sendJson(res, 502, { ok: false, error: 'AI returned invalid format. Raw start: ' + rawText.substring(0, 150) });
           return;
         }
       }
