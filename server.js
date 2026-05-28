@@ -624,119 +624,134 @@ async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
 // ── Contract signature check at onboarding ──
 async function checkOfferContractAtOnboarding(userId) {
   try {
-    if (!isSupabaseDbConfigured()) {
-      console.log('[ContractCheck] Supabase not configured, skipping');
+    if (!isSupabaseDbConfigured() || !isZohoRecruitConfigured()) {
+      console.log('[ContractCheck] Supabase or Zoho not configured, skipping');
       return;
     }
 
     // 1. Find hired application for this user
     var appRes = await supabaseDbRequest('gp_applications',
       'select=id,zoho_application_id,zoho_candidate_id,practice_contact_name,practice_contact_email&user_id=eq.' + encodeURIComponent(userId) + '&status=eq.hired&limit=1');
-    if (!appRes || !Array.isArray(appRes) || appRes.length === 0) {
-      console.log('[ContractCheck] No hired application found for user', userId);
-      return;
-    }
-    var app = appRes[0];
-    if (!app.zoho_application_id) {
-      console.log('[ContractCheck] No zoho_application_id on hired application for user', userId);
+    var app = appRes.ok && Array.isArray(appRes.data) && appRes.data[0] ? appRes.data[0] : null;
+    if (!app || !app.zoho_application_id) {
+      console.log('[ContractCheck] No hired Zoho application for user', userId, '— skipping');
       return;
     }
 
     // 2. Get Zoho OAuth token
-    var zoho = await getZohoRecruitOAuth();
-
-    // 3. List and score contract attachments on the application record
-    var attachments = await listZohoRecruitApplicationAttachments(zoho, app.zoho_application_id);
-    var candidates = selectZohoContractAttachmentCandidates(attachments);
-
-    // 4. Fall back to candidate record if application has no contract candidates
-    if ((!candidates || candidates.length === 0) && app.zoho_candidate_id) {
-      console.log('[ContractCheck] No contract on application, trying candidate record', app.zoho_candidate_id);
-      var candAttachments = await listZohoRecruitApplicationAttachments(zoho, app.zoho_candidate_id);
-      candidates = selectZohoContractAttachmentCandidates(candAttachments);
-    }
-
-    if (!candidates || candidates.length === 0) {
-      console.log('[ContractCheck] No contract attachment candidates found for user', userId);
+    var zoho = await getZohoRecruitAccessTokenAndDomain();
+    if (!zoho || !zoho.accessToken) {
+      console.log('[ContractCheck] No Zoho OAuth token — skipping');
       return;
     }
 
-    var topCandidate = candidates[0];
+    // 3. List and score contract attachments
+    var attachments = await listZohoRecruitApplicationAttachments(zoho, app.zoho_application_id);
+    var candidates = selectZohoContractAttachmentCandidates(attachments);
 
-    // 5. Download the top candidate attachment
-    var downloadResult = await downloadZohoRecruitApplicationAttachment(zoho, app.zoho_application_id, topCandidate.id);
-    var contractBuffer = downloadResult && downloadResult.buffer ? downloadResult.buffer : downloadResult;
-    var mimeType = (downloadResult && downloadResult.mimeType) ? downloadResult.mimeType : 'application/octet-stream';
-    var filename = topCandidate.fileName || topCandidate.name || 'contract';
-
-    // 6. Scan for signatures
-    var scanResult = await scanContractSignatures(contractBuffer, mimeType, filename);
-    console.log('[ContractCheck] Scan result for user', userId, ':', JSON.stringify(scanResult));
-
-    // 7. Ensure registration case
-    var caseId = await _ensureRegCase(userId);
-
-    // 8. Branch on signature detection
-    var bothSigned = scanResult && scanResult.gpSigned && scanResult.practiceSigned;
-    if (bothSigned) {
-      console.log('[ContractCheck] Both signatures detected — delivering contract for user', userId);
-      await deliverOfferContract(userId, caseId, app.zoho_application_id, app.zoho_candidate_id);
-      await _logCaseEvent(caseId, null, 'contract_auto_delivered', 'Offer / Contract Auto-Delivered',
-        'Both GP and practice signatures detected at onboarding. Contract delivered automatically.', 'system');
-    } else {
-      // Check if offer_contract task already exists in a non-terminal status
-      var existingTasks = await supabaseDbRequest('registration_tasks',
-        'select=id&case_id=eq.' + encodeURIComponent(caseId) +
-        '&related_document_key=eq.offer_contract&status=not.in.(completed,cancelled,rejected)&limit=1');
-      if (existingTasks && Array.isArray(existingTasks) && existingTasks.length > 0) {
-        console.log('[ContractCheck] Offer contract task already exists for user', userId, '— skipping');
-        return;
-      }
-
-      // Build data URI for attachment_url
-      var b64 = Buffer.isBuffer(contractBuffer) ? contractBuffer.toString('base64') : Buffer.from(contractBuffer).toString('base64');
-      var dataUrl = 'data:' + mimeType + ';base64,' + b64;
-
-      // Create practice_pack_child task
-      var taskData = {
-        task_type: 'practice_pack_child',
-        title: 'Offer / Contract',
-        source_trigger: 'onboarding_signature_check',
-        related_stage: 'career',
-        related_document_key: 'offer_contract',
-        status: 'open',
-        zoho_attachment_id: topCandidate.id,
-        attachment_url: dataUrl,
-        attachment_filename: filename
-      };
-      var newTask = await _createRegTask(caseId, taskData);
-      var newTaskId = newTask && newTask.id ? newTask.id : null;
-
-      // Create task_documents record for the View button
-      if (newTaskId) {
-        await supabaseDbRequest('task_documents', null, {
-          method: 'POST',
-          body: JSON.stringify({
-            task_id: newTaskId,
-            case_id: caseId,
-            document_key: 'offer_contract',
-            filename: filename,
-            mime_type: mimeType,
-            data_url: dataUrl,
-            uploaded_at: new Date().toISOString()
-          })
-        });
-      }
-
-      var sigDetail = scanResult
-        ? ('GP signed: ' + (scanResult.gpSigned ? 'yes' : 'no') + ', Practice signed: ' + (scanResult.practiceSigned ? 'yes' : 'no'))
-        : 'Signature scan failed or inconclusive';
-      await _logCaseEvent(caseId, newTaskId, 'contract_pending_signature', 'Offer / Contract Awaiting Signature',
-        sigDetail + '. Task created for manual review.', 'system');
-      console.log('[ContractCheck] Created offer_contract task for user', userId, '—', sigDetail);
+    // 4. Fall back to candidate record if application has no contract
+    if (candidates.length === 0 && app.zoho_candidate_id) {
+      console.log('[ContractCheck] No contract on application, trying candidate record');
+      var candAttachments = await listZohoRecruitCandidateAttachments(zoho, app.zoho_candidate_id);
+      candidates = selectZohoContractAttachmentCandidates(candAttachments);
     }
-  } catch (e) {
-    console.error('[ContractCheck] error:', e.message);
+    if (candidates.length === 0) {
+      console.log('[ContractCheck] No contract attachment found in Zoho for user', userId);
+      return;
+    }
+
+    var best = candidates[0];
+    var attachmentId = getZohoAttachmentId(best);
+    var fileName = getZohoAttachmentFileName(best) || 'contract.pdf';
+    var mimeType = best.content_type || best.mimeType || 'application/pdf';
+
+    // 5. Download the contract
+    var contractBuffer = null;
+    try {
+      contractBuffer = app.zoho_application_id
+        ? await downloadZohoRecruitApplicationAttachment(zoho, app.zoho_application_id, attachmentId)
+        : await downloadZohoRecruitCandidateAttachment(zoho, app.zoho_candidate_id, attachmentId);
+    } catch (dlErr) {
+      if (app.zoho_candidate_id) {
+        try { contractBuffer = await downloadZohoRecruitCandidateAttachment(zoho, app.zoho_candidate_id, attachmentId); } catch (e) {}
+      }
+    }
+    if (!contractBuffer || contractBuffer.length === 0) {
+      console.error('[ContractCheck] Failed to download contract for user', userId);
+      return;
+    }
+
+    // 6. AI signature scan
+    var scanResult = await scanContractSignatures(contractBuffer, mimeType, fileName);
+    console.log('[ContractCheck] Scan for user', userId, ':', JSON.stringify(scanResult));
+
+    // 7. Ensure registration case exists
+    var caseId = await _ensureRegCase(userId);
+    if (!caseId) {
+      console.error('[ContractCheck] Could not ensure reg case for user', userId);
+      return;
+    }
+
+    // 8. Decision
+    if (scanResult.has_candidate_signature && scanResult.has_employer_signature) {
+      // Both signatures — auto-complete
+      console.log('[ContractCheck] Both signatures found — auto-completing for user', userId);
+      await deliverOfferContract(userId, caseId, app.zoho_application_id, app.zoho_candidate_id);
+      await _logCaseEvent(caseId, null, 'note', 'Contract AI scan: both signatures detected — auto-completed', scanResult.notes || '', 'system');
+      return;
+    }
+
+    // Single/zero signatures or scan failure — create task for admin
+    console.log('[ContractCheck] Incomplete signatures — creating task for user', userId);
+
+    // Check if an offer_contract task already exists for this case
+    var existingTaskRes = await supabaseDbRequest('registration_tasks',
+      'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.offer_contract&status=in.(open,in_progress,waiting,waiting_on_practice,waiting_on_external,escalated,deferred)&limit=1');
+    if (existingTaskRes.ok && Array.isArray(existingTaskRes.data) && existingTaskRes.data.length > 0) {
+      console.log('[ContractCheck] Offer/contract task already exists for case', caseId, '— skipping creation');
+      return;
+    }
+
+    // Create the practice_pack_child task
+    var dataUrl = 'data:' + mimeType + ';base64,' + contractBuffer.toString('base64');
+    var task = await _createRegTask(caseId, {
+      task_type: 'practice_pack_child',
+      title: 'Offer / Contract',
+      source_trigger: 'onboarding_signature_check',
+      related_stage: 'career',
+      related_document_key: 'offer_contract',
+      status: 'open',
+      zoho_attachment_id: attachmentId || null,
+      attachment_url: dataUrl,
+      attachment_filename: fileName,
+      _actor: 'system'
+    });
+
+    if (task) {
+      // Store as task_documents record for the View button
+      await supabaseDbRequest('task_documents', '', {
+        method: 'POST',
+        body: [{
+          task_id: task.id,
+          case_id: caseId,
+          filename: fileName,
+          mime_type: mimeType,
+          size_bytes: contractBuffer.length,
+          version: 1,
+          is_current: true,
+          uploaded_by: 'zoho_import',
+          attachment_url: dataUrl
+        }]
+      });
+
+      // Log the scan result to timeline
+      var scanNote = 'AI signature scan: ' + (scanResult.has_candidate_signature ? 'candidate signature found' : 'no candidate signature') +
+        ', ' + (scanResult.has_employer_signature ? 'employer signature found' : 'employer signature missing') +
+        (scanResult.notes ? ' — ' + scanResult.notes : '');
+      await _logCaseEvent(caseId, task.id, 'note', scanNote, 'Confidence: ' + (scanResult.confidence || 'unknown'), 'system');
+    }
+  } catch (err) {
+    console.error('[ContractCheck] Error for user', userId, ':', err.message);
   }
 }
 
@@ -764,7 +779,7 @@ async function checkZohoContractReupload(zoho, app) {
   if (!candidates.length) return;
 
   var topCandidate = candidates[0];
-  var currentZohoId = topCandidate.id || '';
+  var currentZohoId = getZohoAttachmentId(topCandidate) || '';
   var storedZohoId = task.zoho_attachment_id || '';
 
   if (currentZohoId === storedZohoId) return;
@@ -773,15 +788,12 @@ async function checkZohoContractReupload(zoho, app) {
 
   var newBuffer = null;
   try {
-    newBuffer = await downloadZohoRecruitApplicationAttachment(
-      { connection: zoho.connection, accessToken: zoho.accessToken, apiDomain: zoho.apiDomain },
-      app.zoho_application_id, topCandidate.id
-    );
+    newBuffer = await downloadZohoRecruitApplicationAttachment(zoho, app.zoho_application_id, currentZohoId);
   } catch (e) {}
   if (!newBuffer || newBuffer.length === 0) return;
 
-  var newMime = topCandidate.mimeType || topCandidate.content_type || 'application/pdf';
-  var newFilename = topCandidate.fileName || topCandidate.File_Name || 'contract.pdf';
+  var newMime = topCandidate.content_type || topCandidate.mimeType || 'application/pdf';
+  var newFilename = getZohoAttachmentFileName(topCandidate) || 'contract.pdf';
 
   var scanResult = await scanContractSignatures(newBuffer, newMime, newFilename);
   console.log('[ZohoSync] Re-upload scan:', JSON.stringify(scanResult));
