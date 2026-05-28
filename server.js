@@ -19874,7 +19874,7 @@ async function handleApi(req, res, pathname) {
       });
     }
 
-    sendJson(res, 200, { ok: true, applications: enriched });
+    sendJson(res, 200, { ok: true, applications: enriched }, PRIVATE_METADATA_CACHE_HEADERS);
     return;
   }
 
