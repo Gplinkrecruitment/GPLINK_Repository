@@ -4149,7 +4149,27 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(lastInbound)h+='<div class="ops-response-text">'+esc(opsSnippet(lastInbound.body_text||lastInbound.body_html||'',300))+'</div>';
       if(lastInbound)h+='<div class="ops-response-meta">From: '+esc(lastInbound.sender||'\u2014')+' \u00B7 '+opsFormatDate(lastInbound.created_at)+'</div>';
       h+='</div>';
-      h+=opsRenderDocs(docs);
+      var currentDocs2=docs.filter(function(d){return d.is_current!==false;});
+      var prevDocs=docs.filter(function(d){return d.is_current===false;});
+      h+=opsRenderDocs(currentDocs2);
+      // Offer/contract: show "View previous version" if there's a previous doc
+      if(task.related_document_key==='offer_contract'&&prevDocs.length>0){
+        h+='<div style="margin:6px 0">';
+        prevDocs.forEach(function(pd){
+          var pdUrl=pd.google_drive_url||pd.attachment_url||'';
+          if(pdUrl){
+            h+='<button data-preview-doc="'+esc(pd.id)+'" data-preview-name="'+esc(pd.filename||'Previous version')+'" style="font-size:11px;color:var(--muted);background:none;border:none;cursor:pointer;text-decoration:underline">\uD83D\uDD0D View previous version (candidate-signed only)</button>';
+          }
+        });
+        h+='</div>';
+      }
+      // Contract diff/analysis banner (Task 8)
+      var diffNote=task.ai_match_reasoning||'';
+      if(task.related_document_key==='offer_contract'&&diffNote){
+        h+='<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:12px">';
+        h+='<strong>\u26A0\uFE0F Contract analysis:</strong> '+esc(diffNote);
+        h+='</div>';
+      }
       h+='<div class="ops-action-row">';
       h+='<button class="ops-btn-green" data-ops-submit-drive="'+esc(task.id)+'">Submit to Drive &amp; Complete</button>';
       h+='<button class="ops-btn-secondary" data-ops-upload-own="'+esc(task.id)+'">Upload Different Version</button>';
@@ -4185,18 +4205,33 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
     // State A: No messages yet (initial, ball with Hazel) — show email composer
     var h3='<div class="ops-expand-section">';
-    h3+='<div class="ops-expand-label">Request document from practice</div>';
+    var isOfferContractWithDoc = (task.related_document_key === 'offer_contract') && (docs.length > 0 || task.attachment_url);
+    h3+='<div class="ops-expand-label">'+(isOfferContractWithDoc ? 'Request employer counter-signature' : 'Request document from practice')+'</div>';
+    if (isOfferContractWithDoc) {
+      h3+=opsRenderDocs(docs);
+      h3+='<div style="font-size:11px;color:var(--muted);margin:8px 0">The candidate-signed contract above will be automatically attached to the email.</div>';
+    }
     h3+='<div class="ops-email-composer">';
     h3+='<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="'+esc(task.id)+'" value="'+esc(practiceEmail)+'" /></div>';
-    h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(docTitle)+' needed for Dr '+esc(gpName)+' - GP Link" /></div>';
-    h3+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
-      +'Hi '+esc(contactName||'')+',<br><br>'
-      +'We are preparing the registration documents for Dr '+esc(gpName)+' and need the following: <strong>'+esc(docTitle)+'</strong>.<br><br>'
-      +'Could you please send this through at your earliest convenience?<br><br>'
-      +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
-      +'</div>';
+    if (isOfferContractWithDoc) {
+      h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="Signed Offer/Contract needed for Dr '+esc(gpName)+' - GP Link" /></div>';
+      h3+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
+        +'Hi '+esc(contactName||'')+',<br><br>'
+        +'We are preparing the registration documents for Dr '+esc(gpName)+' and need the following: <strong>Offer / Contract</strong> with both the candidate and employer signatures.<br><br>'
+        +'Please find attached the contract already signed by the candidate. Could you please counter-sign and return the completed contract at your earliest convenience?<br><br>'
+        +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+        +'</div>';
+    } else {
+      h3+='<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="'+esc(task.id)+'" value="'+esc(docTitle)+' needed for Dr '+esc(gpName)+' - GP Link" /></div>';
+      h3+='<div class="ops-email-body" contenteditable="true" data-email-body="'+esc(task.id)+'">'
+        +'Hi '+esc(contactName||'')+',<br><br>'
+        +'We are preparing the registration documents for Dr '+esc(gpName)+' and need the following: <strong>'+esc(docTitle)+'</strong>.<br><br>'
+        +'Could you please send this through at your earliest convenience?<br><br>'
+        +'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+        +'</div>';
+    }
     h3+='<div class="ops-email-actions">';
-    h3+='<button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice">Email Practice</button>';
+    h3+='<button class="ops-btn-green" data-ops-send-email="'+esc(task.id)+'" data-ops-case="'+esc(task.case_id||'')+'" data-ops-flip-status="waiting_on_practice"'+(isOfferContractWithDoc?' data-ops-auto-attach="true"':'')+'>Email Practice</button>';
     h3+='</div>';
     h3+='</div>';
     h3+='</div>';
@@ -5190,8 +5225,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(!subVal){showOpsToast('Subject required','red');return;}
         sendEmailBtn.disabled=true;sendEmailBtn.textContent='Sending\u2026';
         try{
+          var emailPayload={to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId};
+          // Auto-attach contract document if flagged
+          if(sendEmailBtn.hasAttribute('data-ops-auto-attach')){
+            var taskDocs=S._opsDocCache&&S._opsDocCache[tid]?S._opsDocCache[tid]:[];
+            var currentDoc=taskDocs.find(function(d){return d.is_current!==false;});
+            if(currentDoc&&currentDoc.attachment_url){
+              emailPayload.attachments=[{url:currentDoc.attachment_url,filename:currentDoc.filename||'contract'}];
+            }
+          }
           var r=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId})});
+            body:JSON.stringify(emailPayload)});
           var d=await r.json().catch(()=>({}));
           if(d.ok){
             if(flipStatus){
