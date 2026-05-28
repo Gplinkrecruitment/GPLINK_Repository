@@ -2954,7 +2954,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       </div>`;
   }
 
-  var _aiSummaryCache = {}; // { caseId: { html, expanded } }
+  var _aiSummaryCache = {}; // { caseId: { html, expanded, fingerprint } }
+
+  function _aiFingerprint(caseId) {
+    var c = (S.cases || []).find(function(x) { return x.id === caseId; });
+    var taskCount = (S.tasks || []).filter(function(t) { return t.case_id === caseId; }).length;
+    var caseUpdated = c ? (c.updated_at || c.created_at || '') : '';
+    return caseUpdated + '|' + taskCount;
+  }
 
   function _buildAiSummaryHtml(caseId, data) {
     var s = data.summary;
@@ -3028,9 +3035,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   function renderAiSummary(caseId, container, force) {
     if (!container) return;
 
-    // Use cache if available and not forced refresh
+    // Use cache if available, not forced, and fingerprint matches (no new events)
     var cached = _aiSummaryCache[caseId];
-    if (cached && cached.html && !force) {
+    var currentFp = _aiFingerprint(caseId);
+    if (cached && cached.html && !force && cached.fingerprint === currentFp) {
       container.innerHTML = cached.html;
       // Restore expanded state
       if (cached.expanded) {
@@ -3053,7 +3061,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           return;
         }
         var html = _buildAiSummaryHtml(caseId, data);
-        _aiSummaryCache[caseId] = { html: html, expanded: false };
+        _aiSummaryCache[caseId] = { html: html, expanded: false, fingerprint: _aiFingerprint(caseId) };
         container.innerHTML = html;
       })
       .catch(function(err) {
