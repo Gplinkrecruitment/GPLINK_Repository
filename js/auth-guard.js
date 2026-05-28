@@ -58,16 +58,26 @@
     try { localStorage.setItem("gp_account_under_review", "true"); } catch (err) {}
   }
 
-  const sessionPromise = fetch("/api/auth/session", { credentials: "same-origin" })
-    .then(async (response) => {
-      if (!response.ok) {
-        return { ok: false, authenticated: false, profile: null };
-      }
-      const data = await response.json().catch(() => ({}));
-      const profile = data && data.profile && typeof data.profile === "object" ? data.profile : null;
-      return { ok: true, authenticated: true, profile };
-    })
-    .catch(() => ({ ok: false, authenticated: false, profile: null }));
+  var gpCacheFetch = null;
+  try {
+    gpCacheFetch = (window.gpCache && window.gpCache.fetch) || (window.parent && window.parent.gpCache && window.parent.gpCache.fetch) || null;
+  } catch (e) {}
+
+  const sessionPromise = (gpCacheFetch
+    ? gpCacheFetch("/api/auth/session").then(function (data) {
+        var profile = data && data.profile && typeof data.profile === "object" ? data.profile : null;
+        return { ok: true, authenticated: true, profile: profile };
+      })
+    : fetch("/api/auth/session", { credentials: "same-origin" })
+        .then(async (response) => {
+          if (!response.ok) {
+            return { ok: false, authenticated: false, profile: null };
+          }
+          const data = await response.json().catch(() => ({}));
+          const profile = data && data.profile && typeof data.profile === "object" ? data.profile : null;
+          return { ok: true, authenticated: true, profile };
+        })
+  ).catch(() => ({ ok: false, authenticated: false, profile: null }));
 
   window.gpSessionPromise = sessionPromise;
 
@@ -100,9 +110,10 @@
           try { localStorage.removeItem("gp_account_under_review"); } catch (err) {}
         }
       } else {
-        fetch("/api/account/status", { credentials: "same-origin" })
-          .then((r) => r.json())
-          .then((statusData) => {
+        (gpCacheFetch
+          ? gpCacheFetch("/api/account/status")
+          : fetch("/api/account/status", { credentials: "same-origin" }).then(function (r) { return r.json(); })
+        ).then((statusData) => {
             const accountStatus = statusData && typeof statusData.accountStatus === "string"
               ? statusData.accountStatus
               : "active";
