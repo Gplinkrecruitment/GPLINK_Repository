@@ -26473,6 +26473,24 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── Trigger contract signature check for a user ──
+  if (pathname === '/api/admin/check-contract-signatures' && req.method === 'POST') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    var csAdminCtx = requireAdminSession(req, res);
+    if (!csAdminCtx) return;
+    let csBody; try { csBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
+    var csUserId = csBody && csBody.user_id ? String(csBody.user_id).trim() : '';
+    if (!csUserId) { sendJson(res, 400, { ok: false, message: 'user_id required.' }); return; }
+    try {
+      await checkOfferContractAtOnboarding(csUserId);
+      sendJson(res, 200, { ok: true, message: 'Contract signature check completed.' });
+    } catch (csErr) {
+      console.error('[CheckContractSignatures] Error:', csErr.message);
+      sendJson(res, 500, { ok: false, message: 'Check failed: ' + csErr.message });
+    }
+    return;
+  }
+
   // ── List files in GP's Google Drive folder ──
   if (pathname === '/api/admin/drive/files' && req.method === 'GET') {
     const adminCtx = requireAdminSession(req, res);
