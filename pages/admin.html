@@ -2954,6 +2954,98 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       </div>`;
   }
 
+  function renderAiSummary(caseId, container) {
+    if (!container) return;
+    container.innerHTML = '<div class="ai-summary-card"><div class="ai-summary-loading"><span class="ai-spinner"></span>Generating AI summary\u2026</div></div>';
+
+    fetch('/api/admin/candidate-summary?case_id=' + encodeURIComponent(caseId), { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok || !data.summary) {
+          container.innerHTML = '<div class="ai-summary-card"><div class="ai-summary-error">' + esc(data.error || 'Unable to generate AI summary.') + '<br><button class="ai-retry" data-ai-retry="' + esc(caseId) + '">Retry</button></div></div>';
+          return;
+        }
+        var s = data.summary;
+        var actionCount = (s.action_items || []).length;
+        var concernCount = (s.concerns || []).length;
+
+        var html = '<div class="ai-summary-card">';
+        html += '<div class="ai-summary-header">';
+        html += '<div class="ai-summary-title">\u2728 AI Summary</div>';
+        html += '<div class="ai-summary-actions">';
+        if (data.meta && data.meta.generated_at) {
+          html += '<span class="ai-ts">' + esc(_aiTimeAgo(data.meta.generated_at)) + '</span>';
+        }
+        html += '<button class="ai-refresh" data-ai-retry="' + esc(caseId) + '">\u21BB Refresh</button>';
+        html += '</div></div>';
+
+        html += '<div class="ai-summary-overview">' + esc(s.overview || '') + '</div>';
+
+        html += '<div class="ai-summary-pills">';
+        html += '<span class="ai-pill actions">' + actionCount + ' action' + (actionCount !== 1 ? 's' : '') + ' needed</span>';
+        if (concernCount > 0) {
+          html += '<span class="ai-pill concerns-active">' + concernCount + ' concern' + (concernCount !== 1 ? 's' : '') + '</span>';
+        } else {
+          html += '<span class="ai-pill tickets">No concerns</span>';
+        }
+        html += '</div>';
+
+        html += '<div class="ai-summary-detail" id="aiSummaryDetail">';
+        html += '<hr>';
+
+        if (actionCount > 0) {
+          html += '<div class="ai-summary-section"><div class="ai-summary-section-title action">\u26A1 Action Items</div><ul>';
+          s.action_items.forEach(function(item) { html += '<li>' + esc(item) + '</li>'; });
+          html += '</ul></div>';
+        }
+
+        if (concernCount > 0) {
+          html += '<div class="ai-summary-section"><div class="ai-summary-section-title concern">\u26A0 Concerns</div><ul>';
+          s.concerns.forEach(function(item) { html += '<li>' + esc(item) + '</li>'; });
+          html += '</ul></div>';
+        }
+
+        if (s.recent_comms && s.recent_comms.length > 0) {
+          html += '<div class="ai-summary-section"><div class="ai-summary-section-title comms">\uD83D\uDCAC Recent Communications</div>';
+          s.recent_comms.forEach(function(c) {
+            var icon = c.channel === 'whatsapp' ? '\uD83D\uDCAC' : c.channel === 'email' ? '\uD83D\uDCE7' : '\uD83D\uDCDD';
+            var who = c.direction === 'inbound' ? (c.sender_or_recipient || c.sender || 'GP') : (c.sender_or_recipient || c.recipient || '');
+            html += '<div class="comms-line">' + icon + ' <strong>' + esc(who) + ':</strong> ' + esc(c.summary || '') + ' <span class="comms-age">\u2014 ' + esc(c.age || '') + '</span></div>';
+          });
+          html += '</div>';
+        }
+
+        if (s.outstanding_requirements && s.outstanding_requirements.length > 0) {
+          html += '<div class="ai-summary-section"><div class="ai-summary-section-title reqs">\uD83D\uDCCB Outstanding Requirements</div>';
+          s.outstanding_requirements.forEach(function(r) {
+            if (r.done) {
+              html += '<div class="req-done">\u2611 ' + esc(r.item) + '</div>';
+            } else {
+              html += '<div>\u2610 ' + esc(r.item) + '</div>';
+            }
+          });
+          html += '</div>';
+        }
+
+        html += '</div>';
+        html += '<div class="ai-summary-toggle"><button data-ai-toggle>\u25BC Show details</button></div>';
+        html += '</div>';
+        container.innerHTML = html;
+      })
+      .catch(function(err) {
+        console.error('[AI Summary] fetch error:', err);
+        container.innerHTML = '<div class="ai-summary-card"><div class="ai-summary-error">Failed to load AI summary.<br><button class="ai-retry" data-ai-retry="' + esc(caseId) + '">Retry</button></div></div>';
+      });
+  }
+
+  function _aiTimeAgo(isoStr) {
+    var diff = Date.now() - new Date(isoStr).getTime();
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+    return Math.floor(diff / 86400000) + 'd ago';
+  }
+
   function renderDetail(){
     const el=document.getElementById("detailContent");if(!el)return;
     const prevScroll=el.parentElement?el.parentElement.scrollTop||el.scrollTop:el.scrollTop;
@@ -3013,10 +3105,12 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       el.innerHTML=`
         <button class="btn sm" data-gp-back style="margin-bottom:8px;display:none">\u2190 Back</button>
         ${profileBarHtml}
+        <div id="aiSummaryContainer"></div>
         ${renderJourneyRail(c)}
         ${tabsBar}
         <div class="gp-detail-tab-pane">${paneHtml}</div>
       `;
+      renderAiSummary(c.id, document.getElementById('aiSummaryContainer'));
       // Auto-expand only the FIRST practice_pack_child task detail on the Tasks tab
       if(tab==='tasks'||!tab){
         var _autoExpanded=false;
@@ -4945,6 +5039,26 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           btn.textContent=panel.classList.contains("open")?"\u25B4":"\u25BE";
         }
       }
+      // AI Summary toggle
+      var aiToggle = e.target.closest('[data-ai-toggle]');
+      if (aiToggle) {
+        var detail = document.getElementById('aiSummaryDetail');
+        if (detail) {
+          var isOpen = detail.classList.toggle('open');
+          aiToggle.textContent = isOpen ? '\u25B2 Hide details' : '\u25BC Show details';
+        }
+        return;
+      }
+
+      // AI Summary refresh/retry
+      var aiRetry = e.target.closest('[data-ai-retry]');
+      if (aiRetry) {
+        var retryCaseId = aiRetry.getAttribute('data-ai-retry');
+        var container = document.getElementById('aiSummaryContainer');
+        if (retryCaseId && container) renderAiSummary(retryCaseId, container);
+        return;
+      }
+
       const gpTab=e.target.closest("[data-gp-tab]");
       if(gpTab){S.gpsProfileTab=gpTab.getAttribute("data-gp-tab");renderDetail();return;}
       const gpBack=e.target.closest("[data-gp-back]");
