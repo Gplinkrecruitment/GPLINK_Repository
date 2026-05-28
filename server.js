@@ -495,6 +495,132 @@ async function deliverOfferContract(userId, caseId, zohoApplicationId, zohoCandi
   return { delivered: true, fileName: fileName, driveFileId: driveFileId };
 }
 
+// ── Contract AI utilities ──
+
+async function scanContractSignatures(buffer, mimeType, filename) {
+  var safeDefault = { has_candidate_signature: false, has_employer_signature: false, signature_count: 0, confidence: 'none', notes: 'API key not configured' };
+  if (!process.env.ANTHROPIC_API_KEY) return safeDefault;
+
+  try {
+    var data = buffer.toString('base64');
+    var normalizedMime = mimeType;
+    if (mimeType === 'image/heic' || mimeType === 'image/heif') normalizedMime = 'image/jpeg';
+
+    var docContentBlock;
+    if (mimeType === 'application/pdf') {
+      docContentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: data } };
+    } else if (normalizedMime.startsWith('image/')) {
+      docContentBlock = { type: 'image', source: { type: 'base64', media_type: normalizedMime, data: data } };
+    } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || (filename && filename.toLowerCase().endsWith('.docx'))) {
+      docContentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', data: data } };
+    } else {
+      docContentBlock = { type: 'document', source: { type: 'base64', media_type: mimeType, data: data } };
+    }
+
+    var promptBlock = {
+      type: 'text',
+      text: 'Analyze this contract document for signatures. Identify whether a candidate (doctor/GP) signature is present, whether an employer/practice signature is present, and count total signature fields filled. Return ONLY a JSON object with these fields: signature_count (integer), has_candidate_signature (boolean), has_employer_signature (boolean), confidence (string: "high", "medium", "low", or "none"), notes (string, brief explanation). Do not include any other text.'
+    };
+
+    var contentBlocks = [docContentBlock, promptBlock];
+
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 60000);
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        temperature: 0,
+        messages: [{ role: 'user', content: contentBlocks }]
+      })
+    });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      console.error('[ContractScan] API error', resp.status);
+      return Object.assign({}, safeDefault, { notes: 'API error ' + resp.status });
+    }
+
+    var respJson = await resp.json();
+    var rawText = (respJson.content && respJson.content[0] && respJson.content[0].text) || '';
+    var cleaned = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    var result = JSON.parse(cleaned);
+    console.log('[ContractScan]', filename, JSON.stringify(result));
+    return result;
+  } catch (e) {
+    console.error('[ContractScan] error:', e.message);
+    return Object.assign({}, safeDefault, { has_employer_signature: false, notes: 'Scan failed: ' + e.message });
+  }
+}
+
+async function diffContracts(oldBuffer, oldMime, newBuffer, newMime) {
+  if (!process.env.ANTHROPIC_API_KEY) return '';
+
+  function docBlock(buf, mime) {
+    var data = buf.toString('base64');
+    var normalizedMime = mime;
+    if (mime === 'image/heic' || mime === 'image/heif') normalizedMime = 'image/jpeg';
+    if (mime === 'application/pdf') {
+      return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: data } };
+    } else if (normalizedMime.startsWith('image/')) {
+      return { type: 'image', source: { type: 'base64', media_type: normalizedMime, data: data } };
+    } else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      return { type: 'document', source: { type: 'base64', media_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', data: data } };
+    } else {
+      return { type: 'document', source: { type: 'base64', media_type: mime, data: data } };
+    }
+  }
+
+  try {
+    var contentBlocks = [
+      { type: 'text', text: 'PREVIOUS VERSION:' },
+      docBlock(oldBuffer, oldMime),
+      { type: 'text', text: 'NEW VERSION:' },
+      docBlock(newBuffer, newMime),
+      { type: 'text', text: 'Compare the two contract versions above and provide a concise summary of the key differences. Focus on changes to terms, conditions, dates, amounts, parties, or any other material changes. Be brief and specific.' }
+    ];
+
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 90000);
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{ role: 'user', content: contentBlocks }]
+      })
+    });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      console.error('[ContractDiff] API error', resp.status);
+      return '';
+    }
+
+    var respJson = await resp.json();
+    var text = (respJson.content && respJson.content[0] && respJson.content[0].text) || '';
+    var trimmed = text.trim();
+    console.log('[ContractDiff] diff length:', trimmed.length);
+    return trimmed;
+  } catch (e) {
+    console.error('[ContractDiff] error:', e.message);
+    return '';
+  }
+}
+
 // ── Gmail integration (Phase 1b) ──
 const MONITORED_VA_EMAILS = String(process.env.MONITORED_VA_EMAILS || 'hazel@mygplink.com.au')
   .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
