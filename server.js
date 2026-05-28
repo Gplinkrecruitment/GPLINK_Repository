@@ -26040,7 +26040,9 @@ Return ONLY valid JSON with no markdown formatting:
       if (!anthropicRes.ok) {
         var errText = await anthropicRes.text().catch(function() { return ''; });
         console.error('[AI Summary] Anthropic error:', anthropicRes.status, errText);
-        sendJson(res, 502, { ok: false, error: 'AI service returned an error.' });
+        var errDetail = '';
+        try { var errJson = JSON.parse(errText); errDetail = (errJson.error && errJson.error.message) || ''; } catch (e) { errDetail = errText.substring(0, 200); }
+        sendJson(res, 502, { ok: false, error: 'AI service error: ' + (errDetail || 'status ' + anthropicRes.status) });
         return;
       }
 
