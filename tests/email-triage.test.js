@@ -7,7 +7,7 @@ describe('Phase 1b AI matching — Sonnet + prompt cache', () => {
   it('posts with model claude-sonnet-4-6 and cache_control on system block', async () => {
     const capturedBody = [];
     globalThis.fetch = vi.fn(async (url, opts) => {
-      if (String(url).includes('api.anthropic.com')) {
+      if ((() => { try { return new URL(String(url)).hostname === 'api.anthropic.com'; } catch(_) { return false; } })()) {
         capturedBody.push(JSON.parse(opts.body));
         return {
           ok: true,

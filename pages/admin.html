@@ -1418,7 +1418,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     commencement:{gp:"Complete pre-arrival checklist, confirm arrival date.",va:"Prepare welcome pack. Coordinate with practice. Confirm all registrations complete."}
   };
   function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}
+  function escAttr(s){return esc(String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'));}
   function safeUrl(u,fallback){if(!u||typeof u!=="string")return fallback||"#";var t=u.trim().toLowerCase();if(t.startsWith("https://")||t.startsWith("http://")||t.startsWith("whatsapp://")||t.startsWith("data:"))return esc(u.trim());return fallback||"#";}
+  function isHostMatch(urlStr,host){try{var h=new URL(urlStr).hostname;return h===host||h.endsWith('.'+host);}catch(e){return false;}}
+  function isDtUrl(u){return!!u&&typeof u==='string'&&isHostMatch(u,'doubletick.io');}
+  function isDriveUrl(u){return!!u&&typeof u==='string'&&isHostMatch(u,'drive.google.com');}
 
   /* ══ Interaction guard — prevents destructive re-renders while user is active ══ */
   function isUserInteracting(){
@@ -1445,7 +1449,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ${(tk.gp_phone||tk.gp_email)?'<div class="task-gp-meta">'+(tk.gp_phone?'<span>'+esc(tk.gp_phone)+'</span>':'')+(tk.gp_email?'<span>'+esc(tk.gp_email)+'</span>':'')+'</div>':''}
       <div class="todo-detail">${esc(tk.category||"")} • opened ${fmtR(tk.created_at)}</div>
       <div class="todo-actions">
-        ${(tk.doubletick_url||tk.whatsapp_link||"").indexOf("doubletick.io")>-1
+        ${isDtUrl(tk.doubletick_url||tk.whatsapp_link||"")
           ?'<a class="btn dt" href="'+safeUrl(tk.doubletick_url||tk.whatsapp_link)+'" target="_blank" rel="noopener">Open Chat</a>'
           :tk.gp_email?'<a class="btn" href="mailto:'+esc(tk.gp_email)+'" target="_blank" rel="noopener">Email GP</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(tk.user_id)}" data-nudge-stage="${esc(tk.stage||"")}" data-nudge-substage="${esc(tk.substage||"")}" data-nudge-name="${esc(tk.gp_first_name||"")}">Send Nudge</button>
@@ -1465,7 +1469,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       ${(t.gp_phone||t.gp_email)?'<div class="task-gp-meta">'+(t.gp_phone?'<span>'+esc(t.gp_phone)+'</span>':'')+(t.gp_email?'<span>'+esc(t.gp_email)+'</span>':'')+'</div>':''}
       <div class="todo-detail">${esc(t.description||"")} ${t.due_date?" • Due "+fmtD(t.due_date):""} ${overdue?'<span style="color:var(--red);font-weight:800"> • OVERDUE</span>':""}</div>
       <div class="todo-actions">
-        ${(t.doubletick_conversation_url||t.whatsapp_link||"").indexOf("doubletick.io/conversations/")>-1
+        ${isDtUrl(t.doubletick_conversation_url||t.whatsapp_link||"")
           ?'<a class="btn dt" href="'+safeUrl(t.doubletick_conversation_url||t.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'
           :t.gp_email?'<a class="btn" href="mailto:'+esc(t.gp_email)+'" target="_blank" rel="noopener">Email GP</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(t.gp_user_id||"")}" data-nudge-stage="${esc(t.case_stage||t.related_stage||"")}" data-nudge-substage="${esc(t.related_substage||"")}" data-nudge-name="${esc(t.gp_first_name||"")}">Send Nudge</button>
@@ -1511,7 +1515,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         ${highCount?'<span class="task-count-pill high">'+highCount+' high</span>':''}
       </div>
       <div class="todo-actions">
-        ${(g.doubletickUrl||firstTask.whatsapp_link||"").indexOf("doubletick.io/conversations/")>-1
+        ${isDtUrl(g.doubletickUrl||firstTask.whatsapp_link||"")
           ?'<a class="btn dt" href="'+safeUrl(g.doubletickUrl||firstTask.whatsapp_link)+'" target="_blank" rel="noopener">WhatsApp</a>'
           :g.email?'<a class="btn" href="mailto:'+esc(g.email)+'" target="_blank" rel="noopener">Email GP</a>':''}
         <button class="btn nudge" data-nudge-user="${esc(g.userId||"")}" data-nudge-stage="${esc(g.stage||"")}" data-nudge-substage="" data-nudge-name="${esc(g.firstName||"")}">Send Nudge</button>
@@ -2480,7 +2484,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
             html+='<a class="st-dropdown-item" href="mailto:'+esc(gpEmail2)+'" target="_blank">\u2709 Email GP</a>';
           }
           var dtUrl2=t.doubletick_conversation_url||u.doubletick_conversation_url||"";
-          if(dtUrl2.indexOf("doubletick.io/conversations/")>-1){
+          if(isDtUrl(dtUrl2)){
             html+='<a class="st-dropdown-item" href="'+safeUrl(dtUrl2)+'" target="_blank">\uD83D\uDCAC WhatsApp</a>';
           }
           html+='<button class="st-dropdown-item" data-case-nudge="'+esc(c.user_id||"")+'" data-nudge-stage="'+esc(c.stage||"")+'" data-nudge-substage="" data-nudge-name="'+esc(((u.gp_name||c.gp_name||"").split(" ")[0]||"").trim())+'">\uD83D\uDCE8 Send Nudge</button>';
@@ -3100,7 +3104,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       const gpPhone=u.gp_phone||"";
       const gpCountry=u.country||"";
       const dtUrl=u.doubletick_conversation_url||u.whatsapp_link||"";
-      const hasDt=dtUrl.indexOf("doubletick.io/conversations/")>-1;
+      const hasDt=isDtUrl(dtUrl);
 
       const practiceName=u.practice_name||(u.practice_contact&&u.practice_contact.practiceName)||c.practice_name||"";
       const profileBarHtml=`
@@ -3732,12 +3736,14 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var bodyEl = document.getElementById('modalBody');
     titleEl.textContent = 'Position Description' + (practiceName ? ' \u2014 ' + practiceName : '');
     bodyEl.innerHTML =
-      (practiceName ? '<div class="pd-meta">Practice: ' + practiceName + ' | Role: ' + roleTitle + ' | Location: ' + location + '</div>' : '') +
+      (practiceName ? '<div class="pd-meta">Practice: ' + esc(practiceName) + ' | Role: ' + esc(roleTitle) + ' | Location: ' + esc(location) + '</div>' : '') +
       '<div class="pd-editor" contenteditable="true" id="pd-editor-content">' + html + '</div>' +
       '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
-      '<button class="btn-action btn-submit" style="padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;color:#fff;background:#00b894" onclick="approvePositionDescription(\'' + taskId + '\')">Approve & Send to GP</button>' +
+      '<button class="btn-action btn-submit" style="padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;color:#fff;background:#00b894" data-approve-pd="' + esc(taskId) + '">Approve & Send to GP</button>' +
       '<button style="padding:8px 20px;border-radius:6px;font-size:13px;cursor:pointer;border:none;background:#b2bec3;color:#fff" onclick="closeModal()">Cancel</button>' +
       '</div>';
+    var approveBtn = bodyEl.querySelector('[data-approve-pd]');
+    if (approveBtn) approveBtn.addEventListener('click', function() { approvePositionDescription(taskId); });
     modal.classList.add('open');
   }
 
@@ -4680,7 +4686,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
       }catch(err){contentHtml='<div class="doc-preview-fallback">Failed to load: '+esc(err.message)+'</div>';}
     }else{
-      if(dataUrl.indexOf('drive.google.com')>-1){
+      if(isDriveUrl(dataUrl)){
         contentHtml='<iframe src="'+esc(dataUrl.replace('/view','/preview'))+'" class="doc-preview-frame"></iframe>';
       }else{
         contentHtml='<iframe src="'+esc(dataUrl)+'" class="doc-preview-frame"></iframe>';
@@ -5081,7 +5087,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           aiToggle.textContent = isOpen ? '\u25B2 Hide details' : '\u25BC Show details';
           // Track expanded state in cache
           var cachedCaseId = S.selectedCaseId;
-          if (cachedCaseId && _aiSummaryCache[cachedCaseId]) {
+          if (cachedCaseId && cachedCaseId !== '__proto__' && cachedCaseId !== 'constructor' && Object.prototype.hasOwnProperty.call(_aiSummaryCache, cachedCaseId)) {
             _aiSummaryCache[cachedCaseId].expanded = isOpen;
           }
         }
@@ -6104,7 +6110,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h+='</div>';
         h+='<div class="support-expand-actions">';
         var _dtLink=item.doubletick_url||item.whatsapp_link||"";
-        if(_dtLink&&_dtLink.indexOf("doubletick.io")>-1)h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">Open Chat</a>';
+        if(isDtUrl(_dtLink))h+='<a class="btn dt" href="'+safeUrl(_dtLink)+'" target="_blank" rel="noopener">Open Chat</a>';
         if(item.gp_email)h+='<a class="btn" href="mailto:'+esc(item.gp_email)+'" target="_blank" rel="noopener">Email GP</a>';
         if(item.status!=="closed"){
           h+='<button class="btn primary sm" data-support-resolve="'+esc(item.id)+'" data-support-kind="'+esc(item.kind)+'">Resolve & Close</button>';
@@ -6178,7 +6184,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         }
         return '<div class="guide-folder" style="margin-left:'+(depth*16)+'px">'+
           '<div class="guide-folder-header'+(expanded?' active':'')+'" data-guide-folder="'+f.id+'">'+
-            '<span>'+(expanded?'&#9660;':'&#9654;')+'</span> &#128193; '+f.name+
+            '<span>'+(expanded?'&#9660;':'&#9654;')+'</span> &#128193; '+esc(f.name)+
             '<span class="guide-folder-count">'+totalCount+'</span>'+
             (sa?'<button class="guide-mgmt-btn" data-move-folder="'+f.id+'" title="Move">&#8693;</button><button class="guide-mgmt-btn" data-edit-folder="'+f.id+'" title="Rename">&#9998;</button><button class="guide-mgmt-btn" data-delete-folder="'+f.id+'" title="Delete">&times;</button>':'')+
           '</div>'+itemsHtml+
@@ -6192,8 +6198,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     }
     var detailHtml='';
     if(selectedItem){
-      detailHtml='<div class="guide-detail-header"><h3>'+selectedItem.title+'</h3><button onclick="S.guide.selectedItemId=null;renderGuidePanel();" style="border:none;background:transparent;cursor:pointer;font-size:18px;color:var(--muted);">&times;</button></div>'+
-        '<div class="guide-detail-body"><iframe src="'+selectedItem.scribe_url+'" allowfullscreen></iframe></div>';
+      detailHtml='<div class="guide-detail-header"><h3>'+esc(selectedItem.title)+'</h3><button onclick="S.guide.selectedItemId=null;renderGuidePanel();" style="border:none;background:transparent;cursor:pointer;font-size:18px;color:var(--muted);">&times;</button></div>'+
+        '<div class="guide-detail-body"><iframe src="'+safeUrl(selectedItem.scribe_url)+'" allowfullscreen></iframe></div>';
     }else{
       detailHtml='<div class="guide-empty"><div><div style="font-size:40px;margin-bottom:8px;">&#127891;</div>Select a guide to view the tutorial</div></div>';
     }
@@ -6353,7 +6359,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           h += '<select id="assign-task-' + esc(doc.gmail_message_id) + '-' + ai + '" style="font-size:0.8rem;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;">';
           h += '<option value="">Assign to task...</option>';
           h += '</select>';
-          h += '<button class="btn primary sm" onclick="assignUnmatchedDoc(\'' + esc(doc.gmail_message_id) + '\',' + ai + ')">Assign</button>';
+          h += '<button class="btn primary sm" onclick="assignUnmatchedDoc(\'' + escAttr(doc.gmail_message_id) + '\',' + ai + ')">Assign</button>';
           h += '</div>';
         }
         h += '</div>';
@@ -6379,8 +6385,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         h += '</div>';
         h += '<div style="margin-top:4px;font-size:12px;color:#6b7280;">From: ' + esc(q.sender_email || '') + ' \u2014 Subject: ' + esc(q.subject || '') + '</div>';
         h += '<div style="margin-top:4px;display:flex;gap:4px;">';
-        if (q.needs_triage) h += '<button class="btn primary sm" onclick="assignIncomingQuestion(\'' + esc(q.id) + '\')">Assign to GP\u2026</button>';
-        h += '<button class="btn sm" onclick="resolveIncomingQuestion(\'' + esc(q.id) + '\')">Dismiss</button>';
+        if (q.needs_triage) h += '<button class="btn primary sm" onclick="assignIncomingQuestion(\'' + escAttr(q.id) + '\')">Assign to GP\u2026</button>';
+        h += '<button class="btn sm" onclick="resolveIncomingQuestion(\'' + escAttr(q.id) + '\')">Dismiss</button>';
         h += '</div>';
         h += '</div>';
       }
@@ -6595,7 +6601,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // No envelope sent yet
     if (!zs || !zs.status) {
       html += '<div class="doc-task-actions">';
-      html += '<button class="btn-action send" onclick="sendSppa(\'' + esc(task.id) + '\')">Send SPPA</button>';
+      html += '<button class="btn-action send" onclick="sendSppa(\'' + escAttr(task.id) + '\')">Send SPPA</button>';
       html += '</div>';
       html += '<div class="doc-task-status"><span class="doc-task-badge pending-setup">No envelope sent</span></div>';
       return html;
@@ -6612,11 +6618,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     // Action buttons based on status
     html += '<div class="sppa-actions">';
     if (zs.status === 'awaiting_review') {
-      html += '<button class="btn-action review" onclick="openSppaReview(\'' + esc(task.id) + '\')">Review SPPA</button>';
+      html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review SPPA</button>';
     } else if (zs.status === 'declined' || zs.status === 'voided' || zs.status === 'expired') {
-      html += '<button class="btn-action resend" onclick="resendSppa(\'' + esc(task.id) + '\')">Resend</button>';
+      html += '<button class="btn-action resend" onclick="resendSppa(\'' + escAttr(task.id) + '\')">Resend</button>';
     } else if (zs.status === 'recipient_delivery_failed') {
-      html += '<button class="btn-action update-email" onclick="updateSppaRecipient(\'' + esc(task.id) + '\')">Update Email</button>';
+      html += '<button class="btn-action update-email" onclick="updateSppaRecipient(\'' + escAttr(task.id) + '\')">Update Email</button>';
     }
     html += '</div>';
     return html;
