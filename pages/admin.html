@@ -2954,8 +2954,94 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       </div>`;
   }
 
-  function renderAiSummary(caseId, container) {
+  var _aiSummaryCache = {}; // { caseId: { html, expanded } }
+
+  function _buildAiSummaryHtml(caseId, data) {
+    var s = data.summary;
+    var actionCount = (s.action_items || []).length;
+    var concernCount = (s.concerns || []).length;
+
+    var html = '<div class="ai-summary-card">';
+    html += '<div class="ai-summary-header">';
+    html += '<div class="ai-summary-title">\u2728 AI Summary</div>';
+    html += '<div class="ai-summary-actions">';
+    if (data.meta && data.meta.generated_at) {
+      html += '<span class="ai-ts">' + esc(_aiTimeAgo(data.meta.generated_at)) + '</span>';
+    }
+    html += '<button class="ai-refresh" data-ai-retry="' + esc(caseId) + '">\u21BB Refresh</button>';
+    html += '</div></div>';
+
+    html += '<div class="ai-summary-overview">' + esc(s.overview || '') + '</div>';
+
+    html += '<div class="ai-summary-pills">';
+    html += '<span class="ai-pill actions">' + actionCount + ' action' + (actionCount !== 1 ? 's' : '') + ' needed</span>';
+    if (concernCount > 0) {
+      html += '<span class="ai-pill concerns-active">' + concernCount + ' concern' + (concernCount !== 1 ? 's' : '') + '</span>';
+    } else {
+      html += '<span class="ai-pill tickets">No concerns</span>';
+    }
+    html += '</div>';
+
+    html += '<div class="ai-summary-detail" id="aiSummaryDetail">';
+    html += '<hr>';
+
+    if (actionCount > 0) {
+      html += '<div class="ai-summary-section"><div class="ai-summary-section-title action">\u26A1 Action Items</div><ul>';
+      s.action_items.forEach(function(item) { html += '<li>' + esc(item) + '</li>'; });
+      html += '</ul></div>';
+    }
+
+    if (concernCount > 0) {
+      html += '<div class="ai-summary-section"><div class="ai-summary-section-title concern">\u26A0 Concerns</div><ul>';
+      s.concerns.forEach(function(item) { html += '<li>' + esc(item) + '</li>'; });
+      html += '</ul></div>';
+    }
+
+    if (s.recent_comms && s.recent_comms.length > 0) {
+      html += '<div class="ai-summary-section"><div class="ai-summary-section-title comms">\uD83D\uDCAC Recent Communications</div>';
+      s.recent_comms.forEach(function(c) {
+        var icon = c.channel === 'whatsapp' ? '\uD83D\uDCAC' : c.channel === 'email' ? '\uD83D\uDCE7' : '\uD83D\uDCDD';
+        var who = c.direction === 'inbound' ? (c.sender_or_recipient || c.sender || 'GP') : (c.sender_or_recipient || c.recipient || '');
+        html += '<div class="comms-line">' + icon + ' <strong>' + esc(who) + ':</strong> ' + esc(c.summary || '') + ' <span class="comms-age">\u2014 ' + esc(c.age || '') + '</span></div>';
+      });
+      html += '</div>';
+    }
+
+    if (s.outstanding_requirements && s.outstanding_requirements.length > 0) {
+      html += '<div class="ai-summary-section"><div class="ai-summary-section-title reqs">\uD83D\uDCCB Outstanding Requirements</div>';
+      s.outstanding_requirements.forEach(function(r) {
+        if (r.done) {
+          html += '<div class="req-done">\u2611 ' + esc(r.item) + '</div>';
+        } else {
+          html += '<div>\u2610 ' + esc(r.item) + '</div>';
+        }
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';
+    html += '<div class="ai-summary-toggle"><button data-ai-toggle>\u25BC Show details</button></div>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderAiSummary(caseId, container, force) {
     if (!container) return;
+
+    // Use cache if available and not forced refresh
+    var cached = _aiSummaryCache[caseId];
+    if (cached && cached.html && !force) {
+      container.innerHTML = cached.html;
+      // Restore expanded state
+      if (cached.expanded) {
+        var detail = container.querySelector('#aiSummaryDetail');
+        var toggle = container.querySelector('[data-ai-toggle]');
+        if (detail) detail.classList.add('open');
+        if (toggle) toggle.textContent = '\u25B2 Hide details';
+      }
+      return;
+    }
+
     container.innerHTML = '<div class="ai-summary-card"><div class="ai-summary-loading"><span class="ai-spinner"></span>Generating AI summary\u2026</div></div>';
 
     fetch('/api/admin/candidate-summary?case_id=' + encodeURIComponent(caseId), { credentials: 'same-origin' })
@@ -2963,78 +3049,17 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       .then(function(data) {
         if (!data.ok || !data.summary) {
           container.innerHTML = '<div class="ai-summary-card"><div class="ai-summary-error">' + esc(data.error || 'Unable to generate AI summary.') + '<br><button class="ai-retry" data-ai-retry="' + esc(caseId) + '">Retry</button></div></div>';
+          delete _aiSummaryCache[caseId];
           return;
         }
-        var s = data.summary;
-        var actionCount = (s.action_items || []).length;
-        var concernCount = (s.concerns || []).length;
-
-        var html = '<div class="ai-summary-card">';
-        html += '<div class="ai-summary-header">';
-        html += '<div class="ai-summary-title">\u2728 AI Summary</div>';
-        html += '<div class="ai-summary-actions">';
-        if (data.meta && data.meta.generated_at) {
-          html += '<span class="ai-ts">' + esc(_aiTimeAgo(data.meta.generated_at)) + '</span>';
-        }
-        html += '<button class="ai-refresh" data-ai-retry="' + esc(caseId) + '">\u21BB Refresh</button>';
-        html += '</div></div>';
-
-        html += '<div class="ai-summary-overview">' + esc(s.overview || '') + '</div>';
-
-        html += '<div class="ai-summary-pills">';
-        html += '<span class="ai-pill actions">' + actionCount + ' action' + (actionCount !== 1 ? 's' : '') + ' needed</span>';
-        if (concernCount > 0) {
-          html += '<span class="ai-pill concerns-active">' + concernCount + ' concern' + (concernCount !== 1 ? 's' : '') + '</span>';
-        } else {
-          html += '<span class="ai-pill tickets">No concerns</span>';
-        }
-        html += '</div>';
-
-        html += '<div class="ai-summary-detail" id="aiSummaryDetail">';
-        html += '<hr>';
-
-        if (actionCount > 0) {
-          html += '<div class="ai-summary-section"><div class="ai-summary-section-title action">\u26A1 Action Items</div><ul>';
-          s.action_items.forEach(function(item) { html += '<li>' + esc(item) + '</li>'; });
-          html += '</ul></div>';
-        }
-
-        if (concernCount > 0) {
-          html += '<div class="ai-summary-section"><div class="ai-summary-section-title concern">\u26A0 Concerns</div><ul>';
-          s.concerns.forEach(function(item) { html += '<li>' + esc(item) + '</li>'; });
-          html += '</ul></div>';
-        }
-
-        if (s.recent_comms && s.recent_comms.length > 0) {
-          html += '<div class="ai-summary-section"><div class="ai-summary-section-title comms">\uD83D\uDCAC Recent Communications</div>';
-          s.recent_comms.forEach(function(c) {
-            var icon = c.channel === 'whatsapp' ? '\uD83D\uDCAC' : c.channel === 'email' ? '\uD83D\uDCE7' : '\uD83D\uDCDD';
-            var who = c.direction === 'inbound' ? (c.sender_or_recipient || c.sender || 'GP') : (c.sender_or_recipient || c.recipient || '');
-            html += '<div class="comms-line">' + icon + ' <strong>' + esc(who) + ':</strong> ' + esc(c.summary || '') + ' <span class="comms-age">\u2014 ' + esc(c.age || '') + '</span></div>';
-          });
-          html += '</div>';
-        }
-
-        if (s.outstanding_requirements && s.outstanding_requirements.length > 0) {
-          html += '<div class="ai-summary-section"><div class="ai-summary-section-title reqs">\uD83D\uDCCB Outstanding Requirements</div>';
-          s.outstanding_requirements.forEach(function(r) {
-            if (r.done) {
-              html += '<div class="req-done">\u2611 ' + esc(r.item) + '</div>';
-            } else {
-              html += '<div>\u2610 ' + esc(r.item) + '</div>';
-            }
-          });
-          html += '</div>';
-        }
-
-        html += '</div>';
-        html += '<div class="ai-summary-toggle"><button data-ai-toggle>\u25BC Show details</button></div>';
-        html += '</div>';
+        var html = _buildAiSummaryHtml(caseId, data);
+        _aiSummaryCache[caseId] = { html: html, expanded: false };
         container.innerHTML = html;
       })
       .catch(function(err) {
         console.error('[AI Summary] fetch error:', err);
         container.innerHTML = '<div class="ai-summary-card"><div class="ai-summary-error">Failed to load AI summary.<br><button class="ai-retry" data-ai-retry="' + esc(caseId) + '">Retry</button></div></div>';
+        delete _aiSummaryCache[caseId];
       });
   }
 
@@ -5046,16 +5071,21 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if (detail) {
           var isOpen = detail.classList.toggle('open');
           aiToggle.textContent = isOpen ? '\u25B2 Hide details' : '\u25BC Show details';
+          // Track expanded state in cache
+          var cachedCaseId = S.selectedCaseId;
+          if (cachedCaseId && _aiSummaryCache[cachedCaseId]) {
+            _aiSummaryCache[cachedCaseId].expanded = isOpen;
+          }
         }
         return;
       }
 
-      // AI Summary refresh/retry
+      // AI Summary refresh/retry (force=true bypasses cache)
       var aiRetry = e.target.closest('[data-ai-retry]');
       if (aiRetry) {
         var retryCaseId = aiRetry.getAttribute('data-ai-retry');
         var container = document.getElementById('aiSummaryContainer');
-        if (retryCaseId && container) renderAiSummary(retryCaseId, container);
+        if (retryCaseId && container) renderAiSummary(retryCaseId, container, true);
         return;
       }
 
