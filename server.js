@@ -20549,11 +20549,21 @@ async function handleApi(req, res, pathname) {
       var att = emailAttachments[ati];
       if (!att.url) continue;
       try {
-        var fetched = await fetchAttachmentAsBase64(att.url, att.filename || null);
-        resolvedAttachments.push(fetched);
+        if (att.url.startsWith('data:')) {
+          // Inline data: URI — decode directly
+          var commaIdx = att.url.indexOf(',');
+          var mimeMatch = att.url.substring(0, commaIdx).match(/data:([^;]+)/);
+          var attMime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+          var b64 = att.url.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+          while (b64.length % 4 !== 0) b64 += '=';
+          resolvedAttachments.push({ filename: att.filename || 'attachment', mimeType: attMime, content: b64 });
+        } else {
+          var fetched = await fetchAttachmentAsBase64(att.url, att.filename || null);
+          resolvedAttachments.push(fetched);
+        }
       } catch (fetchErr) {
-        console.error('[AdminEmailSend] Attachment fetch failed:', att.url, fetchErr.message);
-        sendJson(res, 400, { ok: false, message: 'Failed to fetch attachment: ' + (att.filename || att.url) + ' — ' + fetchErr.message });
+        console.error('[AdminEmailSend] Attachment fetch failed:', att.url && att.url.substring(0, 50), fetchErr.message);
+        sendJson(res, 400, { ok: false, message: 'Failed to fetch attachment: ' + (att.filename || 'file') + ' \u2014 ' + fetchErr.message });
         return;
       }
     }
@@ -26513,6 +26523,26 @@ Return ONLY valid JSON with no markdown formatting:
       // 6. Update user_documents so My Documents page shows "Ready" + download link
       const docKey = task.related_document_key || '';
       const driveFileId = driveFile && driveFile.id ? driveFile.id : null;
+
+      // For offer_contract: delete the old incomplete contract from Drive if it exists
+      if (docKey === 'offer_contract' && regCase && regCase.user_id) {
+        try {
+          var oldUdRes = await supabaseDbRequest('user_documents',
+            'select=google_drive_file_id&user_id=eq.' + encodeURIComponent(regCase.user_id) + '&document_key=eq.offer_contract&limit=1');
+          var oldUd = oldUdRes.ok && Array.isArray(oldUdRes.data) && oldUdRes.data[0] ? oldUdRes.data[0] : null;
+          if (oldUd && oldUd.google_drive_file_id && oldUd.google_drive_file_id !== driveFileId) {
+            var drive2 = await getGoogleDriveClient();
+            if (drive2) {
+              await drive2.files.delete({ fileId: oldUd.google_drive_file_id }).catch(function (e) {
+                console.log('[AdminSubmitDrive] Could not delete old contract from Drive:', e.message);
+              });
+              console.log('[AdminSubmitDrive] Deleted old incomplete contract from Drive:', oldUd.google_drive_file_id);
+            }
+          }
+        } catch (delErr) {
+          console.error('[AdminSubmitDrive] Error checking old contract:', delErr.message);
+        }
+      }
       if (docKey && regCase && regCase.user_id) {
         try {
           // 6a. Upsert user_documents (authoritative source for /api/gplink-docs-status)
