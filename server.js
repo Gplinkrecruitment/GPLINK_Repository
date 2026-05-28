@@ -13334,14 +13334,15 @@ async function reconcileAccountCareerDocumentsWithZoho(userId, email) {
 }
 
 function decodeXmlEntities(value) {
+  // Decode &amp; LAST to prevent double-decoding (e.g. &amp;lt; -> &lt; -> <)
   return String(value || '')
-    .replace(/&amp;/g, '&')
+    .replace(/&#xA;/gi, '\n')
+    .replace(/&#x9;/gi, '\t')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#xA;/gi, '\n')
-    .replace(/&#x9;/gi, '\t');
+    .replace(/&amp;/g, '&');
 }
 
 function extractDocxXmlText(xmlValue) {
@@ -18448,9 +18449,13 @@ async function handleApi(req, res, pathname) {
 
   // ── Weekly full backup to Google Drive ──────────────────────
   if (req.method === 'GET' && pathname === '/api/cron/weekly-backup') {
-    var bkCronSecret = String(process.env.CRON_SECRET || process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim();
+    var bkCronSecrets = [
+      String(process.env.CRON_SECRET || '').trim(),
+      String(process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET || '').trim()
+    ].filter(Boolean);
     var bkCronAuth = req.headers['authorization'] || '';
-    if (!bkCronSecret || bkCronAuth !== 'Bearer ' + bkCronSecret) {
+    var bkToken = bkCronAuth.startsWith('Bearer ') ? bkCronAuth.slice(7) : '';
+    if (!bkToken || !bkCronSecrets.some(function(s) { return timingSafeEqualStrings(bkToken, s); })) {
       sendJson(res, 401, { ok: false, error: 'Unauthorized' });
       return;
     }
@@ -22922,7 +22927,8 @@ async function handleApi(req, res, pathname) {
       }
     } else {
       const dbState = loadDbState();
-      if (!dbState.userState[email]) dbState.userState[email] = {};
+      if (email === '__proto__' || email === 'constructor' || email === 'prototype') { sendJson(res, 400, { ok: false }); return; }
+      if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
       dbState.userState[email].gp_onboarding = body;
       saveDbState(dbState);
     }
@@ -23002,7 +23008,8 @@ async function handleApi(req, res, pathname) {
       }
     } else {
       const dbState = loadDbState();
-      if (!dbState.userState[email]) dbState.userState[email] = {};
+      if (email === '__proto__' || email === 'constructor' || email === 'prototype') { sendJson(res, 400, { ok: false }); return; }
+      if (!Object.prototype.hasOwnProperty.call(dbState.userState, email)) dbState.userState[email] = {};
       dbState.userState[email].gp_onboarding = body;
       dbState.userState[email].gp_onboarding_complete = true;
       if (body.accountReviewFlag) {
@@ -29001,7 +29008,7 @@ Return ONLY valid JSON with no markdown formatting:
           if (tag.match(/^<p/i)) return '\n';
           if (tag.match(/^<\/p|^<\/ul|^<\/ol|^<\/li|^<\/h/i)) return '\n';
           return '';
-        }).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+        }).replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
         const lines = stripped.split('\n');
         for (const line of lines) {
