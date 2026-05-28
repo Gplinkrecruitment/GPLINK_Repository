@@ -203,6 +203,7 @@ const DOMAIN_AUTH_TOKEN_URL = String(process.env.DOMAIN_AUTH_TOKEN_URL || 'https
 const ALLOW_DOMAIN_LIFESTYLE_FALLBACK = String(process.env.ALLOW_DOMAIN_LIFESTYLE_FALLBACK || 'false').trim().toLowerCase() === 'true';
 const CAREER_LIFESTYLE_EXPERIENCE_VERSION = 14;
 const CAREER_LIFESTYLE_CACHE_TTL_MS = Number(process.env.CAREER_LIFESTYLE_CACHE_TTL_MS || 6 * 60 * 60 * 1000);
+const PLACEMENT_PAYLOAD_CACHE_TTL_MS = Number(process.env.PLACEMENT_PAYLOAD_CACHE_TTL_MS) || 30 * 60 * 1000;
 const DOMAIN_LIFESTYLE_RESULT_LIMIT = Number(process.env.DOMAIN_LIFESTYLE_RESULT_LIMIT || 18);
 const DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE = Math.max(10, Number(process.env.DOMAIN_LIFESTYLE_SEARCH_PAGE_SIZE || 40) || 40);
 const DOMAIN_LIFESTYLE_MAX_RADIUS_KM = 25;
@@ -16188,6 +16189,16 @@ async function buildCareerPlacementPayload({
   zohoCandidateId,
   skipContractCache
 }) {
+  const appId = sanitizeZohoText(applicationRecord && applicationRecord.id);
+  const placementCacheKey = appId ? `placement_payload:${appId}` : '';
+
+  if (placementCacheKey && !skipContractCache) {
+    const cached = await getRuntimeKv(placementCacheKey).catch(() => null);
+    if (cached && cached.value && typeof cached.value === 'object' && cached.value.practiceName) {
+      return cached.value;
+    }
+  }
+
   const practiceName = getZohoApplicationPracticeName(applicationRecord)
     || getZohoField(jobOpeningRecord, ['Posting_Title', 'Job_Opening_Name', 'Title'])
     || (roleRow && roleRow.practice_name)
@@ -16228,7 +16239,7 @@ async function buildCareerPlacementPayload({
     ? `/api/career/contract?applicationId=${encodeURIComponent(contractApplicationId)}&attachmentId=${encodeURIComponent(contractAttachmentId)}`
     : '';
 
-  return {
+  const placementResult = {
     practiceName,
     roleTitle,
     location,
@@ -16269,6 +16280,12 @@ async function buildCareerPlacementPayload({
       ]
     }
   };
+
+  if (placementCacheKey) {
+    setRuntimeKv(placementCacheKey, placementResult, Date.now() + PLACEMENT_PAYLOAD_CACHE_TTL_MS).catch(() => {});
+  }
+
+  return placementResult;
 }
 
 async function fetchZohoRecruitCareerApplicationsForUser(zoho, email, zohoCandidateId, localApplications) {
@@ -19620,6 +19637,7 @@ async function handleApi(req, res, pathname) {
     if (!email) { sendJson(res, 400, { ok: false, message: 'Session missing email.' }); return; }
     const userId = getSessionSupabaseUserId(session) || await getSupabaseUserIdByEmail(email);
     if (!userId) { sendJson(res, 400, { ok: false, message: 'Cannot resolve user.' }); return; }
+    const forceRefresh = url.searchParams.get('refresh') === '1';
 
     const [profile, result] = await Promise.all([
       isSupabaseDbConfigured()
@@ -19735,7 +19753,8 @@ async function handleApi(req, res, pathname) {
           practiceContacts,
           providerRoleId,
           profile,
-          zohoCandidateId: (localApp && localApp.zoho_candidate_id) || (profile && profile.zoho_candidate_id) || ''
+          zohoCandidateId: (localApp && localApp.zoho_candidate_id) || (profile && profile.zoho_candidate_id) || '',
+          skipContractCache: forceRefresh
         })
         : null;
 
