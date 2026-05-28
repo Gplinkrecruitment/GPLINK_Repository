@@ -8471,12 +8471,12 @@
       return PRACTICE_LIFESTYLE_SCHOOL_IMAGES[key] || PRACTICE_LIFESTYLE_SCHOOL_IMAGES.tweed_heads_south_public_school;
     }
 
-    // NOTE: This is a client-side Google Maps JS API key (inherently browser-exposed).
-    // Ensure HTTP referrer restrictions are configured in Google Cloud Console.
+    // Google Maps config is injected by the server via the lifestyle API payload.
+    // Do NOT hardcode API keys here — they are read from env vars server-side.
     const PRACTICE_LIFESTYLE_DEFAULT_GOOGLE_MAPS = {
-      enabled: true,
-      apiKey: "AIzaSyBZRYsKgvz0k7p6xPMAUQDcWgVU2rzlIDo",
-      mapId: "9c8f47c5b858f789f88a4e4b"
+      enabled: false,
+      apiKey: "",
+      mapId: ""
     };
 
     const PRACTICE_LIFESTYLE_GOOGLE_DARK_STYLES = [
