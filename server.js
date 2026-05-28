@@ -26473,14 +26473,12 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
-  // ── Trigger contract signature check for a user (admin or cron-secret) ──
-  if (pathname === '/api/admin/check-contract-signatures' && req.method === 'POST') {
+  // ── Trigger contract signature check for a user (cron-secret protected) ──
+  if (pathname === '/api/cron/check-contract-signatures' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
-    // Allow either admin session or cron secret for testing
-    var csAuth = getAdminSession(req);
     var csCronSecret = url.searchParams.get('secret') || '';
-    if (!csAuth && csCronSecret !== process.env.CRON_SECRET) {
-      sendJson(res, 401, { ok: false, message: 'Auth required.' }); return;
+    if (!process.env.CRON_SECRET || csCronSecret !== process.env.CRON_SECRET) {
+      sendJson(res, 401, { ok: false, message: 'Invalid secret.' }); return;
     }
     let csBody; try { csBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
     var csUserId = csBody && csBody.user_id ? String(csBody.user_id).trim() : '';
