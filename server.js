@@ -26477,7 +26477,9 @@ Return ONLY valid JSON with no markdown formatting:
   if (pathname === '/api/cron/check-contract-signatures' && req.method === 'POST') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
     var csCronSecret = url.searchParams.get('secret') || '';
-    if (!process.env.CRON_SECRET || csCronSecret !== process.env.CRON_SECRET) {
+    var validSecret = (process.env.CRON_SECRET && csCronSecret === process.env.CRON_SECRET) ||
+      (process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET && csCronSecret === process.env.ZOHO_RECRUIT_SYNC_CRON_SECRET);
+    if (!validSecret) {
       sendJson(res, 401, { ok: false, message: 'Invalid secret.' }); return;
     }
     let csBody; try { csBody = await readJsonBody(req); } catch { sendJson(res, 400, { ok: false }); return; }
