@@ -10061,12 +10061,22 @@
     async function loadRemoteRoles(options = {}) {
       const shouldRender = options.render !== false;
       try {
-        const response = await fetch("/api/career/roles", { credentials: "same-origin" });
-        if (!response.ok) {
-          if (careerDataSource === "fallback") showRolesError("Could not load roles — please refresh the page.");
-          return;
+        var gpCacheFetch = null;
+        try {
+          gpCacheFetch = (window.gpCache && window.gpCache.fetch) || (window.parent && window.parent.gpCache && window.parent.gpCache.fetch) || null;
+        } catch (e) {}
+
+        var payload;
+        if (gpCacheFetch) {
+          payload = await gpCacheFetch("/api/career/roles");
+        } else {
+          var rolesResponse = await fetch("/api/career/roles", { credentials: "same-origin" });
+          if (!rolesResponse.ok) {
+            if (careerDataSource === "fallback") showRolesError("Could not load roles — please refresh the page.");
+            return;
+          }
+          payload = await rolesResponse.json().catch(() => null);
         }
-        const payload = await response.json().catch(() => null);
         if (!payload || payload.ok !== true) {
           showRolesError("Could not load roles — please refresh the page.");
           return;
