@@ -8,7 +8,7 @@
   var PREFIX = "gpc:";
   var OWNER_KEY = "gp_state_owner";
 
-  // TTL tiers: fresh (ms) and stale (ms) windows
+  // TTL tiers (ms): fresh = serve from cache only; stale = serve + background revalidate
   var TIERS = {
     auth:     { fresh:  2 * 60 * 1000, stale:  5 * 60 * 1000 },
     state:    { fresh: 30 * 1000,       stale:  2 * 60 * 1000 },
@@ -17,17 +17,17 @@
     nudges:   { fresh:  3 * 60 * 1000,  stale:  5 * 60 * 1000 }
   };
 
-  // Map URL prefixes/paths to tier names
+  // Map URL paths to tier names
   var ROUTE_TIERS = {
-    "/api/auth/session":      "auth",
-    "/api/account/status":    "auth",
-    "/api/state":             "state",
-    "/api/career/roles":      "metadata",
-    "/api/career/alerts":     "metadata",
-    "/api/media-config":      "metadata",
-    "/api/career/hero-image": "metadata",
+    "/api/auth/session":        "auth",
+    "/api/account/status":      "auth",
+    "/api/state":               "state",
+    "/api/career/roles":        "metadata",
+    "/api/career/alerts":       "metadata",
+    "/api/media-config":        "metadata",
+    "/api/career/hero-image":   "metadata",
     "/api/career/applications": "heavy",
-    "/api/user/nudges":       "nudges"
+    "/api/user/nudges":         "nudges"
   };
 
   /* ── Helpers ──────────────────────────────────────────────────── */
@@ -36,18 +36,12 @@
   var _lastOwner = null;
 
   function tierFor(url) {
-    // Extract pathname from the URL for matching
     var pathname = url;
     try {
       var parsed = new URL(url, window.location.origin);
       pathname = parsed.pathname;
-    } catch (e) {
-      // url is likely already a pathname
-    }
-    // Exact match first
+    } catch (e) {}
     if (ROUTE_TIERS[pathname]) return TIERS[ROUTE_TIERS[pathname]] || null;
-    // Prefix match (for URLs that may have query strings stripped but still
-    // start with a known route)
     var keys = Object.keys(ROUTE_TIERS);
     for (var i = 0; i < keys.length; i++) {
       if (pathname.indexOf(keys[i]) === 0) {
@@ -61,22 +55,16 @@
     return PREFIX + url;
   }
 
-  function now() {
-    return Date.now();
-  }
-
   /* ── Ownership enforcement ────────────────────────────────────── */
 
   function enforceOwnership() {
     var currentOwner = "";
     try { currentOwner = localStorage.getItem(OWNER_KEY) || ""; } catch (e) {}
     if (_lastOwner === null) {
-      // First check — just record the owner
       _lastOwner = currentOwner;
       return;
     }
     if (currentOwner && currentOwner !== _lastOwner) {
-      // User changed — wipe the entire cache
       clearAll();
       _lastOwner = currentOwner;
     } else if (currentOwner !== _lastOwner) {
@@ -84,7 +72,7 @@
     }
   }
 
-  /* ── sessionStorage read / write with eviction ────────────────── */
+  /* ── sessionStorage read / write ──────────────────────────────── */
 
   function readEntry(key) {
     try {
@@ -96,18 +84,16 @@
     }
   }
 
-  function writeEntry(key, entry) {
+  function writeEntry(key, data) {
+    var entry = { data: data, ts: Date.now() };
     var json = JSON.stringify(entry);
     try {
       sessionStorage.setItem(key, json);
     } catch (e) {
-      // Storage full — evict oldest 5 entries and retry once
       evictOldest(5);
       try {
         sessionStorage.setItem(key, json);
-      } catch (e2) {
-        // Still failing; silently give up
-      }
+      } catch (e2) {}
     }
   }
 
@@ -131,40 +117,49 @@
     }
   }
 
-  /* ── Core SWR fetch ───────────────────────────────────────────── */
+  /* ── Core SWR fetch — returns parsed JSON ─────────────────────── */
 
+  /**
+   * @param {string} url - API URL to fetch
+   * @param {object} [options]
+   * @param {boolean} [options.forceNetwork] - Skip cache, go straight to network
+   * @param {function} [options.onUpdate] - Called with fresh parsed JSON if it differs from cached
+   * @returns {Promise<object>} Parsed JSON response data
+   */
   function swrFetch(url, options) {
     enforceOwnership();
 
     var opts = options || {};
     var tier = tierFor(url);
 
-    // Not cacheable — pass through to network
+    // Not cacheable — pass through to network and parse JSON
     if (!tier) {
-      return window.fetch(url, { credentials: "same-origin" });
+      return window.fetch(url, { credentials: "same-origin" }).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      });
     }
 
-    // Force network — skip cache entirely
+    // Force network — skip cache
     if (opts.forceNetwork) {
       return networkFetch(url);
     }
 
     var key = cacheKey(url);
     var entry = readEntry(key);
-    var timestamp = now();
 
-    if (entry) {
-      var age = timestamp - entry.ts;
+    if (entry && entry.data !== undefined) {
+      var age = Date.now() - entry.ts;
 
       // Fresh — return cached, no network
       if (age < tier.fresh) {
-        return Promise.resolve(buildResponse(entry));
+        return Promise.resolve(entry.data);
       }
 
-      // Stale — return cached immediately, revalidate in background
+      // Stale — return cached now, revalidate in background
       if (age < tier.stale) {
-        revalidateBackground(url, key, entry, opts.onUpdate);
-        return Promise.resolve(buildResponse(entry));
+        revalidateBackground(url, key, entry.data, opts.onUpdate);
+        return Promise.resolve(entry.data);
       }
     }
 
@@ -172,28 +167,18 @@
     return networkFetch(url);
   }
 
-  function buildResponse(entry) {
-    return new Response(entry.body, {
-      status: entry.status,
-      statusText: entry.statusText || "",
-      headers: { "Content-Type": entry.contentType || "application/json" }
-    });
-  }
-
   function networkFetch(url) {
-    // Deduplicate in-flight requests to the same URL
-    if (_inflight[url]) {
-      return _inflight[url];
-    }
+    if (_inflight[url]) return _inflight[url];
 
     var promise = window.fetch(url, { credentials: "same-origin" })
       .then(function (response) {
         delete _inflight[url];
-        // Only cache successful responses
-        if (response.ok) {
-          return cacheResponse(url, response);
-        }
-        return response;
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return response.json().then(function (data) {
+          var tier = tierFor(url);
+          if (tier) writeEntry(cacheKey(url), data);
+          return data;
+        });
       })
       .catch(function (err) {
         delete _inflight[url];
@@ -204,55 +189,19 @@
     return promise;
   }
 
-  function cacheResponse(url, response) {
-    var tier = tierFor(url);
-    if (!tier) return response;
-
-    // Clone so the caller can still consume the original
-    var clone = response.clone();
-    var key = cacheKey(url);
-
-    clone.text().then(function (bodyText) {
-      var entry = {
-        body: bodyText,
-        status: response.status,
-        statusText: response.statusText || "",
-        contentType: response.headers.get("Content-Type") || "application/json",
-        ts: now()
-      };
-      writeEntry(key, entry);
-    }).catch(function () {
-      // Silently ignore cache write failures
-    });
-
-    return response;
-  }
-
-  function revalidateBackground(url, key, oldEntry, onUpdate) {
-    // Use deduplication — if already revalidating, skip
+  function revalidateBackground(url, key, cachedData, onUpdate) {
     if (_inflight[url]) return;
 
     var promise = window.fetch(url, { credentials: "same-origin" })
       .then(function (response) {
         delete _inflight[url];
         if (!response.ok) return;
-
-        var clone = response.clone();
-        clone.text().then(function (bodyText) {
-          var entry = {
-            body: bodyText,
-            status: response.status,
-            statusText: response.statusText || "",
-            contentType: response.headers.get("Content-Type") || "application/json",
-            ts: now()
-          };
-          writeEntry(key, entry);
-
-          // Fire onUpdate if the data actually changed
-          if (typeof onUpdate === "function" && oldEntry.body !== bodyText) {
-            try { onUpdate(buildResponse(entry)); } catch (e) {}
+        return response.json().then(function (freshData) {
+          writeEntry(key, freshData);
+          if (typeof onUpdate === "function" && JSON.stringify(freshData) !== JSON.stringify(cachedData)) {
+            try { onUpdate(freshData); } catch (e) {}
           }
-        }).catch(function () {});
+        });
       })
       .catch(function () {
         delete _inflight[url];
@@ -266,8 +215,7 @@
   function invalidate(urls) {
     var list = Array.isArray(urls) ? urls : [urls];
     for (var i = 0; i < list.length; i++) {
-      var key = cacheKey(list[i]);
-      try { sessionStorage.removeItem(key); } catch (e) {}
+      try { sessionStorage.removeItem(cacheKey(list[i])); } catch (e) {}
     }
   }
 
@@ -277,9 +225,7 @@
     try {
       for (var i = 0; i < sessionStorage.length; i++) {
         var k = sessionStorage.key(i);
-        if (k && k.indexOf(fullPrefix) === 0) {
-          toRemove.push(k);
-        }
+        if (k && k.indexOf(fullPrefix) === 0) toRemove.push(k);
       }
     } catch (e) {
       return;
@@ -294,9 +240,7 @@
     try {
       for (var i = 0; i < sessionStorage.length; i++) {
         var k = sessionStorage.key(i);
-        if (k && k.indexOf(PREFIX) === 0) {
-          toRemove.push(k);
-        }
+        if (k && k.indexOf(PREFIX) === 0) toRemove.push(k);
       }
     } catch (e) {
       return;
