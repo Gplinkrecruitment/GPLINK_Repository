@@ -25878,6 +25878,228 @@ Return ONLY valid JSON with no markdown formatting:
     return;
   }
 
+  // ── AI Candidate Summary ──
+  if (pathname === '/api/admin/candidate-summary' && req.method === 'GET') {
+    if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
+    const adminCtx = requireAdminSession(req, res);
+    if (!adminCtx) return;
+    const caseId = url.searchParams.get('case_id');
+    if (!caseId) { sendJson(res, 400, { ok: false, message: 'Missing case_id.' }); return; }
+
+    if (!ANTHROPIC_API_KEY) {
+      sendJson(res, 503, { ok: false, error: 'AI service not configured.' });
+      return;
+    }
+    if (!(await checkAnthropicBudget())) {
+      sendJson(res, 200, { ok: false, error: 'AI budget limit reached for today.' });
+      return;
+    }
+
+    try {
+      // 1. Fetch case + profile
+      const caseRes = await supabaseDbRequest('registration_cases', 'select=*&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+      if (!caseRes.ok || !Array.isArray(caseRes.data) || caseRes.data.length === 0) {
+        sendJson(res, 404, { ok: false, error: 'Case not found.' });
+        return;
+      }
+      const regCase = caseRes.data[0];
+      const userId = regCase.user_id;
+
+      const pRes = await supabaseDbRequest('user_profiles', 'select=first_name,last_name,email,phone_number,country&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+      const profile = pRes.ok && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data[0] : {};
+      const gpName = [(profile.first_name || ''), (profile.last_name || '')].join(' ').trim() || 'Unknown';
+      const gpEmail = profile.email || '';
+      const gpPhone = profile.phone_number || '';
+      const gpCountry = profile.country || regCase.country || '';
+
+      let practiceEmail = '';
+      try {
+        const pc = regCase.practice_contact ? (typeof regCase.practice_contact === 'string' ? JSON.parse(regCase.practice_contact) : regCase.practice_contact) : {};
+        practiceEmail = pc.contactEmail || pc.email || '';
+      } catch (e) { /* ignore parse errors */ }
+
+      // 2. Parallel fetch all data sources
+      const [tasksRes, tlRes, msgRes, dtRes, ticketsRes, qualSnap, gmailMessages] = await Promise.all([
+        supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc'),
+        supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=20'),
+        supabaseDbRequest('task_messages', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=20'),
+        supabaseDbRequest('doubletick_messages', 'case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=20'),
+        supabaseDbRequest('support_tickets', 'select=*&user_id=eq.' + encodeURIComponent(userId) + '&status=neq.resolved&order=created_at.desc&limit=10'),
+        (async () => {
+          try { return await getUserQualificationSnapshot(userId, gpCountry || 'GB'); } catch { return null; }
+        })(),
+        (async () => {
+          try { return await searchGmailForGP(gpEmail, gpName, practiceEmail, 30); } catch { return []; }
+        })()
+      ]);
+
+      const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
+      const timeline = tlRes.ok && Array.isArray(tlRes.data) ? tlRes.data : [];
+      const messages = msgRes.ok && Array.isArray(msgRes.data) ? msgRes.data : [];
+      const dtMessages = dtRes.ok && Array.isArray(dtRes.data) ? dtRes.data : [];
+      const tickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
+      const quals = qualSnap || { approved: [], uploaded_unverified: [], missing: [] };
+      const emails = gmailMessages || [];
+
+      // 3. Build the prompt
+      const practiceName = regCase.practice_name || '';
+      const handover = regCase.ai_handover_summary || null;
+
+      let prompt = 'CANDIDATE: Dr ' + gpName + ' | ' + gpEmail + ' | ' + gpPhone + ' | ' + gpCountry + '\n';
+      prompt += 'PRACTICE: ' + practiceName + ' | ' + practiceEmail + '\n';
+      prompt += 'STAGE: ' + (regCase.stage || 'unknown') + ' / ' + (regCase.substage || '') + ' | Status: ' + (regCase.status || '') + '\n';
+      prompt += 'ASSIGNED VA: ' + (regCase.assigned_va || 'Unassigned') + '\n';
+      prompt += 'REGISTERED: ' + (regCase.created_at || '') + ' | LAST ACTIVITY: ' + (regCase.last_gp_activity_at || regCase.updated_at || '') + '\n';
+      prompt += 'BLOCKER: ' + (regCase.blocker_reason || 'None') + '\n\n';
+
+      prompt += '--- TASKS (' + tasks.length + ') ---\n';
+      tasks.forEach(function(t) {
+        prompt += '[' + (t.status || 'open') + '] ' + (t.title || t.task_type || '') + ' (' + (t.priority || 'normal') + ')' + (t.due_date ? ' — due: ' + t.due_date : '') + '\n';
+      });
+
+      prompt += '\n--- EMAILS FROM GMAIL (' + emails.length + ') ---\n';
+      emails.forEach(function(e) {
+        prompt += e.from + ' → ' + e.to + ' | ' + e.subject + ' | ' + e.date + '\n';
+        if (e.snippet) prompt += e.snippet.substring(0, 200) + '\n';
+      });
+
+      prompt += '\n--- EMAILS FROM TASK MESSAGES (' + messages.length + ') ---\n';
+      messages.forEach(function(m) {
+        prompt += '[' + (m.direction || '') + '] ' + (m.subject || '') + ' | ' + (m.sender || m.email_sender || '') + ' | ' + (m.created_at || '') + '\n';
+        if (m.body_text) prompt += m.body_text.substring(0, 200) + '\n';
+      });
+
+      prompt += '\n--- WHATSAPP (' + dtMessages.length + ') ---\n';
+      dtMessages.forEach(function(m) {
+        prompt += '[' + (m.direction || 'unknown') + '] ' + (m.message_body || '').substring(0, 200) + ' | ' + (m.created_at || '') + '\n';
+      });
+
+      prompt += '\n--- SUPPORT TICKETS (' + tickets.length + ' unresolved) ---\n';
+      tickets.forEach(function(t) {
+        prompt += '[' + (t.status || '') + '] ' + (t.title || '') + ' (' + (t.category || '') + ')';
+        if (t.thread && Array.isArray(t.thread) && t.thread.length > 0) {
+          var last = t.thread[t.thread.length - 1];
+          prompt += ' — latest: ' + (last.text || '').substring(0, 150);
+        }
+        prompt += '\n';
+      });
+
+      prompt += '\n--- QUALIFICATIONS ---\n';
+      prompt += 'Approved: ' + (quals.approved || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
+      prompt += 'Pending: ' + (quals.uploaded_unverified || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
+      prompt += 'Missing: ' + (quals.missing || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
+
+      prompt += '\n--- RECENT TIMELINE (' + timeline.length + ') ---\n';
+      timeline.forEach(function(e) {
+        prompt += '[' + (e.event_type || '') + '] ' + (e.title || '') + ' — ' + (e.actor || '') + ' — ' + (e.created_at || '') + '\n';
+      });
+
+      prompt += '\n--- PREVIOUS HANDOVER SUMMARY ---\n';
+      if (handover) {
+        prompt += JSON.stringify(handover, null, 2) + '\n';
+      } else {
+        prompt += 'No previous summary — this is the first generation for this candidate.\n';
+      }
+
+      // 4. Call Claude
+      var summarySystemPrompt = 'You are an admin assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. You produce concise, actionable intelligence briefs about candidate registration progress.\n\nGiven a candidate\'s case data, communications, tasks, documents, support tickets, and (if available) a previous handover summary, produce a structured JSON summary with these fields:\n\n- overview: 2-4 sentence executive summary. Lead with who they are, where they\'re at, and the single most important thing the admin needs to know. Be specific — name the practice, name the document, quote the message.\n- action_items: Array of strings. Concrete next steps the admin/VA should take. Most urgent first. Include context (e.g. "no reply in 3 days").\n- concerns: Array of strings. Potential problems, delays, red flags. Empty array if none.\n- recent_comms: Array of objects with { channel, direction, summary, sender_or_recipient, age }. Last 5 most relevant communications across all channels. Most recent first.\n- outstanding_requirements: Array of objects with { item, done }. Registration steps and key documents needed. Mark completed ones as done:true.\n- key_history: A condensed paragraph capturing all significant events, resolved issues, and historical context from this candidate\'s entire journey. This field is carried forward into the next summary generation, so include anything a future reader would need to understand the full picture — past blockers that were resolved, important decisions made, escalations, practice changes, etc. If a previous handover exists, preserve its important context and merge with new findings.\n\nRespond with ONLY valid JSON — no markdown fences, no explanation. Be direct and specific. No fluff. If something is overdue or stalling, say so plainly. If there are no concerns, return an empty array — don\'t fabricate issues. If a previous handover summary is provided, use it as historical context — don\'t discard past knowledge, but update it with current findings.';
+
+      var summaryController = new AbortController();
+      var summaryTimeout = setTimeout(function() { summaryController.abort(); }, 30000);
+
+      var anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: summaryController.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+          max_tokens: 1024,
+          temperature: 0,
+          system: [{ type: 'text', text: summarySystemPrompt, cache_control: { type: 'ephemeral' } }],
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      clearTimeout(summaryTimeout);
+
+      if (!anthropicRes.ok) {
+        var errText = await anthropicRes.text().catch(function() { return ''; });
+        console.error('[AI Summary] Anthropic error:', anthropicRes.status, errText);
+        sendJson(res, 502, { ok: false, error: 'AI service returned an error.' });
+        return;
+      }
+
+      var anthropicData = await anthropicRes.json();
+      var inputTokens = (anthropicData.usage && anthropicData.usage.input_tokens) || 0;
+      var outputTokens = (anthropicData.usage && anthropicData.usage.output_tokens) || 0;
+      var cacheRead = (anthropicData.usage && anthropicData.usage.cache_read_input_tokens) || 0;
+      var cacheWrite = (anthropicData.usage && anthropicData.usage.cache_creation_input_tokens) || 0;
+      recordAnthropicSpend(inputTokens, outputTokens, cacheRead, cacheWrite);
+
+      var rawText = '';
+      if (anthropicData.content && Array.isArray(anthropicData.content)) {
+        for (var i = 0; i < anthropicData.content.length; i++) {
+          if (anthropicData.content[i].type === 'text') rawText += anthropicData.content[i].text;
+        }
+      }
+
+      var summary;
+      try {
+        summary = JSON.parse(rawText.trim());
+      } catch (parseErr) {
+        var jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (jsonMatch) {
+          try { summary = JSON.parse(jsonMatch[1].trim()); } catch (e2) {
+            console.error('[AI Summary] Failed to parse AI response:', rawText.substring(0, 500));
+            sendJson(res, 502, { ok: false, error: 'AI returned invalid format.' });
+            return;
+          }
+        } else {
+          console.error('[AI Summary] Failed to parse AI response:', rawText.substring(0, 500));
+          sendJson(res, 502, { ok: false, error: 'AI returned invalid format.' });
+          return;
+        }
+      }
+
+      // 5. Save handover summary to the case record (fire and forget)
+      var handoverPayload = {
+        overview: summary.overview || '',
+        action_items: summary.action_items || [],
+        concerns: summary.concerns || [],
+        key_history: summary.key_history || '',
+        generated_at: new Date().toISOString()
+      };
+      supabaseDbRequest('registration_cases', 'id=eq.' + encodeURIComponent(caseId), {
+        method: 'PATCH',
+        body: { ai_handover_summary: handoverPayload }
+      }).catch(function(err) {
+        console.error('[AI Summary] Failed to save handover:', err.message);
+      });
+
+      sendJson(res, 200, {
+        ok: true,
+        summary: summary,
+        meta: {
+          model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+          generated_at: new Date().toISOString(),
+          input_tokens: inputTokens,
+          output_tokens: outputTokens
+        }
+      });
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        sendJson(res, 504, { ok: false, error: 'AI summary timed out. Please try again.' });
+      } else {
+        console.error('[AI Summary] Unexpected error:', err);
+        sendJson(res, 500, { ok: false, error: 'Summary generation failed.' });
+      }
+    }
+    return;
+  }
+
   // ── Update case ──
   if (pathname === '/api/admin/case' && req.method === 'PUT') {
     if (!isSupabaseDbConfigured()) { sendJson(res, 503, { ok: false, message: 'Requires Supabase.' }); return; }
