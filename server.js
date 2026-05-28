@@ -254,6 +254,8 @@ function normalizeServiceAccountKey(raw) {
 const GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY = normalizeServiceAccountKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
 const GOOGLE_DRIVE_ROOT_FOLDER_ID = String(process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '').trim();
 const GOOGLE_DRIVE_IMPERSONATE_EMAIL = String(process.env.GOOGLE_DRIVE_IMPERSONATE_EMAIL || '').trim();
+const GOOGLE_DRIVE_BACKUP_FOLDER_ID_1 = String(process.env.GOOGLE_DRIVE_BACKUP_FOLDER_ID_1 || '').trim();
+const GOOGLE_DRIVE_BACKUP_FOLDER_ID_2 = String(process.env.GOOGLE_DRIVE_BACKUP_FOLDER_ID_2 || '').trim();
 
 function isGoogleDriveConfigured() {
   return !!(GOOGLE_SERVICE_ACCOUNT_EMAIL && GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY && GOOGLE_DRIVE_ROOT_FOLDER_ID);
@@ -18395,6 +18397,239 @@ async function handleApi(req, res, pathname) {
       sendJson(res, 500, { ok: false, error: wsErr.message });
     }
     return;
+  }
+
+  // ── Weekly full backup to Google Drive ──────────────────────
+  if (req.method === 'GET' && pathname === '/api/cron/weekly-backup') {
+    var bkCronSecret = String(process.env.CRON_SECRET || '').trim();
+    var bkCronAuth = req.headers['authorization'] || '';
+    if (!bkCronSecret || bkCronAuth !== 'Bearer ' + bkCronSecret) {
+      sendJson(res, 401, { ok: false, error: 'Unauthorized' });
+      return;
+    }
+    if (!isSupabaseDbConfigured()) {
+      sendJson(res, 200, { ok: false, error: 'Supabase not configured' });
+      return;
+    }
+    if (!isGoogleDriveConfigured()) {
+      sendJson(res, 200, { ok: false, error: 'Google Drive not configured' });
+      return;
+    }
+    if (!GOOGLE_DRIVE_BACKUP_FOLDER_ID_1 && !GOOGLE_DRIVE_BACKUP_FOLDER_ID_2) {
+      sendJson(res, 200, { ok: false, error: 'No backup folder IDs configured' });
+      return;
+    }
+
+    var bkStartTime = Date.now();
+    var bkTimestamp = new Date().toISOString();
+    var bkDateSlug = bkTimestamp.slice(0, 10);
+
+    var BK_TABLES = [
+      'user_profiles', 'user_state', 'user_roles',
+      'ahpra_cases', 'ahpra_required_documents', 'ahpra_case_documents',
+      'ahpra_events', 'ahpra_notifications',
+      'runtime_kv', 'document_templates', 'user_documents',
+      'integration_connections', 'career_roles', 'gp_applications',
+      'registration_cases', 'registration_tasks', 'task_timeline',
+      'task_messages', 'task_documents',
+      'visa_applications', 'visa_documents', 'visa_questionnaires',
+      'visa_updates', 'visa_timeline_events', 'visa_dependants',
+      'support_tickets', 'user_nudges', 'nudge_chat_messages',
+      'pbs_applications', 'pbs_documents', 'pbs_updates', 'pbs_timeline_events',
+      'commencement_items', 'practice_doc_ops',
+      'gmail_watch_state', 'processed_gmail_messages',
+      'zoho_sign_envelopes', 'processed_zoho_sign_events',
+      'incoming_email_todos', 'career_interviews',
+      'career_hero_cities', 'career_hero_city_images', 'career_suburb_geo_cache',
+      'doubletick_messages', 'pending_hires',
+      'system_bugs', 'client_errors',
+      'guide_folders', 'guide_items'
+    ];
+
+    try {
+      var bkTableData = {};
+      var bkTableCounts = {};
+      var bkErrors = [];
+
+      for (var bkTable of BK_TABLES) {
+        try {
+          var bkAllRows = [];
+          var bkOffset = 0;
+          var bkPageSize = 1000;
+          var bkHasMore = true;
+
+          while (bkHasMore) {
+            var bkQuery = 'select=*&limit=' + bkPageSize + '&offset=' + bkOffset;
+            var bkRes = await supabaseDbRequest(bkTable, bkQuery);
+            if (!bkRes.ok) {
+              bkErrors.push({ table: bkTable, error: 'HTTP ' + bkRes.status });
+              bkHasMore = false;
+              break;
+            }
+            var bkRows = Array.isArray(bkRes.data) ? bkRes.data : [];
+            bkAllRows = bkAllRows.concat(bkRows);
+            bkHasMore = bkRows.length === bkPageSize;
+            bkOffset += bkPageSize;
+          }
+
+          bkTableData[bkTable] = bkAllRows;
+          bkTableCounts[bkTable] = bkAllRows.length;
+        } catch (bkTableErr) {
+          bkErrors.push({ table: bkTable, error: bkTableErr.message });
+          bkTableData[bkTable] = [];
+          bkTableCounts[bkTable] = 0;
+        }
+      }
+
+      var bkEnvVars = {};
+      for (var bkEnvKey of Object.keys(process.env).sort()) {
+        bkEnvVars[bkEnvKey] = process.env[bkEnvKey];
+      }
+
+      var bkTotalRows = Object.values(bkTableCounts).reduce(function(a, b) { return a + b; }, 0);
+      var bkManifest = {
+        version: '1.0',
+        timestamp: bkTimestamp,
+        git_commit: process.env.VERCEL_GIT_COMMIT_SHA || 'unknown',
+        git_branch: process.env.VERCEL_GIT_COMMIT_REF || 'unknown',
+        vercel_env: process.env.VERCEL_ENV || 'unknown',
+        node_version: process.version,
+        table_counts: bkTableCounts,
+        total_rows: bkTotalRows,
+        tables_backed_up: BK_TABLES.length,
+        errors: bkErrors
+      };
+
+      var bkRestoreGuide = [
+        'GP Link Backup Restore Guide',
+        '=============================',
+        '',
+        'Backup date: ' + bkTimestamp,
+        'Git commit:  ' + (process.env.VERCEL_GIT_COMMIT_SHA || 'unknown'),
+        'Total rows:  ' + bkTotalRows,
+        'Tables:      ' + BK_TABLES.length,
+        '',
+        'To restore:',
+        '1. Download this ZIP from Google Drive',
+        '2. Unzip it locally',
+        '3. Run: node scripts/restore-backup.js ./path-to-backup.json.gz',
+        '4. The script will connect to Supabase and restore all tables',
+        '5. Review env-vars.json to restore any missing Vercel env vars',
+        '',
+        'IMPORTANT: The restore script will TRUNCATE each table before inserting.',
+        'Make sure you are restoring to the correct Supabase project.',
+        ''
+      ].join('\n');
+
+      var bkPayload = {
+        manifest: bkManifest,
+        env_vars: bkEnvVars,
+        tables: bkTableData,
+        restore_guide: bkRestoreGuide
+      };
+
+      var zlib = require('zlib');
+      var bkJsonStr = JSON.stringify(bkPayload);
+      var bkCompressed = zlib.gzipSync(Buffer.from(bkJsonStr, 'utf8'));
+
+      var bkFileName = 'gp-link-backup-' + bkDateSlug + '.json.gz';
+      var bkDrive = await getGoogleDriveClient();
+      if (!bkDrive) {
+        sendJson(res, 500, { ok: false, error: 'Google Drive client unavailable' });
+        return;
+      }
+
+      var bkUploadResults = [];
+      var bkFolderIds = [GOOGLE_DRIVE_BACKUP_FOLDER_ID_1, GOOGLE_DRIVE_BACKUP_FOLDER_ID_2].filter(Boolean);
+
+      for (var bkFolderId of bkFolderIds) {
+        try {
+          var bkSubfolder = await bkDrive.files.create({
+            requestBody: {
+              name: 'gp-link-backup-' + bkDateSlug,
+              mimeType: 'application/vnd.google-apps.folder',
+              parents: [bkFolderId]
+            },
+            fields: 'id,name,webViewLink'
+          });
+
+          var bkUpload = await bkDrive.files.create({
+            requestBody: {
+              name: bkFileName,
+              parents: [bkSubfolder.data.id]
+            },
+            media: {
+              mimeType: 'application/gzip',
+              body: require('stream').Readable.from(bkCompressed)
+            },
+            fields: 'id,name,webViewLink,size'
+          });
+
+          var bkManifestUpload = await bkDrive.files.create({
+            requestBody: {
+              name: 'manifest.json',
+              parents: [bkSubfolder.data.id]
+            },
+            media: {
+              mimeType: 'application/json',
+              body: require('stream').Readable.from(Buffer.from(JSON.stringify(bkManifest, null, 2)))
+            },
+            fields: 'id,name'
+          });
+
+          bkUploadResults.push({
+            folder_id: bkFolderId,
+            subfolder: bkSubfolder.data.webViewLink,
+            file_id: bkUpload.data.id,
+            file_size: bkUpload.data.size,
+            ok: true
+          });
+        } catch (bkUploadErr) {
+          bkUploadResults.push({
+            folder_id: bkFolderId,
+            ok: false,
+            error: bkUploadErr.message
+          });
+        }
+      }
+
+      try {
+        await supabaseDbRequest('runtime_kv', 'key=eq.last_weekly_backup', {
+          method: 'DELETE'
+        });
+        await supabaseDbRequest('runtime_kv', '', {
+          method: 'POST',
+          body: [{
+            key: 'last_weekly_backup',
+            value: {
+              timestamp: bkTimestamp,
+              total_rows: bkTotalRows,
+              tables: BK_TABLES.length,
+              errors: bkErrors.length,
+              upload_results: bkUploadResults,
+              duration_ms: Date.now() - bkStartTime
+            }
+          }]
+        });
+      } catch (bkKvErr) {
+        console.error('[Backup] runtime_kv write error:', bkKvErr.message);
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        timestamp: bkTimestamp,
+        total_rows: bkTotalRows,
+        tables: BK_TABLES.length,
+        errors: bkErrors,
+        uploads: bkUploadResults,
+        duration_ms: Date.now() - bkStartTime
+      });
+      return;
+    } catch (bkFatalErr) {
+      console.error('[Backup] Fatal error:', bkFatalErr.message, bkFatalErr.stack);
+      sendJson(res, 500, { ok: false, error: bkFatalErr.message });
+      return;
+    }
   }
 
   if (!enforceMutationOrigin(req, res)) return;

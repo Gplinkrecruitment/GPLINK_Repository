@@ -7,7 +7,8 @@
     { "path": "/api/integrations/zoho-recruit/cron-sync", "schedule": "0 6 * * *" },
     { "path": "/api/cron/reconcile-followups", "schedule": "0 20 * * *" },
     { "path": "/api/cron/interview-reminders", "schedule": "0 21 * * *" },
-    { "path": "/api/cron/weekly-sweep", "schedule": "0 22 * * *" }
+    { "path": "/api/cron/weekly-sweep", "schedule": "0 22 * * *" },
+    { "path": "/api/cron/weekly-backup", "schedule": "0 3 * * 0" }
   ],
   "builds": [
     {
