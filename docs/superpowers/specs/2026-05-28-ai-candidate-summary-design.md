@@ -34,10 +34,36 @@ The backend endpoint aggregates the following before sending to Claude:
 | **Support tickets** | Unresolved tickets for this candidate — title, category, latest thread message | `support_tickets` table filtered by `candidateId` and `status != 'resolved'` |
 | **Qualification docs** | Approved, pending, missing documents | Existing `/api/admin/va/user-qualifications` logic |
 | **Timeline events** | Recent notes, status changes, actions (last 20) | `task_timeline` table filtered by `case_id` |
+| **Previous AI handover** | Stored summary from last generation — carries forward full historical context | `registration_cases.ai_handover_summary` JSONB column |
 
 ### Data fetching strategy
 
 All data sources fetched **in parallel** via `Promise.all()` on the server side. Gmail API search limited to last 30 days and max 10 messages per address to bound cost/latency. DoubleTick and task_messages limited to last 20 records. Timeline limited to last 20 events.
+
+### Handover summary (rolling context)
+
+Recent data fetches are bounded to keep API calls fast and cheap, but this means the AI could miss important context from earlier in the journey. A **handover summary** solves this by carrying forward historical knowledge across generations.
+
+**How it works:**
+
+1. **First generation** (no handover exists): AI sees only current data. Produces summary. Result saved to `registration_cases.ai_handover_summary` as JSONB.
+2. **Every subsequent generation**: AI reads the **previous handover summary** (full historical context) + **fresh recent data** (bounded fetches). Produces new summary, overwrites the stored handover.
+3. The handover acts like shift notes — each generation reads the previous notes and writes updated ones, so no context is ever lost even though individual fetches are bounded.
+
+**Storage:** Single `ai_handover_summary` JSONB column on `registration_cases` table. Only the latest handover is stored — no history needed.
+
+**Schema:**
+```json
+{
+  "overview": "...",
+  "action_items": ["..."],
+  "concerns": ["..."],
+  "key_history": "Condensed record of all significant events, resolved issues, and historical context carried forward from previous summaries",
+  "generated_at": "2026-05-28T13:45:00Z"
+}
+```
+
+**Migration:** `ALTER TABLE registration_cases ADD COLUMN ai_handover_summary JSONB DEFAULT NULL;`
 
 ## API Endpoint
 
@@ -69,7 +95,8 @@ All data sources fetched **in parallel** via `Promise.all()` on the server side.
       { "item": "MyIntealth health assessment", "done": false },
       { "item": "AMC Portfolio", "done": false },
       { "item": "Secure Placement", "done": true }
-    ]
+    ],
+    "key_history": "Dr Smith Miller registered on 2026-05-20 and was matched with SOP Medical Centre the same day. Secure Placement confirmed immediately. Welcome email and WhatsApp intro sent on day 1. Practice was emailed for Offer/Contract on 2026-05-25 — no response yet. GP acknowledged via WhatsApp on 2026-05-26 that they would follow up with the practice manager. No escalations or support tickets to date."
   },
   "meta": {
     "model": "claude-sonnet-4-6",
@@ -96,15 +123,16 @@ All data sources fetched **in parallel** via `Promise.all()` on the server side.
 ```
 You are an admin assistant for GP Link, a medical recruitment platform that helps overseas GPs register to work in Australia. You produce concise, actionable intelligence briefs about candidate registration progress.
 
-Given a candidate's case data, communications, tasks, documents, and support tickets, produce a structured JSON summary with these fields:
+Given a candidate's case data, communications, tasks, documents, support tickets, and (if available) a previous handover summary, produce a structured JSON summary with these fields:
 
 - overview: 2-4 sentence executive summary. Lead with who they are, where they're at, and the single most important thing the admin needs to know. Be specific — name the practice, name the document, quote the message.
 - action_items: Array of strings. Concrete next steps the admin/VA should take. Most urgent first. Include context (e.g. "no reply in 3 days").
 - concerns: Array of strings. Potential problems, delays, red flags. Empty array if none.
 - recent_comms: Array of objects with { channel, direction, summary, sender/recipient, age }. Last 5 most relevant communications across all channels. Most recent first.
 - outstanding_requirements: Array of objects with { item, done }. Registration steps and key documents needed. Mark completed ones as done:true.
+- key_history: A condensed paragraph capturing all significant events, resolved issues, and historical context from this candidate's entire journey. This field is carried forward into the next summary generation, so include anything a future reader would need to understand the full picture — past blockers that were resolved, important decisions made, escalations, practice changes, etc. If a previous handover exists, preserve its important context and merge with new findings.
 
-Be direct and specific. No fluff. If something is overdue or stalling, say so plainly. If there are no concerns, say so — don't fabricate issues.
+Be direct and specific. No fluff. If something is overdue or stalling, say so plainly. If there are no concerns, say so — don't fabricate issues. If a previous handover summary is provided, use it as historical context — don't discard past knowledge, but update it with current findings.
 ```
 
 ### User message
@@ -142,6 +170,10 @@ Missing: {list}
 
 --- RECENT TIMELINE ({count}) ---
 {for each event: [type] title — actor — date}
+
+--- PREVIOUS HANDOVER SUMMARY ---
+{if exists: previous ai_handover_summary JSON, including key_history}
+{if not: "No previous summary — this is the first generation for this candidate."}
 ```
 
 ### Model & parameters
