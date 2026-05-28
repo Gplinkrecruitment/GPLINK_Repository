@@ -107,7 +107,7 @@
   ];
   var SAFE_ROUTE_DATA_PREFETCH = {
     "/pages/index": ["/api/media-config"],
-    "/pages/career": ["/api/career/roles"],
+    "/pages/career": ["/api/career/roles", "/api/career/applications"],
     "/pages/job": ["/api/career/roles"],
     "/pages/area-guide": ["/api/career/roles"]
   };
@@ -378,6 +378,13 @@
     });
 
     if (!fresh.length) return;
+    // Use gpCache for SWR-aware warming — populates the shared cache
+    if (window.gpCache && typeof window.gpCache.fetch === "function") {
+      fresh.forEach(function (url) {
+        window.gpCache.fetch(url).catch(function () {});
+      });
+      return;
+    }
     if (window.gpPerfCache && typeof window.gpPerfCache.warmFetch === "function") {
       window.gpPerfCache.warmFetch(fresh);
       return;
