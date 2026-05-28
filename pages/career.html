@@ -10106,38 +10106,56 @@
       if (banner) banner.hidden = true;
     }
 
+    function mergeRemoteApplications(payload, shouldRender) {
+      if (!payload || !payload.ok || !Array.isArray(payload.applications)) return;
+      const remote = payload.applications.map((app) => normalizeCareerApplication({
+        roleId: app.role && app.role.id ? app.role.id : app.id,
+        practiceName: app.role && app.role.practiceName ? app.role.practiceName : "Practice",
+        location: app.role && app.role.location ? app.role.location : "",
+        rawStatus: app.status,
+        placement: app.placement,
+        meta: [
+          { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
+          { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
+          { label: "Next step", value: getApplicationStatusMeta(app.status).isPlacementSecured ? "Relocation handover" : "GP Link screening" }
+        ]
+      }));
+      if (remote.length > 0) {
+        // Merge: keep remote as source of truth, add any local-only apps
+        const remoteIds = new Set(remote.map((a) => a.roleId));
+        const localOnly = careerState.applications
+          .filter((a) => a && a.roleId && !remoteIds.has(a.roleId))
+          .map((application) => normalizeCareerApplication(application));
+        careerState.applications = [...remote, ...localOnly];
+        if (remote.some((application) => application.isPlacementSecured)) {
+          careerState.activeView = "secured";
+        }
+        persistCareerState();
+        if (shouldRender) renderPage();
+      }
+    }
+
     async function loadRemoteApplications(options = {}) {
       const shouldRender = options.render !== false;
       try {
-        const response = await fetch("/api/career/applications", { credentials: "same-origin" });
-        if (!response.ok) return;
-        const payload = await response.json().catch(() => null);
-        if (!payload || !payload.ok || !Array.isArray(payload.applications)) return;
-        const remote = payload.applications.map((app) => normalizeCareerApplication({
-          roleId: app.role && app.role.id ? app.role.id : app.id,
-          practiceName: app.role && app.role.practiceName ? app.role.practiceName : "Practice",
-          location: app.role && app.role.location ? app.role.location : "",
-          rawStatus: app.status,
-          placement: app.placement,
-          meta: [
-            { label: "Applied", value: app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "—" },
-            { label: "Billing", value: app.role && app.role.billing ? app.role.billing.replace(" Billing", "") : "—" },
-            { label: "Next step", value: getApplicationStatusMeta(app.status).isPlacementSecured ? "Relocation handover" : "GP Link screening" }
-          ]
-        }));
-        if (remote.length > 0) {
-          // Merge: keep remote as source of truth, add any local-only apps
-          const remoteIds = new Set(remote.map((a) => a.roleId));
-          const localOnly = careerState.applications
-            .filter((a) => a && a.roleId && !remoteIds.has(a.roleId))
-            .map((application) => normalizeCareerApplication(application));
-          careerState.applications = [...remote, ...localOnly];
-          if (remote.some((application) => application.isPlacementSecured)) {
-            careerState.activeView = "secured";
-          }
-          persistCareerState();
-          if (shouldRender) renderPage();
+        var gpCacheFetch = (window.gpCache && window.gpCache.fetch)
+          || (window.parent && window.parent.gpCache && window.parent.gpCache.fetch);
+      } catch (e) {
+        // cross-origin access to window.parent may throw
+        var gpCacheFetch = null;
+      }
+      try {
+        var payload;
+        if (gpCacheFetch && !options.forceNetwork) {
+          payload = await gpCacheFetch("/api/career/applications", {
+            onUpdate: function (freshData) { mergeRemoteApplications(freshData, true); }
+          });
+        } else {
+          var response = await fetch("/api/career/applications", { credentials: "same-origin" });
+          if (!response.ok) return;
+          payload = await response.json().catch(function () { return null; });
         }
+        mergeRemoteApplications(payload, shouldRender);
       } catch (err) {
         // Fallback to localStorage applications
       } finally {
