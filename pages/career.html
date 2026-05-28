@@ -10023,6 +10023,15 @@
         closeRoleModal();
         renderPage();
         showToast("Application submitted successfully");
+
+        // Invalidate cached applications so next SWR fetch hits network
+        var gpCacheRef = null;
+        try {
+          gpCacheRef = (window.gpCache) || (window.parent && window.parent.gpCache) || null;
+        } catch (e) {}
+        if (gpCacheRef && gpCacheRef.invalidate) {
+          gpCacheRef.invalidate("/api/career/applications");
+        }
       } catch (err) {
         showToast("Network error — please try again");
       } finally {
@@ -10156,6 +10165,15 @@
       }
       try {
         var payload;
+        if (options.forceNetwork) {
+          var gpCacheRef = null;
+          try {
+            gpCacheRef = (window.gpCache) || (window.parent && window.parent.gpCache) || null;
+          } catch (e) {}
+          if (gpCacheRef && gpCacheRef.invalidate) {
+            gpCacheRef.invalidate("/api/career/applications");
+          }
+        }
         if (gpCacheFetch && !options.forceNetwork) {
           payload = await gpCacheFetch("/api/career/applications", {
             onUpdate: function (freshData) { mergeRemoteApplications(freshData, true); }
