@@ -7737,13 +7737,7 @@
     function persistCareerState() {
       enforceLockedCareerView();
       careerState.updatedAt = new Date().toISOString();
-      // Persist non-sensitive fields only (strip contact details from local copy)
-      var _cs = JSON.parse(JSON.stringify(careerState));
-      if (_cs.placement && _cs.placement.practiceContact) {
-        delete _cs.placement.practiceContact.email;
-        delete _cs.placement.practiceContact.phone;
-      }
-      localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(_cs));
+      localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(careerState));
       window.dispatchEvent(new Event("gp-career-updated"));
     }
 
