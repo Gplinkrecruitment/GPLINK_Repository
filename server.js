@@ -400,15 +400,6 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
     if (driveFile) results.driveFile = driveFile.id;
   }
 
-  // 3. If this is a practice document, mark ops_status as completed
-  if (caseId && docKey && PRACTICE_DOC_KEYS.includes(docKey)) {
-    _ensurePracticeDocOps(caseId).then(function() {
-      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(docKey), {
-        method: 'PATCH', body: { ops_status: 'completed' }
-      });
-    }).catch(function(err) { console.error('[deliverToMyDocuments] practice_doc_ops update failed:', err.message); });
-  }
-
   return results;
 }
 
