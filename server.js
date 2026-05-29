@@ -86,6 +86,8 @@ const {
   validateZohoSignSignature,
   pickCorrectionRecipient
 } = require('./lib/zoho-sign.js');
+const { scanForConflict } = require('./lib/sppa-conflict-scan.js');
+const { fillSppaQ7 } = require('./lib/sppa-pdf-fill.js');
 const { validateFileUpload } = require('./lib/file-sanitise.js');
 const {
   classifyConfidenceAction,
@@ -6443,6 +6445,161 @@ async function _logCaseEvent(caseId, taskId, eventType, title, detail, actor, me
   });
 }
 
+/**
+ * Check if both supervisor_cv and offer_contract are complete for a case,
+ * then fire the AI conflict scan and fill Q7 on the SPPA-00 PDF.
+ */
+async function _maybeRunSppaConflictScan(caseId, userId) {
+  try {
+    // 1. Check both prerequisite tasks are complete
+    var siblingRes = await supabaseDbRequest('registration_tasks',
+      'select=id,related_document_key,status&case_id=eq.' + encodeURIComponent(caseId) +
+      '&related_document_key=in.(supervisor_cv,offer_contract)&task_type=eq.practice_pack_child');
+    if (!siblingRes.ok || !Array.isArray(siblingRes.data)) return;
+    var tasks = siblingRes.data;
+    var svDone = tasks.some(function (t) { return t.related_document_key === 'supervisor_cv' && t.status === 'completed'; });
+    var ocDone = tasks.some(function (t) { return t.related_document_key === 'offer_contract' && t.status === 'completed'; });
+    if (!svDone || !ocDone) return;
+
+    // 2. Find the SPPA-00 task
+    var sppaRes = await supabaseDbRequest('registration_tasks',
+      'select=id,status,metadata&case_id=eq.' + encodeURIComponent(caseId) +
+      '&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child&limit=1');
+    if (!sppaRes.ok || !sppaRes.data || !sppaRes.data[0]) return;
+    var sppaTask = sppaRes.data[0];
+
+    // Skip if already scanned (idempotency)
+    var existingMeta = sppaTask.metadata;
+    if (typeof existingMeta === 'string') try { existingMeta = JSON.parse(existingMeta); } catch (e) { existingMeta = {}; }
+    if (existingMeta && existingMeta.conflict_scan_completed) return;
+
+    console.log('[SPPA-00] Both supervisor_cv + offer_contract complete for case ' + caseId + ' — running conflict scan');
+
+    // 3. Gather document buffers
+    function decodeDataUrl(dataUrl) {
+      var commaIdx = dataUrl.indexOf(',');
+      var mimeMatch = dataUrl.substring(0, commaIdx).match(/data:([^;]+)/);
+      var mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+      var b64 = dataUrl.substring(commaIdx + 1).replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4 !== 0) b64 += '=';
+      return { buffer: Buffer.from(b64, 'base64'), mimeType: mime };
+    }
+
+    // 3a. Supervisor CV
+    var svTask = tasks.find(function (t) { return t.related_document_key === 'supervisor_cv'; });
+    var svDocRes = await supabaseDbRequest('task_documents',
+      'select=attachment_url,mime_type&task_id=eq.' + encodeURIComponent(svTask.id) + '&is_current=eq.true&limit=1');
+    var svDoc = svDocRes.ok && svDocRes.data && svDocRes.data[0] ? svDocRes.data[0] : null;
+
+    // 3b. Offer/Contract
+    var ocTask = tasks.find(function (t) { return t.related_document_key === 'offer_contract'; });
+    var ocDocRes = await supabaseDbRequest('task_documents',
+      'select=attachment_url,mime_type&task_id=eq.' + encodeURIComponent(ocTask.id) + '&is_current=eq.true&limit=1');
+    var ocDoc = ocDocRes.ok && ocDocRes.data && ocDocRes.data[0] ? ocDocRes.data[0] : null;
+
+    if (!svDoc || !svDoc.attachment_url || !ocDoc || !ocDoc.attachment_url) {
+      console.error('[SPPA-00] Missing document attachments for conflict scan');
+      return;
+    }
+
+    var svDecoded = decodeDataUrl(svDoc.attachment_url);
+    var ocDecoded = decodeDataUrl(ocDoc.attachment_url);
+
+    // 3c. MRCGP certificate from user_documents via Supabase storage
+    var mrcgpBuffer = null;
+    var mrcgpMime = null;
+    try {
+      var mrcgpDocRes = await supabaseDbRequest('user_documents',
+        'select=storage_path,file_url,mime_type&user_id=eq.' + encodeURIComponent(userId) +
+        '&document_key=eq.mrcgp_certified&limit=1');
+      var mrcgpDoc = mrcgpDocRes.ok && mrcgpDocRes.data && mrcgpDocRes.data[0] ? mrcgpDocRes.data[0] : null;
+      if (mrcgpDoc) {
+        var storagePath = mrcgpDoc.storage_path || mrcgpDoc.file_url || '';
+        if (storagePath) {
+          var downloaded = await supabaseStorageDownloadObject(SUPABASE_DOCUMENT_BUCKET, storagePath);
+          if (downloaded && downloaded.buffer) {
+            mrcgpBuffer = downloaded.buffer;
+            mrcgpMime = downloaded.mimeType || mrcgpDoc.mime_type || 'application/pdf';
+          }
+        }
+      }
+    } catch (mrcgpErr) {
+      console.error('[SPPA-00] MRCGP cert fetch error (non-fatal):', mrcgpErr.message);
+    }
+
+    // 3d. Candidate profile name
+    var profRes = await supabaseDbRequest('user_profiles',
+      'select=first_name,last_name&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+    var candidateName = ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim();
+
+    // 4. Run AI conflict scan
+    var scanResult = await scanForConflict({
+      supervisorCvBuffer: svDecoded.buffer,
+      supervisorCvMime: svDecoded.mimeType,
+      contractBuffer: ocDecoded.buffer,
+      contractMime: ocDecoded.mimeType,
+      mrcgpBuffer: mrcgpBuffer,
+      mrcgpMime: mrcgpMime,
+      candidateName: candidateName
+    });
+
+    console.log('[SPPA-00] Conflict scan result:', JSON.stringify({
+      is_conflict: scanResult.is_conflict,
+      confidence: scanResult.confidence,
+      supervisor: scanResult.supervisor_name,
+      owner: scanResult.practice_owner_name,
+      _error: scanResult._error || null
+    }));
+
+    // 5. Fill SPPA-00 PDF with Q7
+    var filledPdfBuffer = await fillSppaQ7({ isConflict: scanResult.is_conflict });
+
+    // 6. Store the filled PDF as a task_document on the SPPA-00 task
+    var pdfDataUrl = 'data:application/pdf;base64,' + filledPdfBuffer.toString('base64');
+    await supabaseDbRequest('task_documents', '', {
+      method: 'POST',
+      body: [{
+        task_id: sppaTask.id,
+        case_id: caseId,
+        filename: 'SPPA-00.pdf',
+        mime_type: 'application/pdf',
+        size_bytes: filledPdfBuffer.length,
+        version: 1,
+        is_current: true,
+        uploaded_by: 'system_conflict_scan',
+        attachment_url: pdfDataUrl
+      }]
+    });
+
+    // 7. Update the SPPA-00 task — unlock it + store scan metadata
+    var meta = {
+      conflict_scan_completed: true,
+      conflict_scan_at: new Date().toISOString(),
+      is_conflict: scanResult.is_conflict,
+      confidence: scanResult.confidence,
+      supervisor_name: scanResult.supervisor_name,
+      practice_owner_name: scanResult.practice_owner_name,
+      candidate_name: scanResult.candidate_name,
+      reasoning: scanResult.reasoning,
+      sppa_state: 'ready_to_send'
+    };
+    await supabaseDbRequest('registration_tasks',
+      'id=eq.' + encodeURIComponent(sppaTask.id),
+      { method: 'PATCH', body: { status: 'in_progress', metadata: meta, updated_at: new Date().toISOString() } });
+
+    // 8. Log timeline event
+    await _logCaseEvent(caseId, sppaTask.id, 'system',
+      'AI conflict scan complete — Q7 marked ' + (scanResult.is_conflict ? 'YES' : 'NO'),
+      scanResult.reasoning,
+      'system',
+      { is_conflict: scanResult.is_conflict, confidence: scanResult.confidence });
+
+  } catch (err) {
+    console.error('[SPPA-00] Conflict scan orchestrator error:', err.message);
+  }
+}
+
 async function _hasOpenTask(caseId, stage, type) {
   if (!isSupabaseDbConfigured()) return false;
   const q = await supabaseDbRequest('registration_tasks',
@@ -6971,19 +7128,7 @@ async function processRegistrationTaskAutomation(userId, email, prevState, nextS
       const _practiceName = _securedApp && _securedApp.placement ? (_securedApp.placement.practiceName || _securedApp.placement.practice_name || '') : '';
       sendPracticePackEmail(userId, _practiceName).catch(err => console.error('[Email] Practice pack failed:', err.message));
 
-      // Auto-send SPPA-00 if Zoho Sign is connected + practice contact email is present
-      try {
-        const sppaTasks = await supabaseDbRequest('registration_tasks',
-          'select=id&case_id=eq.' + encodeURIComponent(caseId) + '&related_document_key=eq.sppa_00&task_type=eq.practice_pack_child&status=in.(open,in_progress)&limit=1');
-        if (sppaTasks.ok && Array.isArray(sppaTasks.data)) {
-          for (const t of sppaTasks.data) {
-            const r = await sendSppa00Envelope(t.id);
-            if (!r.ok) console.log('[SPPA-00 auto-send] skipped:', r.error);
-          }
-        }
-      } catch (e) {
-        console.error('[SPPA-00 auto-send] error:', e.message);
-      }
+      // SPPA-00 auto-send removed — now triggered via conflict scan when supervisor_cv + offer_contract are both complete
 
       // Create Google Drive folder and auto-deliver Section G
       if (isGoogleDriveConfigured()) {
@@ -29151,6 +29296,13 @@ Return ONLY valid JSON with no markdown formatting:
     const delivery = await deliverToMyDocuments(userId, task.case_id, docKey, fileName, fileBuffer, mimeType);
     await _completeRegTask(taskId, task.case_id, adminCtx.email);
     await _logCaseEvent(task.case_id, taskId, 'system', (label ? label.label : docKey) + ' approved and delivered to GP', null, adminCtx.email);
+
+    // Fire SPPA-00 conflict scan if we just completed a prerequisite document
+    if (docKey === 'supervisor_cv' || docKey === 'offer_contract') {
+      _maybeRunSppaConflictScan(task.case_id, userId).catch(function (err) {
+        console.error('[SPPA-00] async conflict scan error:', err.message);
+      });
+    }
 
     sendJson(res, 200, { ok: true, delivery: delivery });
     return;
