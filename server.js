@@ -26311,7 +26311,7 @@ Return ONLY valid JSON with no markdown formatting:
       } catch (e) { /* ignore parse errors */ }
 
       // 2. Parallel fetch all data sources
-      const [tasksRes, tlRes, msgRes, dtRes, ticketsRes, qualSnap, gmailMessages] = await Promise.all([
+      const [tasksRes, tlRes, msgRes, dtRes, ticketsRes, qualSnap, gmailMessages, docOpsRes, userDocsRes] = await Promise.all([
         supabaseDbRequest('registration_tasks', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc'),
         supabaseDbRequest('task_timeline', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=20'),
         supabaseDbRequest('task_messages', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.desc&limit=20'),
@@ -26322,7 +26322,9 @@ Return ONLY valid JSON with no markdown formatting:
         })(),
         (async () => {
           try { return await searchGmailForGP(gpEmail, gpName, practiceEmail, 30); } catch { return []; }
-        })()
+        })(),
+        supabaseDbRequest('practice_doc_ops', 'select=*&case_id=eq.' + encodeURIComponent(caseId) + '&order=created_at.asc'),
+        supabaseDbRequest('user_documents', 'select=document_key,status,file_name,created_at&user_id=eq.' + encodeURIComponent(userId))
       ]);
 
       const tasks = tasksRes.ok && Array.isArray(tasksRes.data) ? tasksRes.data : [];
@@ -26332,6 +26334,8 @@ Return ONLY valid JSON with no markdown formatting:
       const tickets = ticketsRes.ok && Array.isArray(ticketsRes.data) ? ticketsRes.data : [];
       const quals = qualSnap || { approved: [], uploaded_unverified: [], missing: [] };
       const emails = gmailMessages || [];
+      const docOps = docOpsRes.ok && Array.isArray(docOpsRes.data) ? docOpsRes.data : [];
+      const userDocs = userDocsRes.ok && Array.isArray(userDocsRes.data) ? userDocsRes.data : [];
 
       // 3. Build the prompt
       const practiceName = regCase.practice_name || '';
@@ -26380,6 +26384,24 @@ Return ONLY valid JSON with no markdown formatting:
       prompt += 'Approved: ' + (quals.approved || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
       prompt += 'Pending: ' + (quals.uploaded_unverified || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
       prompt += 'Missing: ' + (quals.missing || []).map(function(q) { return q.label || q.key; }).join(', ') + '\n';
+
+      prompt += '\n--- PRACTICE DOCUMENTS (ops status) ---\n';
+      if (docOps.length > 0) {
+        docOps.forEach(function(d) {
+          prompt += '[' + (d.ops_status || 'unknown') + '] ' + (d.document_key || '') + (d.drive_file_name ? ' — file: ' + d.drive_file_name : '') + '\n';
+        });
+      } else {
+        prompt += 'No practice document records yet.\n';
+      }
+
+      prompt += '\n--- CANDIDATE UPLOADED DOCUMENTS (' + userDocs.length + ') ---\n';
+      if (userDocs.length > 0) {
+        userDocs.forEach(function(d) {
+          prompt += '[' + (d.status || 'uploaded') + '] ' + (d.document_key || '') + (d.file_name ? ' — ' + d.file_name : '') + '\n';
+        });
+      } else {
+        prompt += 'No candidate-uploaded documents yet.\n';
+      }
 
       prompt += '\n--- RECENT TIMELINE (' + timeline.length + ') ---\n';
       timeline.forEach(function(e) {
