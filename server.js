@@ -400,6 +400,15 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
     if (driveFile) results.driveFile = driveFile.id;
   }
 
+  // 3. If this is a practice document, mark ops_status as completed
+  if (caseId && docKey && PRACTICE_DOC_KEYS.includes(docKey)) {
+    _ensurePracticeDocOps(caseId).then(function() {
+      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(docKey), {
+        method: 'PATCH', body: { ops_status: 'completed' }
+      });
+    }).catch(function(err) { console.error('[deliverToMyDocuments] practice_doc_ops update failed:', err.message); });
+  }
+
   return results;
 }
 
@@ -26323,6 +26332,23 @@ Return ONLY valid JSON with no markdown formatting:
       const docOps = docOpsRes.ok && Array.isArray(docOpsRes.data) ? docOpsRes.data : [];
       const userDocs = userDocsRes.ok && Array.isArray(userDocsRes.data) ? userDocsRes.data : [];
 
+      // 2b. Reconcile: if a task with a practice doc key is completed but ops_status isn't, fix it
+      var completedDocKeys = new Set();
+      tasks.forEach(function(t) {
+        if ((t.status === 'completed' || t.status === 'complete') && t.related_document_key && PRACTICE_DOC_KEYS.includes(t.related_document_key)) {
+          completedDocKeys.add(t.related_document_key);
+        }
+      });
+      docOps.forEach(function(d) {
+        if (completedDocKeys.has(d.document_key) && d.ops_status !== 'completed' && d.ops_status !== 'deferred') {
+          d.ops_status = 'completed'; // Fix in-memory for the prompt
+          // Also fix in DB (fire and forget)
+          supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.' + encodeURIComponent(d.document_key), {
+            method: 'PATCH', body: { ops_status: 'completed' }
+          }).catch(function(err) { console.error('[AI Summary] reconcile ops_status failed:', err.message); });
+        }
+      });
+
       // 3. Build the prompt
       const practiceName = regCase.practice_name || '';
       const handover = regCase.ai_handover_summary || null;
@@ -27131,6 +27157,14 @@ Return ONLY valid JSON with no markdown formatting:
     // Try escalation columns separately — silent fail if columns don't exist yet
     if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function(err) { console.error('[ADMIN] Escalation fields PATCH failed:', err.message, JSON.stringify(escalationFields)); }); }
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+    // If completing a task with a practice document key, update practice_doc_ops to completed
+    if (updated && patch.status === 'completed' && updated.related_document_key && PRACTICE_DOC_KEYS.includes(updated.related_document_key)) {
+      _ensurePracticeDocOps(updated.case_id).then(function() {
+        return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(updated.case_id) + '&document_key=eq.' + encodeURIComponent(updated.related_document_key), {
+          method: 'PATCH', body: { ops_status: 'completed' }
+        });
+      }).catch(function(err) { console.error('[ADMIN] practice_doc_ops update failed:', err.message); });
+    }
     // Timeline
     var evType = isEscalating ? 'escalation' : patch.status === 'completed' ? 'completed' : patch.status === 'cancelled' ? 'cancelled' : patch.priority ? 'priority_change' : 'status_change';
     if (updated) {
