@@ -1322,8 +1322,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         <iframe id="sppaReviewIframe" src="about:blank"></iframe>
       </div>
       <div class="sppa-review-footer">
-        <button class="btn" onclick="openCorrectionModal()">Request Correction</button>
-        <button class="btn primary" id="sppaApproveBtn" onclick="approveSppa()">Approve &amp; Deliver</button>
+        <button class="btn primary" id="sppaApproveBtn" onclick="closeSppaReview()">Close</button>
       </div>
     </div>
   </div>
@@ -2338,7 +2337,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if(t.task_type==='practice_pack_child'||dk){
       if(dk==='sppa_00'){
         if(t.zoho_sign_envelope_id)return{prompt:'Check Zoho Sign status for signatures',label:'Check Status',action:'checkSppaStatus',taskId:t.id};
-        return{prompt:'Send SPPA agreement via Zoho Sign',label:'Send SPPA',action:'sendSppa',taskId:t.id};
+        return{prompt:'Send SPPA-00 to candidate via email',label:'Send SPPA',action:'sendSppa',taskId:t.id};
       }
       if(dk==='section_g'){
         if(t.status==='completed')return{prompt:'Section G auto-delivered',label:'Done',action:null,taskId:t.id};
@@ -5024,7 +5023,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
         }
         else if(action==="sendSppa"){
-          if(typeof sendSppaForSigning==="function")sendSppaForSigning(taskId);
+          if(typeof sppaSendToCandidate==="function")sppaSendToCandidate(taskId);
         }
         else if(action==="checkSppaStatus"){
           if(typeof checkSppaStatus==="function")checkSppaStatus(taskId);
@@ -5312,7 +5311,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       }
       if(e.target===document.getElementById("modalOverlay")||e.target.closest("[data-close-modal]"))closeModal();
     });
-    document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(document.getElementById("correctionOverlay").classList.contains("open")){closeCorrectionModal();return;}if(document.getElementById("sppaReviewOverlay").classList.contains("open")){closeSppaReview();return;}closeModal();}});
+    document.addEventListener("keydown",e=>{if(e.key==="Escape"){if(document.getElementById("sppaReviewOverlay").classList.contains("open")){closeSppaReview();return;}closeModal();}});
     document.addEventListener("keydown",function(e){
       if(e.key==="Escape"){
         var ov=document.querySelector(".drive-overlay");
@@ -5355,7 +5354,6 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       reader.readAsDataURL(file);
     });
     document.getElementById("sppaReviewOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("sppaReviewOverlay"))closeSppaReview();});
-    document.getElementById("correctionOverlay").addEventListener("click",e=>{if(e.target===document.getElementById("correctionOverlay"))closeCorrectionModal();});
     document.getElementById("logoutBtn").addEventListener("click",async()=>{try{await fetch("/api/admin/auth/logout",{method:"POST",credentials:"same-origin"});}catch{}window.location.href="/pages/admin-signin";});
     document.getElementById("syncBtn").addEventListener("click",syncCases);
 
@@ -6594,76 +6592,126 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     return '<span class="sppa-chip ' + m.cls + '">' + esc(m.label) + '</span>';
   }
 
+  function _isPrereqDone(caseId, docKey) {
+    if (!window._allTasks || !Array.isArray(window._allTasks)) return false;
+    return window._allTasks.some(function (t) {
+      return t.case_id === caseId && t.related_document_key === docKey && t.status === 'completed';
+    });
+  }
+
   function renderSppaTaskCard(task) {
-    var zs = task.zoho_sign;
+    var meta = task.metadata || {};
+    if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+    var sppaState = meta.sppa_state || '';
     var html = '';
 
-    // No envelope sent yet
-    if (!zs || !zs.status) {
-      html += '<div class="doc-task-actions">';
-      html += '<button class="btn-action send" onclick="sendSppa(\'' + escAttr(task.id) + '\')">Send SPPA</button>';
+    if (!sppaState) {
+      html += '<div class="doc-task-status">';
+      html += '<span class="doc-task-badge pending-setup" style="font-size:11px;color:#78716c">Waiting for Supervisor CV and Offer/Contract to be submitted</span>';
       html += '</div>';
-      html += '<div class="doc-task-status"><span class="doc-task-badge pending-setup">No envelope sent</span></div>';
+      html += '<div style="margin-top:6px;font-size:11px;color:#78716c">';
+      var svDone = _isPrereqDone(task.case_id, 'supervisor_cv');
+      var ocDone = _isPrereqDone(task.case_id, 'offer_contract');
+      html += (svDone ? '\u2713' : '\u2717') + ' Supervisor CV<br>';
+      html += (ocDone ? '\u2713' : '\u2717') + ' Offer / Contract';
+      html += '</div>';
       return html;
     }
 
-    // Status chip + days counter
-    html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">';
-    html += sppaStatusChipHtml(zs.status);
-    if (typeof zs.days_since_sent === 'number') {
-      html += '<span class="sppa-days">' + zs.days_since_sent + ' day' + (zs.days_since_sent === 1 ? '' : 's') + ' since sent</span>';
+    if (sppaState === 'ready_to_send') {
+      if (meta.is_conflict && meta.confidence !== 'low') {
+        html += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
+        html += '<b style="color:#b45309">\u26a0 AI detected conflict of interest:</b> Supervisor <b>' + escHtml(meta.supervisor_name || '') + '</b> is the practice owner/director.';
+        html += ' Q7 has been marked <b>YES</b> on the SPPA-00.';
+        if (meta.reasoning) {
+          html += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#92400e">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + escHtml(meta.reasoning) + '</p></details>';
+        }
+        html += '</div>';
+      } else if (!meta.is_conflict && meta.confidence !== 'low') {
+        html += '<div style="background:#ecfdf5;border:1px solid #10b981;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
+        html += '<span style="color:#065f46">\u2713 No conflict of interest detected. Q7 marked <b>NO</b>.</span>';
+        html += '</div>';
+      } else {
+        html += '<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
+        html += '<b style="color:#dc2626">\u26a0 AI could not determine with confidence. Manual review required.</b>';
+        if (meta.reasoning) {
+          html += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#991b1b">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + escHtml(meta.reasoning) + '</p></details>';
+        }
+        html += '</div>';
+      }
+      html += '<div class="sppa-actions">';
+      html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview SPPA</button>';
+      html += '<button class="btn-action send" onclick="sppaSendToCandidate(\'' + escAttr(task.id) + '\')">Send to Candidate</button>';
+      html += '<button class="btn-action correct" onclick="sppaOverrideQ7(\'' + escAttr(task.id) + '\',' + (meta.is_conflict ? 'true' : 'false') + ')">Override Q7</button>';
+      html += '</div>';
+      if (meta.q7_overridden) {
+        html += '<div style="font-size:10px;color:#78716c;margin-top:4px">Q7 overridden by ' + escHtml(meta.q7_overridden_by || '') + '</div>';
+      }
+      return html;
     }
-    html += '</div>';
 
-    // Action buttons based on status
-    html += '<div class="sppa-actions">';
-    if (zs.status === 'awaiting_review') {
-      html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review SPPA</button>';
-    } else if (zs.status === 'declined' || zs.status === 'voided' || zs.status === 'expired') {
-      html += '<button class="btn-action resend" onclick="resendSppa(\'' + escAttr(task.id) + '\')">Resend</button>';
-    } else if (zs.status === 'recipient_delivery_failed') {
-      html += '<button class="btn-action update-email" onclick="updateSppaRecipient(\'' + escAttr(task.id) + '\')">Update Email</button>';
+    if (sppaState === 'sent_to_candidate') {
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+      html += '<span class="sppa-chip sent">Sent to GP \u2014 awaiting return</span>';
+      if (meta.sent_to_candidate_at) {
+        var days = Math.floor((Date.now() - new Date(meta.sent_to_candidate_at).getTime()) / 86400000);
+        html += '<span class="sppa-days">' + days + ' day' + (days === 1 ? '' : 's') + '</span>';
+      }
+      html += '</div>';
+      html += '<div class="sppa-actions">';
+      html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview SPPA</button>';
+      html += '<button class="btn-action send" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'candidate\')">Mark GP Returned</button>';
+      html += '</div>';
+      return html;
     }
-    html += '</div>';
+
+    if (sppaState === 'gp_returned') {
+      html += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
+      html += '<span style="color:#b45309">Filled by GP, waiting on practice</span>';
+      html += '</div>';
+      html += '<div class="sppa-actions">';
+      html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview SPPA</button>';
+      html += '<button class="btn-action send" onclick="sppaSendToPractice(\'' + escAttr(task.id) + '\')">Send to Practice</button>';
+      html += '</div>';
+      return html;
+    }
+
+    if (sppaState === 'sent_to_practice') {
+      html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+      html += '<span class="sppa-chip sent">Sent to Practice \u2014 awaiting return</span>';
+      if (meta.sent_to_practice_at) {
+        var days = Math.floor((Date.now() - new Date(meta.sent_to_practice_at).getTime()) / 86400000);
+        html += '<span class="sppa-days">' + days + ' day' + (days === 1 ? '' : 's') + '</span>';
+      }
+      html += '</div>';
+      html += '<div class="sppa-actions">';
+      html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview SPPA</button>';
+      html += '<button class="btn-action send" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'practice\')">Mark Practice Returned</button>';
+      html += '</div>';
+      return html;
+    }
+
+    if (sppaState === 'practice_returned') {
+      html += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
+      html += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
+      html += '</div>';
+      html += '<div class="sppa-actions">';
+      html += '<button class="btn-action review" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review SPPA</button>';
+      html += '<button class="btn-action approve" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
+      html += '</div>';
+      return html;
+    }
+
+    if (sppaState === 'completed') {
+      html += '<div class="doc-task-status"><span class="doc-task-badge completed">\u2713 SPPA-00 Completed</span></div>';
+      return html;
+    }
+
+    html += '<div class="doc-task-status"><span class="doc-task-badge">' + escHtml(sppaState) + '</span></div>';
     return html;
   }
 
-  async function sendSppa(taskId) {
-    if (!confirm('Send SPPA-00 envelope for this task?')) return;
-    try {
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/send-sppa', { method: 'POST', credentials: 'include' });
-      var d = await r.json().catch(function() { return {}; });
-      if (d && d.ok) { toast('SPPA envelope sent'); await loadAll(true); }
-      else { toast((d && d.message) || 'Failed to send SPPA', 'red'); }
-    } catch (err) { toast('Network error', 'red'); }
-  }
-
-  async function resendSppa(taskId) {
-    if (!confirm('Resend SPPA-00 envelope?')) return;
-    try {
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-resend', { method: 'POST', credentials: 'include' });
-      var d = await r.json().catch(function() { return {}; });
-      if (d && d.ok) { toast('SPPA resent'); await loadAll(true); }
-      else { toast((d && d.message) || 'Failed to resend', 'red'); }
-    } catch (err) { toast('Network error', 'red'); }
-  }
-
-  async function updateSppaRecipient(taskId) {
-    var email = prompt('Enter the corrected email address:');
-    if (!email) return;
-    try {
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-update-recipient', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email })
-      });
-      var d = await r.json().catch(function() { return {}; });
-      if (d && d.ok) { toast('Recipient updated & resent'); await loadAll(true); }
-      else { toast((d && d.message) || 'Failed to update recipient', 'red'); }
-    } catch (err) { toast('Network error', 'red'); }
-  }
-
-  /* ══ Task 13: SPPA Review panel + Correction modal ══ */
+  /* ══ SPPA Review panel ══ */
   function openSppaReview(taskId) {
     _sppaReviewTaskId = taskId;
     var iframe = document.getElementById('sppaReviewIframe');
@@ -6678,60 +6726,76 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     setTimeout(flushPendingRender,80);
   }
 
-  async function approveSppa() {
-    if (!_sppaReviewTaskId) return;
-    var btn = document.getElementById('sppaApproveBtn');
-    btn.disabled = true;
-    btn.textContent = 'Approving\u2026';
+  async function sppaSendToCandidate(taskId) {
+    if (!confirm('Send SPPA-00 to the GP candidate via email?')) return;
     try {
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(_sppaReviewTaskId) + '/sppa-approve', {
-        method: 'POST', credentials: 'include'
-      });
-      var d = await r.json().catch(function() { return {}; });
-      if (d && d.ok) { toast('SPPA approved & delivered'); closeSppaReview(); await loadAll(true); }
-      else { toast((d && d.message) || 'Failed to approve', 'red'); }
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-send-to-candidate', { method: 'POST', credentials: 'include' });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) { toast('SPPA-00 sent to candidate'); await loadAll(true); }
+      else { toast((d && d.error) || 'Failed to send', 'red'); }
     } catch (err) { toast('Network error', 'red'); }
-    btn.disabled = false;
-    btn.textContent = 'Approve & Deliver';
   }
 
-  function openCorrectionModal() {
-    document.getElementById('correctionOverlay').classList.add('open');
-    // Reset form
-    var radios = document.querySelectorAll('#correctionOverlay input[name="correctionSide"]');
-    if (radios.length) radios[0].checked = true;
-    document.querySelectorAll('#correctionOverlay .section-checks input').forEach(function(cb) { cb.checked = false; });
-    document.getElementById('correctionNote').value = '';
-  }
-
-  function closeCorrectionModal() {
-    document.getElementById('correctionOverlay').classList.remove('open');
-    setTimeout(flushPendingRender,80);
-  }
-
-  async function sendSppaCorrection() {
-    if (!_sppaReviewTaskId) return;
-    var sideEl = document.querySelector('#correctionOverlay input[name="correctionSide"]:checked');
-    var side = sideEl ? sideEl.value : 'practice';
-    var sections = [];
-    document.querySelectorAll('#correctionOverlay .section-checks input:checked').forEach(function(cb) { sections.push(cb.value); });
-    var note = (document.getElementById('correctionNote').value || '').trim();
-    if (!sections.length && !note) { alert('Select at least one section or add a note.'); return; }
-    var btn = document.getElementById('sendCorrectionBtn');
-    btn.disabled = true;
-    btn.textContent = 'Sending\u2026';
+  async function sppaSendToPractice(taskId) {
+    if (!confirm('Send SPPA-00 to the practice contact via email?')) return;
     try {
-      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(_sppaReviewTaskId) + '/sppa-request-correction', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ side: side, sections: sections, note: note })
-      });
-      var d = await r.json().catch(function() { return {}; });
-      if (d && d.ok) { toast('Correction request sent'); closeCorrectionModal(); closeSppaReview(); await loadAll(true); }
-      else { toast((d && d.message) || 'Failed to send correction', 'red'); }
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-send-to-practice', { method: 'POST', credentials: 'include' });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) { toast('SPPA-00 sent to practice'); await loadAll(true); }
+      else { toast((d && d.error) || 'Failed to send', 'red'); }
     } catch (err) { toast('Network error', 'red'); }
-    btn.disabled = false;
-    btn.textContent = 'Send Correction';
+  }
+
+  function sppaOverrideQ7(taskId, currentIsConflict) {
+    var newVal = !currentIsConflict;
+    var customDetails = '';
+    if (newVal) {
+      customDetails = prompt('Enter conflict details text (or leave blank for default):') || '';
+    }
+    if (!confirm('Override Q7 to ' + (newVal ? 'YES (conflict)' : 'NO (no conflict)') + '?')) return;
+    fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-override-q7', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_conflict: newVal, details: customDetails })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok) { toast('Q7 overridden to ' + (newVal ? 'YES' : 'NO')); loadAll(true); }
+      else { toast((d && d.error) || 'Override failed', 'red'); }
+    }).catch(function () { toast('Network error', 'red'); });
+  }
+
+  async function sppaMarkReturned(taskId, from) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,application/pdf';
+    input.onchange = async function () {
+      var file = input.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = async function () {
+        try {
+          var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-store-returned', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: from, file_data_url: reader.result, file_name: file.name })
+          });
+          var d = await r.json().catch(function () { return {}; });
+          if (d && d.ok) { toast('Returned SPPA stored (' + from + ')'); await loadAll(true); }
+          else { toast((d && d.error) || 'Failed to store', 'red'); }
+        } catch (err) { toast('Network error', 'red'); }
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }
+
+  async function sppaSubmitFinal(taskId) {
+    if (!confirm('Submit final SPPA-00 and deliver to the GP?')) return;
+    try {
+      var r = await fetch('/api/admin/va/task/' + encodeURIComponent(taskId) + '/sppa-submit', { method: 'POST', credentials: 'include' });
+      var d = await r.json().catch(function () { return {}; });
+      if (d && d.ok) { toast('SPPA-00 submitted and delivered to GP'); await loadAll(true); }
+      else { toast((d && d.error) || 'Failed to submit', 'red'); }
+    } catch (err) { toast('Network error', 'red'); }
   }
 
   /* renderTodayPanel removed — replaced by renderInboxPanel */
@@ -7453,15 +7517,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   window.loadZohoRecruitStatus = loadZohoRecruitStatus;
   window.zohoRecruitSync = zohoRecruitSync;
   window.zohoRecruitDisconnect = zohoRecruitDisconnect;
-  window.sendSppa = sendSppa;
-  window.resendSppa = resendSppa;
-  window.updateSppaRecipient = updateSppaRecipient;
   window.openSppaReview = openSppaReview;
   window.closeSppaReview = closeSppaReview;
-  window.approveSppa = approveSppa;
-  window.openCorrectionModal = openCorrectionModal;
-  window.closeCorrectionModal = closeCorrectionModal;
-  window.sendSppaCorrection = sendSppaCorrection;
+  window.sppaSendToCandidate = sppaSendToCandidate;
+  window.sppaSendToPractice = sppaSendToPractice;
+  window.sppaOverrideQ7 = sppaOverrideQ7;
+  window.sppaMarkReturned = sppaMarkReturned;
+  window.sppaSubmitFinal = sppaSubmitFinal;
   // Phase 2 — Incoming Questions
   window.loadIncomingQuestions = loadIncomingQuestions;
   window.assignIncomingQuestion = assignIncomingQuestion;
