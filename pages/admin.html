@@ -4212,7 +4212,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     var tt=task.task_type||'';
     var st=task.status||'open';
     var html='';
-    if(tt==='practice_pack_child'){
+    if(tt==='practice_pack_child'&&task.related_document_key==='sppa_00'){
+      html=renderOpsSppa00(task,msgs,docs);
+    }else if(tt==='practice_pack_child'){
       html=renderOpsPracticePackChild(task,msgs,docs);
     }else if(tt==='ahpra_action_item'){
       html=renderOpsAhpraActionItem(task,msgs,docs);
@@ -4293,6 +4295,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     });
     h+='</div>';
     return h;
+  }
+
+  /* ── SPPA-00 (7-state lifecycle) ── */
+  function renderOpsSppa00(task,msgs,docs){
+    return '<div class="ops-expand-section">' + renderSppaTaskCard(task) + '</div>';
   }
 
   /* ── Practice Pack Child ── */
@@ -4736,7 +4743,11 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(!S._opsDocCache)S._opsDocCache={};
       S._opsDocCache[taskId]=docs;
     }catch(e){}
-    container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
+    if(adapted.related_document_key==='sppa_00'){
+      container.innerHTML=renderOpsSppa00(adapted,msgs,docs);
+    }else{
+      container.innerHTML=renderOpsPracticePackChild(adapted,msgs,docs);
+    }
   }
 
 
