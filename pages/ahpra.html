@@ -2620,7 +2620,10 @@
             if (statusEl) { statusEl.textContent = "Uploaded"; statusEl.className = "intro-doc-status"; statusEl.style.background = "#ecfdf5"; statusEl.style.color = "#166534"; }
             var actionsEl = card.querySelector(".intro-doc-actions");
             if (actionsEl) {
-              actionsEl.innerHTML = '<div class="intro-doc-uploaded-row"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> ' + file.name + '</div>';
+              var _uRow = document.createElement('div'); _uRow.className = 'intro-doc-uploaded-row';
+              _uRow.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> ';
+              _uRow.appendChild(document.createTextNode(file.name));
+              actionsEl.innerHTML = ''; actionsEl.appendChild(_uRow);
             }
             if (progressBar) progressBar.classList.remove("show");
           }
@@ -3539,7 +3542,10 @@
       ahpraHelpSteps.innerHTML = '';
       (helpData.steps || []).forEach(function(step) {
         var li = document.createElement('li');
-        li.innerHTML = step;
+        // Sanitise: only allow safe inline tags
+        var _tmp = document.createElement('div'); _tmp.textContent = step;
+        var safe = _tmp.innerHTML.replace(/&lt;(\/?(b|i|strong|em|a|br|code)(\s[^&]*?)?)&gt;/gi, '<$1>');
+        li.innerHTML = safe;
         ahpraHelpSteps.appendChild(li);
       });
       if (helpData.certNote) {

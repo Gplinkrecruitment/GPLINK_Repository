@@ -7737,7 +7737,13 @@
     function persistCareerState() {
       enforceLockedCareerView();
       careerState.updatedAt = new Date().toISOString();
-      localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(careerState));
+      // Persist non-sensitive fields only (strip contact details from local copy)
+      var _cs = JSON.parse(JSON.stringify(careerState));
+      if (_cs.placement && _cs.placement.practiceContact) {
+        delete _cs.placement.practiceContact.email;
+        delete _cs.placement.practiceContact.phone;
+      }
+      localStorage.setItem(CAREER_STATE_KEY, JSON.stringify(_cs));
       window.dispatchEvent(new Event("gp-career-updated"));
     }
 
@@ -10580,7 +10586,7 @@
       if (checklistAction) {
         if (checklistAction.hasAttribute("disabled")) return;
         const href = checklistAction.getAttribute("data-href") || "";
-        if (href) {
+        if (href && (href.startsWith('/') || href.startsWith('https://') || href.startsWith('http://'))) {
           window.location.href = href;
         }
         return;

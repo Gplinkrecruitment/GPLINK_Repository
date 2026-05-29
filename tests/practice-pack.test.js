@@ -40,7 +40,7 @@ describe('buildPositionDescriptionPrompt', () => {
 describe('HTML to PDF text extraction', () => {
   it('strips HTML tags while preserving structure markers', () => {
     const html = '<h2>Overview</h2><p>Text here</p><ul><li>Item 1</li><li>Item 2</li></ul>';
-    const stripped = html.replace(/<[^>]*>/g, function (tag) {
+    var _t = html.replace(/<[^>]*>/g, function (tag) {
       if (tag.match(/^<h2/i)) return '\n##HEADING2##';
       if (tag.match(/^<h3/i)) return '\n##HEADING3##';
       if (tag.match(/^<li/i)) return '\n• ';
@@ -48,6 +48,8 @@ describe('HTML to PDF text extraction', () => {
       if (tag.match(/^<\/p|^<\/ul|^<\/ol|^<\/li|^<\/h/i)) return '\n';
       return '';
     });
+    var _tp; do { _tp = _t; _t = _t.replace(/<[^>]*>/g, ''); } while (_t !== _tp);
+    const stripped = _t;
     expect(stripped).toContain('##HEADING2##Overview');
     expect(stripped).toContain('• Item 1');
     expect(stripped).toContain('• Item 2');
