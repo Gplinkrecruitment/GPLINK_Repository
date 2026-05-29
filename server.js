@@ -27380,6 +27380,17 @@ Return ONLY valid JSON with no markdown formatting:
     if (patch.escalated_at !== undefined) escalationFields.escalated_at = patch.escalated_at;
     else if (isEscalating) escalationFields.escalated_at = new Date().toISOString();
     delete patch.escalated_to; delete patch.escalated_reason; delete patch.escalated_at;
+    // Merge into metadata JSON if requested
+    if (body && body.metadata_merge && typeof body.metadata_merge === 'object') {
+      try {
+        var existingRes = await supabaseDbRequest('registration_tasks', 'select=metadata&id=eq.' + encodeURIComponent(taskId) + '&limit=1');
+        var existingMeta = (existingRes.ok && existingRes.data && existingRes.data[0]) ? existingRes.data[0].metadata : {};
+        if (typeof existingMeta === 'string') try { existingMeta = JSON.parse(existingMeta); } catch (e) { existingMeta = {}; }
+        if (!existingMeta) existingMeta = {};
+        Object.assign(existingMeta, body.metadata_merge);
+        patch.metadata = existingMeta;
+      } catch (e) { console.error('[ADMIN] metadata_merge error:', e.message); }
+    }
     // PATCH main fields
     var r = await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: patch });
     if (!r.ok) { console.error('[ADMIN] Task update failed:', r.status, JSON.stringify(r.data)); sendJson(res, 502, { ok: false, message: 'Failed to update task.', detail: typeof r.data === 'object' ? (r.data.message || r.data.msg || JSON.stringify(r.data)) : String(r.data || ''), httpStatus: r.status }); return; }

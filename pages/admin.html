@@ -4349,9 +4349,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-expand-label">Send SPPA-00 to candidate</div>';
       h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The SPPA-00 PDF (with Q7 pre-filled) will be attached automatically.</div>';
       h += '<div class="ops-email-composer">';
-      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-sppa-email-to="' + esc(task.id) + '" value="' + esc(candidateEmail) + '" /></div>';
-      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-sppa-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan \u2014 Please Complete Section A and Sign" /></div>';
-      h += '<div class="ops-email-body" contenteditable="true" data-sppa-email-body="' + esc(task.id) + '">'
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(candidateEmail) + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan \u2014 Please Complete Section A and Sign" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(gpName) + ',<br><br>'
         + 'Please find attached your Supervised Practice Plan Agreement (SPPA-00).<br><br>'
         + 'Could you please:<br>'
@@ -4361,7 +4361,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         + '</div>';
       h += '<div class="ops-email-actions">';
-      h += '<button class="ops-btn-green" onclick="sppaSendToCandidate(\'' + escAttr(task.id) + '\')">Send to Candidate</button>';
+      h += '<button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_gp" data-ops-auto-attach="true" data-ops-sppa-state="sent_to_candidate">Send to Candidate</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '<button class="ops-btn-secondary" onclick="sppaOverrideQ7(\'' + escAttr(task.id) + '\',' + (meta.is_conflict ? 'true' : 'false') + ')">Override Q7</button>';
       h += '</div>';
@@ -4395,9 +4395,9 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-expand-label">Send SPPA-00 to practice</div>';
       h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The GP-completed SPPA-00 PDF will be attached automatically.</div>';
       h += '<div class="ops-email-composer">';
-      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-sppa-email-to="' + esc(task.id) + '" value="' + esc(practiceEmail) + '" /></div>';
-      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-sppa-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan for Dr ' + esc(gpName) + ' \u2014 Please Complete and Sign" /></div>';
-      h += '<div class="ops-email-body" contenteditable="true" data-sppa-email-body="' + esc(task.id) + '">'
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-email-to="' + esc(task.id) + '" value="' + esc(practiceEmail) + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan for Dr ' + esc(gpName) + ' \u2014 Please Complete and Sign" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-email-body="' + esc(task.id) + '">'
         + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
         + 'Please find attached the Supervised Practice Plan Agreement (SPPA-00) for Dr ' + esc(gpName) + '.<br><br>'
         + 'The candidate has completed their section. Could you please:<br>'
@@ -4408,7 +4408,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         + '</div>';
       h += '<div class="ops-email-actions">';
-      h += '<button class="ops-btn-green" onclick="sppaSendToPractice(\'' + escAttr(task.id) + '\')">Send to Practice</button>';
+      h += '<button class="ops-btn-green" data-ops-send-email="' + esc(task.id) + '" data-ops-case="' + esc(task.case_id || '') + '" data-ops-flip-status="waiting_on_practice" data-ops-auto-attach="true" data-ops-sppa-state="sent_to_practice">Send to Practice</button>';
       h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
       h += '</div>';
       h += '</div></div>';
@@ -5361,12 +5361,24 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         if(!subVal){showOpsToast('Subject required','red');return;}
         gpSendEmailBtn.disabled=true;gpSendEmailBtn.textContent='Sending\u2026';
         try{
+          var emailPayload2={to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId};
+          if(gpSendEmailBtn.hasAttribute('data-ops-auto-attach')){
+            var taskDocs2=S._opsDocCache&&S._opsDocCache[tid]?S._opsDocCache[tid]:[];
+            var currentDoc2=taskDocs2.find(function(d){return d.is_current!==false;});
+            if(currentDoc2&&currentDoc2.attachment_url){
+              emailPayload2.attachments=[{url:currentDoc2.attachment_url,filename:currentDoc2.filename||'document'}];
+            }
+          }
           var r=await fetch('/api/admin/email/send',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({to:toVal,subject:subVal,bodyHtml:bodyHtml,taskId:tid,caseId:caseId})});
+            body:JSON.stringify(emailPayload2)});
           var d=await r.json().catch(()=>({}));
           if(d.ok){
             if(flipStatus){
               await fetch('/api/admin/task?id='+encodeURIComponent(tid),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus})});
+            }
+            var sppaState2=gpSendEmailBtn.getAttribute('data-ops-sppa-state');
+            if(sppaState2){
+              await fetch('/api/admin/task?id='+encodeURIComponent(tid),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata_merge:{sppa_state:sppaState2,['sent_to_'+(sppaState2==='sent_to_candidate'?'candidate':'practice')+'_at']:new Date().toISOString(),['sent_to_'+(sppaState2==='sent_to_candidate'?'candidate':'practice')+'_email']:toVal}})}).catch(function(){});
             }
             showOpsToast('Email sent');
             loadTasks().then(function(){renderDetail();});
@@ -5605,6 +5617,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           if(d.ok){
             if(flipStatus){
               await fetch('/api/admin/task?id='+encodeURIComponent(tid),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:flipStatus})});
+            }
+            var sppaState=sendEmailBtn.getAttribute('data-ops-sppa-state');
+            if(sppaState){
+              await fetch('/api/admin/task?id='+encodeURIComponent(tid),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata_merge:{sppa_state:sppaState,['sent_to_'+(sppaState==='sent_to_candidate'?'candidate':'practice')+'_at']:new Date().toISOString(),['sent_to_'+(sppaState==='sent_to_candidate'?'candidate':'practice')+'_email']:toVal}})}).catch(function(){});
             }
             showOpsToast('Email sent');loadOpsQueue();
             loadTasks().then(function(){renderDetail();});
