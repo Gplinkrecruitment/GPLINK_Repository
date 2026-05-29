@@ -49,6 +49,7 @@ describe('HTML to PDF text extraction', () => {
       return '';
     });
     var _tp; do { _tp = _t; _t = _t.replace(/<[^>]*>/g, ''); } while (_t !== _tp);
+    _t = _t.replace(/</g, '');
     const stripped = _t;
     expect(stripped).toContain('##HEADING2##Overview');
     expect(stripped).toContain('• Item 1');

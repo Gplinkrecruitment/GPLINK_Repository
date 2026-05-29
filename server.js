@@ -9078,24 +9078,17 @@ function extractWebsiteText(html) {
   const source = String(html || '');
   if (!source) return '';
   const safeSource = source.length > 200000 ? source.slice(0, 200000) : source;
-  // Remove dangerous elements iteratively to handle nested/malformed tags
-  var withoutNoise = safeSource;
-  var prev;
-  do {
-    prev = withoutNoise;
-    withoutNoise = withoutNoise
-      .replace(/<script\b[^<]*(?:(?!<\/script)<[^<]*)*<\/script\s*>/gi, ' ')
-      .replace(/<style\b[^<]*(?:(?!<\/style)<[^<]*)*<\/style\s*>/gi, ' ')
-      .replace(/<noscript\b[^<]*(?:(?!<\/noscript)<[^<]*)*<\/noscript\s*>/gi, ' ');
-  } while (withoutNoise !== prev);
   const chunks = [];
-  const titleMatch = withoutNoise.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  // Extract title and meta description before stripping tags
+  const titleMatch = safeSource.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (titleMatch && titleMatch[1]) chunks.push(stripHtml(titleMatch[1]));
-  const descriptionMatch = withoutNoise.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+  const descriptionMatch = safeSource.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
   if (descriptionMatch && descriptionMatch[1]) chunks.push(stripHtml(descriptionMatch[1]));
+  // Extract text from structural tags (no regex-based script removal needed —
+  // we only pull content from known safe tags, ignoring everything else)
   const tagRegex = /<(h1|h2|h3|p|li)[^>]*>([\s\S]*?)<\/\1>/gi;
   let match;
-  while ((match = tagRegex.exec(withoutNoise))) {
+  while ((match = tagRegex.exec(safeSource))) {
     const text = stripHtml(match[2]);
     if (text && text.length > 20) chunks.push(text);
     if (chunks.length >= 80) break;
@@ -29499,6 +29492,7 @@ Return ONLY valid JSON with no markdown formatting:
           return '';
         });
         var _pp; do { _pp = _pdfText; _pdfText = _pdfText.replace(/<[^>]*>/g, ''); } while (_pdfText !== _pp);
+        _pdfText = _pdfText.replace(/</g, '');
         const stripped = decodeXmlEntities(_pdfText);
 
         const lines = stripped.split('\n');

@@ -10580,7 +10580,7 @@
       if (checklistAction) {
         if (checklistAction.hasAttribute("disabled")) return;
         const href = checklistAction.getAttribute("data-href") || "";
-        if (href && (href.startsWith('/') || href.startsWith('https://') || href.startsWith('http://'))) {
+        if (href && /^[a-zA-Z0-9#/]/.test(href) && !href.includes(':')) {
           window.location.href = href;
         }
         return;
