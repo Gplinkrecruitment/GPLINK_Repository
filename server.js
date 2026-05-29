@@ -1104,41 +1104,21 @@ function isAllowedZohoDomain(hostname) {
 }
 
 // ── Fetch attachment as base64 ──
-// Perform a DNS-validated HTTP(S) fetch that blocks private/internal IPs at the
-// network level, preventing SSRF even when the hostname appears public but
-// resolves to an internal address (DNS rebinding, split-horizon, etc.).
-async function ssrfSafeFetch(urlString) {
-  var parsed = new URL(urlString);
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error('Only HTTP(S) allowed');
-  }
-  var mod = parsed.protocol === 'https:' ? require('https') : require('http');
-  return new Promise(function (resolve, reject) {
-    var req = mod.request(parsed, {
-      lookup: function (hostname, opts, cb) {
-        require('dns').lookup(hostname, opts, function (err, address, family) {
-          if (err) return cb(err);
-          if (isPrivateIpHostname(address)) return cb(new Error('SSRF: resolved to private IP'));
-          cb(null, address, family);
-        });
-      }
-    }, function (res) {
-      var chunks = [];
-      res.on('data', function (c) { chunks.push(c); });
-      res.on('end', function () {
-        resolve({
-          ok: res.statusCode >= 200 && res.statusCode < 300,
-          status: res.statusCode,
-          buffer: Buffer.concat(chunks),
-          headers: res.headers
-        });
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(15000, function () { req.destroy(new Error('Timeout')); });
-    req.end();
-  });
-}
+// Allowlist of origins that attachments may be fetched from.
+// Fetch URL is built from these hardcoded strings, not from user input.
+const ATTACHMENT_ALLOWED_ORIGINS = {
+  'drive.google.com':            'https://drive.google.com',
+  'docs.google.com':             'https://docs.google.com',
+  'storage.googleapis.com':      'https://storage.googleapis.com',
+  'lh3.googleusercontent.com':   'https://lh3.googleusercontent.com',
+  'lh4.googleusercontent.com':   'https://lh4.googleusercontent.com',
+  'lh5.googleusercontent.com':   'https://lh5.googleusercontent.com',
+  'lh6.googleusercontent.com':   'https://lh6.googleusercontent.com',
+  'mail.google.com':             'https://mail.google.com',
+  'www.googleapis.com':          'https://www.googleapis.com',
+  'content.googleapis.com':      'https://content.googleapis.com',
+  'gmail.googleapis.com':        'https://gmail.googleapis.com',
+};
 
 async function fetchAttachmentAsBase64(url, filename) {
   try {
@@ -1160,13 +1140,19 @@ async function fetchAttachmentAsBase64(url, filename) {
       return { filename: fileName, mimeType: fileMime, content: fileContent };
     }
 
-    // Regular HTTP URL — use DNS-validated fetch that blocks private IPs at connect time
-    var result = await ssrfSafeFetch(url);
-    if (!result.ok) throw new Error('HTTP ' + result.status);
-    var contentType = result.headers['content-type'] || 'application/octet-stream';
+    // Allowlisted HTTP URL — resolve hostname to a hardcoded origin (breaks SSRF taint chain)
+    var parsed;
+    try { parsed = new URL(url); } catch (_) { throw new Error('Invalid URL'); }
+    var safeOrigin = ATTACHMENT_ALLOWED_ORIGINS[parsed.hostname.toLowerCase()];
+    if (!safeOrigin) throw new Error('Attachment host not in allowlist: ' + parsed.hostname + '. Upload the file directly instead.');
+    var safeFetchUrl = safeOrigin + parsed.pathname + parsed.search;
+    var resp = await fetch(safeFetchUrl);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var buf = Buffer.from(await resp.arrayBuffer());
+    var contentType = resp.headers.get('content-type') || 'application/octet-stream';
     var mimeOnly = contentType.split(';')[0].trim();
-    var inferredName = filename || url.split('/').pop().split('?')[0] || 'attachment';
-    return { filename: inferredName, mimeType: mimeOnly, content: result.buffer.toString('base64') };
+    var inferredName = filename || parsed.pathname.split('/').pop().split('?')[0] || 'attachment';
+    return { filename: inferredName, mimeType: mimeOnly, content: buf.toString('base64') };
   } catch (err) {
     console.error('[fetchAttachmentAsBase64] Error:', err.message);
     throw err;
