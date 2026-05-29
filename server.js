@@ -1403,7 +1403,7 @@ function preFilterEmail(emailMeta) {
 }
 
 var { aiMatchEmail: _aiMatchEmailImpl } = require('./lib/ai-matching.js');
-var { triageEmailWithSonnet } = require('./lib/email-triage.js');
+var { triageEmailWithSonnet, triageAhpraEmail, isAhpraEmail } = require('./lib/email-triage.js');
 
 async function aiMatchEmail(emailMeta, openTasks) {
   var budgetOk = await checkAnthropicBudget();
@@ -1954,6 +1954,14 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
             }]
           });
           continue;
+        }
+
+        // AHPRA officer email pipeline — intercept before general triage
+        if (isAhpraEmail(emailMeta.sender)) {
+          console.log('[Gmail] AHPRA email detected from:', emailMeta.sender);
+          _processAhpraEmail(emailMeta).catch(function (err) {
+            console.error('[Gmail] AHPRA email processing error:', err.message);
+          });
         }
 
         var placedGPs = await getPlacedGPsForTriage();
@@ -6597,6 +6605,136 @@ async function _maybeRunSppaConflictScan(caseId, userId) {
 
   } catch (err) {
     console.error('[SPPA-00] Conflict scan orchestrator error:', err.message);
+  }
+}
+
+/**
+ * Process an inbound AHPRA officer email: classify it and create an admin task.
+ */
+async function _processAhpraEmail(emailMeta) {
+  try {
+    var gpRes = await supabaseDbRequest('registration_cases',
+      'select=id,user_id,stage,status&status=in.(active,in_progress)&stage=in.(ahpra,career,pbs,commencement)&limit=200');
+    var gpCandidates = [];
+    if (gpRes.ok && Array.isArray(gpRes.data)) {
+      for (var c of gpRes.data) {
+        var profRes = await supabaseDbRequest('user_profiles',
+          'select=first_name,last_name,email&user_id=eq.' + encodeURIComponent(c.user_id) + '&limit=1');
+        var prof = (profRes.ok && profRes.data && profRes.data[0]) ? profRes.data[0] : {};
+        gpCandidates.push({
+          user_id: c.user_id,
+          case_id: c.id,
+          name: ((prof.first_name || '') + ' ' + (prof.last_name || '')).trim(),
+          email: prof.email || '',
+          stage: c.stage
+        });
+      }
+    }
+
+    var triage = await triageAhpraEmail(emailMeta, gpCandidates);
+    console.log('[AHPRA Email]', JSON.stringify({ category: triage.category, matched: triage.matched_gp_user_id, confidence: triage.confidence, summary: triage.summary }));
+
+    if (!triage.matched_gp_user_id) {
+      console.log('[AHPRA Email] Could not match to a GP — creating unmatched triage task');
+      await supabaseDbRequest('registration_tasks', '', {
+        method: 'POST',
+        body: [{
+          task_type: 'ahpra_correspondence',
+          title: 'AHPRA email — unmatched GP',
+          priority: 'high',
+          status: 'open',
+          source_trigger: 'ahpra_email',
+          related_stage: 'ahpra',
+          metadata: {
+            ahpra_officer_name: triage.officer_name,
+            ahpra_officer_email: triage.officer_email || emailMeta.sender,
+            category: triage.category,
+            summary: triage.summary,
+            email_subject: emailMeta.subject,
+            email_date: emailMeta.date,
+            needs_triage: true
+          }
+        }]
+      });
+      return;
+    }
+
+    var matchedGp = gpCandidates.find(function (g) { return g.user_id === triage.matched_gp_user_id; });
+    var caseId = matchedGp ? matchedGp.case_id : null;
+    if (!caseId) return;
+
+    if (triage.officer_email) {
+      try {
+        var caseMetaRes = await supabaseDbRequest('registration_cases',
+          'select=metadata&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+        var caseMeta = (caseMetaRes.ok && caseMetaRes.data && caseMetaRes.data[0]) ? caseMetaRes.data[0].metadata : {};
+        if (typeof caseMeta === 'string') try { caseMeta = JSON.parse(caseMeta); } catch (e) { caseMeta = {}; }
+        if (!caseMeta) caseMeta = {};
+        caseMeta.ahpra_officer_name = triage.officer_name || caseMeta.ahpra_officer_name;
+        caseMeta.ahpra_officer_email = triage.officer_email || caseMeta.ahpra_officer_email;
+        await supabaseDbRequest('registration_cases',
+          'id=eq.' + encodeURIComponent(caseId),
+          { method: 'PATCH', body: { metadata: caseMeta } });
+      } catch (e) {
+        console.error('[AHPRA Email] case metadata update error:', e.message);
+      }
+    }
+
+    var taskTitle = '';
+    var taskDetail = '';
+    var taskMeta = {
+      ahpra_officer_name: triage.officer_name,
+      ahpra_officer_email: triage.officer_email || emailMeta.sender,
+      category: triage.category,
+      summary: triage.summary,
+      email_subject: emailMeta.subject,
+      email_date: emailMeta.date
+    };
+
+    if (triage.category === 'conflict_followup') {
+      taskTitle = 'AHPRA conflict of interest follow-up — ' + (matchedGp.name || 'GP');
+      taskDetail = 'Email the practice contact asking them to email ' + (triage.officer_email || emailMeta.sender) +
+        ' explaining how potential future conflicts of interest will be managed (supervisor is also practice owner/director).';
+      taskMeta.requires_practice_contact_email = true;
+    } else if (triage.category === 'document_request') {
+      taskTitle = 'AHPRA document request — ' + (matchedGp.name || 'GP');
+      taskDetail = triage.summary + (triage.requested_documents.length ? '\n\nRequested: ' + triage.requested_documents.join(', ') : '');
+      taskMeta.requested_documents = triage.requested_documents;
+    } else if (triage.category === 'information_request') {
+      taskTitle = 'AHPRA information request — ' + (matchedGp.name || 'GP');
+      taskDetail = triage.summary;
+    } else if (triage.category === 'application_update') {
+      taskTitle = 'AHPRA application update — ' + (matchedGp.name || 'GP');
+      taskDetail = triage.summary;
+    } else {
+      taskTitle = 'AHPRA correspondence — ' + (matchedGp.name || 'GP');
+      taskDetail = triage.summary;
+    }
+
+    await supabaseDbRequest('registration_tasks', '', {
+      method: 'POST',
+      body: [{
+        case_id: caseId,
+        task_type: 'ahpra_correspondence',
+        title: taskTitle,
+        detail: taskDetail,
+        priority: triage.category === 'conflict_followup' ? 'high' : 'normal',
+        status: 'open',
+        source_trigger: 'ahpra_email',
+        related_stage: 'ahpra',
+        metadata: taskMeta
+      }]
+    });
+
+    await _logCaseEvent(caseId, null, 'system',
+      'AHPRA email received — ' + triage.category,
+      triage.summary,
+      'ahpra_email_pipeline',
+      { officer_email: triage.officer_email || emailMeta.sender });
+
+    console.log('[AHPRA Email] Created task: ' + taskTitle);
+  } catch (err) {
+    console.error('[AHPRA Email] processing error:', err.message);
   }
 }
 
