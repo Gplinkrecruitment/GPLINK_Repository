@@ -42,7 +42,7 @@ No manual trigger — the scan fires as a side effect of the second document bei
 
 ### 2.1 Inputs
 
-A single Claude API call (Sonnet) with four inputs:
+A single Claude API call (Opus) with four inputs:
 
 1. **Supervisor CV** — document buffer from `task_documents.attachment_url`
 2. **Offer/Contract** — document buffer from `task_documents.attachment_url`
