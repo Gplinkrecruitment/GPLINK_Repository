@@ -4299,7 +4299,166 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
   /* ── SPPA-00 (7-state lifecycle) ── */
   function renderOpsSppa00(task,msgs,docs){
-    return '<div class="ops-expand-section">' + renderSppaTaskCard(task) + '</div>';
+    var meta = task.metadata || {};
+    if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+    var sppaState = meta.sppa_state || '';
+    var gpName = task.gp_name || 'the GP';
+    var candidateEmail = task.candidate_email || task.gp_email || '';
+    var practiceEmail = task.practice_contact_email || '';
+    var contactName = task.practice_contact_name || '';
+    var h = '';
+
+    // ── LOCKED: waiting for prerequisites ──
+    if (!sppaState) {
+      h += '<div class="ops-expand-section">';
+      h += '<div class="ops-expand-label">Waiting for prerequisites</div>';
+      h += '<div style="font-size:12px;color:var(--muted);padding:8px 0">';
+      var svDone = _isPrereqDone(task.case_id, 'supervisor_cv');
+      var ocDone = _isPrereqDone(task.case_id, 'offer_contract');
+      h += (svDone ? '\u2713' : '\u2717') + ' Supervisor CV<br>';
+      h += (ocDone ? '\u2713' : '\u2717') + ' Offer / Contract';
+      h += '</div></div>';
+      return h;
+    }
+
+    // Conflict alert banner (shown in ready_to_send state)
+    function conflictBanner() {
+      var b = '';
+      if (meta.is_conflict && meta.confidence !== 'low') {
+        b += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+        b += '<b style="color:#b45309">\u26a0 AI detected conflict of interest:</b> Supervisor <b>' + escHtml(meta.supervisor_name || '') + '</b> is the practice owner/director. Q7 marked <b>YES</b>.';
+        if (meta.reasoning) b += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#92400e">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + escHtml(meta.reasoning) + '</p></details>';
+        b += '</div>';
+      } else if (!meta.is_conflict && meta.confidence !== 'low') {
+        b += '<div style="background:#ecfdf5;border:1px solid #10b981;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+        b += '<span style="color:#065f46">\u2713 No conflict of interest detected. Q7 marked <b>NO</b>.</span>';
+        b += '</div>';
+      } else {
+        b += '<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+        b += '<b style="color:#dc2626">\u26a0 AI could not determine with confidence. Manual review required.</b>';
+        b += '</div>';
+      }
+      return b;
+    }
+
+    // ── READY TO SEND: show email composer to candidate ──
+    if (sppaState === 'ready_to_send') {
+      h += '<div class="ops-expand-section">';
+      h += conflictBanner();
+      if (meta.q7_overridden) h += '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Q7 overridden by ' + escHtml(meta.q7_overridden_by || '') + '</div>';
+      h += '<div class="ops-expand-label">Send SPPA-00 to candidate</div>';
+      h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The SPPA-00 PDF (with Q7 pre-filled) will be attached automatically.</div>';
+      h += '<div class="ops-email-composer">';
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-sppa-email-to="' + esc(task.id) + '" value="' + esc(candidateEmail) + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-sppa-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan \u2014 Please Complete Section A and Sign" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-sppa-email-body="' + esc(task.id) + '">'
+        + 'Dear ' + esc(gpName) + ',<br><br>'
+        + 'Please find attached your Supervised Practice Plan Agreement (SPPA-00).<br><br>'
+        + 'Could you please:<br>'
+        + '1. Complete <strong>Section A</strong> (Question 1 \u2014 your personal details)<br>'
+        + '2. Sign <strong>Section I</strong> (Supervisee\'s declaration)<br><br>'
+        + 'Once completed, please reply to this email with the signed document attached.<br><br>'
+        + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+        + '</div>';
+      h += '<div class="ops-email-actions">';
+      h += '<button class="ops-btn-green" onclick="sppaSendToCandidate(\'' + escAttr(task.id) + '\')">Send to Candidate</button>';
+      h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
+      h += '<button class="ops-btn-secondary" onclick="sppaOverrideQ7(\'' + escAttr(task.id) + '\',' + (meta.is_conflict ? 'true' : 'false') + ')">Override Q7</button>';
+      h += '</div>';
+      h += '</div></div>';
+      return h;
+    }
+
+    // ── SENT TO CANDIDATE: show thread + waiting ──
+    if (sppaState === 'sent_to_candidate') {
+      h += '<div class="ops-expand-section">';
+      h += '<div class="ops-expand-label">Sent to candidate \u2014 awaiting return</div>';
+      if (meta.sent_to_candidate_at) {
+        var days = Math.floor((Date.now() - new Date(meta.sent_to_candidate_at).getTime()) / 86400000);
+        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + escHtml(meta.sent_to_candidate_email || '') + '</div>';
+      }
+      h += opsRenderThread(msgs);
+      h += '<div class="ops-action-row">';
+      h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'candidate\')">Upload GP Return</button>';
+      h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
+      h += '</div>';
+      h += '</div>';
+      return h;
+    }
+
+    // ── GP RETURNED: show email composer to practice ──
+    if (sppaState === 'gp_returned') {
+      h += '<div class="ops-expand-section">';
+      h += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      h += '<span style="color:#b45309">Filled by GP, waiting on practice</span>';
+      h += '</div>';
+      h += '<div class="ops-expand-label">Send SPPA-00 to practice</div>';
+      h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The GP-completed SPPA-00 PDF will be attached automatically.</div>';
+      h += '<div class="ops-email-composer">';
+      h += '<div class="ops-email-field"><span class="ops-email-label">To:</span><input data-sppa-email-to="' + esc(task.id) + '" value="' + esc(practiceEmail) + '" /></div>';
+      h += '<div class="ops-email-field"><span class="ops-email-label">Subject:</span><input data-sppa-email-subject="' + esc(task.id) + '" value="SPPA-00 Supervised Practice Plan for Dr ' + esc(gpName) + ' \u2014 Please Complete and Sign" /></div>';
+      h += '<div class="ops-email-body" contenteditable="true" data-sppa-email-body="' + esc(task.id) + '">'
+        + 'Dear ' + esc(contactName || 'Practice Contact') + ',<br><br>'
+        + 'Please find attached the Supervised Practice Plan Agreement (SPPA-00) for Dr ' + esc(gpName) + '.<br><br>'
+        + 'The candidate has completed their section. Could you please:<br>'
+        + '1. Complete <strong>Sections B through H</strong> (Supervisor details, practice arrangement, goals)<br>'
+        + '2. Sign <strong>Section J</strong> (Primary supervisor\'s declaration)<br>'
+        + '3. Have any alternate supervisor(s) sign <strong>Section K</strong> if applicable<br><br>'
+        + 'Once completed, please reply to this email with the signed document attached.<br><br>'
+        + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
+        + '</div>';
+      h += '<div class="ops-email-actions">';
+      h += '<button class="ops-btn-green" onclick="sppaSendToPractice(\'' + escAttr(task.id) + '\')">Send to Practice</button>';
+      h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
+      h += '</div>';
+      h += '</div></div>';
+      return h;
+    }
+
+    // ── SENT TO PRACTICE: show thread + waiting ──
+    if (sppaState === 'sent_to_practice') {
+      h += '<div class="ops-expand-section">';
+      h += '<div class="ops-expand-label">Sent to practice \u2014 awaiting return</div>';
+      if (meta.sent_to_practice_at) {
+        var days = Math.floor((Date.now() - new Date(meta.sent_to_practice_at).getTime()) / 86400000);
+        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + escHtml(meta.sent_to_practice_email || '') + '</div>';
+      }
+      h += opsRenderThread(msgs);
+      h += '<div class="ops-action-row">';
+      h += '<button class="ops-btn-green" onclick="sppaMarkReturned(\'' + escAttr(task.id) + '\',\'practice\')">Upload Practice Return</button>';
+      h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Preview PDF</button>';
+      h += '</div>';
+      h += '</div>';
+      return h;
+    }
+
+    // ── PRACTICE RETURNED: VA final review ──
+    if (sppaState === 'practice_returned') {
+      h += '<div class="ops-expand-section">';
+      h += '<div style="background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
+      h += '<span style="color:#1d4ed8">Completed SPPA-00 returned by practice \u2014 ready for final review</span>';
+      h += '</div>';
+      h += opsRenderDocs(docs);
+      h += '<div class="ops-action-row">';
+      h += '<button class="ops-btn-green" onclick="sppaSubmitFinal(\'' + escAttr(task.id) + '\')">Submit \u2014 Deliver to GP</button>';
+      h += '<button class="ops-btn-secondary" onclick="openSppaReview(\'' + escAttr(task.id) + '\')">Review PDF</button>';
+      h += '</div>';
+      h += '</div>';
+      return h;
+    }
+
+    // ── COMPLETED ──
+    if (sppaState === 'completed') {
+      h += '<div class="ops-expand-section">';
+      h += '<div style="font-size:12px;color:#065f46;font-weight:700">\u2713 SPPA-00 Completed and delivered to GP</div>';
+      h += opsRenderThread(msgs);
+      h += '</div>';
+      return h;
+    }
+
+    // Fallback
+    h += '<div class="ops-expand-section">' + renderSppaTaskCard(task) + '</div>';
+    return h;
   }
 
   /* ── Practice Pack Child ── */
