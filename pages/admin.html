@@ -2463,8 +2463,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 
           html+='</div>';
           html+='<div class="st-actions">';
-          if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
-            // No button — detail panel auto-expands with Ops Queue content below
+          if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g'){
+            // No button — detail panel auto-expands with Ops Queue content below (includes SPPA-00)
           } else if(guided.action){
             html+='<button class="st-primary-btn" data-guided-action="'+esc(guided.action)+'" data-task-id="'+esc(t.id)+'"'+(guided.dk?' data-doc-key="'+esc(guided.dk)+'"':'')+'>'+esc(guided.label)+'</button>';
           }
@@ -2532,7 +2532,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
           }
 
           // Expandable detail panel for practice_pack_child tasks
-          if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
+          if(t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g'){
             html+='<div class="gp-task-detail" id="gpTaskDetail_'+esc(t.id)+'" data-gp-task-detail="'+esc(t.id)+'" style="display:none"><div class="gp-task-detail-inner"></div></div>';
           }
 
@@ -3151,7 +3151,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       if(tab==='tasks'||!tab){
         var _autoExpanded=false;
         (S.tasks||[]).filter(function(t){return t.case_id===c.id&&t.status!=='completed'&&t.status!=='complete'&&t.status!=='cancelled';}).forEach(function(t){
-          if(!_autoExpanded&&t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='sppa_00'&&t.related_document_key!=='section_g'){
+          if(!_autoExpanded&&t.task_type==='practice_pack_child'&&t.related_document_key&&t.related_document_key!=='section_g'){
             var panel=document.getElementById('gpTaskDetail_'+t.id);
             if(panel){panel.style.display='block';loadGpTaskDetail(t.id);_autoExpanded=true;}
           }
