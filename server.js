@@ -1104,25 +1104,9 @@ function isAllowedZohoDomain(hostname) {
 }
 
 // ── Fetch attachment as base64 ──
-// Resolve untrusted hostname to a hardcoded origin via switch (each branch is a
-// string literal that CodeQL recognises as non-tainted).
-function resolveAttachmentOrigin(hostname) {
-  switch (hostname) {
-    case 'drive.google.com':          return 'https://drive.google.com';
-    case 'docs.google.com':           return 'https://docs.google.com';
-    case 'storage.googleapis.com':    return 'https://storage.googleapis.com';
-    case 'lh3.googleusercontent.com': return 'https://lh3.googleusercontent.com';
-    case 'lh4.googleusercontent.com': return 'https://lh4.googleusercontent.com';
-    case 'lh5.googleusercontent.com': return 'https://lh5.googleusercontent.com';
-    case 'lh6.googleusercontent.com': return 'https://lh6.googleusercontent.com';
-    case 'mail.google.com':           return 'https://mail.google.com';
-    case 'www.googleapis.com':        return 'https://www.googleapis.com';
-    case 'content.googleapis.com':    return 'https://content.googleapis.com';
-    case 'gmail.googleapis.com':      return 'https://gmail.googleapis.com';
-    default:                          return null;
-  }
-}
-
+// Only Google Drive files (via the Drive API) are fetched server-side.
+// All other attachments must be provided as data: URIs by the client.
+// No outgoing HTTP requests are made with user-supplied URLs.
 async function fetchAttachmentAsBase64(url, filename) {
   try {
     // Google Drive file — extract file ID and download via Drive API
@@ -1133,7 +1117,6 @@ async function fetchAttachmentAsBase64(url, filename) {
       var drive = await getGoogleDriveClient();
       if (!drive) throw new Error('Google Drive client not available');
 
-      // Get file metadata for mime type and name
       var metaRes = await drive.files.get({ fileId: fileId, fields: 'name,mimeType' });
       var fileMime = metaRes.data && metaRes.data.mimeType ? metaRes.data.mimeType : 'application/octet-stream';
       var fileName = filename || (metaRes.data && metaRes.data.name ? metaRes.data.name : 'attachment');
@@ -1143,20 +1126,8 @@ async function fetchAttachmentAsBase64(url, filename) {
       return { filename: fileName, mimeType: fileMime, content: fileContent };
     }
 
-    // Allowlisted HTTP URL — hostname resolved to hardcoded origin via switch
-    var parsed;
-    try { parsed = new URL(url); } catch (_) { throw new Error('Invalid URL'); }
-    var safeOrigin = resolveAttachmentOrigin(parsed.hostname.toLowerCase());
-    if (!safeOrigin) throw new Error('Attachment host not in allowlist: ' + parsed.hostname + '. Upload the file directly instead.');
-    // Path is appended to the hardcoded origin — only the path portion comes from user input
-    var safePath = parsed.pathname + (parsed.search || '');
-    var resp = await fetch(safeOrigin + safePath);
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    var buf = Buffer.from(await resp.arrayBuffer());
-    var contentType = resp.headers.get('content-type') || 'application/octet-stream';
-    var mimeOnly = contentType.split(';')[0].trim();
-    var inferredName = filename || parsed.pathname.split('/').pop().split('?')[0] || 'attachment';
-    return { filename: inferredName, mimeType: mimeOnly, content: buf.toString('base64') };
+    // No server-side HTTP fetch — attachments must be data: URIs or Drive links
+    throw new Error('Only Google Drive URLs and data: URIs are supported for attachments. Upload the file directly instead.');
   } catch (err) {
     console.error('[fetchAttachmentAsBase64] Error:', err.message);
     throw err;
