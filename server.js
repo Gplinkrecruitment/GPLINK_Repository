@@ -6596,7 +6596,14 @@ async function _maybeRunSppaConflictScan(caseId, userId) {
       'id=eq.' + encodeURIComponent(sppaTask.id),
       { method: 'PATCH', body: { status: 'in_progress', metadata: meta, updated_at: new Date().toISOString() } });
 
-    // 8. Log timeline event
+    // 8. Update practice_doc_ops to under_review
+    try {
+      await _ensurePracticeDocOps(caseId);
+      await supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(caseId) + '&document_key=eq.sppa_00',
+        { method: 'PATCH', body: { ops_status: 'under_review' } });
+    } catch (e) {}
+
+    // 9. Log timeline event
     await _logCaseEvent(caseId, sppaTask.id, 'system',
       'AI conflict scan complete — Q7 marked ' + (scanResult.is_conflict ? 'YES' : 'NO'),
       scanResult.reasoning,
@@ -27397,6 +27404,16 @@ Return ONLY valid JSON with no markdown formatting:
     // Try escalation columns separately — silent fail if columns don't exist yet
     if (Object.keys(escalationFields).length > 0) { await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(taskId), { method: 'PATCH', body: escalationFields }).catch(function(err) { console.error('[ADMIN] Escalation fields PATCH failed:', err.message, JSON.stringify(escalationFields)); }); }
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
+    // Sync practice_doc_ops for SPPA-00 state changes
+    if (updated && updated.related_document_key === 'sppa_00' && patch.metadata && patch.metadata.sppa_state) {
+      var sppaOpsMap = { ready_to_send: 'under_review', sent_to_candidate: 'under_review', gp_returned: 'awaiting_practice', sent_to_practice: 'awaiting_practice', practice_returned: 'under_review', completed: 'completed' };
+      var opsVal = sppaOpsMap[patch.metadata.sppa_state];
+      if (opsVal) {
+        _ensurePracticeDocOps(updated.case_id).then(function () {
+          return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(updated.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: opsVal } });
+        }).catch(function (err) { console.error('[ADMIN] sppa practice_doc_ops sync error:', err.message); });
+      }
+    }
     // If completing a task with a practice document key, update practice_doc_ops to completed
     if (updated && patch.status === 'completed' && updated.related_document_key && PRACTICE_DOC_KEYS.includes(updated.related_document_key)) {
       _ensurePracticeDocOps(updated.case_id).then(function() {
