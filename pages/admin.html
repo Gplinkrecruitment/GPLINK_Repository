@@ -4326,8 +4326,8 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var b = '';
       if (meta.is_conflict && meta.confidence !== 'low') {
         b += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
-        b += '<b style="color:#b45309">\u26a0 AI detected conflict of interest:</b> Supervisor <b>' + escHtml(meta.supervisor_name || '') + '</b> is the practice owner/director. Q7 marked <b>YES</b>.';
-        if (meta.reasoning) b += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#92400e">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + escHtml(meta.reasoning) + '</p></details>';
+        b += '<b style="color:#b45309">\u26a0 AI detected conflict of interest:</b> Supervisor <b>' + esc(meta.supervisor_name || '') + '</b> is the practice owner/director. Q7 marked <b>YES</b>.';
+        if (meta.reasoning) b += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#92400e">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + esc(meta.reasoning) + '</p></details>';
         b += '</div>';
       } else if (!meta.is_conflict && meta.confidence !== 'low') {
         b += '<div style="background:#ecfdf5;border:1px solid #10b981;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:11px">';
@@ -4345,7 +4345,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (sppaState === 'ready_to_send') {
       h += '<div class="ops-expand-section">';
       h += conflictBanner();
-      if (meta.q7_overridden) h += '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Q7 overridden by ' + escHtml(meta.q7_overridden_by || '') + '</div>';
+      if (meta.q7_overridden) h += '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Q7 overridden by ' + esc(meta.q7_overridden_by || '') + '</div>';
       h += '<div class="ops-expand-label">Send SPPA-00 to candidate</div>';
       h += '<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">The SPPA-00 PDF (with Q7 pre-filled) will be attached automatically.</div>';
       h += '<div class="ops-email-composer">';
@@ -4375,7 +4375,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-expand-label">Sent to candidate \u2014 awaiting return</div>';
       if (meta.sent_to_candidate_at) {
         var days = Math.floor((Date.now() - new Date(meta.sent_to_candidate_at).getTime()) / 86400000);
-        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + escHtml(meta.sent_to_candidate_email || '') + '</div>';
+        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + esc(meta.sent_to_candidate_email || '') + '</div>';
       }
       h += opsRenderThread(msgs);
       h += '<div class="ops-action-row">';
@@ -4421,7 +4421,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       h += '<div class="ops-expand-label">Sent to practice \u2014 awaiting return</div>';
       if (meta.sent_to_practice_at) {
         var days = Math.floor((Date.now() - new Date(meta.sent_to_practice_at).getTime()) / 86400000);
-        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + escHtml(meta.sent_to_practice_email || '') + '</div>';
+        h += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Sent ' + days + ' day' + (days === 1 ? '' : 's') + ' ago to ' + esc(meta.sent_to_practice_email || '') + '</div>';
       }
       h += opsRenderThread(msgs);
       h += '<div class="ops-action-row">';
@@ -6807,10 +6807,10 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
     if (sppaState === 'ready_to_send') {
       if (meta.is_conflict && meta.confidence !== 'low') {
         html += '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
-        html += '<b style="color:#b45309">\u26a0 AI detected conflict of interest:</b> Supervisor <b>' + escHtml(meta.supervisor_name || '') + '</b> is the practice owner/director.';
+        html += '<b style="color:#b45309">\u26a0 AI detected conflict of interest:</b> Supervisor <b>' + esc(meta.supervisor_name || '') + '</b> is the practice owner/director.';
         html += ' Q7 has been marked <b>YES</b> on the SPPA-00.';
         if (meta.reasoning) {
-          html += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#92400e">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + escHtml(meta.reasoning) + '</p></details>';
+          html += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#92400e">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + esc(meta.reasoning) + '</p></details>';
         }
         html += '</div>';
       } else if (!meta.is_conflict && meta.confidence !== 'low') {
@@ -6821,7 +6821,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         html += '<div style="background:#fef2f2;border:1px solid #ef4444;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px">';
         html += '<b style="color:#dc2626">\u26a0 AI could not determine with confidence. Manual review required.</b>';
         if (meta.reasoning) {
-          html += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#991b1b">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + escHtml(meta.reasoning) + '</p></details>';
+          html += '<details style="margin-top:4px"><summary style="cursor:pointer;color:#991b1b">AI reasoning</summary><p style="margin:4px 0 0;color:#78716c">' + esc(meta.reasoning) + '</p></details>';
         }
         html += '</div>';
       }
@@ -6831,7 +6831,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       html += '<button class="btn-action correct" onclick="sppaOverrideQ7(\'' + escAttr(task.id) + '\',' + (meta.is_conflict ? 'true' : 'false') + ')">Override Q7</button>';
       html += '</div>';
       if (meta.q7_overridden) {
-        html += '<div style="font-size:10px;color:#78716c;margin-top:4px">Q7 overridden by ' + escHtml(meta.q7_overridden_by || '') + '</div>';
+        html += '<div style="font-size:10px;color:#78716c;margin-top:4px">Q7 overridden by ' + esc(meta.q7_overridden_by || '') + '</div>';
       }
       return html;
     }
@@ -6893,7 +6893,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       return html;
     }
 
-    html += '<div class="doc-task-status"><span class="doc-task-badge">' + escHtml(sppaState) + '</span></div>';
+    html += '<div class="doc-task-status"><span class="doc-task-badge">' + esc(sppaState) + '</span></div>';
     return html;
   }
 
