@@ -27406,7 +27406,7 @@ Return ONLY valid JSON with no markdown formatting:
     const updated = r.ok && Array.isArray(r.data) && r.data.length > 0 ? r.data[0] : null;
     // Sync practice_doc_ops for SPPA-00 state changes
     if (updated && updated.related_document_key === 'sppa_00' && patch.metadata && patch.metadata.sppa_state) {
-      var sppaOpsMap = { ready_to_send: 'under_review', sent_to_candidate: 'under_review', gp_returned: 'awaiting_practice', sent_to_practice: 'awaiting_practice', practice_returned: 'under_review', completed: 'completed' };
+      var sppaOpsMap = { ready_to_send: 'under_review', sent_to_candidate: 'awaiting_gp', gp_returned: 'awaiting_practice', sent_to_practice: 'awaiting_practice', practice_returned: 'under_review', completed: 'completed' };
       var opsVal = sppaOpsMap[patch.metadata.sppa_state];
       if (opsVal) {
         _ensurePracticeDocOps(updated.case_id).then(function () {

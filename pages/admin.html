@@ -697,6 +697,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
 .doc-placeholder-status.s-uploaded,.doc-placeholder-status.s-received{background:#14532d;color:#4ade80}
 .doc-placeholder-status.s-approved,.doc-placeholder-status.s-completed,.doc-placeholder-status.s-ready_for_gp{background:#166534;color:#22c55e}
 .doc-placeholder-status.s-under_review,.doc-placeholder-status.s-awaiting_practice{background:#713f12;color:#fbbf24}
+.doc-placeholder-status.s-awaiting_gp{background:#1e40af;color:#93c5fd}
 .doc-placeholder-status.s-rejected,.doc-placeholder-status.s-needs_correction{background:#7f1d1d;color:#f87171}
 .doc-placeholder-status.s-not_requested{background:var(--bg3,#1f2330);color:var(--muted,#9aa3b2)}
 .doc-placeholder-status.s-action_required{background:#7f1d1d;color:#f87171}
@@ -2711,7 +2712,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
   }
 
   function docStatusLabel(status){
-    var map={pending:'Pending',requested:'Requested',uploaded:'Uploaded',under_review:'Under Review',approved:'Approved',accepted:'Accepted',rejected:'Rejected',action_required:'Action Required',not_requested:'Not Requested',awaiting_practice:'Awaiting Practice',received:'Received',needs_correction:'Needs Correction',ready_for_gp:'Ready',completed:'Completed'};
+    var map={pending:'Pending',requested:'Requested',uploaded:'Uploaded',under_review:'Under Review',approved:'Approved',accepted:'Accepted',rejected:'Rejected',action_required:'Action Required',not_requested:'Not Requested',awaiting_practice:'Awaiting Practice',awaiting_gp:'Awaiting GP',received:'Received',needs_correction:'Needs Correction',ready_for_gp:'Ready',completed:'Completed'};
     return map[status]||status||'Pending';
   }
 
