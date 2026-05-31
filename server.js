@@ -1157,18 +1157,13 @@ async function getGmailClient(userEmail) {
     if (keyLen < 100 || emailLen < 10) {
       throw new Error('service account env vars missing (emailLen=' + emailLen + ' keyLen=' + keyLen + ' hasBegin=' + hasBegin + ' hasNewlines=' + hasNewlines + ')');
     }
-    var authClient = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
-        private_key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
-      },
+    var jwtClient = new google.auth.JWT({
+      email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      key: GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
       scopes: ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.labels', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'],
-      clientOptions: { subject: userEmail }
+      subject: userEmail
     });
-    var jwtClient = await authClient.getClient();
-    if (jwtClient && typeof jwtClient.authorize === 'function') {
-      await jwtClient.authorize();
-    }
+    await jwtClient.authorize();
     _gmailClients[userEmail] = google.gmail({ version: 'v1', auth: jwtClient });
     _gmailClientErrors[userEmail] = null;
     return _gmailClients[userEmail];
