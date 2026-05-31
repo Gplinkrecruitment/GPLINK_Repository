@@ -4259,10 +4259,13 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
       var dirCls=m.direction==='outbound'?'ops-msg-outbound':'ops-msg-inbound';
       var dirLabel=m.direction==='outbound'?'Sent':'Received';
       var chLabel=(m.channel==='whatsapp'?'WhatsApp':'Email');
+      var gmailLink=m.gmail_message_id?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(m.gmail_message_id):(m.gmail_thread_id?'https://mail.google.com/mail/u/0/#inbox/'+encodeURIComponent(m.gmail_thread_id):'');
       h+='<div class="ops-msg '+dirCls+'">'
         +'<div class="ops-msg-header"><span class="ops-msg-dir">'+dirLabel+'</span><span class="ops-msg-channel">'+esc(chLabel)+'</span>';
       if(m.sender)h+='<span class="ops-msg-channel">\u00B7 '+esc(m.sender)+'</span>';
-      h+='<span class="ops-msg-time">'+opsRelativeTime(m.created_at)+'</span></div>';
+      h+='<span class="ops-msg-time">'+opsRelativeTime(m.created_at)+'</span>';
+      if(gmailLink)h+='<a href="'+esc(gmailLink)+'" target="_blank" rel="noopener" style="margin-left:auto;font-size:10px;color:var(--blue);font-weight:600;text-decoration:none">Open in Gmail \u2197</a>';
+      h+='</div>';
       if(m.subject)h+='<div class="ops-msg-subject">'+esc(m.subject)+'</div>';
       h+='<div class="ops-msg-body">'+esc(opsSnippet(m.body_text||m.body_html||'',400))+'</div>';
       h+='</div>';
@@ -4410,6 +4413,7 @@ body.gp-mobile #mainLayout.detail-open .detail-panel{display:block}
         + '1. Complete <strong>Sections B through H</strong> (Supervisor details, practice arrangement, goals)<br>'
         + '2. Sign <strong>Section J</strong> (Primary supervisor\'s declaration)<br>'
         + '3. Have any alternate supervisor(s) sign <strong>Section K</strong> if applicable<br><br>'
+        + '<strong>Note:</strong> You do not need to attach any supporting documents that the SPPA-00 refers to \u2014 we have already collected these separately.<br><br>'
         + 'Once completed, please reply to this email with the signed document attached.<br><br>'
         + 'Kind regards,<br>Hazel \u2014 GP Link Registration Team'
         + '</div>';

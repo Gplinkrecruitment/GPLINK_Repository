@@ -405,6 +405,28 @@ async function deliverToMyDocuments(userId, caseId, docKey, fileName, buffer, mi
   return results;
 }
 
+// Helper: upload SPPA-00 PDF to Google Drive and update the task_document row with Drive refs
+async function _uploadSppaDocToDrive(caseId, taskDocId, buffer, fileName) {
+  if (!isGoogleDriveConfigured()) return null;
+  try {
+    var folderId = await ensureGPDriveFolder(caseId, null, null);
+    if (!folderId) return null;
+    var driveFile = await uploadToGoogleDrive(folderId, fileName, buffer, 'application/pdf');
+    if (!driveFile || !driveFile.id) return null;
+    var driveUrl = 'https://drive.google.com/file/d/' + driveFile.id + '/view';
+    // Update the task_document row with Drive references
+    if (taskDocId) {
+      await supabaseDbRequest('task_documents', 'id=eq.' + encodeURIComponent(taskDocId), {
+        method: 'PATCH', body: { google_drive_file_id: driveFile.id, google_drive_url: driveUrl }
+      });
+    }
+    return { id: driveFile.id, url: driveUrl, webViewLink: driveFile.webViewLink };
+  } catch (err) {
+    console.error('[SPPA Drive] upload failed:', err.message);
+    return null;
+  }
+}
+
 // Helper: update gp_prepared_docs state so My Documents shows a GP LINK doc as "Ready"
 async function _updatePreparedDocsState(userId, docKey, driveFileId, fileName) {
   const driveUrl = driveFileId ? 'https://drive.google.com/file/d/' + driveFileId + '/view' : '';
@@ -1755,13 +1777,17 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 await supabaseDbRequest('task_documents', 'task_id=eq.' + encodeURIComponent(earlyTask.id) + '&is_current=eq.true', { method: 'PATCH', body: { is_current: false } });
                 var fullMsgForAtt = await gmail.users.messages.get({ userId: emailAddress, id: currentMsgId, format: 'full' });
                 var attParts = ((fullMsgForAtt.data.payload && fullMsgForAtt.data.payload.parts) || []).filter(function(p) { return p.filename && p.body && p.body.attachmentId; });
+                var _earlyStoredDocIds = [];
                 for (var ap of attParts) {
                   var attData = await gmail.users.messages.attachments.get({ userId: emailAddress, messageId: currentMsgId, id: ap.body.attachmentId });
-                  await supabaseDbRequest('task_documents', '', {
-                    method: 'POST', body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, message_id: earlyMsgId,
+                  var _earlyDocRes = await supabaseDbRequest('task_documents', '', {
+                    method: 'POST', headers: { Prefer: 'return=representation' },
+                    body: [{ task_id: earlyTask.id, case_id: earlyGpCase.id, message_id: earlyMsgId,
                       filename: ap.filename, mime_type: ap.mimeType, size_bytes: ap.body.size || 0,
                       version: 1, is_current: true, uploaded_by: 'email_response',
                       attachment_url: 'data:' + (ap.mimeType || 'application/octet-stream') + ';base64,' + (attData.data.data || '') }] });
+                  var _earlyDocId = (_earlyDocRes.ok && _earlyDocRes.data && _earlyDocRes.data[0]) ? _earlyDocRes.data[0].id : null;
+                  if (_earlyDocId) _earlyStoredDocIds.push({ id: _earlyDocId, b64: attData.data.data || '', filename: ap.filename });
                 }
               } catch (attErr) { console.error('[Gmail] Early match attachment extraction failed:', attErr.message); }
             }
@@ -1780,6 +1806,12 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                 _ensurePracticeDocOps(earlyGpCase.id).then(function () {
                   return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(earlyGpCase.id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
                 }).catch(function (err) { console.error('[Gmail] SPPA ops sync error:', err.message); });
+                // Upload GP-returned SPPA to Google Drive
+                if (_earlyStoredDocIds.length > 0) {
+                  var _sppaPdfDoc = _earlyStoredDocIds.find(function(d) { return d.filename.toLowerCase().indexOf('.pdf') > -1; }) || _earlyStoredDocIds[0];
+                  var _sppaBuf = Buffer.from((_sppaPdfDoc.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+                  _uploadSppaDocToDrive(earlyGpCase.id, _sppaPdfDoc.id, _sppaBuf, 'SPPA-00 (GP Completed).pdf').catch(function (e) { console.error('[Gmail] SPPA Drive upload error:', e.message); });
+                }
               } else {
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
                   { method: 'PATCH', body: { status: 'open', updated_at: new Date().toISOString() } });
@@ -29265,8 +29297,9 @@ Return ONLY valid JSON with no markdown formatting:
     var b64 = fileDataUrl.substring(commaIdx + 1);
     var sizeBytes = Math.ceil(b64.length * 3 / 4);
 
-    await supabaseDbRequest('task_documents', '', {
+    var storeDocRes = await supabaseDbRequest('task_documents', '', {
       method: 'POST',
+      headers: { Prefer: 'return=representation' },
       body: [{
         task_id: task.id,
         case_id: task.case_id,
@@ -29279,6 +29312,12 @@ Return ONLY valid JSON with no markdown formatting:
         attachment_url: fileDataUrl
       }]
     });
+    var storedDocId = (storeDocRes.ok && storeDocRes.data && storeDocRes.data[0]) ? storeDocRes.data[0].id : null;
+
+    // Upload to Google Drive (fire-and-forget)
+    var driveFileName = returnedFrom === 'candidate' ? 'SPPA-00 (GP Completed).pdf' : 'SPPA-00 (Completed).pdf';
+    var pdfBuf = Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    _uploadSppaDocToDrive(task.case_id, storedDocId, pdfBuf, driveFileName).catch(function (e) { console.error('[SPPA] Drive upload error:', e.message); });
 
     if (returnedFrom === 'candidate') {
       taskMeta.sppa_state = 'gp_returned';
