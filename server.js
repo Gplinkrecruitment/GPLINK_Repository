@@ -34561,6 +34561,16 @@ Return ONLY valid JSON with no markdown formatting:
       can_reconnect: false, reconnect_action: null
     });
 
+    // Gmail Label System
+    integrations.push({
+      key: 'gmail_label_system', name: 'Gmail Label System', status: !!(MASTER_ARCHIVE_EMAIL && isGmailConfigured()) ? 'connected' : 'disconnected',
+      details: {
+        configured: !!(MASTER_ARCHIVE_EMAIL && isGmailConfigured()),
+        master_archive_email: MASTER_ARCHIVE_EMAIL
+      },
+      can_reconnect: false, reconnect_action: null
+    });
+
     sendJson(res, 200, { ok: true, integrations: integrations });
     return;
   }
