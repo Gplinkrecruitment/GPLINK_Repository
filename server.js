@@ -19034,6 +19034,21 @@ async function handleApi(req, res, pathname) {
         pgResults.push({ email: pgEmail, ok: false, error: pgErr.message });
       }
     }
+    // Process dynamically registered VA accounts
+    if (isSupabaseDbConfigured()) {
+      var vaAccsRes = await supabaseDbRequest('va_gmail_accounts', 'select=email_address&watch_active=eq.true');
+      var vaAccs = vaAccsRes.ok && Array.isArray(vaAccsRes.data) ? vaAccsRes.data : [];
+      for (var vai = 0; vai < vaAccs.length; vai++) {
+        var vaAddr = vaAccs[vai].email_address;
+        if (MONITORED_VA_EMAILS.includes(vaAddr)) continue;
+        try {
+          await processGmailNotification(vaAddr, null);
+          pgResults.push({ email: vaAddr, ok: true });
+        } catch (vaErr) {
+          pgResults.push({ email: vaAddr, ok: false, error: vaErr.message });
+        }
+      }
+    }
     sendJson(res, 200, { ok: true, results: pgResults });
     return;
   }
@@ -19050,6 +19065,20 @@ async function handleApi(req, res, pathname) {
     for (var vaEmail of MONITORED_VA_EMAILS) {
       var watchResult = await setupGmailWatch(vaEmail);
       cronResults.push({ email: vaEmail, success: !!(watchResult && watchResult.ok), expiry: watchResult && watchResult.ok ? watchResult.expiry : null, error: watchResult && !watchResult.ok ? watchResult.error : null });
+    }
+    // Dynamic VA accounts
+    if (isSupabaseDbConfigured()) {
+      var dynVaRes = await supabaseDbRequest('va_gmail_accounts', 'select=email_address&watch_active=eq.true');
+      var dynVas = dynVaRes.ok && Array.isArray(dynVaRes.data) ? dynVaRes.data : [];
+      for (var dvi = 0; dvi < dynVas.length; dvi++) {
+        var dvAddr = dynVas[dvi].email_address;
+        if (MONITORED_VA_EMAILS.includes(dvAddr)) continue;
+        var dvResult = await setupGmailWatch(dvAddr);
+        cronResults.push({ email: dvAddr, success: !!(dvResult && dvResult.ok), expiry: dvResult && dvResult.ok ? dvResult.expiry : null, error: dvResult && !dvResult.ok ? dvResult.error : null });
+      }
+      // Master archive watch
+      var helloResult = await setupGmailWatch(MASTER_ARCHIVE_EMAIL);
+      cronResults.push({ email: MASTER_ARCHIVE_EMAIL, success: !!(helloResult && helloResult.ok), expiry: helloResult && helloResult.ok ? helloResult.expiry : null, error: helloResult && !helloResult.ok ? helloResult.error : null });
     }
     sendJson(res, 200, { ok: true, results: cronResults });
     return;
