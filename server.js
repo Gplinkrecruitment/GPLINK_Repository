@@ -29018,6 +29018,11 @@ Return ONLY valid JSON with no markdown formatting:
       'id=eq.' + encodeURIComponent(taskId),
       { method: 'PATCH', body: { status: 'waiting_on_gp', metadata: taskMeta, updated_at: new Date().toISOString() } });
 
+    // Sync practice_doc_ops: sent_to_candidate → awaiting_gp
+    _ensurePracticeDocOps(task.case_id).then(function () {
+      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_gp' } });
+    }).catch(function (err) { console.error('[ADMIN] sppa send-to-candidate ops sync error:', err.message); });
+
     await _logCaseEvent(task.case_id, taskId, 'system', 'SPPA-00 sent to candidate via email', candidateEmail, admin.email);
     sendJson(res, 200, { ok: true });
     return;
@@ -29122,6 +29127,11 @@ Return ONLY valid JSON with no markdown formatting:
     await supabaseDbRequest('registration_tasks',
       'id=eq.' + encodeURIComponent(taskId),
       { method: 'PATCH', body: { status: 'waiting_on_practice', metadata: taskMeta, updated_at: new Date().toISOString() } });
+
+    // Sync practice_doc_ops: sent_to_practice → awaiting_practice
+    _ensurePracticeDocOps(task.case_id).then(function () {
+      return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
+    }).catch(function (err) { console.error('[ADMIN] sppa send-to-practice ops sync error:', err.message); });
 
     await _logCaseEvent(task.case_id, taskId, 'system', 'SPPA-00 sent to practice via email', practiceEmail, admin.email);
     sendJson(res, 200, { ok: true });
@@ -29235,6 +29245,10 @@ Return ONLY valid JSON with no markdown formatting:
       await supabaseDbRequest('registration_tasks',
         'id=eq.' + encodeURIComponent(taskId),
         { method: 'PATCH', body: { status: 'in_progress', metadata: taskMeta, updated_at: new Date().toISOString() } });
+      // Sync practice_doc_ops: gp_returned → awaiting_practice
+      _ensurePracticeDocOps(task.case_id).then(function () {
+        return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'awaiting_practice' } });
+      }).catch(function (err) { console.error('[ADMIN] sppa store-returned ops sync error:', err.message); });
       await _logCaseEvent(task.case_id, taskId, 'system', 'GP returned partially completed SPPA-00', null, admin.email);
     } else {
       taskMeta.sppa_state = 'practice_returned';
@@ -29242,6 +29256,10 @@ Return ONLY valid JSON with no markdown formatting:
       await supabaseDbRequest('registration_tasks',
         'id=eq.' + encodeURIComponent(taskId),
         { method: 'PATCH', body: { status: 'in_progress', metadata: taskMeta, updated_at: new Date().toISOString() } });
+      // Sync practice_doc_ops: practice_returned → under_review
+      _ensurePracticeDocOps(task.case_id).then(function () {
+        return supabaseDbRequest('practice_doc_ops', 'case_id=eq.' + encodeURIComponent(task.case_id) + '&document_key=eq.sppa_00', { method: 'PATCH', body: { ops_status: 'under_review' } });
+      }).catch(function (err) { console.error('[ADMIN] sppa store-returned ops sync error:', err.message); });
       await _logCaseEvent(task.case_id, taskId, 'system', 'Practice returned completed SPPA-00', null, admin.email);
     }
 
