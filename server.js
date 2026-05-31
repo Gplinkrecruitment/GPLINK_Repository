@@ -2969,6 +2969,80 @@ async function archiveLabelForVA(vaEmail, caseId) {
   await renameGmailLabel(vaEmail, currentLabelId, archivedName);
 }
 
+// ── Email-to-Candidate Matching Engine ──
+async function matchEmailToCase(emailAddresses, vaEmail) {
+  if (!emailAddresses || emailAddresses.length === 0) return [];
+  var normalized = emailAddresses.map(function(e) { return e.toLowerCase().trim(); });
+
+  var casesRes = await supabaseDbRequest('registration_cases',
+    'select=id,user_id,practice_contact,gmail_label_id,gmail_label_hello_id&status=eq.active');
+  if (!casesRes.ok || !Array.isArray(casesRes.data)) return [];
+
+  var userIds = casesRes.data.map(function(c) { return c.user_id; });
+  if (userIds.length === 0) return [];
+  var profilesRes = await supabaseDbRequest('user_profiles',
+    'select=user_id,email&user_id=in.(' + userIds.join(',') + ')');
+  var profileMap = {};
+  if (profilesRes.ok && Array.isArray(profilesRes.data)) {
+    profilesRes.data.forEach(function(p) { profileMap[p.user_id] = (p.email || '').toLowerCase(); });
+  }
+
+  var matches = [];
+  for (var ci = 0; ci < casesRes.data.length; ci++) {
+    var c = casesRes.data[ci];
+    var gpEmail = profileMap[c.user_id] || '';
+    var practiceContact = (c.practice_contact || '').toLowerCase().trim();
+    var practiceDomain = practiceContact ? practiceContact.split('@')[1] : '';
+
+    for (var ei = 0; ei < normalized.length; ei++) {
+      var addr = normalized[ei];
+      if (addr === (vaEmail || '').toLowerCase() || addr === MASTER_ARCHIVE_EMAIL.toLowerCase()) continue;
+
+      if (gpEmail && addr === gpEmail) {
+        matches.push({ caseId: c.id, matchType: 'gp_email', matchedAddress: addr, labelId: c.gmail_label_id, helloLabelId: c.gmail_label_hello_id });
+        break;
+      }
+      if (practiceDomain && addr.endsWith('@' + practiceDomain)) {
+        matches.push({ caseId: c.id, matchType: 'practice_domain', matchedAddress: addr, labelId: c.gmail_label_id, helloLabelId: c.gmail_label_hello_id });
+        break;
+      }
+    }
+  }
+  return matches;
+}
+
+function extractAllAddresses(headers) {
+  var addresses = [];
+  var fields = ['from', 'to', 'cc', 'bcc'];
+  for (var fi = 0; fi < fields.length; fi++) {
+    var val = headers[fields[fi]] || '';
+    var emailRegex = /[\w.+-]+@[\w.-]+\.\w+/g;
+    var found = val.match(emailRegex) || [];
+    for (var ai = 0; ai < found.length; ai++) {
+      addresses.push(found[ai].toLowerCase());
+    }
+  }
+  return addresses;
+}
+
+async function detectAndStoreContacts(caseId, addresses, practiceDomain) {
+  if (!practiceDomain || !addresses || addresses.length === 0) return;
+  for (var i = 0; i < addresses.length; i++) {
+    var addr = addresses[i].toLowerCase();
+    if (!addr.endsWith('@' + practiceDomain)) continue;
+    await supabaseDbRequest('practice_detected_contacts', '', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: {
+        case_id: caseId,
+        email_address: addr,
+        last_seen_at: new Date().toISOString(),
+        seen_count: 1
+      }
+    });
+  }
+}
+
 async function searchGmailForGP(gpEmail, gpName, practiceEmail, daysBack) {
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) return [];
   daysBack = daysBack || 7;
