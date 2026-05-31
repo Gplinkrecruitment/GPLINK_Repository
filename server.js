@@ -449,6 +449,56 @@ async function _uploadSppaDocToDrive(caseId, taskDocId, buffer, fileName) {
   }
 }
 
+// Helper: create placeholder alt supervisor CV entries when SPPA-00 reveals alt supervisors
+// Creates user_documents (pending) and updates gp_prepared_docs state (ready: false → "Preparing")
+async function _createAltSupervisorCvPlaceholders(caseId, altSupervisorNames) {
+  if (!altSupervisorNames || altSupervisorNames.length === 0) return;
+  try {
+    var caseRes = await supabaseDbRequest('registration_cases', 'select=user_id&id=eq.' + encodeURIComponent(caseId) + '&limit=1');
+    var userId = (caseRes.ok && caseRes.data && caseRes.data[0]) ? caseRes.data[0].user_id : null;
+    if (!userId) return;
+
+    for (var i = 0; i < altSupervisorNames.length; i++) {
+      var docKey = 'alt_supervisor_cv_' + (i + 1);
+      var label = altSupervisorNames[i] + ' — CV';
+      // Check if already exists
+      var existing = await supabaseDbRequest('user_documents', 'select=id,status&user_id=eq.' + encodeURIComponent(userId) + '&document_key=eq.' + encodeURIComponent(docKey) + '&limit=1');
+      if (existing.ok && Array.isArray(existing.data) && existing.data[0]) {
+        // Already exists — don't overwrite if approved
+        if (existing.data[0].status === 'approved') continue;
+      } else {
+        // Create pending placeholder
+        await supabaseDbRequest('user_documents', '', {
+          method: 'POST', body: [{ user_id: userId, document_key: docKey, file_name: label, status: 'pending' }]
+        });
+      }
+    }
+
+    // Update gp_prepared_docs state so MyDocuments shows "Preparing" for alt CVs
+    var stateRes = await supabaseDbRequest('user_state', 'select=state&user_id=eq.' + encodeURIComponent(userId) + '&limit=1');
+    var fullState = (stateRes.ok && Array.isArray(stateRes.data) && stateRes.data[0] && stateRes.data[0].state) ? stateRes.data[0].state : {};
+    if (typeof fullState === 'string') try { fullState = JSON.parse(fullState); } catch (e) { fullState = {}; }
+    var prepState = fullState.gp_prepared_docs;
+    if (typeof prepState === 'string') try { prepState = JSON.parse(prepState); } catch (e) { prepState = {}; }
+    if (!prepState || typeof prepState !== 'object') prepState = { docs: {} };
+    if (!prepState.docs) prepState.docs = {};
+    for (var j = 0; j < altSupervisorNames.length; j++) {
+      var dk = 'alt_supervisor_cv_' + (j + 1);
+      if (!prepState.docs[dk] || !prepState.docs[dk].ready) {
+        prepState.docs[dk] = { url: '', fileName: altSupervisorNames[j] + ' — CV', ready: false, supervisorName: altSupervisorNames[j] };
+      }
+    }
+    prepState.updatedAt = new Date().toISOString();
+    fullState.gp_prepared_docs = JSON.stringify(prepState);
+    await supabaseDbRequest('user_state', 'user_id=eq.' + encodeURIComponent(userId), {
+      method: 'PATCH', body: { state: fullState, updated_at: new Date().toISOString() }
+    });
+    console.log('[SPPA] Created alt supervisor CV placeholders for', altSupervisorNames.length, 'supervisor(s)');
+  } catch (err) {
+    console.error('[SPPA] Alt supervisor CV placeholder creation error:', err.message);
+  }
+}
+
 // Helper: update gp_prepared_docs state so My Documents shows a GP LINK doc as "Ready"
 async function _updatePreparedDocsState(userId, docKey, driveFileId, fileName) {
   const driveUrl = driveFileId ? 'https://drive.google.com/file/d/' + driveFileId + '/view' : '';
@@ -1851,7 +1901,11 @@ async function processGmailNotification(emailAddress, notifiedHistoryId) {
                   try {
                     var _sppaPdfBuf = Buffer.from((_mainSppa.b64 || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
                     var _altNames = await extractAltSupervisorNames(_sppaPdfBuf);
-                    if (_altNames.length > 0) { sppaMeta.alt_supervisor_names = _altNames; console.log('[Gmail] Extracted alt supervisor names:', _altNames); }
+                    if (_altNames.length > 0) {
+                      sppaMeta.alt_supervisor_names = _altNames;
+                      console.log('[Gmail] Extracted alt supervisor names:', _altNames);
+                      _createAltSupervisorCvPlaceholders(earlyGpCase.id, _altNames).catch(function (e) { console.error('[Gmail] Alt CV placeholder error:', e.message); });
+                    }
                   } catch (exErr) { console.error('[Gmail] Alt supervisor name extraction error:', exErr.message); }
                 }
                 await supabaseDbRequest('registration_tasks', 'id=eq.' + encodeURIComponent(earlyTask.id),
@@ -25727,13 +25781,17 @@ Return ONLY valid JSON with no markdown formatting:
           result[key] = { ready: true, url: dlUrl, fileName: match.file_name || '' };
         }
       });
-      // Check for alt supervisor CVs
+      // Check for alt supervisor CVs (ready + pending)
       var altCvs = _glDocs.filter(function(d) { return d.document_key && d.document_key.startsWith('alt_supervisor_cv_') && (d.status === 'approved' || d.status === 'uploaded'); });
       var altCvList = altCvs.map(function(d) {
         var dlUrl = d.google_drive_file_id ? 'https://drive.google.com/file/d/' + d.google_drive_file_id + '/view' : (d.file_url || '');
         return { key: d.document_key, url: dlUrl, fileName: d.file_name || '' };
       });
-      sendJson(res, 200, { ok: true, docs: result, altSupervisorCvs: altCvList });
+      var pendingAltCvs = _glDocs.filter(function(d) { return d.document_key && d.document_key.startsWith('alt_supervisor_cv_') && d.status === 'pending'; });
+      var pendingAltCvList = pendingAltCvs.map(function(d) {
+        return { key: d.document_key, fileName: d.file_name || '', status: 'pending' };
+      });
+      sendJson(res, 200, { ok: true, docs: result, altSupervisorCvs: altCvList, pendingAltSupervisorCvs: pendingAltCvList });
     } catch (e) {
       sendJson(res, 500, { ok: false });
     }
@@ -27265,6 +27323,28 @@ Return ONLY valid JSON with no markdown formatting:
           drive_file: driveFile
         });
       });
+
+      // Alt supervisor CVs — add dynamically if user_documents exist
+      var _altCvUserDocs = [];
+      if (_altCvUserDocs.length === 0) {
+        // Fallback: query directly
+        var _altCvRes = await supabaseDbRequest('user_documents', 'select=document_key,file_name,status,google_drive_file_id&user_id=eq.' + encodeURIComponent(gdUserId) + '&document_key=like.alt_supervisor_cv_%');
+        _altCvUserDocs = (_altCvRes.ok && Array.isArray(_altCvRes.data)) ? _altCvRes.data : [];
+      }
+      if (_altCvUserDocs.length > 0) {
+        _altCvUserDocs.forEach(function(aDoc) {
+          var driveFile = null;
+          if (aDoc.google_drive_file_id) {
+            driveFile = gdDriveFiles.find(function(f) { return f.id === aDoc.google_drive_file_id; });
+            if (driveFile) gdMatchedDriveIds.add(driveFile.id);
+          }
+          gdPreparedByGpLink.push({
+            key: aDoc.document_key, label: aDoc.file_name || aDoc.document_key,
+            ops_status: aDoc.status === 'approved' ? 'completed' : (aDoc.status === 'pending' ? 'awaiting_practice' : 'under_review'),
+            drive_file: driveFile
+          });
+        });
+      }
 
       // Other unmatched Drive files
       var gdOtherFiles = gdDriveFiles.filter(function(f) { return !gdMatchedDriveIds.has(f.id); });
@@ -29490,6 +29570,8 @@ Return ONLY valid JSON with no markdown formatting:
         if (altNames.length > 0) {
           taskMeta.alt_supervisor_names = altNames;
           console.log('[SPPA] Extracted alt supervisor names:', altNames);
+          // Create placeholder docs so GP sees "Preparing" in MyDocuments
+          _createAltSupervisorCvPlaceholders(task.case_id, altNames).catch(function (e) { console.error('[SPPA] Placeholder creation error:', e.message); });
         }
       } catch (exErr) { console.error('[SPPA] Alt supervisor name extraction error:', exErr.message); }
       await supabaseDbRequest('registration_tasks',

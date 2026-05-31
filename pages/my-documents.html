@@ -2112,16 +2112,33 @@
         card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + doc.label + '</span><span class="pill ' + (isReady ? "done" : "pending") + '">' + (isReady ? "Ready" : "Preparing") + '</span></div><div class="doc-card-desc">' + (isReady ? "Ready to download" : "We are preparing this for you.") + '</div><div class="doc-card-actions">' + (isReady ? '<a class="btn btn-soft" href="' + (file.url || "#") + '"' + (file.url ? ' download' : '') + '>Download</a>' : '<button class="btn btn-neutral" type="button" disabled>Not ready yet</button>') + '</div>';
         gplinkGrid.appendChild(card);
       });
-      // Alt Supervisor CVs section — only shown if they exist
-      if (window._altSupervisorCvs && window._altSupervisorCvs.length > 0) {
+      // Alt Supervisor CVs section — shown if any exist (ready or preparing)
+      var _readyCvs = (window._altSupervisorCvs || []);
+      var _readyKeys = _readyCvs.map(function(c) { return c.key; });
+      // Pending alt CVs from server (authoritative) or from prepared docs state
+      var _pendingCvs = (window._pendingAltSupervisorCvs || []).filter(function(c) { return _readyKeys.indexOf(c.key) < 0; });
+      if (_pendingCvs.length === 0) {
+        Object.keys(prepared.docs || {}).forEach(function(k) {
+          if (k.startsWith('alt_supervisor_cv_') && _readyKeys.indexOf(k) < 0 && !prepared.docs[k].ready) {
+            _pendingCvs.push({ key: k, fileName: prepared.docs[k].fileName || k, supervisorName: prepared.docs[k].supervisorName || '' });
+          }
+        });
+      }
+      if (_readyCvs.length > 0 || _pendingCvs.length > 0) {
         var altSection = document.createElement("div");
         altSection.innerHTML = '<div class="doc-panel-header" style="margin-top:16px"><p>Alternative Supervisor CVs</p></div><div class="doc-card-grid" id="altCvCardGrid"></div>';
         panel3.appendChild(altSection);
         var altGrid = altSection.querySelector("#altCvCardGrid");
-        window._altSupervisorCvs.forEach(function(cv) {
+        _readyCvs.forEach(function(cv) {
           var card = document.createElement("div");
           card.className = "doc-card";
           card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + (cv.fileName || cv.key) + '</span><span class="pill done">Ready</span></div><div class="doc-card-desc">Ready to download</div><div class="doc-card-actions"><a class="btn btn-soft" href="' + (cv.url || "#") + '" target="_blank" rel="noopener">Download</a></div>';
+          altGrid.appendChild(card);
+        });
+        _pendingCvs.forEach(function(cv) {
+          var card = document.createElement("div");
+          card.className = "doc-card";
+          card.innerHTML = '<div class="doc-card-top"><span class="doc-card-title">' + (cv.fileName || cv.key) + '</span><span class="pill pending">Preparing</span></div><div class="doc-card-desc">We are waiting to receive this from the practice.</div><div class="doc-card-actions"><button class="btn btn-neutral" type="button" disabled>Not ready yet</button></div>';
           altGrid.appendChild(card);
         });
       }
@@ -2146,6 +2163,7 @@
           if (!data || !data.ok || !data.docs) return;
           // Store alt supervisor CVs for rendering
           window._altSupervisorCvs = Array.isArray(data.altSupervisorCvs) ? data.altSupervisorCvs : [];
+          window._pendingAltSupervisorCvs = Array.isArray(data.pendingAltSupervisorCvs) ? data.pendingAltSupervisorCvs : [];
           var prepared = loadPreparedDocs(country);
           var changed = false;
           Object.keys(data.docs).forEach(function(key) {
